@@ -60,8 +60,16 @@ The SQLite database, chat sessions, artifacts, and daily backups live in the
 `strands-data` volume. Configure via `backend/.env` (picked up automatically).
 For a ~10-person team this single-box setup is deliberate: SQLite in WAL mode
 handles this write volume easily, and one backend container means exactly one
-scheduler. When exposing beyond your LAN, set `STRANDS_API_TOKEN` (backend)
-and the matching `NEXT_PUBLIC_API_TOKEN` build arg (frontend).
+scheduler.
+
+**Security model, stated plainly:** identity is a trusted name picker
+(`X-User`) — teammates, not strangers. `STRANDS_API_TOKEN` adds a shared
+bearer token, but it is baked into the frontend's public JS bundle, so anyone
+who can load the UI can read it — it keeps out network scanners, not people
+who can reach port 3000. To actually expose this beyond a trusted network,
+put both services behind an authenticating reverse proxy (Tailscale, Caddy +
+SSO, etc.). Copy `data/backups/` off the box on a schedule — backups live on
+the same volume as the database.
 
 ## Optional integrations — built in, off until configured
 

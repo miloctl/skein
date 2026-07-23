@@ -18,9 +18,12 @@ router = APIRouter()
 
 
 def _verify(raw: bytes, timestamp: str, signature: str) -> bool:
-    if abs(time.time() - float(timestamp or 0)) > 60 * 5:
+    try:
+        if abs(time.time() - float(timestamp or 0)) > 60 * 5:
+            return False
+        base = f"v0:{timestamp}:{raw.decode()}"
+    except (ValueError, UnicodeDecodeError):
         return False
-    base = f"v0:{timestamp}:{raw.decode()}"
     expected = "v0=" + hmac.new(
         config.SLACK_SIGNING_SECRET.encode(), base.encode(), hashlib.sha256
     ).hexdigest()

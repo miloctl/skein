@@ -1,6 +1,12 @@
+# One knob for team access: set STRANDS_HOST to the VM's hostname/IP so
+# teammates' browsers can reach both services, e.g.
+#   STRANDS_HOST=my-vm.internal docker compose up --build
+# NEXT_PUBLIC_* values are BAKED AT BUILD TIME — changing STRANDS_HOST or
+# STRANDS_API_TOKEN requires `up --build`, not just a restart.
 services:
   backend:
     build: ./backend
+    init: true
     ports:
       - "8000:8000"
     volumes:
@@ -9,16 +15,20 @@ services:
       - path: ./backend/.env
         required: false
     environment:
-      STRANDS_CORS_ORIGINS: ${STRANDS_CORS_ORIGINS:-http://localhost:3000}
+      STRANDS_CORS_ORIGINS: "http://${STRANDS_HOST:-localhost}:3000"
+      # Same shell var feeds backend enforcement AND the frontend build arg,
+      # so the two can't drift. (backend/.env can still override the rest.)
+      STRANDS_API_TOKEN: ${STRANDS_API_TOKEN:-}
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       args:
-        # Baked at build time — the URL the BROWSER uses to reach the backend.
-        NEXT_PUBLIC_API_URL: ${STRANDS_PUBLIC_API_URL:-http://localhost:8000}
+        # The URL the BROWSER uses to reach the backend.
+        NEXT_PUBLIC_API_URL: "http://${STRANDS_HOST:-localhost}:8000"
         NEXT_PUBLIC_API_TOKEN: ${STRANDS_API_TOKEN:-}
+    init: true
     ports:
       - "3000:3000"
     depends_on:

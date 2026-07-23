@@ -6,6 +6,7 @@ Works identically for mock, anthropic, and openai providers.
 """
 
 import json
+import logging
 import re
 
 from fastapi import APIRouter
@@ -74,6 +75,8 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         seen_tools.add(tool_id)
                         yield _sse({"type": "tool", "name": tool_use.get("name", "")})
         except Exception as exc:  # surface model/config errors to the UI
+            logging.getLogger("strands.chat").exception(
+                "chat stream failed (thread=%s user=%s)", thread_id, user)
             yield _sse({"type": "error", "message": str(exc)})
         _log_usage(agent, thread_id)
         yield _sse({"type": "done"})

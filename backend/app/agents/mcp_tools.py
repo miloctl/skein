@@ -8,18 +8,26 @@ opened once per process and kept alive so tools stay usable across requests.
 
 import json
 import logging
+import threading
 
 from .. import config
 
 log = logging.getLogger(__name__)
 _clients: list = []
 _tools: list | None = None
+_lock = threading.Lock()
 
 
 def mcp_tools() -> list:
     global _tools
-    if _tools is not None:
-        return _tools
+    with _lock:  # concurrent first agent builds must not double-connect
+        if _tools is not None:
+            return _tools
+        return _load_tools()
+
+
+def _load_tools() -> list:
+    global _tools
     _tools = []
     if not config.MCP_SERVERS:
         return _tools

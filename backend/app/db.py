@@ -95,6 +95,18 @@ def execute_rowcount(sql: str, params: tuple = ()) -> int:
         return cur.rowcount
 
 
+def claim_job(job: str, run_key: str) -> bool:
+    """CAS-style once-only claim for scheduled jobs (digest, flush, backup) so
+    accidental multi-worker deployments can't double-run them."""
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
+            (job, run_key, now()),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
 def log_activity(actor: str, action: str, detail: str = "") -> None:
     execute(
         "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",

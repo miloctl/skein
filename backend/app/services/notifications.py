@@ -7,10 +7,14 @@ Slack is optional — without SLACK_WEBHOOK_URL everything still lands in-app.
 """
 
 import json
+import logging
 import threading
 import urllib.request
+from datetime import datetime, timezone
 
 from .. import config, db
+
+log = logging.getLogger(__name__)
 
 TIERS = ("immediate", "digest", "passive")
 
@@ -27,8 +31,8 @@ def _post_slack(text: str) -> None:
                 headers={"Content-Type": "application/json"},
             )
             urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass  # notifications are best-effort
+        except Exception as exc:  # best-effort, but leave a trace for debugging
+            log.warning("Slack webhook post failed: %s", exc)
 
     threading.Thread(target=send, daemon=True).start()
 
@@ -75,8 +79,13 @@ def mark_read(user: str, notification_id: int = 0) -> dict:
     return {"marked": n}
 
 
-def flush_digest_tier() -> dict:
-    """Twice-daily job: batch unsent digest-tier notifications to Slack."""
+def flush_digest_tier(*, claim: bool = False) -> dict:
+    """Twice-daily job: batch unsent digest-tier notifications to Slack.
+    claim=True makes the run once-only per hour bucket (scheduler path)."""
+    if claim:
+        bucket = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        if not db.claim_job("notification-flush", bucket):
+            return {"flushed": 0, "skipped": "already flushed this run"}
     pending = db.query(
         "SELECT * FROM notifications WHERE tier = 'digest' AND sent_at IS NULL ORDER BY id"
     )
@@ -86,8 +95,11 @@ def flush_digest_tier() -> dict:
             by_user.setdefault(n["user"], []).append(n["message"])
         lines = [f"*{u}*: " + " · ".join(msgs) for u, msgs in by_user.items()]
         _post_slack("📬 Strands digest\n" + "\n".join(lines))
+        # Stamp exactly the rows we posted — a notification inserted between
+        # the SELECT and this UPDATE must stay pending for the next flush.
+        ids = [n["id"] for n in pending]
         db.execute_rowcount(
-            "UPDATE notifications SET sent_at = ? WHERE tier = 'digest' AND sent_at IS NULL",
-            (db.now(),),
+            f"UPDATE notifications SET sent_at = ? WHERE id IN ({','.join('?' * len(ids))})",
+            (db.now(), *ids),
         )
     return {"flushed": len(pending)}

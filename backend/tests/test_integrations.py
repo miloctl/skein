@@ -129,3 +129,28 @@ def test_telemetry_noop_without_endpoint(fresh_db):
     from app.telemetry import setup_telemetry
 
     assert setup_telemetry() is False
+
+
+def test_api_token_allows_cors_preflight(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "API_TOKEN", "sekrit")
+    r = client.options("/api/tasks", headers={
+        "Origin": "http://localhost:3000",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "authorization,x-user,content-type",
+    })
+    assert r.status_code == 200
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+def test_slack_garbage_timestamp_is_401(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    r = client.post("/api/slack/command", content=b"text=hi", headers={
+        "X-Slack-Request-Timestamp": "not-a-number",
+        "X-Slack-Signature": "v0=deadbeef",
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
+    assert r.status_code == 401

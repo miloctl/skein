@@ -64,7 +64,10 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
               for l in lessons] or ["- none"]
 
     markdown = "\n".join(lines)
-    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / name.replace("/", "_")
+    safe_name = name.replace("/", "_")
+    if safe_name in (".", ".."):
+        safe_name = f"engagement-{engagement_id}"
+    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / safe_name
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     path = artifacts_dir / f"{db.now()[:10]}-handoff.md"
     path.write_text(markdown)

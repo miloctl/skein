@@ -6,13 +6,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Dependency layer first (pinned, reproducible) so source edits don't
+# reinstall everything. Regenerate with:
+#   uv pip freeze --python .venv/bin/python > requirements.lock  (minus dev deps)
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
+
 COPY pyproject.toml ./
 COPY app ./app
 COPY migrations ./migrations
 COPY playbooks ./playbooks
 COPY seed.py ./
 
-RUN pip install --no-cache-dir . \
+RUN pip install --no-cache-dir --no-deps . \
     && useradd --create-home appuser \
     && mkdir -p /data \
     && chown -R appuser:appuser /data /app
