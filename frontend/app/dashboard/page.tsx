@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { API_URL } from "@/lib/config";
+import { API_URL } from "@/lib/api";
 
 type Row = Record<string, string | number | null>;
 
@@ -14,6 +14,12 @@ const STATUS_COLORS: Record<string, string> = {
   done: "bg-green-100 text-green-700",
   open: "bg-amber-100 text-amber-700",
   answered: "bg-green-100 text-green-700",
+  escalated: "bg-red-100 text-red-700",
+  resolved: "bg-green-100 text-green-700",
+  active: "bg-blue-100 text-blue-700",
+  proposed: "bg-zinc-200 text-zinc-700",
+  closing: "bg-amber-100 text-amber-700",
+  closed: "bg-zinc-200 text-zinc-500",
 };
 
 function Badge({ value }: { value: string }) {
@@ -67,6 +73,9 @@ export default function Dashboard() {
       "events",
       "notes",
       "activity",
+      "blockers",
+      "engagements",
+      "capacity",
     ];
     Promise.all(
       endpoints.map(async (e) => {
@@ -89,6 +98,59 @@ export default function Dashboard() {
 
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+      <Section
+        title="Engagements"
+        rows={data.engagements ?? []}
+        empty="No engagements — accept an intake request or instantiate a playbook."
+        render={(e) => (
+          <li key={e.id} className="flex items-center justify-between gap-2 text-sm">
+            <span>
+              <span className="text-zinc-400">#{e.id}</span> {e.name}
+              <span className="ml-2 text-xs text-zinc-400">[{e.project_class}]</span>
+              {e.lead ? (
+                <span className="ml-2 text-xs text-zinc-400">lead @{e.lead}</span>
+              ) : null}
+            </span>
+            <Badge value={String(e.status)} />
+          </li>
+        )}
+      />
+      <Section
+        title="Blockers"
+        rows={data.blockers ?? []}
+        empty="No unresolved blockers. 🎉"
+        render={(b) => (
+          <li key={b.id} className="flex items-center justify-between gap-2 text-sm">
+            <span>
+              <span className="text-zinc-400">#{b.id}</span> {b.title}
+              <span className="ml-2 text-xs text-zinc-400">
+                {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
+              </span>
+            </span>
+            <Badge value={String(b.status)} />
+          </li>
+        )}
+      />
+      <Section
+        title="Capacity"
+        rows={data.capacity ?? []}
+        empty="No allocations recorded."
+        render={(c) => (
+          <li key={String(c.person)} className="flex items-center justify-between text-sm">
+            <span>
+              {c.person}
+              <span className="ml-2 text-xs text-zinc-400">{c.detail}</span>
+            </span>
+            <span
+              className={`text-xs font-semibold ${
+                Number(c.total_percent) > 100 ? "text-red-600" : "text-green-600"
+              }`}
+            >
+              {c.total_percent}%
+            </span>
+          </li>
+        )}
+      />
       <Section
         title="Milestones"
         rows={data.milestones ?? []}

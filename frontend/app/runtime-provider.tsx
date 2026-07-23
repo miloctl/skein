@@ -7,7 +7,7 @@ import {
   type ChatModelAdapter,
 } from "@assistant-ui/react";
 
-import { API_URL, getThreadId } from "@/lib/config";
+import { API_URL, getThreadId, getUser } from "@/lib/api";
 
 /** Streams from the FastAPI backend, which emits SSE lines of
  *  {"type": "text" | "tool" | "error" | "done", ...}. */
@@ -21,7 +21,7 @@ const backendAdapter: ChatModelAdapter = {
 
     const res = await fetch(`${API_URL}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-User": getUser() },
       body: JSON.stringify({ thread_id: getThreadId(), message: text }),
       signal: abortSignal,
     });
