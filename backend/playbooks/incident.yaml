@@ -1,0 +1,41 @@
+name: Incident Response
+project_class: incident
+description: >
+  Firefighting engagement: stabilize, find root cause, fix, and leave the
+  owning team stronger than we found them.
+milestones:
+  - title: Stabilize
+    description: "Done when: bleeding stopped, impact quantified, comms channel open with the owning team."
+    due_after_days: 1
+    tasks:
+      - title: Establish severity and current impact
+        priority: urgent
+      - title: Apply mitigation / stop the bleeding
+        priority: urgent
+      - Open a status channel and set update cadence
+  - title: Root cause & fix
+    description: "Done when: root cause documented as a decision, fix deployed and verified."
+    due_after_days: 4
+    tasks:
+      - title: Reproduce and isolate the root cause
+        priority: high
+      - title: Ship and verify the fix
+        priority: high
+      - Document root cause and fix rationale as a decision
+  - title: Hardening & handoff
+    description: "Done when: regression guard in place, runbook updated, retro held, handoff delivered."
+    due_after_days: 7
+    tasks:
+      - Add regression test or alert covering the failure mode
+      - Update the owning team's runbook
+      - Hold retro and record lessons
+      - Generate handoff package
+rituals:
+  - title: Incident sync
+    day_offset: 0
+    time: "09:00"
+    description: Daily until stabilized.
+  - title: Retro
+    day_offset: 6
+    time: "14:00"
+    description: Blameless retro; lessons feed the incident playbook.

@@ -1,10 +1,17 @@
-"""Collaboration tools: questions, decisions, standups, and the shared knowledge base."""
+"""Collaboration tools — thin wrappers over app.services.collab."""
 
 import json
 
 from strands import tool
 
-from .. import db
+from ..services import collab
+
+
+def _safe(fn):
+    try:
+        return json.dumps(fn())
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
 
 
 @tool
@@ -16,12 +23,8 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "") -> str:
         asked_by: Who is asking (human or agent name).
         assigned_to: Who should answer it, if known.
     """
-    qid = db.execute(
-        "INSERT INTO questions (asked_by, assigned_to, question, created_at) VALUES (?, ?, ?, ?)",
-        (asked_by, assigned_to, question, db.now()),
-    )
-    db.log_activity(asked_by, "ask_question", f"#{qid}")
-    return json.dumps({"id": qid, "status": "open"})
+    return _safe(lambda: collab.ask_question(question, asked_by, assigned_to,
+                                             actor="agent", origin="agent"))
 
 
 @tool
@@ -33,12 +36,8 @@ def answer_question(question_id: int, answer: str, answered_by: str = "") -> str
         answer: The answer text.
         answered_by: Who answered.
     """
-    db.execute(
-        "UPDATE questions SET answer = ?, status = 'answered', answered_at = ? WHERE id = ?",
-        (answer, db.now(), question_id),
-    )
-    db.log_activity(answered_by or "agent", "answer_question", f"#{question_id}")
-    return json.dumps({"id": question_id, "status": "answered"})
+    return _safe(lambda: collab.answer_question(question_id, answer, answered_by,
+                                                actor="agent", origin="agent"))
 
 
 @tool
@@ -48,9 +47,7 @@ def list_questions(status: str = "open") -> str:
     Args:
         status: 'open', 'answered', or empty for all.
     """
-    if status:
-        return json.dumps(db.query("SELECT * FROM questions WHERE status = ? ORDER BY id DESC", (status,)))
-    return json.dumps(db.query("SELECT * FROM questions ORDER BY id DESC"))
+    return json.dumps(collab.list_questions(status))
 
 
 @tool
@@ -63,12 +60,8 @@ def record_decision(title: str, decision: str, context: str = "", decided_by: st
         context: Why — the options considered and reasoning.
         decided_by: Who made or ratified the decision.
     """
-    did = db.execute(
-        "INSERT INTO decisions (title, context, decision, decided_by, created_at) VALUES (?, ?, ?, ?, ?)",
-        (title, context, decision, decided_by, db.now()),
-    )
-    db.log_activity(decided_by or "agent", "record_decision", f"#{did} {title}")
-    return json.dumps({"id": did, "title": title})
+    return _safe(lambda: collab.record_decision(title, decision, context, decided_by,
+                                                actor="agent", origin="agent"))
 
 
 @tool
@@ -78,12 +71,13 @@ def list_decisions(limit: int = 20) -> str:
     Args:
         limit: Maximum number of decisions to return.
     """
-    return json.dumps(db.query("SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,)))
+    return json.dumps(collab.list_decisions(limit))
 
 
 @tool
 def post_standup(author: str, yesterday: str = "", today: str = "", blockers: str = "") -> str:
-    """Post an async standup update for a team member.
+    """Post an async standup update for a team member. Any blockers mentioned
+    are automatically filed in the blocker register.
 
     Args:
         author: Whose update this is.
@@ -91,12 +85,8 @@ def post_standup(author: str, yesterday: str = "", today: str = "", blockers: st
         today: What's planned next.
         blockers: Anything blocking progress.
     """
-    sid = db.execute(
-        "INSERT INTO standups (author, yesterday, today, blockers, created_at) VALUES (?, ?, ?, ?, ?)",
-        (author, yesterday, today, blockers, db.now()),
-    )
-    db.log_activity(author, "post_standup", f"#{sid}")
-    return json.dumps({"id": sid})
+    return _safe(lambda: collab.post_standup(author, yesterday, today, blockers,
+                                             actor="agent", origin="agent"))
 
 
 @tool
@@ -106,7 +96,7 @@ def list_standups(limit: int = 10) -> str:
     Args:
         limit: Maximum number of updates to return.
     """
-    return json.dumps(db.query("SELECT * FROM standups ORDER BY id DESC LIMIT ?", (limit,)))
+    return json.dumps(collab.list_standups(limit))
 
 
 @tool
@@ -118,25 +108,15 @@ def save_note(topic: str, content: str, author: str = "") -> str:
         content: The knowledge to persist.
         author: Who wrote it.
     """
-    nid = db.execute(
-        "INSERT INTO notes (topic, content, author, created_at) VALUES (?, ?, ?, ?)",
-        (topic, content, author, db.now()),
-    )
-    db.log_activity(author or "agent", "save_note", topic)
-    return json.dumps({"id": nid, "topic": topic})
+    return _safe(lambda: collab.save_note(topic, content, author,
+                                          actor="agent", origin="agent"))
 
 
 @tool
 def search_notes(keyword: str = "") -> str:
-    """Search the shared knowledge base by keyword (matches topic and content).
+    """Search the knowledge base notes by keyword.
 
     Args:
         keyword: Text to search for; empty returns the most recent notes.
     """
-    if keyword:
-        like = f"%{keyword}%"
-        return json.dumps(db.query(
-            "SELECT * FROM notes WHERE topic LIKE ? OR content LIKE ? ORDER BY id DESC LIMIT 25",
-            (like, like),
-        ))
-    return json.dumps(db.query("SELECT * FROM notes ORDER BY id DESC LIMIT 25"))
+    return json.dumps(collab.search_notes(keyword))

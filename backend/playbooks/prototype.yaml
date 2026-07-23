@@ -1,0 +1,37 @@
+name: Prototype Build
+project_class: prototype
+description: >
+  Rapid proof-of-concept engagement: validate an idea with a working prototype,
+  demo it, and hand off a build/no-build recommendation.
+milestones:
+  - title: Scope & success criteria
+    description: "Done when: written scope, explicit success criteria, and out-of-scope list agreed with the requester."
+    due_after_days: 2
+    tasks:
+      - Interview the requester and capture the core user problem
+      - Write success criteria and out-of-scope list
+      - "Pick the thinnest tech stack that can prove the concept"
+  - title: Working prototype
+    description: "Done when: the happy path works end-to-end and is demoable."
+    due_after_days: 7
+    tasks:
+      - title: Build the happy path
+        priority: high
+      - Stub everything that isn't the core hypothesis
+      - Prepare demo script with realistic data
+  - title: Demo & recommendation
+    description: "Done when: demo delivered and a build/no-build recommendation is recorded as a decision."
+    due_after_days: 10
+    tasks:
+      - Run the demo with stakeholders
+      - Record the build/no-build decision with rationale
+      - Generate handoff package
+rituals:
+  - title: Kickoff
+    day_offset: 0
+    time: "10:00"
+    description: Align on scope and success criteria.
+  - title: Demo day
+    day_offset: 9
+    time: "15:00"
+    description: Prototype demo and go/no-go discussion.

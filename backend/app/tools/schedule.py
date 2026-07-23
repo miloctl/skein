@@ -1,20 +1,15 @@
-"""Scheduling tools: shared team calendar events."""
+"""Scheduling tools — thin wrappers over app.services.schedule."""
 
 import json
 
 from strands import tool
 
-from .. import db
+from ..services import schedule
 
 
 @tool
-def schedule_event(
-    title: str,
-    starts_at: str,
-    ends_at: str = "",
-    description: str = "",
-    attendees: str = "",
-) -> str:
+def schedule_event(title: str, starts_at: str, ends_at: str = "",
+                   description: str = "", attendees: str = "") -> str:
     """Add an event to the shared team calendar.
 
     Args:
@@ -24,13 +19,11 @@ def schedule_event(
         description: What the event is for.
         attendees: Comma-separated attendee names.
     """
-    eid = db.execute(
-        "INSERT INTO events (title, description, starts_at, ends_at, attendees, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (title, description, starts_at, ends_at or None, attendees, db.now()),
-    )
-    db.log_activity("agent", "schedule_event", f"#{eid} {title} @ {starts_at}")
-    return json.dumps({"id": eid, "title": title, "starts_at": starts_at})
+    try:
+        return json.dumps(schedule.schedule_event(title, starts_at, ends_at, description,
+                                                  attendees, actor="agent", origin="agent"))
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
 
 
 @tool
@@ -41,12 +34,7 @@ def list_events(from_date: str = "", limit: int = 25) -> str:
         from_date: Only include events starting on/after this date (YYYY-MM-DD); empty for all.
         limit: Maximum number of events to return.
     """
-    if from_date:
-        return json.dumps(db.query(
-            "SELECT * FROM events WHERE starts_at >= ? ORDER BY starts_at LIMIT ?",
-            (from_date, limit),
-        ))
-    return json.dumps(db.query("SELECT * FROM events ORDER BY starts_at LIMIT ?", (limit,)))
+    return json.dumps(schedule.list_events(from_date, limit))
 
 
 @tool
@@ -56,6 +44,4 @@ def cancel_event(event_id: int) -> str:
     Args:
         event_id: ID of the event to cancel.
     """
-    db.execute("DELETE FROM events WHERE id = ?", (event_id,))
-    db.log_activity("agent", "cancel_event", f"#{event_id}")
-    return json.dumps({"id": event_id, "cancelled": True})
+    return json.dumps(schedule.cancel_event(event_id, actor="agent", origin="agent"))

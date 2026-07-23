@@ -1,0 +1,40 @@
+name: System Migration
+project_class: migration
+description: >
+  Move a system, dataset, or workload from A to B with a rollback path and
+  zero-surprise cutover.
+milestones:
+  - title: Inventory & plan
+    description: "Done when: full inventory of what moves, dependency map, rollback plan, and cutover criteria are written."
+    due_after_days: 4
+    tasks:
+      - Inventory everything that moves (data, config, consumers, cron)
+      - Map dependencies and integration points
+      - title: Write rollback plan and cutover criteria
+        priority: high
+  - title: Parallel run
+    description: "Done when: target runs alongside source with verified parity."
+    due_after_days: 12
+    tasks:
+      - Stand up the target environment
+      - title: Build sync/backfill and verify parity programmatically
+        priority: high
+      - Dry-run the cutover on staging
+  - title: Cutover & decommission
+    description: "Done when: traffic on target, source decommissioned or frozen, handoff delivered."
+    due_after_days: 18
+    tasks:
+      - title: Execute cutover per plan
+        priority: urgent
+      - Monitor and hold rollback window
+      - Decommission or freeze the source
+      - Generate handoff package
+rituals:
+  - title: Kickoff
+    day_offset: 0
+    time: "10:00"
+    description: Walk the inventory and rollback plan.
+  - title: Go/no-go
+    day_offset: 16
+    time: "11:00"
+    description: Review cutover criteria before executing.

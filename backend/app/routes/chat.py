@@ -1,7 +1,8 @@
 """Streaming chat endpoint consumed by the assistant-ui frontend.
 
-The frontend's ChatModelAdapter POSTs {thread_id, message} and reads a plain
-text/event-stream of {"type": "text" | "tool", ...} JSON lines.
+The frontend's ChatModelAdapter POSTs {thread_id, message} and reads an SSE
+stream of {"type": "text" | "tool" | "error" | "done", ...} JSON lines.
+Works identically for mock, anthropic, and openai providers.
 """
 
 import json
@@ -10,7 +11,10 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .. import db
 from ..agents.team_agent import build_agent
+from ..config import MODEL_ID
+from .deps import CurrentUser
 
 router = APIRouter()
 
@@ -20,9 +24,31 @@ class ChatRequest(BaseModel):
     message: str
 
 
+def _log_usage(agent, thread_id: str) -> None:
+    """Best-effort token accounting from strands event-loop metrics."""
+    try:
+        metrics = agent.event_loop_metrics
+        usage = dict(getattr(metrics, "accumulated_usage", {}) or {})
+        latency = dict(getattr(metrics, "accumulated_metrics", {}) or {})
+        input_t = int(usage.get("inputTokens", 0))
+        output_t = int(usage.get("outputTokens", 0))
+        if not (input_t or output_t):
+            return
+        db.execute(
+            "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
+            " output_tokens, cycles, latency_ms, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (thread_id, "chief-of-staff", MODEL_ID, input_t, output_t,
+             int(getattr(metrics, "cycle_count", 0)),
+             int(latency.get("latencyMs", 0)), db.now()),
+        )
+    except Exception:
+        pass
+
+
 @router.post("/api/chat")
-async def chat(req: ChatRequest):
-    agent = build_agent(req.thread_id)
+async def chat(req: ChatRequest, user: CurrentUser):
+    agent = build_agent(req.thread_id, user)
 
     async def stream():
         seen_tools: set[str] = set()
@@ -38,6 +64,7 @@ async def chat(req: ChatRequest):
                         yield _sse({"type": "tool", "name": tool_use.get("name", "")})
         except Exception as exc:  # surface model/config errors to the UI
             yield _sse({"type": "error", "message": str(exc)})
+        _log_usage(agent, req.thread_id)
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
