@@ -8,18 +8,22 @@ from .. import db
 
 
 def _registry() -> dict:
-    from . import blockers, collab, engagements, schedule, work
+    from . import blockers, collab, engagements, intake, playbooks, schedule, work
 
     return {
         "milestone": {"create": work.create_milestone, "update": work.update_milestone},
         "task": {"create": work.create_task, "update": work.update_task},
-        "question": {"create": collab.ask_question},
+        "question": {"create": collab.ask_question, "update": collab.answer_question},
         "decision": {"create": collab.record_decision},
         "standup": {"create": collab.post_standup},
         "note": {"create": collab.save_note},
         "event": {"create": schedule.schedule_event},
-        "blocker": {"create": blockers.raise_blocker},
-        "engagement": {"create": engagements.create_engagement},
+        "blocker": {"create": blockers.raise_blocker, "update": blockers.resolve_blocker},
+        "engagement": {"create": engagements.create_engagement,
+                       "update": engagements.update_engagement},
+        "intake": {"create": intake.submit_request},
+        "lesson": {"create": engagements.record_lesson},
+        "playbook": {"create": playbooks.instantiate},
     }
 
 
@@ -42,13 +46,27 @@ def propose_change(entity: str, action: str, payload: dict, summary: str = "",
     return {"id": pid, "status": "pending"}
 
 
+def _claim(change_id: int, new_status: str, note: str, actor: str) -> None:
+    """Compare-and-swap the pending -> reviewed transition so concurrent
+    approve/reject calls can't both act on the same change."""
+    claimed = db.execute_rowcount(
+        "UPDATE pending_changes SET status = ?, reviewed_by = ?, review_note = ?,"
+        " reviewed_at = ? WHERE id = ? AND status = 'pending'",
+        (new_status, actor, note, db.now(), change_id),
+    )
+    if not claimed:
+        change = db.query_one("SELECT status FROM pending_changes WHERE id = ?", (change_id,))
+        if not change:
+            raise ValueError(f"pending change #{change_id} not found")
+        raise ValueError(f"change #{change_id} already {change['status']}")
+
+
 def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise ValueError(f"pending change #{change_id} not found")
-    if change["status"] != "pending":
-        raise ValueError(f"change #{change_id} already {change['status']}")
 
+    _claim(change_id, "approved", note, actor)
     fn = _registry()[change["entity"]][change["action"]]
     payload = json.loads(change["payload"])
     try:
@@ -56,29 +74,22 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
             result = fn(change["entity_id"], **payload, actor=actor, origin="agent_verified")
         else:
             result = fn(**payload, actor=actor, origin="agent_verified")
-    except TypeError as exc:
-        raise ValueError(f"payload does not fit {change['entity']}.{change['action']}: {exc}")
+    except (TypeError, ValueError) as exc:
+        db.execute(
+            "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
+            " reviewed_at = NULL, review_note = ? WHERE id = ?",
+            (f"apply failed: {exc}", change_id),
+        )
+        raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
 
-    db.execute(
-        "UPDATE pending_changes SET status = 'approved', reviewed_by = ?, review_note = ?,"
-        " reviewed_at = ?, result_id = ? WHERE id = ?",
-        (actor, note, db.now(), result.get("id"), change_id),
-    )
+    db.execute("UPDATE pending_changes SET result_id = ? WHERE id = ?",
+               (result.get("id"), change_id))
     db.log_activity(actor, "approve_change", f"#{change_id} -> {change['entity']} #{result.get('id')}")
     return {"id": change_id, "status": "approved", "result": result}
 
 
 def reject_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:
-    change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
-    if not change:
-        raise ValueError(f"pending change #{change_id} not found")
-    if change["status"] != "pending":
-        raise ValueError(f"change #{change_id} already {change['status']}")
-    db.execute(
-        "UPDATE pending_changes SET status = 'rejected', reviewed_by = ?, review_note = ?,"
-        " reviewed_at = ? WHERE id = ?",
-        (actor, note, db.now(), change_id),
-    )
+    _claim(change_id, "rejected", note, actor)
     db.log_activity(actor, "reject_change", f"#{change_id}")
     return {"id": change_id, "status": "rejected"}
 

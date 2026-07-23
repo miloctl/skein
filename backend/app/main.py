@@ -14,7 +14,7 @@ def _start_scheduler():
     daily digest (07:00 UTC), daily backup (03:00 UTC)."""
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    scheduler = BackgroundScheduler(daemon=True)
+    scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
     scheduler.add_job(blockers.sweep_escalations, "interval", hours=1,
                       id="blocker-sweep")
     scheduler.add_job(lambda: digest.publish_digest(actor="scheduler"),

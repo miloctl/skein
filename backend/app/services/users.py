@@ -5,14 +5,12 @@ from .. import db
 
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
-    row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
-    if row:
-        return row
-    uid = db.execute(
-        "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+    # INSERT OR IGNORE + SELECT: safe under concurrent first requests
+    db.execute(
+        "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
         (name, kind if kind in ("human", "agent") else "human", db.now()),
     )
-    return {"id": uid, "name": name, "kind": kind, "active": 1}
+    return db.query_one("SELECT * FROM users WHERE name = ?", (name,))
 
 
 def list_users(active_only: bool = True) -> list[dict]:

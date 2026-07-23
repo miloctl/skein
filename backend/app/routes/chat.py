@@ -6,6 +6,7 @@ Works identically for mock, anthropic, and openai providers.
 """
 
 import json
+import re
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -48,7 +49,17 @@ def _log_usage(agent, thread_id: str) -> None:
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, user: CurrentUser):
-    agent = build_agent(req.thread_id, user)
+    # thread_id becomes a session filename — restrict to a safe charset
+    thread_id = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
+    try:
+        agent = build_agent(thread_id, user)
+    except Exception as exc:
+        # keep the SSE protocol even when agent construction fails (bad model id, etc.)
+        async def error_stream(message=str(exc)):
+            yield _sse({"type": "error", "message": message})
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     async def stream():
         seen_tools: set[str] = set()
@@ -64,7 +75,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         yield _sse({"type": "tool", "name": tool_use.get("name", "")})
         except Exception as exc:  # surface model/config errors to the UI
             yield _sse({"type": "error", "message": str(exc)})
-        _log_usage(agent, req.thread_id)
+        _log_usage(agent, thread_id)
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")

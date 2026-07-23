@@ -18,6 +18,8 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "",
 
 def answer_question(question_id: int, answer: str, answered_by: str = "",
                     *, actor: str = "", origin: str = "human") -> dict:
+    if not db.query_one("SELECT id FROM questions WHERE id = ?", (question_id,)):
+        raise ValueError(f"question #{question_id} not found")
     db.execute(
         "UPDATE questions SET answer = ?, status = 'answered', answered_at = ? WHERE id = ?",
         (answer, db.now(), question_id),

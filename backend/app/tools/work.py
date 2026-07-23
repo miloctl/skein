@@ -8,21 +8,8 @@ import json
 
 from strands import tool
 
-from .. import config
-from ..services import review, work
-
-
-def _write(entity: str, action: str, payload: dict, direct):
-    if config.AGENT_REVIEW:
-        result = review.propose_change(entity, action, payload,
-                                       entity_id=payload.pop("_entity_id", 0),
-                                       actor="agent", origin="agent")
-        return json.dumps({**result, "note": "queued for human review"})
-    try:
-        payload.pop("_entity_id", None)
-        return json.dumps(direct())
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+from ..services import work
+from ._gate import gated_write
 
 
 @tool
@@ -39,7 +26,7 @@ def create_milestone(title: str, description: str = "", project: str = "default"
     """
     payload = dict(title=title, description=description, project=project,
                    owner=owner, due_date=due_date)
-    return _write("milestone", "create", dict(payload),
+    return gated_write("milestone", "create", dict(payload),
                   lambda: work.create_milestone(**payload, actor="agent", origin="agent"))
 
 
@@ -59,9 +46,10 @@ def update_milestone(milestone_id: int, status: str = "", title: str = "",
     payload = dict(status=status, title=title, description=description,
                    owner=owner, due_date=due_date)
     payload = {k: v for k, v in payload.items() if v}
-    return _write("milestone", "update", {**payload, "_entity_id": milestone_id},
-                  lambda: work.update_milestone(milestone_id, **payload,
-                                                actor="agent", origin="agent"))
+    return gated_write("milestone", "update", payload,
+                       lambda: work.update_milestone(milestone_id, **payload,
+                                                     actor="agent", origin="agent"),
+                       entity_id=milestone_id)
 
 
 @tool
@@ -90,7 +78,7 @@ def create_task(title: str, description: str = "", milestone_id: int = 0,
     """
     payload = dict(title=title, description=description, milestone_id=milestone_id,
                    assignee=assignee, priority=priority, due_date=due_date)
-    return _write("task", "create", dict(payload),
+    return gated_write("task", "create", dict(payload),
                   lambda: work.create_task(**payload, actor="agent", origin="agent"))
 
 
@@ -110,8 +98,10 @@ def update_task(task_id: int, status: str = "", assignee: str = "", priority: st
     payload = dict(status=status, assignee=assignee, priority=priority,
                    due_date=due_date, description=description)
     payload = {k: v for k, v in payload.items() if v}
-    return _write("task", "update", {**payload, "_entity_id": task_id},
-                  lambda: work.update_task(task_id, **payload, actor="agent", origin="agent"))
+    return gated_write("task", "update", payload,
+                       lambda: work.update_task(task_id, **payload,
+                                                actor="agent", origin="agent"),
+                       entity_id=task_id)
 
 
 @tool

@@ -31,7 +31,7 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
 def search(q: str, limit: int = 20) -> list[dict]:
     if not q.strip():
         return []
-    rows = db.query(
+    return db.query(
         "SELECT entity, entity_id, title,"
         " snippet(search_index, 3, '<b>', '</b>', '…', 12) AS snippet,"
         " bm25(search_index) AS rank"
@@ -39,7 +39,6 @@ def search(q: str, limit: int = 20) -> list[dict]:
         " ORDER BY rank LIMIT ?",
         (_fts_quote(q), limit),
     )
-    return rows
 
 
 # --- optional embedding layer (activates when keys are connected) -----------

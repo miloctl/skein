@@ -2,7 +2,7 @@
 into an engagement + milestones + tasks + kickoff events. Relevant lessons from
 past engagements of the same class are attached as a kickoff note."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -37,7 +37,8 @@ def instantiate(slug: str, engagement_name: str, lead: str = "",
                 start_date: str = "", *, actor: str = "system",
                 origin: str = "human") -> dict:
     pb = get_playbook(slug)
-    start = date.fromisoformat(start_date) if start_date else date.today()
+    start = (date.fromisoformat(start_date) if start_date
+             else datetime.now(timezone.utc).date())
 
     eng = engagements.create_engagement(
         name=engagement_name, project_class=pb.get("project_class", slug),

@@ -1,7 +1,7 @@
 """The Chief-of-Staff orchestrator, its planner specialist, and the keyless
 mock fallback. All three speak the same stream_async protocol to the chat route."""
 
-from datetime import date
+from datetime import datetime, timezone
 
 from .. import config
 
@@ -90,7 +90,7 @@ def build_agent(thread_id: str, user: str = "anonymous"):
 
     return Agent(
         model=_model(),
-        system_prompt=SYSTEM_PROMPT.format(today=date.today().isoformat(), user=user),
+        system_prompt=SYSTEM_PROMPT.format(today=datetime.now(timezone.utc).date().isoformat(), user=user),
         tools=[*ALL_TOOLS, plan_project],
         session_manager=FileSessionManager(
             session_id=thread_id,

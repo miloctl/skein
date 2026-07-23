@@ -3,7 +3,7 @@ mid-write; exports are JSON snapshots for portability."""
 
 import json
 import sqlite3
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config, db
@@ -19,7 +19,7 @@ TABLES = (
 def backup(*, keep: int = 14) -> dict:
     backups_dir = Path(config.DATA_DIR) / "backups"
     backups_dir.mkdir(parents=True, exist_ok=True)
-    dest = backups_dir / f"platform-{date.today().isoformat()}.db"
+    dest = backups_dir / f"platform-{datetime.now(timezone.utc).date().isoformat()}.db"
 
     src = db.connect()
     try:
@@ -38,7 +38,7 @@ def backup(*, keep: int = 14) -> dict:
 
 def backup_if_stale() -> dict | None:
     """Startup/daily hook: back up at most once per day."""
-    dest = Path(config.DATA_DIR) / "backups" / f"platform-{date.today().isoformat()}.db"
+    dest = Path(config.DATA_DIR) / "backups" / f"platform-{datetime.now(timezone.utc).date().isoformat()}.db"
     if dest.exists():
         return None
     return backup()

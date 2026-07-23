@@ -27,7 +27,10 @@ MAX_TOKENS = int(os.getenv("STRANDS_MAX_TOKENS", "4096"))
 # proposals that a human approves in the review inbox (approval-gate mode).
 AGENT_REVIEW = os.getenv("STRANDS_AGENT_REVIEW", "0") == "1"
 
-CORS_ORIGINS = os.getenv("STRANDS_CORS_ORIGINS", "http://localhost:3000").split(",")
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv("STRANDS_CORS_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+]
 
 # Background jobs (blocker sweep, daily digest, daily backup). Disabled in tests.
 SCHEDULER_ENABLED = os.getenv("STRANDS_SCHEDULER", "1") == "1"

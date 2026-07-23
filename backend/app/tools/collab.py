@@ -5,13 +5,7 @@ import json
 from strands import tool
 
 from ..services import collab
-
-
-def _safe(fn):
-    try:
-        return json.dumps(fn())
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+from ._gate import gated_write
 
 
 @tool
@@ -23,8 +17,9 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "") -> str:
         asked_by: Who is asking (human or agent name).
         assigned_to: Who should answer it, if known.
     """
-    return _safe(lambda: collab.ask_question(question, asked_by, assigned_to,
-                                             actor="agent", origin="agent"))
+    payload = dict(question=question, asked_by=asked_by, assigned_to=assigned_to)
+    return gated_write("question", "create", payload,
+                       lambda: collab.ask_question(**payload, actor="agent", origin="agent"))
 
 
 @tool
@@ -36,8 +31,11 @@ def answer_question(question_id: int, answer: str, answered_by: str = "") -> str
         answer: The answer text.
         answered_by: Who answered.
     """
-    return _safe(lambda: collab.answer_question(question_id, answer, answered_by,
-                                                actor="agent", origin="agent"))
+    payload = dict(answer=answer, answered_by=answered_by)
+    return gated_write("question", "update", payload,
+                       lambda: collab.answer_question(question_id, **payload,
+                                                      actor="agent", origin="agent"),
+                       entity_id=question_id)
 
 
 @tool
@@ -60,8 +58,9 @@ def record_decision(title: str, decision: str, context: str = "", decided_by: st
         context: Why — the options considered and reasoning.
         decided_by: Who made or ratified the decision.
     """
-    return _safe(lambda: collab.record_decision(title, decision, context, decided_by,
-                                                actor="agent", origin="agent"))
+    payload = dict(title=title, decision=decision, context=context, decided_by=decided_by)
+    return gated_write("decision", "create", payload,
+                       lambda: collab.record_decision(**payload, actor="agent", origin="agent"))
 
 
 @tool
@@ -85,8 +84,9 @@ def post_standup(author: str, yesterday: str = "", today: str = "", blockers: st
         today: What's planned next.
         blockers: Anything blocking progress.
     """
-    return _safe(lambda: collab.post_standup(author, yesterday, today, blockers,
-                                             actor="agent", origin="agent"))
+    payload = dict(author=author, yesterday=yesterday, today=today, blockers=blockers)
+    return gated_write("standup", "create", payload,
+                       lambda: collab.post_standup(**payload, actor="agent", origin="agent"))
 
 
 @tool
@@ -108,8 +108,9 @@ def save_note(topic: str, content: str, author: str = "") -> str:
         content: The knowledge to persist.
         author: Who wrote it.
     """
-    return _safe(lambda: collab.save_note(topic, content, author,
-                                          actor="agent", origin="agent"))
+    payload = dict(topic=topic, content=content, author=author)
+    return gated_write("note", "create", payload,
+                       lambda: collab.save_note(**payload, actor="agent", origin="agent"))
 
 
 @tool

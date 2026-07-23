@@ -2,11 +2,15 @@
 is configured with keys, the digest is additionally narrated by the agent —
 otherwise the markdown is published as-is."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .. import config, db
 from . import collab
+
+
+def _utc_today():
+    return datetime.now(timezone.utc).date()
 
 
 def _stalled_tasks(days: int = 3) -> list[dict]:
@@ -17,7 +21,7 @@ def _stalled_tasks(days: int = 3) -> list[dict]:
 
 
 def build_digest() -> str:
-    today = date.today().isoformat()
+    today = _utc_today().isoformat()
     lines = [f"# Daily digest — {today}", ""]
 
     esc = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
@@ -40,7 +44,7 @@ def build_digest() -> str:
                   for q in open_q]
         lines.append("")
 
-    week = (date.today() + timedelta(days=7)).isoformat()
+    week = (_utc_today() + timedelta(days=7)).isoformat()
     due = db.query(
         "SELECT * FROM milestones WHERE status != 'done' AND due_date IS NOT NULL"
         " AND due_date <= ? ORDER BY due_date", (week,),
@@ -53,7 +57,7 @@ def build_digest() -> str:
     pending = db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'")
     events = db.query(
         "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
-        (today, (date.today() + timedelta(days=1)).isoformat()),
+        (today, (_utc_today() + timedelta(days=1)).isoformat()),
     )
     lines.append("## 📋 Today")
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
@@ -83,7 +87,7 @@ def _narrate(markdown: str) -> str:
 
 
 def publish_digest(*, actor: str = "scheduler") -> dict:
-    today = date.today().isoformat()
+    today = _utc_today().isoformat()
     markdown = _narrate(build_digest())
 
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / "digests"

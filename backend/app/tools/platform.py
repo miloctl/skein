@@ -5,6 +5,7 @@ import json
 from strands import tool
 
 from ..services import blockers, engagements, handoff, intake, playbooks, search
+from ._gate import gated_write
 
 
 def _safe(fn):
@@ -26,8 +27,10 @@ def raise_blocker(title: str, detail: str = "", owner: str = "",
         impact: One of low, medium, high, critical (drives escalation speed).
         task_id: Related task ID, or 0 (marks that task blocked too).
     """
-    return _safe(lambda: blockers.raise_blocker(title, detail, owner, impact, task_id,
-                                                actor="agent", origin="agent"))
+    payload = dict(title=title, detail=detail, owner=owner, impact=impact, task_id=task_id)
+    return gated_write("blocker", "create", payload,
+                       lambda: blockers.raise_blocker(**payload, actor="agent",
+                                                      origin="agent"))
 
 
 @tool
@@ -38,8 +41,11 @@ def resolve_blocker(blocker_id: int, resolution: str = "") -> str:
         blocker_id: ID of the blocker.
         resolution: How it was resolved.
     """
-    return _safe(lambda: blockers.resolve_blocker(blocker_id, resolution,
-                                                  actor="agent", origin="agent"))
+    payload = dict(resolution=resolution)
+    return gated_write("blocker", "update", payload,
+                       lambda: blockers.resolve_blocker(blocker_id, **payload,
+                                                        actor="agent", origin="agent"),
+                       entity_id=blocker_id)
 
 
 @tool
@@ -64,8 +70,11 @@ def submit_intake_request(title: str, detail: str = "", requester: str = "",
         requester: Who is asking.
         project_class: prototype, incident, migration, or other class if known.
     """
-    return _safe(lambda: intake.submit_request(title, detail, requester, project_class,
-                                               actor="agent", origin="agent"))
+    payload = dict(title=title, detail=detail, requester=requester,
+                   project_class=project_class)
+    return gated_write("intake", "create", payload,
+                       lambda: intake.submit_request(**payload, actor="agent",
+                                                     origin="agent"))
 
 
 @tool
@@ -107,8 +116,11 @@ def record_lesson(lesson: str, recommendation: str = "", engagement_id: int = 0,
         engagement_id: The engagement it came from, or 0.
         project_class: Class the lesson applies to (prototype, incident, migration, general).
     """
-    return _safe(lambda: engagements.record_lesson(lesson, recommendation, engagement_id,
-                                                   project_class, actor="agent", origin="agent"))
+    payload = dict(lesson=lesson, recommendation=recommendation,
+                   engagement_id=engagement_id, project_class=project_class)
+    return gated_write("lesson", "create", payload,
+                       lambda: engagements.record_lesson(**payload, actor="agent",
+                                                         origin="agent"))
 
 
 @tool
@@ -130,8 +142,12 @@ def start_engagement_from_playbook(playbook_slug: str, engagement_name: str,
         lead: Who leads it.
         start_date: Start date YYYY-MM-DD (defaults to today).
     """
-    return _safe(lambda: playbooks.instantiate(playbook_slug, engagement_name, lead,
-                                               start_date, actor="agent", origin="agent"))
+    payload = dict(slug=playbook_slug, engagement_name=engagement_name,
+                   lead=lead, start_date=start_date)
+    return gated_write("playbook", "create", payload,
+                       summary=f"instantiate playbook {playbook_slug} -> {engagement_name}",
+                       direct=lambda: playbooks.instantiate(**payload, actor="agent",
+                                                            origin="agent"))
 
 
 @tool

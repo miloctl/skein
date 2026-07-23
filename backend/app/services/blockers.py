@@ -15,6 +15,8 @@ def raise_blocker(title: str, detail: str = "", owner: str = "", impact: str = "
                   *, actor: str = "system", origin: str = "human") -> dict:
     if impact not in IMPACTS:
         raise ValueError(f"impact must be one of {IMPACTS}")
+    if task_id and not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
+        raise ValueError(f"task #{task_id} not found")
     hours = escalate_after_hours or DEFAULT_ESCALATION_HOURS[impact]
     ts = db.now()
     bid = db.execute(
@@ -24,12 +26,9 @@ def raise_blocker(title: str, detail: str = "", owner: str = "", impact: str = "
         (title, detail, owner, impact, task_id or None, source, hours, origin, actor, ts, ts),
     )
     if task_id:
-        try:
-            from .work import update_task
+        from .work import update_task
 
-            update_task(task_id, status="blocked", actor=actor, origin=origin)
-        except ValueError:
-            pass
+        update_task(task_id, status="blocked", actor=actor, origin=origin)
     db.log_activity(actor, "raise_blocker", f"#{bid} {title}")
     index_record("blocker", bid, title, f"{detail} {owner}")
     return {"id": bid, "title": title, "status": "open", "escalate_after_hours": hours}
@@ -37,12 +36,22 @@ def raise_blocker(title: str, detail: str = "", owner: str = "", impact: str = "
 
 def resolve_blocker(blocker_id: int, resolution: str = "",
                     *, actor: str = "system", origin: str = "human") -> dict:
+    row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
+    if not row:
+        raise ValueError(f"blocker #{blocker_id} not found")
     db.execute(
         "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
         " detail = detail || CASE WHEN ? != '' THEN char(10) || 'Resolved: ' || ? ELSE '' END"
         " WHERE id = ?",
         (db.now(), db.now(), resolution, resolution, blocker_id),
     )
+    if row["task_id"]:
+        # un-block the linked task that raise_blocker flipped
+        db.execute_rowcount(
+            "UPDATE tasks SET status = 'in_progress', updated_at = ?"
+            " WHERE id = ? AND status = 'blocked'",
+            (db.now(), row["task_id"]),
+        )
     db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
     return {"id": blocker_id, "status": "resolved"}
 
@@ -71,11 +80,13 @@ def sweep_escalations() -> list[dict]:
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         if now_dt - created >= timedelta(hours=b["escalate_after_hours"]):
-            db.execute(
+            claimed = db.execute_rowcount(
                 "UPDATE blockers SET status = 'escalated', escalated_at = ?, updated_at = ?"
-                " WHERE id = ?",
+                " WHERE id = ? AND status = 'open'",
                 (db.now(), db.now(), b["id"]),
             )
+            if not claimed:  # resolved between our read and write
+                continue
             db.log_activity(
                 "scheduler", "escalate_blocker",
                 f"#{b['id']} {b['title']} (open {b['escalate_after_hours']}h, owner: {b['owner'] or 'unowned'})",

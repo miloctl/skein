@@ -1,15 +1,17 @@
 """My Day / attention inbox: pure SQL, answers "what changed and what needs me?"
 in one call. An LLM narrative can be layered on top later (see digest.py)."""
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .. import db
 
 
 def my_day(user: str) -> dict:
-    today = date.today().isoformat()
-    week = (date.today() + timedelta(days=7)).isoformat()
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    # UTC dates to match db.now() timestamps on the rows
+    utc_today = datetime.now(timezone.utc).date()
+    today = utc_today.isoformat()
+    week = (utc_today + timedelta(days=7)).isoformat()
+    yesterday = (utc_today - timedelta(days=1)).isoformat()
 
     return {
         "user": user,
@@ -51,7 +53,7 @@ def my_day(user: str) -> dict:
             ),
             "todays_events": db.query(
                 "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
-                (today, (date.today() + timedelta(days=1)).isoformat()),
+                (today, (utc_today + timedelta(days=1)).isoformat()),
             ),
             "recent_activity": db.query(
                 "SELECT * FROM activity WHERE created_at >= ? ORDER BY id DESC LIMIT 20",

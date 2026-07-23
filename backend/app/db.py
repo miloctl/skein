@@ -24,23 +24,47 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _statements(sql: str) -> list[str]:
+    """Split a migration into statements. Convention: migrations contain no
+    semicolons inside string literals or trigger bodies."""
+    return [s.strip() for s in sql.split(";") if s.strip()]
+
+
 def init_db() -> None:
-    """Apply pending migrations in filename order; track in schema_version."""
-    with connect() as conn:
+    """Apply pending migrations in filename order; track in schema_version.
+
+    Each migration runs inside ONE transaction (BEGIN IMMEDIATE) together with
+    its schema_version insert, so a crash mid-migration rolls back cleanly and
+    concurrent workers serialize on the write lock instead of double-applying.
+    """
+    conn = connect()
+    conn.isolation_level = None  # explicit transaction control
+    try:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_version"
             " (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
         )
-        applied = {r["version"] for r in conn.execute("SELECT version FROM schema_version")}
         for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-            if path.name in applied:
-                continue
-            conn.executescript(path.read_text())
-            conn.execute(
-                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                (path.name, now()),
-            )
-        conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                already = conn.execute(
+                    "SELECT 1 FROM schema_version WHERE version = ?", (path.name,)
+                ).fetchone()
+                if already:
+                    conn.execute("COMMIT")
+                    continue
+                for stmt in _statements(path.read_text()):
+                    conn.execute(stmt)
+                conn.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                    (path.name, now()),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+    finally:
+        conn.close()
 
 
 def query(sql: str, params: tuple = ()) -> list[dict]:
@@ -60,6 +84,15 @@ def execute(sql: str, params: tuple = ()) -> int:
         cur = conn.execute(sql, params)
         conn.commit()
         return cur.lastrowid
+
+
+def execute_rowcount(sql: str, params: tuple = ()) -> int:
+    """Run a write statement, return the number of affected rows (for
+    compare-and-swap guards like `... WHERE status = 'pending'`)."""
+    with connect() as conn:
+        cur = conn.execute(sql, params)
+        conn.commit()
+        return cur.rowcount
 
 
 def log_activity(actor: str, action: str, detail: str = "") -> None:

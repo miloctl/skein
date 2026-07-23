@@ -5,6 +5,7 @@ import json
 from strands import tool
 
 from ..services import schedule
+from ._gate import blocked_when_gated, gated_write
 
 
 @tool
@@ -19,11 +20,11 @@ def schedule_event(title: str, starts_at: str, ends_at: str = "",
         description: What the event is for.
         attendees: Comma-separated attendee names.
     """
-    try:
-        return json.dumps(schedule.schedule_event(title, starts_at, ends_at, description,
-                                                  attendees, actor="agent", origin="agent"))
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+    payload = dict(title=title, starts_at=starts_at, ends_at=ends_at,
+                   description=description, attendees=attendees)
+    return gated_write("event", "create", payload,
+                       lambda: schedule.schedule_event(**payload, actor="agent",
+                                                       origin="agent"))
 
 
 @tool
@@ -44,4 +45,7 @@ def cancel_event(event_id: int) -> str:
     Args:
         event_id: ID of the event to cancel.
     """
+    blocked = blocked_when_gated("cancelling an event")
+    if blocked:
+        return blocked
     return json.dumps(schedule.cancel_event(event_id, actor="agent", origin="agent"))

@@ -133,6 +133,14 @@ LLM call.
    scheduling, digests; introduced keyless in Phase 1.
 7. **Deployment story** — Dockerfile + compose, deferred until it matters.
 
+## Accepted tradeoffs
+
+- **No cross-operation transactions in compound services** (e.g.
+  `playbooks.instantiate` performs many single-connection writes). A crash
+  mid-sequence can leave partial state (engagement without all its tasks).
+  Accepted for now given the one-connection-per-op design; revisit if it
+  bites — the fix is a shared-connection context manager in `db.py`.
+
 ## Open questions (defaults chosen; flag if wrong)
 
 1. **Identity**: default = simple `users` table + `X-User` header the frontend
