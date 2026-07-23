@@ -154,3 +154,97 @@ cross-thread agent memory (AI #6).
 *UX validation note: pilot with a 5-user diary study; key metric is
 time-to-first-meaningful-action on open (< 30s) and review-queue approval
 latency.*
+
+---
+
+# Round 2 ideation — delight, game systems, developer loop (2026-07-23)
+
+Second 3-agent panel (Whimsy Injector, Game Designer, Developer Advocate),
+run after Phases 0–2 + integrations shipped. Everything below is deterministic
+(no LLM required) unless noted.
+
+## Synthesized picks
+
+1. **`strands` CLI + per-teammate API keys** — capture/standup/blockers from
+   the terminal; the substrate for git hooks and CI. *(DX #1, #3)*
+2. **Strands MCP server** — expose the platform's own API as MCP tools so the
+   team's Claude Code sessions and other agents read/write tasks natively.
+   The killer feature for an AI-enabled team. *(DX #2)*
+3. **Ship It moment + Blocker Funeral** — confetti + recap card on shipped
+   engagements; ceremonial "laid to rest" for long-lived blockers with a
+   Blocker Graveyard. Highest delight-per-effort. *(Whimsy #1, #2)*
+4. **Git commit trailers + CI webhook** — `Closes-Task: #12` auto-closes;
+   red main-branch builds auto-open blockers, green auto-resolves. *(DX #4, #5)*
+5. **Team-level game loops with seasons** — blocker speedrun PBs, shared
+   standup chain with PTO "shields", knowledge flywheel weighted by *reuse*
+   not volume, clean-handoff streaks judged by the receiver; 6-week seasons
+   reset everything and produce a report card. Explicitly designed against
+   leaderboards, streak dread, and metric gaming. *(Game #1-#6)*
+6. **Agent NPC levels** — agents visibly "level up" from validated memories,
+   corrections, and playbooks, unlocking real capabilities. *(Game #4)*
+7. **Digest with a voice + empty states + mock-agent personality pack** —
+   date-seeded deterministic tone so the whole team shares the same joke;
+   suppressed when an escalation is active. *(Whimsy #3, #4, #5)*
+8. **Weekly changelog auto-post + polished /docs** — the platform announces
+   its own improvements; OpenAPI polish so teammates build integrations.
+   *(DX #7, #8)*
+
+## Whimsy Injector — 8 delight features (ranked)
+
+1. **Ship It Moment** — confetti (behind prefers-reduced-motion) + SQL-driven
+   recap card (duration, blockers survived, decisions) + share-to-Slack.
+2. **Blocker Funeral** — resolve after 3+ days → epitaph + Blocker Graveyard.
+3. **Digest With a Voice** — ~40 templated openers keyed on computed team
+   state, date-seeded for stability.
+4. **Empty States That Earn Their Space** — rotating copy per view
+   ("Review inbox: zero. The agents fear you.").
+5. **Chief-of-Staff Mock Personality Pack** — dry aide-de-camp voice for the
+   keyless mock agent; makes demos better too.
+6. **Streaks, But For the Team** — team-scoped only, gentle resets.
+7. **Handoff Baton** — baton-pass animation + "clean handoff" seal.
+8. **Loading lines + seasonal easter egg** — data-driven loaders, Konami-code
+   day themes.
+   *Guardrails: reduced-motion + calm-mode toggle, frequency caps, whimsy
+   suppressed while an escalated blocker is showing.*
+
+## Game Designer — 8 team-level mechanics (ranked)
+
+Pillars: team-as-player, runs-not-grinds, reward the report, count knowledge
+*consumed* not produced. Kill-switch signals defined per loop (shorter
+standups, later blockers, citation-less playbook spikes = being gamed).
+
+1. **Blocker Speedrun Board** — team median time-to-clear PBs per severity;
+   raising a blocker *scores* (never suppresses reporting).
+2. **Standup Chain** — one shared streak; 3 "shield" tokens/season auto-cover
+   calendar absences.
+3. **Knowledge Flywheel Meter** — creation 1x, reuse/citation 3x, unread decay.
+4. **Agent NPC Levels** — validated-entry XP; levels unlock real capabilities
+   (longer lookback, proactive digest sections); never decrease.
+5. **Clean Handoff Streak** — receiver-judged: no clarifying question in 48h;
+   failures generate playbook-gap prompts, not blame.
+6. **Seasons + Season Report** — 6-week resets aligned to rotations; archives
+   for retros. Ship alongside whichever loop goes first.
+7. **Inbox Zero Runs** — win = nothing ages past SLA (not throughput; no
+   rubber-stamp incentive); reopens void the day.
+8. **RICE Calibration Range** — estimated-vs-actual trend per season,
+   team-aggregated, bets excludable.
+   *All thresholds in a tuning config table, not hardcoded.*
+
+## Developer Advocate — 8 developer-loop features (ranked)
+
+1. **`strands` CLI** — Typer over the existing REST API; pipx/brew.
+2. **Strands MCP Server** — FastMCP wrapping the REST routes (`get_my_day`,
+   `create_task`, `log_decision`, `search_knowledge`); `claude mcp add strands`.
+3. **Per-teammate API keys** — hashed keys + scopes table; prerequisite for
+   1, 2, 4, 5; keeps attribution honest.
+4. **Git commit trailers** — `Closes-Task: #12` via hook or CI merge parse;
+   links SHAs into task timelines.
+5. **CI webhook → blockers** — failed default-branch run opens a blocker
+   (deduped by repo+branch), green resolves it.
+6. **Editor touchpoints** — VS Code capture command + `TODO(strands):`
+   promotion via `strands scan-todos`.
+7. **Public-quality /docs** — polish the free OpenAPI: examples, quickstart,
+   embedded Scalar viewer.
+8. **Weekly changelog auto-post** — rides digest + Slack infra.
+   *Adoption metric: % of captures/closures originating outside the web UI;
+   >50% means the platform joined the development loop.*
