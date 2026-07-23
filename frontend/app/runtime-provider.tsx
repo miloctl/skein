@@ -25,9 +25,14 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         .map((p) => p.text)
         .join("\n");
 
+      const token = process.env.NEXT_PUBLIC_API_TOKEN;
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-User": getUser() },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User": getUser(),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ thread_id: threadId, message: text }),
         signal: abortSignal,
       });

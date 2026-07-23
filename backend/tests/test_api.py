@@ -20,8 +20,10 @@ def test_rest_write_paths_record_provenance(client):
 def test_question_answer_flow(client):
     q = client.post("/api/questions", json={"question": "Who owns infra?",
                                             "assigned_to": "tester"}).json()
-    assert client.get("/api/attention").json()["count"] == 1
+    # open question + its assignment notification
+    assert client.get("/api/attention").json()["count"] == 2
     client.post(f"/api/questions/{q['id']}/answer", json={"answer": "Alice does"})
+    client.post("/api/notifications/read", json={"notification_id": 0})
     assert client.get("/api/attention").json()["count"] == 0
 
 

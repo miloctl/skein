@@ -50,6 +50,34 @@ Key mechanics:
   that adapts playbooks, digest narration, optional semantic search
   (`STRANDS_EMBEDDINGS=1`), token usage accounting per thread/model.
 
+## Run with Docker (recommended for the team)
+
+```bash
+docker compose up --build        # backend :8000 + frontend :3000, data in a named volume
+```
+
+The SQLite database, chat sessions, artifacts, and daily backups live in the
+`strands-data` volume. Configure via `backend/.env` (picked up automatically).
+For a ~10-person team this single-box setup is deliberate: SQLite in WAL mode
+handles this write volume easily, and one backend container means exactly one
+scheduler. When exposing beyond your LAN, set `STRANDS_API_TOKEN` (backend)
+and the matching `NEXT_PUBLIC_API_TOKEN` build arg (frontend).
+
+## Optional integrations — built in, off until configured
+
+| Integration | Turns on when | What you get |
+|---|---|---|
+| Slack outbound | `SLACK_WEBHOOK_URL` | Immediate pings + twice-daily notification digests |
+| Slack commands | `SLACK_SIGNING_SECRET` | `/strands …` slash command (capture, briefing, search, plan) with signature verification |
+| MCP tools | `STRANDS_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
+| Semantic search | `STRANDS_EMBEDDINGS=1` + OpenAI key | Embeddings alongside FTS5 |
+| OpenTelemetry | `STRANDS_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
+| API auth | `STRANDS_API_TOKEN` | Shared bearer token on every endpoint |
+
+Notification tiers (immediate / digest / passive) and cross-thread agent
+memory (`/remember`, `remember`/`recall_memories` tools, auto-injected into
+the agent's prompt) work keyless, in-app.
+
 ## Setup
 
 ```bash

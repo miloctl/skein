@@ -13,6 +13,11 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "",
     )
     db.log_activity(actor or asked_by, "ask_question", f"#{qid}")
     index_record("question", qid, question[:120], question)
+    if assigned_to:
+        from .notifications import notify
+
+        notify(assigned_to, f"Question #{qid} assigned to you: {question[:80]}",
+               tier="digest", link="/")
     return {"id": qid, "status": "open"}
 
 

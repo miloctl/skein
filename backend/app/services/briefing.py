@@ -33,6 +33,10 @@ def my_day(user: str) -> dict:
                 "SELECT id, title, requester, status, score FROM intake_requests"
                 " WHERE status IN ('submitted', 'scored') ORDER BY score DESC LIMIT 10"
             ),
+            "notifications": db.query(
+                "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
+                " ORDER BY id DESC LIMIT 20", (user,),
+            ),
         },
         "your_work": {
             "tasks": db.query(
@@ -69,7 +73,8 @@ def attention_count(user: str) -> int:
         " (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
         " + (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
         " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
+        " + (SELECT COUNT(*) FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL)"
         " AS n",
-        (user, user),
+        (user, user, user),
     )
     return row["n"] if row else 0

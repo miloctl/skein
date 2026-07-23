@@ -15,6 +15,7 @@ type Briefing = {
     pending_reviews: Row[];
     your_blockers: Row[];
     intake_to_triage: Row[];
+    notifications: Row[];
   };
   your_work: { tasks: Row[]; due_soon: Row[] };
   team: { escalated_blockers: Row[]; todays_events: Row[]; recent_activity: Row[] };
@@ -62,7 +63,10 @@ export default function MyDay() {
 
   const n = b.needs_you;
   const needsCount =
-    n.open_questions.length + n.pending_reviews.length + n.your_blockers.length;
+    n.open_questions.length +
+    n.pending_reviews.length +
+    n.your_blockers.length +
+    (n.notifications ?? []).length;
 
   return (
     <main className="mx-auto w-full max-w-5xl p-6">
@@ -118,9 +122,32 @@ export default function MyDay() {
                 to triage
               </li>
             )}
-            {needsCount === 0 && n.intake_to_triage.length === 0 && (
-              <li className="text-zinc-400">All clear. 🎉</li>
-            )}
+            {(n.notifications ?? []).map((nt) => (
+              <li key={`n${nt.id}`} className="flex items-center justify-between gap-2">
+                <span>🔔 {nt.message}</span>
+                <button
+                  onClick={async () => {
+                    try {
+                      await api("/api/notifications/read", {
+                        method: "POST",
+                        body: JSON.stringify({ notification_id: nt.id }),
+                      });
+                    } catch (e) {
+                      alert(String(e));
+                    }
+                    load();
+                  }}
+                  className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-300"
+                >
+                  dismiss
+                </button>
+              </li>
+            ))}
+            {needsCount === 0 &&
+              n.intake_to_triage.length === 0 &&
+              (n.notifications ?? []).length === 0 && (
+                <li className="text-zinc-400">All clear. 🎉</li>
+              )}
           </ul>
         </Card>
 

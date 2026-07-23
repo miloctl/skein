@@ -15,6 +15,8 @@ from ..services import (
     engagements,
     handoff,
     intake,
+    memory,
+    notifications,
     playbooks,
     review,
     schedule,
@@ -132,6 +134,25 @@ def get_briefing(user: CurrentUser):
 @router.get("/attention")
 def get_attention(user: CurrentUser):
     return {"count": briefing.attention_count(user)}
+
+
+@router.get("/notifications")
+def get_notifications(user: CurrentUser, unread_only: bool = True):
+    return notifications.list_notifications(user, unread_only)
+
+
+class MarkReadIn(BaseModel):
+    notification_id: int = 0  # 0 = mark all read
+
+
+@router.post("/notifications/read")
+def post_notifications_read(body: MarkReadIn, user: CurrentUser):
+    return notifications.mark_read(user, body.notification_id)
+
+
+@router.get("/memories")
+def get_memories(q: str = ""):
+    return memory.recall(q)
 
 
 @router.get("/usage")

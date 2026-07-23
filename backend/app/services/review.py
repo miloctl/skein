@@ -43,6 +43,10 @@ def propose_change(entity: str, action: str, payload: dict, summary: str = "",
          summary or f"{action} {entity}", actor, origin, db.now()),
     )
     db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
+    from .notifications import notify
+
+    notify("team", f"Review needed: #{pid} {summary or f'{action} {entity}'}",
+           tier="digest", link="/review")
     return {"id": pid, "status": "pending"}
 
 

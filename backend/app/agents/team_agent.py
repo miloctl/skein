@@ -64,9 +64,12 @@ def build_agent(thread_id: str, user: str = "anonymous"):
     from strands import Agent, tool
     from strands.session import FileSessionManager
 
+    from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
+    from ..tools.memory import recall_memories, remember
     from ..tools.platform import list_playbooks, start_engagement_from_playbook
     from ..tools.work import create_milestone, create_task, list_milestones, list_tasks
+    from .mcp_tools import mcp_tools
 
     @tool
     def plan_project(goal: str, project: str = "default") -> str:
@@ -88,10 +91,14 @@ def build_agent(thread_id: str, user: str = "anonymous"):
         result = planner(f"Project: {project}\nGoal: {goal}")
         return str(result)
 
+    system = SYSTEM_PROMPT.format(
+        today=datetime.now(timezone.utc).date().isoformat(), user=user
+    ) + memory_prompt(user)
+
     return Agent(
         model=_model(),
-        system_prompt=SYSTEM_PROMPT.format(today=datetime.now(timezone.utc).date().isoformat(), user=user),
-        tools=[*ALL_TOOLS, plan_project],
+        system_prompt=system,
+        tools=[*ALL_TOOLS, plan_project, remember, recall_memories, *mcp_tools()],
         session_manager=FileSessionManager(
             session_id=thread_id,
             storage_dir=str(config.SESSIONS_DIR),

@@ -87,6 +87,11 @@ def sweep_escalations() -> list[dict]:
             )
             if not claimed:  # resolved between our read and write
                 continue
+            from .notifications import notify
+
+            notify(b["owner"] or "team",
+                   f"Blocker #{b['id']} escalated: {b['title']}",
+                   tier="immediate", link="/")
             db.log_activity(
                 "scheduler", "escalate_blocker",
                 f"#{b['id']} {b['title']} (open {b['escalate_after_hours']}h, owner: {b['owner'] or 'unowned'})",

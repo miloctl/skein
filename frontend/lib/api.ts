@@ -16,11 +16,13 @@ export async function api<T = unknown>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const token = process.env.NEXT_PUBLIC_API_TOKEN;
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       "X-User": getUser(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   });

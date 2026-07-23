@@ -33,4 +33,23 @@ CORS_ORIGINS = [
 ]
 
 # Background jobs (blocker sweep, daily digest, daily backup). Disabled in tests.
+# Run the scheduler in exactly ONE process (the default single-worker uvicorn).
 SCHEDULER_ENABLED = os.getenv("STRANDS_SCHEDULER", "1") == "1"
+
+# ---- optional integrations: each activates only when its config is set ----
+
+# Slack: webhook for outbound notifications/digests; signing secret enables
+# the inbound /api/slack/command endpoint.
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
+
+# MCP servers for the real agent, JSON list:
+# [{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "..."}]
+MCP_SERVERS = os.getenv("STRANDS_MCP_SERVERS", "")
+
+# OpenTelemetry OTLP endpoint (e.g. http://jaeger:4318). Empty = disabled.
+OTEL_ENDPOINT = os.getenv("STRANDS_OTEL_ENDPOINT", "")
+
+# Optional shared bearer token for the whole API (set when exposing beyond
+# a trusted network). Empty = open (trusted-LAN mode).
+API_TOKEN = os.getenv("STRANDS_API_TOKEN", "")

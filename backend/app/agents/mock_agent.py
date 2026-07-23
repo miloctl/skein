@@ -2,7 +2,7 @@
 a real Strands Agent, but routes slash-commands and freeform text to services
 programmatically — no model, no keys, fully testable."""
 
-from ..services import briefing, capture, playbooks, search
+from ..services import briefing, capture, memory, playbooks, search
 
 HELP = """**Mock agent** (no API key configured) — everything still works, deterministically:
 
@@ -13,6 +13,7 @@ HELP = """**Mock agent** (no API key configured) — everything still works, det
 | `/search <query>` | Full-text search across the workspace |
 | `/plan <playbook> <engagement name>` | Instantiate a playbook (see `/playbooks`) |
 | `/playbooks` | List available playbooks |
+| `/remember <fact>` | Save a durable cross-thread memory |
 | *anything else* | Smart-captured as a task, question, note, decision, or blocker |
 
 Freeform examples: `todo: ship the API`, `why is staging down?`, `decision: we're using SQLite`, `blocked on vendor contract`.
@@ -73,6 +74,14 @@ class MockAgent:
                 body = "\n".join(f"- [{h['entity']} #{h['entity_id']}] **{h['title']}** — {h['snippet']}"
                                  for h in hits[:10])
                 yield {"data": f"Found {len(hits)} match(es) for “{q}”:\n\n{body}"}
+
+        elif lower.startswith("/remember "):
+            yield self._tool_event("remember")
+            try:
+                m = memory.remember(text[10:].strip(), user=self.user, actor=self.user)
+                yield {"data": f"Remembered (#{m['id']}). It will surface in future threads."}
+            except ValueError as exc:
+                yield {"data": f"⚠️ {exc}"}
 
         elif lower == "/briefing":
             yield self._tool_event("my_day")

@@ -1,0 +1,29 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - strands-data:/data
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      STRANDS_CORS_ORIGINS: ${STRANDS_CORS_ORIGINS:-http://localhost:3000}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked at build time — the URL the BROWSER uses to reach the backend.
+        NEXT_PUBLIC_API_URL: ${STRANDS_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_TOKEN: ${STRANDS_API_TOKEN:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  strands-data:
