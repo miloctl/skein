@@ -1,0 +1,59 @@
+# Strands Team Platform
+
+Internal coordination harness for an AI-enabled strike team (humans + AI
+agents). FastAPI + Strands Agents SDK + SQLite backend; Next.js 16 +
+assistant-ui frontend.
+
+Read `docs/SPEC.md` before implementing anything — it defines the phases,
+data model, and constraints. `docs/ROADMAP.md` holds the feature ideation.
+
+## Hard constraints
+
+- **Keyless-first.** No API keys are assumed. Every feature needs a
+  deterministic core (DB + REST + UI). Prefer programmatic solutions (SQL,
+  rules, heuristics) over LLM calls; the agent layer is an optional shell.
+  `STRANDS_MODEL_PROVIDER=mock` must always work end-to-end.
+- **Two write paths, one service layer.** Humans mutate via REST, agents via
+  Strands tools. Both MUST call the shared functions in `backend/app/services/`
+  — never write SQL in a route or tool.
+- **Provenance on every write.** Services record `origin`
+  (`human|agent|agent_verified`) and `created_by`, and log to `activity`.
+- **Migrations are append-only.** Schema changes go in a new numbered file in
+  `backend/migrations/`; never edit an applied migration or `db.py` schema
+  inline.
+
+## Commands
+
+```bash
+# backend (from backend/)
+uv pip install -e ".[dev]" --python .venv/bin/python   # deps
+.venv/bin/pytest                                        # tests
+.venv/bin/uvicorn app.main:app --port 8000 --reload     # run
+.venv/bin/python seed.py                                # demo data
+
+# frontend (from frontend/)
+npm run dev     # dev server on :3000
+npm run build   # verify compile (run before committing frontend changes)
+
+./dev.sh        # both at once (repo root)
+```
+
+## Architecture map
+
+- `backend/app/services/` — all business logic + SQL (the only write path)
+- `backend/app/tools/` — Strands `@tool` wrappers over services (agent write path)
+- `backend/app/routes/` — FastAPI routers: REST wrappers over services + chat SSE
+- `backend/app/agents/` — Chief-of-Staff orchestrator, planner sub-agent, mock provider
+- `backend/migrations/` — numbered SQL, applied at startup, tracked in `schema_version`
+- `backend/playbooks/*.yaml` — project-class templates (edited like code)
+- `backend/data/` — gitignored: platform.db, sessions/, artifacts/, backups/, exports/
+- `frontend/app/` — pages; `frontend/components/` — UI; `frontend/lib/` — api client/config
+
+## Conventions
+
+- Current user comes from the `X-User` header (frontend name picker, trusted
+  LAN model). FastAPI routes take it via the `CurrentUser` dependency.
+- Times are UTC ISO-8601 strings (`db.now()`); dates are `YYYY-MM-DD`.
+- Tools return JSON strings; services return dicts/lists.
+- Keep frontend components small and Tailwind-styled; no extra UI libraries.
+- Python: no comments narrating what code does; match existing terse style.

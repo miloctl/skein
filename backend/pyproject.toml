@@ -1,0 +1,19 @@
+[project]
+name = "strands-team-platform"
+version = "0.1.0"
+description = "AI team coordination platform built on the Strands Agents SDK"
+requires-python = ">=3.10"
+dependencies = [
+    "strands-agents[anthropic,openai]>=1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+]
+
+[tool.setuptools]
+packages = { find = { include = ["app*"] } }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
