@@ -41,10 +41,14 @@ export default function MyDay() {
   useEffect(load, [load]);
 
   const resolveBlocker = async (id: number) => {
-    await api(`/api/blockers/${id}/resolve`, {
-      method: "POST",
-      body: JSON.stringify({ resolution: "resolved from My Day" }),
-    });
+    try {
+      await api(`/api/blockers/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ resolution: "resolved from My Day" }),
+      });
+    } catch (e) {
+      alert(String(e));
+    }
     load();
   };
 

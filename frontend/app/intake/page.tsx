@@ -39,9 +39,13 @@ export default function IntakePage() {
 
   const submit = async () => {
     if (!form.title.trim()) return;
-    await api("/api/intake", { method: "POST", body: JSON.stringify(form) });
-    setForm({ title: "", detail: "", project_class: "" });
-    load();
+    try {
+      await api("/api/intake", { method: "POST", body: JSON.stringify(form) });
+      setForm({ title: "", detail: "", project_class: "" });
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
   };
 
   const score = async (id: number) => {
@@ -61,7 +65,11 @@ export default function IntakePage() {
 
   const disposition = async (id: number, d: string) => {
     const reason = prompt(`Reason for "${d}" (requesters see this):`);
-    if (!reason) return;
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      alert("A reason is required — requesters see it.");
+      return;
+    }
     try {
       await api(`/api/intake/${id}/disposition`, {
         method: "POST",

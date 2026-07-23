@@ -2,7 +2,6 @@ export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const USER_KEY = "strands-user";
-const THREAD_KEY = "strands-thread-id";
 
 export function getUser(): string {
   if (typeof window === "undefined") return "anonymous";
@@ -11,17 +10,6 @@ export function getUser(): string {
 
 export function setUser(name: string) {
   window.localStorage.setItem(USER_KEY, name.trim() || "anonymous");
-}
-
-/** Stable per-browser thread id so the backend chat session persists. */
-export function getThreadId(): string {
-  if (typeof window === "undefined") return "server";
-  let id = window.localStorage.getItem(THREAD_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    window.localStorage.setItem(THREAD_KEY, id);
-  }
-  return id;
 }
 
 export async function api<T = unknown>(

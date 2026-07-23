@@ -1,86 +1,97 @@
 # 🧵 Strands Team Platform
 
 An internal coordination harness for an AI-enabled strike team — humans and AI
-agents tracking milestones, asking questions, recording decisions, posting
-standups, and planning work through a shared Chief-of-Staff agent.
+agents sharing engagements, milestones, tasks, blockers, questions, decisions,
+standups, intake triage, a knowledge base, and a team calendar.
 
 Built on the [Strands Agents SDK](https://github.com/strands-agents/harness-sdk)
 (backend agents) and [assistant-ui](https://github.com/assistant-ui/assistant-ui)
-(chat frontend).
+(chat frontend). **Works fully without API keys** — every feature has a
+deterministic core; connecting a model provider upgrades the experience.
+
+## Surfaces
+
+| Route | What it is |
+|---|---|
+| `/` | **My Day** — what changed and what needs *you*, in under 30 seconds |
+| `/chat` | Chief-of-Staff agent (streaming; mock provider works keyless) |
+| `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes · activity |
+| `/review` | Review inbox — approve/reject proposed changes (agent approval gate) |
+| `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline |
+| ⌘K anywhere | Quick capture — freeform text auto-routed to task/question/note/decision/blocker |
 
 ## Architecture
 
 ```
-frontend/  Next.js 16 + @assistant-ui/react
-  ├─ /            chat with the Chief of Staff (streaming, markdown, per-browser thread)
-  └─ /dashboard   milestones · tasks · questions · decisions · standups · calendar · notes · activity
+backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
+  ├─ app/services/   ALL business logic — the single write path
+  ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
+  ├─ app/tools/      30 Strands @tool wrappers over the same services
+  ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
+  ├─ migrations/     numbered SQL, applied at startup (schema_version)
+  ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
+  └─ data/           gitignored: platform.db, sessions/, artifacts/, backups/, exports/
 
-backend/   FastAPI + Strands Agents + SQLite
-  ├─ POST /api/chat          SSE stream from the orchestrator agent
-  ├─ GET  /api/<entity>      read-only REST for the dashboard
-  ├─ app/agents/team_agent   Chief-of-Staff orchestrator (+ planner sub-agent via agents-as-tools)
-  ├─ app/tools/              18 tools over SQLite (work, collab, schedule)
-  └─ data/                   platform.db + per-thread session files (gitignored)
+frontend/  Next.js 16 + @assistant-ui/react + Tailwind
 ```
 
-The agent is the write path: you *tell* it things ("mark task 12 done", "plan
-our Q3 launch", "record that we chose Postgres") and it persists them with
-tools. The dashboard is the read path. Every tool call lands in the activity
-log, and conversations persist per thread via Strands `FileSessionManager`.
+Key mechanics:
+
+- **Provenance everywhere** — every record carries `origin`
+  (`human | agent | agent_verified`) and `created_by`; every mutation lands in
+  the activity log.
+- **Approval gate** — with `STRANDS_AGENT_REVIEW=1`, agent writes become
+  `pending_changes` proposals that humans approve in `/review`.
+- **Programmatic automation** (no LLM): blocker auto-extraction from standups,
+  hourly escalation sweep, RICE-lite intake scoring, rule-based quick capture,
+  FTS5 workspace search, deterministic daily digest, playbook instantiation
+  with lessons surfaced at kickoff, handoff package generation, daily backups.
+- **LLM layer (connect keys later)** — conversational Chief of Staff, planner
+  that adapts playbooks, digest narration, optional semantic search
+  (`STRANDS_EMBEDDINGS=1`), token usage accounting per thread/model.
 
 ## Setup
 
-### Backend
-
 ```bash
+# backend
 cd backend
-uv venv .venv && uv pip install -e . --python .venv/bin/python
-cp .env.example .env        # set your API key(s)
+uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python
+cp .env.example .env                       # defaults to the keyless mock provider
+.venv/bin/python seed.py                   # optional demo data
 .venv/bin/uvicorn app.main:app --port 8000 --reload
+
+# frontend
+cd frontend
+npm install && cp .env.local.example .env.local
+npm run dev                                # http://localhost:3000
+
+# or both: ./dev.sh   ·   tests: cd backend && .venv/bin/pytest
 ```
 
-Model provider is configurable in `.env`:
+Model provider in `backend/.env`:
 
 | Variable | Values | Default |
 |---|---|---|
-| `STRANDS_MODEL_PROVIDER` | `anthropic` \| `openai` | `anthropic` |
+| `STRANDS_MODEL_PROVIDER` | `mock` \| `anthropic` \| `openai` | `mock` (no keys needed) |
 | `STRANDS_MODEL_ID` | any model ID | `claude-opus-4-8` / `gpt-5` |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
+| `STRANDS_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
 
-### Frontend
+## Try it (keyless)
 
-```bash
-cd frontend
-npm install
-cp .env.local.example .env.local   # points at http://localhost:8000
-npm run dev                        # http://localhost:3000
-```
+- Press **⌘K**: `blocked on vendor contract` → lands in the blocker register.
+- Chat: `/plan incident Payments outage` → engagement + milestones + tasks +
+  rituals from the incident playbook, with past incident lessons attached.
+- Chat: `/briefing`, `/search cutover`, `/help`.
+- `/intake`: submit a request, score it, accept it → engagement appears.
+- `POST /api/engagements/{id}/handoff` → markdown handoff package in
+  `backend/data/artifacts/`.
 
-Or run both at once from the repo root: `./dev.sh`
+## Status & roadmap
 
-## Try it
-
-- *"Plan a project to migrate our billing service — call the project `billing`."*
-  → the planner sub-agent creates milestones + tasks; watch them appear on the dashboard.
-- *"Post a standup for Mario: shipped the API, next is auth, blocked on the vendor contract."*
-- *"Log a question from me to the infra agent: do we have staging capacity for load tests?"*
-- *"Record the decision that we're using SQLite until we hit 10 concurrent agents."*
-- *"Schedule a retro Friday at 3pm with the whole team."*
-- *"What's blocked right now, and what's on the calendar this week?"*
-
-## What's next
-
-A 4-agent panel (Product Manager, Workflow Architect, AI Engineer, UX
-Researcher) ideated the roadmap for strike-team use — see
-[docs/ROADMAP.md](docs/ROADMAP.md) for the full synthesis. Headlines:
-
-1. Semantic team memory (RAG over the whole workspace)
-2. Human-in-the-loop approval gates (Strands interrupts → approval cards)
-3. Engagement intake & triage queue
-4. Project-class playbooks/templates
-5. Autonomous daily digest + blocker detector ("My Day" view)
-6. Agent work queue with diff-style human review
-7. Blocker & escalation register
-8. Handoff contracts + rotation handoff generator
-9. MCP integrations (GitHub/Slack/calendar) + Slack surface
-10. Provenance badges, observability (OpenTelemetry), and cost tracking
+Phases 0–2 of [docs/SPEC.md](docs/SPEC.md) are **built** (foundation, keyless
+operating system, engagements/playbooks/handoffs), plus the LLM layer wired
+for later: approval gates, digest narration hook, embeddings hook, usage
+accounting. Remaining: Strands-interrupt-based gates, MCP integrations
+(GitHub/Slack/calendar), Slack surface, notification tiers, OpenTelemetry —
+see [docs/ROADMAP.md](docs/ROADMAP.md) for the full 4-agent ideation.

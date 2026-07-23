@@ -28,8 +28,12 @@ export default function ReviewPage() {
   useEffect(load, [load]);
 
   const act = async (id: number, verb: "approve" | "reject") => {
-    const note = verb === "reject" ? prompt("Why? (sent back to the proposer)") ?? "" : "";
-    if (verb === "reject" && note === null) return;
+    let note = "";
+    if (verb === "reject") {
+      const answer = prompt("Why? (sent back to the proposer)");
+      if (answer === null) return; // cancelled — don't reject
+      note = answer;
+    }
     try {
       await api(`/api/review/${id}/${verb}`, {
         method: "POST",

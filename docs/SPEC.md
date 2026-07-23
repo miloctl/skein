@@ -1,5 +1,12 @@
 # Implementation Spec — Strands Team Platform
 
+> **Status (2026-07-23):** Phases 0–2 built and tested (32 passing tests).
+> The agentic layer is wired keyless: approval-gate via pending_changes
+> (`STRANDS_AGENT_REVIEW=1`), digest narration hook, embeddings hook
+> (`STRANDS_EMBEDDINGS=1`), usage accounting. Remaining from Phase 3/4:
+> Strands-interrupt gates, cross-thread agent memory, MCP integrations,
+> Slack surface, notification tiers, OpenTelemetry, eval harness.
+
 Working constraint: **no API keys for now**. Every feature is designed with a
 deterministic core (DB + REST + UI) that works without a model; the agent layer
 sits on top and lights up when keys arrive. Nothing in Phases 0–2 requires an

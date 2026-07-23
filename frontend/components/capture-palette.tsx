@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 
@@ -9,18 +9,23 @@ export function CapturePalette() {
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        if (closeTimer.current) clearTimeout(closeTimer.current);
         setOpen((o) => !o);
         setResult(null);
       }
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
   }, []);
 
   const submit = useCallback(async () => {
@@ -33,7 +38,7 @@ export function CapturePalette() {
       });
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
-      setTimeout(() => setOpen(false), 900);
+      closeTimer.current = setTimeout(() => setOpen(false), 900);
     } catch (err) {
       setResult(`⚠️ ${String(err)}`);
     } finally {

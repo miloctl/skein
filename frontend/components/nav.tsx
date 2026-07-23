@@ -22,13 +22,21 @@ export function Nav() {
 
   useEffect(() => {
     setUserState(getUser());
-    const poll = () =>
+    let generation = 0;
+    const poll = () => {
+      const g = ++generation;
       api<{ count: number }>("/api/attention")
-        .then((r) => setAttention(r.count))
+        .then((r) => {
+          if (g === generation) setAttention(r.count); // ignore stale responses
+        })
         .catch(() => {});
+    };
     poll();
     const t = setInterval(poll, 30_000);
-    return () => clearInterval(t);
+    return () => {
+      generation++; // invalidate in-flight responses
+      clearInterval(t);
+    };
   }, []);
 
   return (
