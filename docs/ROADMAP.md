@@ -248,3 +248,64 @@ standups, later blockers, citation-less playbook spikes = being gamed).
 8. **Weekly changelog auto-post** — rides digest + Slack infra.
    *Adoption metric: % of captures/closures originating outside the web UI;
    >50% means the platform joined the development loop.*
+
+---
+
+# Round 3 ideation — operating system maturity (2026-07-23)
+
+Third panel, 5 agents (Chief of Staff, Trend Researcher, Studio Producer,
+Sprint Prioritizer, Feedback Synthesizer), run after the developer loop,
+integrations, and review hardening shipped.
+
+## Synthesis — the five lenses converge on four themes
+
+**1. Agents as first-class teammates (the 2025-26 table stakes).** Delegation
+as a real primitive — tasks with a `delegated_agent` and a human sponsor, a
+Mission-Control view of active agent sessions, an authority matrix
+(`autonomous | notify | review | forbidden`) per (agent, action type) with a
+trust ratchet: N consecutive approvals suggests promotion to autonomous.
+Agent identities extend the API-key model with scopes, sponsors, and an
+append-only audit trail. *(Trend #1/#4, CoS #4, Sprint #6)*
+
+**2. The review inbox becomes a flywheel.** Every approve/reject/edit is
+already a labeled example: rejection-reason analytics auto-tune which
+proposal types need gating; thumbs on chat responses build an eval corpus;
+`strands eval` replays it before any model/prompt change; capture corrections
+refine the classifier rules — every self-tune shipped as a gated proposal.
+Nobody mainstream has closed this loop; our labeling cost is already sunk.
+*(Feedback #1/#2/#3, Trend #5)*
+
+**3. The portfolio layer.** Engagement health scoring (R/Y/G from blocker
+age, milestone slip, standup gaps — receipts shown), cross-engagement
+allocation conflicts (SQL over the week calendar), what-if intake planning
+("accepting this puts Dana at 130% in W34"), milestone slip forecasting from
+the team's own actuals, inter-engagement dependencies, and a `/portfolio`
+executive surface — curated projections, never raw tables. Plus the external
+commitment ledger: promises made to stakeholders outside the team, extracted
+where they already surface. *(Producer #1-6, CoS #1/#2)*
+
+**4. Operating rhythm & record integrity.** Weekly commitment line
+(`committed_week` on tasks) + an auto-drafted Monday plan through the review
+inbox; flow metrics (cycle time, throughput, WIP) from existing timestamps —
+no estimates; stale-WIP nudges and soft per-person WIP limits; decision
+half-life (`review_by` dates + superseding chains so nobody cites a dead
+decision); stale-knowledge pruning driven by a search-impression log;
+meeting preemption (agenda-or-async). *(Sprint #1-5, CoS #3/#5/#6, Feedback #4/#6)*
+
+## Suggested build order
+
+1. Engagement health + allocation conflicts (pure SQL reads, feeds everything)
+2. Weekly commitment line + auto-drafted plan (reuses review inbox)
+3. Flow metrics rollup (baseline before behavior change)
+4. Agent delegation + delegation charter + agent identities
+5. Review-inbox analytics → trust scores, eval corpus, `strands eval`
+6. Decision half-life; 7. Commitment ledger + exec readout;
+8. What-if intake + slip forecasting; 9. Ambient agent inbox
+(notify/question/review); 10. Team context pack (versioned org-brain as an
+MCP resource + AGENTS.md emitter — the differentiated bet: Strands becomes
+the context supplier to every other agent the team uses).
+
+*(Full per-agent output retained in the panel transcripts; key trend sources:
+Linear for Agents, GitHub Agent HQ, Asana AI Teammates, Height, Dust,
+LangChain ambient agents, CSA agentic identity governance, OWASP Agentic
+Top 10.)*
