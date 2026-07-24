@@ -23,6 +23,14 @@ def test_allowlisted_tools_load(monkeypatch):
     assert {"calculator", "current_time"} <= names
 
 
+def test_legacy_tool_spec_style_loads_as_module(monkeypatch):
+    # batch is TOOL_SPEC-style: the strands registry needs the module, not the
+    # bare function ("unrecognized tool specification" otherwise)
+    tools = _load(monkeypatch, ["batch"])
+    assert len(tools) == 1
+    assert hasattr(tools[0], "TOOL_SPEC")
+
+
 def test_shell_and_friends_are_refused(monkeypatch, caplog):
     for dangerous in ("shell", "python_repl", "file_write", "editor",
                       "mcp_client", "use_computer", "use_aws",

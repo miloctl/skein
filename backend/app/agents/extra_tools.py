@@ -53,7 +53,12 @@ def extra_tools() -> tuple:
         module_name, attr = spec
         try:
             module = __import__(f"strands_tools.{module_name}", fromlist=[attr])
-            tools.append(getattr(module, attr))
+            obj = getattr(module, attr)
+            # legacy TOOL_SPEC-style tools (e.g. batch) register as the module;
+            # @tool-decorated ones (everything else) register as the function
+            if hasattr(module, "TOOL_SPEC") and not hasattr(obj, "tool_spec"):
+                obj = module
+            tools.append(obj)
             log.info("extra tool loaded: %s", name)
         except Exception as exc:
             log.warning("extra tool %s failed to load (%s) — skipped", name, exc)
