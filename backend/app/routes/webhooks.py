@@ -22,6 +22,6 @@ def ci_webhook(body: CIEventIn, user: CurrentUser):
     if body.workflow_run is not None:
         mapped = ci.parse_github_actions(body.model_dump())
         if mapped is None:
-            return {"ignored": "not a completed workflow_run"}
+            return {"ignored": "not a completed pass/fail workflow_run"}
         return ci.ci_event(**mapped, actor=user)
     return ci.ci_event(body.repo, body.branch, body.status, body.run_url, actor=user)

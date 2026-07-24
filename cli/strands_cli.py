@@ -38,8 +38,10 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=1))
-    CONFIG_PATH.chmod(0o600)
+    # 0600 from the first byte — no world-readable window
+    fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(cfg, indent=1))
 
 
 def api(method: str, path: str, body: dict | None = None) -> dict | list:
@@ -70,6 +72,10 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
 
 def cmd_config(args):
     cfg = load_config()
+    if args.key == "-":  # prompt: keeps the key out of argv/shell history
+        import getpass
+
+        args.key = getpass.getpass("API key (sk-strands-…): ").strip()
     for field in ("url", "key", "user"):
         value = getattr(args, field)
         if value:
@@ -194,7 +200,10 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("config", help="set server url / api key / user")
-    c.add_argument("--url"); c.add_argument("--key"); c.add_argument("--user")
+    c.add_argument("--url")
+    c.add_argument("--key", nargs="?", const="-",
+                   help="API key; omit the value to be prompted (keeps it out of shell history)")
+    c.add_argument("--user")
     c.set_defaults(fn=cmd_config)
 
     c = sub.add_parser("capture", help="quick-capture text (auto-routed)")
@@ -237,6 +246,8 @@ def main():
     args = p.parse_args()
     if args.cmd == "blockers" and args.action == "resolve" and not args.id:
         p.error("blockers resolve requires --id")
+    if args.cmd == "blockers" and args.action == "add" and not args.title:
+        p.error("blockers add requires a title")
     if args.cmd == "tasks" and args.action == "done" and not args.id:
         p.error("tasks done requires an id")
     args.fn(args)

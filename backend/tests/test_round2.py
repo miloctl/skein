@@ -20,11 +20,25 @@ def test_api_key_lifecycle_and_attribution(client):
     assert "key" not in keys[0]  # full key never re-exposed
 
     client.delete(f"/api/keys/{created['id']}")
+    # a presented-but-revoked key is a hard 401 — never a silent fallback
     r = client.post("/api/capture", json={"text": "x"},
-                    headers={"Authorization": f"Bearer {key}", "X-User": ""})
-    # revoked key falls back to anonymous X-User path, not the owner
-    assert r.status_code == 200
-    assert client.get("/api/tasks").json()[-1]["created_by"] != "tester" or out
+                    headers={"Authorization": f"Bearer {key}", "X-User": "tester"})
+    assert r.status_code == 401
+    assert out  # earlier keyed write succeeded
+
+
+def test_admin_key_visibility_and_kill_switch(client):
+    client.post("/api/keys", json={"label": "one"},
+                headers={"X-User": "spoofed-bot"})
+    client.post("/api/keys", json={"label": "two"})
+
+    all_keys = client.get("/api/admin/keys").json()
+    owners = {k["owner"] for k in all_keys}
+    assert "spoofed-bot" in owners  # hidden keys are discoverable by anyone
+
+    out = client.post("/api/admin/keys/revoke-all").json()
+    assert out["revoked"] >= 2
+    assert all(not k["active"] for k in client.get("/api/admin/keys").json())
 
 
 def test_api_key_satisfies_shared_token_gate(client, monkeypatch):
@@ -66,6 +80,10 @@ def test_ci_webhook_github_actions_shape(client):
     out = client.post("/api/webhooks/ci", json=payload).json()
     assert out["raised"]
 
+    cancelled = {**payload, "workflow_run": {**payload["workflow_run"],
+                                             "conclusion": "cancelled"}}
+    assert "ignored" in client.post("/api/webhooks/ci", json=cancelled).json()
+
 
 def test_pulse_shape_and_season(client):
     from app.services import pulse
@@ -78,22 +96,31 @@ def test_pulse_shape_and_season(client):
     assert "standup_chain" in p and "season_totals" in p
 
 
-def test_standup_chain_counts_full_participation(fresh_db):
+def test_standup_chain_roster_is_participation_based(fresh_db):
+    import datetime
+
     from app.services import collab, pulse, users
 
     users.ensure_user("a")
     users.ensure_user("b")
+    users.ensure_user("anonymous")          # pre-name-pick frontend traffic
     users.ensure_user("bot", kind="agent")  # agents don't break the chain
+
+    # nobody has ever posted: no roster, no chain — and no permanent zero
+    assert pulse.standup_chain() == {"chain": 0, "humans": 0}
+
+    weekday = datetime.datetime.now(datetime.timezone.utc).date().weekday() < 5
     collab.post_standup("a", today="x")
     chain = pulse.standup_chain()
-    assert chain["humans"] == 2
-    assert chain["chain"] == 0  # b hasn't posted today; chain not yet earned
+    assert chain["humans"] == 1  # b joins the roster by playing, not by existing
+    if weekday:
+        assert chain["chain"] == 1
 
     collab.post_standup("b", today="y")
-    import datetime
-
-    if datetime.datetime.now(datetime.timezone.utc).date().weekday() < 5:
-        assert pulse.standup_chain()["chain"] == 1
+    chain = pulse.standup_chain()
+    assert chain["humans"] == 2  # anonymous and the agent never count
+    if weekday:
+        assert chain["chain"] == 1
 
 
 def test_ship_it_recap_and_notification(fresh_db, monkeypatch):

@@ -27,19 +27,23 @@ def update_engagement(engagement_id: int, status: str = "", summary: str = "",
                       lead: str = "", *, actor: str = "system", origin: str = "human") -> dict:
     if status and status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
+    current = db.query_one("SELECT status FROM engagements WHERE id = ?", (engagement_id,))
+    if not current:
+        raise ValueError(f"engagement #{engagement_id} not found")
+    freshly_closed = status == "closed" and current["status"] != "closed"
     fields = {k: v for k, v in
               [("status", status), ("summary", summary), ("lead", lead)] if v}
     if not fields:
         raise ValueError("nothing to update")
-    if status == "closed":
-        fields["closed_at"] = db.now()
+    if freshly_closed:
+        fields["closed_at"] = db.now()  # re-closing must not re-fire ship-it
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",
         (*fields.values(), db.now(), engagement_id),
     )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
-    if status == "closed":
+    if freshly_closed:
         _ship_it(engagement_id, actor=actor)
     return {"id": engagement_id, "updated": list(fields)}
 
@@ -63,9 +67,11 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
         "tasks_done": db.query_one(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
             " WHERE m.project = ? AND t.status = 'done'", (name,)),
-        "decisions": db.query_one("SELECT COUNT(*) AS n FROM decisions"),
+        # scoped to this engagement's lifetime — the recap must be honest
         "blockers_survived": db.query_one(
-            "SELECT COUNT(*) AS n FROM blockers WHERE status = 'resolved'"),
+            "SELECT COUNT(*) AS n FROM blockers WHERE status = 'resolved'"
+            " AND created_at >= ? AND created_at <= ?",
+            (eng["started_at"] or "0", eng["closed_at"] or "9")),
     }
     recap = (
         f"🚢 **Shipped: {name}**"

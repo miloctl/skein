@@ -13,6 +13,8 @@ DEFAULT_ESCALATION_HOURS = {"low": 72, "medium": 24, "high": 8, "critical": 2}
 def raise_blocker(title: str, detail: str = "", owner: str = "", impact: str = "medium",
                   task_id: int = 0, source: str = "", escalate_after_hours: int = 0,
                   *, actor: str = "system", origin: str = "human") -> dict:
+    if not title.strip():
+        raise ValueError("blocker title is required")
     if impact not in IMPACTS:
         raise ValueError(f"impact must be one of {IMPACTS}")
     if task_id and not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):

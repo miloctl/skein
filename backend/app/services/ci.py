@@ -44,9 +44,16 @@ def parse_github_actions(payload: dict) -> dict | None:
     run = payload.get("workflow_run")
     if not run or run.get("status") != "completed":
         return None
+    conclusion = run.get("conclusion")
+    if conclusion == "success":
+        status = "success"
+    elif conclusion in ("failure", "timed_out"):
+        status = "failure"
+    else:  # cancelled, skipped, action_required, neutral, stale — not a red build
+        return None
     return {
-        "repo": payload.get("repository", {}).get("full_name", ""),
+        "repo": (payload.get("repository") or {}).get("full_name", ""),
         "branch": run.get("head_branch", ""),
-        "status": "success" if run.get("conclusion") == "success" else "failure",
+        "status": status,
         "run_url": run.get("html_url", ""),
     }

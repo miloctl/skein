@@ -24,10 +24,20 @@ def season() -> dict:
 
 
 def standup_chain() -> dict:
-    """Consecutive weekdays where every active human posted a standup.
-    One shared number — the team holds the chain together."""
+    """Consecutive weekdays where every participating human posted a standup.
+    One shared number — the team holds the chain together.
+
+    Roster = active humans who posted at least one standup in the last 30 days.
+    This keeps 'anonymous' rows, typo'd X-User names, and service accounts from
+    zeroing the chain forever — you join the chain by playing."""
+    cutoff = (_today() - timedelta(days=30)).isoformat()
     humans = [u["name"] for u in db.query(
-        "SELECT name FROM users WHERE kind = 'human' AND active = 1")]
+        "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"
+        " AND u.name != 'anonymous'"
+        " AND EXISTS (SELECT 1 FROM standups s WHERE s.author = u.name"
+        "             AND s.created_at >= ?)",
+        (cutoff,),
+    )]
     if not humans:
         return {"chain": 0, "humans": 0}
     chain = 0
@@ -52,7 +62,7 @@ def standup_chain() -> dict:
 
 
 def blocker_speedrun() -> list[dict]:
-    """Median + best clear time per impact tier, this season. Raising blockers
+    """Average + best clear time per impact tier, this season. Raising blockers
     is scoring, not failing — only clear times are shown, never who."""
     start = season()["start"]
     rows = db.query(

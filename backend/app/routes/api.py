@@ -157,6 +157,16 @@ def delete_key(key_id: int, user: CurrentUser):
     return api_keys.revoke_key(key_id, user)
 
 
+@router.get("/admin/keys")
+def get_all_keys(user: CurrentUser):
+    return api_keys.list_all_keys()
+
+
+@router.post("/admin/keys/revoke-all")
+def post_revoke_all_keys(user: CurrentUser):
+    return api_keys.revoke_all_keys(actor=user)
+
+
 @router.get("/notifications")
 def get_notifications(user: CurrentUser, unread_only: bool = True):
     return notifications.list_notifications(user, unread_only)

@@ -56,3 +56,20 @@ def revoke_key(key_id: int, owner: str) -> dict:
         raise ValueError(f"key #{key_id} not found (or not yours)")
     db.log_activity(owner, "revoke_api_key", f"#{key_id}")
     return {"id": key_id, "active": False}
+
+
+def list_all_keys() -> list[dict]:
+    """Team-wide key visibility (trust model: everyone is admin). Makes hidden
+    keys minted under a spoofed identity discoverable and revocable."""
+    return db.query(
+        "SELECT id, prefix, owner, label, active, created_at, last_used_at"
+        " FROM api_keys ORDER BY active DESC, id DESC"
+    )
+
+
+def revoke_all_keys(*, actor: str) -> dict:
+    """Kill switch: revoke every active key (e.g. after rotating the shared
+    token, so a leaked token can't have left durable access behind)."""
+    n = db.execute_rowcount("UPDATE api_keys SET active = 0 WHERE active = 1")
+    db.log_activity(actor, "revoke_all_api_keys", f"{n} keys")
+    return {"revoked": n}
