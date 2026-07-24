@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (13 rule IDs across 12 entries)
+## The findings rules (14 rule IDs across 13 entries)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -67,5 +67,6 @@ within a week even on severity change.
 10. **Question aging** — any open >5d; digest names the question, only the private nudge names the assignee.
 11. **Decision decay** — stale ≥3 or ≥25% of non-superseded corpus.
 12. **Token spend anomaly** — weekly ≥2× median of prior 4 weeks AND above an absolute floor.
+13. **Job stale** — a registered scheduled job with no successful run within 2× its period (from `job_outcomes`); never fires on a fresh install (needs ≥1 recorded attempt older than the threshold); subject = job name.
 
-(13. Forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
+(14. Forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)

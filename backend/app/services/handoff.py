@@ -14,7 +14,8 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     name = eng["name"]
 
     milestones = db.query(
-        "SELECT * FROM milestones WHERE project = ? ORDER BY due_date IS NULL, due_date", (name,)
+        "SELECT * FROM milestones WHERE engagement_id = ? ORDER BY due_date IS NULL, due_date",
+        (engagement_id,),
     )
     mil_ids = [m["id"] for m in milestones]
     tasks = (
@@ -28,7 +29,7 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     )
     from .portfolio import _linked_blockers
 
-    blockers = _linked_blockers(name)  # this engagement's, not the whole platform's
+    blockers = _linked_blockers(engagement_id)  # this engagement's, not the whole platform's
     questions = db.query("SELECT * FROM questions WHERE status = 'open'")
     decisions = db.query("SELECT * FROM decisions ORDER BY id DESC LIMIT 20")
     pending = db.query("SELECT * FROM pending_changes WHERE status = 'pending'")

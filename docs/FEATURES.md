@@ -91,7 +91,7 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 
 | Feature | How |
 |---|---|
-| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | a dozen deterministic rules — 13 distinct rule IDs, spec in docs/INSIGHTS.md over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
+| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | a dozen deterministic rules — 14 distinct rule IDs, spec in docs/INSIGHTS.md over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens, scheduled jobs; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
 | `/insights` page | findings feed (receipts on click) + team-rolled trends: rolling-28d blocker MTTR (median/P85, n shown, verdicts withheld under n=8), automation ratio by month (co-presented with review verdicts), intake funnel, weekly token spend, adoption |
 | Adoption telemetry | `tool_usage` (day × user × surface), `GET /api/adoption`; measures the tool's reach, never people's output |
 | Anti-surveillance rule | person-level data only for planning the future (capacity, private nudges, My Day); team aggregates only for judging the past — enforced in the service layer, no person-keyed insight endpoints exist |
@@ -115,7 +115,7 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 | Feature | How |
 |---|---|
 | Migrations | append-only numbered SQL, per-migration `BEGIN IMMEDIATE` transactions, `schema_version` |
-| Scheduler (UTC) | hourly blocker sweep · 03:00 backup · 05:00 context pack · 05:15 forecast snapshot · 06:00 Mon weekly plan · 06:15 Mon stale-WIP nudge · 06:30 stale decisions · 06:50 findings · 07:00 digest · 07:05/15:05 notification flush — all idempotent via `claim_job` CAS or status flips |
+| Scheduler (UTC) | one `JOBS` registry (`services/jobs.py`) drives cron + startup catch-ups: hourly blocker sweep · 03:00 backup · 05:00 context pack · 05:15 forecast snapshot · 06:00 Mon weekly plan · 06:15 Mon stale-WIP nudge · 06:30 stale decisions · 06:50 findings · 07:00 digest · 07:05/15:05 notification flush · monthly retention prune (1st, 04:00) — all idempotent via `claim_job` CAS or status flips; every run records status/duration to `job_outcomes`; `/health` reports last success + stale flag per job |
 | Backups & export | atomic daily SQLite backups (keep 14) + JSON export, `STRANDS_BACKUP_DIR` to relocate, `STRANDS_BACKUP_MIRROR` copies each backup off-box (keep 30) — this deploy mirrors to the NAS mount |
 | CI | Gitea Actions (`.gitea/workflows/ci.yml`): pytest + frontend build per push; runner `the runner host` registered repo-level, runs as the `act-runner` systemd user service (docker mode, linger enabled) |
 | Docker | multi-stage frontend image, slim non-root backend image, healthchecks, single `STRANDS_HOST` knob, named `strands-data` volume |

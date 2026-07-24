@@ -7,16 +7,7 @@ from fastapi.responses import JSONResponse
 
 from . import config, db
 from .routes import api, chat, slack, webhooks
-from .services import (
-    admin,
-    blockers,
-    collab,
-    context_pack,
-    digest,
-    notifications,
-    portfolio,
-    weekly,
-)
+from .services.jobs import JOBS, job_health, run_job
 from .telemetry import setup_telemetry
 
 logging.basicConfig(
@@ -26,132 +17,31 @@ logging.basicConfig(
 log = logging.getLogger("strands")
 
 
-def _job(name, fn):
-    """Wrap a scheduled job with start/finish/error logging."""
-
-    def run():
-        log.info("job %s: start", name)
-        try:
-            result = fn()
-            log.info("job %s: done %s", name, result if result is not None else "")
-        except Exception:
-            log.exception("job %s: FAILED", name)
-
-    return run
-
-
 def _start_scheduler():
-    """Programmatic background jobs (UTC): hourly blocker escalation sweep,
-    daily digest (07:00), twice-daily notification flush (07:05 / 15:05),
-    daily backup (03:00), Monday weekly-plan draft (06:00) + stale-WIP nudge
-    (06:15), daily stale-decision sweep (06:30), daily context-pack refresh
-    (05:00), daily forecast snapshot (05:15), daily findings run (06:50). Jobs are once-only via db.claim_job or CAS status flips, so an
-    accidental multi-worker deployment can't double-run them."""
+    """Background jobs (UTC), one per services.jobs.JOBS entry. Jobs are
+    once-only via db.claim_job or CAS status flips, so an accidental
+    multi-worker deployment can't double-run them."""
     from apscheduler.schedulers.background import BackgroundScheduler
 
     scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
-    scheduler.add_job(
-        _job("blocker-sweep", blockers.sweep_escalations), "interval", hours=1, id="blocker-sweep"
-    )
-    scheduler.add_job(
-        _job("daily-digest", lambda: digest.publish_digest(actor="scheduler")),
-        "cron",
-        hour=7,
-        minute=0,
-        id="daily-digest",
-    )
-    scheduler.add_job(
-        _job("notification-flush", lambda: notifications.flush_digest_tier(claim=True)),
-        "cron",
-        hour="7,15",
-        minute=5,
-        id="notification-flush",
-    )
-    scheduler.add_job(
-        _job("daily-backup", admin.backup_if_stale), "cron", hour=3, minute=0, id="daily-backup"
-    )
-    scheduler.add_job(
-        _job("weekly-plan", lambda: weekly.propose_weekly_plan(actor="scheduler")),
-        "cron",
-        day_of_week="mon",
-        hour=6,
-        minute=0,
-        id="weekly-plan",
-    )
-    scheduler.add_job(
-        _job("stale-wip-nudge", portfolio.nudge_stale_wip),
-        "cron",
-        day_of_week="mon",
-        hour=6,
-        minute=15,
-        id="stale-wip-nudge",
-    )
-    scheduler.add_job(
-        _job("stale-decisions", collab.sweep_stale_decisions),
-        "cron",
-        hour=6,
-        minute=30,
-        id="stale-decisions",
-    )
-    scheduler.add_job(
-        _job("context-pack", lambda: context_pack.publish_pack(actor="scheduler")),
-        "cron",
-        hour=5,
-        minute=0,
-        id="context-pack",
-    )
-    from .services.adoption import snapshot_forecasts
-
-    scheduler.add_job(
-        _job("forecast-snapshot", snapshot_forecasts),
-        "cron",
-        hour=5,
-        minute=15,
-        id="forecast-snapshot",
-    )
-    from .services.insights import run_findings
-
-    scheduler.add_job(
-        _job("findings", lambda: run_findings(actor="scheduler")),
-        "cron",
-        hour=6,
-        minute=50,
-        id="findings",
-    )
+    for spec in JOBS:
+        scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **spec.trigger)
     scheduler.start()
     return scheduler
-
-
-def _startup_forecast_snapshot():
-    from .services.adoption import snapshot_forecasts
-
-    return snapshot_forecasts()
-
-
-def _startup_findings():
-    from .services.insights import run_findings
-
-    return run_findings(actor="scheduler")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()  # a failed migration SHOULD abort startup — everything else must not
-    # weekly-plan/nudge claims make the catch-up calls idempotent — they fill
-    # in for cron firings missed while the process was down (no misfire replay)
-    for name, fn in (
-        ("startup-backup", admin.backup_if_stale),
-        ("startup-sweep", blockers.sweep_escalations),
-        ("startup-weekly-plan", lambda: weekly.propose_weekly_plan(actor="scheduler")),
-        ("startup-wip-nudge", portfolio.nudge_stale_wip),
-        ("startup-forecast-snapshot", _startup_forecast_snapshot),
-        ("startup-findings", _startup_findings),
-    ):
-        try:
-            fn()
-        except Exception:
-            log.exception("%s failed (continuing startup)", name)
+    # claim-guarded catch-up runs fill in for cron firings missed while the
+    # process was down (no misfire replay); run_job never raises
+    for spec in JOBS:
+        if spec.catch_up:
+            run_job(spec)
     setup_telemetry()
+    from .agents.narrator import register_narrator
+
+    register_narrator()  # composition root: agents plug into services here
     scheduler = _start_scheduler() if config.SCHEDULER_ENABLED else None
     yield
     if scheduler:
@@ -215,4 +105,9 @@ app.include_router(webhooks.router)
 
 @app.get("/health")
 def health():
-    return {"ok": True, "provider": config.MODEL_PROVIDER, "model": config.MODEL_ID}
+    return {
+        "ok": True,
+        "provider": config.MODEL_PROVIDER,
+        "model": config.MODEL_ID,
+        "jobs": job_health(),
+    }

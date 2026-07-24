@@ -61,7 +61,20 @@ def instantiate(
 ) -> dict:
     pb = get_playbook(slug)
     start = date.fromisoformat(start_date) if start_date else datetime.now(timezone.utc).date()
+    with db.transaction():
+        return _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
 
+
+def _instantiate(
+    pb: dict,
+    slug: str,
+    engagement_name: str,
+    lead: str,
+    start: date,
+    *,
+    actor: str,
+    origin: str,
+) -> dict:
     eng = engagements.create_engagement(
         name=engagement_name,
         project_class=pb.get("project_class", slug),

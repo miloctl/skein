@@ -211,7 +211,18 @@ def context_pack_resource() -> str:
 
 
 def main() -> None:
-    db.init_db()
+    # a long-lived side process must never apply schema — that is the API
+    # server's job (migrations + startup jobs belong to one owner)
+    pending = db.pending_migrations()
+    if pending:
+        import sys
+
+        print(
+            f"skein-mcp: {len(pending)} pending migration(s): {', '.join(pending)}."
+            " Start the API server (or run app.db.init_db()) first, then retry.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     mcp.run()  # stdio transport
 
 

@@ -13,9 +13,9 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .. import db
 from ..agents.team_agent import build_agent
 from ..config import MODEL_ID
+from ..services.usage import record_chat_usage
 from .deps import CurrentUser
 
 router = APIRouter()
@@ -36,20 +36,14 @@ def _log_usage(agent, thread_id: str) -> None:
         output_t = int(usage.get("outputTokens", 0))
         if not (input_t or output_t):
             return
-        db.execute(
-            "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
-            " output_tokens, cycles, latency_ms, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                thread_id,
-                "chief-of-staff",
-                MODEL_ID,
-                input_t,
-                output_t,
-                int(getattr(metrics, "cycle_count", 0)),
-                int(latency.get("latencyMs", 0)),
-                db.now(),
-            ),
+        record_chat_usage(
+            thread_id=thread_id,
+            agent_name="chief-of-staff",
+            model_id=MODEL_ID,
+            input_tokens=input_t,
+            output_tokens=output_t,
+            cycles=int(getattr(metrics, "cycle_count", 0)),
+            latency_ms=int(latency.get("latencyMs", 0)),
         )
     except Exception:
         pass

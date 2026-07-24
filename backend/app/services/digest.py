@@ -2,18 +2,20 @@
 is configured with keys, the digest is additionally narrated by the agent —
 otherwise the markdown is published as-is."""
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .. import config, db
 from . import collab
+from .slas import DIGEST_STALLED_DAYS
 
 
 def _utc_today():
     return datetime.now(timezone.utc).date()
 
 
-def _stalled_tasks(days: int = 3) -> list[dict]:
+def _stalled_tasks(days: int = DIGEST_STALLED_DAYS) -> list[dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
     return db.query(
         "SELECT * FROM tasks WHERE status = 'in_progress' AND updated_at < ?", (cutoff,)
@@ -73,7 +75,7 @@ def build_digest() -> str:
 
     stalled = _stalled_tasks()
     if stalled:
-        lines.append("## 🐌 Stalled tasks (no update in 3+ days)")
+        lines.append(f"## 🐌 Stalled tasks (no update in {DIGEST_STALLED_DAYS}+ days)")
         lines += [f"- #{t['id']} {t['title']} (@{t['assignee'] or 'unassigned'})" for t in stalled]
         lines.append("")
 
@@ -116,24 +118,22 @@ def build_digest() -> str:
     return "\n".join(lines)
 
 
+# LLM enhancement point: the agent layer registers a narrator at startup
+# (agents/narrator.py) — services never import agents, so publishing works
+# identically when the digest runs without an app process (tests, CLI).
+_narrator: Callable[[str], str] | None = None
+
+
+def set_narrator(fn: Callable[[str], str] | None) -> None:
+    global _narrator
+    _narrator = fn
+
+
 def _narrate(markdown: str) -> str:
-    """LLM enhancement point: summarize the digest in 3 sentences on top.
-    Silently skipped when no provider/keys are available (mock included)."""
-    if config.MODEL_PROVIDER == "mock":
+    if _narrator is None:
         return markdown
     try:
-        from strands import Agent
-
-        from ..agents.team_agent import _model
-
-        agent = Agent(
-            model=_model(),
-            callback_handler=None,
-            system_prompt="You summarize team status digests. Reply with exactly"
-            " a 2-3 sentence executive summary, nothing else.",
-        )
-        summary = str(agent(f"Summarize this digest:\n\n{markdown}")).strip()
-        return f"> {summary}\n\n{markdown}"
+        return _narrator(markdown)
     except Exception:
         return markdown
 

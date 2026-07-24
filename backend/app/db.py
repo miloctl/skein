@@ -1,13 +1,19 @@
 """Thin SQLite layer. One connection per operation keeps this thread-safe
-under uvicorn without a pool. Schema lives in ../migrations/*.sql."""
+under uvicorn without a pool; db.transaction() gives compound writes one
+shared connection instead. Schema lives in ../migrations/*.sql."""
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DB_PATH
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+
+_ambient: ContextVar[sqlite3.Connection | None] = ContextVar("strands_txn", default=None)
 
 
 def now() -> str:
@@ -67,7 +73,56 @@ def init_db() -> None:
         conn.close()
 
 
+@contextmanager
+def transaction() -> Iterator[None]:
+    """Every db.* call inside the block shares one connection and commits
+    atomically at exit; any exception rolls the whole block back. Nested
+    blocks join the outer transaction. Context-local, so concurrent requests
+    (threads or tasks) never share a transaction."""
+    if _ambient.get() is not None:
+        yield
+        return
+    conn = connect()
+    conn.isolation_level = None  # explicit transaction control
+    token = _ambient.set(conn)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        _ambient.reset(token)
+        conn.close()
+
+
+def pending_migrations() -> list[str]:
+    """Migration files not yet recorded in schema_version (all of them when
+    the database doesn't exist yet). Lets long-lived side processes (MCP)
+    refuse to start instead of racing the API server to apply schema."""
+    names = [p.name for p in sorted(MIGRATIONS_DIR.glob("*.sql"))]
+    if not Path(DB_PATH).exists():
+        return names
+    conn = connect()
+    try:
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
+        ).fetchone()
+        if not has_table:
+            return names
+        applied = {
+            r["version"] for r in conn.execute("SELECT version FROM schema_version").fetchall()
+        }
+    finally:
+        conn.close()
+    return [n for n in names if n not in applied]
+
+
 def query(sql: str, params: tuple = ()) -> list[dict]:
+    ambient = _ambient.get()
+    if ambient is not None:
+        return [dict(r) for r in ambient.execute(sql, params).fetchall()]
     with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
@@ -88,6 +143,9 @@ def query_row(sql: str, params: tuple = ()) -> dict:
 
 def execute(sql: str, params: tuple = ()) -> int:
     """Run a write statement, return lastrowid."""
+    ambient = _ambient.get()
+    if ambient is not None:
+        return ambient.execute(sql, params).lastrowid or 0
     with connect() as conn:
         cur = conn.execute(sql, params)
         conn.commit()
@@ -97,6 +155,9 @@ def execute(sql: str, params: tuple = ()) -> int:
 def execute_rowcount(sql: str, params: tuple = ()) -> int:
     """Run a write statement, return the number of affected rows (for
     compare-and-swap guards like `... WHERE status = 'pending'`)."""
+    ambient = _ambient.get()
+    if ambient is not None:
+        return ambient.execute(sql, params).rowcount
     with connect() as conn:
         cur = conn.execute(sql, params)
         conn.commit()
@@ -106,13 +167,13 @@ def execute_rowcount(sql: str, params: tuple = ()) -> int:
 def claim_job(job: str, run_key: str) -> bool:
     """CAS-style once-only claim for scheduled jobs (digest, flush, backup) so
     accidental multi-worker deployments can't double-run them."""
-    with connect() as conn:
-        cur = conn.execute(
+    return (
+        execute_rowcount(
             "INSERT OR IGNORE INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)",
             (job, run_key, now()),
         )
-        conn.commit()
-        return cur.rowcount == 1
+        == 1
+    )
 
 
 def log_activity(actor: str, action: str, detail: str = "") -> None:

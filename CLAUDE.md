@@ -46,6 +46,9 @@ npm run build   # verify compile (run before committing frontend changes)
 ./lint.sh       # all lint gates CI runs: ruff + mypy + vulture + eslint + knip
 ```
 
+Run `./lint.sh` before every commit — it is the exact gate CI runs; a commit
+that hasn't passed it will fail on push-to-main.
+
 ## Architecture map
 
 - `backend/app/services/` — all business logic + SQL (the only write path)

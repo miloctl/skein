@@ -320,25 +320,35 @@ Top 10.)*
 
 # Engineering backlog — from the full-project architecture review (2026-07-24)
 
-Deliberately deferred (recorded so nobody re-derives them). Done in the same
-review cycle: milestone `engagement_id` link, unified MCP/tool gate, handoff
-scoping, export coverage, indexes, allocations provenance.
+Done in the same review cycle: milestone `engagement_id` link, unified
+MCP/tool gate, handoff scoping, export coverage, indexes, allocations
+provenance.
 
-1. `db.transaction()` context manager (ambient connection via contextvar);
-   convert `playbooks.instantiate` and `intake.disposition_request` first.
-   Compound-write correctness is currently hand-verified per function.
-2. Job registry: one `JOBS` tuple driving cron + startup catch-ups; record
-   outcomes (status/duration/error) per run; surface last-success on /health;
-   findings rule "job X hasn't succeeded in 2x its period".
-3. Migrate the six name-join read sites (portfolio/handoff/ship-it/forecast)
-   from `m.project = e.name` to `m.engagement_id` (column exists + backfilled).
-4. Retention: monthly prune of forecast_snapshots (>1y), read notifications
-   (>90d), job_runs (>90d). activity is the provenance ledger — keep forever.
-5. Staleness SLA constants module (3d digest-stalled / 7d stale-WIP /
-   14d aging-WIP are a deliberate gradation — write it down in code).
-6. Extract `readout.py` to break the portfolio<->insights import cycle.
-7. `services/usage.py` for chat token logging (last raw SQL outside services);
-   digest narrator hook inverted so the core never imports the agent layer.
-8. MCP long-lived processes: fail on pending migrations instead of applying.
+Items 1–8 shipped 2026-07-24 (backlog burn-down; tests in
+`tests/test_backlog.py`):
+
+1. ~~`db.transaction()` context manager~~ — contextvar ambient connection in
+   `db.py`; `playbooks.instantiate` and `intake.disposition_request` converted.
+2. ~~Job registry~~ — `services/jobs.py` `JOBS` tuple drives cron + startup
+   catch-ups; per-run outcomes in `job_outcomes` (migration 013); last-success
+   + stale flag on `/health`; `job_stale` findings rule at 2× period.
+3. ~~Name-join migration~~ — health/ship-it/handoff/forecast now join on
+   `m.engagement_id`; `create_engagement` adopts orphan milestones created
+   under the name before the engagement existed.
+4. ~~Retention~~ — `services/retention.py`, monthly (1st, 04:00 UTC):
+   forecast_snapshots >1y, read notifications >90d, job_runs/job_outcomes
+   >90d. activity is the provenance ledger — kept forever.
+5. ~~Staleness SLA constants~~ — `services/slas.py` (3d/7d/14d gradation).
+6. ~~Extract `readout.py`~~ — composes portfolio + insights with top-level
+   imports; the deferred-import workarounds are gone.
+7. ~~`services/usage.py`~~ — chat token logging out of `routes/chat.py`;
+   digest narrator inverted (`digest.set_narrator`, registered from
+   `agents/narrator.py` at startup) so services never import the agent layer.
+8. ~~MCP migration guard~~ — `db.pending_migrations()`; `mcp_server.main`
+   exits instead of applying schema from a long-lived side process.
+
+Still open:
+
 9. Runner isolation: move CI to an ephemeral sandboxed host before ever
    re-adding a pull_request trigger; consider rootless docker for the runner.
+   (Ops work on the runner host, not a repo change.)

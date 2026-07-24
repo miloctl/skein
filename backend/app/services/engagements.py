@@ -28,6 +28,12 @@ def create_engagement(
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, project_class, summary, lead, ts, origin, actor, ts, ts),
     )
+    # adopt milestones created under this name before the engagement existed —
+    # health/handoff/ship-it join on engagement_id, not the display name
+    db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE project = ? AND engagement_id IS NULL",
+        (eid, name),
+    )
     db.log_activity(actor, "create_engagement", f"#{eid} {name} [{project_class}]")
     index_record("engagement", eid, name, f"{summary} {project_class} {lead}")
     return {"id": eid, "name": name, "project_class": project_class, "status": "active"}
@@ -83,12 +89,12 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
         days = f"{int(delta)} days" if delta is not None else ""
     stats = {
         "milestones": db.query_row(
-            "SELECT COUNT(*) AS n FROM milestones WHERE project = ?", (name,)
+            "SELECT COUNT(*) AS n FROM milestones WHERE engagement_id = ?", (engagement_id,)
         ),
         "tasks_done": db.query_row(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND t.status = 'done'",
-            (name,),
+            " WHERE m.engagement_id = ? AND t.status = 'done'",
+            (engagement_id,),
         ),
         # scoped to THIS engagement's linked blockers — the recap must be honest
         # (a time-window count silently absorbed unrelated blockers)
@@ -96,8 +102,8 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
             "SELECT COUNT(*) AS n FROM blockers b"
             " JOIN tasks t ON t.id = b.task_id"
             " JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND b.status = 'resolved'",
-            (name,),
+            " WHERE m.engagement_id = ? AND b.status = 'resolved'",
+            (engagement_id,),
         ),
     }
     recap = (

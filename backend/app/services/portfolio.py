@@ -3,24 +3,21 @@ slip forecasting, what-if intake, and the exec readout. All deterministic SQL
 over data the team already records — receipts shown for every verdict."""
 
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 
-from .. import config, db
-
-STALE_WIP_DAYS = 7
-SILENCE_DAYS = 7
+from .. import db
+from .slas import SILENCE_DAYS, STALE_WIP_DAYS
 
 
 def _today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def _linked_blockers(engagement_name: str) -> list[dict]:
+def _linked_blockers(engagement_id: int) -> list[dict]:
     return db.query(
         "SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id"
         " JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE m.project = ? AND b.status != 'resolved'",
-        (engagement_name,),
+        " WHERE m.engagement_id = ? AND b.status != 'resolved'",
+        (engagement_id,),
     )
 
 
@@ -33,13 +30,13 @@ def engagement_health() -> list[dict]:
         name = eng["name"]
         receipts = []
         overdue = db.query(
-            "SELECT id, title, due_date FROM milestones WHERE project = ?"
+            "SELECT id, title, due_date FROM milestones WHERE engagement_id = ?"
             " AND status != 'done' AND due_date IS NOT NULL AND due_date < ?",
-            (name, today),
+            (eng["id"], today),
         )
         for m in overdue:
             receipts.append(f"milestone #{m['id']} '{m['title']}' overdue since {m['due_date']}")
-        blocked = _linked_blockers(name)
+        blocked = _linked_blockers(eng["id"])
         escalated = [b for b in blocked if b["status"] == "escalated"]
         for b in escalated:
             receipts.append(f"blocker #{b['id']} '{b['title']}' is escalated")
@@ -49,8 +46,8 @@ def engagement_health() -> list[dict]:
         stale = db.query(
             "SELECT t.id, t.title, t.assignee FROM tasks t"
             " JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND t.status = 'in_progress' AND t.updated_at < ?",
-            (name, stale_cutoff),
+            " WHERE m.engagement_id = ? AND t.status = 'in_progress' AND t.updated_at < ?",
+            (eng["id"], stale_cutoff),
         )
         for t in stale:
             receipts.append(
@@ -59,13 +56,13 @@ def engagement_health() -> list[dict]:
             )
         last = db.query_one(
             "SELECT MAX(t.updated_at) AS ts FROM tasks t"
-            " JOIN milestones m ON m.id = t.milestone_id WHERE m.project = ?",
-            (name,),
+            " JOIN milestones m ON m.id = t.milestone_id WHERE m.engagement_id = ?",
+            (eng["id"],),
         )
         open_tasks = db.query_one(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND t.status != 'done'",
-            (name,),
+            " WHERE m.engagement_id = ? AND t.status != 'done'",
+            (eng["id"],),
         )
         silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
         silent = bool(
@@ -196,7 +193,7 @@ def slip_forecast() -> dict:
     applied = max(0.0, avg_slip)
     forecasts = []
     for m in db.query(
-        "SELECT m.* FROM milestones m JOIN engagements e ON e.name = m.project"
+        "SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id"
         " WHERE e.status != 'closed' AND m.status != 'done'"
         " AND m.due_date IS NOT NULL ORDER BY m.due_date"
     ):
@@ -259,89 +256,3 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
         "projection": projection,
         "conflicts": [p for p in projection if p["overcommitted"]],
     }
-
-
-def exec_readout(*, actor: str = "system") -> dict:
-    """Curated executive projection — never a raw table dump. Written as a
-    markdown artifact so it can be forwarded as-is."""
-    from .pulse import season
-
-    health = engagement_health()
-    conflicts = allocation_conflicts()
-    flow = flow_metrics()
-    s = season()
-    shipped = db.query(
-        "SELECT name, closed_at FROM engagements WHERE status = 'closed'"
-        " AND closed_at >= ? ORDER BY closed_at DESC",
-        (s["start"],),
-    )
-    due_soon = db.query(
-        "SELECT * FROM commitments WHERE status = 'open' AND due_date IS NOT NULL"
-        " AND due_date <= ? ORDER BY due_date",
-        ((_today() + timedelta(days=14)).isoformat(),),
-    )
-    escalated = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
-
-    dot = {"red": "🔴", "yellow": "🟡", "green": "🟢"}
-    lines = [f"# Exec readout — {_today().isoformat()} ({s['label']})", ""]
-    lines.append("## Engagements")
-    for h in health:
-        lines.append(
-            f"- {dot[h['health']]} **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'})"
-        )
-        for r in h["receipts"][:3]:
-            lines.append(f"  - {r}")
-    if not health:
-        lines.append("- none active")
-    lines += ["", "## Shipped this season"]
-    lines += [f"- {r['name']} ({r['closed_at'][:10]})" for r in shipped] or ["- none yet"]
-    lines += ["", "## Top risks"]
-    risk_lines = [f"- Escalated blocker #{b['id']}: {b['title']}" for b in escalated]
-    risk_lines += [f"- {c['person']} at {c['total_percent']}% ({c['detail']})" for c in conflicts]
-    lines += risk_lines or ["- none flagged"]
-    from .insights import digest_findings
-
-    findings = digest_findings()
-    if findings:
-        lines += ["", "## This week's findings"]
-        lines += [f"- [{f['severity']}] {f['message']}" for f in findings]
-    lines += ["", "## External commitments due in 14 days"]
-    lines += [
-        f"- {c['due_date']}: {c['promise']} (to {c['to_whom'] or 'unspecified'})" for c in due_soon
-    ] or ["- none recorded"]
-    ct = flow["cycle_time"]
-    lines += [
-        "",
-        "## Flow",
-        f"- {ct['tasks_done']} tasks done in 8 weeks"
-        + (
-            f", median cycle {ct['median_days']}d, avg {ct['avg_days']}d"
-            if ct["tasks_done"]
-            else ""
-        ),
-        "- WIP: "
-        + (", ".join(f"{w['person']} {w['in_progress']}" for w in flow["wip_by_person"]) or "none"),
-    ]
-    markdown = "\n".join(lines)
-
-    readout_dir = Path(config.DATA_DIR) / "artifacts" / "portfolio"
-    readout_dir.mkdir(parents=True, exist_ok=True)
-    path = readout_dir / f"{_today().isoformat()}-exec-readout.md"
-    path.write_text(markdown)
-    # same-day reruns overwrite the file, so upsert the artifact row too —
-    # N rows pointing at one file would imply history that doesn't exist
-    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
-    if existing:
-        aid = existing["id"]
-        db.execute(
-            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
-            (actor, db.now(), aid),
-        )
-    else:
-        aid = db.execute(
-            "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (None, "readout", f"Exec readout {_today().isoformat()}", str(path), actor, db.now()),
-        )
-    db.log_activity(actor, "exec_readout", f"artifact #{aid}")
-    return {"artifact_id": aid, "path": str(path), "markdown": markdown}

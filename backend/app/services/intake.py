@@ -70,6 +70,13 @@ def disposition_request(
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
     if not reason.strip():
         raise ValueError("a reason is required — requesters see it")
+    with db.transaction():
+        return _disposition(request_id, disposition, reason, actor=actor, origin=origin)
+
+
+def _disposition(
+    request_id: int, disposition: str, reason: str, *, actor: str, origin: str
+) -> dict:
     current = db.query_one("SELECT status FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
         raise ValueError(f"intake request #{request_id} not found")

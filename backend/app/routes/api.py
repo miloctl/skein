@@ -25,6 +25,7 @@ from ..services import (
     playbooks,
     portfolio,
     pulse,
+    readout,
     review,
     schedule,
     search,
@@ -220,7 +221,7 @@ def get_portfolio_forecast():
 
 @router.post("/portfolio/readout")
 def post_portfolio_readout(user: CurrentUser):
-    return portfolio.exec_readout(actor=user)
+    return readout.exec_readout(actor=user)
 
 
 class WhatIfIn(BaseModel):

@@ -10,6 +10,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from .. import db
+from .slas import AGING_WIP_DAYS
 
 WINDOW_DAYS = 28
 
@@ -291,7 +292,7 @@ def _r_escalation_spike() -> list[dict]:
 
 
 def _r_aging_wip() -> list[dict]:
-    cutoff = _iso(_today() - timedelta(days=14))
+    cutoff = _iso(_today() - timedelta(days=AGING_WIP_DAYS))
     wip = db.query_one("SELECT COUNT(*) AS n FROM tasks WHERE status = 'in_progress'")
     aging = db.query(
         "SELECT t.id, t.title, m.project,"
@@ -306,7 +307,8 @@ def _r_aging_wip() -> list[dict]:
         _finding(
             "aging_wip",
             "medium",
-            f"{len(aging)} of {wip['n']} in-progress tasks have sat untouched for over two weeks.",
+            f"{len(aging)} of {wip['n']} in-progress tasks have sat untouched"
+            f" for over {AGING_WIP_DAYS} days.",
             {"tasks": aging},
             n=len(aging),
             window="point-in-time",
@@ -587,6 +589,24 @@ def _r_token_anomaly() -> list[dict]:
     return []
 
 
+def _r_job_stale() -> list[dict]:
+    from .jobs import job_health
+
+    return [
+        _finding(
+            "job_stale",
+            "high",
+            f"Scheduled job '{j['job']}' has not succeeded within twice its period"
+            + (f" (last success {j['last_success']})." if j["last_success"] else "."),
+            {"job": j["job"], "last_success": j["last_success"]},
+            subject=j["job"],
+            window="point-in-time",
+        )
+        for j in job_health()
+        if j["stale"]
+    ]
+
+
 RULES = (
     _r_mttr,
     _r_escalation_spike,
@@ -599,6 +619,7 @@ RULES = (
     _r_question_aging,
     _r_decision_decay,
     _r_token_anomaly,
+    _r_job_stale,
 )
 
 
