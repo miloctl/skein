@@ -65,8 +65,13 @@ def _start_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()  # a failed migration SHOULD abort startup — everything else must not
+    # weekly-plan/nudge claims make the catch-up calls idempotent — they fill
+    # in for cron firings missed while the process was down (no misfire replay)
     for name, fn in (("startup-backup", admin.backup_if_stale),
-                     ("startup-sweep", blockers.sweep_escalations)):
+                     ("startup-sweep", blockers.sweep_escalations),
+                     ("startup-weekly-plan",
+                      lambda: weekly.propose_weekly_plan(actor="scheduler")),
+                     ("startup-wip-nudge", portfolio.nudge_stale_wip)):
         try:
             fn()
         except Exception:

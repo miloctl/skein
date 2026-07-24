@@ -66,7 +66,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 export default function Portfolio() {
-  const [health, setHealth] = useState<Health[]>([]);
+  const [health, setHealth] = useState<Health[] | null>(null);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [week, setWeek] = useState<Week | null>(null);
@@ -74,10 +74,13 @@ export default function Portfolio() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [readout, setReadout] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    api<Health[]>("/api/portfolio/health").then(setHealth).catch((e) => setError(String(e)));
+    api<Health[]>("/api/portfolio/health")
+      .then(setHealth)
+      .catch((e) => setBanner(`Load failed: ${e.message ?? e}`));
     api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(() => {});
     api<Flow>("/api/portfolio/flow").then(setFlow).catch(() => {});
     api<Week>("/api/week").then(setWeek).catch(() => {});
@@ -87,39 +90,65 @@ export default function Portfolio() {
 
   useEffect(load, [load]);
 
-  if (error)
-    return <main className="p-8 text-sm text-red-600">Backend unreachable: {error}</main>;
+  // Mutations: never silent — failures land in the banner, and we always
+  // re-fetch so the page shows reality (a teammate may have won the race).
+  const mutate = useCallback(
+    (p: Promise<unknown>) => {
+      setBusy(true);
+      setBanner(null);
+      return p
+        .catch((e) => setBanner(`${e.message ?? e}`))
+        .finally(() => {
+          setBusy(false);
+          load();
+        });
+    },
+    [load],
+  );
 
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+      {banner && (
+        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          <span>{banner}</span>
+          <button onClick={() => setBanner(null)} className="text-xs underline">
+            dismiss
+          </button>
+        </div>
+      )}
       <Card title="Engagement health (receipts shown)">
-        {health.length === 0 && (
+        {health === null ? (
+          <p className="text-sm text-zinc-400">Loading…</p>
+        ) : health.length === 0 ? (
           <p className="text-sm text-zinc-400">No active engagements.</p>
+        ) : (
+          <ul className="space-y-3">
+            {health.map((h) => (
+              <li key={h.id} className="text-sm">
+                <div className="flex items-center gap-2">
+                  <span>{DOT[h.health]}</span>
+                  <span className="font-medium">{h.name}</span>
+                  <span className="text-xs text-zinc-400">
+                    {h.status} · lead {h.lead || "unset"}
+                  </span>
+                </div>
+                {h.receipts.length > 0 && (
+                  <ul className="ml-6 mt-1 list-disc text-xs text-zinc-500">
+                    {h.receipts.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
-        <ul className="space-y-3">
-          {health.map((h) => (
-            <li key={h.id} className="text-sm">
-              <div className="flex items-center gap-2">
-                <span>{DOT[h.health]}</span>
-                <span className="font-medium">{h.name}</span>
-                <span className="text-xs text-zinc-400">
-                  {h.status} · lead {h.lead || "unset"}
-                </span>
-              </div>
-              {h.receipts.length > 0 && (
-                <ul className="ml-6 mt-1 list-disc text-xs text-zinc-500">
-                  {h.receipts.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
       </Card>
 
       <Card title={`Commitment line — ${week?.week ?? ""}`}>
-        {week && week.committed > 0 ? (
+        {week === null ? (
+          <p className="text-sm text-zinc-400">Loading…</p>
+        ) : week.committed > 0 ? (
           <>
             <p className="mb-2 text-sm">
               {week.done}/{week.committed} done
@@ -141,30 +170,32 @@ export default function Portfolio() {
         )}
         <div className="mt-3 flex gap-2">
           <button
-            onClick={() => api<Draft>("/api/week/draft").then(setDraft).catch(() => {})}
+            onClick={() =>
+              api<Draft>("/api/week/draft")
+                .then(setDraft)
+                .catch((e) => setBanner(`${e.message ?? e}`))
+            }
             className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-medium hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
           >
             Draft a plan
           </button>
           {draft && draft.items.length > 0 && (
             <button
+              disabled={busy}
               onClick={() =>
-                api("/api/week/plan", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    week: draft.week,
-                    task_ids: draft.items.map((i) => i.task_id),
+                mutate(
+                  api("/api/week/plan", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      week: draft.week,
+                      task_ids: draft.items.map((i) => i.task_id),
+                    }),
                   }),
-                })
-                  .then(() => {
-                    setDraft(null);
-                    load();
-                  })
-                  .catch(() => {})
+                ).then(() => setDraft(null))
               }
-              className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+              className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              Commit {draft.items.length} task(s)
+              {busy ? "Committing…" : `Commit ${draft.items.length} task(s)`}
             </button>
           )}
         </div>
@@ -277,15 +308,16 @@ export default function Portfolio() {
                     {(["kept", "missed"] as const).map((s) => (
                       <button
                         key={s}
+                        disabled={busy}
                         onClick={() =>
-                          api(`/api/commitments/${c.id}/status`, {
-                            method: "POST",
-                            body: JSON.stringify({ status: s }),
-                          })
-                            .then(load)
-                            .catch(() => {})
+                          mutate(
+                            api(`/api/commitments/${c.id}/status`, {
+                              method: "POST",
+                              body: JSON.stringify({ status: s }),
+                            }),
+                          )
                         }
-                        className="rounded bg-zinc-100 px-2 py-0.5 text-xs hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        className="rounded bg-zinc-100 px-2 py-0.5 text-xs hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                       >
                         {s}
                       </button>
@@ -302,14 +334,17 @@ export default function Portfolio() {
 
       <Card title="Exec readout">
         <button
-          onClick={() =>
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
             api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
               .then((r) => setReadout(r.markdown))
-              .catch(() => {})
-          }
-          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+              .catch((e) => setBanner(`${e.message ?? e}`))
+              .finally(() => setBusy(false));
+          }}
+          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          Generate readout
+          {busy ? "Working…" : "Generate readout"}
         </button>
         {readout && (
           <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-zinc-50 p-3 text-xs dark:bg-zinc-950">

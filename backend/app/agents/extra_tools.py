@@ -1,10 +1,19 @@
 """Opt-in prebuilt tools from the strands-agents-tools package, loaded via
 STRANDS_EXTRA_TOOLS (comma-separated names).
 
-Only allowlisted tools can load. Anything with arbitrary code/filesystem/shell
-access (shell, python_repl, file_write, editor, mcp_client, use_computer, …)
-is deliberately not loadable on the shared server — platform writes go through
-the service layer, with provenance, or not at all."""
+Only allowlisted tools can load, and the allowlist is deliberately small.
+Excluded on security review, not oversight:
+- shell/python_repl/file_read/file_write/editor/use_computer/mcp_client —
+  arbitrary code/filesystem access; platform writes go through the service
+  layer, with provenance, or not at all.
+- http_request — a write-capable HTTP client is a third write path: it can
+  POST to this platform's own REST API with a forged X-User, bypassing the
+  authority matrix, the review gate, and agent provenance (and it has no
+  SSRF egress filter).
+- use_agent/use_llm — the model chooses provider + client_args (base_url),
+  which allows exfiltrating context to an attacker-controlled endpoint.
+- workflow/diagram — model-controlled file paths (traversal) / subprocess.
+"""
 
 import logging
 from functools import lru_cache
@@ -13,25 +22,20 @@ log = logging.getLogger(__name__)
 
 # name -> (module under strands_tools, attribute)
 ALLOWED = {
-    # keyless, no side effects
+    # keyless; verified side-effect-free (calculator sandboxes its evaluator,
+    # batch can only call tools already in the registry — still gated)
     "calculator": ("calculator", "calculator"),
     "current_time": ("current_time", "current_time"),
     "think": ("think", "think"),
     "batch": ("batch", "batch"),
     "sleep": ("sleep", "sleep"),
-    "diagram": ("diagram", "diagram"),
-    # network readers (enable deliberately)
-    "http_request": ("http_request", "http_request"),
+    # external feed reader (has its own storage traversal guard)
     "rss": ("rss", "rss"),
-    # key-gated research (TAVILY_API_KEY / EXA_API_KEY)
+    # key-gated research (TAVILY_API_KEY / EXA_API_KEY; each reads only its key)
     "tavily_search": ("tavily", "tavily_search"),
     "tavily_extract": ("tavily", "tavily_extract"),
     "exa_search": ("exa", "exa_search"),
     "exa_get_contents": ("exa", "exa_get_contents"),
-    # nested-agent orchestration (uses the configured model provider)
-    "use_agent": ("use_agent", "use_agent"),
-    "use_llm": ("use_llm", "use_llm"),
-    "workflow": ("workflow", "workflow"),
 }
 
 

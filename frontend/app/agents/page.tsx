@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 
@@ -35,10 +35,6 @@ type Inbox = {
 };
 
 const LEVELS = ["autonomous", "notify", "review", "forbidden"];
-const ENTITIES = [
-  "task", "milestone", "question", "decision", "note", "blocker",
-  "engagement", "intake", "lesson", "commitment", "delegation",
-];
 
 const LEVEL_COLOR: Record<string, string> = {
   autonomous: "bg-green-100 text-green-700",
@@ -59,28 +55,69 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 export default function Agents() {
-  const [agents, setAgents] = useState<AgentRow[]>([]);
+  const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [trust, setTrust] = useState<Trust[]>([]);
+  const [entities, setEntities] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [entity, setEntity] = useState("task");
   const [level, setLevel] = useState("review");
   const [targetAgent, setTargetAgent] = useState("agent");
-  const [error, setError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inboxGeneration = useRef(0);
 
   const load = useCallback(() => {
-    api<AgentRow[]>("/api/agents").then(setAgents).catch((e) => setError(String(e)));
+    api<AgentRow[]>("/api/agents")
+      .then(setAgents)
+      .catch((e) => setBanner(`Load failed: ${e.message ?? e}`));
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
+    api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
   }, []);
 
   useEffect(load, [load]);
 
-  if (error)
-    return <main className="p-8 text-sm text-red-600">Backend unreachable: {error}</main>;
+  const openInbox = (agent: string) => {
+    const g = ++inboxGeneration.current;
+    api<Inbox>(`/api/agents/${encodeURIComponent(agent)}/inbox`)
+      .then((r) => {
+        if (g === inboxGeneration.current) setInbox(r); // last click wins
+      })
+      .catch((e) => setBanner(`${e.message ?? e}`));
+  };
+
+  const setAuthority = () => {
+    const agent = targetAgent.trim();
+    if (!agent) {
+      setBanner("Agent name is required.");
+      return;
+    }
+    setBusy(true);
+    setBanner(null);
+    api("/api/agents/authority", {
+      method: "POST",
+      body: JSON.stringify({ agent, entity, level }),
+    })
+      .catch((e) => setBanner(`${e.message ?? e}`))
+      .finally(() => {
+        setBusy(false);
+        load();
+      });
+  };
 
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+      {banner && (
+        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          <span>{banner}</span>
+          <button onClick={() => setBanner(null)} className="text-xs underline">
+            dismiss
+          </button>
+        </div>
+      )}
       <Card title="Mission control">
-        {agents.length === 0 ? (
+        {agents === null ? (
+          <p className="text-sm text-zinc-400">Loading…</p>
+        ) : agents.length === 0 ? (
           <p className="text-sm text-zinc-400">
             No agent identities yet — delegate a task or let the chat agent write something.
           </p>
@@ -91,11 +128,7 @@ export default function Agents() {
                 <div className="flex items-center justify-between">
                   <span className="font-medium">🤖 {a.agent}</span>
                   <button
-                    onClick={() =>
-                      api<Inbox>(`/api/agents/${encodeURIComponent(a.agent)}/inbox`)
-                        .then(setInbox)
-                        .catch(() => {})
-                    }
+                    onClick={() => openInbox(a.agent)}
                     className="rounded bg-zinc-100 px-2 py-0.5 text-xs hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                   >
                     inbox
@@ -132,15 +165,22 @@ export default function Agents() {
           <input
             value={targetAgent}
             onChange={(e) => setTargetAgent(e.target.value)}
-            className="w-24 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-700"
-            placeholder="agent"
+            list="agent-names"
+            className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-700"
+            placeholder="agent name"
           />
+          <datalist id="agent-names">
+            {(agents ?? []).map((a) => (
+              <option key={a.agent} value={a.agent} />
+            ))}
+            <option value="agent" />
+          </datalist>
           <select
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
             className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
           >
-            {ENTITIES.map((e) => (
+            {(entities.length ? entities : ["task"]).map((e) => (
               <option key={e}>{e}</option>
             ))}
           </select>
@@ -154,17 +194,11 @@ export default function Agents() {
             ))}
           </select>
           <button
-            onClick={() =>
-              api("/api/agents/authority", {
-                method: "POST",
-                body: JSON.stringify({ agent: targetAgent, entity, level }),
-              })
-                .then(load)
-                .catch(() => {})
-            }
-            className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+            disabled={busy}
+            onClick={setAuthority}
+            className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            Set
+            {busy ? "Setting…" : "Set"}
           </button>
         </div>
       </Card>

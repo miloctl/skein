@@ -33,6 +33,8 @@ def draft_plan(week: str = "") -> dict:
     """Deterministic draft: per active human, their open tasks ranked by
     priority then due date, capped so the line stays honest."""
     week = week or current_week()
+    if not WEEK_RE.match(week):
+        raise ValueError("week must look like 2026-W31")
     items = []
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
@@ -60,23 +62,35 @@ def apply_plan(week: str, task_ids: list[int],
         raise ValueError("week must look like 2026-W31")
     if not task_ids:
         raise ValueError("no tasks in the plan")
-    committed = []
+    # a task deleted between draft and commit must not wedge the plan: apply
+    # what exists, report what didn't (no cross-op transactions in this app,
+    # so skip-and-report beats a validate/apply TOCTOU window)
+    committed, skipped = [], []
     for tid in task_ids:
-        update_task(int(tid), committed_week=week, actor=actor, origin=origin)
-        committed.append(int(tid))
-    db.log_activity(actor, "apply_weekly_plan", f"{week}: {len(committed)} tasks")
-    return {"week": week, "committed": len(committed), "task_ids": committed}
+        try:
+            update_task(int(tid), committed_week=week, actor=actor, origin=origin)
+            committed.append(int(tid))
+        except ValueError:
+            skipped.append(int(tid))
+    if not committed:
+        raise ValueError(f"no tasks in the plan still exist: {skipped}")
+    db.log_activity(actor, "apply_weekly_plan",
+                    f"{week}: {len(committed)} tasks"
+                    + (f", skipped {skipped}" if skipped else ""))
+    return {"week": week, "committed": len(committed), "task_ids": committed,
+            "skipped": skipped}
 
 
 def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
     """Monday job: draft next commitments and queue them for human approval.
-    Once per week via claim_job."""
+    Once per week via claim_job — claimed only when there is actually a plan,
+    so an empty Monday doesn't lock the week out."""
     week = current_week()
-    if not db.claim_job("weekly-plan", week):
-        return {"skipped": f"plan for {week} already drafted"}
     draft = draft_plan(week)
     if not draft["items"]:
         return {"skipped": "nothing to commit"}
+    if not db.claim_job("weekly-plan", week):
+        return {"skipped": f"plan for {week} already drafted"}
     from .review import propose_change
 
     names = ", ".join(f"#{i['task_id']}" for i in draft["items"][:10])

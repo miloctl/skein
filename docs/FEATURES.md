@@ -94,7 +94,7 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 | CI webhook | `POST /api/webhooks/ci` (generic or GitHub Actions payload): red default-branch run files a deduped high-impact blocker; green auto-resolves; cancelled/skipped ignored |
 | MCP server | `claude mcp add strands -- env STRANDS_MCP_USER=you backend/.venv/bin/python -m app.mcp_server` — 13 tools + the context-pack resource against the same DB |
 | Slack | outbound webhook (`SLACK_WEBHOOK_URL`) + `/strands` slash command (`SLACK_SIGNING_SECRET`, HMAC-verified) |
-| Prebuilt agent tools | `STRANDS_EXTRA_TOOLS=calculator,current_time,think,batch` loads allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) into the real agent; research tools (`tavily_search`, `exa_search`) activate with their own keys; shell/file/exec tools are refused by the allowlist (`app/agents/extra_tools.py`) |
+| Prebuilt agent tools | `STRANDS_EXTRA_TOOLS=calculator,current_time,think,batch` loads allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) into the real agent; research tools (`tavily_search`, `exa_search`) activate with their own keys; shell/file/exec tools, `http_request` (a third write path around the review gate), `use_agent`/`use_llm` (model-chosen provider endpoints), and `workflow`/`diagram` (path traversal/subprocess) are refused by the allowlist — rationale in `app/agents/extra_tools.py` |
 | OpenTelemetry | `STRANDS_OTEL_ENDPOINT` traces the agent loop |
 
 ## Operations

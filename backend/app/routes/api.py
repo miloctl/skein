@@ -339,6 +339,13 @@ def get_agents_trust():
     return delegation.trust_scores()
 
 
+@router.get("/agents/entities")
+def get_agent_entities():
+    from ..services.review import _registry
+
+    return sorted(_registry())
+
+
 @router.get("/agents/authority")
 def get_agents_authority(agent: str = ""):
     return delegation.authority_matrix(agent)

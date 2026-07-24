@@ -140,17 +140,20 @@ def flow_metrics(weeks: int = 8) -> dict:
 
 def nudge_stale_wip() -> dict:
     """Weekly soft nudge to owners of stale in-progress tasks. Once per ISO
-    week via claim_job — a restart can't re-ping anyone."""
-    iso = _today().isocalendar()
-    if not db.claim_job("stale-wip-nudge", f"{iso.year}-W{iso.week:02d}"):
-        return {"nudged": 0, "skipped": "already nudged this week"}
-    from .notifications import notify
-
+    week via claim_job — a restart can't re-ping anyone. The claim is only
+    taken when there is someone to nudge, so a quiet Monday doesn't burn it."""
     stale = flow_metrics()["stale_wip"]
     by_person: dict[str, list[dict]] = {}
     for t in stale:
         if t["assignee"]:
             by_person.setdefault(t["assignee"], []).append(t)
+    if not by_person:
+        return {"nudged": 0}
+    iso = _today().isocalendar()
+    if not db.claim_job("stale-wip-nudge", f"{iso.year}-W{iso.week:02d}"):
+        return {"nudged": 0, "skipped": "already nudged this week"}
+    from .notifications import notify
+
     for person, ts in by_person.items():
         titles = "; ".join(f"#{t['id']} {t['title']}" for t in ts[:3])
         notify(person,
@@ -164,7 +167,7 @@ def slip_forecast() -> dict:
     """Forecast open milestone dates from the team's own slip history.
     Labeled heuristic: avg days late across done milestones that had a due date."""
     history = db.query(
-        "SELECT ROUND(julianday(updated_at) - julianday(due_date), 1) AS slip"
+        "SELECT ROUND(julianday(date(updated_at)) - julianday(due_date), 1) AS slip"
         " FROM milestones WHERE status = 'done' AND due_date IS NOT NULL"
     )
     slips = [r["slip"] for r in history]
@@ -196,9 +199,18 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
     req = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
     if not req:
         raise ValueError(f"intake request #{request_id} not found")
-    from .engagements import capacity
-
-    current = {r["person"]: r["total_percent"] for r in capacity()}
+    # window-aware like allocation_conflicts — an allocation that ended last
+    # quarter must not veto today's intake decision
+    today = _today().isoformat()
+    current = {r["person"]: r["total_percent"] for r in db.query(
+        "SELECT a.person, SUM(a.percent) AS total_percent"
+        " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
+        " WHERE e.status != 'closed'"
+        " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
+        " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
+        " GROUP BY a.person",
+        (today, today),
+    )}
     projection = []
     for p in people:
         total = current.get(p, 0) + percent
@@ -261,10 +273,18 @@ def exec_readout(*, actor: str = "system") -> dict:
     readout_dir.mkdir(parents=True, exist_ok=True)
     path = readout_dir / f"{_today().isoformat()}-exec-readout.md"
     path.write_text(markdown)
-    aid = db.execute(
-        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (None, "readout", f"Exec readout {_today().isoformat()}", str(path), actor, db.now()),
-    )
+    # same-day reruns overwrite the file, so upsert the artifact row too —
+    # N rows pointing at one file would imply history that doesn't exist
+    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
+    if existing:
+        aid = existing["id"]
+        db.execute("UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
+                   (actor, db.now(), aid))
+    else:
+        aid = db.execute(
+            "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (None, "readout", f"Exec readout {_today().isoformat()}", str(path), actor, db.now()),
+        )
     db.log_activity(actor, "exec_readout", f"artifact #{aid}")
     return {"artifact_id": aid, "path": str(path), "markdown": markdown}

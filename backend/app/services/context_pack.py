@@ -4,6 +4,7 @@ markdown so any agent (Claude Code, custom, MCP) can load the team's context
 without asking anyone. Versions only bump when the content actually changes."""
 
 import hashlib
+import sqlite3
 from pathlib import Path
 
 from .. import config, db
@@ -81,7 +82,7 @@ def build_pack() -> str:
 
 def latest_pack() -> dict | None:
     return db.query_one(
-        "SELECT * FROM context_packs ORDER BY version DESC LIMIT 1")
+        "SELECT * FROM context_packs ORDER BY version DESC, id DESC LIMIT 1")
 
 
 def publish_pack(*, actor: str = "system") -> dict:
@@ -95,11 +96,16 @@ def publish_pack(*, actor: str = "system") -> dict:
     content = body.replace(
         "# Team context pack",
         f"# Team context pack\n\n*v{version} · generated {db.now()} · hash {digest}*", 1)
-    db.execute(
-        "INSERT INTO context_packs (version, content, content_hash, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (version, content, digest, actor, db.now()),
-    )
+    try:
+        db.execute(
+            "INSERT INTO context_packs (version, content, content_hash, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (version, content, digest, actor, db.now()),
+        )
+    except sqlite3.IntegrityError:
+        # concurrent publisher won the version — serve theirs
+        last = latest_pack()
+        return {"version": last["version"], "hash": last["content_hash"], "changed": False}
     pack_dir = Path(config.DATA_DIR) / "artifacts" / "context-pack"
     pack_dir.mkdir(parents=True, exist_ok=True)
     path = pack_dir / f"context-pack-v{version}.md"

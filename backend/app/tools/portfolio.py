@@ -123,4 +123,7 @@ def my_agent_inbox(agent: str = "agent") -> str:
     Args:
         agent: The agent identity to check (default 'agent').
     """
+    from ..services.users import ensure_user
+
+    ensure_user(agent, kind="agent")
     return json.dumps(delegation.agent_inbox(agent))

@@ -33,6 +33,9 @@ def delegate_task(task_id: int, agent: str, sponsor: str,
 
 
 def set_authority(agent: str, entity: str, level: str, *, actor: str = "system") -> dict:
+    agent = agent.strip()
+    if not agent or agent == "anonymous":
+        raise ValueError("agent name is required")
     if level not in LEVELS:
         raise ValueError(f"level must be one of {LEVELS}")
     from .review import _registry
@@ -125,6 +128,9 @@ def mission_control() -> list[dict]:
 def agent_inbox(agent: str) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped."""
+    if not db.query_one("SELECT id FROM users WHERE name = ?", (agent,)):
+        raise ValueError(f"no such agent '{agent}' — a typo here would read as"
+                         " an empty inbox")
     tasks = db.query(
         "SELECT id, title, status, priority, sponsor FROM tasks"
         " WHERE delegated_agent = ? AND status != 'done'"

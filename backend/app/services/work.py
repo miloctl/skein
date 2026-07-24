@@ -8,7 +8,7 @@ from .search import index_record
 MILESTONE_STATUSES = ("planned", "in_progress", "blocked", "done")
 TASK_STATUSES = ("todo", "in_progress", "blocked", "done")
 PRIORITIES = ("low", "medium", "high", "urgent")
-WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
+WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 
 
 def create_milestone(
@@ -123,9 +123,10 @@ def update_task(
         raise ValueError(f"status must be one of {TASK_STATUSES}")
     if priority and priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
-    if committed_week and not WEEK_RE.match(committed_week):
-        raise ValueError("committed_week must look like 2026-W31")
-    current = db.query_one("SELECT status FROM tasks WHERE id = ?", (task_id,))
+    if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):
+        raise ValueError("committed_week must look like 2026-W31 (or '-' to clear)")
+    current = db.query_one(
+        "SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise ValueError(f"task #{task_id} not found")
     fields = {k: v for k, v in
@@ -134,10 +135,17 @@ def update_task(
                ("committed_week", committed_week)] if v}
     if not fields:
         raise ValueError("nothing to update")
+    if committed_week == "-":
+        fields["committed_week"] = None
     if status == "done" and current["status"] != "done":
         fields["completed_at"] = db.now()  # flow metrics read this, not updated_at
     elif status and status != "done" and current["status"] == "done":
         fields["completed_at"] = None
+    # reassigning a delegated task away from its agent ends the delegation —
+    # otherwise both parties see it as theirs
+    if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
+        fields["delegated_agent"] = ""
+        fields["sponsor"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",
