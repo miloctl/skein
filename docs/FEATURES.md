@@ -113,7 +113,8 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 |---|---|
 | Migrations | append-only numbered SQL, per-migration `BEGIN IMMEDIATE` transactions, `schema_version` |
 | Scheduler (UTC) | hourly blocker sweep · 03:00 backup · 05:00 context pack · 06:00 Mon weekly plan · 06:15 Mon stale-WIP nudge · 06:30 stale decisions · 07:00 digest · 07:05/15:05 notification flush — all idempotent via `claim_job` CAS or status flips |
-| Backups & export | atomic daily SQLite backups (keep 14) + JSON export, `STRANDS_BACKUP_DIR` to relocate |
+| Backups & export | atomic daily SQLite backups (keep 14) + JSON export, `STRANDS_BACKUP_DIR` to relocate, `STRANDS_BACKUP_MIRROR` copies each backup off-box (keep 30) — this deploy mirrors to the NAS mount |
+| CI | Gitea Actions (`.gitea/workflows/ci.yml`): pytest + frontend build per push; runner `the runner host` registered repo-level, runs as the `act-runner` systemd user service (docker mode, linger enabled) |
 | Docker | multi-stage images, non-root, healthchecks, single `STRANDS_HOST` knob, named `strands-data` volume |
 | Auth model | trusted `X-User` name picker (LAN model); optional `STRANDS_API_TOKEN` shared bearer; per-user keys for automation. Put a real proxy in front to leave the trusted network |
 | Usage accounting | tokens/cycles/latency per thread and model when a real provider is on (`GET /api/usage`) |
