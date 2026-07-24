@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import config, db
-from .routes import api, chat, slack
+from .routes import api, chat, slack, webhooks
 from .services import admin, blockers, digest, notifications
 from .telemetry import setup_telemetry
 
@@ -93,8 +93,12 @@ async def bearer_auth(request: Request, call_next):
             and not request.url.path.startswith(open_paths):
         import hmac
 
+        from .services.api_keys import PREFIX, verify_key
+
         auth = request.headers.get("Authorization", "")
-        if not hmac.compare_digest(auth, f"Bearer {config.API_TOKEN}"):
+        shared_ok = hmac.compare_digest(auth, f"Bearer {config.API_TOKEN}")
+        key_ok = auth.startswith(f"Bearer {PREFIX}") and verify_key(auth[7:]) is not None
+        if not (shared_ok or key_ok):
             return JSONResponse(status_code=401, content={"detail": "invalid API token"})
     return await call_next(request)
 
@@ -107,6 +111,7 @@ async def value_error_handler(request: Request, exc: ValueError):
 app.include_router(api.router)
 app.include_router(chat.router)
 app.include_router(slack.router)
+app.include_router(webhooks.router)
 
 
 @app.get("/health")

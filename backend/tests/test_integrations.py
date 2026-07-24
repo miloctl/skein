@@ -108,7 +108,7 @@ def test_slack_command_roundtrip(client, monkeypatch):
     r = client.post("/api/slack/command", content=body,
                     headers=_slack_headers("shhh", body))
     assert r.status_code == 200
-    assert "blocker" in r.json()["text"]
+    assert "blocker" in r.json()["text"].lower()
 
     r = client.post("/api/slack/command", content=body,
                     headers=_slack_headers("wrong-secret", body))

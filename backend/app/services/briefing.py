@@ -52,6 +52,11 @@ def my_day(user: str) -> dict:
             ),
         },
         "team": {
+            "recently_shipped": db.query(
+                "SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"
+                " AND closed_at >= ?",
+                ((utc_today - timedelta(days=2)).isoformat(),),
+            ),
             "escalated_blockers": db.query(
                 "SELECT * FROM blockers WHERE status = 'escalated' ORDER BY created_at"
             ),

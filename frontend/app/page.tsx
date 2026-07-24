@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Row = Record<string, string | number | null>;
 
@@ -18,7 +19,12 @@ type Briefing = {
     notifications: Row[];
   };
   your_work: { tasks: Row[]; due_soon: Row[] };
-  team: { escalated_blockers: Row[]; todays_events: Row[]; recent_activity: Row[] };
+  team: {
+    recently_shipped: Row[];
+    escalated_blockers: Row[];
+    todays_events: Row[];
+    recent_activity: Row[];
+  };
 };
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
@@ -41,6 +47,24 @@ export default function MyDay() {
   }, []);
   useEffect(load, [load]);
 
+  // The Ship It moment: confetti once per shipped engagement, per browser.
+  useEffect(() => {
+    const shipped = b?.team.recently_shipped ?? [];
+    if (shipped.length === 0) return;
+    const seen = new Set(
+      JSON.parse(window.localStorage.getItem("strands-confetti") ?? "[]"),
+    );
+    const fresh = shipped.filter((e) => !seen.has(e.id));
+    if (fresh.length === 0) return;
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      import("canvas-confetti").then(({ default: confetti }) => {
+        confetti({ particleCount: 140, spread: 80, origin: { y: 0.6 } });
+      });
+    }
+    fresh.forEach((e) => seen.add(e.id));
+    window.localStorage.setItem("strands-confetti", JSON.stringify([...seen]));
+  }, [b]);
+
   const resolveBlocker = async (id: number) => {
     try {
       await api(`/api/blockers/${id}/resolve`, {
@@ -59,7 +83,7 @@ export default function MyDay() {
         Could not reach the backend — is it running? ({error})
       </main>
     );
-  if (!b) return <main className="p-8 text-sm text-zinc-400">Loading…</main>;
+  if (!b) return <main className="p-8 text-sm text-zinc-400">{loadingLine()}</main>;
 
   const n = b.needs_you;
   const needsCount =
@@ -80,6 +104,14 @@ export default function MyDay() {
           : `${needsCount} thing${needsCount > 1 ? "s" : ""} need${needsCount > 1 ? "" : "s"} you`}
         {b.user === "anonymous" ? " · set your name (top right) to personalize" : ""}
       </p>
+
+      {b.team.recently_shipped.length > 0 && (
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
+          🚢 Shipped:{" "}
+          {b.team.recently_shipped.map((e) => e.name).join(" · ")} — recap in
+          the knowledge base. Nice work, team.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
@@ -146,7 +178,7 @@ export default function MyDay() {
             {needsCount === 0 &&
               n.intake_to_triage.length === 0 &&
               (n.notifications ?? []).length === 0 && (
-                <li className="text-zinc-400">All clear. 🎉</li>
+                <li className="text-zinc-400">{emptyState("allclear")}</li>
               )}
           </ul>
         </Card>

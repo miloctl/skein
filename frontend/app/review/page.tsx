@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { emptyState } from "@/lib/whimsy";
 
 type Change = {
   id: number;
@@ -56,8 +57,11 @@ export default function ReviewPage() {
 
       {changes.length === 0 && !error && (
         <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-400 dark:border-zinc-700">
-          Nothing pending. Agent proposals land here when
-          <code className="mx-1">STRANDS_AGENT_REVIEW=1</code>.
+          {emptyState("review")}
+          <span className="mt-1 block text-xs">
+            Agent proposals land here when
+            <code className="mx-1">STRANDS_AGENT_REVIEW=1</code>.
+          </span>
         </p>
       )}
 

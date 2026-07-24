@@ -20,6 +20,31 @@ def _stalled_tasks(days: int = 3) -> list[dict]:
     )
 
 
+# Deterministic voice: date-seeded so the whole team sees the same opener —
+# shared jokes become team rituals. Suppressed when something is on fire.
+OPENERS_CLEAR = (
+    "All quiet. Suspiciously quiet. Enjoy it.",
+    "Nothing is on fire. This is not a drill — there is genuinely no drill.",
+    "The board is clean. Someone frame this digest.",
+    "Zero escalations. The blockers fear this team.",
+    "Green across the board. Ship something before it gets boring.",
+)
+OPENERS_BUSY = (
+    "Coffee first. Then the blockers.",
+    "A short list today — sharp, like the team.",
+    "The work below is sorted by how much it wants your attention.",
+    "Yesterday happened. Here's what it left behind.",
+    "One list, no meetings required.",
+)
+
+
+def _opener(has_escalations: bool, all_clear: bool, seed: str) -> str:
+    if has_escalations:
+        return ""  # read the room — no jokes during a fire
+    pool = OPENERS_CLEAR if all_clear else OPENERS_BUSY
+    return pool[sum(ord(c) for c in seed) % len(pool)]
+
+
 def build_digest() -> str:
     today = _utc_today().isoformat()
     lines = [f"# Daily digest — {today}", ""]
@@ -63,8 +88,12 @@ def build_digest() -> str:
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
     lines += [f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''}"
               f" {e['title']}" for e in events]
-    if not (esc or stalled or open_q or due):
+    all_clear = not (esc or stalled or open_q or due)
+    if all_clear:
         lines.append("- All clear: no escalations, stalls, or overdue work. 🎉")
+    opener = _opener(bool(esc), all_clear, today)
+    if opener:
+        lines.insert(2, f"*{opener}*\n")
     return "\n".join(lines)
 
 

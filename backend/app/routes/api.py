@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from .. import db
 from ..services import (
     admin,
+    api_keys,
     blockers,
     briefing,
     capture,
@@ -18,6 +19,7 @@ from ..services import (
     memory,
     notifications,
     playbooks,
+    pulse,
     review,
     schedule,
     search,
@@ -136,6 +138,25 @@ def get_attention(user: CurrentUser):
     return {"count": briefing.attention_count(user)}
 
 
+class KeyIn(BaseModel):
+    label: str = ""
+
+
+@router.post("/keys")
+def post_key(body: KeyIn, user: CurrentUser):
+    return api_keys.create_key(user, body.label)
+
+
+@router.get("/keys")
+def get_keys(user: CurrentUser):
+    return api_keys.list_keys(user)
+
+
+@router.delete("/keys/{key_id}")
+def delete_key(key_id: int, user: CurrentUser):
+    return api_keys.revoke_key(key_id, user)
+
+
 @router.get("/notifications")
 def get_notifications(user: CurrentUser, unread_only: bool = True):
     return notifications.list_notifications(user, unread_only)
@@ -153,6 +174,11 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 @router.get("/memories")
 def get_memories(q: str = ""):
     return memory.recall(q)
+
+
+@router.get("/pulse")
+def get_pulse():
+    return pulse.pulse()
 
 
 @router.get("/usage")

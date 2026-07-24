@@ -86,6 +86,32 @@ Notification tiers (immediate / digest / passive) and cross-thread agent
 memory (`/remember`, `remember`/`recall_memories` tools, auto-injected into
 the agent's prompt) work keyless, in-app.
 
+## The developer loop
+
+- **Per-teammate API keys** — `POST /api/keys` (label it, store the `sk-strands-…`
+  once); keys authenticate and *attribute* automation, and satisfy the shared
+  token gate.
+- **`strands` CLI** (stdlib-only): `pipx install ./cli`, then
+  `strands config --url … --key …` and `strands capture|standup|my-day|tasks|blockers|search`.
+- **Git trailers** — `strands install-hooks`; commits with `Closes-Task: #12`
+  auto-close the task and log the SHA.
+- **CI webhook** — point GitHub Actions (or POST `{repo, branch, status, run_url}`)
+  at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
+  blocker; green auto-resolves it.
+- **MCP server** — your *other* AI agents join the platform:
+  `claude mcp add strands -- env STRANDS_MCP_USER=you backend/.venv/bin/python -m app.mcp_server`
+  exposes `get_my_day`, `capture`, `create_task`, `log_decision`,
+  `search_workspace`, `add_blocker`, `remember`, and more against the same DB.
+
+## Delight & team pulse
+
+Ship an engagement → confetti + recap card + team notification. Long-lived
+blockers get a funeral (🪦 "It fought hard. It lost."). The digest opens with
+a date-seeded line the whole team shares — and goes straight-faced whenever
+something is escalated. The dashboard's **Team pulse** tracks season-scoped,
+team-level stats only (standup chain, blocker speedruns, ships, lessons) —
+deliberately no individual leaderboards.
+
 ## Setup
 
 ```bash

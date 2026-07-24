@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react";
 
 import { API_URL } from "@/lib/api";
+import { emptyState, loadingLine } from "@/lib/whimsy";
+
+type Pulse = {
+  season: { label: string; days_left: number };
+  standup_chain: { chain: number; humans: number };
+  blocker_speedrun: { impact: string; cleared: number; avg_hours: number; best_hours: number }[];
+  season_totals: Record<string, number>;
+};
 
 type Row = Record<string, string | number | null>;
 
@@ -61,6 +69,7 @@ function Section({
 
 export default function Dashboard() {
   const [data, setData] = useState<Record<string, Row[]>>({});
+  const [pulse, setPulse] = useState<Pulse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,6 +95,10 @@ export default function Dashboard() {
     )
       .then((pairs) => setData(Object.fromEntries(pairs)))
       .catch((err) => setError(String(err)));
+    fetch(`${API_URL}/api/pulse`)
+      .then((r) => r.json())
+      .then(setPulse)
+      .catch(() => {});
   }, []);
 
   if (error) {
@@ -96,8 +109,57 @@ export default function Dashboard() {
     );
   }
 
+  if (Object.keys(data).length === 0)
+    return <main className="p-8 text-sm text-zinc-400">{loadingLine()}</main>;
+
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+      {pulse && (
+        <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm md:col-span-2 dark:border-indigo-900 dark:bg-indigo-950/30">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-indigo-500">
+            Team pulse · season {pulse.season.label}
+            <span className="ml-2 font-normal normal-case text-zinc-400">
+              {pulse.season.days_left} days left
+            </span>
+          </h2>
+          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div>
+              <p className="text-2xl font-bold">
+                {pulse.standup_chain.chain}
+                <span className="ml-1 text-sm font-normal text-zinc-400">days</span>
+              </p>
+              <p className="text-xs text-zinc-500">standup chain (whole team)</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">
+                {pulse.season_totals.engagements_shipped}
+              </p>
+              <p className="text-xs text-zinc-500">shipped this season</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">
+                {pulse.season_totals.blockers_spotted}
+                <span className="ml-1 text-sm font-normal text-zinc-400">
+                  / {pulse.season_totals.blockers_open} open
+                </span>
+              </p>
+              <p className="text-xs text-zinc-500">blockers spotted (spotting scores!)</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{pulse.season_totals.lessons_recorded}</p>
+              <p className="text-xs text-zinc-500">lessons recorded</p>
+            </div>
+          </div>
+          {pulse.blocker_speedrun.length > 0 && (
+            <p className="mt-3 text-xs text-zinc-500">
+              ⏱️ Blocker speedruns:{" "}
+              {pulse.blocker_speedrun
+                .map((s) => `${s.impact} avg ${s.avg_hours}h (best ${s.best_hours}h)`)
+                .join(" · ")}
+            </p>
+          )}
+        </section>
+      )}
       <Section
         title="Engagements"
         rows={data.engagements ?? []}
@@ -118,7 +180,7 @@ export default function Dashboard() {
       <Section
         title="Blockers"
         rows={data.blockers ?? []}
-        empty="No unresolved blockers. 🎉"
+        empty={emptyState("blockers")}
         render={(b) => (
           <li key={b.id} className="flex items-center justify-between gap-2 text-sm">
             <span>

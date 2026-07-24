@@ -53,6 +53,20 @@ def resolve_blocker(blocker_id: int, resolution: str = "",
             (db.now(), row["task_id"]),
         )
     db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
+
+    created = datetime.fromisoformat(row["created_at"])
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - created
+    if age >= timedelta(days=3):  # the Blocker Funeral
+        from .notifications import notify
+
+        days = age.days
+        notify("team",
+               f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
+               f" It fought hard. It lost. {days} days"
+               + (", escalated" if row["status"] == "escalated" else "") + ".",
+               tier="digest", link="/dashboard")
     return {"id": blocker_id, "status": "resolved"}
 
 

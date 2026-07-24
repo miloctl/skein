@@ -106,12 +106,22 @@ class MockAgent:
             yield self._tool_event("capture")
             try:
                 result = capture.capture(text, actor=self.user, origin="human")
-                labels = {"task": "task", "question": "question", "note": "note",
-                          "decision": "decision", "blocker": "blocker"}
-                yield {"data": (
-                    f"Captured as **{labels[result['kind']]}** "
-                    f"#{result['id']}. (Mock agent uses rule-based routing — "
-                    f"`/help` for commands.)" )}
+                acks = {
+                    "task": ("Filed as task #{id}. It will not escape.",
+                             "Task #{id} created. I've taken the liberty of assuming it matters.",
+                             "Task #{id}. On the board, off your mind."),
+                    "question": ("Question #{id} logged. Someone owes you an answer now.",
+                                 "Filed question #{id}. Unanswered questions age poorly here — by design."),
+                    "note": ("Noted as #{id}. The knowledge base grows stronger.",
+                             "Note #{id} saved. Future-you says thanks."),
+                    "decision": ("Decision #{id} recorded. Officially no take-backs without a new decision.",
+                                 "Logged decision #{id}. History will know it was on purpose."),
+                    "blocker": ("Blocker #{id} filed. The escalation clock is ticking.",
+                                "Blocker #{id} registered. It has hours to live, not weeks."),
+                }
+                pool = acks[result["kind"]]
+                line = pool[sum(ord(c) for c in text) % len(pool)].format(id=result["id"])
+                yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
             except ValueError as exc:
                 yield {"data": f"⚠️ {exc}"}
 

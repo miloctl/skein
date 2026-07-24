@@ -39,7 +39,47 @@ def update_engagement(engagement_id: int, status: str = "", summary: str = "",
         (*fields.values(), db.now(), engagement_id),
     )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
+    if status == "closed":
+        _ship_it(engagement_id, actor=actor)
     return {"id": engagement_id, "updated": list(fields)}
+
+
+def _ship_it(engagement_id: int, *, actor: str) -> None:
+    """The Ship It moment: recap card + team notification when an engagement
+    closes. Deterministic — all counts from SQL."""
+    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    if not eng:
+        return
+    name = eng["name"]
+    days = ""
+    if eng["started_at"] and eng["closed_at"]:
+        delta = (db.query_one(
+            "SELECT ROUND(julianday(?) - julianday(?)) AS d",
+            (eng["closed_at"], eng["started_at"]))or {}).get("d")
+        days = f"{int(delta)} days" if delta is not None else ""
+    stats = {
+        "milestones": db.query_one(
+            "SELECT COUNT(*) AS n FROM milestones WHERE project = ?", (name,)),
+        "tasks_done": db.query_one(
+            "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
+            " WHERE m.project = ? AND t.status = 'done'", (name,)),
+        "decisions": db.query_one("SELECT COUNT(*) AS n FROM decisions"),
+        "blockers_survived": db.query_one(
+            "SELECT COUNT(*) AS n FROM blockers WHERE status = 'resolved'"),
+    }
+    recap = (
+        f"🚢 **Shipped: {name}**"
+        + (f" — {days}" if days else "")
+        + f" · {stats['milestones']['n']} milestones"
+        + f" · {stats['tasks_done']['n']} tasks done"
+        + f" · {stats['blockers_survived']['n']} blockers survived"
+    )
+    from .collab import save_note
+    from .notifications import notify
+
+    save_note(topic=f"shipped-{name}", content=recap, author=actor,
+              actor=actor, origin="human")
+    notify("team", recap, tier="immediate", link="/dashboard")
 
 
 def list_engagements(status: str = "") -> list[dict]:
