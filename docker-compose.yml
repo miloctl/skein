@@ -11,14 +11,23 @@ services:
       - "8000:8000"
     volumes:
       - strands-data:/data
+      # Off-box backup mirror: uncomment (with your mount) to enable in docker.
+      # - /mnt/nas-backups/skein:/backup-mirror
     env_file:
       - path: ./backend/.env
         required: false
     environment:
-      STRANDS_CORS_ORIGINS: "http://${STRANDS_HOST:-localhost}:3000"
+      STRANDS_CORS_ORIGINS: "http://${STRANDS_HOST:-localhost}:${STRANDS_FRONTEND_PORT:-3000}"
       # Same shell var feeds backend enforcement AND the frontend build arg,
       # so the two can't drift. (backend/.env can still override the rest.)
       STRANDS_API_TOKEN: ${STRANDS_API_TOKEN:-}
+      # Inside a container, "localhost" is the container — reach the host's
+      # Ollama daemon via the host gateway (overrides backend/.env's value).
+      STRANDS_OLLAMA_HOST: ${STRANDS_OLLAMA_HOST:-http://host.docker.internal:11434}
+      # Mirror target inside the container; pairs with the volume above.
+      # STRANDS_BACKUP_MIRROR: /backup-mirror
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   frontend:
@@ -30,7 +39,9 @@ services:
         NEXT_PUBLIC_API_TOKEN: ${STRANDS_API_TOKEN:-}
     init: true
     ports:
-      - "3000:3000"
+      # Host port is a knob — this box already runs another app on :3000,
+      # so use e.g. STRANDS_FRONTEND_PORT=3100 docker compose up --build -d
+      - "${STRANDS_FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
     restart: unless-stopped

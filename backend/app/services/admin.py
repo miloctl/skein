@@ -70,9 +70,12 @@ def _mirror(dest: Path) -> str | None:
     mirror = os.getenv("STRANDS_BACKUP_MIRROR", "")
     if not mirror:
         return None
-    # only the production instance may touch the mirror: a test/dev run with
-    # STRANDS_DATA_DIR overridden must never overwrite the off-box copy
-    if Path(config.DATA_DIR).resolve() != (Path(config.BASE_DIR) / "data").resolve():
+    # only a production instance may touch the mirror: a test/dev run with a
+    # sandboxed STRANDS_DATA_DIR must never overwrite the off-box copy.
+    # Production shapes: the repo default (backend/data) or the container
+    # canonical /data (set by the Dockerfile).
+    data_dir = Path(config.DATA_DIR).resolve()
+    if data_dir not in ((Path(config.BASE_DIR) / "data").resolve(), Path("/data")):
         log.info("backup mirror skipped: non-default data dir (%s)", config.DATA_DIR)
         return None
     try:

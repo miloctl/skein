@@ -75,11 +75,47 @@ Key mechanics:
 ## Run with Docker (recommended for the team)
 
 ```bash
-docker compose up --build        # backend :8000 + frontend :3000, data in a named volume
+docker compose up --build -d     # backend :8000 + frontend :3000, data in a named volume
+docker compose exec backend python seed.py   # optional demo data
+docker compose logs -f backend               # watch migrations + scheduler start
+```
+
+If something already uses port 3000 on the host (true on this box — a
+`serve.js` app owns it), pick another frontend port:
+
+```bash
+STRANDS_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
 ```
 
 The SQLite database, chat sessions, artifacts, and daily backups live in the
-`strands-data` volume. Configure via `backend/.env` (picked up automatically).
+`strands-data` volume. Configure via `backend/.env` (picked up automatically;
+rebuild not needed for backend env changes — `docker compose up -d` again is
+enough. `STRANDS_HOST`/`STRANDS_API_TOKEN` are baked into the frontend bundle
+and DO need `--build`).
+
+**Ollama in Docker:** a container's `localhost` is not the host, so compose
+overrides `STRANDS_OLLAMA_HOST` to `http://host.docker.internal:11434`
+(mapped to the host gateway) — the host's signed-in Ollama daemon, including
+`*-cloud` models, works from inside the container. **But default Ollama
+installs bind 127.0.0.1 only**, which the gateway can't reach. Either fix the
+daemon (`sudo systemctl edit ollama` → `Environment="OLLAMA_HOST=0.0.0.0"`)
+or, without root, run the bundled bridge (`ops/ollama-bridge.py`, a user
+systemd service on this box already: `ollama-bridge`) and point at port 11435.
+
+**The verified command for THIS box** (port 3000/3100 taken, loopback Ollama
+bridged on 11435):
+
+```bash
+STRANDS_FRONTEND_PORT=3200 \
+STRANDS_OLLAMA_HOST=http://host.docker.internal:11435 \
+docker compose up --build -d
+# UI: http://localhost:3200 · API: http://localhost:8000
+```
+
+**Backup mirror in Docker:** the mirror path from `backend/.env` doesn't
+exist inside the container; uncomment the `/backup-mirror` volume + env lines
+in `docker-compose.yml` to mount your NAS path and re-enable it.
+
 For a ~10-person team this single-box setup is deliberate: SQLite in WAL mode
 handles this write volume easily, and one backend container means exactly one
 scheduler.
