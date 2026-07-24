@@ -41,6 +41,8 @@ def resolve_blocker(blocker_id: int, resolution: str = "",
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
         raise ValueError(f"blocker #{blocker_id} not found")
+    if row["status"] == "resolved":
+        raise ValueError(f"blocker #{blocker_id} is already resolved")
     db.execute(
         "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
         " detail = detail || CASE WHEN ? != '' THEN char(10) || 'Resolved: ' || ? ELSE '' END"

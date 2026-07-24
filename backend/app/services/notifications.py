@@ -55,13 +55,15 @@ def notify(user: str, message: str, tier: str = "digest", link: str = "") -> dic
 
 
 def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
+    # 'team' notifications are addressed to everyone — same rule as briefing
     if unread_only:
         return db.query(
-            "SELECT * FROM notifications WHERE user = ? AND read_at IS NULL"
+            "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
             " ORDER BY id DESC LIMIT 50", (user,),
         )
     return db.query(
-        "SELECT * FROM notifications WHERE user = ? ORDER BY id DESC LIMIT 50", (user,)
+        "SELECT * FROM notifications WHERE user IN (?, 'team')"
+        " ORDER BY id DESC LIMIT 50", (user,)
     )
 
 

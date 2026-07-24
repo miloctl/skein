@@ -26,11 +26,24 @@ def list_playbooks() -> list[dict]:
     return out
 
 
+import re
+
+_SLUG = re.compile(r"^[a-z0-9_-]+$")
+
+
 def get_playbook(slug: str) -> dict:
+    if not _SLUG.match(slug):  # path traversal guard — slug becomes a filename
+        raise ValueError(f"invalid playbook slug '{slug}'")
     path = PLAYBOOKS_DIR / f"{slug}.yaml"
     if not path.exists():
         raise ValueError(f"no playbook '{slug}'; available: {[p['slug'] for p in list_playbooks()]}")
-    return yaml.safe_load(path.read_text())
+    pb = yaml.safe_load(path.read_text())
+    if not isinstance(pb, dict):
+        raise ValueError(f"playbook '{slug}' is malformed (expected a mapping)")
+    for m in pb.get("milestones", []):
+        if not isinstance(m, dict) or "title" not in m:
+            raise ValueError(f"playbook '{slug}' has a milestone without a title")
+    return pb
 
 
 def instantiate(slug: str, engagement_name: str, lead: str = "",

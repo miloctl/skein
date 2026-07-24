@@ -106,6 +106,8 @@ def allocate(person: str, engagement_id: int, percent: int = 100,
              *, actor: str = "system", origin: str = "human") -> dict:
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
+    if not db.query_one("SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
+        raise ValueError(f"engagement #{engagement_id} not found")
     aid = db.execute(
         "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?)",
@@ -129,6 +131,9 @@ def capacity() -> list[dict]:
 def record_lesson(lesson: str, recommendation: str = "", engagement_id: int = 0,
                   project_class: str = "general",
                   *, actor: str = "system", origin: str = "human") -> dict:
+    if engagement_id and not db.query_one(
+            "SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
+        raise ValueError(f"engagement #{engagement_id} not found")
     lid = db.execute(
         "INSERT INTO lessons (engagement_id, project_class, lesson, recommendation,"
         " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

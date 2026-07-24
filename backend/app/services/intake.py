@@ -31,6 +31,8 @@ def score_request(request_id: int, reach: int, impact: int, confidence: int, eff
     for name, v in (("reach", reach), ("impact", impact), ("confidence", confidence), ("effort", effort)):
         if not 1 <= v <= 5:
             raise ValueError(f"{name} must be 1-5")
+    if not db.query_one("SELECT id FROM intake_requests WHERE id = ?", (request_id,)):
+        raise ValueError(f"intake request #{request_id} not found")
     score = _score(reach, impact, confidence, effort)
     db.execute(
         "UPDATE intake_requests SET reach = ?, impact = ?, confidence = ?, effort = ?,"
@@ -47,6 +49,13 @@ def disposition_request(request_id: int, disposition: str, reason: str,
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
     if not reason.strip():
         raise ValueError("a reason is required — requesters see it")
+    current = db.query_one(
+        "SELECT status FROM intake_requests WHERE id = ?", (request_id,))
+    if not current:
+        raise ValueError(f"intake request #{request_id} not found")
+    if current["status"] not in ("submitted", "scored"):
+        raise ValueError(
+            f"request #{request_id} already dispositioned ({current['status']})")
     db.execute(
         "UPDATE intake_requests SET status = ?, disposition_reason = ?, updated_at = ?"
         " WHERE id = ?",

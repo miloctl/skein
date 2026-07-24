@@ -43,6 +43,8 @@ def update_milestone(
 ) -> dict:
     if status and status not in MILESTONE_STATUSES:
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
+    if not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
+        raise ValueError(f"milestone #{milestone_id} not found")
     fields = {k: v for k, v in
               [("status", status), ("title", title), ("description", description),
                ("owner", owner), ("due_date", due_date)] if v}
@@ -85,6 +87,9 @@ def create_task(
 ) -> dict:
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
+    if milestone_id and not db.query_one(
+            "SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
+        raise ValueError(f"milestone #{milestone_id} not found")
     ts = db.now()
     tid = db.execute(
         "INSERT INTO tasks (milestone_id, title, description, assignee, priority,"
@@ -114,6 +119,8 @@ def update_task(
         raise ValueError(f"status must be one of {TASK_STATUSES}")
     if priority and priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
+    if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
+        raise ValueError(f"task #{task_id} not found")
     fields = {k: v for k, v in
               [("status", status), ("assignee", assignee), ("priority", priority),
                ("due_date", due_date), ("description", description), ("title", title)] if v}
