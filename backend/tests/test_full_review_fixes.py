@@ -97,3 +97,31 @@ def test_export_covers_new_tables(fresh_db):
               "context_packs", "forecast_snapshots"):
         assert t in out["tables"]
     assert "api_keys" not in out["tables"]  # hashes must not travel
+
+
+def test_ship_it_counts_only_linked_blockers(client, fresh_db, monkeypatch):
+    from app.services import notifications
+
+    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
+    e = client.post("/api/engagements", json={"name": "Scoped"}).json()
+    m = client.post("/api/milestones", json={"title": "m", "project": "Scoped"}).json()
+    t = client.post("/api/tasks", json={"title": "t", "milestone_id": m["id"]}).json()
+    b = client.post("/api/blockers", json={"title": "ours", "task_id": t["id"]}).json()
+    client.post(f"/api/blockers/{b['id']}/resolve", json={})
+    other = client.post("/api/blockers", json={"title": "unrelated"}).json()
+    client.post(f"/api/blockers/{other['id']}/resolve", json={})
+
+    client.patch(f"/api/engagements/{e['id']}", json={"status": "closed"})
+    note = fresh_db.query_one("SELECT content FROM notes WHERE topic = 'shipped-Scoped'")
+    assert "1 blockers survived" in note["content"]
+
+
+def test_intake_accept_name_collision_is_loud(client):
+    client.post("/api/engagements", json={"name": "Taken"})
+    req = client.post("/api/intake", json={"title": "Taken"}).json()
+    client.post(f"/api/intake/{req['id']}/score",
+                json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3})
+    out = client.post(f"/api/intake/{req['id']}/disposition",
+                      json={"disposition": "accepted", "reason": "yes"}).json()
+    assert out["engagement_created"] is False
+    assert "already exists" in out["note"]

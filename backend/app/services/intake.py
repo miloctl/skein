@@ -71,9 +71,15 @@ def disposition_request(request_id: int, disposition: str, reason: str,
                 name=row["title"], project_class=row["project_class"] or "general",
                 summary=row["detail"], actor=actor, origin=origin,
             )
-        except ValueError:
-            pass  # engagement with this name already exists
-    return {"id": request_id, "status": disposition}
+        except ValueError as exc:
+            # a name collision must not read as "work has started" — say so
+            db.log_activity(actor, "accept_without_engagement",
+                            f"#{request_id}: {exc}")
+            return {"id": request_id, "status": disposition,
+                    "engagement_created": False,
+                    "note": f"accepted, but no new engagement: {exc}"}
+    return {"id": request_id, "status": disposition,
+            **({"engagement_created": True} if disposition == "accepted" else {})}
 
 
 def list_requests(status: str = "") -> list[dict]:

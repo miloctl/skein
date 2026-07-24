@@ -105,7 +105,8 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
 
     db.execute("UPDATE pending_changes SET result_id = ? WHERE id = ?",
                (result.get("id"), change_id))
-    db.log_activity(actor, "approve_change", f"#{change_id} -> {change['entity']} #{result.get('id')}")
+    applied = f"#{result['id']}" if result.get("id") is not None else "applied"
+    db.log_activity(actor, "approve_change", f"#{change_id} -> {change['entity']} {applied}")
     return {"id": change_id, "status": "approved", "result": result}
 
 

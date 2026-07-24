@@ -70,11 +70,13 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
         "tasks_done": db.query_one(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
             " WHERE m.project = ? AND t.status = 'done'", (name,)),
-        # scoped to this engagement's lifetime — the recap must be honest
+        # scoped to THIS engagement's linked blockers — the recap must be honest
+        # (a time-window count silently absorbed unrelated blockers)
         "blockers_survived": db.query_one(
-            "SELECT COUNT(*) AS n FROM blockers WHERE status = 'resolved'"
-            " AND created_at >= ? AND created_at <= ?",
-            (eng["started_at"] or "0", eng["closed_at"] or "9")),
+            "SELECT COUNT(*) AS n FROM blockers b"
+            " JOIN tasks t ON t.id = b.task_id"
+            " JOIN milestones m ON m.id = t.milestone_id"
+            " WHERE m.project = ? AND b.status = 'resolved'", (name,)),
     }
     recap = (
         f"🚢🪿 **Shipped: {name}**"
