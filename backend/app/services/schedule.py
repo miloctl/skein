@@ -21,6 +21,9 @@ def schedule_event(title: str, starts_at: str, ends_at: str = "", description: s
         " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (title, description, starts_at, ends_at or None, attendees, origin, actor, db.now()),
     )
+    from .search import index_record
+
+    index_record("event", eid, title, f"{description} {attendees} {starts_at}")
     db.log_activity(actor, "schedule_event", f"#{eid} {title} @ {starts_at}")
     return {"id": eid, "title": title, "starts_at": starts_at}
 

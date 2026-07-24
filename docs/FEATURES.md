@@ -91,7 +91,7 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 
 | Feature | How |
 |---|---|
-| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | 12 deterministic rules (docs/INSIGHTS.md) over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
+| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | a dozen deterministic rules — 13 distinct rule IDs, spec in docs/INSIGHTS.md over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
 | `/insights` page | findings feed (receipts on click) + team-rolled trends: rolling-28d blocker MTTR (median/P85, n shown, verdicts withheld under n=8), automation ratio by month (co-presented with review verdicts), intake funnel, weekly token spend, adoption |
 | Adoption telemetry | `tool_usage` (day × user × surface), `GET /api/adoption`; measures the tool's reach, never people's output |
 | Anti-surveillance rule | person-level data only for planning the future (capacity, private nudges, My Day); team aggregates only for judging the past — enforced in the service layer, no person-keyed insight endpoints exist |

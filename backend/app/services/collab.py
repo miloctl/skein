@@ -161,6 +161,8 @@ def post_standup(author: str, yesterday: str = "", today: str = "", blockers: st
         " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (author, yesterday, today, blockers, origin, actor or author, db.now()),
     )
+    index_record("standup", sid, f"{author}'s standup",
+                 f"{yesterday} {today} {blockers}")
     db.log_activity(actor or author, "post_standup", f"#{sid}")
     if blockers.strip():
         from .blockers import raise_blocker

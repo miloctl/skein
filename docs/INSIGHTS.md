@@ -48,11 +48,12 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The 12 findings rules
+## The findings rules (13 rule IDs across 12 entries)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
-receipt = row IDs + computed numbers JSON'd at fire time. A rule fires ≤once
-per week per subject; re-fires only on state change or severity increase.
+receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
+a rule fires at most once per (rule_id, subject, ISO week) — no re-fire
+within a week even on severity change.
 
 1. **MTTR regression** — median resolve, 28d vs prior 28d, ratio ≥1.5, both n≥8. Receipt: medians, ns, 3 slowest blockers.
 2. **MTTR improvement** — ratio ≤0.67 (positive findings keep it from being an alarm system).
