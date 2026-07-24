@@ -309,3 +309,28 @@ the context supplier to every other agent the team uses).
 Linear for Agents, GitHub Agent HQ, Asana AI Teammates, Height, Dust,
 LangChain ambient agents, CSA agentic identity governance, OWASP Agentic
 Top 10.)*
+
+# Engineering backlog — from the full-project architecture review (2026-07-24)
+
+Deliberately deferred (recorded so nobody re-derives them). Done in the same
+review cycle: milestone `engagement_id` link, unified MCP/tool gate, handoff
+scoping, export coverage, indexes, allocations provenance.
+
+1. `db.transaction()` context manager (ambient connection via contextvar);
+   convert `playbooks.instantiate` and `intake.disposition_request` first.
+   Compound-write correctness is currently hand-verified per function.
+2. Job registry: one `JOBS` tuple driving cron + startup catch-ups; record
+   outcomes (status/duration/error) per run; surface last-success on /health;
+   findings rule "job X hasn't succeeded in 2x its period".
+3. Migrate the six name-join read sites (portfolio/handoff/ship-it/forecast)
+   from `m.project = e.name` to `m.engagement_id` (column exists + backfilled).
+4. Retention: monthly prune of forecast_snapshots (>1y), read notifications
+   (>90d), job_runs (>90d). activity is the provenance ledger — keep forever.
+5. Staleness SLA constants module (3d digest-stalled / 7d stale-WIP /
+   14d aging-WIP are a deliberate gradation — write it down in code).
+6. Extract `readout.py` to break the portfolio<->insights import cycle.
+7. `services/usage.py` for chat token logging (last raw SQL outside services);
+   digest narrator hook inverted so the core never imports the agent layer.
+8. MCP long-lived processes: fail on pending migrations instead of applying.
+9. Runner isolation: move CI to an ephemeral sandboxed host before ever
+   re-adding a pull_request trigger; consider rootless docker for the runner.
