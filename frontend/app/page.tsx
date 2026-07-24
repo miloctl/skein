@@ -38,12 +38,27 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+type Onboarding = {
+  steps: { id: string; label: string; done: boolean }[];
+  complete: boolean;
+  progress: string;
+};
+
 export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api<Briefing>("/api/briefing").then(setB).catch((e) => setError(String(e)));
+    if (window.localStorage.getItem("skein-onboarded") !== "1") {
+      api<Onboarding>("/api/onboarding")
+        .then((o) => {
+          if (o.complete) window.localStorage.setItem("skein-onboarded", "1");
+          setOnboarding(o);
+        })
+        .catch(() => {});
+    }
   }, []);
   useEffect(load, [load]);
 
@@ -104,6 +119,35 @@ export default function MyDay() {
           : `${needsCount} thing${needsCount > 1 ? "s" : ""} need${needsCount > 1 ? "" : "s"} you`}
         {b.user === "anonymous" ? " · set your name (top right) to personalize" : ""}
       </p>
+
+      {onboarding && !onboarding.complete && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 text-sm dark:border-indigo-900 dark:bg-indigo-950/30">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+              🪿 Getting started ({onboarding.progress})
+            </span>
+            <button
+              onClick={() => {
+                window.localStorage.setItem("skein-onboarded", "1");
+                setOnboarding(null);
+              }}
+              className="text-xs text-zinc-400 underline"
+            >
+              dismiss
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {onboarding.steps.map((s) => (
+              <li
+                key={s.id}
+                className={s.done ? "text-zinc-400 line-through" : "text-zinc-700 dark:text-zinc-200"}
+              >
+                {s.done ? "✓" : "○"} {s.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {b.team.recently_shipped.length > 0 && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">

@@ -55,7 +55,31 @@ def backup(*, keep: int = 14) -> dict:
     for old in existing[:-keep]:
         old.unlink()
     log.info("backup written: %s", dest)
-    return {"path": str(dest), "kept": min(len(existing), keep)}
+    mirrored = _mirror(dest)
+    return {"path": str(dest), "kept": min(len(existing), keep), "mirrored": mirrored}
+
+
+def _mirror(dest: Path) -> str | None:
+    """Copy the fresh backup to STRANDS_BACKUP_MIRROR (a mounted NAS/remote
+    path). Off-box durability without extra tooling; rclone/rsync in a host
+    cron remains the alternative for true remote targets."""
+    mirror = os.getenv("STRANDS_BACKUP_MIRROR", "")
+    if not mirror:
+        return None
+    try:
+        import shutil
+
+        mdir = Path(mirror)
+        mdir.mkdir(parents=True, exist_ok=True)
+        tmp = mdir / (dest.name + ".tmp")
+        shutil.copy2(dest, tmp)
+        os.replace(tmp, mdir / dest.name)
+        for old in sorted(mdir.glob("platform-*.db"))[:-30]:
+            old.unlink()
+        return str(mdir / dest.name)
+    except Exception as exc:
+        log.warning("backup mirror to %s failed: %s", mirror, exc)
+        return None
 
 
 def backup_if_stale() -> dict | None:

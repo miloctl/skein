@@ -58,8 +58,18 @@ def _start_scheduler():
                       "cron", hour=6, minute=30, id="stale-decisions")
     scheduler.add_job(_job("context-pack", lambda: context_pack.publish_pack(actor="scheduler")),
                       "cron", hour=5, minute=0, id="context-pack")
+    from .services.adoption import snapshot_forecasts
+
+    scheduler.add_job(_job("forecast-snapshot", snapshot_forecasts),
+                      "cron", hour=5, minute=15, id="forecast-snapshot")
     scheduler.start()
     return scheduler
+
+
+def _startup_forecast_snapshot():
+    from .services.adoption import snapshot_forecasts
+
+    return snapshot_forecasts()
 
 
 @asynccontextmanager
@@ -71,7 +81,8 @@ async def lifespan(app: FastAPI):
                      ("startup-sweep", blockers.sweep_escalations),
                      ("startup-weekly-plan",
                       lambda: weekly.propose_weekly_plan(actor="scheduler")),
-                     ("startup-wip-nudge", portfolio.nudge_stale_wip)):
+                     ("startup-wip-nudge", portfolio.nudge_stale_wip),
+                     ("startup-forecast-snapshot", _startup_forecast_snapshot)):
         try:
             fn()
         except Exception:
@@ -86,7 +97,8 @@ async def lifespan(app: FastAPI):
     shutdown_mcp()
 
 
-app = FastAPI(title="Strands Team Platform", lifespan=lifespan)
+app = FastAPI(title="Skein", description="Many strands. One formation.",
+              lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

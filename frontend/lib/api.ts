@@ -22,6 +22,7 @@ export async function api<T = unknown>(
     headers: {
       "Content-Type": "application/json",
       "X-User": getUser(),
+      "X-Client": "web",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },

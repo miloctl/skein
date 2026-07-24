@@ -44,8 +44,10 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-zinc-200 bg-white/80 px-6 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
       <Link href="/" className="text-sm font-bold tracking-tight">
-        🧵 Strands{" "}
-        <span className="font-normal text-zinc-400">Team Platform</span>
+        🧵 Skein{" "}
+        <span className="hidden font-normal text-zinc-400 sm:inline">
+          many strands · one formation
+        </span>
       </Link>
       <nav className="flex items-center gap-4 text-sm text-zinc-500">
         {LINKS.map((l) => (

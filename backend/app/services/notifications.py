@@ -96,7 +96,7 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         for n in pending:
             by_user.setdefault(n["user"], []).append(n["message"])
         lines = [f"*{u}*: " + " · ".join(msgs) for u, msgs in by_user.items()]
-        _post_slack("📬 Strands digest\n" + "\n".join(lines))
+        _post_slack("📬 Skein digest\n" + "\n".join(lines))
         # Stamp exactly the rows we posted — a notification inserted between
         # the SELECT and this UPDATE must stay pending for the next flush.
         ids = [n["id"] for n in pending]

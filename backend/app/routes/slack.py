@@ -43,6 +43,9 @@ async def slack_command(request: Request):
     text = str(form.get("text", "")).strip()
     user = str(form.get("user_name", "slack-user"))
 
+    from ..services.adoption import record_use
+
+    record_use(user, "slack")
     agent = MockAgent(thread_id="slack", user=user)
     chunks = []
     async for event in agent.stream_async(text or "/help"):

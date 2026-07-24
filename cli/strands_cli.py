@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""strands — the team platform from your terminal. Stdlib only.
+"""skein — the team platform from your terminal. Stdlib only.
+(Installed as both `skein` and the legacy `strands` alias.)
 
 Setup:
-    strands config --url http://localhost:8000 --key sk-strands-... [--user you]
+    skein config --url http://localhost:8000 --key sk-strands-... [--user you]
     (create a key: curl -X POST $URL/api/keys -H 'X-User: you' -d '{"label":"cli"}')
 
 Examples:
@@ -50,7 +51,7 @@ def save_config(cfg: dict) -> None:
 def api(method: str, path: str, body: dict | None = None) -> dict | list:
     cfg = load_config()
     url = (cfg.get("url") or os.getenv("STRANDS_URL") or "http://localhost:8000").rstrip("/")
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "X-Client": "cli"}
     key = cfg.get("key") or os.getenv("STRANDS_API_KEY")
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -245,7 +246,7 @@ def cmd_sync_commit(args):
 
 
 def main():
-    p = argparse.ArgumentParser(prog="strands", description=__doc__,
+    p = argparse.ArgumentParser(prog="skein", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 

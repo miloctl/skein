@@ -75,7 +75,7 @@ def build_pack() -> str:
     lines += [
         "- REST API at /api (X-User header or a personal sk-strands- key)",
         "- MCP server: `python -m app.mcp_server` (tools + this pack as a resource)",
-        "- CLI: `strands capture|my-day|tasks|context`",
+        "- CLI: `skein capture|my-day|tasks|context`",
     ]
     return "\n".join(lines)
 

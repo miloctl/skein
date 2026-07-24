@@ -1,13 +1,27 @@
-# 🧵 Strands Team Platform
+# 🧵 Skein
 
-An internal coordination harness for an AI-enabled strike team — humans and AI
-agents sharing engagements, milestones, tasks, blockers, questions, decisions,
-standups, intake triage, a knowledge base, and a team calendar.
+**Many strands. One formation.**
+
+A skein is two things: a coil of yarn — many strands wound together so they
+pull as one — and a flock of geese flying in V-formation, where the lead
+rotates and every bird's lift carries the one behind it. That's this team:
+humans and AI agents drafting off each other, earning turns at the front,
+receipts shown at every checkpoint.
+
+Skein is an internal coordination harness for an AI-enabled strike team —
+engagements, milestones, tasks, blockers, questions, decisions, standups,
+intake triage, a knowledge base, and a team calendar, shared between people
+and their agents.
 
 Built on the [Strands Agents SDK](https://github.com/strands-agents/harness-sdk)
 (backend agents) and [assistant-ui](https://github.com/assistant-ui/assistant-ui)
 (chat frontend). **Works fully without API keys** — every feature has a
-deterministic core; connecting a model provider upgrades the experience.
+deterministic core; connecting a model provider (a signed-in Ollama daemon is
+enough) upgrades the experience.
+
+> Formerly "Strands Team Platform" — renamed so the product stops colliding
+> with its framework. Internal identifiers (`STRANDS_*` env vars, key prefixes,
+> data paths) are unchanged; the CLI installs as both `skein` and `strands`.
 
 ## Surfaces
 

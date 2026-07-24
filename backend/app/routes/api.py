@@ -388,6 +388,20 @@ def post_context_pack(user: CurrentUser):
     return context_pack.publish_pack(actor=user)
 
 
+@router.get("/onboarding")
+def get_onboarding(user: CurrentUser):
+    from ..services import onboarding
+
+    return onboarding.checklist(user)
+
+
+@router.get("/adoption")
+def get_adoption(weeks: int = 4):
+    from ..services import adoption as adoption_svc
+
+    return adoption_svc.adoption(weeks)
+
+
 @router.get("/usage")
 def get_usage():
     return db.query(

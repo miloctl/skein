@@ -53,4 +53,7 @@ def capture(text: str, *, actor: str = "system", origin: str = "human") -> dict:
     else:
         result = collab.save_note(topic=body[:60], content=body, author=actor,
                                   actor=actor, origin=origin)
+    from .. import db
+
+    db.log_activity(actor, "capture", f"{kind} #{result.get('id')}")
     return {"kind": kind, **result}

@@ -74,7 +74,7 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
             (eng["started_at"] or "0", eng["closed_at"] or "9")),
     }
     recap = (
-        f"🚢 **Shipped: {name}**"
+        f"🚢🪿 **Shipped: {name}**"
         + (f" — {days}" if days else "")
         + f" · {stats['milestones']['n']} milestones"
         + f" · {stats['tasks_done']['n']} tasks done"

@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Strands Team Platform",
-  description: "AI team coordination platform built on the Strands Agents SDK",
+  title: "Skein",
+  description: "Many strands. One formation. — team platform for humans + AI agents",
 };
 
 export default function RootLayout({

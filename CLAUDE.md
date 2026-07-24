@@ -1,8 +1,9 @@
-# Strands Team Platform
+# Skein (formerly Strands Team Platform)
 
 Internal coordination harness for an AI-enabled strike team (humans + AI
 agents). FastAPI + Strands Agents SDK + SQLite backend; Next.js 16 +
-assistant-ui frontend.
+assistant-ui frontend. Brand: "Skein — many strands, one formation"; display
+surfaces say Skein, internal identifiers keep the `strands`/`STRANDS_*` names.
 
 Read `docs/SPEC.md` before implementing anything — it defines the phases,
 data model, and constraints. `docs/FEATURES.md` is the reference for what is

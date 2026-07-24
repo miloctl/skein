@@ -1,11 +1,12 @@
 [project]
-name = "strands-cli"
-version = "0.1.0"
-description = "Strands Team Platform from your terminal (stdlib only)"
+name = "skein-cli"
+version = "0.2.0"
+description = "Skein — the team platform from your terminal (stdlib only)"
 requires-python = ">=3.10"
 
 [project.scripts]
-strands = "strands_cli:main"
+skein = "strands_cli:main"
+strands = "strands_cli:main"  # legacy alias; muscle memory matters
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -1,4 +1,4 @@
-# Strands Team Platform — feature reference
+# Skein — feature reference
 
 Everything shipped, grouped by area. Every feature has a deterministic,
 keyless core; rows marked **LLM-upgradable** get better with a model provider
