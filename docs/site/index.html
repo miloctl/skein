@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skein — many strands, one formation</title>
+<style>
+  :root {
+    --paper: #F5F6F3;
+    --ink: #202839;
+    --ink-soft: #4B5265;
+    --indigo: #44549E;
+    --indigo-soft: #E4E7F2;
+    --gold: #B98220;
+    --line: rgba(32, 40, 57, 0.18);
+    --card: #FDFDFB;
+    --mono-bg: #ECEEEA;
+    --ok: #2F7D5B;
+    --warn: #A87A17;
+    --bad: #B0483A;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #171C29;
+      --ink: #E8EAE4;
+      --ink-soft: #A7ADBE;
+      --indigo: #93A2E4;
+      --indigo-soft: #232B45;
+      --gold: #D5A34A;
+      --line: rgba(232, 234, 228, 0.18);
+      --card: #1E2434;
+      --mono-bg: #232938;
+      --ok: #5FBE93;
+      --warn: #D9B057;
+      --bad: #DD8273;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #F5F6F3; --ink: #202839; --ink-soft: #4B5265; --indigo: #44549E;
+    --indigo-soft: #E4E7F2; --gold: #B98220; --line: rgba(32, 40, 57, 0.18);
+    --card: #FDFDFB; --mono-bg: #ECEEEA; --ok: #2F7D5B; --warn: #A87A17; --bad: #B0483A;
+  }
+  :root[data-theme="dark"] {
+    --paper: #171C29; --ink: #E8EAE4; --ink-soft: #A7ADBE; --indigo: #93A2E4;
+    --indigo-soft: #232B45; --gold: #D5A34A; --line: rgba(232, 234, 228, 0.18);
+    --card: #1E2434; --mono-bg: #232938; --ok: #5FBE93; --warn: #D9B057; --bad: #DD8273;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    font-size: 16.5px;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+  .prose { max-width: 70ch; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--indigo);
+  }
+  h1, h2, h3 { font-family: var(--serif); text-wrap: balance; line-height: 1.15; }
+  h1 { font-size: clamp(2.6rem, 6vw, 4.2rem); font-weight: 600; margin: 0.4em 0 0.25em; font-style: italic; }
+  h2 { font-size: clamp(1.5rem, 3vw, 2rem); margin: 0 0 0.4em; }
+  h3 { font-size: 1.12rem; margin: 0 0 0.35em; }
+  p { margin: 0.5em 0 1em; color: var(--ink-soft); }
+  strong { color: var(--ink); }
+  a { color: var(--indigo); }
+
+  section { padding: 64px 0; border-top: 1px dashed var(--line); }
+  section:first-of-type { border-top: none; }
+
+  /* hero */
+  .hero { padding: 88px 0 72px; text-align: left; position: relative; }
+  .vee { height: 84px; position: relative; margin-bottom: 8px; width: 220px; }
+  .vee span {
+    position: absolute; display: block; height: 3px; width: 120px;
+    background: var(--indigo); border-radius: 2px; transform-origin: left center;
+  }
+  .vee span:nth-child(1) { top: 12px; left: 34px; transform: rotate(24deg); background: var(--gold); height: 4px; }
+  .vee span:nth-child(2) { top: 34px; left: 16px; transform: rotate(24deg); opacity: 0.75; }
+  .vee span:nth-child(3) { top: 56px; left: 0;  transform: rotate(24deg); opacity: 0.5; }
+  .hero .sub {
+    font-size: 1.2rem; max-width: 56ch; color: var(--ink-soft); margin-top: 0.6em;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .chip {
+    font-family: var(--mono); font-size: 12.5px; padding: 7px 12px;
+    background: var(--mono-bg); border: 1px solid var(--line); border-radius: 4px;
+    color: var(--ink);
+  }
+  .chip b { color: var(--indigo); font-weight: 600; }
+
+  /* how it works */
+  .steps { display: grid; gap: 22px; margin-top: 26px; }
+  .step { display: grid; grid-template-columns: 26px 1fr; gap: 14px; }
+  .step .dot {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--indigo);
+    margin-top: 6px; position: relative;
+  }
+  .step:not(:last-child) .dot::after {
+    content: ""; position: absolute; left: 5px; top: 14px; width: 2px; height: 64px;
+    background: var(--line);
+  }
+  .step h3 { margin-bottom: 0.1em; }
+  .step p { margin: 0; }
+
+  /* features */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-top: 30px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 22px 22px 16px;
+  }
+  .card.hero-card { grid-column: 1 / -1; border-color: var(--indigo); }
+  .card .one-liner { font-family: var(--serif); font-style: italic; color: var(--ink); margin: 0 0 0.7em; }
+  .card ul { margin: 0; padding: 0 0 0 1.05em; color: var(--ink-soft); font-size: 15px; }
+  .card li { margin-bottom: 0.55em; }
+  .card li::marker { color: var(--indigo); }
+  .health { display: inline-flex; gap: 5px; margin-left: 8px; vertical-align: middle; }
+  .health i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .health .g { background: var(--ok); } .health .y { background: var(--warn); } .health .r { background: var(--bad); }
+
+  /* authority ladder */
+  .ladder { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 18px; align-items: center; }
+  .rung {
+    font-family: var(--mono); font-size: 12.5px; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--ink-soft);
+  }
+  .rung.autonomous { border-style: solid; border-color: var(--ok); color: var(--ok); }
+  .rung.notify { border-color: var(--indigo); color: var(--indigo); }
+  .rung.review { background: var(--indigo-soft); border-color: var(--indigo); color: var(--indigo); font-weight: 600; }
+  .rung.forbidden { border-color: var(--bad); color: var(--bad); }
+  .ladder .arrow { color: var(--ink-soft); font-size: 12px; }
+
+  /* receipt */
+  .receipt {
+    font-family: var(--mono); font-size: 12.5px; background: var(--mono-bg);
+    border: 1px solid var(--line); border-left: 3px solid var(--gold);
+    padding: 12px 14px; border-radius: 4px; margin-top: 14px; color: var(--ink-soft);
+    overflow-x: auto; white-space: pre; line-height: 1.7;
+  }
+  .receipt em { color: var(--indigo); font-style: normal; }
+
+  /* rules */
+  .rules { list-style: none; margin: 26px 0 0; padding: 0; counter-reset: rule; }
+  .rules li {
+    padding: 16px 0; border-bottom: 1px solid var(--line);
+    display: grid; grid-template-columns: 1fr; gap: 2px;
+  }
+  .rules b { font-family: var(--serif); font-size: 1.06rem; }
+  .rules span { color: var(--ink-soft); font-size: 15px; }
+
+  /* getting started */
+  .start { display: grid; gap: 14px; margin-top: 26px; }
+  .cmd {
+    font-family: var(--mono); font-size: 14px; background: var(--mono-bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px;
+    overflow-x: auto; white-space: pre;
+  }
+  .start .label { font-size: 14px; color: var(--ink-soft); }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 34px 0 46px; margin-top: 30px;
+    font-size: 14px; color: var(--ink-soft);
+  }
+  footer .tail { height: 14px; margin-bottom: 18px; position: relative; overflow: hidden; }
+  footer .tail::before {
+    content: ""; position: absolute; inset: 6px 0 auto; height: 2px;
+    background: var(--line); border-radius: 2px;
+    clip-path: polygon(0 0, 45% 0, 50% 100%, 55% 0, 100% 0, 100% 100%, 0 100%);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .vee span { transition: width 0.9s ease; width: 0; animation: draw 0.9s ease forwards; }
+    @keyframes draw { to { width: 120px; } }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <section class="hero">
+    <div class="vee" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="eyebrow">🧵 Skein — internal team platform</div>
+    <h1>Many strands. One formation.</h1>
+    <p class="sub">The coordination harness for our strike team — humans and AI agents
+    drafting off each other, earning turns at the front, receipts at every checkpoint.</p>
+    <div class="prose">
+      <p>A skein is two things: a coil of yarn — many strands wound so they pull as one —
+      and geese flying in V-formation, where the lead rotates and every bird's lift carries
+      the one behind it. Skein is that, as software: engagements, milestones, tasks,
+      blockers, questions, decisions, standups, intake triage, a knowledge base, and a team
+      calendar — shared between people and their agents, with one write path, provenance on
+      everything, and an approval gate agents have to earn their way past.</p>
+    </div>
+    <div class="chips">
+      <div class="chip"><b>0</b> API keys required — deterministic core, models are an upgrade</div>
+      <div class="chip"><b>39</b> agent tools, <b>1</b> write path — agents use the same services humans do</div>
+      <div class="chip">receipts on every verdict — row IDs and numbers behind each claim</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">How it works</div>
+    <h2>From “someone should write that down” to “here's the receipt.”</h2>
+    <div class="steps prose">
+      <div class="step"><div class="dot"></div><div>
+        <h3>Capture</h3>
+        <p>Press ⌘K anywhere and type. <code>blocked on vendor contract</code> becomes a
+        blocker. <code>q: who owns DNS?</code> becomes a question. <code>promised: demo by
+        Friday</code> lands in the commitment ledger. Rule-based routing — no model in the
+        loop, no excuse not to capture. Same capture from the CLI, Slack, and MCP.</p>
+      </div></div>
+      <div class="step"><div class="dot"></div><div>
+        <h3>The record</h3>
+        <p>Everything captured becomes a real record with provenance: who wrote it, whether
+        they were human or agent, and an activity-log entry. Decisions carry a half-life and
+        go stale on schedule instead of silently rotting. Full-text search covers all of it.</p>
+      </div></div>
+      <div class="step"><div class="dot"></div><div>
+        <h3>The rhythm</h3>
+        <p>Skein runs the week so nobody has to remember to. A drafted Monday plan lands in
+        the review inbox — approved, not imposed. The daily digest opens with a shared joke
+        and goes straight-faced when something's escalated. Blockers escalate on impact-based
+        deadlines, and the three-day-old ones get a funeral when they finally die.</p>
+      </div></div>
+      <div class="step"><div class="dot"></div><div>
+        <h3>Agents earn trust</h3>
+        <p>Agents hold an authority level per entity type — most start at <em>review</em>:
+        every write is a proposal a human approves. Approval streaks build trust; a strong
+        streak <em>suggests</em> promotion, and a human still flips the switch.</p>
+      </div></div>
+      <div class="step"><div class="dot"></div><div>
+        <h3>Insights</h3>
+        <p>A findings engine watches the record with deterministic rules and speaks at most
+        three times a week, severity-ordered, receipts attached. Below its sample floors it
+        says nothing — silence is a valid output.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">What's built</div>
+    <h2>Every feature, honestly described.</h2>
+    <div class="grid">
+
+      <div class="card">
+        <h3>Capture &amp; the record</h3>
+        <p class="one-liner">Five ways in, one record out — and the record doesn't rot.</p>
+        <ul>
+          <li><strong>⌘K quick capture</strong> — <code>q:</code> question · <code>todo:</code> task · <code>blocked…</code> blocker · <code>decision:</code> decision · <code>promised:</code> commitment · else note. Palette, REST, CLI, Slack, MCP.</li>
+          <li><strong>Standups that file blockers</strong> — blocker text auto-becomes a real blocker in the register.</li>
+          <li><strong>Decisions with a half-life</strong> — <code>review_by</code> dates, a daily stale sweep, supersede chains instead of contradictions.</li>
+          <li><strong>Questions with owners</strong> — assigned, notified, aged; open past five days gets named in the digest.</li>
+          <li><strong>Full-text search</strong> over every entity, keyless.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Engagements &amp; portfolio <span class="health" aria-hidden="true"><i class="g"></i><i class="y"></i><i class="r"></i></span></h3>
+        <p class="one-liner">The strike-team unit of work, with health calls that show their math.</p>
+        <ul>
+          <li><strong>Playbook kickoffs</strong> — templates spin up milestones, tasks, rituals, and the lessons paid for last time.</li>
+          <li><strong>Intake with a spine</strong> — submit → RICE-lite score → accept/defer/decline <em>with a reason</em>; what-if staffing answers “if we take this, Dana hits 130%.”</li>
+          <li><strong>Health with receipts</strong> — R/Y/G per engagement, every verdict lists why.</li>
+          <li><strong>Slip forecast, labeled honestly</strong> — our own slip history projected forward, basis shown.</li>
+          <li><strong>Commitment ledger &amp; exec readout</strong> — external promises tracked to kept/missed; one-command stakeholder readout.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>The weekly rhythm</h3>
+        <p class="one-liner">The week runs itself so Monday morning doesn't run you.</p>
+        <ul>
+          <li><strong>The commitment line</strong> — committed-vs-done and kept-% per week. The team's word, measured.</li>
+          <li><strong>Auto-drafted Monday plan</strong> — five tasks max per person, filed as a <em>proposal</em>. Approved, not imposed.</li>
+          <li><strong>Daily digest</strong> — deterministic, 07:00 UTC; drops the joke whenever something is escalated.</li>
+          <li><strong>Escalation &amp; funerals</strong> — critical blockers escalate in 2 hours, low in 72; three-day survivors get a funeral. 🪦</li>
+          <li><strong>Team pulse</strong> — seasons, standup chains, blocker speedruns. No individual leaderboards, ever.</li>
+        </ul>
+      </div>
+
+      <div class="card hero-card">
+        <h3>Agents as teammates — the trust system</h3>
+        <p class="one-liner">Agents don't get autonomy. They earn it — one approved proposal at a time.</p>
+        <div class="ladder" aria-label="Authority levels">
+          <span class="rung forbidden">forbidden</span><span class="arrow">→</span>
+          <span class="rung review">review · the default</span><span class="arrow">→</span>
+          <span class="rung notify">notify</span><span class="arrow">→</span>
+          <span class="rung autonomous">autonomous</span>
+        </div>
+        <ul>
+          <li><strong>Same tools, same rules</strong> — 39 agent tools wrap the exact services humans use. No side door; every agent write carries <code>origin: agent</code> provenance.</li>
+          <li><strong>The authority matrix</strong> — per agent, per entity type, enforced in the tool gate — including MCP. Only humans can change a level; an agent asking to promote itself is refused.</li>
+          <li><strong>Trust scores that suggest, never decide</strong> — five approvals in a row <em>suggests</em> promotion. A human flips the switch, every time.</li>
+          <li><strong>Delegation with a sponsor</strong> — agent work always has a named human accountable for it.</li>
+          <li><strong>Agent inboxes</strong> — delegated tasks, questions, and rejected proposals <em>with the reviewer's notes</em> — agents learn from the no, not just the yes.</li>
+          <li><strong>Cross-thread memory</strong> — remember and recall across conversations, keyless.</li>
+        </ul>
+        <div class="receipt">trust: code-agent on task — 5/5 approved · streak 5
+<em>suggestion:</em> consider promoting to autonomous   <em>(a human decides)</em></div>
+      </div>
+
+      <div class="card">
+        <h3>The review flywheel &amp; evals</h3>
+        <p class="one-liner">Every approve and reject makes the system measurably better.</p>
+        <ul>
+          <li><strong>Review inbox</strong> — approve/reject with notes; claim-locked; failed applies never lose the proposal.</li>
+          <li><strong>Review analytics</strong> — approval rates and latency per entity and proposer; recent rejection reasons.</li>
+          <li><strong>A self-growing eval corpus</strong> — thumbs and corrections become labeled data.</li>
+          <li><strong><code>skein eval</code></strong> — replays the capture classifier against the team's own corrections; exits nonzero on regressions.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Insights &amp; findings</h3>
+        <p class="one-liner">Findings are sentences with receipts. Charts are the evidence behind them.</p>
+        <ul>
+          <li><strong>Deterministic rules</strong> — MTTR regressions, aging WIP, slipping commitment lines, review-queue stalls, decision decay, token anomalies — each with explicit sample floors.</li>
+          <li><strong>Receipts stored at fire time</strong> — the row IDs and numbers that triggered each finding.</li>
+          <li><strong>Small-n discipline</strong> — medians over means, n printed everywhere, no %-claims under n=8.</li>
+          <li><strong>Max three findings a week</strong> — severity-ordered, in the digest. Silence is a valid output.</li>
+          <li><strong>Anti-surveillance, structurally</strong> — person-level data plans the future; judging the past is team-rolled only.</li>
+        </ul>
+        <div class="receipt">🟡 12 of 31 in-progress tasks untouched &gt;2 weeks   <em>n=12, point-in-time</em>
+receipt: task IDs + ages stored at fire time</div>
+      </div>
+
+      <div class="card">
+        <h3>The developer loop</h3>
+        <p class="one-liner">Skein meets you in the terminal, the commit message, and your other agents.</p>
+        <ul>
+          <li><strong>Per-teammate API keys</strong> — hashed, shown once; they authenticate <em>and</em> attribute.</li>
+          <li><strong>Stdlib-only CLI</strong> — <code>skein capture|standup|my-day|tasks|week|eval|context</code>.</li>
+          <li><strong>Git trailers &amp; CI webhook</strong> — <code>Closes-Task: #12</code> closes the task; a red main build files a blocker, green resolves it.</li>
+          <li><strong>MCP server</strong> — your other AI agents join the platform against the same DB.</li>
+          <li><strong>The context pack</strong> — a versioned org-brain; <code>skein context --write AGENTS.md</code> makes Skein the context supplier to every agent you run.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Ops &amp; trust</h3>
+        <p class="one-liner">Boring on purpose: one box, one write path, backups you can count.</p>
+        <ul>
+          <li><strong>Keyless-first, permanently</strong> — mock provider end-to-end; a signed-in Ollama daemon gets a real model for free.</li>
+          <li><strong>Provenance on every write</strong> — origin + author + activity log, both write paths, no exceptions.</li>
+          <li><strong>Backups that leave the box</strong> — atomic daily backups (14 kept) + off-box mirror (30 kept).</li>
+          <li><strong>Append-only migrations, idempotent scheduler</strong> — every job safe to re-run.</li>
+          <li><strong>A security model stated plainly</strong> — documented limits instead of pretended ones.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Principles</div>
+    <h2>The rules Skein keeps.</h2>
+    <p class="prose">Principles are cheap when they're prose. These are enforced in code.</p>
+    <ul class="rules prose">
+      <li><b>Provenance on every write.</b><span>Human or agent, REST or tool — every record says who and what wrote it.</span></li>
+      <li><b>Receipts, shown.</b><span>If Skein can't show its math, it doesn't make the claim.</span></li>
+      <li><b>No individual leaderboards.</b><span>Person-level data plans the future — it never scores the past.</span></li>
+      <li><b>Silence is a valid output.</b><span>Rules stay quiet below their sample floors. Early emptiness is honesty.</span></li>
+      <li><b>Keyless-first, forever.</b><span>Models make it better; they never gate it.</span></li>
+      <li><b>Agents earn autonomy.</b><span>Default is review. Trust suggests; humans grant. Self-promotion is refused by the gate.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="eyebrow">Getting started</div>
+    <h2>Three steps. The third one is a keystroke.</h2>
+    <div class="start prose">
+      <div>
+        <div class="cmd">docker compose up --build -d</div>
+        <div class="label">Backend + frontend up, migrations applied, scheduler running. (Optional: <code>docker compose exec backend python seed.py</code>.)</div>
+      </div>
+      <div>
+        <div class="cmd">→ pick your name (top right)</div>
+        <div class="label">That's sign-in. Teammates, not strangers; real credentials come later if you automate.</div>
+      </div>
+      <div>
+        <div class="cmd">⌘K → “blocked on vendor contract”</div>
+        <div class="label">Watch it land in the blocker register. You've captured your first record. 🪿</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="tail" aria-hidden="true"></div>
+    🧵 Skein — built on the Strands Agents SDK and assistant-ui. Works fully without API
+    keys. Formerly “Strands Team Platform” — the geese insisted on a real name.
+  </footer>
+
+</div>
+
+</body>
+</html>
