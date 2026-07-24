@@ -50,6 +50,13 @@ MCP_SERVERS = os.getenv("STRANDS_MCP_SERVERS", "")
 # OpenTelemetry OTLP endpoint (e.g. http://jaeger:4318). Empty = disabled.
 OTEL_ENDPOINT = os.getenv("STRANDS_OTEL_ENDPOINT", "")
 
+# Opt-in prebuilt tools from strands-agents-tools for the real agent,
+# comma-separated (e.g. "calculator,current_time,think,batch"). Only
+# allowlisted names load — see app/agents/extra_tools.py.
+EXTRA_TOOLS = tuple(
+    t.strip() for t in os.getenv("STRANDS_EXTRA_TOOLS", "").split(",") if t.strip()
+)
+
 # Optional shared bearer token for the whole API (set when exposing beyond
 # a trusted network). Empty = open (trusted-LAN mode).
 API_TOKEN = os.getenv("STRANDS_API_TOKEN", "")

@@ -69,6 +69,7 @@ def build_agent(thread_id: str, user: str = "anonymous"):
     from ..tools.memory import recall_memories, remember
     from ..tools.platform import list_playbooks, start_engagement_from_playbook
     from ..tools.work import create_milestone, create_task, list_milestones, list_tasks
+    from .extra_tools import extra_tools
     from .mcp_tools import mcp_tools
 
     @tool
@@ -98,7 +99,8 @@ def build_agent(thread_id: str, user: str = "anonymous"):
     return Agent(
         model=_model(),
         system_prompt=system,
-        tools=[*ALL_TOOLS, plan_project, remember, recall_memories, *mcp_tools()],
+        tools=[*ALL_TOOLS, plan_project, remember, recall_memories,
+               *extra_tools(), *mcp_tools()],
         session_manager=FileSessionManager(
             session_id=thread_id,
             storage_dir=str(config.SESSIONS_DIR),

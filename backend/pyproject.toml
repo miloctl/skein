@@ -11,6 +11,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "apscheduler>=3.10",
     "pyyaml>=6.0",
+    "strands-agents-tools>=0.2",
 ]
 
 [project.optional-dependencies]
