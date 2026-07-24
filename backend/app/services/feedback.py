@@ -4,7 +4,7 @@ correction history — run it before changing the rules (or a model prompt)."""
 
 from .. import db
 
-KINDS = ("chat", "capture", "proposal")
+KINDS = ("chat", "capture", "proposal", "finding")
 VERDICTS = ("up", "down", "corrected")
 
 

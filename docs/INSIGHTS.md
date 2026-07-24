@@ -1,10 +1,12 @@
-# Insights & findings engine — design spec (build-gated)
+# Insights & findings engine — design spec
 
-**Status: designed, deliberately not built.** Gate: ≥4 weeks of real team
-usage and one season boundary crossed. Every metric here derives from tables
-that already exist, so the data accrues now (plus `tool_usage` and
-`forecast_snapshots`, live since migration 010). Panel review 2026-07-23
-(PM + analytics agents); this file is the build order when the gate opens.
+**Status: BUILT** (`services/insights.py`, `/insights` page, findings in the
+digest and exec readout; migration 011). The panel's original gate (≥4 weeks
+of usage) was overridden by the owner — small-n discipline makes early
+emptiness honest: rules stay silent below their sample floors and the page
+labels n everywhere. The trend-comparison rules (MTTR, rejection spike,
+token anomaly) will produce their first verdicts once two comparable windows
+of real usage exist. Panel review 2026-07-23 (PM + analytics agents).
 
 ## Principles
 

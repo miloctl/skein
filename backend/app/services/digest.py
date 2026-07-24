@@ -49,6 +49,17 @@ def build_digest() -> str:
     today = _utc_today().isoformat()
     lines = [f"# Daily digest — {today}", ""]
 
+    from .insights import digest_findings
+
+    findings = digest_findings()
+    if findings:
+        lines.append("## 🔎 Findings this week")
+        for f in findings:
+            mark = {"high": "🔴", "medium": "🟡", "low": "·", "positive": "🟢"}[f["severity"]]
+            lines.append(f"- {mark} {f['message']}"
+                         + (f" *(n={f['n']}, {f['window']})*" if f["n"] else ""))
+        lines.append("")
+
     esc = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
     if esc:
         lines.append("## ⛔ Escalated blockers")

@@ -62,6 +62,10 @@ def _start_scheduler():
 
     scheduler.add_job(_job("forecast-snapshot", snapshot_forecasts),
                       "cron", hour=5, minute=15, id="forecast-snapshot")
+    from .services.insights import run_findings
+
+    scheduler.add_job(_job("findings", lambda: run_findings(actor="scheduler")),
+                      "cron", hour=6, minute=50, id="findings")
     scheduler.start()
     return scheduler
 
@@ -70,6 +74,12 @@ def _startup_forecast_snapshot():
     from .services.adoption import snapshot_forecasts
 
     return snapshot_forecasts()
+
+
+def _startup_findings():
+    from .services.insights import run_findings
+
+    return run_findings(actor="scheduler")
 
 
 @asynccontextmanager
@@ -82,7 +92,8 @@ async def lifespan(app: FastAPI):
                      ("startup-weekly-plan",
                       lambda: weekly.propose_weekly_plan(actor="scheduler")),
                      ("startup-wip-nudge", portfolio.nudge_stale_wip),
-                     ("startup-forecast-snapshot", _startup_forecast_snapshot)):
+                     ("startup-forecast-snapshot", _startup_forecast_snapshot),
+                     ("startup-findings", _startup_findings)):
         try:
             fn()
         except Exception:

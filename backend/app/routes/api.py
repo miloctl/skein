@@ -402,6 +402,27 @@ def get_adoption(weeks: int = 4):
     return adoption_svc.adoption(weeks)
 
 
+@router.get("/insights")
+def get_insights():
+    from ..services import insights as insights_svc
+
+    return insights_svc.insights()
+
+
+@router.get("/findings")
+def get_findings(weeks: int = 4):
+    from ..services import insights as insights_svc
+
+    return insights_svc.list_findings(weeks)
+
+
+@router.post("/findings/run")
+def post_findings_run(user: CurrentUser):
+    from ..services import insights as insights_svc
+
+    return insights_svc.run_findings(actor=user)
+
+
 @router.get("/usage")
 def get_usage():
     return db.query(
