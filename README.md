@@ -13,7 +13,7 @@ engagements, milestones, tasks, blockers, questions, decisions, standups,
 intake triage, a knowledge base, and a team calendar, shared between people
 and their agents.
 
-Built on the [Strands Agents SDK](https://github.com/strands-agents/harness-sdk)
+Built on the [Strands Agents SDK](https://github.com/strands-agents/sdk-python)
 (backend agents) and [assistant-ui](https://github.com/assistant-ui/assistant-ui)
 (chat frontend). **Works fully without API keys** — every feature has a
 deterministic core; connecting a model provider (a signed-in Ollama daemon is
@@ -30,6 +30,7 @@ enough) upgrades the experience.
 | `/` | **My Day** — what changed and what needs *you*, in under 30 seconds |
 | `/chat` | Chief-of-Staff agent (streaming; mock provider works keyless) |
 | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes · activity |
+| `/insights` | Findings feed with click-through receipts + team-rolled trends (MTTR, automation ratio, adoption, token spend) |
 | `/portfolio` | Portfolio layer — engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
 | `/review` | Review inbox — approve/reject proposed changes (agent approval gate) |
@@ -42,7 +43,7 @@ enough) upgrades the experience.
 backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
-  ├─ app/tools/      39 Strands @tool wrappers over the same services
+  ├─ app/tools/      40+ Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
@@ -148,7 +149,7 @@ an agent is refused).
 | Slack outbound | `SLACK_WEBHOOK_URL` | Immediate pings + twice-daily notification digests |
 | Slack commands | `SLACK_SIGNING_SECRET` | `/strands …` slash command (capture, briefing, search, plan) with signature verification |
 | MCP tools | `STRANDS_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
-| Prebuilt tools | `STRANDS_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (`calculator,current_time,think,batch` keyless; `tavily_search`/`exa_search` with their keys). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
+| Prebuilt tools | `STRANDS_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `STRANDS_EMBEDDINGS=1` + OpenAI key | Embeddings alongside FTS5 |
 | OpenTelemetry | `STRANDS_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
 | API auth | `STRANDS_API_TOKEN` | Shared bearer token on every endpoint |
@@ -159,9 +160,11 @@ the agent's prompt) work keyless, in-app.
 
 ## The developer loop
 
-- **Per-teammate API keys** — `POST /api/keys` (label it, store the `sk-strands-…`
-  once); keys authenticate and *attribute* automation, and satisfy the shared
-  token gate.
+- **Per-teammate API keys** — create yours with
+  `curl -X POST $URL/api/keys -H 'X-User: you' -H 'Content-Type: application/json' -d '{"label":"cli"}'`
+  (store the `sk-strands-…` once — it is never shown again); keys authenticate
+  and *attribute* automation, and satisfy the shared token gate. If
+  `STRANDS_API_TOKEN` is set, pass it as the bearer when minting your first key.
 - **`strands` CLI** (stdlib-only): `pipx install ./cli`, then
   `strands config --url … --key …` and
   `strands capture|standup|my-day|tasks|blockers|search|week|eval|context`.
@@ -176,7 +179,10 @@ the agent's prompt) work keyless, in-app.
   at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
   blocker; green auto-resolves it.
 - **MCP server** — your *other* AI agents join the platform:
-  `claude mcp add strands -- env STRANDS_MCP_USER=you backend/.venv/bin/python -m app.mcp_server`
+  `claude mcp add strands -- env STRANDS_MCP_USER=you /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
+  (needs the local backend install — Docker-only deployments should `uv venv`
+  the backend once on the host for MCP use; run `strands install-hooks` inside
+  each work repo you want git-trailer sync in)
   exposes `get_my_day`, `capture`, `create_task`, `log_decision`,
   `search_workspace`, `add_blocker`, `remember`, `my_inbox`,
   `portfolio_health`, `get_context_pack`, and more against the same DB.
@@ -191,6 +197,9 @@ team-level stats only (standup chain, blocker speedruns, ships, lessons) —
 deliberately no individual leaderboards.
 
 ## Setup
+
+Prerequisites: Python 3.10+, Node 20+, [uv](https://github.com/astral-sh/uv),
+and pipx (for the CLI).
 
 ```bash
 # backend
@@ -236,8 +245,8 @@ end-to-end: streaming chat, tool calls, and usage accounting.
 
 ## Status & roadmap
 
-Phases 0–2 of [docs/SPEC.md](docs/SPEC.md) plus three ideation rounds are
-**built**: the keyless operating system, integrations (Slack, MCP both ways,
+Phases 0–2 of [docs/SPEC.md](docs/SPEC.md) plus the synthesized picks from
+three ideation rounds are **built**: the keyless operating system, integrations (Slack, MCP both ways,
 CI, keys, CLI), delight & pulse, and the round-3 operating-system layer
 (portfolio health, weekly commitment line, flow metrics, agent delegation +
 authority matrix, review analytics + eval corpus, decision half-life,

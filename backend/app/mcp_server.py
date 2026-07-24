@@ -10,10 +10,12 @@ Claude Code registration:
     claude mcp add strands -- env STRANDS_MCP_USER=you \
         /path/to/backend/.venv/bin/python -m app.mcp_server
 
-Writes are attributed to STRANDS_MCP_USER (shown with origin=agent) and go
-through the same authority gate as chat-agent tools: with review mode on they
-queue in /review until this agent identity earns autonomous authority — so
-MCP traffic builds trust scores like everyone else's.
+Writes are attributed to STRANDS_MCP_USER (shown with origin=agent).
+Gating: create_task, complete_task, log_decision, add_blocker, and
+save_knowledge go through the same authority gate as chat-agent tools — with
+review mode on they queue in /review and build trust scores. capture and
+remember write directly; capture still enforces a 'forbidden' authority row
+on whatever entity it routes to (the kill switch always holds).
 """
 
 import json

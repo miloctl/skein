@@ -17,7 +17,10 @@ both write paths (human REST, agent tools) and carry provenance
 | Knowledge base | notes; `convention: …` topics feed the context pack | `/api/notes` |
 | Calendar | events, today's shown in My Day | `/api/events` |
 | Quick capture | rule-based routing: `q:`→question, `todo:`→task, `blocked …`→blocker, `decision:`→decision, `promised:`→commitment, else note | ⌘K palette · `POST /api/capture` · CLI `strands capture` · Slack `/strands` · MCP `capture` |
-| Full-text search | FTS5 over every entity; optional embeddings (`STRANDS_EMBEDDINGS=1`) | `GET /api/search?q=` · CLI `strands search` |
+| Full-text search | FTS5 over every entity; optional embeddings (`STRANDS_EMBEDDINGS=1`) | `GET /api/search?q=` · CLI `skein search` |
+| My Day briefing | what needs *you* + your work + team happenings; attention count feeds the nav badge | `GET /api/briefing` · `GET /api/attention` · CLI `skein my-day` |
+| First-run onboarding | checklist computed from real state (name, engagement, capture, standup, teammate, key); dismissible card on My Day | `GET /api/onboarding` |
+| Artifacts & digest | handoffs, readouts, digests archived under `data/artifacts/` | `GET /api/artifacts` · `POST /api/digest` · `GET /api/users` |
 
 ## Engagements & portfolio
 
@@ -47,16 +50,16 @@ both write paths (human REST, agent tools) and carry provenance
 | Daily digest | 07:00 UTC deterministic digest; date-seeded opener suppressed during escalations; `_narrate` hook for LLM polish |
 | Blocker escalation | impact-based deadlines (`critical` 2h → `low` 72h), hourly sweep, funerals for 3-day-old blockers at resolution |
 | Notification tiers | immediate (in-app + Slack now) / digest (batched twice daily) / passive (activity log only) |
-| Team pulse | 6-week seasons, whole-team standup chain, blocker speedruns, season totals — no individual leaderboards |
+| Team pulse | 6-week seasons, whole-team standup chain, blocker speedruns, season totals — no individual leaderboards (`GET /api/pulse`) |
 
 ## Agents as teammates
 
 | Feature | How |
 |---|---|
 | Chief-of-Staff chat | streaming SSE; `STRANDS_MODEL_PROVIDER=mock` gives a command-driven agent (`/plan`, `/briefing`, `/search`, `/remember`, `/playbooks`, `/help`) keyless; `ollama` gives a real model for free (local daemon or Ollama Cloud via signed-in daemon / `OLLAMA_API_KEY`); anthropic/openai are the paid tiers |
-| Agent write path | 39 Strands `@tool` wrappers over the same services humans use |
+| Agent write path | 40+ Strands `@tool` wrappers over the same services humans use (plus planner, memory, and opt-in extra tools on the chat agent) |
 | Review gate | `STRANDS_AGENT_REVIEW=1` routes mutating agent tools through `pending_changes`; approval applies via the service registry as `origin=agent_verified` |
-| **Authority matrix** | per (agent, entity): `autonomous` (direct), `notify` (direct + team ping), `review` (default — proposal), `forbidden` (refused). Enforced in the shared tool gate | `GET/POST /api/agents/authority` · `/agents` page |
+| **Authority matrix** | per (agent, entity): `autonomous` (direct), `notify` (direct + team ping), `review` (default — proposal), `forbidden` (refused). Enforced in the shared tool gate (chat AND MCP); only humans can set levels | `GET/POST /api/agents/authority` · `GET /api/agents/entities` · `/agents` page |
 | **Delegation** | tasks get `delegated_agent` + a human `sponsor` (required); sponsor is notified | `POST /api/tasks/{id}/delegate` · tool `delegate_task` |
 | **Mission control** | per-agent open tasks, pending proposals, last-seen, authority chips | `GET /api/agents` · `/agents` page |
 | **Agent inbox** | ambient wake-up view: delegated tasks, assigned questions, rejected proposals *with reviewer notes*, unread notifications | `GET /api/agents/{agent}/inbox` · MCP `my_inbox` |
@@ -81,14 +84,14 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 
 - `GET /api/context-pack` · `POST /api/context-pack/publish`
 - MCP resource `strands://context-pack` + tool `get_context_pack`
-- CLI: `strands context` or `strands context --write AGENTS.md` — Strands
+- CLI: `strands context` or `strands context --write AGENTS.md` — Skein
   becomes the context supplier to every other agent the team uses.
 
 ## Insights & findings
 
 | Feature | How |
 |---|---|
-| Findings engine | 11 deterministic rules (docs/INSIGHTS.md) over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
+| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | 12 deterministic rules (docs/INSIGHTS.md) over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
 | `/insights` page | findings feed (receipts on click) + team-rolled trends: rolling-28d blocker MTTR (median/P85, n shown, verdicts withheld under n=8), automation ratio by month (co-presented with review verdicts), intake funnel, weekly token spend, adoption |
 | Adoption telemetry | `tool_usage` (day × user × surface), `GET /api/adoption`; measures the tool's reach, never people's output |
 | Anti-surveillance rule | person-level data only for planning the future (capacity, private nudges, My Day); team aggregates only for judging the past — enforced in the service layer, no person-keyed insight endpoints exist |
@@ -112,17 +115,17 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 | Feature | How |
 |---|---|
 | Migrations | append-only numbered SQL, per-migration `BEGIN IMMEDIATE` transactions, `schema_version` |
-| Scheduler (UTC) | hourly blocker sweep · 03:00 backup · 05:00 context pack · 06:00 Mon weekly plan · 06:15 Mon stale-WIP nudge · 06:30 stale decisions · 07:00 digest · 07:05/15:05 notification flush — all idempotent via `claim_job` CAS or status flips |
+| Scheduler (UTC) | hourly blocker sweep · 03:00 backup · 05:00 context pack · 05:15 forecast snapshot · 06:00 Mon weekly plan · 06:15 Mon stale-WIP nudge · 06:30 stale decisions · 06:50 findings · 07:00 digest · 07:05/15:05 notification flush — all idempotent via `claim_job` CAS or status flips |
 | Backups & export | atomic daily SQLite backups (keep 14) + JSON export, `STRANDS_BACKUP_DIR` to relocate, `STRANDS_BACKUP_MIRROR` copies each backup off-box (keep 30) — this deploy mirrors to the NAS mount |
 | CI | Gitea Actions (`.gitea/workflows/ci.yml`): pytest + frontend build per push; runner `the runner host` registered repo-level, runs as the `act-runner` systemd user service (docker mode, linger enabled) |
-| Docker | multi-stage images, non-root, healthchecks, single `STRANDS_HOST` knob, named `strands-data` volume |
+| Docker | multi-stage frontend image, slim non-root backend image, healthchecks, single `STRANDS_HOST` knob, named `strands-data` volume |
 | Auth model | trusted `X-User` name picker (LAN model); optional `STRANDS_API_TOKEN` shared bearer; per-user keys for automation. Put a real proxy in front to leave the trusted network |
 | Usage accounting | tokens/cycles/latency per thread and model when a real provider is on (`GET /api/usage`) |
 
 ## Environment variables
 
 See `backend/.env.example`. Highlights: `STRANDS_MODEL_PROVIDER`
-(`mock`/`anthropic`/`openai`), `STRANDS_MODEL_ID`, `STRANDS_AGENT_REVIEW`,
+(`mock`/`anthropic`/`openai`/`ollama`), `STRANDS_MODEL_ID`, `STRANDS_AGENT_REVIEW`,
 `STRANDS_SCHEDULER`, `STRANDS_EMBEDDINGS`, `STRANDS_API_TOKEN`,
 `SLACK_WEBHOOK_URL`, `SLACK_SIGNING_SECRET`, `STRANDS_MCP_SERVERS`,
 `STRANDS_OTEL_ENDPOINT`, `STRANDS_BACKUP_DIR`, `STRANDS_MCP_USER`.

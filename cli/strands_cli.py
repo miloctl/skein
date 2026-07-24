@@ -4,20 +4,22 @@
 
 Setup:
     skein config --url http://localhost:8000 --key sk-strands-... [--user you]
-    (create a key: curl -X POST $URL/api/keys -H 'X-User: you' -d '{"label":"cli"}')
+    (create a key: curl -X POST $URL/api/keys -H 'X-User: you'
+       -H 'Content-Type: application/json' -d '{"label":"cli"}')
+    Env fallbacks: STRANDS_URL, STRANDS_API_KEY (config file wins).
 
-Examples:
-    strands capture "todo: ship the API"
-    strands standup --today "auth flow" --blockers "waiting on vendor"
-    strands my-day
-    strands tasks
-    strands tasks done 12
-    strands blockers add "staging db down" --impact high
-    strands search cutover
-    strands week draft        # weekly commitment line
-    strands eval              # replay capture classifier vs feedback corpus
-    strands context --write AGENTS.md
-    strands install-hooks     # git post-commit: Closes-Task: #N trailers
+Examples (the `strands` alias works everywhere `skein` does):
+    skein capture "todo: ship the API"
+    skein standup --today "auth flow" --blockers "waiting on vendor"
+    skein my-day
+    skein tasks
+    skein tasks done 12
+    skein blockers add "staging db down" --impact high
+    skein search cutover
+    skein week draft          # weekly commitment line
+    skein eval                # replay capture classifier vs feedback corpus
+    skein context --write AGENTS.md
+    skein install-hooks       # run inside each work repo you want trailer sync in
 """
 
 import argparse

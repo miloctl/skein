@@ -5,10 +5,10 @@ agents). FastAPI + Strands Agents SDK + SQLite backend; Next.js 16 +
 assistant-ui frontend. Brand: "Skein — many strands, one formation"; display
 surfaces say Skein, internal identifiers keep the `strands`/`STRANDS_*` names.
 
-Read `docs/SPEC.md` before implementing anything — it defines the phases,
-data model, and constraints. `docs/FEATURES.md` is the reference for what is
-already built (surfaces, endpoints, jobs); `docs/ROADMAP.md` holds the
-feature ideation.
+`docs/FEATURES.md` is the reference for what is already built (surfaces,
+endpoints, jobs) — read it first. `docs/SPEC.md` is the original phase plan,
+kept for its data model and constraints; `docs/ROADMAP.md` holds the feature
+ideation and engineering backlog.
 
 ## Hard constraints
 
@@ -29,7 +29,7 @@ feature ideation.
 
 ```bash
 # backend (from backend/)
-uv pip install -e ".[dev]" --python .venv/bin/python   # deps
+uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest                                        # tests
 .venv/bin/uvicorn app.main:app --port 8000 --reload     # run
 .venv/bin/python seed.py                                # demo data

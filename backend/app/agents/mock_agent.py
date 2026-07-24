@@ -18,7 +18,7 @@ HELP = """**Mock agent** (no API key configured) — everything still works, det
 
 Freeform examples: `todo: ship the API`, `why is staging down?`, `decision: we're using SQLite`, `blocked on vendor contract`.
 
-Set `STRANDS_MODEL_PROVIDER=anthropic` or `openai` (+ API key) in backend/.env for the full conversational agent."""
+Set `STRANDS_MODEL_PROVIDER=ollama` (free with a signed-in Ollama daemon), or `anthropic`/`openai` (+ API key) in backend/.env for the full conversational agent."""
 
 
 class MockAgent:

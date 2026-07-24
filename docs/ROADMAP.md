@@ -1,4 +1,12 @@
-# Feature Roadmap — Strands Team Platform
+# Feature Roadmap — Skein
+
+> **Status markers (2026-07):** Round 1's synthesized top-10 — all shipped.
+> Round 2 — shipped: CLI, MCP server, API keys, git trailers, CI webhook,
+> whimsy pack, team pulse, digest voice; not built: editor touchpoints,
+> weekly changelog, public-quality /docs, knowledge-flywheel meter, NPC
+> levels, clean-handoff streaks, inbox-zero runs, RICE calibration.
+> Round 3's suggested build order — all shipped. Current reference:
+> `docs/FEATURES.md`; deferred engineering work: the backlog at the bottom.
 
 Ideation produced by a 4-agent panel (Product Manager, Workflow Architect,
 AI Engineer, UX Researcher), each reviewing the current platform from their

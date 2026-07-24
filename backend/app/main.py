@@ -36,7 +36,7 @@ def _start_scheduler():
     daily digest (07:00), twice-daily notification flush (07:05 / 15:05),
     daily backup (03:00), Monday weekly-plan draft (06:00) + stale-WIP nudge
     (06:15), daily stale-decision sweep (06:30), daily context-pack refresh
-    (05:00). Jobs are once-only via db.claim_job or CAS status flips, so an
+    (05:00), daily forecast snapshot (05:15), daily findings run (06:50). Jobs are once-only via db.claim_job or CAS status flips, so an
     accidental multi-worker deployment can't double-run them."""
     from apscheduler.schedulers.background import BackgroundScheduler
 

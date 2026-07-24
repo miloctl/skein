@@ -1,11 +1,11 @@
-# Implementation Spec — Strands Team Platform
+# Implementation Spec — Skein (formerly Strands Team Platform)
 
-> **Status (2026-07-23):** Phases 0–2 built and tested (32 passing tests).
-> The agentic layer is wired keyless: approval-gate via pending_changes
-> (`STRANDS_AGENT_REVIEW=1`), digest narration hook, embeddings hook
-> (`STRANDS_EMBEDDINGS=1`), usage accounting. Remaining from Phase 3/4:
-> Strands-interrupt gates, cross-thread agent memory, MCP integrations,
-> Slack surface, notification tiers, OpenTelemetry, eval harness.
+> **Status (2026-07):** all phases 0–4 are BUILT and superseded by reality —
+> this document is the original build plan, kept for its rationale, data
+> model, and constraints. `docs/FEATURES.md` is the current reference for
+> what exists. As-built deviations from this plan: embeddings are OpenAI
+> vectors stored as JSON with Python cosine similarity (not sqlite-vec), and
+> the approval gate is the pending_changes registry (not Strands interrupts).
 
 Working constraint: **no API keys for now**. Every feature is designed with a
 deterministic core (DB + REST + UI) that works without a model; the agent layer
