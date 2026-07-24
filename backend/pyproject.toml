@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AI team coordination platform built on the Strands Agents SDK"
 requires-python = ">=3.10"
 dependencies = [
-    "strands-agents[anthropic,openai]>=1.0",
+    "strands-agents[anthropic,openai,ollama]>=1.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",

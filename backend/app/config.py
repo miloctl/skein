@@ -15,13 +15,21 @@ DB_PATH = DATA_DIR / "platform.db"
 SESSIONS_DIR = DATA_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Model settings. Provider is "anthropic", "openai", or "mock" (keyless
-# deterministic agent for dev/tests). Credentials resolve from
+# Model settings. Provider is "anthropic", "openai", "ollama", or "mock"
+# (keyless deterministic agent for dev/tests). Credentials resolve from
 # ANTHROPIC_API_KEY / OPENAI_API_KEY when not passed explicitly.
 MODEL_PROVIDER = os.getenv("STRANDS_MODEL_PROVIDER", "mock").lower()
-_DEFAULT_MODELS = {"anthropic": "claude-opus-4-8", "openai": "gpt-5", "mock": "mock"}
+_DEFAULT_MODELS = {"anthropic": "claude-opus-4-8", "openai": "gpt-5",
+                   "ollama": "gpt-oss:120b-cloud", "mock": "mock"}
 MODEL_ID = os.getenv("STRANDS_MODEL_ID", _DEFAULT_MODELS.get(MODEL_PROVIDER, "mock"))
 MAX_TOKENS = int(os.getenv("STRANDS_MAX_TOKENS", "4096"))
+
+# Ollama: the default host is the local daemon, which proxies *-cloud models
+# to Ollama Cloud when `ollama signin` has been run on the box. To skip the
+# daemon and talk to Ollama Cloud directly, set STRANDS_OLLAMA_HOST to
+# https://ollama.com and OLLAMA_API_KEY to a key from ollama.com settings.
+OLLAMA_HOST = os.getenv("STRANDS_OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 
 # With STRANDS_AGENT_REVIEW=1, mutating agent writes become pending_changes
 # proposals that a human approves in the review inbox (approval-gate mode).

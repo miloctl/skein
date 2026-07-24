@@ -53,7 +53,7 @@ both write paths (human REST, agent tools) and carry provenance
 
 | Feature | How |
 |---|---|
-| Chief-of-Staff chat | streaming SSE; `STRANDS_MODEL_PROVIDER=mock` gives a command-driven agent (`/plan`, `/briefing`, `/search`, `/remember`, `/playbooks`, `/help`) keyless; anthropic/openai upgrade it |
+| Chief-of-Staff chat | streaming SSE; `STRANDS_MODEL_PROVIDER=mock` gives a command-driven agent (`/plan`, `/briefing`, `/search`, `/remember`, `/playbooks`, `/help`) keyless; `ollama` gives a real model for free (local daemon or Ollama Cloud via signed-in daemon / `OLLAMA_API_KEY`); anthropic/openai are the paid tiers |
 | Agent write path | 39 Strands `@tool` wrappers over the same services humans use |
 | Review gate | `STRANDS_AGENT_REVIEW=1` routes mutating agent tools through `pending_changes`; approval applies via the service registry as `origin=agent_verified` |
 | **Authority matrix** | per (agent, entity): `autonomous` (direct), `notify` (direct + team ping), `review` (default — proposal), `forbidden` (refused). Enforced in the shared tool gate | `GET/POST /api/agents/authority` · `/agents` page |

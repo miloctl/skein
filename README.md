@@ -150,10 +150,17 @@ Model provider in `backend/.env`:
 
 | Variable | Values | Default |
 |---|---|---|
-| `STRANDS_MODEL_PROVIDER` | `mock` \| `anthropic` \| `openai` | `mock` (no keys needed) |
-| `STRANDS_MODEL_ID` | any model ID | `claude-opus-4-8` / `gpt-5` |
+| `STRANDS_MODEL_PROVIDER` | `mock` \| `anthropic` \| `openai` \| `ollama` | `mock` (no keys needed) |
+| `STRANDS_MODEL_ID` | any model ID | `claude-opus-4-8` / `gpt-5` / `gpt-oss:120b-cloud` |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
+| `STRANDS_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
+| `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
 | `STRANDS_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
+
+**Free real-model tier:** `ollama` needs no API key at all when the box has a
+signed-in Ollama daemon (`ollama signin`) — `*-cloud` model IDs are proxied to
+Ollama Cloud (free tier available), local model IDs run on-box. Verified
+end-to-end: streaming chat, tool calls, and usage accounting.
 
 ## Try it (keyless)
 

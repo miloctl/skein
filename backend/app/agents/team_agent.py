@@ -7,11 +7,23 @@ from .. import config
 
 
 def _model():
-    """Build the configured model provider (anthropic | openai)."""
+    """Build the configured model provider (anthropic | openai | ollama)."""
     if config.MODEL_PROVIDER == "openai":
         from strands.models.openai import OpenAIModel
 
         return OpenAIModel(model_id=config.MODEL_ID)
+    if config.MODEL_PROVIDER == "ollama":
+        from strands.models.ollama import OllamaModel
+
+        client_args = {}
+        if config.OLLAMA_API_KEY:
+            client_args["headers"] = {
+                "Authorization": f"Bearer {config.OLLAMA_API_KEY}"}
+        return OllamaModel(
+            host=config.OLLAMA_HOST,
+            ollama_client_args=client_args,
+            model_id=config.MODEL_ID,
+        )
     from strands.models.anthropic import AnthropicModel
 
     return AnthropicModel(model_id=config.MODEL_ID, max_tokens=config.MAX_TOKENS)
