@@ -88,10 +88,22 @@ scheduler.
 (`X-User`) — teammates, not strangers. `STRANDS_API_TOKEN` adds a shared
 bearer token, but it is baked into the frontend's public JS bundle, so anyone
 who can load the UI can read it — it keeps out network scanners, not people
-who can reach port 3000. To actually expose this beyond a trusted network,
-put both services behind an authenticating reverse proxy (Tailscale, Caddy +
-SSO, etc.). Copy `data/backups/` off the box on a schedule — backups live on
-the same volume as the database.
+who can reach port 3000; treat per-user `sk-strands-` keys and a reverse
+proxy as the real credentials. To actually expose this beyond a trusted
+network, put both services behind an authenticating reverse proxy (Tailscale,
+Caddy + SSO, etc.). Copy `data/backups/` off the box on a schedule (or set
+`STRANDS_BACKUP_MIRROR`) — backups otherwise live on the same volume as the
+database.
+
+Known-and-accepted within that model (documented so nobody rediscovers them
+as surprises): the REST write path does not pass through the agent review
+gate or authority matrix — only the tool/MCP paths do — so issue `sk-` keys
+to humans, not to agent processes you want gated; the CI webhook
+(`/api/webhooks/ci`) inherits only whatever the shared token provides; and
+the Actions runner on this box runs push-to-main only — never re-add a
+`pull_request` trigger while the runner has docker access on the production
+host. Authority levels can only be set by human identities (self-service by
+an agent is refused).
 
 ## Optional integrations — built in, off until configured
 

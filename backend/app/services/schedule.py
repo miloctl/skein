@@ -1,12 +1,21 @@
 """Team calendar services."""
 
+from datetime import datetime
+
 from .. import db
 
 
 def schedule_event(title: str, starts_at: str, ends_at: str = "", description: str = "",
                    attendees: str = "", *, actor: str = "system", origin: str = "human") -> dict:
-    if not starts_at:
-        raise ValueError("starts_at is required (ISO format)")
+    if not title.strip():
+        raise ValueError("event title is required")
+    for label, value in (("starts_at", starts_at), ("ends_at", ends_at)):
+        if not value and label == "ends_at":
+            continue
+        try:
+            datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{label} must be an ISO timestamp (e.g. 2026-07-24T15:00)")
     eid = db.execute(
         "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
         " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

@@ -10,6 +10,8 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 def ask_question(question: str, asked_by: str, assigned_to: str = "",
                  *, actor: str = "", origin: str = "human") -> dict:
+    if not question.strip():
+        raise ValueError("the question text is required")
     qid = db.execute(
         "INSERT INTO questions (asked_by, assigned_to, question, origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?)",
@@ -50,6 +52,8 @@ def list_questions(status: str = "") -> list[dict]:
 def record_decision(title: str, decision: str, context: str = "", decided_by: str = "",
                     review_by: str = "",
                     *, actor: str = "", origin: str = "human") -> dict:
+    if not title.strip() or not decision.strip():
+        raise ValueError("decision title and text are required")
     if review_by and not DATE_RE.match(review_by):
         raise ValueError("review_by must be YYYY-MM-DD — anything else would"
                          " never trigger the stale sweep")

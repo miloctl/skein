@@ -114,16 +114,21 @@ export default function InsightsPage() {
               <li key={f.id}>
                 <button
                   onClick={() => setOpen(open === f.id ? null : f.id)}
+                  aria-expanded={open === f.id}
+                  aria-controls={`receipt-${f.id}`}
                   className="text-left"
                 >
-                  {SEV[f.severity]} {f.message}{" "}
+                  {SEV[f.severity] ?? "·"} {f.message}{" "}
                   <span className="text-xs text-zinc-400">
                     {f.week}
                     {f.n ? ` · n=${f.n}` : ""}
                   </span>
                 </button>
                 {open === f.id && (
-                  <pre className="mt-1 max-h-48 overflow-auto rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-950">
+                  <pre
+                    id={`receipt-${f.id}`}
+                    className="mt-1 max-h-48 overflow-auto rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-950"
+                  >
                     {JSON.stringify(f.receipt, null, 1)}
                   </pre>
                 )}
@@ -206,9 +211,9 @@ export default function InsightsPage() {
 
       <Card title={`Intake funnel (${d.intake_funnel.window_weeks}w)`}>
         <p className="text-sm">
-          {d.intake_funnel.submitted} submitted → {d.intake_funnel.accepted}{" "}
-          accepted · {d.intake_funnel.deferred} deferred · {d.intake_funnel.declined}{" "}
-          declined
+          {d.intake_funnel.submitted ?? 0} submitted → {d.intake_funnel.accepted ?? 0}{" "}
+          accepted · {d.intake_funnel.deferred ?? 0} deferred ·{" "}
+          {d.intake_funnel.declined ?? 0} declined
         </p>
         <p className="text-xs text-zinc-500">
           median {d.intake_funnel.median_days_to_disposition ?? "—"} days to

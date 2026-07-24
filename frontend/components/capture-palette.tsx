@@ -53,11 +53,14 @@ export function CapturePalette() {
       onClick={() => setOpen(false)}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Quick capture"
         className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-          Quick capture — routed to task / question / note / decision / blocker
+          Quick capture — routed to task / question / note / decision / blocker / commitment
         </p>
         <textarea
           autoFocus

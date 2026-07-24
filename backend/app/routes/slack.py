@@ -48,7 +48,10 @@ async def slack_command(request: Request):
     record_use(user, "slack")
     agent = MockAgent(thread_id="slack", user=user)
     chunks = []
-    async for event in agent.stream_async(text or "/help"):
-        if "data" in event:
-            chunks.append(event["data"])
+    try:
+        async for event in agent.stream_async(text or "/help"):
+            if "data" in event:
+                chunks.append(event["data"])
+    except Exception as exc:  # a Slack-visible message beats a 500 + retry loop
+        chunks.append(f"⚠️ that didn't land: {exc}")
     return {"response_type": "ephemeral", "text": "\n".join(chunks) or "(no output)"}

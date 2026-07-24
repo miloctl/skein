@@ -66,13 +66,28 @@ def test_forecast_snapshot_idempotent_per_day(client, fresh_db):
     assert rows[0]["due_date"] == "2030-01-01"
 
 
-def test_backup_mirror(fresh_db, tmp_path, monkeypatch):
+def test_backup_mirror_guarded_to_production_data_dir(fresh_db, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from app import config
     from app.services import admin
 
     mirror = tmp_path / "offbox"
     monkeypatch.setenv("STRANDS_BACKUP_MIRROR", str(mirror))
+
+    # non-default data dir (tests, sandboxes): mirror must be skipped —
+    # a throwaway instance overwrote the real NAS mirror before this guard
+    assert admin.backup()["mirrored"] is None
+    assert not mirror.exists()
+
+    # "production": DATA_DIR == BASE_DIR/data → mirror happens
+    prod_data = tmp_path / "data"
+    prod_data.mkdir()
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "DATA_DIR", prod_data)
     out = admin.backup()
-    assert out["mirrored"] is not None
-    assert os.path.exists(out["mirrored"])
+    assert out["mirrored"] and os.path.exists(out["mirrored"])
+    assert Path(out["mirrored"]).parent == mirror
+
     monkeypatch.delenv("STRANDS_BACKUP_MIRROR")
     assert admin.backup()["mirrored"] is None

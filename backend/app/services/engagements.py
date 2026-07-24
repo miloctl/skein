@@ -9,6 +9,9 @@ STATUSES = ("proposed", "active", "closing", "closed")
 
 def create_engagement(name: str, project_class: str = "general", summary: str = "",
                       lead: str = "", *, actor: str = "system", origin: str = "human") -> dict:
+    name = name.strip()
+    if not name:
+        raise ValueError("engagement name is required")
     if db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
         raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
@@ -104,14 +107,18 @@ def list_engagements(status: str = "") -> list[dict]:
 def allocate(person: str, engagement_id: int, percent: int = 100,
              starts_on: str = "", ends_on: str = "",
              *, actor: str = "system", origin: str = "human") -> dict:
+    if not person.strip():
+        raise ValueError("person is required")
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
     if not db.query_one("SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
         raise ValueError(f"engagement #{engagement_id} not found")
     aid = db.execute(
-        "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (person, engagement_id, percent, starts_on or None, ends_on or None, db.now()),
+        "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on,"
+        " origin, created_by, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (person, engagement_id, percent, starts_on or None, ends_on or None,
+         origin, actor, db.now()),
     )
     db.log_activity(actor, "allocate", f"{person} -> engagement #{engagement_id} @{percent}%")
     return {"id": aid, "person": person, "percent": percent}
@@ -131,6 +138,8 @@ def capacity() -> list[dict]:
 def record_lesson(lesson: str, recommendation: str = "", engagement_id: int = 0,
                   project_class: str = "general",
                   *, actor: str = "system", origin: str = "human") -> dict:
+    if not lesson.strip():
+        raise ValueError("the lesson text is required")
     if engagement_id and not db.query_one(
             "SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
         raise ValueError(f"engagement #{engagement_id} not found")

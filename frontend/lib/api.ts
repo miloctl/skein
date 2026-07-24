@@ -30,7 +30,10 @@ export async function api<T = unknown>(
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
     try {
-      detail = (await res.json()).detail ?? detail;
+      const d = (await res.json()).detail;
+      // FastAPI 422s send an array of objects — stringify, never "[object Object]"
+      if (typeof d === "string") detail = d;
+      else if (d !== undefined) detail = JSON.stringify(d);
     } catch {}
     throw new Error(detail);
   }

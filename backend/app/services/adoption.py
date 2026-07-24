@@ -27,7 +27,8 @@ def record_use(user: str, surface: str) -> None:
 
 def adoption(weeks: int = 4) -> dict:
     """Who touched the platform, how recently, through what. The success bar
-    from the DX panel: >50% of captures should originate outside the web UI."""
+    from the DX panel: >50% of actions should originate outside the web UI."""
+    weeks = max(1, min(int(weeks), 520))
     cutoff = (datetime.now(timezone.utc).date() - timedelta(weeks=weeks)).isoformat()
     week_ago = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
     humans = db.query(
@@ -47,9 +48,11 @@ def adoption(weeks: int = 4) -> dict:
     capture_total = db.query_one(
         "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture'"
         " AND created_at >= ?", (cutoff,))
+    # non-web = everything that isn't the web UI — keyed API automation
+    # (git hooks, scripts, webhooks) counts toward the automation bar
     non_web = db.query_one(
         "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?"
-        " AND surface IN ('cli', 'mcp', 'slack', 'chat')", (cutoff,))
+        " AND surface != 'web'", (cutoff,))
     total = db.query_one(
         "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?", (cutoff,))
     return {

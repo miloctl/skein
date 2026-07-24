@@ -21,12 +21,18 @@ def create_milestone(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
+    if not title.strip():
+        raise ValueError("milestone title is required")
     ts = db.now()
+    # resolve the engagement link at write time — the name join is display
+    # only, the id is what health/forecast/handoff should trust
+    eng = db.query_one("SELECT id FROM engagements WHERE name = ?", (project,))
     mid = db.execute(
-        "INSERT INTO milestones (project, title, description, owner, due_date,"
-        " origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (project, title, description, owner, due_date or None, origin, actor, ts, ts),
+        "INSERT INTO milestones (project, engagement_id, title, description, owner,"
+        " due_date, origin, created_by, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (project, eng["id"] if eng else None, title, description, owner,
+         due_date or None, origin, actor, ts, ts),
     )
     db.log_activity(actor, "create_milestone", f"#{mid} {title}")
     index_record("milestone", mid, title, f"{description} {project} {owner}")
@@ -53,6 +59,9 @@ def update_milestone(
                ("owner", owner), ("due_date", due_date)] if v}
     if not fields:
         raise ValueError("nothing to update")
+    for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
+        if fields.get(clearable) == "-":
+            fields[clearable] = empty
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",
@@ -88,6 +97,8 @@ def create_task(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
+    if not title.strip():
+        raise ValueError("task title is required")
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if milestone_id and not db.query_one(
@@ -137,6 +148,11 @@ def update_task(
         raise ValueError("nothing to update")
     if committed_week == "-":
         fields["committed_week"] = None
+    # "-" clears any clearable field — the single write path must be able to
+    # unset a wrong due date without hand-editing SQLite
+    for clearable, empty in (("due_date", None), ("assignee", ""), ("description", "")):
+        if fields.get(clearable) == "-":
+            fields[clearable] = empty
     if status == "done" and current["status"] != "done":
         fields["completed_at"] = db.now()  # flow metrics read this, not updated_at
     elif status and status != "done" and current["status"] == "done":

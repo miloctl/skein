@@ -51,7 +51,12 @@ export default function IntakePage() {
   const score = async (id: number) => {
     const raw = prompt("Score reach,impact,confidence,effort (each 1-5):", "3,3,3,3");
     if (!raw) return;
-    const [reach, impact, confidence, effort] = raw.split(",").map((n) => parseInt(n.trim(), 10));
+    const parts = raw.split(",").map((n) => parseInt(n.trim(), 10));
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 1 || n > 5)) {
+      alert("Need exactly four numbers, each 1-5 (e.g. 3,4,2,3).");
+      return;
+    }
+    const [reach, impact, confidence, effort] = parts;
     try {
       await api(`/api/intake/${id}/score`, {
         method: "POST",

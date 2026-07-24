@@ -118,8 +118,10 @@ class MockAgent:
                                  "Logged decision #{id}. History will know it was on purpose."),
                     "blocker": ("Blocker #{id} filed. The escalation clock is ticking.",
                                 "Blocker #{id} registered. It has hours to live, not weeks."),
+                    "commitment": ("Commitment #{id} on the ledger. Promises here get kept on purpose.",
+                                   "Recorded commitment #{id}. The exec readout is watching it now."),
                 }
-                pool = acks[result["kind"]]
+                pool = acks.get(result["kind"], ("Captured as {kind} #{id}.".replace("{kind}", result["kind"]),))
                 line = pool[sum(ord(c) for c in text) % len(pool)].format(id=result["id"])
                 yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
             except ValueError as exc:

@@ -17,11 +17,15 @@ from .. import config, db
 
 log = logging.getLogger(__name__)
 
+# everything except: search_index/schema_version (derived), api_keys (secret
+# hashes must not travel in portable exports — recreate keys after a restore)
 TABLES = (
     "users", "milestones", "tasks", "questions", "decisions", "standups",
     "events", "notes", "activity", "blockers", "intake_requests",
     "pending_changes", "usage_log", "engagements", "allocations", "lessons",
-    "artifacts", "memories", "notifications",
+    "artifacts", "memories", "notifications", "commitments", "agent_authority",
+    "feedback", "findings", "context_packs", "tool_usage",
+    "forecast_snapshots", "job_runs",
 )
 
 
@@ -65,6 +69,11 @@ def _mirror(dest: Path) -> str | None:
     cron remains the alternative for true remote targets."""
     mirror = os.getenv("STRANDS_BACKUP_MIRROR", "")
     if not mirror:
+        return None
+    # only the production instance may touch the mirror: a test/dev run with
+    # STRANDS_DATA_DIR overridden must never overwrite the off-box copy
+    if Path(config.DATA_DIR).resolve() != (Path(config.BASE_DIR) / "data").resolve():
+        log.info("backup mirror skipped: non-default data dir (%s)", config.DATA_DIR)
         return None
     try:
         import shutil

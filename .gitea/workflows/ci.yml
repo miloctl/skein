@@ -1,16 +1,22 @@
+# push-only by design: the runner lives on the production box with docker
+# access, so untrusted pull_request code must never execute here. Re-add a PR
+# trigger only after moving the runner to an ephemeral sandboxed host.
+#
+# Manual clone instead of actions/checkout: this Gitea instance 403s the
+# `x-access-token` basic-auth username the action hardcodes; user:token works.
 name: ci
 on:
   push:
     branches: [main]
-  pull_request:
 
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.CI_CHECKOUT_TOKEN }}
+      - name: Checkout
+        run: |
+          git clone --depth 50 "https://OWNER:${{ secrets.CI_CHECKOUT_TOKEN }}@gitea.example.com/OWNER/skein.git" .
+          git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -27,9 +33,10 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.CI_CHECKOUT_TOKEN }}
+      - name: Checkout
+        run: |
+          git clone --depth 50 "https://OWNER:${{ secrets.CI_CHECKOUT_TOKEN }}@gitea.example.com/OWNER/skein.git" .
+          git checkout "$GITHUB_SHA"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

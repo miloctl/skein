@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "@/lib/api";
+import { api, getUser } from "@/lib/api";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Row = Record<string, string | number | null>;
@@ -49,13 +49,21 @@ export default function MyDay() {
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const generation = useRef(0);
   const load = useCallback(() => {
-    api<Briefing>("/api/briefing").then(setB).catch((e) => setError(String(e)));
-    if (window.localStorage.getItem("skein-onboarded") !== "1") {
+    const g = ++generation.current;
+    api<Briefing>("/api/briefing")
+      .then((r) => {
+        if (g === generation.current) setB(r); // last request wins
+      })
+      .catch((e) => setError(String(e)));
+    // onboarding progress is per-user — key the dismissal that way too
+    const onboardKey = `skein-onboarded:${getUser()}`;
+    if (window.localStorage.getItem(onboardKey) !== "1") {
       api<Onboarding>("/api/onboarding")
         .then((o) => {
-          if (o.complete) window.localStorage.setItem("skein-onboarded", "1");
-          setOnboarding(o);
+          if (o.complete) window.localStorage.setItem(onboardKey, "1");
+          if (g === generation.current) setOnboarding(o);
         })
         .catch(() => {});
     }
@@ -66,9 +74,14 @@ export default function MyDay() {
   useEffect(() => {
     const shipped = b?.team.recently_shipped ?? [];
     if (shipped.length === 0) return;
-    const seen = new Set(
-      JSON.parse(window.localStorage.getItem("strands-confetti") ?? "[]"),
-    );
+    let stored: unknown[] = [];
+    try {
+      stored = JSON.parse(window.localStorage.getItem("strands-confetti") ?? "[]");
+      if (!Array.isArray(stored)) stored = [];
+    } catch {
+      stored = []; // corrupted storage must never crash My Day
+    }
+    const seen = new Set(stored);
     const fresh = shipped.filter((e) => !seen.has(e.id));
     if (fresh.length === 0) return;
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -105,6 +118,7 @@ export default function MyDay() {
     n.open_questions.length +
     n.pending_reviews.length +
     n.your_blockers.length +
+    n.intake_to_triage.length +
     (n.notifications ?? []).length;
 
   return (
@@ -128,7 +142,7 @@ export default function MyDay() {
             </span>
             <button
               onClick={() => {
-                window.localStorage.setItem("skein-onboarded", "1");
+                window.localStorage.setItem(`skein-onboarded:${getUser()}`, "1");
                 setOnboarding(null);
               }}
               className="text-xs text-zinc-400 underline"

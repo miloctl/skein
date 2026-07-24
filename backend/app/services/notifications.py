@@ -68,14 +68,17 @@ def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
 
 
 def mark_read(user: str, notification_id: int = 0) -> dict:
+    # 'team' rows are a single shared record — the first reader clears them
+    # for everyone, same semantics as listing them for everyone
     if notification_id:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE id = ? AND user = ?",
+            "UPDATE notifications SET read_at = ? WHERE id = ? AND user IN (?, 'team')",
             (db.now(), notification_id, user),
         )
     else:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL",
+            "UPDATE notifications SET read_at = ? WHERE user IN (?, 'team')"
+            " AND read_at IS NULL",
             (db.now(), user),
         )
     return {"marked": n}

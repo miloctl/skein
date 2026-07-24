@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { API_URL } from "@/lib/api";
+import { API_URL, api } from "@/lib/api";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Pulse = {
@@ -87,18 +87,13 @@ export default function Dashboard() {
       "capacity",
     ];
     Promise.all(
-      endpoints.map(async (e) => {
-        const res = await fetch(`${API_URL}/api/${e}`);
-        if (!res.ok) throw new Error(`${e}: ${res.status}`);
-        return [e, await res.json()] as const;
-      }),
+      endpoints.map(async (e) => [e, await api<Row[]>(`/api/${e}`)] as const),
     )
       .then((pairs) => setData(Object.fromEntries(pairs)))
       .catch((err) => setError(String(err)));
-    fetch(`${API_URL}/api/pulse`)
-      .then((r) => r.json())
+    api<Pulse>("/api/pulse")
       .then(setPulse)
-      .catch(() => {});
+      .catch(() => {}); // pulse is decorative — its failure must not blank the page
   }, []);
 
   if (error) {

@@ -38,6 +38,11 @@ def set_authority(agent: str, entity: str, level: str, *, actor: str = "system")
         raise ValueError("agent name is required")
     if level not in LEVELS:
         raise ValueError(f"level must be one of {LEVELS}")
+    # the kill switch must not be self-serviceable: an agent identity (e.g. a
+    # key issued to one) can never grant or lift authority — humans only
+    actor_row = db.query_one("SELECT kind FROM users WHERE name = ?", (actor,))
+    if (actor_row and actor_row["kind"] == "agent") or actor == agent:
+        raise ValueError("authority levels are set by humans, not by the agent itself")
     from .review import _registry
 
     if entity not in _registry():

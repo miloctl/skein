@@ -261,14 +261,19 @@ def _r_commitment_line() -> list[dict]:
 
 def _r_commitments_external() -> list[dict]:
     out = []
+    today = _iso(_today())
     soon = _iso(_today() + timedelta(days=7))
     for c in db.query(
             "SELECT * FROM commitments WHERE status = 'open'"
             " AND due_date IS NOT NULL AND due_date <= ?", (soon,)):
+        overdue = c["due_date"] < today
         out.append(_finding(
-            "commitment_due", "medium",
-            f"External promise due {c['due_date']}: “{c['promise']}”"
-            f" (to {c['to_whom'] or 'unspecified'}).",
+            "commitment_due", "high" if overdue else "medium",
+            (f"External promise OVERDUE since {c['due_date']}"
+             if overdue else f"External promise due {c['due_date']}")
+            + f": “{c['promise']}” (to {c['to_whom'] or 'unspecified'})."
+            + (" Keep it, renegotiate it, or mark it missed — don't let it drift."
+               if overdue else ""),
             {"commitment_id": c["id"]}, n=1, window="7d",
             subject=f"commitment-{c['id']}"))
     week_ago = _iso(_today() - timedelta(days=7))
@@ -417,6 +422,12 @@ def run_findings(*, actor: str = "scheduler") -> dict:
         try:
             candidates = rule()
         except Exception:
+            # a rule broken by a future schema change must be LOUD — "silence
+            # is a valid output" only when the rules actually ran
+            import logging
+
+            logging.getLogger("skein.insights").exception(
+                "findings rule %s crashed", rule.__name__)
             continue
         for f in candidates:
             if db.query_one(
@@ -438,6 +449,7 @@ def run_findings(*, actor: str = "scheduler") -> dict:
 
 
 def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
+    weeks = max(1, min(int(weeks), 520))
     since_week = _week(_today() - timedelta(weeks=weeks))
     rows = db.query(
         "SELECT * FROM findings WHERE week >= ? ORDER BY week DESC, "

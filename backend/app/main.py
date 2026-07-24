@@ -146,6 +146,12 @@ async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(OverflowError)
+async def overflow_error_handler(request: Request, exc: OverflowError):
+    # absurd ints (ids > 2^63, weeks=1e18) must be a 400, never a 500
+    return JSONResponse(status_code=400, content={"detail": "value out of range"})
+
+
 app.include_router(api.router)
 app.include_router(chat.router)
 app.include_router(slack.router)

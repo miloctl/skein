@@ -86,7 +86,16 @@ export function Nav() {
               }
               if (e.key === "Escape") setEditing(false);
             }}
-            onBlur={() => setEditing(false)}
+            onBlur={(e) => {
+              // clicking away must not silently discard a typed name
+              const name = e.target.value.trim();
+              if (name && name !== user) {
+                setUser(name);
+                setUserState(name);
+                window.location.reload();
+              }
+              setEditing(false);
+            }}
           />
         ) : (
           <button

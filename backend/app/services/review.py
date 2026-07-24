@@ -85,6 +85,17 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
         else:
             result = fn(**payload, actor=actor, origin="agent_verified")
     except (TypeError, ValueError) as exc:
+        # compound applies (many writes, no transaction) may have partially
+        # landed — resetting those to pending creates a permanently wedged
+        # proposal ("engagement already exists" forever). Fail them terminally.
+        if change["entity"] in ("playbook", "weekly_plan"):
+            db.execute(
+                "UPDATE pending_changes SET review_note = ? WHERE id = ?",
+                (f"apply failed (may be partial — check and repropose): {exc}", change_id),
+            )
+            raise ValueError(
+                f"{change['entity']} apply failed and was closed as approved-with-error:"
+                f" {exc} — review what landed and repropose the remainder")
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, review_note = ? WHERE id = ?",

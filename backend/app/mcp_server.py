@@ -10,7 +10,10 @@ Claude Code registration:
     claude mcp add strands -- env STRANDS_MCP_USER=you \
         /path/to/backend/.venv/bin/python -m app.mcp_server
 
-Writes are attributed to STRANDS_MCP_USER (shown with origin=agent).
+Writes are attributed to STRANDS_MCP_USER (shown with origin=agent) and go
+through the same authority gate as chat-agent tools: with review mode on they
+queue in /review until this agent identity earns autonomous authority — so
+MCP traffic builds trust scores like everyone else's.
 """
 
 import json
@@ -20,6 +23,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import db
 from .services.adoption import record_use
+from .tools._gate import gated_write
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
@@ -50,28 +54,38 @@ def get_my_day(user: str = "") -> str:
 @mcp.tool()
 def capture(text: str) -> str:
     """Quick-capture freeform text; auto-routed to task / question / note /
-    decision / blocker (e.g. 'todo: ship the API', 'blocked on vendor')."""
+    decision / blocker / commitment (e.g. 'todo: ship the API', 'blocked on vendor')."""
     record_use(ACTOR, "mcp")
+    # the kill switch must cover the routed entity, not just direct tools
+    kind = capture_svc.classify(text.strip())
+    _check_authority({"task": "task", "question": "question", "decision": "decision",
+                      "blocker": "blocker", "commitment": "commitment",
+                      "note": "note"}.get(kind, "note"))
     return json.dumps(capture_svc.capture(text, actor=ACTOR, origin="agent"))
 
 
 @mcp.tool()
 def create_task(title: str, description: str = "", assignee: str = "",
                 priority: str = "medium") -> str:
-    """Create a task in the team tracker. priority: low|medium|high|urgent."""
+    """Create a task in the team tracker. priority: low|medium|high|urgent.
+    With review mode on, queues for human approval unless this agent has
+    autonomous authority for tasks."""
     record_use(ACTOR, "mcp")
-    _check_authority("task")
-    return json.dumps(work.create_task(title, description, assignee=assignee,
-                                       priority=priority, actor=ACTOR, origin="agent"))
+    payload = dict(title=title, description=description, assignee=assignee,
+                   priority=priority)
+    return gated_write("task", "create", payload,
+                       lambda: work.create_task(**payload, actor=ACTOR,
+                                                origin="agent"), actor=ACTOR)
 
 
 @mcp.tool()
 def complete_task(task_id: int) -> str:
-    """Mark a task done."""
+    """Mark a task done (queued for review unless this agent is autonomous)."""
     record_use(ACTOR, "mcp")
-    _check_authority("task")
-    return json.dumps(work.update_task(task_id, status="done", actor=ACTOR,
-                                       origin="agent"))
+    return gated_write("task", "update", {"status": "done"},
+                       lambda: work.update_task(task_id, status="done",
+                                                actor=ACTOR, origin="agent"),
+                       entity_id=task_id, actor=ACTOR)
 
 
 @mcp.tool()
@@ -86,20 +100,21 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
 def log_decision(title: str, decision: str, context: str = "") -> str:
     """Record a team decision with rationale in the decision log."""
     record_use(ACTOR, "mcp")
-    _check_authority("decision")
-    return json.dumps(collab.record_decision(title, decision, context,
-                                             decided_by=ACTOR, actor=ACTOR,
-                                             origin="agent"))
+    payload = dict(title=title, decision=decision, context=context,
+                   decided_by=ACTOR)
+    return gated_write("decision", "create", payload,
+                       lambda: collab.record_decision(**payload, actor=ACTOR,
+                                                      origin="agent"), actor=ACTOR)
 
 
 @mcp.tool()
 def add_blocker(title: str, detail: str = "", impact: str = "medium") -> str:
     """File a blocker (impact: low|medium|high|critical drives escalation speed)."""
     record_use(ACTOR, "mcp")
-    _check_authority("blocker")
-    return json.dumps(blockers_svc.raise_blocker(title, detail, owner=ACTOR,
-                                                 impact=impact, actor=ACTOR,
-                                                 origin="agent"))
+    payload = dict(title=title, detail=detail, owner=ACTOR, impact=impact)
+    return gated_write("blocker", "create", payload,
+                       lambda: blockers_svc.raise_blocker(**payload, actor=ACTOR,
+                                                          origin="agent"), actor=ACTOR)
 
 
 @mcp.tool()
@@ -115,9 +130,10 @@ def search_workspace(query: str) -> str:
 def save_knowledge(topic: str, content: str) -> str:
     """Save a note to the shared team knowledge base."""
     record_use(ACTOR, "mcp")
-    _check_authority("note")
-    return json.dumps(collab.save_note(topic, content, author=ACTOR, actor=ACTOR,
-                                       origin="agent"))
+    payload = dict(topic=topic, content=content, author=ACTOR)
+    return gated_write("note", "create", payload,
+                       lambda: collab.save_note(**payload, actor=ACTOR,
+                                                origin="agent"), actor=ACTOR)
 
 
 @mcp.tool()

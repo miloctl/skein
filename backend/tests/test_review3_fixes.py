@@ -151,3 +151,21 @@ def test_extra_tools_security_cuts(monkeypatch):
     mod.extra_tools.cache_clear()
     assert mod.extra_tools() == ()
     mod.extra_tools.cache_clear()
+
+
+def test_authority_not_self_serviceable_by_agents(client, fresh_db):
+    from app.services import delegation, users
+
+    users.ensure_user("sneaky", kind="agent")
+    try:
+        delegation.set_authority("task-bot", "task", "autonomous", actor="sneaky")
+        assert False, "agent actor must not set authority"
+    except ValueError as exc:
+        assert "humans" in str(exc)
+    try:
+        delegation.set_authority("planner", "task", "autonomous", actor="planner")
+        assert False, "self-target must be refused"
+    except ValueError:
+        pass
+    out = delegation.set_authority("task-bot", "task", "notify", actor="tester")
+    assert out["level"] == "notify"  # humans still can
