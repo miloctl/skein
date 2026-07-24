@@ -32,6 +32,17 @@ from .platform import (
     generate_handoff,
     search_workspace,
 )
+from .portfolio import (
+    get_portfolio_health,
+    get_flow_metrics,
+    what_if_staffing,
+    add_commitment,
+    list_commitments,
+    delegate_task,
+    supersede_decision,
+    get_context_pack,
+    my_agent_inbox,
+)
 
 ALL_TOOLS = [
     create_milestone, update_milestone, list_milestones,
@@ -46,4 +57,7 @@ ALL_TOOLS = [
     list_engagements, team_capacity, record_lesson,
     list_playbooks, start_engagement_from_playbook, generate_handoff,
     search_workspace,
+    get_portfolio_health, get_flow_metrics, what_if_staffing,
+    add_commitment, list_commitments, delegate_task, supersede_decision,
+    get_context_pack, my_agent_inbox,
 ]

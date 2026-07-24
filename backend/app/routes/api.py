@@ -12,18 +12,24 @@ from ..services import (
     briefing,
     capture,
     collab,
+    commitments,
+    context_pack,
+    delegation,
     digest,
     engagements,
+    feedback,
     handoff,
     intake,
     memory,
     notifications,
     playbooks,
+    portfolio,
     pulse,
     review,
     schedule,
     search,
     users,
+    weekly,
     work,
 )
 from .deps import CurrentUser
@@ -54,8 +60,8 @@ def get_questions(status: str = ""):
 
 
 @router.get("/decisions")
-def get_decisions():
-    return collab.list_decisions()
+def get_decisions(status: str = ""):
+    return collab.list_decisions(status=status)
 
 
 @router.get("/standups")
@@ -191,6 +197,190 @@ def get_pulse():
     return pulse.pulse()
 
 
+@router.get("/portfolio/health")
+def get_portfolio_health():
+    return portfolio.engagement_health()
+
+
+@router.get("/portfolio/conflicts")
+def get_portfolio_conflicts():
+    return portfolio.allocation_conflicts()
+
+
+@router.get("/portfolio/flow")
+def get_portfolio_flow():
+    return portfolio.flow_metrics()
+
+
+@router.get("/portfolio/forecast")
+def get_portfolio_forecast():
+    return portfolio.slip_forecast()
+
+
+@router.post("/portfolio/readout")
+def post_portfolio_readout(user: CurrentUser):
+    return portfolio.exec_readout(actor=user)
+
+
+class WhatIfIn(BaseModel):
+    people: list[str]
+    percent: int = 50
+
+
+@router.post("/intake/{request_id}/what-if")
+def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser):
+    return portfolio.what_if(request_id, body.people, body.percent)
+
+
+@router.get("/week")
+def get_week(week: str = ""):
+    return weekly.week_view(week)
+
+
+@router.get("/week/draft")
+def get_week_draft(week: str = ""):
+    return weekly.draft_plan(week)
+
+
+class WeekPlanIn(BaseModel):
+    week: str = ""
+    task_ids: list[int]
+
+
+@router.post("/week/plan")
+def post_week_plan(body: WeekPlanIn, user: CurrentUser):
+    return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids,
+                             actor=user)
+
+
+@router.get("/commitments")
+def get_commitments(status: str = ""):
+    return commitments.list_commitments(status)
+
+
+class CommitmentIn(BaseModel):
+    promise: str
+    to_whom: str = ""
+    due_date: str = ""
+    engagement_id: int = 0
+
+
+@router.post("/commitments")
+def post_commitment(body: CommitmentIn, user: CurrentUser):
+    return commitments.add_commitment(**body.model_dump(), actor=user)
+
+
+class CommitmentStatusIn(BaseModel):
+    status: str
+
+
+@router.post("/commitments/{commitment_id}/status")
+def post_commitment_status(commitment_id: int, body: CommitmentStatusIn, user: CurrentUser):
+    return commitments.update_commitment(commitment_id, body.status, actor=user)
+
+
+class SupersedeIn(BaseModel):
+    title: str
+    decision: str
+    context: str = ""
+    review_by: str = ""
+
+
+@router.post("/decisions/{decision_id}/supersede")
+def post_supersede(decision_id: int, body: SupersedeIn, user: CurrentUser):
+    return collab.supersede_decision(decision_id, **body.model_dump(),
+                                     decided_by=user, actor=user)
+
+
+class ReconfirmIn(BaseModel):
+    review_by: str = ""
+
+
+@router.post("/decisions/{decision_id}/reconfirm")
+def post_reconfirm(decision_id: int, body: ReconfirmIn, user: CurrentUser):
+    return collab.reconfirm_decision(decision_id, body.review_by, actor=user)
+
+
+@router.get("/review/stats")
+def get_review_stats():
+    return review.review_stats()
+
+
+class FeedbackIn(BaseModel):
+    kind: str
+    input_text: str
+    output: str = ""
+    verdict: str = "up"
+    correction: str = ""
+
+
+@router.post("/feedback")
+def post_feedback(body: FeedbackIn, user: CurrentUser):
+    return feedback.record_feedback(**body.model_dump(), actor=user)
+
+
+@router.get("/feedback")
+def get_feedback(kind: str = ""):
+    return feedback.list_feedback(kind)
+
+
+@router.get("/eval/capture")
+def get_eval_capture():
+    return feedback.eval_capture()
+
+
+@router.get("/agents")
+def get_agents():
+    return delegation.mission_control()
+
+
+@router.get("/agents/trust")
+def get_agents_trust():
+    return delegation.trust_scores()
+
+
+@router.get("/agents/authority")
+def get_agents_authority(agent: str = ""):
+    return delegation.authority_matrix(agent)
+
+
+class AuthorityIn(BaseModel):
+    agent: str
+    entity: str
+    level: str
+
+
+@router.post("/agents/authority")
+def post_agents_authority(body: AuthorityIn, user: CurrentUser):
+    return delegation.set_authority(body.agent, body.entity, body.level, actor=user)
+
+
+@router.get("/agents/{agent}/inbox")
+def get_agent_inbox(agent: str):
+    return delegation.agent_inbox(agent)
+
+
+class DelegateIn(BaseModel):
+    agent: str
+    sponsor: str = ""
+
+
+@router.post("/tasks/{task_id}/delegate")
+def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser):
+    return delegation.delegate_task(task_id, body.agent, body.sponsor or user,
+                                    actor=user)
+
+
+@router.get("/context-pack")
+def get_context_pack(user: CurrentUser):
+    return context_pack.get_pack(actor=user)
+
+
+@router.post("/context-pack/publish")
+def post_context_pack(user: CurrentUser):
+    return context_pack.publish_pack(actor=user)
+
+
 @router.get("/usage")
 def get_usage():
     return db.query(
@@ -248,6 +438,7 @@ class TaskPatch(BaseModel):
     due_date: str = ""
     description: str = ""
     title: str = ""
+    committed_week: str = ""
 
 
 @router.patch("/tasks/{task_id}")
@@ -279,12 +470,14 @@ class DecisionIn(BaseModel):
     title: str
     decision: str
     context: str = ""
+    review_by: str = ""
 
 
 @router.post("/decisions")
 def post_decision(body: DecisionIn, user: CurrentUser):
     return collab.record_decision(body.title, body.decision, body.context,
-                                  decided_by=user, actor=user)
+                                  decided_by=user, review_by=body.review_by,
+                                  actor=user)
 
 
 class StandupIn(BaseModel):

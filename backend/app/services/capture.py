@@ -4,7 +4,7 @@ same interface."""
 
 import re
 
-from . import blockers, collab, work
+from . import blockers, collab, commitments, work
 
 PATTERNS = [
     ("question", re.compile(r"^\s*(q:|question:)", re.I)),
@@ -13,12 +13,14 @@ PATTERNS = [
     ("blocker", re.compile(r"\b(blocked (by|on)|waiting on)\b", re.I)),
     ("decision", re.compile(r"^\s*(decision:|decided\b)", re.I)),
     ("decision", re.compile(r"\bwe (decided|chose|are going with)\b", re.I)),
+    ("commitment", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
+    ("commitment", re.compile(r"\bwe (promised|committed to)\b", re.I)),
     ("task", re.compile(r"^\s*(todo:|task:)", re.I)),
     ("task", re.compile(r"^\s*(fix|add|update|implement|write|ship|review|schedule)\b", re.I)),
     ("note", re.compile(r"^\s*(note:|fyi:|til:)", re.I)),
 ]
 
-PREFIX = re.compile(r"^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck):\s*", re.I)
+PREFIX = re.compile(r"^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment):\s*", re.I)
 
 
 def classify(text: str) -> str:
@@ -43,6 +45,8 @@ def capture(text: str, *, actor: str = "system", origin: str = "human") -> dict:
     elif kind == "decision":
         result = collab.record_decision(title=body[:80], decision=body, decided_by=actor,
                                         actor=actor, origin=origin)
+    elif kind == "commitment":
+        result = commitments.add_commitment(body, actor=actor, origin=origin)
     elif kind == "task":
         result = work.create_task(title=body[:120], description=body if len(body) > 120 else "",
                                   assignee="", actor=actor, origin=origin)

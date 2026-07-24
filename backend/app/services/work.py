@@ -1,11 +1,14 @@
 """Milestone and task services — the single write path for both REST and tools."""
 
+import re
+
 from .. import db
 from .search import index_record
 
 MILESTONE_STATUSES = ("planned", "in_progress", "blocked", "done")
 TASK_STATUSES = ("todo", "in_progress", "blocked", "done")
 PRIORITIES = ("low", "medium", "high", "urgent")
+WEEK_RE = re.compile(r"^\d{4}-W\d{2}$")
 
 
 def create_milestone(
@@ -111,6 +114,7 @@ def update_task(
     due_date: str = "",
     description: str = "",
     title: str = "",
+    committed_week: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -119,13 +123,21 @@ def update_task(
         raise ValueError(f"status must be one of {TASK_STATUSES}")
     if priority and priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
-    if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
+    if committed_week and not WEEK_RE.match(committed_week):
+        raise ValueError("committed_week must look like 2026-W31")
+    current = db.query_one("SELECT status FROM tasks WHERE id = ?", (task_id,))
+    if not current:
         raise ValueError(f"task #{task_id} not found")
     fields = {k: v for k, v in
               [("status", status), ("assignee", assignee), ("priority", priority),
-               ("due_date", due_date), ("description", description), ("title", title)] if v}
+               ("due_date", due_date), ("description", description), ("title", title),
+               ("committed_week", committed_week)] if v}
     if not fields:
         raise ValueError("nothing to update")
+    if status == "done" and current["status"] != "done":
+        fields["completed_at"] = db.now()  # flow metrics read this, not updated_at
+    elif status and status != "done" and current["status"] == "done":
+        fields["completed_at"] = None
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",

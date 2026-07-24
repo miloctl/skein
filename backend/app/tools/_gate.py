@@ -1,26 +1,45 @@
-"""Shared review gate for ALL mutating agent tools. With STRANDS_AGENT_REVIEW=1
-the write becomes a pending_changes proposal instead of applying directly."""
+"""Shared review gate for ALL mutating agent tools, now authority-aware.
+
+Per (agent, entity) the authority matrix grants: autonomous (direct write),
+notify (direct write + team notification), review (proposal when
+STRANDS_AGENT_REVIEW=1, direct otherwise — the pre-matrix behavior), or
+forbidden (always refused). Default is review — agents earn autonomy through
+approved proposals, they don't start with it."""
 
 import json
 
 from .. import config
 from ..services import review
+from ..services.delegation import authority_level
+
+AGENT_ACTOR = "agent"
 
 
 def gated_write(entity: str, action: str, payload: dict, direct,
                 entity_id: int = 0, summary: str = "") -> str:
-    if config.AGENT_REVIEW:
+    level = authority_level(AGENT_ACTOR, entity)
+    if level == "forbidden":
+        return json.dumps({"error": f"agent writes to {entity} are forbidden"
+                                    " by the authority matrix"})
+    if level == "autonomous" or level == "notify" or not config.AGENT_REVIEW:
         try:
-            result = review.propose_change(entity, action, payload, summary=summary,
-                                           entity_id=entity_id, actor="agent",
-                                           origin="agent")
+            result = direct()
         except ValueError as exc:
             return json.dumps({"error": str(exc)})
-        return json.dumps({**result, "note": "queued for human review"})
+        if level == "notify":
+            from ..services.notifications import notify
+
+            notify("team", f"Agent wrote {entity}.{action}:"
+                           f" {summary or json.dumps(payload)[:120]}",
+                   tier="digest", link="/review")
+        return json.dumps(result)
     try:
-        return json.dumps(direct())
+        result = review.propose_change(entity, action, payload, summary=summary,
+                                       entity_id=entity_id, actor=AGENT_ACTOR,
+                                       origin="agent")
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
+    return json.dumps({**result, "note": "queued for human review"})
 
 
 def blocked_when_gated(what: str) -> str | None:

@@ -8,13 +8,15 @@ from .. import db
 
 
 def _registry() -> dict:
-    from . import blockers, collab, engagements, intake, playbooks, schedule, work
+    from . import (blockers, collab, commitments, delegation, engagements,
+                   intake, playbooks, schedule, weekly, work)
 
     return {
         "milestone": {"create": work.create_milestone, "update": work.update_milestone},
         "task": {"create": work.create_task, "update": work.update_task},
         "question": {"create": collab.ask_question, "update": collab.answer_question},
-        "decision": {"create": collab.record_decision},
+        "decision": {"create": collab.record_decision,
+                      "update": collab.supersede_decision},
         "standup": {"create": collab.post_standup},
         "note": {"create": collab.save_note},
         "event": {"create": schedule.schedule_event},
@@ -24,6 +26,10 @@ def _registry() -> dict:
         "intake": {"create": intake.submit_request},
         "lesson": {"create": engagements.record_lesson},
         "playbook": {"create": playbooks.instantiate},
+        "weekly_plan": {"create": weekly.apply_plan},
+        "commitment": {"create": commitments.add_commitment,
+                       "update": commitments.update_commitment},
+        "delegation": {"create": delegation.delegate_task},
     }
 
 
@@ -96,6 +102,35 @@ def reject_change(change_id: int, note: str = "", *, actor: str = "system") -> d
     _claim(change_id, "rejected", note, actor)
     db.log_activity(actor, "reject_change", f"#{change_id}")
     return {"id": change_id, "status": "rejected"}
+
+
+def review_stats() -> dict:
+    """The review inbox as a flywheel: every verdict is a labeled example.
+    These stats show which proposal types earn trust and which waste reviewer
+    time — the input to authority-matrix decisions."""
+    by_entity = db.query(
+        "SELECT entity,"
+        " COUNT(*) AS proposed,"
+        " SUM(status = 'approved') AS approved,"
+        " SUM(status = 'rejected') AS rejected,"
+        " SUM(status = 'pending') AS pending,"
+        " ROUND(AVG(CASE WHEN reviewed_at IS NOT NULL THEN"
+        " (julianday(reviewed_at) - julianday(created_at)) * 24 END), 1) AS avg_review_hours"
+        " FROM pending_changes GROUP BY entity ORDER BY proposed DESC"
+    )
+    by_proposer = db.query(
+        "SELECT proposed_by,"
+        " COUNT(*) AS proposed,"
+        " SUM(status = 'approved') AS approved,"
+        " SUM(status = 'rejected') AS rejected"
+        " FROM pending_changes GROUP BY proposed_by ORDER BY proposed DESC"
+    )
+    rejection_reasons = db.query(
+        "SELECT entity, summary, review_note, reviewed_by FROM pending_changes"
+        " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
+    )
+    return {"by_entity": by_entity, "by_proposer": by_proposer,
+            "recent_rejections": rejection_reasons}
 
 
 def list_changes(status: str = "pending") -> list[dict]:

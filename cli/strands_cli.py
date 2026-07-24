@@ -155,6 +155,53 @@ def cmd_search(args):
         print("no matches")
 
 
+def cmd_eval(args):
+    out = api("GET", "/api/eval/capture")
+    if not out["cases"]:
+        print("no labeled capture feedback yet — POST /api/feedback with"
+              " kind=capture, verdict=up|corrected to build the corpus")
+        return
+    print(f"capture classifier: {out['passed']}/{out['cases']} passed"
+          f" (accuracy {out['accuracy']})")
+    for m in out["mismatches"]:
+        print(f"  ✗ #{m['id']} {m['input']!r}: expected {m['expected']},"
+              f" got {m['predicted']}")
+    if out["mismatches"]:
+        sys.exit(1)
+
+
+def cmd_context(args):
+    pack = api("GET", "/api/context-pack")
+    if args.write:
+        Path(args.write).write_text(pack["content"] + "\n")
+        print(f"wrote context pack v{pack['version']} to {args.write}")
+    else:
+        print(pack["content"])
+
+
+def cmd_week(args):
+    if args.action == "draft":
+        draft = api("GET", "/api/week/draft")
+        print(f"# Draft plan {draft['week']}")
+        for i in draft["items"]:
+            print(f"  #{i['task_id']} {i['title']} (@{i['assignee']})")
+        if not draft["items"]:
+            print("  (nothing to commit)")
+        return
+    if args.action == "commit":
+        if not args.ids:
+            sys.exit("error: week commit requires task ids")
+        out = api("POST", "/api/week/plan", {"task_ids": args.ids})
+        print(f"committed {out['committed']} task(s) to {out['week']}")
+        return
+    w = api("GET", "/api/week")
+    kept = f" — {w['kept_percent']}% done" if w["kept_percent"] is not None else ""
+    print(f"# {w['week']}: {w['done']}/{w['committed']} committed tasks done{kept}")
+    for t in w["tasks"]:
+        mark = "x" if t["status"] == "done" else " "
+        print(f"  [{mark}] #{t['id']} {t['title']} (@{t['assignee'] or 'unassigned'})")
+
+
 HOOK = """#!/bin/sh
 # strands git hook: close tasks referenced by Closes-Task: #N trailers
 strands sync-commit || true
@@ -236,6 +283,21 @@ def main():
     c = sub.add_parser("search", help="full-text search the workspace")
     c.add_argument("query", nargs="+")
     c.set_defaults(fn=cmd_search)
+
+    c = sub.add_parser("eval", help="replay the capture classifier against its"
+                       " labeled feedback corpus (exit 1 on regressions)")
+    c.set_defaults(fn=cmd_eval)
+
+    c = sub.add_parser("context", help="print the team context pack (org-brain)")
+    c.add_argument("--write", metavar="PATH",
+                   help="write to a file (e.g. AGENTS.md) instead of stdout")
+    c.set_defaults(fn=cmd_context)
+
+    c = sub.add_parser("week", help="weekly commitment line: show / draft / commit")
+    c.add_argument("action", nargs="?", choices=["show", "draft", "commit"],
+                   default="show")
+    c.add_argument("ids", nargs="*", type=int, help="task ids (for commit)")
+    c.set_defaults(fn=cmd_week)
 
     c = sub.add_parser("install-hooks", help="install the git post-commit trailer hook")
     c.set_defaults(fn=cmd_install_hooks)

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from . import config, db
 from .routes import api, chat, slack, webhooks
-from .services import admin, blockers, digest, notifications
+from .services import admin, blockers, collab, context_pack, digest, notifications, portfolio, weekly
 from .telemetry import setup_telemetry
 
 logging.basicConfig(
@@ -34,7 +34,9 @@ def _job(name, fn):
 def _start_scheduler():
     """Programmatic background jobs (UTC): hourly blocker escalation sweep,
     daily digest (07:00), twice-daily notification flush (07:05 / 15:05),
-    daily backup (03:00). Jobs are once-only via db.claim_job, so an
+    daily backup (03:00), Monday weekly-plan draft (06:00) + stale-WIP nudge
+    (06:15), daily stale-decision sweep (06:30), daily context-pack refresh
+    (05:00). Jobs are once-only via db.claim_job or CAS status flips, so an
     accidental multi-worker deployment can't double-run them."""
     from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -48,6 +50,14 @@ def _start_scheduler():
                       "cron", hour="7,15", minute=5, id="notification-flush")
     scheduler.add_job(_job("daily-backup", admin.backup_if_stale),
                       "cron", hour=3, minute=0, id="daily-backup")
+    scheduler.add_job(_job("weekly-plan", lambda: weekly.propose_weekly_plan(actor="scheduler")),
+                      "cron", day_of_week="mon", hour=6, minute=0, id="weekly-plan")
+    scheduler.add_job(_job("stale-wip-nudge", portfolio.nudge_stale_wip),
+                      "cron", day_of_week="mon", hour=6, minute=15, id="stale-wip-nudge")
+    scheduler.add_job(_job("stale-decisions", collab.sweep_stale_decisions),
+                      "cron", hour=6, minute=30, id="stale-decisions")
+    scheduler.add_job(_job("context-pack", lambda: context_pack.publish_pack(actor="scheduler")),
+                      "cron", hour=5, minute=0, id="context-pack")
     scheduler.start()
     return scheduler
 

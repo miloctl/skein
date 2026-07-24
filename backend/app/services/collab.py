@@ -44,18 +44,83 @@ def list_questions(status: str = "") -> list[dict]:
 
 
 def record_decision(title: str, decision: str, context: str = "", decided_by: str = "",
+                    review_by: str = "",
                     *, actor: str = "", origin: str = "human") -> dict:
     did = db.execute(
-        "INSERT INTO decisions (title, context, decision, decided_by, origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title, context, decision, decided_by, origin, actor or decided_by, db.now()),
+        "INSERT INTO decisions (title, context, decision, decided_by, review_by,"
+        " origin, created_by, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, context, decision, decided_by, review_by or None,
+         origin, actor or decided_by, db.now()),
     )
     db.log_activity(actor or decided_by or "system", "record_decision", f"#{did} {title}")
     index_record("decision", did, title, f"{decision} {context}")
     return {"id": did, "title": title}
 
 
-def list_decisions(limit: int = 50) -> list[dict]:
+def supersede_decision(decision_id: int, title: str, decision: str, context: str = "",
+                       decided_by: str = "", review_by: str = "",
+                       *, actor: str = "", origin: str = "human") -> dict:
+    """Decisions have a half-life: the record chains rather than mutates, so
+    nobody cites a dead decision without seeing what replaced it."""
+    old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
+    if not old:
+        raise ValueError(f"decision #{decision_id} not found")
+    if old["status"] == "superseded":
+        raise ValueError(f"decision #{decision_id} already superseded"
+                         f" by #{old['superseded_by']}")
+    new = record_decision(title, decision,
+                          context or f"Supersedes #{decision_id}: {old['title']}",
+                          decided_by, review_by, actor=actor, origin=origin)
+    db.execute(
+        "UPDATE decisions SET status = 'superseded', superseded_by = ? WHERE id = ?",
+        (new["id"], decision_id),
+    )
+    db.log_activity(actor or decided_by or "system", "supersede_decision",
+                    f"#{decision_id} -> #{new['id']}")
+    return {**new, "supersedes": decision_id}
+
+
+def sweep_stale_decisions() -> list[dict]:
+    """Flip active decisions past their review_by date to stale (once — the
+    status flip is the claim). Scheduled daily; stale ≠ wrong, it means
+    'reconfirm or supersede me'."""
+    stale = db.query(
+        "SELECT * FROM decisions WHERE status = 'active'"
+        " AND review_by IS NOT NULL AND review_by < ?", (db.now()[:10],))
+    for d in stale:
+        claimed = db.execute_rowcount(
+            "UPDATE decisions SET status = 'stale' WHERE id = ? AND status = 'active'",
+            (d["id"],))
+        if not claimed:
+            continue
+        from .notifications import notify
+
+        notify(d["decided_by"] or "team",
+               f"Decision #{d['id']} '{d['title']}' passed its review-by date"
+               f" ({d['review_by']}). Reconfirm it or supersede it.",
+               tier="digest", link="/")
+        db.log_activity("scheduler", "stale_decision", f"#{d['id']} {d['title']}")
+    return stale
+
+
+def reconfirm_decision(decision_id: int, review_by: str = "",
+                       *, actor: str = "system") -> dict:
+    row = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
+    if not row:
+        raise ValueError(f"decision #{decision_id} not found")
+    if row["status"] == "superseded":
+        raise ValueError(f"decision #{decision_id} was superseded — reconfirm the successor")
+    db.execute("UPDATE decisions SET status = 'active', review_by = ? WHERE id = ?",
+               (review_by or None, decision_id))
+    db.log_activity(actor, "reconfirm_decision", f"#{decision_id}")
+    return {"id": decision_id, "status": "active", "review_by": review_by or None}
+
+
+def list_decisions(limit: int = 50, status: str = "") -> list[dict]:
+    if status:
+        return db.query("SELECT * FROM decisions WHERE status = ?"
+                        " ORDER BY id DESC LIMIT ?", (status, limit))
     return db.query("SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,))
 
 

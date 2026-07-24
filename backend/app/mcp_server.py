@@ -22,7 +22,7 @@ from . import db
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
-from .services import collab, memory, search, work
+from .services import collab, context_pack, delegation, memory, portfolio, search, work
 
 ACTOR = os.getenv("STRANDS_MCP_USER", "mcp-agent")
 
@@ -99,6 +99,32 @@ def save_knowledge(topic: str, content: str) -> str:
 def remember(content: str, topic: str = "") -> str:
     """Persist a durable cross-thread memory (preferences, standing context)."""
     return json.dumps(memory.remember(content, topic, user=ACTOR, actor=ACTOR))
+
+
+@mcp.tool()
+def get_context_pack() -> str:
+    """The team context pack (org-brain): decisions, engagement health,
+    lessons, conventions. Load before working on anything team-related."""
+    return json.dumps(context_pack.get_pack(actor=ACTOR))
+
+
+@mcp.tool()
+def my_inbox() -> str:
+    """Ambient inbox for this agent identity: delegated tasks, questions,
+    rejected proposals with reviewer notes, unread notifications."""
+    return json.dumps(delegation.agent_inbox(ACTOR))
+
+
+@mcp.tool()
+def portfolio_health() -> str:
+    """Engagement health (red/yellow/green) with receipts."""
+    return json.dumps(portfolio.engagement_health())
+
+
+@mcp.resource("strands://context-pack")
+def context_pack_resource() -> str:
+    """Versioned team context pack as markdown — mountable org-brain."""
+    return context_pack.get_pack(actor=ACTOR)["content"]
 
 
 def main() -> None:
