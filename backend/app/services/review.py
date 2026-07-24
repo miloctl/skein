@@ -25,26 +25,37 @@ def _registry() -> dict:
         "milestone": {"create": work.create_milestone, "update": work.update_milestone},
         "task": {"create": work.create_task, "update": work.update_task},
         "question": {"create": collab.ask_question, "update": collab.answer_question},
-        "decision": {"create": collab.record_decision,
-                      "update": collab.supersede_decision},
+        "decision": {"create": collab.record_decision, "update": collab.supersede_decision},
         "standup": {"create": collab.post_standup},
         "note": {"create": collab.save_note},
         "event": {"create": schedule.schedule_event},
         "blocker": {"create": blockers.raise_blocker, "update": blockers.resolve_blocker},
-        "engagement": {"create": engagements.create_engagement,
-                       "update": engagements.update_engagement},
+        "engagement": {
+            "create": engagements.create_engagement,
+            "update": engagements.update_engagement,
+        },
         "intake": {"create": intake.submit_request},
         "lesson": {"create": engagements.record_lesson},
         "playbook": {"create": playbooks.instantiate},
         "weekly_plan": {"create": weekly.apply_plan},
-        "commitment": {"create": commitments.add_commitment,
-                       "update": commitments.update_commitment},
+        "commitment": {
+            "create": commitments.add_commitment,
+            "update": commitments.update_commitment,
+        },
         "delegation": {"create": delegation.delegate_task},
     }
 
 
-def propose_change(entity: str, action: str, payload: dict, summary: str = "",
-                   entity_id: int = 0, *, actor: str = "agent", origin: str = "agent") -> dict:
+def propose_change(
+    entity: str,
+    action: str,
+    payload: dict,
+    summary: str = "",
+    entity_id: int = 0,
+    *,
+    actor: str = "agent",
+    origin: str = "agent",
+) -> dict:
     reg = _registry()
     if entity not in reg:
         raise ValueError(f"unknown entity '{entity}'; one of {sorted(reg)}")
@@ -55,14 +66,26 @@ def propose_change(entity: str, action: str, payload: dict, summary: str = "",
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (entity, entity_id or None, action, json.dumps(payload),
-         summary or f"{action} {entity}", actor, origin, db.now()),
+        (
+            entity,
+            entity_id or None,
+            action,
+            json.dumps(payload),
+            summary or f"{action} {entity}",
+            actor,
+            origin,
+            db.now(),
+        ),
     )
     db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
     from .notifications import notify
 
-    notify("team", f"Review needed: #{pid} {summary or f'{action} {entity}'}",
-           tier="digest", link="/review")
+    notify(
+        "team",
+        f"Review needed: #{pid} {summary or f'{action} {entity}'}",
+        tier="digest",
+        link="/review",
+    )
     return {"id": pid, "status": "pending"}
 
 
@@ -105,7 +128,8 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
             )
             raise ValueError(
                 f"{change['entity']} apply failed and was closed as approved-with-error:"
-                f" {exc} — review what landed and repropose the remainder") from exc
+                f" {exc} — review what landed and repropose the remainder"
+            ) from exc
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, review_note = ? WHERE id = ?",
@@ -113,8 +137,9 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
         )
         raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
 
-    db.execute("UPDATE pending_changes SET result_id = ? WHERE id = ?",
-               (result.get("id"), change_id))
+    db.execute(
+        "UPDATE pending_changes SET result_id = ? WHERE id = ?", (result.get("id"), change_id)
+    )
     applied = f"#{result['id']}" if result.get("id") is not None else "applied"
     db.log_activity(actor, "approve_change", f"#{change_id} -> {change['entity']} {applied}")
     return {"id": change_id, "status": "approved", "result": result}
@@ -151,13 +176,18 @@ def review_stats() -> dict:
         "SELECT entity, summary, review_note, reviewed_by FROM pending_changes"
         " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
     )
-    return {"by_entity": by_entity, "by_proposer": by_proposer,
-            "recent_rejections": rejection_reasons}
+    return {
+        "by_entity": by_entity,
+        "by_proposer": by_proposer,
+        "recent_rejections": rejection_reasons,
+    }
 
 
 def list_changes(status: str = "pending") -> list[dict]:
     if status:
-        rows = db.query("SELECT * FROM pending_changes WHERE status = ? ORDER BY id DESC", (status,))
+        rows = db.query(
+            "SELECT * FROM pending_changes WHERE status = ? ORDER BY id DESC", (status,)
+        )
     else:
         rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")
     for r in rows:

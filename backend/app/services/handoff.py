@@ -17,11 +17,15 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
         "SELECT * FROM milestones WHERE project = ? ORDER BY due_date IS NULL, due_date", (name,)
     )
     mil_ids = [m["id"] for m in milestones]
-    tasks = db.query(
-        f"SELECT * FROM tasks WHERE milestone_id IN ({','.join('?' * len(mil_ids))})"  # noqa: S608
-        " AND status != 'done'",
-        tuple(mil_ids),
-    ) if mil_ids else []
+    tasks = (
+        db.query(
+            f"SELECT * FROM tasks WHERE milestone_id IN ({','.join('?' * len(mil_ids))})"  # noqa: S608
+            " AND status != 'done'",
+            tuple(mil_ids),
+        )
+        if mil_ids
+        else []
+    )
     from .portfolio import _linked_blockers
 
     blockers = _linked_blockers(name)  # this engagement's, not the whole platform's
@@ -44,26 +48,41 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
         "## Milestone status",
     ]
     for m in milestones:
-        lines.append(f"- [{m['status']}] #{m['id']} {m['title']}"
-                     + (f" — due {m['due_date']}" if m["due_date"] else ""))
+        lines.append(
+            f"- [{m['status']}] #{m['id']} {m['title']}"
+            + (f" — due {m['due_date']}" if m["due_date"] else "")
+        )
     lines += ["", "## Open tasks"]
-    lines += [f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"
-              f" (@{t['assignee'] or 'unassigned'})" for t in tasks] or ["- none"]
+    lines += [
+        f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"
+        f" (@{t['assignee'] or 'unassigned'})"
+        for t in tasks
+    ] or ["- none"]
     lines += ["", "## Unresolved blockers (this engagement)"]
-    lines += [f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}"
-              f" (owner: {b['owner'] or 'unowned'})" for b in blockers] or ["- none"]
+    lines += [
+        f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}"
+        f" (owner: {b['owner'] or 'unowned'})"
+        for b in blockers
+    ] or ["- none"]
     lines += ["", "## Unanswered questions (team-wide)"]
-    lines += [f"- #{q['id']} {q['question']} (→ {q['assigned_to'] or 'unassigned'})"
-              for q in questions] or ["- none"]
+    lines += [
+        f"- #{q['id']} {q['question']} (→ {q['assigned_to'] or 'unassigned'})" for q in questions
+    ] or ["- none"]
     lines += ["", "## Recent decisions (with rationale)"]
-    lines += [f"- **{d['title']}** — {d['decision']}"
-              + (f" *(context: {d['context']})*" if d["context"] else "") for d in decisions] or ["- none"]
+    lines += [
+        f"- **{d['title']}** — {d['decision']}"
+        + (f" *(context: {d['context']})*" if d["context"] else "")
+        for d in decisions
+    ] or ["- none"]
     lines += ["", "## Pending reviews (team-wide)"]
-    lines += [f"- #{p['id']} {p['summary']} (proposed by {p['proposed_by']})"
-              for p in pending] or ["- none"]
+    lines += [f"- #{p['id']} {p['summary']} (proposed by {p['proposed_by']})" for p in pending] or [
+        "- none"
+    ]
     lines += ["", "## Lessons relevant to this class"]
-    lines += [f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
-              for les in lessons] or ["- none"]
+    lines += [
+        f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
+        for les in lessons
+    ] or ["- none"]
 
     markdown = "\n".join(lines)
     safe_name = name.replace("/", "_")

@@ -1,16 +1,17 @@
 """Tests for round-2 features: API keys, CI webhook, pulse, ship-it, funerals."""
 
 
-
 def test_api_key_lifecycle_and_attribution(client):
     created = client.post("/api/keys", json={"label": "cli"}).json()
     key = created["key"]
     assert key.startswith("sk-strands-")
 
     # key authenticates and attributes as its owner, ignoring X-User
-    out = client.post("/api/capture", json={"text": "todo: via key"},
-                      headers={"Authorization": f"Bearer {key}",
-                               "X-User": "someone-else"}).json()
+    out = client.post(
+        "/api/capture",
+        json={"text": "todo: via key"},
+        headers={"Authorization": f"Bearer {key}", "X-User": "someone-else"},
+    ).json()
     tasks = client.get("/api/tasks").json()
     assert tasks[0]["created_by"] == "tester"
 
@@ -20,15 +21,17 @@ def test_api_key_lifecycle_and_attribution(client):
 
     client.delete(f"/api/keys/{created['id']}")
     # a presented-but-revoked key is a hard 401 — never a silent fallback
-    r = client.post("/api/capture", json={"text": "x"},
-                    headers={"Authorization": f"Bearer {key}", "X-User": "tester"})
+    r = client.post(
+        "/api/capture",
+        json={"text": "x"},
+        headers={"Authorization": f"Bearer {key}", "X-User": "tester"},
+    )
     assert r.status_code == 401
     assert out  # earlier keyed write succeeded
 
 
 def test_admin_key_visibility_and_kill_switch(client):
-    client.post("/api/keys", json={"label": "one"},
-                headers={"X-User": "spoofed-bot"})
+    client.post("/api/keys", json={"label": "one"}, headers={"X-User": "spoofed-bot"})
     client.post("/api/keys", json={"label": "two"})
 
     all_keys = client.get("/api/admin/keys").json()
@@ -51,8 +54,12 @@ def test_api_key_satisfies_shared_token_gate(client, monkeypatch):
 
 
 def test_ci_webhook_dedupe_and_resolve(client):
-    fail = {"repo": "team/app", "branch": "main", "status": "failure",
-            "run_url": "https://ci/run/1"}
+    fail = {
+        "repo": "team/app",
+        "branch": "main",
+        "status": "failure",
+        "run_url": "https://ci/run/1",
+    }
     first = client.post("/api/webhooks/ci", json=fail).json()
     assert first["raised"]
     assert client.post("/api/webhooks/ci", json=fail).json()["deduped"]
@@ -60,27 +67,28 @@ def test_ci_webhook_dedupe_and_resolve(client):
     blockers = client.get("/api/blockers").json()
     assert any("CI red" in b["title"] for b in blockers)
 
-    ok = client.post("/api/webhooks/ci",
-                     json={**fail, "status": "success"}).json()
+    ok = client.post("/api/webhooks/ci", json={**fail, "status": "success"}).json()
     assert len(ok["resolved"]) == 1
     assert client.get("/api/blockers").json() == []
 
-    ignored = client.post("/api/webhooks/ci",
-                          json={**fail, "branch": "feature/x"}).json()
+    ignored = client.post("/api/webhooks/ci", json={**fail, "branch": "feature/x"}).json()
     assert "ignored" in ignored
 
 
 def test_ci_webhook_github_actions_shape(client):
     payload = {
-        "workflow_run": {"status": "completed", "conclusion": "failure",
-                         "head_branch": "main", "html_url": "https://gh/run/9"},
+        "workflow_run": {
+            "status": "completed",
+            "conclusion": "failure",
+            "head_branch": "main",
+            "html_url": "https://gh/run/9",
+        },
         "repository": {"full_name": "team/repo"},
     }
     out = client.post("/api/webhooks/ci", json=payload).json()
     assert out["raised"]
 
-    cancelled = {**payload, "workflow_run": {**payload["workflow_run"],
-                                             "conclusion": "cancelled"}}
+    cancelled = {**payload, "workflow_run": {**payload["workflow_run"], "conclusion": "cancelled"}}
     assert "ignored" in client.post("/api/webhooks/ci", json=cancelled).json()
 
 
@@ -102,7 +110,7 @@ def test_standup_chain_roster_is_participation_based(fresh_db):
 
     users.ensure_user("a")
     users.ensure_user("b")
-    users.ensure_user("anonymous")          # pre-name-pick frontend traffic
+    users.ensure_user("anonymous")  # pre-name-pick frontend traffic
     users.ensure_user("bot", kind="agent")  # agents don't break the chain
 
     # nobody has ever posted: no roster, no chain — and no permanent zero
@@ -167,7 +175,8 @@ def test_cli_trailer_regex():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "strands_cli", Path(__file__).parents[2] / "cli" / "strands_cli.py")
+        "strands_cli", Path(__file__).parents[2] / "cli" / "strands_cli.py"
+    )
     cli = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cli)
     msg = "Fix auth\n\nCloses-Task: #12\nRefs-Task: 7\n"
@@ -176,32 +185,48 @@ def test_cli_trailer_regex():
 
 def test_api_tester_regressions(client):
     # FK violations are clean 400s, not 500s
-    assert client.post("/api/tasks", json={"title": "orphan", "milestone_id": 999999}).status_code == 400
+    assert (
+        client.post("/api/tasks", json={"title": "orphan", "milestone_id": 999999}).status_code
+        == 400
+    )
     assert client.post("/api/engagements/999999/allocate", json={"person": "a"}).status_code == 400
-    assert client.post("/api/lessons", json={"lesson": "x", "engagement_id": 999999}).status_code == 400
+    assert (
+        client.post("/api/lessons", json={"lesson": "x", "engagement_id": 999999}).status_code
+        == 400
+    )
 
     # playbook slug traversal rejected
-    r = client.post("/api/playbooks/instantiate",
-                    json={"playbook": "/tmp/pwned", "engagement_name": "t"})
+    r = client.post(
+        "/api/playbooks/instantiate", json={"playbook": "/tmp/pwned", "engagement_name": "t"}
+    )
     assert r.status_code == 400
-    r = client.post("/api/playbooks/instantiate",
-                    json={"playbook": "../secrets", "engagement_name": "t"})
+    r = client.post(
+        "/api/playbooks/instantiate", json={"playbook": "../secrets", "engagement_name": "t"}
+    )
     assert r.status_code == 400
 
     # 0-row updates are 400s, not silent success
     assert client.patch("/api/tasks/999999", json={"status": "done"}).status_code == 400
     assert client.patch("/api/milestones/999999", json={"status": "done"}).status_code == 400
-    assert client.post("/api/intake/999999/score",
-                       json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3}).status_code == 400
+    assert (
+        client.post(
+            "/api/intake/999999/score", json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3}
+        ).status_code
+        == 400
+    )
 
     # disposition is terminal
     req = client.post("/api/intake", json={"title": "once"}).json()
-    client.post(f"/api/intake/{req['id']}/score",
-                json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3})
-    client.post(f"/api/intake/{req['id']}/disposition",
-                json={"disposition": "accepted", "reason": "yes"})
-    r = client.post(f"/api/intake/{req['id']}/disposition",
-                    json={"disposition": "declined", "reason": "no"})
+    client.post(
+        f"/api/intake/{req['id']}/score",
+        json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3},
+    )
+    client.post(
+        f"/api/intake/{req['id']}/disposition", json={"disposition": "accepted", "reason": "yes"}
+    )
+    r = client.post(
+        f"/api/intake/{req['id']}/disposition", json={"disposition": "declined", "reason": "no"}
+    )
     assert r.status_code == 400
 
     # double-resolve is a 400

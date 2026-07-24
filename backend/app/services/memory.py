@@ -5,13 +5,13 @@ from .. import db
 from .search import index_record
 
 
-def remember(content: str, topic: str = "", user: str = "", thread_id: str = "",
-             *, actor: str = "agent") -> dict:
+def remember(
+    content: str, topic: str = "", user: str = "", thread_id: str = "", *, actor: str = "agent"
+) -> dict:
     if not content.strip():
         raise ValueError("nothing to remember")
     mid = db.execute(
-        "INSERT INTO memories (topic, content, user, thread_id, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO memories (topic, content, user, thread_id, created_at) VALUES (?, ?, ?, ?, ?)",
         (topic, content, user, thread_id, db.now()),
     )
     db.log_activity(actor, "remember", topic or content[:60])
@@ -46,6 +46,7 @@ def memory_prompt(user: str, limit: int = 8) -> str:
     rows = recall(user=user, limit=limit)
     if not rows:
         return ""
-    lines = [f"- [{m['topic']}] {m['content']}" if m["topic"] else f"- {m['content']}"
-             for m in rows]
+    lines = [
+        f"- [{m['topic']}] {m['content']}" if m["topic"] else f"- {m['content']}" for m in rows
+    ]
     return "\n\nTeam memory (from prior conversations):\n" + "\n".join(lines)

@@ -32,6 +32,7 @@ ideation and engineering backlog.
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest                                        # tests
 .venv/bin/ruff check app tests seed.py ../cli/strands_cli.py   # lint
+.venv/bin/ruff format app tests seed.py ../cli/strands_cli.py  # format
 .venv/bin/mypy                                          # type check
 .venv/bin/vulture                                       # dead code
 .venv/bin/uvicorn app.main:app --port 8000 --reload     # run

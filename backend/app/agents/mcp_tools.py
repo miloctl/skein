@@ -47,7 +47,8 @@ def _load_tools() -> list:
             url = server["url"]
             headers = (
                 {"Authorization": f"Bearer {server['auth_token']}"}
-                if server.get("auth_token") else None
+                if server.get("auth_token")
+                else None
             )
             client = MCPClient(partial(streamablehttp_client, url, headers=headers))
             client.__enter__()  # keep the session open for the process lifetime
@@ -56,8 +57,7 @@ def _load_tools() -> list:
             _tools.extend(tools)
             log.info("MCP server '%s': %d tools", server.get("name", url), len(tools))
         except Exception as exc:
-            log.warning("MCP server '%s' failed to connect: %s",
-                        server.get("name", "?"), exc)
+            log.warning("MCP server '%s' failed to connect: %s", server.get("name", "?"), exc)
     return _tools
 
 

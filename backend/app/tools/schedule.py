@@ -9,8 +9,9 @@ from ._gate import blocked_when_gated, gated_write
 
 
 @tool
-def schedule_event(title: str, starts_at: str, ends_at: str = "",
-                   description: str = "", attendees: str = "") -> str:
+def schedule_event(
+    title: str, starts_at: str, ends_at: str = "", description: str = "", attendees: str = ""
+) -> str:
     """Add an event to the shared team calendar.
 
     Args:
@@ -20,11 +21,19 @@ def schedule_event(title: str, starts_at: str, ends_at: str = "",
         description: What the event is for.
         attendees: Comma-separated attendee names.
     """
-    payload = {"title": title, "starts_at": starts_at, "ends_at": ends_at,
-                   "description": description, "attendees": attendees}
-    return gated_write("event", "create", payload,
-                       lambda: schedule.schedule_event(**payload, actor="agent",
-                                                       origin="agent"))
+    payload = {
+        "title": title,
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "description": description,
+        "attendees": attendees,
+    }
+    return gated_write(
+        "event",
+        "create",
+        payload,
+        lambda: schedule.schedule_event(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool

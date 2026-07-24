@@ -41,8 +41,9 @@ def what_if_staffing(request_id: int, people: str, percent: int = 50) -> str:
 
 
 @tool
-def add_commitment(promise: str, to_whom: str = "", due_date: str = "",
-                   engagement_id: int = 0) -> str:
+def add_commitment(
+    promise: str, to_whom: str = "", due_date: str = "", engagement_id: int = 0
+) -> str:
     """Record an external commitment (a promise made to someone outside the
     team) so the exec readout tracks it.
 
@@ -52,11 +53,18 @@ def add_commitment(promise: str, to_whom: str = "", due_date: str = "",
         due_date: When it's due (YYYY-MM-DD).
         engagement_id: Related engagement, or 0.
     """
-    payload: dict[str, Any] = {"promise": promise, "to_whom": to_whom, "due_date": due_date,
-                               "engagement_id": engagement_id}
-    return gated_write("commitment", "create", payload,
-                       lambda: commitments.add_commitment(**payload, actor="agent",
-                                                          origin="agent"))
+    payload: dict[str, Any] = {
+        "promise": promise,
+        "to_whom": to_whom,
+        "due_date": due_date,
+        "engagement_id": engagement_id,
+    }
+    return gated_write(
+        "commitment",
+        "create",
+        payload,
+        lambda: commitments.add_commitment(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
@@ -80,15 +88,19 @@ def delegate_task(task_id: int, agent: str, sponsor: str) -> str:
         sponsor: Human teammate accountable for the outcome.
     """
     payload: dict[str, Any] = {"task_id": task_id, "agent": agent, "sponsor": sponsor}
-    return gated_write("delegation", "create", payload,
-                       summary=f"delegate task #{task_id} to {agent}",
-                       direct=lambda: delegation.delegate_task(**payload, actor="agent",
-                                                               origin="agent"))
+    return gated_write(
+        "delegation",
+        "create",
+        payload,
+        summary=f"delegate task #{task_id} to {agent}",
+        direct=lambda: delegation.delegate_task(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
-def supersede_decision(decision_id: int, title: str, decision: str,
-                       context: str = "", review_by: str = "") -> str:
+def supersede_decision(
+    decision_id: int, title: str, decision: str, context: str = "", review_by: str = ""
+) -> str:
     """Replace a standing decision with a new one, keeping the chain — use
     instead of recording a contradicting decision.
 
@@ -99,14 +111,17 @@ def supersede_decision(decision_id: int, title: str, decision: str,
         context: Why it changed.
         review_by: Date (YYYY-MM-DD) when the new decision should be re-reviewed.
     """
-    payload = {"title": title, "decision": decision, "context": context,
-                   "review_by": review_by}
-    return gated_write("decision", "update", payload,
-                       entity_id=decision_id,
-                       summary=f"supersede decision #{decision_id}: {title}",
-                       direct=lambda: collab.supersede_decision(decision_id, **payload,
-                                                                actor="agent",
-                                                                origin="agent"))
+    payload = {"title": title, "decision": decision, "context": context, "review_by": review_by}
+    return gated_write(
+        "decision",
+        "update",
+        payload,
+        entity_id=decision_id,
+        summary=f"supersede decision #{decision_id}: {title}",
+        direct=lambda: collab.supersede_decision(
+            decision_id, **payload, actor="agent", origin="agent"
+        ),
+    )
 
 
 @tool

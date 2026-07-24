@@ -35,7 +35,8 @@ def my_day(user: str) -> dict:
             ),
             "notifications": db.query(
                 "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
-                " ORDER BY id DESC LIMIT 20", (user,),
+                " ORDER BY id DESC LIMIT 20",
+                (user,),
             ),
         },
         "your_work": {

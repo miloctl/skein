@@ -17,13 +17,11 @@ def _hash(key: str) -> str:
 def create_key(owner: str, label: str = "") -> dict:
     key = PREFIX + secrets.token_hex(20)
     kid = db.execute(
-        "INSERT INTO api_keys (key_hash, prefix, owner, label, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (_hash(key), key[:len(PREFIX) + 6], owner, label, db.now()),
+        "INSERT INTO api_keys (key_hash, prefix, owner, label, created_at) VALUES (?, ?, ?, ?, ?)",
+        (_hash(key), key[: len(PREFIX) + 6], owner, label, db.now()),
     )
     db.log_activity(owner, "create_api_key", f"#{kid} {label}")
-    return {"id": kid, "key": key, "label": label,
-            "note": "store this now — it is not shown again"}
+    return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
 
 
 def verify_key(key: str) -> str | None:

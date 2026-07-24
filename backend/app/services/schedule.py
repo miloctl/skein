@@ -5,8 +5,16 @@ from datetime import datetime
 from .. import db
 
 
-def schedule_event(title: str, starts_at: str, ends_at: str = "", description: str = "",
-                   attendees: str = "", *, actor: str = "system", origin: str = "human") -> dict:
+def schedule_event(
+    title: str,
+    starts_at: str,
+    ends_at: str = "",
+    description: str = "",
+    attendees: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     if not title.strip():
         raise ValueError("event title is required")
     for label, value in (("starts_at", starts_at), ("ends_at", ends_at)):

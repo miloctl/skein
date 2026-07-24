@@ -43,8 +43,9 @@ def _check_authority(entity: str) -> None:
     from .services.delegation import authority_level
 
     if authority_level(ACTOR, entity) == "forbidden":
-        raise ValueError(f"writes to {entity} are forbidden for agent '{ACTOR}'"
-                         " by the authority matrix")
+        raise ValueError(
+            f"writes to {entity} are forbidden for agent '{ACTOR}' by the authority matrix"
+        )
 
 
 @mcp.tool()
@@ -61,34 +62,54 @@ def capture(text: str) -> str:
     record_use(ACTOR, "mcp")
     # the kill switch must cover the routed entity, not just direct tools
     kind = capture_svc.classify(text.strip())
-    _check_authority({"task": "task", "question": "question", "decision": "decision",
-                      "blocker": "blocker", "commitment": "commitment",
-                      "note": "note"}.get(kind, "note"))
+    _check_authority(
+        {
+            "task": "task",
+            "question": "question",
+            "decision": "decision",
+            "blocker": "blocker",
+            "commitment": "commitment",
+            "note": "note",
+        }.get(kind, "note")
+    )
     return json.dumps(capture_svc.capture(text, actor=ACTOR, origin="agent"))
 
 
 @mcp.tool()
-def create_task(title: str, description: str = "", assignee: str = "",
-                priority: str = "medium") -> str:
+def create_task(
+    title: str, description: str = "", assignee: str = "", priority: str = "medium"
+) -> str:
     """Create a task in the team tracker. priority: low|medium|high|urgent.
     With review mode on, queues for human approval unless this agent has
     autonomous authority for tasks."""
     record_use(ACTOR, "mcp")
-    payload: dict[str, Any] = {"title": title, "description": description,
-                               "assignee": assignee, "priority": priority}
-    return gated_write("task", "create", payload,
-                       lambda: work.create_task(**payload, actor=ACTOR,
-                                                origin="agent"), actor=ACTOR)
+    payload: dict[str, Any] = {
+        "title": title,
+        "description": description,
+        "assignee": assignee,
+        "priority": priority,
+    }
+    return gated_write(
+        "task",
+        "create",
+        payload,
+        lambda: work.create_task(**payload, actor=ACTOR, origin="agent"),
+        actor=ACTOR,
+    )
 
 
 @mcp.tool()
 def complete_task(task_id: int) -> str:
     """Mark a task done (queued for review unless this agent is autonomous)."""
     record_use(ACTOR, "mcp")
-    return gated_write("task", "update", {"status": "done"},
-                       lambda: work.update_task(task_id, status="done",
-                                                actor=ACTOR, origin="agent"),
-                       entity_id=task_id, actor=ACTOR)
+    return gated_write(
+        "task",
+        "update",
+        {"status": "done"},
+        lambda: work.update_task(task_id, status="done", actor=ACTOR, origin="agent"),
+        entity_id=task_id,
+        actor=ACTOR,
+    )
 
 
 @mcp.tool()
@@ -103,22 +124,28 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
 def log_decision(title: str, decision: str, context: str = "") -> str:
     """Record a team decision with rationale in the decision log."""
     record_use(ACTOR, "mcp")
-    payload = {"title": title, "decision": decision, "context": context,
-                   "decided_by": ACTOR}
-    return gated_write("decision", "create", payload,
-                       lambda: collab.record_decision(**payload, actor=ACTOR,
-                                                      origin="agent"), actor=ACTOR)
+    payload = {"title": title, "decision": decision, "context": context, "decided_by": ACTOR}
+    return gated_write(
+        "decision",
+        "create",
+        payload,
+        lambda: collab.record_decision(**payload, actor=ACTOR, origin="agent"),
+        actor=ACTOR,
+    )
 
 
 @mcp.tool()
 def add_blocker(title: str, detail: str = "", impact: str = "medium") -> str:
     """File a blocker (impact: low|medium|high|critical drives escalation speed)."""
     record_use(ACTOR, "mcp")
-    payload: dict[str, Any] = {"title": title, "detail": detail, "owner": ACTOR,
-                               "impact": impact}
-    return gated_write("blocker", "create", payload,
-                       lambda: blockers_svc.raise_blocker(**payload, actor=ACTOR,
-                                                          origin="agent"), actor=ACTOR)
+    payload: dict[str, Any] = {"title": title, "detail": detail, "owner": ACTOR, "impact": impact}
+    return gated_write(
+        "blocker",
+        "create",
+        payload,
+        lambda: blockers_svc.raise_blocker(**payload, actor=ACTOR, origin="agent"),
+        actor=ACTOR,
+    )
 
 
 @mcp.tool()
@@ -135,9 +162,13 @@ def save_knowledge(topic: str, content: str) -> str:
     """Save a note to the shared team knowledge base."""
     record_use(ACTOR, "mcp")
     payload = {"topic": topic, "content": content, "author": ACTOR}
-    return gated_write("note", "create", payload,
-                       lambda: collab.save_note(**payload, actor=ACTOR,
-                                                origin="agent"), actor=ACTOR)
+    return gated_write(
+        "note",
+        "create",
+        payload,
+        lambda: collab.save_note(**payload, actor=ACTOR, origin="agent"),
+        actor=ACTOR,
+    )
 
 
 @mcp.tool()

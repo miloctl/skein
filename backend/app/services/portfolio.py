@@ -29,8 +29,7 @@ def engagement_health() -> list[dict]:
     today = _today().isoformat()
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     out = []
-    for eng in db.query(
-            "SELECT * FROM engagements WHERE status != 'closed' ORDER BY id"):
+    for eng in db.query("SELECT * FROM engagements WHERE status != 'closed' ORDER BY id"):
         name = eng["name"]
         receipts = []
         overdue = db.query(
@@ -56,7 +55,8 @@ def engagement_health() -> list[dict]:
         for t in stale:
             receipts.append(
                 f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d"
-                f" (@{t['assignee'] or 'unassigned'})")
+                f" (@{t['assignee'] or 'unassigned'})"
+            )
         last = db.query_one(
             "SELECT MAX(t.updated_at) AS ts FROM tasks t"
             " JOIN milestones m ON m.id = t.milestone_id WHERE m.project = ?",
@@ -64,10 +64,17 @@ def engagement_health() -> list[dict]:
         )
         open_tasks = db.query_one(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND t.status != 'done'", (name,))
+            " WHERE m.project = ? AND t.status != 'done'",
+            (name,),
+        )
         silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
-        silent = bool(open_tasks and open_tasks["n"]
-                      and last and last["ts"] and last["ts"][:10] < silence_cutoff)
+        silent = bool(
+            open_tasks
+            and open_tasks["n"]
+            and last
+            and last["ts"]
+            and last["ts"][:10] < silence_cutoff
+        )
         if silent and last:
             receipts.append(f"no task activity since {last['ts'][:10]}")
 
@@ -77,8 +84,16 @@ def engagement_health() -> list[dict]:
             color = "yellow"
         else:
             color = "green"
-        out.append({"id": eng["id"], "name": name, "status": eng["status"],
-                    "lead": eng["lead"], "health": color, "receipts": receipts})
+        out.append(
+            {
+                "id": eng["id"],
+                "name": name,
+                "status": eng["status"],
+                "lead": eng["lead"],
+                "health": color,
+                "receipts": receipts,
+            }
+        )
     return out
 
 
@@ -133,9 +148,12 @@ def flow_metrics(weeks: int = 8) -> dict:
         " ORDER BY updated_at",
         (stale_cutoff,),
     )
-    return {"cycle_time": cycle,
-            "throughput_by_week": dict(sorted(throughput.items())),
-            "wip_by_person": wip, "stale_wip": stale}
+    return {
+        "cycle_time": cycle,
+        "throughput_by_week": dict(sorted(throughput.items())),
+        "wip_by_person": wip,
+        "stale_wip": stale,
+    }
 
 
 def nudge_stale_wip() -> dict:
@@ -156,10 +174,13 @@ def nudge_stale_wip() -> dict:
 
     for person, ts in by_person.items():
         titles = "; ".join(f"#{t['id']} {t['title']}" for t in ts[:3])
-        notify(person,
-               f"{len(ts)} task(s) sitting in progress >{STALE_WIP_DAYS} days: {titles}."
-               " Still real? Split it, unblock it, or put it back in the pool.",
-               tier="digest", link="/")
+        notify(
+            person,
+            f"{len(ts)} task(s) sitting in progress >{STALE_WIP_DAYS} days: {titles}."
+            " Still real? Split it, unblock it, or put it back in the pool.",
+            tier="digest",
+            link="/",
+        )
     return {"nudged": len(by_person)}
 
 
@@ -175,18 +196,25 @@ def slip_forecast() -> dict:
     applied = max(0.0, avg_slip)
     forecasts = []
     for m in db.query(
-            "SELECT m.* FROM milestones m JOIN engagements e ON e.name = m.project"
-            " WHERE e.status != 'closed' AND m.status != 'done'"
-            " AND m.due_date IS NOT NULL ORDER BY m.due_date"):
-        forecast = (date.fromisoformat(m["due_date"])
-                    + timedelta(days=round(applied))).isoformat()
-        forecasts.append({
-            "milestone_id": m["id"], "title": m["title"], "project": m["project"],
-            "due_date": m["due_date"], "forecast_date": forecast,
-            "at_risk": forecast < _today().isoformat() or m["due_date"] < _today().isoformat(),
-        })
-    return {"basis": {"milestones_measured": len(slips), "avg_slip_days": avg_slip},
-            "forecasts": forecasts}
+        "SELECT m.* FROM milestones m JOIN engagements e ON e.name = m.project"
+        " WHERE e.status != 'closed' AND m.status != 'done'"
+        " AND m.due_date IS NOT NULL ORDER BY m.due_date"
+    ):
+        forecast = (date.fromisoformat(m["due_date"]) + timedelta(days=round(applied))).isoformat()
+        forecasts.append(
+            {
+                "milestone_id": m["id"],
+                "title": m["title"],
+                "project": m["project"],
+                "due_date": m["due_date"],
+                "forecast_date": forecast,
+                "at_risk": forecast < _today().isoformat() or m["due_date"] < _today().isoformat(),
+            }
+        )
+    return {
+        "basis": {"milestones_measured": len(slips), "avg_slip_days": avg_slip},
+        "forecasts": forecasts,
+    }
 
 
 def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
@@ -202,23 +230,35 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
     # window-aware like allocation_conflicts — an allocation that ended last
     # quarter must not veto today's intake decision
     today = _today().isoformat()
-    current = {r["person"]: r["total_percent"] for r in db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent"
-        " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
-        " WHERE e.status != 'closed'"
-        " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
-        " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
-        " GROUP BY a.person",
-        (today, today),
-    )}
+    current = {
+        r["person"]: r["total_percent"]
+        for r in db.query(
+            "SELECT a.person, SUM(a.percent) AS total_percent"
+            " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
+            " WHERE e.status != 'closed'"
+            " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
+            " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
+            " GROUP BY a.person",
+            (today, today),
+        )
+    }
     projection = []
     for p in people:
         total = current.get(p, 0) + percent
-        projection.append({"person": p, "current_percent": current.get(p, 0),
-                           "projected_percent": total, "overcommitted": total > 100})
-    return {"request": {"id": req["id"], "title": req["title"], "score": req["score"]},
-            "assumed_percent": percent, "projection": projection,
-            "conflicts": [p for p in projection if p["overcommitted"]]}
+        projection.append(
+            {
+                "person": p,
+                "current_percent": current.get(p, 0),
+                "projected_percent": total,
+                "overcommitted": total > 100,
+            }
+        )
+    return {
+        "request": {"id": req["id"], "title": req["title"], "score": req["score"]},
+        "assumed_percent": percent,
+        "projection": projection,
+        "conflicts": [p for p in projection if p["overcommitted"]],
+    }
 
 
 def exec_readout(*, actor: str = "system") -> dict:
@@ -232,19 +272,23 @@ def exec_readout(*, actor: str = "system") -> dict:
     s = season()
     shipped = db.query(
         "SELECT name, closed_at FROM engagements WHERE status = 'closed'"
-        " AND closed_at >= ? ORDER BY closed_at DESC", (s["start"],))
+        " AND closed_at >= ? ORDER BY closed_at DESC",
+        (s["start"],),
+    )
     due_soon = db.query(
         "SELECT * FROM commitments WHERE status = 'open' AND due_date IS NOT NULL"
         " AND due_date <= ? ORDER BY due_date",
-        ((_today() + timedelta(days=14)).isoformat(),))
+        ((_today() + timedelta(days=14)).isoformat(),),
+    )
     escalated = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
 
     dot = {"red": "🔴", "yellow": "🟡", "green": "🟢"}
     lines = [f"# Exec readout — {_today().isoformat()} ({s['label']})", ""]
     lines.append("## Engagements")
     for h in health:
-        lines.append(f"- {dot[h['health']]} **{h['name']}** ({h['status']},"
-                     f" lead: {h['lead'] or 'unset'})")
+        lines.append(
+            f"- {dot[h['health']]} **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'})"
+        )
         for r in h["receipts"][:3]:
             lines.append(f"  - {r}")
     if not health:
@@ -253,8 +297,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     lines += [f"- {r['name']} ({r['closed_at'][:10]})" for r in shipped] or ["- none yet"]
     lines += ["", "## Top risks"]
     risk_lines = [f"- Escalated blocker #{b['id']}: {b['title']}" for b in escalated]
-    risk_lines += [f"- {c['person']} at {c['total_percent']}% ({c['detail']})"
-                   for c in conflicts]
+    risk_lines += [f"- {c['person']} at {c['total_percent']}% ({c['detail']})" for c in conflicts]
     lines += risk_lines or ["- none flagged"]
     from .insights import digest_findings
 
@@ -263,16 +306,22 @@ def exec_readout(*, actor: str = "system") -> dict:
         lines += ["", "## This week's findings"]
         lines += [f"- [{f['severity']}] {f['message']}" for f in findings]
     lines += ["", "## External commitments due in 14 days"]
-    lines += [f"- {c['due_date']}: {c['promise']} (to {c['to_whom'] or 'unspecified'})"
-              for c in due_soon] or ["- none recorded"]
+    lines += [
+        f"- {c['due_date']}: {c['promise']} (to {c['to_whom'] or 'unspecified'})" for c in due_soon
+    ] or ["- none recorded"]
     ct = flow["cycle_time"]
-    lines += ["", "## Flow",
-              f"- {ct['tasks_done']} tasks done in 8 weeks"
-              + (f", median cycle {ct['median_days']}d, avg {ct['avg_days']}d"
-                 if ct["tasks_done"] else ""),
-              "- WIP: " + (", ".join(f"{w['person']} {w['in_progress']}"
-                                      for w in flow["wip_by_person"]) or "none"),
-              ]
+    lines += [
+        "",
+        "## Flow",
+        f"- {ct['tasks_done']} tasks done in 8 weeks"
+        + (
+            f", median cycle {ct['median_days']}d, avg {ct['avg_days']}d"
+            if ct["tasks_done"]
+            else ""
+        ),
+        "- WIP: "
+        + (", ".join(f"{w['person']} {w['in_progress']}" for w in flow["wip_by_person"]) or "none"),
+    ]
     markdown = "\n".join(lines)
 
     readout_dir = Path(config.DATA_DIR) / "artifacts" / "portfolio"
@@ -284,8 +333,10 @@ def exec_readout(*, actor: str = "system") -> dict:
     existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
     if existing:
         aid = existing["id"]
-        db.execute("UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
-                   (actor, db.now(), aid))
+        db.execute(
+            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
+            (actor, db.now(), aid),
+        )
     else:
         aid = db.execute(
             "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"

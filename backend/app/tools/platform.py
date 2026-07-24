@@ -17,8 +17,9 @@ def _safe(fn):
 
 
 @tool
-def raise_blocker(title: str, detail: str = "", owner: str = "",
-                  impact: str = "medium", task_id: int = 0) -> str:
+def raise_blocker(
+    title: str, detail: str = "", owner: str = "", impact: str = "medium", task_id: int = 0
+) -> str:
     """File a blocker in the register so it gets tracked and escalated if it ages.
 
     Args:
@@ -28,11 +29,19 @@ def raise_blocker(title: str, detail: str = "", owner: str = "",
         impact: One of low, medium, high, critical (drives escalation speed).
         task_id: Related task ID, or 0 (marks that task blocked too).
     """
-    payload: dict[str, Any] = {"title": title, "detail": detail, "owner": owner,
-                               "impact": impact, "task_id": task_id}
-    return gated_write("blocker", "create", payload,
-                       lambda: blockers.raise_blocker(**payload, actor="agent",
-                                                      origin="agent"))
+    payload: dict[str, Any] = {
+        "title": title,
+        "detail": detail,
+        "owner": owner,
+        "impact": impact,
+        "task_id": task_id,
+    }
+    return gated_write(
+        "blocker",
+        "create",
+        payload,
+        lambda: blockers.raise_blocker(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
@@ -44,10 +53,13 @@ def resolve_blocker(blocker_id: int, resolution: str = "") -> str:
         resolution: How it was resolved.
     """
     payload = {"resolution": resolution}
-    return gated_write("blocker", "update", payload,
-                       lambda: blockers.resolve_blocker(blocker_id, **payload,
-                                                        actor="agent", origin="agent"),
-                       entity_id=blocker_id)
+    return gated_write(
+        "blocker",
+        "update",
+        payload,
+        lambda: blockers.resolve_blocker(blocker_id, **payload, actor="agent", origin="agent"),
+        entity_id=blocker_id,
+    )
 
 
 @tool
@@ -62,8 +74,9 @@ def list_blockers(status: str = "", owner: str = "") -> str:
 
 
 @tool
-def submit_intake_request(title: str, detail: str = "", requester: str = "",
-                          project_class: str = "") -> str:
+def submit_intake_request(
+    title: str, detail: str = "", requester: str = "", project_class: str = ""
+) -> str:
     """Submit a new engagement request to the team's intake queue.
 
     Args:
@@ -72,11 +85,18 @@ def submit_intake_request(title: str, detail: str = "", requester: str = "",
         requester: Who is asking.
         project_class: prototype, incident, migration, or other class if known.
     """
-    payload = {"title": title, "detail": detail, "requester": requester,
-                   "project_class": project_class}
-    return gated_write("intake", "create", payload,
-                       lambda: intake.submit_request(**payload, actor="agent",
-                                                     origin="agent"))
+    payload = {
+        "title": title,
+        "detail": detail,
+        "requester": requester,
+        "project_class": project_class,
+    }
+    return gated_write(
+        "intake",
+        "create",
+        payload,
+        lambda: intake.submit_request(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
@@ -107,8 +127,9 @@ def team_capacity() -> str:
 
 
 @tool
-def record_lesson(lesson: str, recommendation: str = "", engagement_id: int = 0,
-                  project_class: str = "general") -> str:
+def record_lesson(
+    lesson: str, recommendation: str = "", engagement_id: int = 0, project_class: str = "general"
+) -> str:
     """Record a retro lesson tagged by project class; future playbook
     instantiations of that class surface it at kickoff.
 
@@ -118,11 +139,18 @@ def record_lesson(lesson: str, recommendation: str = "", engagement_id: int = 0,
         engagement_id: The engagement it came from, or 0.
         project_class: Class the lesson applies to (prototype, incident, migration, general).
     """
-    payload: dict[str, Any] = {"lesson": lesson, "recommendation": recommendation,
-                               "engagement_id": engagement_id, "project_class": project_class}
-    return gated_write("lesson", "create", payload,
-                       lambda: engagements.record_lesson(**payload, actor="agent",
-                                                         origin="agent"))
+    payload: dict[str, Any] = {
+        "lesson": lesson,
+        "recommendation": recommendation,
+        "engagement_id": engagement_id,
+        "project_class": project_class,
+    }
+    return gated_write(
+        "lesson",
+        "create",
+        payload,
+        lambda: engagements.record_lesson(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
@@ -132,8 +160,9 @@ def list_playbooks() -> str:
 
 
 @tool
-def start_engagement_from_playbook(playbook_slug: str, engagement_name: str,
-                                   lead: str = "", start_date: str = "") -> str:
+def start_engagement_from_playbook(
+    playbook_slug: str, engagement_name: str, lead: str = "", start_date: str = ""
+) -> str:
     """Instantiate a playbook: creates the engagement, its milestones, tasks,
     and kickoff rituals, and surfaces lessons from past engagements of the
     same class. Prefer this over planning from scratch when a playbook fits.
@@ -144,12 +173,19 @@ def start_engagement_from_playbook(playbook_slug: str, engagement_name: str,
         lead: Who leads it.
         start_date: Start date YYYY-MM-DD (defaults to today).
     """
-    payload = {"slug": playbook_slug, "engagement_name": engagement_name,
-                   "lead": lead, "start_date": start_date}
-    return gated_write("playbook", "create", payload,
-                       summary=f"instantiate playbook {playbook_slug} -> {engagement_name}",
-                       direct=lambda: playbooks.instantiate(**payload, actor="agent",
-                                                            origin="agent"))
+    payload = {
+        "slug": playbook_slug,
+        "engagement_name": engagement_name,
+        "lead": lead,
+        "start_date": start_date,
+    }
+    return gated_write(
+        "playbook",
+        "create",
+        payload,
+        summary=f"instantiate playbook {playbook_slug} -> {engagement_name}",
+        direct=lambda: playbooks.instantiate(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool

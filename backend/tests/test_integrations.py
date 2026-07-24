@@ -75,8 +75,9 @@ def test_memory_remember_recall_prompt(fresh_db):
 
 
 def test_mock_agent_remember_command(client):
-    with client.stream("POST", "/api/chat",
-                       json={"thread_id": "m", "message": "/remember standups at 10am"}) as r:
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "m", "message": "/remember standups at 10am"}
+    ) as r:
         assert "Remembered" in r.read().decode()
     assert client.get("/api/memories").json()[0]["content"] == "standups at 10am"
 
@@ -92,8 +93,11 @@ def _slack_headers(secret: str, body: bytes) -> dict:
     ts = str(int(time.time()))
     base = f"v0:{ts}:{body.decode()}"
     sig = "v0=" + hmac.new(secret.encode(), base.encode(), hashlib.sha256).hexdigest()
-    return {"X-Slack-Request-Timestamp": ts, "X-Slack-Signature": sig,
-            "Content-Type": "application/x-www-form-urlencoded"}
+    return {
+        "X-Slack-Request-Timestamp": ts,
+        "X-Slack-Signature": sig,
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
 
 
 def test_slack_command_roundtrip(client, monkeypatch):
@@ -104,13 +108,13 @@ def test_slack_command_roundtrip(client, monkeypatch):
 
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
     body = b"text=blocked%20on%20dns&user_name=ava"
-    r = client.post("/api/slack/command", content=body,
-                    headers=_slack_headers("shhh", body))
+    r = client.post("/api/slack/command", content=body, headers=_slack_headers("shhh", body))
     assert r.status_code == 200
     assert "blocker" in r.json()["text"].lower()
 
-    r = client.post("/api/slack/command", content=body,
-                    headers=_slack_headers("wrong-secret", body))
+    r = client.post(
+        "/api/slack/command", content=body, headers=_slack_headers("wrong-secret", body)
+    )
     assert r.status_code == 401
 
 
@@ -134,11 +138,14 @@ def test_api_token_allows_cors_preflight(client, monkeypatch):
     from app import config
 
     monkeypatch.setattr(config, "API_TOKEN", "sekrit")
-    r = client.options("/api/tasks", headers={
-        "Origin": "http://localhost:3000",
-        "Access-Control-Request-Method": "GET",
-        "Access-Control-Request-Headers": "authorization,x-user,content-type",
-    })
+    r = client.options(
+        "/api/tasks",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,x-user,content-type",
+        },
+    )
     assert r.status_code == 200
     assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
@@ -147,9 +154,13 @@ def test_slack_garbage_timestamp_is_401(client, monkeypatch):
     from app import config
 
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
-    r = client.post("/api/slack/command", content=b"text=hi", headers={
-        "X-Slack-Request-Timestamp": "not-a-number",
-        "X-Slack-Signature": "v0=deadbeef",
-        "Content-Type": "application/x-www-form-urlencoded",
-    })
+    r = client.post(
+        "/api/slack/command",
+        content=b"text=hi",
+        headers={
+            "X-Slack-Request-Timestamp": "not-a-number",
+            "X-Slack-Signature": "v0=deadbeef",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
     assert r.status_code == 401

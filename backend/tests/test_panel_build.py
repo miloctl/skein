@@ -5,10 +5,8 @@ import os
 
 
 def test_adoption_records_by_surface(client, fresh_db):
-    client.post("/api/capture", json={"text": "todo: from web"},
-                headers={"X-Client": "web"})
-    client.post("/api/capture", json={"text": "todo: from cli"},
-                headers={"X-Client": "cli"})
+    client.post("/api/capture", json={"text": "todo: from web"}, headers={"X-Client": "web"})
+    client.post("/api/capture", json={"text": "todo: from cli"}, headers={"X-Client": "cli"})
     client.post("/api/capture", json={"text": "todo: no client header"})
 
     out = client.get("/api/adoption").json()
@@ -29,8 +27,7 @@ def test_adoption_ignores_anonymous(client, fresh_db):
 def test_adoption_upserts_daily_row(client, fresh_db):
     for _ in range(3):
         client.get("/api/briefing", headers={"X-Client": "web"})
-    rows = fresh_db.query(
-        "SELECT * FROM tool_usage WHERE user = 'tester' AND surface = 'web'")
+    rows = fresh_db.query("SELECT * FROM tool_usage WHERE user = 'tester' AND surface = 'web'")
     assert len(rows) == 1 and rows[0]["actions"] == 3
 
 
@@ -57,8 +54,7 @@ def test_forecast_snapshot_idempotent_per_day(client, fresh_db):
     from app.services import adoption
 
     client.post("/api/engagements", json={"name": "Fx"})
-    client.post("/api/milestones",
-                json={"title": "m", "project": "Fx", "due_date": "2030-01-01"})
+    client.post("/api/milestones", json={"title": "m", "project": "Fx", "due_date": "2030-01-01"})
     adoption.snapshot_forecasts()
     adoption.snapshot_forecasts()
     rows = fresh_db.query("SELECT * FROM forecast_snapshots")

@@ -14,8 +14,9 @@ from ._gate import gated_write
 
 
 @tool
-def create_milestone(title: str, description: str = "", project: str = "default",
-                     owner: str = "", due_date: str = "") -> str:
+def create_milestone(
+    title: str, description: str = "", project: str = "default", owner: str = "", due_date: str = ""
+) -> str:
     """Create a project milestone.
 
     Args:
@@ -25,15 +26,30 @@ def create_milestone(title: str, description: str = "", project: str = "default"
         owner: Team member (human or agent) responsible.
         due_date: Target date in YYYY-MM-DD format, or empty if none.
     """
-    payload = {"title": title, "description": description, "project": project,
-                   "owner": owner, "due_date": due_date}
-    return gated_write("milestone", "create", dict(payload),
-                  lambda: work.create_milestone(**payload, actor="agent", origin="agent"))
+    payload = {
+        "title": title,
+        "description": description,
+        "project": project,
+        "owner": owner,
+        "due_date": due_date,
+    }
+    return gated_write(
+        "milestone",
+        "create",
+        dict(payload),
+        lambda: work.create_milestone(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
-def update_milestone(milestone_id: int, status: str = "", title: str = "",
-                     description: str = "", owner: str = "", due_date: str = "") -> str:
+def update_milestone(
+    milestone_id: int,
+    status: str = "",
+    title: str = "",
+    description: str = "",
+    owner: str = "",
+    due_date: str = "",
+) -> str:
     """Update fields on an existing milestone. Only pass the fields to change.
 
     Args:
@@ -44,13 +60,21 @@ def update_milestone(milestone_id: int, status: str = "", title: str = "",
         owner: New owner.
         due_date: New due date (YYYY-MM-DD).
     """
-    payload = {"status": status, "title": title, "description": description,
-                   "owner": owner, "due_date": due_date}
+    payload = {
+        "status": status,
+        "title": title,
+        "description": description,
+        "owner": owner,
+        "due_date": due_date,
+    }
     payload = {k: v for k, v in payload.items() if v}
-    return gated_write("milestone", "update", payload,
-                       lambda: work.update_milestone(milestone_id, **payload,
-                                                     actor="agent", origin="agent"),
-                       entity_id=milestone_id)
+    return gated_write(
+        "milestone",
+        "update",
+        payload,
+        lambda: work.update_milestone(milestone_id, **payload, actor="agent", origin="agent"),
+        entity_id=milestone_id,
+    )
 
 
 @tool
@@ -65,8 +89,14 @@ def list_milestones(project: str = "", status: str = "") -> str:
 
 
 @tool
-def create_task(title: str, description: str = "", milestone_id: int = 0,
-                assignee: str = "", priority: str = "medium", due_date: str = "") -> str:
+def create_task(
+    title: str,
+    description: str = "",
+    milestone_id: int = 0,
+    assignee: str = "",
+    priority: str = "medium",
+    due_date: str = "",
+) -> str:
     """Create a task, optionally attached to a milestone.
 
     Args:
@@ -78,15 +108,30 @@ def create_task(title: str, description: str = "", milestone_id: int = 0,
         due_date: Target date in YYYY-MM-DD format, or empty if none.
     """
     payload: dict[str, Any] = {
-        "title": title, "description": description, "milestone_id": milestone_id,
-        "assignee": assignee, "priority": priority, "due_date": due_date}
-    return gated_write("task", "create", dict(payload),
-                  lambda: work.create_task(**payload, actor="agent", origin="agent"))
+        "title": title,
+        "description": description,
+        "milestone_id": milestone_id,
+        "assignee": assignee,
+        "priority": priority,
+        "due_date": due_date,
+    }
+    return gated_write(
+        "task",
+        "create",
+        dict(payload),
+        lambda: work.create_task(**payload, actor="agent", origin="agent"),
+    )
 
 
 @tool
-def update_task(task_id: int, status: str = "", assignee: str = "", priority: str = "",
-                due_date: str = "", description: str = "") -> str:
+def update_task(
+    task_id: int,
+    status: str = "",
+    assignee: str = "",
+    priority: str = "",
+    due_date: str = "",
+    description: str = "",
+) -> str:
     """Update fields on an existing task. Only pass the fields to change.
 
     Args:
@@ -97,13 +142,21 @@ def update_task(task_id: int, status: str = "", assignee: str = "", priority: st
         due_date: New due date (YYYY-MM-DD).
         description: New description.
     """
-    payload = {"status": status, "assignee": assignee, "priority": priority,
-                   "due_date": due_date, "description": description}
+    payload = {
+        "status": status,
+        "assignee": assignee,
+        "priority": priority,
+        "due_date": due_date,
+        "description": description,
+    }
     payload = {k: v for k, v in payload.items() if v}
-    return gated_write("task", "update", payload,
-                       lambda: work.update_task(task_id, **payload,
-                                                actor="agent", origin="agent"),
-                       entity_id=task_id)
+    return gated_write(
+        "task",
+        "update",
+        payload,
+        lambda: work.update_task(task_id, **payload, actor="agent", origin="agent"),
+        entity_id=task_id,
+    )
 
 
 @tool

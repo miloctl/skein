@@ -30,8 +30,11 @@ def current_user(
         user = owner
     else:
         user = ensure_user(x_user or "anonymous")["name"]
-    surface = "chat" if request.url.path.startswith("/api/chat") \
+    surface = (
+        "chat"
+        if request.url.path.startswith("/api/chat")
         else (x_client if x_client in ("web", "cli") else "api")
+    )
     record_use(user, surface)
     return user
 

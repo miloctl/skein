@@ -15,7 +15,7 @@ def test_fts_entity_word_not_indexed(fresh_db):
     from app.services import search, work
 
     work.create_task("Optimize queries")
-    assert search.search("task") == []       # entity name is not searchable
+    assert search.search("task") == []  # entity name is not searchable
     assert search.search("optimize") != []
 
 
@@ -41,8 +41,7 @@ def test_approve_claim_is_single_shot(fresh_db):
 def test_approve_bad_payload_returns_to_pending(fresh_db):
     from app.services import review
 
-    p = review.propose_change("task", "create", {"title": "x", "bogus_field": 1},
-                              actor="agent")
+    p = review.propose_change("task", "create", {"title": "x", "bogus_field": 1}, actor="agent")
     with pytest.raises(ValueError, match="could not apply"):
         review.approve_change(p["id"], actor="alice")
     row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (p["id"],))
@@ -71,8 +70,9 @@ def test_review_gate_covers_all_mutating_tools(fresh_db, monkeypatch):
         lambda: tp.raise_blocker(title="b"),
         lambda: tp.submit_intake_request(title="i"),
         lambda: tp.record_lesson(lesson="l"),
-        lambda: tp.start_engagement_from_playbook(playbook_slug="prototype",
-                                                  engagement_name="Gated"),
+        lambda: tp.start_engagement_from_playbook(
+            playbook_slug="prototype", engagement_name="Gated"
+        ),
     ]
     for call in calls:
         out = json.loads(call())
@@ -94,8 +94,11 @@ def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
     from app.tools import platform as tp
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
-    out = json.loads(tp.start_engagement_from_playbook(
-        playbook_slug="incident", engagement_name="Sev1 db outage"))
+    out = json.loads(
+        tp.start_engagement_from_playbook(
+            playbook_slug="incident", engagement_name="Sev1 db outage"
+        )
+    )
     review.approve_change(out["id"], actor="alice")
     assert engagements.list_engagements()[0]["name"] == "Sev1 db outage"
 
@@ -121,7 +124,8 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
 
 
 def test_chat_thread_id_sanitized(client):
-    with client.stream("POST", "/api/chat",
-                       json={"thread_id": "../../etc/passwd", "message": "/help"}) as r:
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "../../etc/passwd", "message": "/help"}
+    ) as r:
         assert r.status_code == 200
         assert "Mock agent" in r.read().decode()

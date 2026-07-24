@@ -59,11 +59,11 @@ def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
     if unread_only:
         return db.query(
             "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
-            " ORDER BY id DESC LIMIT 50", (user,),
+            " ORDER BY id DESC LIMIT 50",
+            (user,),
         )
     return db.query(
-        "SELECT * FROM notifications WHERE user IN (?, 'team')"
-        " ORDER BY id DESC LIMIT 50", (user,)
+        "SELECT * FROM notifications WHERE user IN (?, 'team') ORDER BY id DESC LIMIT 50", (user,)
     )
 
 
@@ -77,8 +77,7 @@ def mark_read(user: str, notification_id: int = 0) -> dict:
         )
     else:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE user IN (?, 'team')"
-            " AND read_at IS NULL",
+            "UPDATE notifications SET read_at = ? WHERE user IN (?, 'team') AND read_at IS NULL",
             (db.now(), user),
         )
     return {"marked": n}

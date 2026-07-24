@@ -31,37 +31,37 @@ def adoption(weeks: int = 4) -> dict:
     cutoff = (datetime.now(timezone.utc).date() - timedelta(weeks=weeks)).isoformat()
     week_ago = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
     humans = db.query(
-        "SELECT name FROM users WHERE kind = 'human' AND active = 1"
-        " AND name != 'anonymous'")
+        "SELECT name FROM users WHERE kind = 'human' AND active = 1 AND name != 'anonymous'"
+    )
     active = db.query(
         "SELECT user, MAX(day) AS last_day, SUM(actions) AS actions"
         " FROM tool_usage WHERE day >= ? GROUP BY user ORDER BY last_day DESC",
-        (cutoff,))
+        (cutoff,),
+    )
     by_surface = db.query(
         "SELECT surface, COUNT(DISTINCT user) AS users, SUM(actions) AS actions"
         " FROM tool_usage WHERE day >= ? GROUP BY surface ORDER BY actions DESC",
-        (cutoff,))
+        (cutoff,),
+    )
     weekly_active = db.query_row(
-        "SELECT COUNT(DISTINCT user) AS n FROM tool_usage WHERE day >= ?",
-        (week_ago,))
+        "SELECT COUNT(DISTINCT user) AS n FROM tool_usage WHERE day >= ?", (week_ago,)
+    )
     capture_total = db.query_row(
-        "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture'"
-        " AND created_at >= ?", (cutoff,))
+        "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture' AND created_at >= ?", (cutoff,)
+    )
     # non-web = everything that isn't the web UI — keyed API automation
     # (git hooks, scripts, webhooks) counts toward the automation bar
     non_web = db.query_row(
-        "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?"
-        " AND surface != 'web'", (cutoff,))
-    total = db.query_row(
-        "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?", (cutoff,))
+        "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ? AND surface != 'web'", (cutoff,)
+    )
+    total = db.query_row("SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?", (cutoff,))
     return {
         "window_weeks": weeks,
         "team_humans": len(humans),
         "weekly_active_users": weekly_active["n"],
         "active_users": active,
         "by_surface": by_surface,
-        "non_web_share": round((non_web["n"] or 0) / total["n"], 2)
-        if total["n"] else None,
+        "non_web_share": round((non_web["n"] or 0) / total["n"], 2) if total["n"] else None,
         "captures_in_window": capture_total["n"],
     }
 

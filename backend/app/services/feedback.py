@@ -8,9 +8,15 @@ KINDS = ("chat", "capture", "proposal", "finding")
 VERDICTS = ("up", "down", "corrected")
 
 
-def record_feedback(kind: str, input_text: str, output: str = "",
-                    verdict: str = "up", correction: str = "",
-                    *, actor: str = "system") -> dict:
+def record_feedback(
+    kind: str,
+    input_text: str,
+    output: str = "",
+    verdict: str = "up",
+    correction: str = "",
+    *,
+    actor: str = "system",
+) -> dict:
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}")
     if verdict not in VERDICTS:
@@ -30,8 +36,7 @@ def record_feedback(kind: str, input_text: str, output: str = "",
 
 def list_feedback(kind: str = "") -> list[dict]:
     if kind:
-        return db.query(
-            "SELECT * FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100", (kind,))
+        return db.query("SELECT * FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100", (kind,))
     return db.query("SELECT * FROM feedback ORDER BY id DESC LIMIT 100")
 
 
@@ -52,10 +57,13 @@ def eval_capture() -> dict:
         ok = predicted == expected
         results.append(ok)
         if not ok:
-            mismatches.append({"id": r["id"], "input": r["input"],
-                               "expected": expected, "predicted": predicted})
+            mismatches.append(
+                {"id": r["id"], "input": r["input"], "expected": expected, "predicted": predicted}
+            )
     n = len(results)
-    return {"cases": n,
-            "passed": sum(results),
-            "accuracy": round(sum(results) / n, 3) if n else None,
-            "mismatches": mismatches}
+    return {
+        "cases": n,
+        "passed": sum(results),
+        "accuracy": round(sum(results) / n, 3) if n else None,
+        "mismatches": mismatches,
+    }

@@ -20,8 +20,10 @@ def test_week_validation_everywhere(client):
     assert client.get("/api/week/draft?week=banana").status_code == 400
     assert client.get("/api/week?week=2026-W99").status_code == 400  # no such ISO week
     t = client.post("/api/tasks", json={"title": "x"}).json()
-    assert client.patch(f"/api/tasks/{t['id']}",
-                        json={"committed_week": "2026-W00"}).status_code == 400
+    assert (
+        client.patch(f"/api/tasks/{t['id']}", json={"committed_week": "2026-W00"}).status_code
+        == 400
+    )
 
 
 def test_committed_week_clearable(client, fresh_db):
@@ -33,15 +35,20 @@ def test_committed_week_clearable(client, fresh_db):
 
 
 def test_set_authority_rejects_blank_agent(client, fresh_db):
-    assert client.post("/api/agents/authority",
-                       json={"agent": "", "entity": "task",
-                             "level": "notify"}).status_code == 400
-    assert client.post("/api/agents/authority",
-                       json={"agent": "   ", "entity": "task",
-                             "level": "notify"}).status_code == 400
+    assert (
+        client.post(
+            "/api/agents/authority", json={"agent": "", "entity": "task", "level": "notify"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/agents/authority", json={"agent": "   ", "entity": "task", "level": "notify"}
+        ).status_code
+        == 400
+    )
     # no phantom agent was minted
-    assert not fresh_db.query_one(
-        "SELECT * FROM users WHERE name = 'anonymous' AND kind = 'agent'")
+    assert not fresh_db.query_one("SELECT * FROM users WHERE name = 'anonymous' AND kind = 'agent'")
 
 
 def test_agent_inbox_unknown_agent_is_an_error(client):
@@ -50,43 +57,45 @@ def test_agent_inbox_unknown_agent_is_an_error(client):
 
 def test_supersede_with_bad_date_leaves_old_decision_intact(client, fresh_db):
     d = client.post("/api/decisions", json={"title": "T", "decision": "D"}).json()
-    r = client.post(f"/api/decisions/{d['id']}/supersede",
-                    json={"title": "N", "decision": "X", "review_by": "next quarter"})
+    r = client.post(
+        f"/api/decisions/{d['id']}/supersede",
+        json={"title": "N", "decision": "X", "review_by": "next quarter"},
+    )
     assert r.status_code == 400
     row = fresh_db.query_one("SELECT * FROM decisions WHERE id = ?", (d["id"],))
     assert row["status"] == "active" and row["superseded_by"] is None
 
 
 def test_reconfirm_never_removes_the_half_life(client, fresh_db):
-    d = client.post("/api/decisions",
-                    json={"title": "T", "decision": "D",
-                          "review_by": "2026-01-01"}).json()
+    d = client.post(
+        "/api/decisions", json={"title": "T", "decision": "D", "review_by": "2026-01-01"}
+    ).json()
     out = client.post(f"/api/decisions/{d['id']}/reconfirm", json={}).json()
     assert out["review_by"] is not None and out["review_by"] > "2026-07-01"
 
 
 def test_review_by_must_be_a_date(client):
-    r = client.post("/api/decisions",
-                    json={"title": "T", "decision": "D", "review_by": "soonish"})
+    r = client.post("/api/decisions", json={"title": "T", "decision": "D", "review_by": "soonish"})
     assert r.status_code == 400
 
 
 def test_what_if_ignores_expired_allocations(client):
     e = client.post("/api/engagements", json={"name": "Old"}).json()
-    client.post(f"/api/engagements/{e['id']}/allocate",
-                json={"person": "zoe", "percent": 80,
-                      "starts_on": "2025-01-01", "ends_on": "2025-06-30"})
+    client.post(
+        f"/api/engagements/{e['id']}/allocate",
+        json={"person": "zoe", "percent": 80, "starts_on": "2025-01-01", "ends_on": "2025-06-30"},
+    )
     req = client.post("/api/intake", json={"title": "new"}).json()
-    out = client.post(f"/api/intake/{req['id']}/what-if",
-                      json={"people": ["zoe"], "percent": 50}).json()
+    out = client.post(
+        f"/api/intake/{req['id']}/what-if", json={"people": ["zoe"], "percent": 50}
+    ).json()
     zoe = out["projection"][0]
     assert zoe["current_percent"] == 0 and not zoe["overcommitted"]
 
 
 def test_reassign_ends_delegation(client, fresh_db):
     t = client.post("/api/tasks", json={"title": "work"}).json()
-    client.post(f"/api/tasks/{t['id']}/delegate",
-                json={"agent": "helper", "sponsor": "tester"})
+    client.post(f"/api/tasks/{t['id']}/delegate", json={"agent": "helper", "sponsor": "tester"})
     client.patch(f"/api/tasks/{t['id']}", json={"assignee": "zoe"})
     row = fresh_db.query_one("SELECT * FROM tasks WHERE id = ?", (t["id"],))
     assert row["delegated_agent"] == "" and row["sponsor"] == ""
@@ -119,8 +128,7 @@ def test_weekly_claim_not_burned_by_empty_draft(fresh_db):
 def test_sweep_returns_post_flip_state(client):
     from app.services import collab
 
-    client.post("/api/decisions", json={"title": "T", "decision": "D",
-                                        "review_by": "2026-01-01"})
+    client.post("/api/decisions", json={"title": "T", "decision": "D", "review_by": "2026-01-01"})
     swept = collab.sweep_stale_decisions()
     assert swept and all(d["status"] == "stale" for d in swept)
 
@@ -140,8 +148,9 @@ def test_extra_tools_security_cuts(monkeypatch):
     from app import config
     from app.agents import extra_tools as mod
 
-    monkeypatch.setattr(config, "EXTRA_TOOLS",
-                        ("http_request", "use_agent", "use_llm", "workflow", "diagram"))
+    monkeypatch.setattr(
+        config, "EXTRA_TOOLS", ("http_request", "use_agent", "use_llm", "workflow", "diagram")
+    )
     mod.extra_tools.cache_clear()
     assert mod.extra_tools() == ()
     mod.extra_tools.cache_clear()

@@ -7,8 +7,7 @@ from . import blockers
 DEFAULT_BRANCHES = ("main", "master")
 
 
-def ci_event(repo: str, branch: str, status: str, run_url: str = "",
-             *, actor: str = "ci") -> dict:
+def ci_event(repo: str, branch: str, status: str, run_url: str = "", *, actor: str = "ci") -> dict:
     if not repo or not branch:
         raise ValueError("repo and branch are required")
     if status not in ("success", "failure"):
@@ -27,13 +26,18 @@ def ci_event(repo: str, branch: str, status: str, run_url: str = "",
         result = blockers.raise_blocker(
             title=f"CI red on {repo}@{branch}",
             detail=f"Failing build: {run_url or 'no run URL provided'}",
-            owner="team", impact="high", source=source, actor=actor, origin="agent",
+            owner="team",
+            impact="high",
+            source=source,
+            actor=actor,
+            origin="agent",
         )
         return {"blocker_id": result["id"], "raised": True}
 
     resolved = [
-        blockers.resolve_blocker(b["id"], resolution=f"CI green again: {run_url}",
-                                 actor=actor, origin="agent")["id"]
+        blockers.resolve_blocker(
+            b["id"], resolution=f"CI green again: {run_url}", actor=actor, origin="agent"
+        )["id"]
         for b in existing
     ]
     return {"resolved": resolved}

@@ -10,9 +10,18 @@ IMPACTS = ("low", "medium", "high", "critical")
 DEFAULT_ESCALATION_HOURS = {"low": 72, "medium": 24, "high": 8, "critical": 2}
 
 
-def raise_blocker(title: str, detail: str = "", owner: str = "", impact: str = "medium",
-                  task_id: int = 0, source: str = "", escalate_after_hours: int = 0,
-                  *, actor: str = "system", origin: str = "human") -> dict:
+def raise_blocker(
+    title: str,
+    detail: str = "",
+    owner: str = "",
+    impact: str = "medium",
+    task_id: int = 0,
+    source: str = "",
+    escalate_after_hours: int = 0,
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     if not title.strip():
         raise ValueError("blocker title is required")
     if impact not in IMPACTS:
@@ -36,8 +45,9 @@ def raise_blocker(title: str, detail: str = "", owner: str = "", impact: str = "
     return {"id": bid, "title": title, "status": "open", "escalate_after_hours": hours}
 
 
-def resolve_blocker(blocker_id: int, resolution: str = "",
-                    *, actor: str = "system", origin: str = "human") -> dict:
+def resolve_blocker(
+    blocker_id: int, resolution: str = "", *, actor: str = "system", origin: str = "human"
+) -> dict:
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
         raise ValueError(f"blocker #{blocker_id} not found")
@@ -66,11 +76,15 @@ def resolve_blocker(blocker_id: int, resolution: str = "",
         from .notifications import notify
 
         days = age.days
-        notify("team",
-               f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
-               f" It fought hard. It lost. {days} days"
-               + (", escalated" if row["status"] == "escalated" else "") + ".",
-               tier="digest", link="/dashboard")
+        notify(
+            "team",
+            f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
+            f" It fought hard. It lost. {days} days"
+            + (", escalated" if row["status"] == "escalated" else "")
+            + ".",
+            tier="digest",
+            link="/dashboard",
+        )
     return {"id": blocker_id, "status": "resolved"}
 
 
@@ -84,8 +98,10 @@ def list_blockers(status: str = "", owner: str = "") -> list[dict]:
     if owner:
         sql += " AND owner = ?"
         params.append(owner)
-    sql += (" ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
-            " WHEN 'medium' THEN 2 ELSE 3 END, created_at")
+    sql += (
+        " ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, created_at"
+    )
     return db.query(sql, tuple(params))
 
 
@@ -107,11 +123,15 @@ def sweep_escalations() -> list[dict]:
                 continue
             from .notifications import notify
 
-            notify(b["owner"] or "team",
-                   f"Blocker #{b['id']} escalated: {b['title']}",
-                   tier="immediate", link="/")
+            notify(
+                b["owner"] or "team",
+                f"Blocker #{b['id']} escalated: {b['title']}",
+                tier="immediate",
+                link="/",
+            )
             db.log_activity(
-                "scheduler", "escalate_blocker",
+                "scheduler",
+                "escalate_blocker",
                 f"#{b['id']} {b['title']} (open {b['escalate_after_hours']}h, owner: {b['owner'] or 'unowned'})",
             )
             escalated.append(b)

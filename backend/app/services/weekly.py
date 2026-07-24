@@ -22,11 +22,17 @@ def week_view(week: str = "") -> dict:
     tasks = db.query(
         "SELECT t.*, m.title AS milestone_title FROM tasks t"
         " LEFT JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE t.committed_week = ? ORDER BY t.assignee, t.id", (week,))
+        " WHERE t.committed_week = ? ORDER BY t.assignee, t.id",
+        (week,),
+    )
     done = sum(1 for t in tasks if t["status"] == "done")
-    return {"week": week, "committed": len(tasks), "done": done,
-            "kept_percent": round(100 * done / len(tasks)) if tasks else None,
-            "tasks": tasks}
+    return {
+        "week": week,
+        "committed": len(tasks),
+        "done": done,
+        "kept_percent": round(100 * done / len(tasks)) if tasks else None,
+        "tasks": tasks,
+    }
 
 
 def draft_plan(week: str = "") -> dict:
@@ -38,7 +44,8 @@ def draft_plan(week: str = "") -> dict:
     items = []
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
-        " AND name != 'anonymous' ORDER BY name")
+        " AND name != 'anonymous' ORDER BY name"
+    )
     for h in humans:
         rows = db.query(
             "SELECT id, title, priority, due_date FROM tasks"
@@ -49,13 +56,13 @@ def draft_plan(week: str = "") -> dict:
             " LIMIT ?",
             (h["name"], week, MAX_PER_PERSON),
         )
-        items += [{"task_id": r["id"], "title": r["title"], "assignee": h["name"]}
-                  for r in rows]
+        items += [{"task_id": r["id"], "title": r["title"], "assignee": h["name"]} for r in rows]
     return {"week": week, "items": items}
 
 
-def apply_plan(week: str, task_ids: list[int],
-               *, actor: str = "system", origin: str = "human") -> dict:
+def apply_plan(
+    week: str, task_ids: list[int], *, actor: str = "system", origin: str = "human"
+) -> dict:
     """Registry-applied: sets committed_week on each task. Called on approval
     of a weekly_plan proposal, or directly by a human."""
     if not WEEK_RE.match(week or ""):
@@ -74,11 +81,12 @@ def apply_plan(week: str, task_ids: list[int],
             skipped.append(int(tid))
     if not committed:
         raise ValueError(f"no tasks in the plan still exist: {skipped}")
-    db.log_activity(actor, "apply_weekly_plan",
-                    f"{week}: {len(committed)} tasks"
-                    + (f", skipped {skipped}" if skipped else ""))
-    return {"week": week, "committed": len(committed), "task_ids": committed,
-            "skipped": skipped}
+    db.log_activity(
+        actor,
+        "apply_weekly_plan",
+        f"{week}: {len(committed)} tasks" + (f", skipped {skipped}" if skipped else ""),
+    )
+    return {"week": week, "committed": len(committed), "task_ids": committed, "skipped": skipped}
 
 
 def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
@@ -95,8 +103,10 @@ def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
 
     names = ", ".join(f"#{i['task_id']}" for i in draft["items"][:10])
     return propose_change(
-        "weekly_plan", "create",
+        "weekly_plan",
+        "create",
         {"week": week, "task_ids": [i["task_id"] for i in draft["items"]]},
         summary=f"Weekly commitment line {week}: {len(draft['items'])} tasks ({names})",
-        actor=actor, origin="agent",
+        actor=actor,
+        origin="agent",
     )

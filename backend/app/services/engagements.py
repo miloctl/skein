@@ -7,8 +7,15 @@ from .search import index_record
 STATUSES = ("proposed", "active", "closing", "closed")
 
 
-def create_engagement(name: str, project_class: str = "general", summary: str = "",
-                      lead: str = "", *, actor: str = "system", origin: str = "human") -> dict:
+def create_engagement(
+    name: str,
+    project_class: str = "general",
+    summary: str = "",
+    lead: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     name = name.strip()
     if not name:
         raise ValueError("engagement name is required")
@@ -26,16 +33,22 @@ def create_engagement(name: str, project_class: str = "general", summary: str = 
     return {"id": eid, "name": name, "project_class": project_class, "status": "active"}
 
 
-def update_engagement(engagement_id: int, status: str = "", summary: str = "",
-                      lead: str = "", *, actor: str = "system", origin: str = "human") -> dict:
+def update_engagement(
+    engagement_id: int,
+    status: str = "",
+    summary: str = "",
+    lead: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     if status and status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
     current = db.query_one("SELECT status FROM engagements WHERE id = ?", (engagement_id,))
     if not current:
         raise ValueError(f"engagement #{engagement_id} not found")
     freshly_closed = status == "closed" and current["status"] != "closed"
-    fields = {k: v for k, v in
-              [("status", status), ("summary", summary), ("lead", lead)] if v}
+    fields = {k: v for k, v in [("status", status), ("summary", summary), ("lead", lead)] if v}
     if not fields:
         raise ValueError("nothing to update")
     if freshly_closed:
@@ -60,23 +73,32 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
     name = eng["name"]
     days = ""
     if eng["started_at"] and eng["closed_at"]:
-        delta = (db.query_one(
-            "SELECT ROUND(julianday(?) - julianday(?)) AS d",
-            (eng["closed_at"], eng["started_at"]))or {}).get("d")
+        delta = (
+            db.query_one(
+                "SELECT ROUND(julianday(?) - julianday(?)) AS d",
+                (eng["closed_at"], eng["started_at"]),
+            )
+            or {}
+        ).get("d")
         days = f"{int(delta)} days" if delta is not None else ""
     stats = {
         "milestones": db.query_row(
-            "SELECT COUNT(*) AS n FROM milestones WHERE project = ?", (name,)),
+            "SELECT COUNT(*) AS n FROM milestones WHERE project = ?", (name,)
+        ),
         "tasks_done": db.query_row(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND t.status = 'done'", (name,)),
+            " WHERE m.project = ? AND t.status = 'done'",
+            (name,),
+        ),
         # scoped to THIS engagement's linked blockers — the recap must be honest
         # (a time-window count silently absorbed unrelated blockers)
         "blockers_survived": db.query_row(
             "SELECT COUNT(*) AS n FROM blockers b"
             " JOIN tasks t ON t.id = b.task_id"
             " JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.project = ? AND b.status = 'resolved'", (name,)),
+            " WHERE m.project = ? AND b.status = 'resolved'",
+            (name,),
+        ),
     }
     recap = (
         f"🚢🪿 **Shipped: {name}**"
@@ -88,8 +110,7 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
     from .collab import save_note
     from .notifications import notify
 
-    save_note(topic=f"shipped-{name}", content=recap, author=actor,
-              actor=actor, origin="human")
+    save_note(topic=f"shipped-{name}", content=recap, author=actor, actor=actor, origin="human")
     notify("team", recap, tier="immediate", link="/dashboard")
 
 
@@ -106,9 +127,16 @@ def list_engagements(status: str = "") -> list[dict]:
     return rows
 
 
-def allocate(person: str, engagement_id: int, percent: int = 100,
-             starts_on: str = "", ends_on: str = "",
-             *, actor: str = "system", origin: str = "human") -> dict:
+def allocate(
+    person: str,
+    engagement_id: int,
+    percent: int = 100,
+    starts_on: str = "",
+    ends_on: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     if not person.strip():
         raise ValueError("person is required")
     if not 1 <= percent <= 100:
@@ -119,8 +147,16 @@ def allocate(person: str, engagement_id: int, percent: int = 100,
         "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on,"
         " origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (person, engagement_id, percent, starts_on or None, ends_on or None,
-         origin, actor, db.now()),
+        (
+            person,
+            engagement_id,
+            percent,
+            starts_on or None,
+            ends_on or None,
+            origin,
+            actor,
+            db.now(),
+        ),
     )
     db.log_activity(actor, "allocate", f"{person} -> engagement #{engagement_id} @{percent}%")
     return {"id": aid, "person": person, "percent": percent}
@@ -137,13 +173,20 @@ def capacity() -> list[dict]:
     )
 
 
-def record_lesson(lesson: str, recommendation: str = "", engagement_id: int = 0,
-                  project_class: str = "general",
-                  *, actor: str = "system", origin: str = "human") -> dict:
+def record_lesson(
+    lesson: str,
+    recommendation: str = "",
+    engagement_id: int = 0,
+    project_class: str = "general",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     if not lesson.strip():
         raise ValueError("the lesson text is required")
     if engagement_id and not db.query_one(
-            "SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
+        "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+    ):
         raise ValueError(f"engagement #{engagement_id} not found")
     lid = db.execute(
         "INSERT INTO lessons (engagement_id, project_class, lesson, recommendation,"

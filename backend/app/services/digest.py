@@ -56,15 +56,19 @@ def build_digest() -> str:
         lines.append("## 🔎 Findings this week")
         for f in findings:
             mark = {"high": "🔴", "medium": "🟡", "low": "·", "positive": "🟢"}[f["severity"]]
-            lines.append(f"- {mark} {f['message']}"
-                         + (f" *(n={f['n']}, {f['window']})*" if f["n"] else ""))
+            lines.append(
+                f"- {mark} {f['message']}" + (f" *(n={f['n']}, {f['window']})*" if f["n"] else "")
+            )
         lines.append("")
 
     esc = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
     if esc:
         lines.append("## ⛔ Escalated blockers")
-        lines += [f"- #{b['id']} **{b['title']}** (owner: {b['owner'] or 'unowned'},"
-                  f" impact: {b['impact']})" for b in esc]
+        lines += [
+            f"- #{b['id']} **{b['title']}** (owner: {b['owner'] or 'unowned'},"
+            f" impact: {b['impact']})"
+            for b in esc
+        ]
         lines.append("")
 
     stalled = _stalled_tasks()
@@ -76,14 +80,16 @@ def build_digest() -> str:
     open_q = db.query("SELECT * FROM questions WHERE status = 'open' ORDER BY id LIMIT 10")
     if open_q:
         lines.append("## ❓ Unanswered questions")
-        lines += [f"- #{q['id']} {q['question']} (→ {q['assigned_to'] or 'unassigned'})"
-                  for q in open_q]
+        lines += [
+            f"- #{q['id']} {q['question']} (→ {q['assigned_to'] or 'unassigned'})" for q in open_q
+        ]
         lines.append("")
 
     week = (_utc_today() + timedelta(days=7)).isoformat()
     due = db.query(
         "SELECT * FROM milestones WHERE status != 'done' AND due_date IS NOT NULL"
-        " AND due_date <= ? ORDER BY due_date", (week,),
+        " AND due_date <= ? ORDER BY due_date",
+        (week,),
     )
     if due:
         lines.append("## 🎯 Milestones due within a week")
@@ -97,8 +103,10 @@ def build_digest() -> str:
     )
     lines.append("## 📋 Today")
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
-    lines += [f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''}"
-              f" {e['title']}" for e in events]
+    lines += [
+        f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''} {e['title']}"
+        for e in events
+    ]
     all_clear = not (esc or stalled or open_q or due)
     if all_clear:
         lines.append("- All clear: no escalations, stalls, or overdue work. 🎉")
@@ -118,9 +126,12 @@ def _narrate(markdown: str) -> str:
 
         from ..agents.team_agent import _model
 
-        agent = Agent(model=_model(), callback_handler=None,
-                      system_prompt="You summarize team status digests. Reply with exactly"
-                                    " a 2-3 sentence executive summary, nothing else.")
+        agent = Agent(
+            model=_model(),
+            callback_handler=None,
+            system_prompt="You summarize team status digests. Reply with exactly"
+            " a 2-3 sentence executive summary, nothing else.",
+        )
         summary = str(agent(f"Summarize this digest:\n\n{markdown}")).strip()
         return f"> {summary}\n\n{markdown}"
     except Exception:
@@ -139,11 +150,11 @@ def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
     path.write_text(markdown)
 
     db.execute(
-        "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
         ("digest", f"Daily digest {today}", str(path), actor, db.now()),
     )
-    collab.save_note(topic=f"digest-{today}", content=markdown, author=actor,
-                     actor=actor, origin="agent")
+    collab.save_note(
+        topic=f"digest-{today}", content=markdown, author=actor, actor=actor, origin="agent"
+    )
     db.log_activity(actor, "publish_digest", today)
     return {"date": today, "path": str(path), "markdown": markdown}

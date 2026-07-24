@@ -19,8 +19,12 @@ def season() -> dict:
     n = days // SEASON_DAYS
     start = SEASON_EPOCH + timedelta(days=n * SEASON_DAYS)
     end = start + timedelta(days=SEASON_DAYS - 1)
-    return {"label": f"{start.year}·S{n + 1}", "start": start.isoformat(),
-            "end": end.isoformat(), "days_left": (end - _today()).days}
+    return {
+        "label": f"{start.year}·S{n + 1}",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days_left": (end - _today()).days,
+    }
 
 
 def standup_chain() -> dict:
@@ -31,13 +35,16 @@ def standup_chain() -> dict:
     This keeps 'anonymous' rows, typo'd X-User names, and service accounts from
     zeroing the chain forever — you join the chain by playing."""
     cutoff = (_today() - timedelta(days=30)).isoformat()
-    humans = [u["name"] for u in db.query(
-        "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"
-        " AND u.name != 'anonymous'"
-        " AND EXISTS (SELECT 1 FROM standups s WHERE s.author = u.name"
-        "             AND s.created_at >= ?)",
-        (cutoff,),
-    )]
+    humans = [
+        u["name"]
+        for u in db.query(
+            "SELECT u.name FROM users u WHERE u.kind = 'human' AND u.active = 1"
+            " AND u.name != 'anonymous'"
+            " AND EXISTS (SELECT 1 FROM standups s WHERE s.author = u.name"
+            "             AND s.created_at >= ?)",
+            (cutoff,),
+        )
+    ]
     if not humans:
         return {"chain": 0, "humans": 0}
     chain = 0
@@ -46,10 +53,13 @@ def standup_chain() -> dict:
         day -= timedelta(days=day.weekday() - 4)
     for _ in range(90):
         if day.weekday() < 5:
-            authors = {r["author"] for r in db.query(
-                "SELECT DISTINCT author FROM standups WHERE substr(created_at, 1, 10) = ?",
-                (day.isoformat(),),
-            )}
+            authors = {
+                r["author"]
+                for r in db.query(
+                    "SELECT DISTINCT author FROM standups WHERE substr(created_at, 1, 10) = ?",
+                    (day.isoformat(),),
+                )
+            }
             if not set(humans) <= authors:
                 # today doesn't break the chain until it's over
                 if day == _today():
@@ -81,15 +91,15 @@ def blocker_speedrun() -> list[dict]:
 
 def pulse() -> dict:
     s = season()
-    open_blockers = db.query_one(
-        "SELECT COUNT(*) AS n FROM blockers WHERE status != 'resolved'")
+    open_blockers = db.query_one("SELECT COUNT(*) AS n FROM blockers WHERE status != 'resolved'")
     spotted = db.query_one(
-        "SELECT COUNT(*) AS n FROM blockers WHERE created_at >= ?", (s["start"],))
-    lessons = db.query_one(
-        "SELECT COUNT(*) AS n FROM lessons WHERE created_at >= ?", (s["start"],))
+        "SELECT COUNT(*) AS n FROM blockers WHERE created_at >= ?", (s["start"],)
+    )
+    lessons = db.query_one("SELECT COUNT(*) AS n FROM lessons WHERE created_at >= ?", (s["start"],))
     shipped = db.query_one(
-        "SELECT COUNT(*) AS n FROM engagements WHERE status = 'closed'"
-        " AND closed_at >= ?", (s["start"],))
+        "SELECT COUNT(*) AS n FROM engagements WHERE status = 'closed' AND closed_at >= ?",
+        (s["start"],),
+    )
     return {
         "season": s,
         "standup_chain": standup_chain(),

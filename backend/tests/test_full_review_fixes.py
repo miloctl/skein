@@ -6,19 +6,18 @@ def test_team_notifications_dismissable(client, fresh_db, monkeypatch):
 
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     n = notifications.notify("team", "shared thing", tier="immediate")
-    out = client.post("/api/notifications/read",
-                      json={"notification_id": n["id"]}).json()
+    out = client.post("/api/notifications/read", json={"notification_id": n["id"]}).json()
     assert out["marked"] == 1
     assert client.get("/api/notifications").json() == []
 
 
 def test_mock_agent_commitment_capture_ack(client):
-    out = client.post("/api/chat",
-                      json={"thread_id": "t", "message": "promised: report to legal"})
+    out = client.post("/api/chat", json={"thread_id": "t", "message": "promised: report to legal"})
     body = out.text
     assert "error" not in body.lower() or "Commitment" in body
-    assert any("commitment" in m["promise"].lower() or True
-               for m in client.get("/api/commitments").json())
+    assert any(
+        "commitment" in m["promise"].lower() or True for m in client.get("/api/commitments").json()
+    )
     assert len(client.get("/api/commitments").json()) == 1
 
 
@@ -35,13 +34,15 @@ def test_blank_required_strings_rejected(client):
     assert client.post("/api/tasks", json={"title": " "}).status_code == 400
     assert client.post("/api/lessons", json={"lesson": ""}).status_code == 400
     assert client.post("/api/questions", json={"question": " "}).status_code == 400
-    assert client.post("/api/events",
-                       json={"title": "x", "starts_at": "garbage"}).status_code == 400
+    assert (
+        client.post("/api/events", json={"title": "x", "starts_at": "garbage"}).status_code == 400
+    )
 
 
 def test_clearable_fields(client, fresh_db):
-    t = client.post("/api/tasks", json={"title": "x", "assignee": "ava",
-                                        "due_date": "2026-08-01"}).json()
+    t = client.post(
+        "/api/tasks", json={"title": "x", "assignee": "ava", "due_date": "2026-08-01"}
+    ).json()
     client.patch(f"/api/tasks/{t['id']}", json={"due_date": "-", "assignee": "-"})
     row = fresh_db.query_one("SELECT * FROM tasks WHERE id = ?", (t["id"],))
     assert row["due_date"] is None and row["assignee"] == ""
@@ -93,8 +94,14 @@ def test_export_covers_new_tables(fresh_db):
     from app.services import admin
 
     out = admin.export()
-    for t in ("commitments", "agent_authority", "findings", "tool_usage",
-              "context_packs", "forecast_snapshots"):
+    for t in (
+        "commitments",
+        "agent_authority",
+        "findings",
+        "tool_usage",
+        "context_packs",
+        "forecast_snapshots",
+    ):
         assert t in out["tables"]
     assert "api_keys" not in out["tables"]  # hashes must not travel
 
@@ -119,9 +126,12 @@ def test_ship_it_counts_only_linked_blockers(client, fresh_db, monkeypatch):
 def test_intake_accept_name_collision_is_loud(client):
     client.post("/api/engagements", json={"name": "Taken"})
     req = client.post("/api/intake", json={"title": "Taken"}).json()
-    client.post(f"/api/intake/{req['id']}/score",
-                json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3})
-    out = client.post(f"/api/intake/{req['id']}/disposition",
-                      json={"disposition": "accepted", "reason": "yes"}).json()
+    client.post(
+        f"/api/intake/{req['id']}/score",
+        json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3},
+    )
+    out = client.post(
+        f"/api/intake/{req['id']}/disposition", json={"disposition": "accepted", "reason": "yes"}
+    ).json()
     assert out["engagement_created"] is False
     assert "already exists" in out["note"]

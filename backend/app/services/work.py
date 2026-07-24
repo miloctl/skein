@@ -31,8 +31,18 @@ def create_milestone(
         "INSERT INTO milestones (project, engagement_id, title, description, owner,"
         " due_date, origin, created_by, created_at, updated_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (project, eng["id"] if eng else None, title, description, owner,
-         due_date or None, origin, actor, ts, ts),
+        (
+            project,
+            eng["id"] if eng else None,
+            title,
+            description,
+            owner,
+            due_date or None,
+            origin,
+            actor,
+            ts,
+            ts,
+        ),
     )
     db.log_activity(actor, "create_milestone", f"#{mid} {title}")
     index_record("milestone", mid, title, f"{description} {project} {owner}")
@@ -55,9 +65,16 @@ def update_milestone(
     if not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
         raise ValueError(f"milestone #{milestone_id} not found")
     fields: dict[str, str | None] = {
-        k: v for k, v in
-        [("status", status), ("title", title), ("description", description),
-         ("owner", owner), ("due_date", due_date)] if v}
+        k: v
+        for k, v in [
+            ("status", status),
+            ("title", title),
+            ("description", description),
+            ("owner", owner),
+            ("due_date", due_date),
+        ]
+        if v
+    }
     if not fields:
         raise ValueError("nothing to update")
     for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
@@ -71,8 +88,12 @@ def update_milestone(
     db.log_activity(actor, "update_milestone", f"#{milestone_id} {status or 'edited'}")
     row = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
     if row:
-        index_record("milestone", milestone_id, row["title"],
-                     f"{row['description']} {row['project']} {row['owner']}")
+        index_record(
+            "milestone",
+            milestone_id,
+            row["title"],
+            f"{row['description']} {row['project']} {row['owner']}",
+        )
     return {"id": milestone_id, "updated": list(fields)}
 
 
@@ -102,16 +123,25 @@ def create_task(
         raise ValueError("task title is required")
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
-    if milestone_id and not db.query_one(
-            "SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
+    if milestone_id and not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
         raise ValueError(f"milestone #{milestone_id} not found")
     ts = db.now()
     tid = db.execute(
         "INSERT INTO tasks (milestone_id, title, description, assignee, priority,"
         " due_date, origin, created_by, created_at, updated_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (milestone_id or None, title, description, assignee, priority,
-         due_date or None, origin, actor, ts, ts),
+        (
+            milestone_id or None,
+            title,
+            description,
+            assignee,
+            priority,
+            due_date or None,
+            origin,
+            actor,
+            ts,
+            ts,
+        ),
     )
     db.log_activity(actor, "create_task", f"#{tid} {title}")
     index_record("task", tid, title, f"{description} {assignee}")
@@ -137,15 +167,22 @@ def update_task(
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):
         raise ValueError("committed_week must look like 2026-W31 (or '-' to clear)")
-    current = db.query_one(
-        "SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
+    current = db.query_one("SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise ValueError(f"task #{task_id} not found")
     fields: dict[str, str | None] = {
-        k: v for k, v in
-        [("status", status), ("assignee", assignee), ("priority", priority),
-         ("due_date", due_date), ("description", description), ("title", title),
-         ("committed_week", committed_week)] if v}
+        k: v
+        for k, v in [
+            ("status", status),
+            ("assignee", assignee),
+            ("priority", priority),
+            ("due_date", due_date),
+            ("description", description),
+            ("title", title),
+            ("committed_week", committed_week),
+        ]
+        if v
+    }
     if not fields:
         raise ValueError("nothing to update")
     if committed_week == "-":
@@ -188,6 +225,8 @@ def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> l
     if assignee:
         sql += " AND assignee = ?"
         params.append(assignee)
-    sql += (" ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-            " WHEN 'medium' THEN 2 ELSE 3 END, id")
+    sql += (
+        " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, id"
+    )
     return db.query(sql, tuple(params))

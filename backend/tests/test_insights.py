@@ -12,9 +12,14 @@ def _mk_blocker(db, title, created_days_ago, resolved_days_ago, escalated=False)
     bid = db.execute(
         "INSERT INTO blockers (title, status, resolved_at, escalated_at,"
         " created_at, updated_at) VALUES (?, 'resolved', ?, ?, ?, ?)",
-        (title, _ago(resolved_days_ago),
-         _ago(created_days_ago) if escalated else None,
-         _ago(created_days_ago), ts))
+        (
+            title,
+            _ago(resolved_days_ago),
+            _ago(created_days_ago) if escalated else None,
+            _ago(created_days_ago),
+            ts,
+        ),
+    )
     return bid
 
 
@@ -47,7 +52,7 @@ def test_mttr_improvement_is_positive(fresh_db):
     from app.services import insights
 
     for i in range(8):
-        _mk_blocker(fresh_db, f"old{i}", 42, 40)   # ~48h
+        _mk_blocker(fresh_db, f"old{i}", 42, 40)  # ~48h
     for i in range(8):
         _mk_blocker(fresh_db, f"new{i}", 10.1, 10)  # ~2.4h
     out = insights._r_mttr()
@@ -62,8 +67,7 @@ def test_aging_wip_threshold(client, fresh_db):
     for i in range(4):
         t = client.post("/api/tasks", json={"title": f"stuck{i}"}).json()
         client.patch(f"/api/tasks/{t['id']}", json={"status": "in_progress"})
-        fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?",
-                         (_ago(20), t["id"]))
+        fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(20), t["id"]))
     out = insights._r_aging_wip()
     assert out and out[0]["n"] == 4
     assert len(out[0]["receipt"]["tasks"]) == 4
@@ -73,14 +77,12 @@ def test_review_stall_and_question_aging(client, fresh_db):
     from app.services import insights, review
 
     p = review.propose_change("note", "create", {"topic": "t", "content": "c"})
-    fresh_db.execute("UPDATE pending_changes SET created_at = ? WHERE id = ?",
-                     (_ago(9), p["id"]))
+    fresh_db.execute("UPDATE pending_changes SET created_at = ? WHERE id = ?", (_ago(9), p["id"]))
     out = insights._r_review_stall()
     assert out and out[0]["severity"] == "high"
 
     q = client.post("/api/questions", json={"question": "anyone?"}).json()
-    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?",
-                     (_ago(6), q["id"]))
+    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?", (_ago(6), q["id"]))
     qf = insights._r_question_aging()
     assert qf and qf[0]["subject"] == f"question-{q['id']}"
 
@@ -88,26 +90,29 @@ def test_review_stall_and_question_aging(client, fresh_db):
 def test_commitment_rules(client, fresh_db):
     from app.services import insights
 
-    c = client.post("/api/commitments",
-                    json={"promise": "board demo", "to_whom": "CEO",
-                          "due_date": (datetime.now(timezone.utc).date()
-                                       + timedelta(days=3)).isoformat()}).json()
+    c = client.post(
+        "/api/commitments",
+        json={
+            "promise": "board demo",
+            "to_whom": "CEO",
+            "due_date": (datetime.now(timezone.utc).date() + timedelta(days=3)).isoformat(),
+        },
+    ).json()
     out = insights._r_commitments_external()
     assert any(f["rule_id"] == "commitment_due" for f in out)
 
     client.post(f"/api/commitments/{c['id']}/status", json={"status": "missed"})
     out = insights._r_commitments_external()
-    assert any(f["rule_id"] == "commitment_missed" and f["severity"] == "high"
-               for f in out)
+    assert any(f["rule_id"] == "commitment_missed" and f["severity"] == "high" for f in out)
 
 
 def test_decision_decay_rule(client, fresh_db):
     from app.services import collab, insights
 
     for i in range(3):
-        client.post("/api/decisions",
-                    json={"title": f"d{i}", "decision": "x",
-                          "review_by": "2026-01-01"})
+        client.post(
+            "/api/decisions", json={"title": f"d{i}", "decision": "x", "review_by": "2026-01-01"}
+        )
     collab.sweep_stale_decisions()
     out = insights._r_decision_decay()
     assert out and out[0]["n"] == 3
@@ -117,8 +122,7 @@ def test_run_findings_dedupes_within_week(client, fresh_db):
     from app.services import insights
 
     q = client.post("/api/questions", json={"question": "still open?"}).json()
-    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?",
-                     (_ago(6), q["id"]))
+    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?", (_ago(6), q["id"]))
     first = insights.run_findings()
     assert first["new"] >= 1
     second = insights.run_findings()
@@ -132,8 +136,7 @@ def test_digest_carries_top_findings(client, fresh_db):
     from app.services import digest, insights
 
     q = client.post("/api/questions", json={"question": "digest me?"}).json()
-    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?",
-                     (_ago(6), q["id"]))
+    fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?", (_ago(6), q["id"]))
     insights.run_findings()
     md = digest.build_digest()
     assert "Findings this week" in md
@@ -145,24 +148,31 @@ def test_digest_findings_capped_at_three(client, fresh_db):
 
     for i in range(5):
         q = client.post("/api/questions", json={"question": f"q{i}?"}).json()
-        fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?",
-                         (_ago(6), q["id"]))
+        fresh_db.execute("UPDATE questions SET created_at = ? WHERE id = ?", (_ago(6), q["id"]))
     insights.run_findings()
     assert len(insights.digest_findings()) == 3
 
 
 def test_insights_endpoint_shape(client):
     out = client.get("/api/insights").json()
-    for key in ("mttr", "automation_ratio", "review_trend", "intake_funnel",
-                "token_spend_weekly", "adoption", "findings"):
+    for key in (
+        "mttr",
+        "automation_ratio",
+        "review_trend",
+        "intake_funnel",
+        "token_spend_weekly",
+        "adoption",
+        "findings",
+    ):
         assert key in out
     assert client.get("/api/findings").json() == []
 
 
 def test_finding_feedback_kind_accepted(client):
-    r = client.post("/api/feedback",
-                    json={"kind": "finding", "input_text": "mttr_regression #4",
-                          "verdict": "up"})
+    r = client.post(
+        "/api/feedback",
+        json={"kind": "finding", "input_text": "mttr_regression #4", "verdict": "up"},
+    )
     assert r.status_code == 200
 
 

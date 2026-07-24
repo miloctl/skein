@@ -7,8 +7,9 @@ def test_milestone_task_lifecycle(fresh_db):
     from app.services import work
 
     m = work.create_milestone("Ship v1", project="demo", actor="alice")
-    t = work.create_task("Write docs", milestone_id=m["id"], assignee="bob",
-                         priority="high", actor="alice")
+    t = work.create_task(
+        "Write docs", milestone_id=m["id"], assignee="bob", priority="high", actor="alice"
+    )
     work.update_task(t["id"], status="in_progress", actor="bob")
     tasks = work.list_tasks(milestone_id=m["id"])
     assert tasks[0]["status"] == "in_progress"
@@ -60,8 +61,7 @@ def test_intake_scoring_and_accept_creates_engagement(fresh_db):
 def test_review_propose_approve_applies_change(fresh_db):
     from app.services import review, work
 
-    p = review.propose_change("task", "create", {"title": "From agent"},
-                              actor="agent-1")
+    p = review.propose_change("task", "create", {"title": "From agent"}, actor="agent-1")
     assert review.list_changes("pending")[0]["id"] == p["id"]
 
     result = review.approve_change(p["id"], actor="alice")
@@ -83,17 +83,20 @@ def test_review_reject(fresh_db):
     assert review.list_changes("rejected")[0]["review_note"] == "not now"
 
 
-@pytest.mark.parametrize("text,kind", [
-    ("todo: ship the API", "task"),
-    ("fix the login redirect", "task"),
-    ("why is staging down?", "question"),
-    ("q: who owns billing?", "question"),
-    ("decision: we're using SQLite", "decision"),
-    ("we decided to go with FastAPI", "decision"),
-    ("blocked on vendor contract", "blocker"),
-    ("til: WAL mode needs busy_timeout", "note"),
-    ("random musing about architecture", "note"),
-])
+@pytest.mark.parametrize(
+    "text,kind",
+    [
+        ("todo: ship the API", "task"),
+        ("fix the login redirect", "task"),
+        ("why is staging down?", "question"),
+        ("q: who owns billing?", "question"),
+        ("decision: we're using SQLite", "decision"),
+        ("we decided to go with FastAPI", "decision"),
+        ("blocked on vendor contract", "blocker"),
+        ("til: WAL mode needs busy_timeout", "note"),
+        ("random musing about architecture", "note"),
+    ],
+)
 def test_capture_classification(fresh_db, text, kind):
     from app.services import capture
 

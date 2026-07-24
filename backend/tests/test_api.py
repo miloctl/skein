@@ -18,8 +18,9 @@ def test_rest_write_paths_record_provenance(client):
 
 
 def test_question_answer_flow(client):
-    q = client.post("/api/questions", json={"question": "Who owns infra?",
-                                            "assigned_to": "tester"}).json()
+    q = client.post(
+        "/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"}
+    ).json()
     # open question + its assignment notification
     assert client.get("/api/attention").json()["count"] == 2
     client.post(f"/api/questions/{q['id']}/answer", json={"answer": "Alice does"})
@@ -42,9 +43,9 @@ def test_capture_endpoint(client):
 def test_review_flow_via_api(client):
     from app.services import review
 
-    p = review.propose_change("note", "create",
-                              {"topic": "convention", "content": "use uv"},
-                              actor="agent-1")
+    p = review.propose_change(
+        "note", "create", {"topic": "convention", "content": "use uv"}, actor="agent-1"
+    )
     pending = client.get("/api/review").json()
     assert pending[0]["payload"]["topic"] == "convention"
 
@@ -55,19 +56,26 @@ def test_review_flow_via_api(client):
 
 def test_intake_flow_via_api(client):
     r = client.post("/api/intake", json={"title": "New request"}).json()
-    client.post(f"/api/intake/{r['id']}/score",
-                json={"reach": 4, "impact": 4, "confidence": 4, "effort": 4})
-    resp = client.post(f"/api/intake/{r['id']}/disposition",
-                       json={"disposition": "deferred", "reason": "next quarter"})
+    client.post(
+        f"/api/intake/{r['id']}/score", json={"reach": 4, "impact": 4, "confidence": 4, "effort": 4}
+    )
+    resp = client.post(
+        f"/api/intake/{r['id']}/disposition",
+        json={"disposition": "deferred", "reason": "next quarter"},
+    )
     assert resp.json()["status"] == "deferred"
 
 
 def test_playbooks_and_engagement_api(client):
     assert {p["slug"] for p in client.get("/api/playbooks").json()} >= {
-        "incident", "migration", "prototype"}
-    created = client.post("/api/playbooks/instantiate",
-                          json={"playbook": "prototype",
-                                "engagement_name": "Demo proto"}).json()
+        "incident",
+        "migration",
+        "prototype",
+    }
+    created = client.post(
+        "/api/playbooks/instantiate",
+        json={"playbook": "prototype", "engagement_name": "Demo proto"},
+    ).json()
     eng_id = created["engagement"]["id"]
     pack = client.post(f"/api/engagements/{eng_id}/handoff").json()
     assert "Demo proto" in pack["markdown"]
@@ -93,8 +101,7 @@ def test_admin_backup_and_export(client):
 
 
 def _read_chat(client, message):
-    with client.stream("POST", "/api/chat",
-                       json={"thread_id": "t", "message": message}) as resp:
+    with client.stream("POST", "/api/chat", json={"thread_id": "t", "message": message}) as resp:
         assert resp.status_code == 200
         return resp.read().decode()
 

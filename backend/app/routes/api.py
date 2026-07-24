@@ -39,6 +39,7 @@ router = APIRouter(prefix="/api")
 
 # ---- reads -----------------------------------------------------------------
 
+
 @router.get("/milestones")
 def get_milestones(project: str = "", status: str = ""):
     return work.list_milestones(project, status)
@@ -249,8 +250,7 @@ class WeekPlanIn(BaseModel):
 
 @router.post("/week/plan")
 def post_week_plan(body: WeekPlanIn, user: CurrentUser):
-    return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids,
-                             actor=user)
+    return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids, actor=user)
 
 
 @router.get("/commitments")
@@ -288,8 +288,7 @@ class SupersedeIn(BaseModel):
 
 @router.post("/decisions/{decision_id}/supersede")
 def post_supersede(decision_id: int, body: SupersedeIn, user: CurrentUser):
-    return collab.supersede_decision(decision_id, **body.model_dump(),
-                                     decided_by=user, actor=user)
+    return collab.supersede_decision(decision_id, **body.model_dump(), decided_by=user, actor=user)
 
 
 class ReconfirmIn(BaseModel):
@@ -374,8 +373,7 @@ class DelegateIn(BaseModel):
 
 @router.post("/tasks/{task_id}/delegate")
 def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser):
-    return delegation.delegate_task(task_id, body.agent, body.sponsor or user,
-                                    actor=user)
+    return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
 
 
 @router.get("/context-pack")
@@ -432,6 +430,7 @@ def get_usage():
 
 
 # ---- writes ----------------------------------------------------------------
+
 
 class MilestoneIn(BaseModel):
     title: str
@@ -495,8 +494,9 @@ class QuestionIn(BaseModel):
 
 @router.post("/questions")
 def post_question(body: QuestionIn, user: CurrentUser):
-    return collab.ask_question(body.question, asked_by=user,
-                               assigned_to=body.assigned_to, actor=user)
+    return collab.ask_question(
+        body.question, asked_by=user, assigned_to=body.assigned_to, actor=user
+    )
 
 
 class AnswerIn(BaseModel):
@@ -517,9 +517,14 @@ class DecisionIn(BaseModel):
 
 @router.post("/decisions")
 def post_decision(body: DecisionIn, user: CurrentUser):
-    return collab.record_decision(body.title, body.decision, body.context,
-                                  decided_by=user, review_by=body.review_by,
-                                  actor=user)
+    return collab.record_decision(
+        body.title,
+        body.decision,
+        body.context,
+        decided_by=user,
+        review_by=body.review_by,
+        actor=user,
+    )
 
 
 class StandupIn(BaseModel):
@@ -586,8 +591,9 @@ class IntakeIn(BaseModel):
 
 @router.post("/intake")
 def post_intake(body: IntakeIn, user: CurrentUser):
-    return intake.submit_request(body.title, body.detail, requester=user,
-                                 project_class=body.project_class, actor=user)
+    return intake.submit_request(
+        body.title, body.detail, requester=user, project_class=body.project_class, actor=user
+    )
 
 
 class ScoreIn(BaseModel):
@@ -667,8 +673,9 @@ class AllocationIn(BaseModel):
 
 @router.post("/engagements/{engagement_id}/allocate")
 def post_allocate(engagement_id: int, body: AllocationIn, user: CurrentUser):
-    return engagements.allocate(body.person, engagement_id, body.percent,
-                                body.starts_on, body.ends_on, actor=user)
+    return engagements.allocate(
+        body.person, engagement_id, body.percent, body.starts_on, body.ends_on, actor=user
+    )
 
 
 class LessonIn(BaseModel):
@@ -692,8 +699,9 @@ class InstantiateIn(BaseModel):
 
 @router.post("/playbooks/instantiate")
 def post_instantiate(body: InstantiateIn, user: CurrentUser):
-    return playbooks.instantiate(body.playbook, body.engagement_name,
-                                 body.lead or user, body.start_date, actor=user)
+    return playbooks.instantiate(
+        body.playbook, body.engagement_name, body.lead or user, body.start_date, actor=user
+    )
 
 
 @router.post("/engagements/{engagement_id}/handoff")
@@ -707,6 +715,7 @@ def post_digest(user: CurrentUser):
 
 
 # ---- admin -----------------------------------------------------------------
+
 
 @router.post("/admin/backup")
 def post_backup(user: CurrentUser):

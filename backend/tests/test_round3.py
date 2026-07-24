@@ -14,6 +14,7 @@ def _days_ahead(days: int) -> str:
 
 # ---- flow / completed_at -----------------------------------------------------
 
+
 def test_completed_at_stamped_and_cleared(client, fresh_db):
     t = client.post("/api/tasks", json={"title": "flow me"}).json()
     client.patch(f"/api/tasks/{t['id']}", json={"status": "done"})
@@ -30,8 +31,7 @@ def test_flow_metrics_cycle_wip_stale(client, fresh_db):
     client.patch(f"/api/tasks/{done['id']}", json={"status": "done"})
     stale = client.post("/api/tasks", json={"title": "stuck", "assignee": "ava"}).json()
     client.patch(f"/api/tasks/{stale['id']}", json={"status": "in_progress"})
-    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?",
-                     (_ago(10), stale["id"]))
+    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (_ago(10), stale["id"]))
 
     flow = client.get("/api/portfolio/flow").json()
     assert flow["cycle_time"]["tasks_done"] == 1
@@ -50,11 +50,12 @@ def test_committed_week_validation(client):
 
 # ---- portfolio health / conflicts / forecast / what-if ------------------------
 
+
 def _engagement_with_milestone(client, name="Apollo", due=""):
     client.post("/api/engagements", json={"name": name})
-    m = client.post("/api/milestones",
-                    json={"title": f"{name} m1", "project": name,
-                          "due_date": due}).json()
+    m = client.post(
+        "/api/milestones", json={"title": f"{name} m1", "project": name, "due_date": due}
+    ).json()
     return m
 
 
@@ -85,10 +86,8 @@ def test_health_green_when_clean(client):
 def test_allocation_conflicts(client):
     e1 = client.post("/api/engagements", json={"name": "One"}).json()
     e2 = client.post("/api/engagements", json={"name": "Two"}).json()
-    client.post(f"/api/engagements/{e1['id']}/allocate",
-                json={"person": "dana", "percent": 80})
-    client.post(f"/api/engagements/{e2['id']}/allocate",
-                json={"person": "dana", "percent": 50})
+    client.post(f"/api/engagements/{e1['id']}/allocate", json={"person": "dana", "percent": 80})
+    client.post(f"/api/engagements/{e2['id']}/allocate", json={"person": "dana", "percent": 50})
     conflicts = client.get("/api/portfolio/conflicts").json()
     assert conflicts[0]["person"] == "dana"
     assert conflicts[0]["total_percent"] == 130
@@ -96,27 +95,27 @@ def test_allocation_conflicts(client):
 
 def test_what_if_projection(client):
     e = client.post("/api/engagements", json={"name": "Busy"}).json()
-    client.post(f"/api/engagements/{e['id']}/allocate",
-                json={"person": "dana", "percent": 80})
+    client.post(f"/api/engagements/{e['id']}/allocate", json={"person": "dana", "percent": 80})
     req = client.post("/api/intake", json={"title": "new ask"}).json()
-    out = client.post(f"/api/intake/{req['id']}/what-if",
-                      json={"people": ["dana", "lee"], "percent": 50}).json()
+    out = client.post(
+        f"/api/intake/{req['id']}/what-if", json={"people": ["dana", "lee"], "percent": 50}
+    ).json()
     dana = next(p for p in out["projection"] if p["person"] == "dana")
     assert dana["projected_percent"] == 130 and dana["overcommitted"]
     lee = next(p for p in out["projection"] if p["person"] == "lee")
     assert lee["projected_percent"] == 50 and not lee["overcommitted"]
-    assert client.post("/api/intake/999999/what-if",
-                       json={"people": ["x"]}).status_code == 400
+    assert client.post("/api/intake/999999/what-if", json={"people": ["x"]}).status_code == 400
 
 
 def test_slip_forecast_uses_history(client, fresh_db):
     _engagement_with_milestone(client, "Hist", due=_days_ahead(10))
-    done = client.post("/api/milestones",
-                       json={"title": "old", "project": "Hist",
-                             "due_date": "2026-06-01"}).json()
+    done = client.post(
+        "/api/milestones", json={"title": "old", "project": "Hist", "due_date": "2026-06-01"}
+    ).json()
     client.patch(f"/api/milestones/{done['id']}", json={"status": "done"})
-    fresh_db.execute("UPDATE milestones SET updated_at = '2026-06-08T00:00:00' WHERE id = ?",
-                     (done["id"],))
+    fresh_db.execute(
+        "UPDATE milestones SET updated_at = '2026-06-08T00:00:00' WHERE id = ?", (done["id"],)
+    )
     out = client.get("/api/portfolio/forecast").json()
     assert out["basis"]["milestones_measured"] == 1
     assert out["basis"]["avg_slip_days"] == 7.0
@@ -126,9 +125,10 @@ def test_slip_forecast_uses_history(client, fresh_db):
 
 def test_exec_readout_artifact(client):
     _engagement_with_milestone(client, "Read Me", due="2026-01-01")
-    client.post("/api/commitments",
-                json={"promise": "demo to CEO", "to_whom": "CEO",
-                      "due_date": _days_ahead(3)})
+    client.post(
+        "/api/commitments",
+        json={"promise": "demo to CEO", "to_whom": "CEO", "due_date": _days_ahead(3)},
+    )
     out = client.post("/api/portfolio/readout").json()
     assert "Exec readout" in out["markdown"]
     assert "Read Me" in out["markdown"]
@@ -138,12 +138,14 @@ def test_exec_readout_artifact(client):
 
 # ---- weekly commitment line ---------------------------------------------------
 
+
 def test_weekly_draft_and_plan_via_review_inbox(client, fresh_db):
     from app.services import weekly
 
     client.post("/api/standups", json={"today": "here"})  # tester becomes active human
-    t1 = client.post("/api/tasks", json={"title": "a", "assignee": "tester",
-                                         "priority": "urgent"}).json()
+    t1 = client.post(
+        "/api/tasks", json={"title": "a", "assignee": "tester", "priority": "urgent"}
+    ).json()
     t2 = client.post("/api/tasks", json={"title": "b", "assignee": "tester"}).json()
 
     draft = client.get("/api/week/draft").json()
@@ -167,10 +169,12 @@ def test_weekly_draft_and_plan_via_review_inbox(client, fresh_db):
 
 # ---- delegation / authority / trust --------------------------------------------
 
+
 def test_delegate_task_and_inbox(client, fresh_db):
     t = client.post("/api/tasks", json={"title": "agent work"}).json()
-    out = client.post(f"/api/tasks/{t['id']}/delegate",
-                      json={"agent": "scribe", "sponsor": "tester"}).json()
+    out = client.post(
+        f"/api/tasks/{t['id']}/delegate", json={"agent": "scribe", "sponsor": "tester"}
+    ).json()
     assert out["delegated_agent"] == "scribe"
     users = {u["name"]: u for u in client.get("/api/users").json()}
     assert users["scribe"]["kind"] == "agent"
@@ -195,14 +199,18 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     assert out.get("note") == "queued for human review"
 
     # autonomous → direct write even with review mode on
-    client.post("/api/agents/authority",
-                json={"agent": "agent", "entity": "commitment", "level": "autonomous"})
+    client.post(
+        "/api/agents/authority",
+        json={"agent": "agent", "entity": "commitment", "level": "autonomous"},
+    )
     out = j.loads(add_commitment(promise="p2"))
     assert out.get("status") == "open"
 
     # forbidden → refused
-    client.post("/api/agents/authority",
-                json={"agent": "agent", "entity": "commitment", "level": "forbidden"})
+    client.post(
+        "/api/agents/authority",
+        json={"agent": "agent", "entity": "commitment", "level": "forbidden"},
+    )
     out = j.loads(add_commitment(promise="p3"))
     assert "forbidden" in out["error"]
 
@@ -211,8 +219,9 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
     from app.services import review
 
     for i in range(5):
-        p = review.propose_change("note", "create",
-                                  {"topic": f"t{i}", "content": "c"}, actor="scribe")
+        p = review.propose_change(
+            "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
+        )
         client.post(f"/api/review/{p['id']}/approve", json={})
     trust = client.get("/api/agents/trust").json()
     row = next(r for r in trust if r["agent"] == "scribe")
@@ -221,6 +230,7 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
 
 
 # ---- review analytics + eval corpus --------------------------------------------
+
 
 def test_review_stats(client):
     from app.services import review
@@ -238,76 +248,91 @@ def test_review_stats(client):
 
 def test_feedback_and_eval_capture(client):
     # correct classification, thumbs up
-    client.post("/api/feedback", json={"kind": "capture", "input_text": "todo: ship it",
-                                       "output": "task", "verdict": "up"})
+    client.post(
+        "/api/feedback",
+        json={"kind": "capture", "input_text": "todo: ship it", "output": "task", "verdict": "up"},
+    )
     # a case the rules get wrong today
-    client.post("/api/feedback", json={"kind": "capture",
-                                       "input_text": "remember we owe legal a summary",
-                                       "output": "note", "verdict": "corrected",
-                                       "correction": "commitment"})
+    client.post(
+        "/api/feedback",
+        json={
+            "kind": "capture",
+            "input_text": "remember we owe legal a summary",
+            "output": "note",
+            "verdict": "corrected",
+            "correction": "commitment",
+        },
+    )
     out = client.get("/api/eval/capture").json()
     assert out["cases"] == 2 and out["passed"] == 1
     assert out["mismatches"][0]["expected"] == "commitment"
 
-    r = client.post("/api/feedback", json={"kind": "capture", "input_text": "x",
-                                           "verdict": "corrected"})
+    r = client.post(
+        "/api/feedback", json={"kind": "capture", "input_text": "x", "verdict": "corrected"}
+    )
     assert r.status_code == 400  # corrected needs the correction
 
 
 # ---- decision half-life ---------------------------------------------------------
 
+
 def test_decision_half_life_sweep_and_supersede(client, fresh_db):
     from app.services import collab
 
-    d = client.post("/api/decisions",
-                    json={"title": "Use SQLite", "decision": "keep it simple",
-                          "review_by": "2026-01-01"}).json()
+    d = client.post(
+        "/api/decisions",
+        json={"title": "Use SQLite", "decision": "keep it simple", "review_by": "2026-01-01"},
+    ).json()
     stale = collab.sweep_stale_decisions()
     assert [s["id"] for s in stale] == [d["id"]]
     assert collab.sweep_stale_decisions() == []  # status flip is the claim
     row = fresh_db.query_one("SELECT * FROM decisions WHERE id = ?", (d["id"],))
     assert row["status"] == "stale"
 
-    new = client.post(f"/api/decisions/{d['id']}/supersede",
-                      json={"title": "Use SQLite + Litestream",
-                            "decision": "replicate off-box"}).json()
+    new = client.post(
+        f"/api/decisions/{d['id']}/supersede",
+        json={"title": "Use SQLite + Litestream", "decision": "replicate off-box"},
+    ).json()
     old = fresh_db.query_one("SELECT * FROM decisions WHERE id = ?", (d["id"],))
     assert old["status"] == "superseded" and old["superseded_by"] == new["id"]
-    r = client.post(f"/api/decisions/{d['id']}/supersede",
-                    json={"title": "again", "decision": "no"})
+    r = client.post(
+        f"/api/decisions/{d['id']}/supersede", json={"title": "again", "decision": "no"}
+    )
     assert r.status_code == 400
 
 
 def test_decision_reconfirm(client, fresh_db):
-    d = client.post("/api/decisions",
-                    json={"title": "T", "decision": "D",
-                          "review_by": "2026-01-01"}).json()
+    d = client.post(
+        "/api/decisions", json={"title": "T", "decision": "D", "review_by": "2026-01-01"}
+    ).json()
     from app.services import collab
 
     collab.sweep_stale_decisions()
-    out = client.post(f"/api/decisions/{d['id']}/reconfirm",
-                      json={"review_by": _days_ahead(90)}).json()
+    out = client.post(
+        f"/api/decisions/{d['id']}/reconfirm", json={"review_by": _days_ahead(90)}
+    ).json()
     assert out["status"] == "active"
 
 
 # ---- commitments -----------------------------------------------------------------
 
+
 def test_commitment_lifecycle_and_capture(client):
-    c = client.post("/api/commitments",
-                    json={"promise": "ship v1 to ops", "to_whom": "ops"}).json()
+    c = client.post("/api/commitments", json={"promise": "ship v1 to ops", "to_whom": "ops"}).json()
     assert c["status"] == "open"
     client.post(f"/api/commitments/{c['id']}/status", json={"status": "kept"})
     r = client.post(f"/api/commitments/{c['id']}/status", json={"status": "missed"})
     assert r.status_code == 400  # terminal
 
-    cap = client.post("/api/capture",
-                      json={"text": "promised: security review to legal by Friday"}).json()
+    cap = client.post(
+        "/api/capture", json={"text": "promised: security review to legal by Friday"}
+    ).json()
     assert cap["kind"] == "commitment"
-    assert any("security review" in x["promise"]
-               for x in client.get("/api/commitments").json())
+    assert any("security review" in x["promise"] for x in client.get("/api/commitments").json())
 
 
 # ---- context pack -----------------------------------------------------------------
+
 
 def test_context_pack_versions_only_on_change(client):
     client.post("/api/decisions", json={"title": "Ship weekly", "decision": "always"})
@@ -318,8 +343,9 @@ def test_context_pack_versions_only_on_change(client):
     again = client.post("/api/context-pack/publish").json()
     assert again["changed"] is False and again["version"] == 1
 
-    client.post("/api/notes", json={"topic": "convention: PR size",
-                                    "content": "keep diffs under 400 lines"})
+    client.post(
+        "/api/notes", json={"topic": "convention: PR size", "content": "keep diffs under 400 lines"}
+    )
     bumped = client.post("/api/context-pack/publish").json()
     assert bumped["changed"] is True and bumped["version"] == 2
     pack = client.get("/api/context-pack").json()

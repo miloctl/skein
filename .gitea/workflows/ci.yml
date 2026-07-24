@@ -27,6 +27,7 @@ jobs:
         working-directory: backend
         run: |
           ruff check app tests seed.py ../cli/strands_cli.py
+          ruff format --check app tests seed.py ../cli/strands_cli.py
           mypy
           vulture
       - name: Test

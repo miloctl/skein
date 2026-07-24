@@ -46,11 +46,19 @@ def search(q: str, limit: int = 20) -> list[dict]:
                 continue
             row = db.query_one(
                 "SELECT title, substr(body, 1, 120) AS snippet FROM search_index"
-                " WHERE entity = ? AND entity_id = ?", (s["entity"], s["entity_id"]))
+                " WHERE entity = ? AND entity_id = ?",
+                (s["entity"], s["entity_id"]),
+            )
             if row:
-                hits.append({"entity": s["entity"], "entity_id": s["entity_id"],
-                             "title": row["title"], "snippet": row["snippet"],
-                             "rank": None})
+                hits.append(
+                    {
+                        "entity": s["entity"],
+                        "entity_id": s["entity_id"],
+                        "title": row["title"],
+                        "snippet": row["snippet"],
+                        "rank": None,
+                    }
+                )
     return hits
 
 
@@ -103,8 +111,11 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
         return dot / (na * nb) if na and nb else 0.0
 
     scored = [
-        {"entity": r["entity"], "entity_id": r["entity_id"],
-         "score": cos(qv, json.loads(r["vector"]))}
+        {
+            "entity": r["entity"],
+            "entity_id": r["entity_id"],
+            "score": cos(qv, json.loads(r["vector"])),
+        }
         for r in rows
     ]
     return sorted(scored, key=lambda r: -r["score"])[:limit]

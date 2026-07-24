@@ -8,8 +8,9 @@ from .search import index_record
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def ask_question(question: str, asked_by: str, assigned_to: str = "",
-                 *, actor: str = "", origin: str = "human") -> dict:
+def ask_question(
+    question: str, asked_by: str, assigned_to: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
     if not question.strip():
         raise ValueError("the question text is required")
     qid = db.execute(
@@ -22,13 +23,18 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "",
     if assigned_to:
         from .notifications import notify
 
-        notify(assigned_to, f"Question #{qid} assigned to you: {question[:80]}",
-               tier="digest", link="/")
+        notify(
+            assigned_to,
+            f"Question #{qid} assigned to you: {question[:80]}",
+            tier="digest",
+            link="/",
+        )
     return {"id": qid, "status": "open"}
 
 
-def answer_question(question_id: int, answer: str, answered_by: str = "",
-                    *, actor: str = "", origin: str = "human") -> dict:
+def answer_question(
+    question_id: int, answer: str, answered_by: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
     if not db.query_one("SELECT id FROM questions WHERE id = ?", (question_id,)):
         raise ValueError(f"question #{question_id} not found")
     db.execute(
@@ -38,8 +44,7 @@ def answer_question(question_id: int, answer: str, answered_by: str = "",
     db.log_activity(actor or answered_by or "system", "answer_question", f"#{question_id}")
     row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
     if row:
-        index_record("question", question_id, row["question"][:120],
-                     f"{row['question']} {answer}")
+        index_record("question", question_id, row["question"][:120], f"{row['question']} {answer}")
     return {"id": question_id, "status": "answered"}
 
 
@@ -49,29 +54,53 @@ def list_questions(status: str = "") -> list[dict]:
     return db.query("SELECT * FROM questions ORDER BY status = 'answered', id DESC")
 
 
-def record_decision(title: str, decision: str, context: str = "", decided_by: str = "",
-                    review_by: str = "",
-                    *, actor: str = "", origin: str = "human") -> dict:
+def record_decision(
+    title: str,
+    decision: str,
+    context: str = "",
+    decided_by: str = "",
+    review_by: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+) -> dict:
     if not title.strip() or not decision.strip():
         raise ValueError("decision title and text are required")
     if review_by and not DATE_RE.match(review_by):
-        raise ValueError("review_by must be YYYY-MM-DD — anything else would"
-                         " never trigger the stale sweep")
+        raise ValueError(
+            "review_by must be YYYY-MM-DD — anything else would never trigger the stale sweep"
+        )
     did = db.execute(
         "INSERT INTO decisions (title, context, decision, decided_by, review_by,"
         " origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, context, decision, decided_by, review_by or None,
-         origin, actor or decided_by, db.now()),
+        (
+            title,
+            context,
+            decision,
+            decided_by,
+            review_by or None,
+            origin,
+            actor or decided_by,
+            db.now(),
+        ),
     )
     db.log_activity(actor or decided_by or "system", "record_decision", f"#{did} {title}")
     index_record("decision", did, title, f"{decision} {context}")
     return {"id": did, "title": title}
 
 
-def supersede_decision(decision_id: int, title: str, decision: str, context: str = "",
-                       decided_by: str = "", review_by: str = "",
-                       *, actor: str = "", origin: str = "human") -> dict:
+def supersede_decision(
+    decision_id: int,
+    title: str,
+    decision: str,
+    context: str = "",
+    decided_by: str = "",
+    review_by: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+) -> dict:
     """Decisions have a half-life: the record chains rather than mutates, so
     nobody cites a dead decision without seeing what replaced it."""
     # validate successor inputs BEFORE the CAS claim — a failed create after
@@ -88,17 +117,23 @@ def supersede_decision(decision_id: int, title: str, decision: str, context: str
         (decision_id,),
     )
     if not claimed:
-        current = db.query_row("SELECT superseded_by FROM decisions WHERE id = ?",
-                               (decision_id,))
-        raise ValueError(f"decision #{decision_id} already superseded"
-                         f" by #{current['superseded_by']}")
-    new = record_decision(title, decision,
-                          context or f"Supersedes #{decision_id}: {old['title']}",
-                          decided_by, review_by, actor=actor, origin=origin)
-    db.execute("UPDATE decisions SET superseded_by = ? WHERE id = ?",
-               (new["id"], decision_id))
-    db.log_activity(actor or decided_by or "system", "supersede_decision",
-                    f"#{decision_id} -> #{new['id']}")
+        current = db.query_row("SELECT superseded_by FROM decisions WHERE id = ?", (decision_id,))
+        raise ValueError(
+            f"decision #{decision_id} already superseded by #{current['superseded_by']}"
+        )
+    new = record_decision(
+        title,
+        decision,
+        context or f"Supersedes #{decision_id}: {old['title']}",
+        decided_by,
+        review_by,
+        actor=actor,
+        origin=origin,
+    )
+    db.execute("UPDATE decisions SET superseded_by = ? WHERE id = ?", (new["id"], decision_id))
+    db.log_activity(
+        actor or decided_by or "system", "supersede_decision", f"#{decision_id} -> #{new['id']}"
+    )
     return {**new, "supersedes": decision_id}
 
 
@@ -108,26 +143,30 @@ def sweep_stale_decisions() -> list[dict]:
     'reconfirm or supersede me'."""
     swept = []
     for d in db.query(
-            "SELECT * FROM decisions WHERE status = 'active'"
-            " AND review_by IS NOT NULL AND review_by < ?", (db.now()[:10],)):
+        "SELECT * FROM decisions WHERE status = 'active'"
+        " AND review_by IS NOT NULL AND review_by < ?",
+        (db.now()[:10],),
+    ):
         claimed = db.execute_rowcount(
-            "UPDATE decisions SET status = 'stale' WHERE id = ? AND status = 'active'",
-            (d["id"],))
+            "UPDATE decisions SET status = 'stale' WHERE id = ? AND status = 'active'", (d["id"],)
+        )
         if not claimed:
             continue
         swept.append({**d, "status": "stale"})
         from .notifications import notify
 
-        notify(d["decided_by"] or "team",
-               f"Decision #{d['id']} '{d['title']}' passed its review-by date"
-               f" ({d['review_by']}). Reconfirm it or supersede it.",
-               tier="digest", link="/")
+        notify(
+            d["decided_by"] or "team",
+            f"Decision #{d['id']} '{d['title']}' passed its review-by date"
+            f" ({d['review_by']}). Reconfirm it or supersede it.",
+            tier="digest",
+            link="/",
+        )
         db.log_activity("scheduler", "stale_decision", f"#{d['id']} {d['title']}")
     return swept
 
 
-def reconfirm_decision(decision_id: int, review_by: str = "",
-                       *, actor: str = "system") -> dict:
+def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "system") -> dict:
     """Reconfirming without a new date pushes review_by out 90 days — it must
     never silently remove the half-life (that would defeat the sweep)."""
     from datetime import date, timedelta
@@ -141,28 +180,37 @@ def reconfirm_decision(decision_id: int, review_by: str = "",
         raise ValueError("review_by must be YYYY-MM-DD")
     if not review_by:
         review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
-    db.execute("UPDATE decisions SET status = 'active', review_by = ? WHERE id = ?",
-               (review_by, decision_id))
+    db.execute(
+        "UPDATE decisions SET status = 'active', review_by = ? WHERE id = ?",
+        (review_by, decision_id),
+    )
     db.log_activity(actor, "reconfirm_decision", f"#{decision_id} until {review_by}")
     return {"id": decision_id, "status": "active", "review_by": review_by}
 
 
 def list_decisions(limit: int = 50, status: str = "") -> list[dict]:
     if status:
-        return db.query("SELECT * FROM decisions WHERE status = ?"
-                        " ORDER BY id DESC LIMIT ?", (status, limit))
+        return db.query(
+            "SELECT * FROM decisions WHERE status = ? ORDER BY id DESC LIMIT ?", (status, limit)
+        )
     return db.query("SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,))
 
 
-def post_standup(author: str, yesterday: str = "", today: str = "", blockers: str = "",
-                 *, actor: str = "", origin: str = "human") -> dict:
+def post_standup(
+    author: str,
+    yesterday: str = "",
+    today: str = "",
+    blockers: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+) -> dict:
     sid = db.execute(
         "INSERT INTO standups (author, yesterday, today, blockers, origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (author, yesterday, today, blockers, origin, actor or author, db.now()),
     )
-    index_record("standup", sid, f"{author}'s standup",
-                 f"{yesterday} {today} {blockers}")
+    index_record("standup", sid, f"{author}'s standup", f"{yesterday} {today} {blockers}")
     db.log_activity(actor or author, "post_standup", f"#{sid}")
     if blockers.strip():
         from .blockers import raise_blocker
@@ -182,8 +230,9 @@ def list_standups(limit: int = 30) -> list[dict]:
     return db.query("SELECT * FROM standups ORDER BY id DESC LIMIT ?", (limit,))
 
 
-def save_note(topic: str, content: str, author: str = "",
-              *, actor: str = "", origin: str = "human") -> dict:
+def save_note(
+    topic: str, content: str, author: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
     nid = db.execute(
         "INSERT INTO notes (topic, content, author, origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?)",

@@ -17,8 +17,7 @@ def _model():
 
         client_args = {}
         if config.OLLAMA_API_KEY:
-            client_args["headers"] = {
-                "Authorization": f"Bearer {config.OLLAMA_API_KEY}"}
+            client_args["headers"] = {"Authorization": f"Bearer {config.OLLAMA_API_KEY}"}
         return OllamaModel(
             host=config.OLLAMA_HOST,
             ollama_client_args=client_args,
@@ -103,8 +102,14 @@ def build_agent(thread_id: str, user: str = "anonymous"):
         planner = Agent(
             model=_model(),
             system_prompt=PLANNER_PROMPT,
-            tools=[list_playbooks, start_engagement_from_playbook,
-                   create_milestone, create_task, list_milestones, list_tasks],
+            tools=[
+                list_playbooks,
+                start_engagement_from_playbook,
+                create_milestone,
+                create_task,
+                list_milestones,
+                list_tasks,
+            ],
             callback_handler=None,
         )
         result = planner(f"Project: {project}\nGoal: {goal}")
@@ -117,8 +122,7 @@ def build_agent(thread_id: str, user: str = "anonymous"):
     return Agent(
         model=_model(),
         system_prompt=system,
-        tools=[*ALL_TOOLS, plan_project, remember, recall_memories,
-               *extra_tools(), *mcp_tools()],
+        tools=[*ALL_TOOLS, plan_project, remember, recall_memories, *extra_tools(), *mcp_tools()],
         session_manager=FileSessionManager(
             session_id=thread_id,
             storage_dir=str(config.SESSIONS_DIR),

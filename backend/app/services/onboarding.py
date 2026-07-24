@@ -6,10 +6,14 @@ from .. import db
 
 STEPS = (
     ("pick_name", "Pick your name (top right) so work is attributed to you"),
-    ("first_engagement",
-     "Start your first real engagement — instantiate a playbook or accept an intake request"),
-    ("first_capture",
-     "Capture something with ⌘K — try 'todo: …', 'blocked on …', or 'decision: …'"),
+    (
+        "first_engagement",
+        "Start your first real engagement — instantiate a playbook or accept an intake request",
+    ),
+    (
+        "first_capture",
+        "Capture something with ⌘K — try 'todo: …', 'blocked on …', or 'decision: …'",
+    ),
     ("first_standup", "Post a standup — blockers in it are auto-filed"),
     ("invite_team", "Get a teammate in — the platform is a team sport"),
     ("create_key", "Create your API key for the CLI / git hooks / MCP"),
@@ -19,18 +23,29 @@ STEPS = (
 def checklist(user: str) -> dict:
     named = bool(user and user != "anonymous")
     engagements = db.query_row("SELECT COUNT(*) AS n FROM engagements")["n"]
-    captures = db.query_row(
-        "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture' AND actor = ?",
-        (user,))["n"] if named else 0
-    standups = db.query_row(
-        "SELECT COUNT(*) AS n FROM standups WHERE author = ?", (user,))["n"] \
-        if named else 0
+    captures = (
+        db.query_row(
+            "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture' AND actor = ?", (user,)
+        )["n"]
+        if named
+        else 0
+    )
+    standups = (
+        db.query_row("SELECT COUNT(*) AS n FROM standups WHERE author = ?", (user,))["n"]
+        if named
+        else 0
+    )
     humans = db.query_row(
         "SELECT COUNT(*) AS n FROM users WHERE kind = 'human' AND active = 1"
-        " AND name != 'anonymous'")["n"]
-    keys = db.query_row(
-        "SELECT COUNT(*) AS n FROM api_keys WHERE owner = ? AND active = 1",
-        (user,))["n"] if named else 0
+        " AND name != 'anonymous'"
+    )["n"]
+    keys = (
+        db.query_row("SELECT COUNT(*) AS n FROM api_keys WHERE owner = ? AND active = 1", (user,))[
+            "n"
+        ]
+        if named
+        else 0
+    )
 
     done = {
         "pick_name": named,

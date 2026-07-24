@@ -60,7 +60,9 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
     if cfg.get("user"):
         headers["X-User"] = cfg["user"]
     req = urllib.request.Request(
-        url + path, method=method, headers=headers,
+        url + path,
+        method=method,
+        headers=headers,
         data=json.dumps(body).encode() if body is not None else None,
     )
     try:
@@ -97,8 +99,11 @@ def cmd_capture(args):
 
 
 def cmd_standup(args):
-    api("POST", "/api/standups", {"yesterday": args.yesterday, "today": args.today,
-                                  "blockers": args.blockers})
+    api(
+        "POST",
+        "/api/standups",
+        {"yesterday": args.yesterday, "today": args.today, "blockers": args.blockers},
+    )
     print("standup posted" + (" (blocker auto-filed)" if args.blockers else ""))
 
 
@@ -133,23 +138,29 @@ def cmd_tasks(args):
     for t in api("GET", "/api/tasks"):
         if t["status"] == "done" and not args.all:
             continue
-        print(f"[{t['priority']}/{t['status']}] #{t['id']} {t['title']}"
-              + (f" (@{t['assignee']})" if t["assignee"] else ""))
+        print(
+            f"[{t['priority']}/{t['status']}] #{t['id']} {t['title']}"
+            + (f" (@{t['assignee']})" if t["assignee"] else "")
+        )
 
 
 def cmd_blockers(args):
     if args.action == "add":
-        out = api("POST", "/api/blockers", {"title": " ".join(args.title),
-                                            "impact": args.impact})
+        out = api("POST", "/api/blockers", {"title": " ".join(args.title), "impact": args.impact})
         print(f"blocker #{out['id']} filed (escalates after {out['escalate_after_hours']}h)")
     elif args.action == "resolve":
-        api("POST", f"/api/blockers/{args.id}/resolve",
-            {"resolution": args.resolution or "resolved via CLI"})
+        api(
+            "POST",
+            f"/api/blockers/{args.id}/resolve",
+            {"resolution": args.resolution or "resolved via CLI"},
+        )
         print(f"blocker #{args.id} resolved")
     else:
         for b in api("GET", "/api/blockers"):
-            print(f"[{b['impact']}/{b['status']}] #{b['id']} {b['title']}"
-                  + (f" (@{b['owner']})" if b["owner"] else " (unowned)"))
+            print(
+                f"[{b['impact']}/{b['status']}] #{b['id']} {b['title']}"
+                + (f" (@{b['owner']})" if b["owner"] else " (unowned)")
+            )
 
 
 def cmd_search(args):
@@ -164,14 +175,14 @@ def cmd_search(args):
 def cmd_eval(args):
     out = api("GET", "/api/eval/capture")
     if not out["cases"]:
-        print("no labeled capture feedback yet — POST /api/feedback with"
-              " kind=capture, verdict=up|corrected to build the corpus")
+        print(
+            "no labeled capture feedback yet — POST /api/feedback with"
+            " kind=capture, verdict=up|corrected to build the corpus"
+        )
         return
-    print(f"capture classifier: {out['passed']}/{out['cases']} passed"
-          f" (accuracy {out['accuracy']})")
+    print(f"capture classifier: {out['passed']}/{out['cases']} passed (accuracy {out['accuracy']})")
     for m in out["mismatches"]:
-        print(f"  ✗ #{m['id']} {m['input']!r}: expected {m['expected']},"
-              f" got {m['predicted']}")
+        print(f"  ✗ #{m['id']} {m['input']!r}: expected {m['expected']}, got {m['predicted']}")
     if out["mismatches"]:
         sys.exit(1)
 
@@ -215,8 +226,7 @@ strands sync-commit || true
 
 
 def cmd_install_hooks(args):
-    git_dir = subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True,
-                             text=True)
+    git_dir = subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, text=True)
     if git_dir.returncode != 0:
         sys.exit("error: not a git repository")
     hook_path = Path(git_dir.stdout.strip()) / "hooks" / "post-commit"
@@ -231,8 +241,9 @@ TRAILER = re.compile(r"^(Closes|Refs)-Task:\s*#?(\d+)", re.I | re.M)
 
 
 def cmd_sync_commit(args):
-    msg = subprocess.run(["git", "log", "-1", "--format=%B%n%H"], capture_output=True,
-                         text=True).stdout
+    msg = subprocess.run(
+        ["git", "log", "-1", "--format=%B%n%H"], capture_output=True, text=True
+    ).stdout
     sha = msg.strip().splitlines()[-1][:10] if msg.strip() else "unknown"
     matches = TRAILER.findall(msg)
     if not matches:
@@ -241,21 +252,30 @@ def cmd_sync_commit(args):
         if verb.lower() == "closes":
             api("PATCH", f"/api/tasks/{task_id}", {"status": "done"})
             print(f"strands: task #{task_id} closed by commit {sha}")
-        api("POST", "/api/notes", {
-            "topic": f"commit-{sha}",
-            "content": f"Commit {sha} {verb.lower()} task #{task_id}",
-        })
+        api(
+            "POST",
+            "/api/notes",
+            {
+                "topic": f"commit-{sha}",
+                "content": f"Commit {sha} {verb.lower()} task #{task_id}",
+            },
+        )
 
 
 def main():
-    p = argparse.ArgumentParser(prog="skein", description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        prog="skein", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("config", help="set server url / api key / user")
     c.add_argument("--url")
-    c.add_argument("--key", nargs="?", const="-",
-                   help="API key; omit the value to be prompted (keeps it out of shell history)")
+    c.add_argument(
+        "--key",
+        nargs="?",
+        const="-",
+        help="API key; omit the value to be prompted (keeps it out of shell history)",
+    )
     c.add_argument("--user")
     c.set_defaults(fn=cmd_config)
 
@@ -281,8 +301,7 @@ def main():
     c = sub.add_parser("blockers", help="list / add / resolve blockers")
     c.add_argument("action", nargs="?", choices=["list", "add", "resolve"], default="list")
     c.add_argument("title", nargs="*", help="title (for add) or nothing")
-    c.add_argument("--impact", default="medium",
-                   choices=["low", "medium", "high", "critical"])
+    c.add_argument("--impact", default="medium", choices=["low", "medium", "high", "critical"])
     c.add_argument("--id", type=int, dest="id")
     c.add_argument("--resolution", default="")
     c.set_defaults(fn=cmd_blockers)
@@ -291,18 +310,21 @@ def main():
     c.add_argument("query", nargs="+")
     c.set_defaults(fn=cmd_search)
 
-    c = sub.add_parser("eval", help="replay the capture classifier against its"
-                       " labeled feedback corpus (exit 1 on regressions)")
+    c = sub.add_parser(
+        "eval",
+        help="replay the capture classifier against its"
+        " labeled feedback corpus (exit 1 on regressions)",
+    )
     c.set_defaults(fn=cmd_eval)
 
     c = sub.add_parser("context", help="print the team context pack (org-brain)")
-    c.add_argument("--write", metavar="PATH",
-                   help="write to a file (e.g. AGENTS.md) instead of stdout")
+    c.add_argument(
+        "--write", metavar="PATH", help="write to a file (e.g. AGENTS.md) instead of stdout"
+    )
     c.set_defaults(fn=cmd_context)
 
     c = sub.add_parser("week", help="weekly commitment line: show / draft / commit")
-    c.add_argument("action", nargs="?", choices=["show", "draft", "commit"],
-                   default="show")
+    c.add_argument("action", nargs="?", choices=["show", "draft", "commit"], default="show")
     c.add_argument("ids", nargs="*", type=int, help="task ids (for commit)")
     c.set_defaults(fn=cmd_week)
 

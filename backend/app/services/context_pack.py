@@ -16,26 +16,33 @@ def build_pack() -> str:
 
     lines = ["# Team context pack", ""]
 
-    humans = db.query("SELECT name FROM users WHERE kind = 'human' AND active = 1"
-                      " AND name != 'anonymous' ORDER BY name")
-    agents = db.query("SELECT name FROM users WHERE kind = 'agent' AND active = 1"
-                      " ORDER BY name")
-    lines += ["## Team",
-              "Humans: " + (", ".join(u["name"] for u in humans) or "none recorded"),
-              "Agents: " + (", ".join(u["name"] for u in agents) or "none recorded"), ""]
+    humans = db.query(
+        "SELECT name FROM users WHERE kind = 'human' AND active = 1"
+        " AND name != 'anonymous' ORDER BY name"
+    )
+    agents = db.query("SELECT name FROM users WHERE kind = 'agent' AND active = 1 ORDER BY name")
+    lines += [
+        "## Team",
+        "Humans: " + (", ".join(u["name"] for u in humans) or "none recorded"),
+        "Agents: " + (", ".join(u["name"] for u in agents) or "none recorded"),
+        "",
+    ]
 
     lines.append("## Active engagements")
     health = engagement_health()
     for h in health:
-        lines.append(f"- **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'},"
-                     f" health: {h['health']})")
+        lines.append(
+            f"- **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'},"
+            f" health: {h['health']})"
+        )
     if not health:
         lines.append("- none")
     lines.append("")
 
     lines.append("## Standing decisions (cite these; supersede, don't ignore)")
     decisions = db.query(
-        "SELECT * FROM decisions WHERE status = 'active' ORDER BY id DESC LIMIT 25")
+        "SELECT * FROM decisions WHERE status = 'active' ORDER BY id DESC LIMIT 25"
+    )
     for d in decisions:
         line = f"- **{d['title']}** — {d['decision']}"
         if d["review_by"]:
@@ -52,23 +59,27 @@ def build_pack() -> str:
 
     lines.append("## Lessons the team already paid for")
     lessons = db.query("SELECT * FROM lessons ORDER BY id DESC LIMIT 15")
-    lines += [f"- [{les['project_class']}] {les['lesson']}"
-              + (f" → {les['recommendation']}" if les["recommendation"] else "")
-              for les in lessons] or ["- none recorded"]
+    lines += [
+        f"- [{les['project_class']}] {les['lesson']}"
+        + (f" → {les['recommendation']}" if les["recommendation"] else "")
+        for les in lessons
+    ] or ["- none recorded"]
     lines.append("")
 
     lines.append("## Conventions")
     conventions = db.query(
-        "SELECT * FROM notes WHERE topic LIKE 'convention%' ORDER BY id DESC LIMIT 15")
-    lines += [f"- {n['topic']}: {n['content']}" for n in conventions] \
-        or ["- none recorded (save notes with topic 'convention: ...' to add)"]
+        "SELECT * FROM notes WHERE topic LIKE 'convention%' ORDER BY id DESC LIMIT 15"
+    )
+    lines += [f"- {n['topic']}: {n['content']}" for n in conventions] or [
+        "- none recorded (save notes with topic 'convention: ...' to add)"
+    ]
     lines.append("")
 
     lines.append("## Open questions nobody has answered")
-    questions = db.query(
-        "SELECT * FROM questions WHERE status = 'open' ORDER BY id DESC LIMIT 10")
-    lines += [f"- #{q['id']} {q['question']} (asked by {q['asked_by']})"
-              for q in questions] or ["- none"]
+    questions = db.query("SELECT * FROM questions WHERE status = 'open' ORDER BY id DESC LIMIT 10")
+    lines += [f"- #{q['id']} {q['question']} (asked by {q['asked_by']})" for q in questions] or [
+        "- none"
+    ]
     lines.append("")
 
     lines.append("## How to plug in")
@@ -81,8 +92,7 @@ def build_pack() -> str:
 
 
 def latest_pack() -> dict | None:
-    return db.query_one(
-        "SELECT * FROM context_packs ORDER BY version DESC, id DESC LIMIT 1")
+    return db.query_one("SELECT * FROM context_packs ORDER BY version DESC, id DESC LIMIT 1")
 
 
 def publish_pack(*, actor: str = "system") -> dict:
@@ -95,7 +105,9 @@ def publish_pack(*, actor: str = "system") -> dict:
     version = (last["version"] + 1) if last else 1
     content = body.replace(
         "# Team context pack",
-        f"# Team context pack\n\n*v{version} · generated {db.now()} · hash {digest}*", 1)
+        f"# Team context pack\n\n*v{version} · generated {db.now()} · hash {digest}*",
+        1,
+    )
     try:
         db.execute(
             "INSERT INTO context_packs (version, content, content_hash, created_by, created_at)"
@@ -124,5 +136,9 @@ def get_pack(*, actor: str = "system") -> dict:
         last = latest_pack()
         if last is None:
             raise RuntimeError("context pack publish produced no pack")
-    return {"version": last["version"], "hash": last["content_hash"],
-            "created_at": last["created_at"], "content": last["content"]}
+    return {
+        "version": last["version"],
+        "hash": last["content_hash"],
+        "created_at": last["created_at"],
+        "content": last["content"],
+    }

@@ -32,12 +32,22 @@ def test_legacy_tool_spec_style_loads_as_module(monkeypatch):
 
 
 def test_shell_and_friends_are_refused(monkeypatch, caplog):
-    for dangerous in ("shell", "python_repl", "file_write", "editor",
-                      "mcp_client", "use_computer", "use_aws",
-                      # cut on security review: third write path / SSRF /
-                      # model-chosen provider endpoints / path traversal
-                      "http_request", "use_agent", "use_llm", "workflow",
-                      "diagram"):
+    for dangerous in (
+        "shell",
+        "python_repl",
+        "file_write",
+        "editor",
+        "mcp_client",
+        "use_computer",
+        "use_aws",
+        # cut on security review: third write path / SSRF /
+        # model-chosen provider endpoints / path traversal
+        "http_request",
+        "use_agent",
+        "use_llm",
+        "workflow",
+        "diagram",
+    ):
         assert _load(monkeypatch, [dangerous]) == ()
     assert _load(monkeypatch, ["shell", "calculator"]) != ()  # good ones still load
 

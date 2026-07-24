@@ -47,8 +47,7 @@ def extra_tools() -> tuple:
     for name in config.EXTRA_TOOLS:
         spec = ALLOWED.get(name)
         if not spec:
-            log.warning("extra tool %r refused: not in the allowlist %s",
-                        name, sorted(ALLOWED))
+            log.warning("extra tool %r refused: not in the allowlist %s", name, sorted(ALLOWED))
             continue
         module_name, attr = spec
         try:

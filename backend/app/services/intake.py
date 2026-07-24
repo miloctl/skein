@@ -12,8 +12,15 @@ def _score(reach: int, impact: int, confidence: int, effort: int) -> float:
     return round(reach * impact * confidence / effort, 2)
 
 
-def submit_request(title: str, detail: str = "", requester: str = "",
-                   project_class: str = "", *, actor: str = "", origin: str = "human") -> dict:
+def submit_request(
+    title: str,
+    detail: str = "",
+    requester: str = "",
+    project_class: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+) -> dict:
     ts = db.now()
     rid = db.execute(
         "INSERT INTO intake_requests (title, detail, requester, project_class,"
@@ -26,9 +33,22 @@ def submit_request(title: str, detail: str = "", requester: str = "",
     return {"id": rid, "status": "submitted"}
 
 
-def score_request(request_id: int, reach: int, impact: int, confidence: int, effort: int,
-                  *, actor: str = "system", origin: str = "human") -> dict:
-    for name, v in (("reach", reach), ("impact", impact), ("confidence", confidence), ("effort", effort)):
+def score_request(
+    request_id: int,
+    reach: int,
+    impact: int,
+    confidence: int,
+    effort: int,
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    for name, v in (
+        ("reach", reach),
+        ("impact", impact),
+        ("confidence", confidence),
+        ("effort", effort),
+    ):
         if not 1 <= v <= 5:
             raise ValueError(f"{name} must be 1-5")
     if not db.query_one("SELECT id FROM intake_requests WHERE id = ?", (request_id,)):
@@ -43,19 +63,18 @@ def score_request(request_id: int, reach: int, impact: int, confidence: int, eff
     return {"id": request_id, "score": score, "status": "scored"}
 
 
-def disposition_request(request_id: int, disposition: str, reason: str,
-                        *, actor: str = "system", origin: str = "human") -> dict:
+def disposition_request(
+    request_id: int, disposition: str, reason: str, *, actor: str = "system", origin: str = "human"
+) -> dict:
     if disposition not in DISPOSITIONS:
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
     if not reason.strip():
         raise ValueError("a reason is required — requesters see it")
-    current = db.query_one(
-        "SELECT status FROM intake_requests WHERE id = ?", (request_id,))
+    current = db.query_one("SELECT status FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
         raise ValueError(f"intake request #{request_id} not found")
     if current["status"] not in ("submitted", "scored"):
-        raise ValueError(
-            f"request #{request_id} already dispositioned ({current['status']})")
+        raise ValueError(f"request #{request_id} already dispositioned ({current['status']})")
     db.execute(
         "UPDATE intake_requests SET status = ?, disposition_reason = ?, updated_at = ?"
         " WHERE id = ?",
@@ -68,18 +87,26 @@ def disposition_request(request_id: int, disposition: str, reason: str,
 
         try:
             create_engagement(
-                name=row["title"], project_class=row["project_class"] or "general",
-                summary=row["detail"], actor=actor, origin=origin,
+                name=row["title"],
+                project_class=row["project_class"] or "general",
+                summary=row["detail"],
+                actor=actor,
+                origin=origin,
             )
         except ValueError as exc:
             # a name collision must not read as "work has started" — say so
-            db.log_activity(actor, "accept_without_engagement",
-                            f"#{request_id}: {exc}")
-            return {"id": request_id, "status": disposition,
-                    "engagement_created": False,
-                    "note": f"accepted, but no new engagement: {exc}"}
-    return {"id": request_id, "status": disposition,
-            **({"engagement_created": True} if disposition == "accepted" else {})}
+            db.log_activity(actor, "accept_without_engagement", f"#{request_id}: {exc}")
+            return {
+                "id": request_id,
+                "status": disposition,
+                "engagement_created": False,
+                "note": f"accepted, but no new engagement: {exc}",
+            }
+    return {
+        "id": request_id,
+        "status": disposition,
+        **({"engagement_created": True} if disposition == "accepted" else {}),
+    }
 
 
 def list_requests(status: str = "") -> list[dict]:

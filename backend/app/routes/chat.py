@@ -40,9 +40,16 @@ def _log_usage(agent, thread_id: str) -> None:
             "INSERT INTO usage_log (thread_id, agent_name, model_id, input_tokens,"
             " output_tokens, cycles, latency_ms, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (thread_id, "chief-of-staff", MODEL_ID, input_t, output_t,
-             int(getattr(metrics, "cycle_count", 0)),
-             int(latency.get("latencyMs", 0)), db.now()),
+            (
+                thread_id,
+                "chief-of-staff",
+                MODEL_ID,
+                input_t,
+                output_t,
+                int(getattr(metrics, "cycle_count", 0)),
+                int(latency.get("latencyMs", 0)),
+                db.now(),
+            ),
         )
     except Exception:
         pass
@@ -76,7 +83,8 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         yield _sse({"type": "tool", "name": tool_use.get("name", "")})
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("strands.chat").exception(
-                "chat stream failed (thread=%s user=%s)", thread_id, user)
+                "chat stream failed (thread=%s user=%s)", thread_id, user
+            )
             yield _sse({"type": "error", "message": str(exc)})
         _log_usage(agent, thread_id)
         yield _sse({"type": "done"})

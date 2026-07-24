@@ -19,8 +19,12 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 # (keyless deterministic agent for dev/tests). Credentials resolve from
 # ANTHROPIC_API_KEY / OPENAI_API_KEY when not passed explicitly.
 MODEL_PROVIDER = os.getenv("STRANDS_MODEL_PROVIDER", "mock").lower()
-_DEFAULT_MODELS = {"anthropic": "claude-opus-4-8", "openai": "gpt-5",
-                   "ollama": "gpt-oss:120b-cloud", "mock": "mock"}
+_DEFAULT_MODELS = {
+    "anthropic": "claude-opus-4-8",
+    "openai": "gpt-5",
+    "ollama": "gpt-oss:120b-cloud",
+    "mock": "mock",
+}
 MODEL_ID = os.getenv("STRANDS_MODEL_ID", _DEFAULT_MODELS.get(MODEL_PROVIDER, "mock"))
 MAX_TOKENS = int(os.getenv("STRANDS_MAX_TOKENS", "4096"))
 
@@ -36,7 +40,8 @@ OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 AGENT_REVIEW = os.getenv("STRANDS_AGENT_REVIEW", "0") == "1"
 
 CORS_ORIGINS = [
-    o.strip() for o in os.getenv("STRANDS_CORS_ORIGINS", "http://localhost:3000").split(",")
+    o.strip()
+    for o in os.getenv("STRANDS_CORS_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
 
@@ -61,9 +66,7 @@ OTEL_ENDPOINT = os.getenv("STRANDS_OTEL_ENDPOINT", "")
 # Opt-in prebuilt tools from strands-agents-tools for the real agent,
 # comma-separated (e.g. "calculator,current_time,think,batch"). Only
 # allowlisted names load — see app/agents/extra_tools.py.
-EXTRA_TOOLS = tuple(
-    t.strip() for t in os.getenv("STRANDS_EXTRA_TOOLS", "").split(",") if t.strip()
-)
+EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("STRANDS_EXTRA_TOOLS", "").split(",") if t.strip())
 
 # Optional shared bearer token for the whole API (set when exposing beyond
 # a trusted network). Empty = open (trusted-LAN mode).

@@ -24,9 +24,10 @@ def _verify(raw: bytes, timestamp: str, signature: str) -> bool:
         base = f"v0:{timestamp}:{raw.decode()}"
     except (ValueError, UnicodeDecodeError):
         return False
-    expected = "v0=" + hmac.new(
-        config.SLACK_SIGNING_SECRET.encode(), base.encode(), hashlib.sha256
-    ).hexdigest()
+    expected = (
+        "v0="
+        + hmac.new(config.SLACK_SIGNING_SECRET.encode(), base.encode(), hashlib.sha256).hexdigest()
+    )
     return hmac.compare_digest(expected, signature or "")
 
 
@@ -35,8 +36,11 @@ async def slack_command(request: Request):
     if not config.SLACK_SIGNING_SECRET:
         raise HTTPException(status_code=404, detail="Slack integration not configured")
     raw = await request.body()
-    if not _verify(raw, request.headers.get("X-Slack-Request-Timestamp", ""),
-                   request.headers.get("X-Slack-Signature", "")):
+    if not _verify(
+        raw,
+        request.headers.get("X-Slack-Request-Timestamp", ""),
+        request.headers.get("X-Slack-Signature", ""),
+    ):
         raise HTTPException(status_code=401, detail="bad Slack signature")
 
     form = await request.form()

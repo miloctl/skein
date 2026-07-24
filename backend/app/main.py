@@ -50,31 +50,74 @@ def _start_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
 
     scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
-    scheduler.add_job(_job("blocker-sweep", blockers.sweep_escalations),
-                      "interval", hours=1, id="blocker-sweep")
-    scheduler.add_job(_job("daily-digest", lambda: digest.publish_digest(actor="scheduler")),
-                      "cron", hour=7, minute=0, id="daily-digest")
-    scheduler.add_job(_job("notification-flush",
-                           lambda: notifications.flush_digest_tier(claim=True)),
-                      "cron", hour="7,15", minute=5, id="notification-flush")
-    scheduler.add_job(_job("daily-backup", admin.backup_if_stale),
-                      "cron", hour=3, minute=0, id="daily-backup")
-    scheduler.add_job(_job("weekly-plan", lambda: weekly.propose_weekly_plan(actor="scheduler")),
-                      "cron", day_of_week="mon", hour=6, minute=0, id="weekly-plan")
-    scheduler.add_job(_job("stale-wip-nudge", portfolio.nudge_stale_wip),
-                      "cron", day_of_week="mon", hour=6, minute=15, id="stale-wip-nudge")
-    scheduler.add_job(_job("stale-decisions", collab.sweep_stale_decisions),
-                      "cron", hour=6, minute=30, id="stale-decisions")
-    scheduler.add_job(_job("context-pack", lambda: context_pack.publish_pack(actor="scheduler")),
-                      "cron", hour=5, minute=0, id="context-pack")
+    scheduler.add_job(
+        _job("blocker-sweep", blockers.sweep_escalations), "interval", hours=1, id="blocker-sweep"
+    )
+    scheduler.add_job(
+        _job("daily-digest", lambda: digest.publish_digest(actor="scheduler")),
+        "cron",
+        hour=7,
+        minute=0,
+        id="daily-digest",
+    )
+    scheduler.add_job(
+        _job("notification-flush", lambda: notifications.flush_digest_tier(claim=True)),
+        "cron",
+        hour="7,15",
+        minute=5,
+        id="notification-flush",
+    )
+    scheduler.add_job(
+        _job("daily-backup", admin.backup_if_stale), "cron", hour=3, minute=0, id="daily-backup"
+    )
+    scheduler.add_job(
+        _job("weekly-plan", lambda: weekly.propose_weekly_plan(actor="scheduler")),
+        "cron",
+        day_of_week="mon",
+        hour=6,
+        minute=0,
+        id="weekly-plan",
+    )
+    scheduler.add_job(
+        _job("stale-wip-nudge", portfolio.nudge_stale_wip),
+        "cron",
+        day_of_week="mon",
+        hour=6,
+        minute=15,
+        id="stale-wip-nudge",
+    )
+    scheduler.add_job(
+        _job("stale-decisions", collab.sweep_stale_decisions),
+        "cron",
+        hour=6,
+        minute=30,
+        id="stale-decisions",
+    )
+    scheduler.add_job(
+        _job("context-pack", lambda: context_pack.publish_pack(actor="scheduler")),
+        "cron",
+        hour=5,
+        minute=0,
+        id="context-pack",
+    )
     from .services.adoption import snapshot_forecasts
 
-    scheduler.add_job(_job("forecast-snapshot", snapshot_forecasts),
-                      "cron", hour=5, minute=15, id="forecast-snapshot")
+    scheduler.add_job(
+        _job("forecast-snapshot", snapshot_forecasts),
+        "cron",
+        hour=5,
+        minute=15,
+        id="forecast-snapshot",
+    )
     from .services.insights import run_findings
 
-    scheduler.add_job(_job("findings", lambda: run_findings(actor="scheduler")),
-                      "cron", hour=6, minute=50, id="findings")
+    scheduler.add_job(
+        _job("findings", lambda: run_findings(actor="scheduler")),
+        "cron",
+        hour=6,
+        minute=50,
+        id="findings",
+    )
     scheduler.start()
     return scheduler
 
@@ -96,13 +139,14 @@ async def lifespan(app: FastAPI):
     db.init_db()  # a failed migration SHOULD abort startup — everything else must not
     # weekly-plan/nudge claims make the catch-up calls idempotent — they fill
     # in for cron firings missed while the process was down (no misfire replay)
-    for name, fn in (("startup-backup", admin.backup_if_stale),
-                     ("startup-sweep", blockers.sweep_escalations),
-                     ("startup-weekly-plan",
-                      lambda: weekly.propose_weekly_plan(actor="scheduler")),
-                     ("startup-wip-nudge", portfolio.nudge_stale_wip),
-                     ("startup-forecast-snapshot", _startup_forecast_snapshot),
-                     ("startup-findings", _startup_findings)):
+    for name, fn in (
+        ("startup-backup", admin.backup_if_stale),
+        ("startup-sweep", blockers.sweep_escalations),
+        ("startup-weekly-plan", lambda: weekly.propose_weekly_plan(actor="scheduler")),
+        ("startup-wip-nudge", portfolio.nudge_stale_wip),
+        ("startup-forecast-snapshot", _startup_forecast_snapshot),
+        ("startup-findings", _startup_findings),
+    ):
         try:
             fn()
         except Exception:
@@ -117,8 +161,7 @@ async def lifespan(app: FastAPI):
     shutdown_mcp()
 
 
-app = FastAPI(title="Skein", description="Many strands. One formation.",
-              lifespan=lifespan)
+app = FastAPI(title="Skein", description="Many strands. One formation.", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -135,9 +178,12 @@ async def bearer_auth(request: Request, call_next):
     open_paths = ("/health", "/api/slack/")
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.
-    if config.API_TOKEN and request.method != "OPTIONS" \
-            and request.url.path.startswith("/api") \
-            and not request.url.path.startswith(open_paths):
+    if (
+        config.API_TOKEN
+        and request.method != "OPTIONS"
+        and request.url.path.startswith("/api")
+        and not request.url.path.startswith(open_paths)
+    ):
         import hmac
 
         from .services.api_keys import PREFIX, verify_key
