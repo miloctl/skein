@@ -16,9 +16,11 @@ deterministic core; connecting a model provider upgrades the experience.
 | `/` | **My Day** — what changed and what needs *you*, in under 30 seconds |
 | `/chat` | Chief-of-Staff agent (streaming; mock provider works keyless) |
 | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes · activity |
+| `/portfolio` | Portfolio layer — engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
+| `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
 | `/review` | Review inbox — approve/reject proposed changes (agent approval gate) |
-| `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline |
-| ⌘K anywhere | Quick capture — freeform text auto-routed to task/question/note/decision/blocker |
+| `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
+| ⌘K anywhere | Quick capture — freeform text auto-routed to task/question/note/decision/blocker/commitment |
 
 ## Architecture
 
@@ -26,7 +28,7 @@ deterministic core; connecting a model provider upgrades the experience.
 backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
-  ├─ app/tools/      30 Strands @tool wrappers over the same services
+  ├─ app/tools/      39 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
@@ -45,7 +47,13 @@ Key mechanics:
 - **Programmatic automation** (no LLM): blocker auto-extraction from standups,
   hourly escalation sweep, RICE-lite intake scoring, rule-based quick capture,
   FTS5 workspace search, deterministic daily digest, playbook instantiation
-  with lessons surfaced at kickoff, handoff package generation, daily backups.
+  with lessons surfaced at kickoff, handoff package generation, daily backups,
+  engagement health scoring, flow metrics, slip forecasting, auto-drafted
+  weekly plans, decision half-life sweeps, versioned context packs.
+- **Authority matrix & trust** — per (agent, entity) authority
+  (`autonomous | notify | review | forbidden`) enforced in the tool gate;
+  trust scores computed from review verdicts suggest (never auto-apply)
+  promotions. Tasks delegate to agents with a required human sponsor.
 - **LLM layer (connect keys later)** — conversational Chief of Staff, planner
   that adapts playbooks, digest narration, optional semantic search
   (`STRANDS_EMBEDDINGS=1`), token usage accounting per thread/model.
@@ -92,7 +100,13 @@ the agent's prompt) work keyless, in-app.
   once); keys authenticate and *attribute* automation, and satisfy the shared
   token gate.
 - **`strands` CLI** (stdlib-only): `pipx install ./cli`, then
-  `strands config --url … --key …` and `strands capture|standup|my-day|tasks|blockers|search`.
+  `strands config --url … --key …` and
+  `strands capture|standup|my-day|tasks|blockers|search|week|eval|context`.
+- **`strands eval`** — replays the capture classifier against its labeled
+  feedback corpus (`POST /api/feedback`); exits 1 on regressions.
+- **`strands context --write AGENTS.md`** — emits the versioned team context
+  pack (decisions, health, lessons, conventions) for any agent to load; also
+  an MCP resource (`strands://context-pack`).
 - **Git trailers** — `strands install-hooks`; commits with `Closes-Task: #12`
   auto-close the task and log the SHA.
 - **CI webhook** — point GitHub Actions (or POST `{repo, branch, status, run_url}`)
@@ -101,7 +115,8 @@ the agent's prompt) work keyless, in-app.
 - **MCP server** — your *other* AI agents join the platform:
   `claude mcp add strands -- env STRANDS_MCP_USER=you backend/.venv/bin/python -m app.mcp_server`
   exposes `get_my_day`, `capture`, `create_task`, `log_decision`,
-  `search_workspace`, `add_blocker`, `remember`, and more against the same DB.
+  `search_workspace`, `add_blocker`, `remember`, `my_inbox`,
+  `portfolio_health`, `get_context_pack`, and more against the same DB.
 
 ## Delight & team pulse
 
@@ -151,9 +166,11 @@ Model provider in `backend/.env`:
 
 ## Status & roadmap
 
-Phases 0–2 of [docs/SPEC.md](docs/SPEC.md) are **built** (foundation, keyless
-operating system, engagements/playbooks/handoffs), plus the LLM layer wired
-for later: approval gates, digest narration hook, embeddings hook, usage
-accounting. Remaining: Strands-interrupt-based gates, MCP integrations
-(GitHub/Slack/calendar), Slack surface, notification tiers, OpenTelemetry —
-see [docs/ROADMAP.md](docs/ROADMAP.md) for the full 4-agent ideation.
+Phases 0–2 of [docs/SPEC.md](docs/SPEC.md) plus three ideation rounds are
+**built**: the keyless operating system, integrations (Slack, MCP both ways,
+CI, keys, CLI), delight & pulse, and the round-3 operating-system layer
+(portfolio health, weekly commitment line, flow metrics, agent delegation +
+authority matrix, review analytics + eval corpus, decision half-life,
+commitment ledger, context pack). The full feature reference is
+[docs/FEATURES.md](docs/FEATURES.md); remaining ideas live in
+[docs/ROADMAP.md](docs/ROADMAP.md).

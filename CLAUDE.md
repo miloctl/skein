@@ -5,7 +5,9 @@ agents). FastAPI + Strands Agents SDK + SQLite backend; Next.js 16 +
 assistant-ui frontend.
 
 Read `docs/SPEC.md` before implementing anything — it defines the phases,
-data model, and constraints. `docs/ROADMAP.md` holds the feature ideation.
+data model, and constraints. `docs/FEATURES.md` is the reference for what is
+already built (surfaces, endpoints, jobs); `docs/ROADMAP.md` holds the
+feature ideation.
 
 ## Hard constraints
 

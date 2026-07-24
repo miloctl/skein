@@ -13,6 +13,9 @@ Examples:
     strands tasks done 12
     strands blockers add "staging db down" --impact high
     strands search cutover
+    strands week draft        # weekly commitment line
+    strands eval              # replay capture classifier vs feedback corpus
+    strands context --write AGENTS.md
     strands install-hooks     # git post-commit: Closes-Task: #N trailers
 """
 
