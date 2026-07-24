@@ -1,6 +1,5 @@
 """Tests for round-2 features: API keys, CI webhook, pulse, ship-it, funerals."""
 
-import pytest
 
 
 def test_api_key_lifecycle_and_attribution(client):
@@ -159,7 +158,7 @@ def test_digest_opener_reads_the_room(fresh_db):
     b = blockers.raise_blocker("fire", impact="critical")
     fresh_db.execute("UPDATE blockers SET status = 'escalated' WHERE id = ?", (b["id"],))
     md = digest.build_digest()
-    opener_lines = [l for l in md.splitlines()[:4] if l.startswith("*")]
+    opener_lines = [line for line in md.splitlines()[:4] if line.startswith("*")]
     assert not opener_lines  # no jokes during a fire
 
 

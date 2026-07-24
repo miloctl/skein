@@ -3,7 +3,6 @@ MCP gating, and the optional API token."""
 
 import hashlib
 import hmac
-import json
 import time
 
 import pytest

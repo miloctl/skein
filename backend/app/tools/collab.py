@@ -17,7 +17,7 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "") -> str:
         asked_by: Who is asking (human or agent name).
         assigned_to: Who should answer it, if known.
     """
-    payload = dict(question=question, asked_by=asked_by, assigned_to=assigned_to)
+    payload = {"question": question, "asked_by": asked_by, "assigned_to": assigned_to}
     return gated_write("question", "create", payload,
                        lambda: collab.ask_question(**payload, actor="agent", origin="agent"))
 
@@ -31,7 +31,7 @@ def answer_question(question_id: int, answer: str, answered_by: str = "") -> str
         answer: The answer text.
         answered_by: Who answered.
     """
-    payload = dict(answer=answer, answered_by=answered_by)
+    payload = {"answer": answer, "answered_by": answered_by}
     return gated_write("question", "update", payload,
                        lambda: collab.answer_question(question_id, **payload,
                                                       actor="agent", origin="agent"),
@@ -58,7 +58,7 @@ def record_decision(title: str, decision: str, context: str = "", decided_by: st
         context: Why — the options considered and reasoning.
         decided_by: Who made or ratified the decision.
     """
-    payload = dict(title=title, decision=decision, context=context, decided_by=decided_by)
+    payload = {"title": title, "decision": decision, "context": context, "decided_by": decided_by}
     return gated_write("decision", "create", payload,
                        lambda: collab.record_decision(**payload, actor="agent", origin="agent"))
 
@@ -84,7 +84,7 @@ def post_standup(author: str, yesterday: str = "", today: str = "", blockers: st
         today: What's planned next.
         blockers: Anything blocking progress.
     """
-    payload = dict(author=author, yesterday=yesterday, today=today, blockers=blockers)
+    payload = {"author": author, "yesterday": yesterday, "today": today, "blockers": blockers}
     return gated_write("standup", "create", payload,
                        lambda: collab.post_standup(**payload, actor="agent", origin="agent"))
 
@@ -108,7 +108,7 @@ def save_note(topic: str, content: str, author: str = "") -> str:
         content: The knowledge to persist.
         author: Who wrote it.
     """
-    payload = dict(topic=topic, content=content, author=author)
+    payload = {"topic": topic, "content": content, "author": author}
     return gated_write("note", "create", payload,
                        lambda: collab.save_note(**payload, actor="agent", origin="agent"))
 

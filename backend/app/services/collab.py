@@ -88,7 +88,7 @@ def supersede_decision(decision_id: int, title: str, decision: str, context: str
         (decision_id,),
     )
     if not claimed:
-        current = db.query_one("SELECT superseded_by FROM decisions WHERE id = ?",
+        current = db.query_row("SELECT superseded_by FROM decisions WHERE id = ?",
                                (decision_id,))
         raise ValueError(f"decision #{decision_id} already superseded"
                          f" by #{current['superseded_by']}")

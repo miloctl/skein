@@ -25,9 +25,9 @@ Examples (the `strands` alias works everywhere `skein` does):
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
-import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -264,7 +264,8 @@ def main():
     c.set_defaults(fn=cmd_capture)
 
     c = sub.add_parser("standup", help="post a standup")
-    c.add_argument("--yesterday", default=""); c.add_argument("--today", default="")
+    c.add_argument("--yesterday", default="")
+    c.add_argument("--today", default="")
     c.add_argument("--blockers", default="")
     c.set_defaults(fn=cmd_standup)
 

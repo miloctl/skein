@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { api, getUser, setUser } from "@/lib/api";
+
+// notifies on cross-tab changes; same-tab changes reload the page
+function subscribeUser(cb: () => void) {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+}
 
 const LINKS = [
   { href: "/", label: "My Day" },
@@ -19,12 +25,11 @@ const LINKS = [
 
 export function Nav() {
   const pathname = usePathname();
-  const [user, setUserState] = useState("anonymous");
+  const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   const [attention, setAttention] = useState(0);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
-    setUserState(getUser());
     let generation = 0;
     const poll = () => {
       const g = ++generation;
@@ -80,7 +85,6 @@ export function Nav() {
               if (e.key === "Enter") {
                 const name = (e.target as HTMLInputElement).value;
                 setUser(name);
-                setUserState(name.trim() || "anonymous");
                 setEditing(false);
                 window.location.reload();
               }
@@ -91,7 +95,6 @@ export function Nav() {
               const name = e.target.value.trim();
               if (name && name !== user) {
                 setUser(name);
-                setUserState(name);
                 window.location.reload();
               }
               setEditing(false);

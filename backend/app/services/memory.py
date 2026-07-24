@@ -28,7 +28,7 @@ def recall(query: str = "", user: str = "", limit: int = 10) -> list[dict]:
         if not ids:
             return []
         rows = db.query(
-            f"SELECT * FROM memories WHERE id IN ({','.join('?' * len(ids))})",
+            f"SELECT * FROM memories WHERE id IN ({','.join('?' * len(ids))})",  # noqa: S608
             tuple(ids),
         )
         order = {mid: i for i, mid in enumerate(ids)}

@@ -108,7 +108,7 @@ def export(*, keep: int = 14) -> dict:
     dump = {}
     for table in TABLES:
         try:
-            dump[table] = db.query(f"SELECT * FROM {table}")  # noqa: S608 — fixed list
+            dump[table] = db.query(f"SELECT * FROM {table}")  # noqa: S608 — TABLES constant
         except Exception:
             dump[table] = []
     exports_dir = Path(config.DATA_DIR) / "exports"

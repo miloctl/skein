@@ -68,7 +68,7 @@ def engagement_health() -> list[dict]:
         silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
         silent = bool(open_tasks and open_tasks["n"]
                       and last and last["ts"] and last["ts"][:10] < silence_cutoff)
-        if silent:
+        if silent and last:
             receipts.append(f"no task activity since {last['ts'][:10]}")
 
         if escalated or len(overdue) >= 2:
@@ -270,7 +270,7 @@ def exec_readout(*, actor: str = "system") -> dict:
               f"- {ct['tasks_done']} tasks done in 8 weeks"
               + (f", median cycle {ct['median_days']}d, avg {ct['avg_days']}d"
                  if ct["tasks_done"] else ""),
-              f"- WIP: " + (", ".join(f"{w['person']} {w['in_progress']}"
+              "- WIP: " + (", ".join(f"{w['person']} {w['in_progress']}"
                                       for w in flow["wip_by_person"]) or "none"),
               ]
     markdown = "\n".join(lines)

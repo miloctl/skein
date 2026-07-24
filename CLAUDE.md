@@ -31,6 +31,9 @@ ideation and engineering backlog.
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest                                        # tests
+.venv/bin/ruff check app tests seed.py ../cli/strands_cli.py   # lint
+.venv/bin/mypy                                          # type check
+.venv/bin/vulture                                       # dead code
 .venv/bin/uvicorn app.main:app --port 8000 --reload     # run
 .venv/bin/python seed.py                                # demo data
 
@@ -39,6 +42,7 @@ npm run dev     # dev server on :3000
 npm run build   # verify compile (run before committing frontend changes)
 
 ./dev.sh        # both at once (repo root)
+./lint.sh       # all lint gates CI runs: ruff + mypy + vulture + eslint + knip
 ```
 
 ## Architecture map

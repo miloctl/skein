@@ -78,12 +78,20 @@ def query_one(sql: str, params: tuple = ()) -> dict | None:
     return rows[0] if rows else None
 
 
+def query_row(sql: str, params: tuple = ()) -> dict:
+    """query_one for queries guaranteed a row (aggregates, just-written ids)."""
+    row = query_one(sql, params)
+    if row is None:
+        raise LookupError(f"expected a row from: {sql}")
+    return row
+
+
 def execute(sql: str, params: tuple = ()) -> int:
     """Run a write statement, return lastrowid."""
     with connect() as conn:
         cur = conn.execute(sql, params)
         conn.commit()
-        return cur.lastrowid
+        return cur.lastrowid or 0
 
 
 def execute_rowcount(sql: str, params: tuple = ()) -> int:

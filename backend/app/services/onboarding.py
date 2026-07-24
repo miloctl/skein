@@ -18,17 +18,17 @@ STEPS = (
 
 def checklist(user: str) -> dict:
     named = bool(user and user != "anonymous")
-    engagements = db.query_one("SELECT COUNT(*) AS n FROM engagements")["n"]
-    captures = db.query_one(
+    engagements = db.query_row("SELECT COUNT(*) AS n FROM engagements")["n"]
+    captures = db.query_row(
         "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture' AND actor = ?",
         (user,))["n"] if named else 0
-    standups = db.query_one(
+    standups = db.query_row(
         "SELECT COUNT(*) AS n FROM standups WHERE author = ?", (user,))["n"] \
         if named else 0
-    humans = db.query_one(
+    humans = db.query_row(
         "SELECT COUNT(*) AS n FROM users WHERE kind = 'human' AND active = 1"
         " AND name != 'anonymous'")["n"]
-    keys = db.query_one(
+    keys = db.query_row(
         "SELECT COUNT(*) AS n FROM api_keys WHERE owner = ? AND active = 1",
         (user,))["n"] if named else 0
 

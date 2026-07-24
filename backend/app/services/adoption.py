@@ -2,6 +2,7 @@
 Team-scoped by design — this measures the platform's reach, not people's
 output. One row per (day, user, surface); counts only, no content."""
 
+import contextlib
 from datetime import datetime, timedelta, timezone
 
 from .. import db
@@ -15,14 +16,12 @@ def record_use(user: str, surface: str) -> None:
         return
     surface = surface if surface in SURFACES else "api"
     day = datetime.now(timezone.utc).date().isoformat()
-    try:
+    with contextlib.suppress(Exception):
         db.execute(
             "INSERT INTO tool_usage (day, user, surface, actions) VALUES (?, ?, ?, 1)"
             " ON CONFLICT (day, user, surface) DO UPDATE SET actions = actions + 1",
             (day, user, surface),
         )
-    except Exception:
-        pass
 
 
 def adoption(weeks: int = 4) -> dict:
@@ -42,28 +41,28 @@ def adoption(weeks: int = 4) -> dict:
         "SELECT surface, COUNT(DISTINCT user) AS users, SUM(actions) AS actions"
         " FROM tool_usage WHERE day >= ? GROUP BY surface ORDER BY actions DESC",
         (cutoff,))
-    weekly_active = db.query_one(
+    weekly_active = db.query_row(
         "SELECT COUNT(DISTINCT user) AS n FROM tool_usage WHERE day >= ?",
         (week_ago,))
-    capture_total = db.query_one(
+    capture_total = db.query_row(
         "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture'"
         " AND created_at >= ?", (cutoff,))
     # non-web = everything that isn't the web UI — keyed API automation
     # (git hooks, scripts, webhooks) counts toward the automation bar
-    non_web = db.query_one(
+    non_web = db.query_row(
         "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?"
         " AND surface != 'web'", (cutoff,))
-    total = db.query_one(
+    total = db.query_row(
         "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ?", (cutoff,))
     return {
         "window_weeks": weeks,
         "team_humans": len(humans),
-        "weekly_active_users": weekly_active["n"] if weekly_active else 0,
+        "weekly_active_users": weekly_active["n"],
         "active_users": active,
         "by_surface": by_surface,
         "non_web_share": round((non_web["n"] or 0) / total["n"], 2)
-        if total and total["n"] else None,
-        "captures_in_window": capture_total["n"] if capture_total else 0,
+        if total["n"] else None,
+        "captures_in_window": capture_total["n"],
     }
 
 

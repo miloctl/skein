@@ -8,8 +8,18 @@ from .. import db
 
 
 def _registry() -> dict:
-    from . import (blockers, collab, commitments, delegation, engagements,
-                   intake, playbooks, schedule, weekly, work)
+    from . import (
+        blockers,
+        collab,
+        commitments,
+        delegation,
+        engagements,
+        intake,
+        playbooks,
+        schedule,
+        weekly,
+        work,
+    )
 
     return {
         "milestone": {"create": work.create_milestone, "update": work.update_milestone},
@@ -95,13 +105,13 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
             )
             raise ValueError(
                 f"{change['entity']} apply failed and was closed as approved-with-error:"
-                f" {exc} — review what landed and repropose the remainder")
+                f" {exc} — review what landed and repropose the remainder") from exc
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, review_note = ? WHERE id = ?",
             (f"apply failed: {exc}", change_id),
         )
-        raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
+        raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
 
     db.execute("UPDATE pending_changes SET result_id = ? WHERE id = ?",
                (result.get("id"), change_id))

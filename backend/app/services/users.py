@@ -10,7 +10,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
         "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
         (name, kind if kind in ("human", "agent") else "human", db.now()),
     )
-    return db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+    return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
 
 
 def list_users(active_only: bool = True) -> list[dict]:

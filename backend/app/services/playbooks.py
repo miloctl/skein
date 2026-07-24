@@ -2,8 +2,10 @@
 into an engagement + milestones + tasks + kickoff events. Relevant lessons from
 past engagements of the same class are attached as a kickoff note."""
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -25,8 +27,6 @@ def list_playbooks() -> list[dict]:
         })
     return out
 
-
-import re
 
 _SLUG = re.compile(r"^[a-z0-9_-]+$")
 
@@ -58,7 +58,7 @@ def instantiate(slug: str, engagement_name: str, lead: str = "",
         summary=pb.get("description", ""), lead=lead, actor=actor, origin=origin,
     )
 
-    created = {"engagement": eng, "milestones": [], "tasks": [], "events": []}
+    created: dict[str, Any] = {"engagement": eng, "milestones": [], "tasks": [], "events": []}
     for m in pb.get("milestones", []):
         due = (start + timedelta(days=int(m.get("due_after_days", 7)))).isoformat()
         mil = work.create_milestone(
@@ -90,8 +90,8 @@ def instantiate(slug: str, engagement_name: str, lead: str = "",
     lessons = engagements.list_lessons(project_class=pb.get("project_class", slug))
     if lessons:
         content = "\n".join(
-            f"- {l['lesson']}" + (f" → {l['recommendation']}" if l["recommendation"] else "")
-            for l in lessons[:10]
+            f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
+            for les in lessons[:10]
         )
         collab.save_note(
             topic=f"kickoff-lessons-{engagement_name}",

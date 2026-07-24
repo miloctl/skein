@@ -6,9 +6,11 @@ Unconfigured (the default) this returns [] and costs nothing. Clients are
 opened once per process and kept alive so tools stay usable across requests.
 """
 
+import contextlib
 import json
 import logging
 import threading
+from functools import partial
 
 from .. import config
 
@@ -47,9 +49,7 @@ def _load_tools() -> list:
                 {"Authorization": f"Bearer {server['auth_token']}"}
                 if server.get("auth_token") else None
             )
-            client = MCPClient(
-                lambda url=url, headers=headers: streamablehttp_client(url, headers=headers)
-            )
+            client = MCPClient(partial(streamablehttp_client, url, headers=headers))
             client.__enter__()  # keep the session open for the process lifetime
             _clients.append(client)
             tools = client.list_tools_sync()
@@ -64,9 +64,7 @@ def _load_tools() -> list:
 def shutdown_mcp() -> None:
     global _tools
     for client in _clients:
-        try:
+        with contextlib.suppress(Exception):
             client.__exit__(None, None, None)
-        except Exception:
-            pass
     _clients.clear()
     _tools = None

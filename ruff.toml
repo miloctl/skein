@@ -1,0 +1,32 @@
+# One config for the whole repo (backend/, cli/) regardless of cwd.
+target-version = "py310"
+line-length = 100
+extend-exclude = ["backend/data"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+    "S",    # bandit security rules
+]
+ignore = [
+    "E501",   # line length: formatter's job, long SQL/strings are fine
+    "SIM108", # ternary-vs-if is a style call, not a defect
+    "S110",   # try-except-pass marks deliberate best-effort writes here
+]
+allowed-confusables = ["×"]  # deliberate in user-facing digest/insight text
+
+[lint.isort]
+known-first-party = ["app", "strands_cli"]
+
+[lint.per-file-ignores]
+"backend/tests/*" = ["B017", "S101", "S105", "S106", "S108"]  # asserts, fake creds, traversal probes
+"backend/app/services/notifications.py" = ["S310"]  # webhook URL from operator env, not user input
+"cli/strands_cli.py" = ["S310", "S607"]  # API URL from operator config; git resolved from PATH

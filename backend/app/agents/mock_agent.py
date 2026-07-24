@@ -95,7 +95,7 @@ class MockAgent:
             lines.append(f"- Your active tasks: {len(b['your_work']['tasks'])}")
             esc = b["team"]["escalated_blockers"]
             if esc:
-                lines.append(f"- ⛔ Team escalations: "
+                lines.append("- ⛔ Team escalations: "
                              + ", ".join(f"#{e['id']} {e['title']}" for e in esc))
             for e in b["team"]["todays_events"]:
                 lines.append(f"- 📅 {e['starts_at']}: {e['title']}")

@@ -7,7 +7,16 @@ from fastapi.responses import JSONResponse
 
 from . import config, db
 from .routes import api, chat, slack, webhooks
-from .services import admin, blockers, collab, context_pack, digest, notifications, portfolio, weekly
+from .services import (
+    admin,
+    blockers,
+    collab,
+    context_pack,
+    digest,
+    notifications,
+    portfolio,
+    weekly,
+)
 from .telemetry import setup_telemetry
 
 logging.basicConfig(

@@ -54,9 +54,10 @@ def update_milestone(
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
     if not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
         raise ValueError(f"milestone #{milestone_id} not found")
-    fields = {k: v for k, v in
-              [("status", status), ("title", title), ("description", description),
-               ("owner", owner), ("due_date", due_date)] if v}
+    fields: dict[str, str | None] = {
+        k: v for k, v in
+        [("status", status), ("title", title), ("description", description),
+         ("owner", owner), ("due_date", due_date)] if v}
     if not fields:
         raise ValueError("nothing to update")
     for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
@@ -64,7 +65,7 @@ def update_milestone(
             fields[clearable] = empty
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
-        f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",
+        f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), db.now(), milestone_id),
     )
     db.log_activity(actor, "update_milestone", f"#{milestone_id} {status or 'edited'}")
@@ -140,10 +141,11 @@ def update_task(
         "SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise ValueError(f"task #{task_id} not found")
-    fields = {k: v for k, v in
-              [("status", status), ("assignee", assignee), ("priority", priority),
-               ("due_date", due_date), ("description", description), ("title", title),
-               ("committed_week", committed_week)] if v}
+    fields: dict[str, str | None] = {
+        k: v for k, v in
+        [("status", status), ("assignee", assignee), ("priority", priority),
+         ("due_date", due_date), ("description", description), ("title", title),
+         ("committed_week", committed_week)] if v}
     if not fields:
         raise ValueError("nothing to update")
     if committed_week == "-":
@@ -164,7 +166,7 @@ def update_task(
         fields["sponsor"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
-        f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",
+        f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), db.now(), task_id),
     )
     db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}")
@@ -175,7 +177,8 @@ def update_task(
 
 
 def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> list[dict]:
-    sql, params = "SELECT * FROM tasks WHERE 1=1", []
+    sql = "SELECT * FROM tasks WHERE 1=1"
+    params: list[str | int] = []
     if milestone_id:
         sql += " AND milestone_id = ?"
         params.append(milestone_id)

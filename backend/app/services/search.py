@@ -31,7 +31,7 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
 def search(q: str, limit: int = 20) -> list[dict]:
     if not q.strip():
         return []
-    return db.query(
+    hits = db.query(
         "SELECT entity, entity_id, title,"
         " snippet(search_index, 3, '<b>', '</b>', '…', 12) AS snippet,"
         " bm25(search_index) AS rank"
@@ -39,6 +39,19 @@ def search(q: str, limit: int = 20) -> list[dict]:
         " ORDER BY rank LIMIT ?",
         (_fts_quote(q), limit),
     )
+    if len(hits) < limit:
+        seen = {(h["entity"], h["entity_id"]) for h in hits}
+        for s in semantic_search(q, limit - len(hits)):
+            if (s["entity"], s["entity_id"]) in seen:
+                continue
+            row = db.query_one(
+                "SELECT title, substr(body, 1, 120) AS snippet FROM search_index"
+                " WHERE entity = ? AND entity_id = ?", (s["entity"], s["entity_id"]))
+            if row:
+                hits.append({"entity": s["entity"], "entity_id": s["entity_id"],
+                             "title": row["title"], "snippet": row["snippet"],
+                             "rank": None})
+    return hits
 
 
 # --- optional embedding layer (activates when keys are connected) -----------
@@ -84,7 +97,7 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
         return []
 
     def cos(a: list[float], b: list[float]) -> float:
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
         na = sum(x * x for x in a) ** 0.5
         nb = sum(x * x for x in b) ** 0.5
         return dot / (na * nb) if na and nb else 0.0

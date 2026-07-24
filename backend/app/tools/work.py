@@ -5,6 +5,7 @@ writes become pending_changes proposals a human approves in the review inbox.
 """
 
 import json
+from typing import Any
 
 from strands import tool
 
@@ -24,8 +25,8 @@ def create_milestone(title: str, description: str = "", project: str = "default"
         owner: Team member (human or agent) responsible.
         due_date: Target date in YYYY-MM-DD format, or empty if none.
     """
-    payload = dict(title=title, description=description, project=project,
-                   owner=owner, due_date=due_date)
+    payload = {"title": title, "description": description, "project": project,
+                   "owner": owner, "due_date": due_date}
     return gated_write("milestone", "create", dict(payload),
                   lambda: work.create_milestone(**payload, actor="agent", origin="agent"))
 
@@ -43,8 +44,8 @@ def update_milestone(milestone_id: int, status: str = "", title: str = "",
         owner: New owner.
         due_date: New due date (YYYY-MM-DD).
     """
-    payload = dict(status=status, title=title, description=description,
-                   owner=owner, due_date=due_date)
+    payload = {"status": status, "title": title, "description": description,
+                   "owner": owner, "due_date": due_date}
     payload = {k: v for k, v in payload.items() if v}
     return gated_write("milestone", "update", payload,
                        lambda: work.update_milestone(milestone_id, **payload,
@@ -76,8 +77,9 @@ def create_task(title: str, description: str = "", milestone_id: int = 0,
         priority: One of low, medium, high, urgent.
         due_date: Target date in YYYY-MM-DD format, or empty if none.
     """
-    payload = dict(title=title, description=description, milestone_id=milestone_id,
-                   assignee=assignee, priority=priority, due_date=due_date)
+    payload: dict[str, Any] = {
+        "title": title, "description": description, "milestone_id": milestone_id,
+        "assignee": assignee, "priority": priority, "due_date": due_date}
     return gated_write("task", "create", dict(payload),
                   lambda: work.create_task(**payload, actor="agent", origin="agent"))
 
@@ -95,8 +97,8 @@ def update_task(task_id: int, status: str = "", assignee: str = "", priority: st
         due_date: New due date (YYYY-MM-DD).
         description: New description.
     """
-    payload = dict(status=status, assignee=assignee, priority=priority,
-                   due_date=due_date, description=description)
+    payload = {"status": status, "assignee": assignee, "priority": priority,
+                   "due_date": due_date, "description": description}
     payload = {k: v for k, v in payload.items() if v}
     return gated_write("task", "update", payload,
                        lambda: work.update_task(task_id, **payload,

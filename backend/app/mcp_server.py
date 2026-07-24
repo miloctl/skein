@@ -20,16 +20,17 @@ on whatever entity it routes to (the kill switch always holds).
 
 import json
 import os
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from . import db
-from .services.adoption import record_use
-from .tools._gate import gated_write
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
 from .services import collab, context_pack, delegation, memory, portfolio, search, work
+from .services.adoption import record_use
+from .tools._gate import gated_write
 
 ACTOR = os.getenv("STRANDS_MCP_USER", "mcp-agent")
 
@@ -73,8 +74,8 @@ def create_task(title: str, description: str = "", assignee: str = "",
     With review mode on, queues for human approval unless this agent has
     autonomous authority for tasks."""
     record_use(ACTOR, "mcp")
-    payload = dict(title=title, description=description, assignee=assignee,
-                   priority=priority)
+    payload: dict[str, Any] = {"title": title, "description": description,
+                               "assignee": assignee, "priority": priority}
     return gated_write("task", "create", payload,
                        lambda: work.create_task(**payload, actor=ACTOR,
                                                 origin="agent"), actor=ACTOR)
@@ -102,8 +103,8 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
 def log_decision(title: str, decision: str, context: str = "") -> str:
     """Record a team decision with rationale in the decision log."""
     record_use(ACTOR, "mcp")
-    payload = dict(title=title, decision=decision, context=context,
-                   decided_by=ACTOR)
+    payload = {"title": title, "decision": decision, "context": context,
+                   "decided_by": ACTOR}
     return gated_write("decision", "create", payload,
                        lambda: collab.record_decision(**payload, actor=ACTOR,
                                                       origin="agent"), actor=ACTOR)
@@ -113,7 +114,8 @@ def log_decision(title: str, decision: str, context: str = "") -> str:
 def add_blocker(title: str, detail: str = "", impact: str = "medium") -> str:
     """File a blocker (impact: low|medium|high|critical drives escalation speed)."""
     record_use(ACTOR, "mcp")
-    payload = dict(title=title, detail=detail, owner=ACTOR, impact=impact)
+    payload: dict[str, Any] = {"title": title, "detail": detail, "owner": ACTOR,
+                               "impact": impact}
     return gated_write("blocker", "create", payload,
                        lambda: blockers_svc.raise_blocker(**payload, actor=ACTOR,
                                                           origin="agent"), actor=ACTOR)
@@ -132,7 +134,7 @@ def search_workspace(query: str) -> str:
 def save_knowledge(topic: str, content: str) -> str:
     """Save a note to the shared team knowledge base."""
     record_use(ACTOR, "mcp")
-    payload = dict(topic=topic, content=content, author=ACTOR)
+    payload = {"topic": topic, "content": content, "author": ACTOR}
     return gated_write("note", "create", payload,
                        lambda: collab.save_note(**payload, actor=ACTOR,
                                                 origin="agent"), actor=ACTOR)

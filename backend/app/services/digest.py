@@ -114,8 +114,9 @@ def _narrate(markdown: str) -> str:
     if config.MODEL_PROVIDER == "mock":
         return markdown
     try:
-        from ..agents.team_agent import _model
         from strands import Agent
+
+        from ..agents.team_agent import _model
 
         agent = Agent(model=_model(), callback_handler=None,
                       system_prompt="You summarize team status digests. Reply with exactly"

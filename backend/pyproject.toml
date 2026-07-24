@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.8", "mypy>=1.13", "types-PyYAML", "vulture>=2.13"]
 
 [tool.setuptools]
 packages = { find = { include = ["app*"] } }
@@ -23,3 +23,23 @@ packages = { find = { include = ["app*"] } }
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.vulture]
+paths = ["app", "seed.py", "../cli/strands_cli.py"]
+# decorator-registered entry points look unused to static analysis
+ignore_decorators = ["@app.*", "@router.*", "@mcp.*", "@tool", "@pytest.fixture"]
+ignore_names = [
+    "row_factory", "isolation_level",  # sqlite3 connection config, write-only
+    "repository",  # CIEventIn schema field, read via model_dump() in services/ci.py
+]
+min_confidence = 60
+sort_by_size = true
+
+[tool.mypy]
+python_version = "3.10"
+files = ["app", "seed.py"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true

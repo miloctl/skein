@@ -1,6 +1,6 @@
 """Regression tests for the 5-agent round-3 review findings."""
 
-import json
+import pytest
 
 
 def test_apply_plan_skips_missing_tasks(client, fresh_db):
@@ -12,11 +12,8 @@ def test_apply_plan_skips_missing_tasks(client, fresh_db):
     row = fresh_db.query_one("SELECT committed_week FROM tasks WHERE id = ?", (t1["id"],))
     assert row["committed_week"] == "2026-W31"
 
-    try:
+    with pytest.raises(ValueError):
         weekly.apply_plan("2026-W31", [999999])
-        assert False, "all-missing plan should raise"
-    except ValueError:
-        pass
 
 
 def test_week_validation_everywhere(client):
@@ -134,11 +131,8 @@ def test_mcp_forbidden_authority_holds(client, fresh_db, monkeypatch):
 
     monkeypatch.setattr(mcp_server, "ACTOR", "mcp-agent")
     delegation.set_authority("mcp-agent", "task", "forbidden", actor="tester")
-    try:
+    with pytest.raises(ValueError, match="forbidden"):
         mcp_server._check_authority("task")
-        assert False, "forbidden must raise"
-    except ValueError as exc:
-        assert "forbidden" in str(exc)
     mcp_server._check_authority("decision")  # default review level passes
 
 
@@ -157,15 +151,9 @@ def test_authority_not_self_serviceable_by_agents(client, fresh_db):
     from app.services import delegation, users
 
     users.ensure_user("sneaky", kind="agent")
-    try:
+    with pytest.raises(ValueError, match="humans"):
         delegation.set_authority("task-bot", "task", "autonomous", actor="sneaky")
-        assert False, "agent actor must not set authority"
-    except ValueError as exc:
-        assert "humans" in str(exc)
-    try:
+    with pytest.raises(ValueError):
         delegation.set_authority("planner", "task", "autonomous", actor="planner")
-        assert False, "self-target must be refused"
-    except ValueError:
-        pass
     out = delegation.set_authority("task-bot", "task", "notify", actor="tester")
     assert out["level"] == "notify"  # humans still can

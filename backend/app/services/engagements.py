@@ -42,7 +42,7 @@ def update_engagement(engagement_id: int, status: str = "", summary: str = "",
         fields["closed_at"] = db.now()  # re-closing must not re-fire ship-it
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
-        f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",
+        f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), db.now(), engagement_id),
     )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
@@ -65,14 +65,14 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
             (eng["closed_at"], eng["started_at"]))or {}).get("d")
         days = f"{int(delta)} days" if delta is not None else ""
     stats = {
-        "milestones": db.query_one(
+        "milestones": db.query_row(
             "SELECT COUNT(*) AS n FROM milestones WHERE project = ?", (name,)),
-        "tasks_done": db.query_one(
+        "tasks_done": db.query_row(
             "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
             " WHERE m.project = ? AND t.status = 'done'", (name,)),
         # scoped to THIS engagement's linked blockers — the recap must be honest
         # (a time-window count silently absorbed unrelated blockers)
-        "blockers_survived": db.query_one(
+        "blockers_survived": db.query_row(
             "SELECT COUNT(*) AS n FROM blockers b"
             " JOIN tasks t ON t.id = b.task_id"
             " JOIN milestones m ON m.id = t.milestone_id"

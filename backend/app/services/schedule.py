@@ -15,7 +15,7 @@ def schedule_event(title: str, starts_at: str, ends_at: str = "", description: s
         try:
             datetime.fromisoformat(value)
         except (TypeError, ValueError):
-            raise ValueError(f"{label} must be an ISO timestamp (e.g. 2026-07-24T15:00)")
+            raise ValueError(f"{label} must be an ISO timestamp (e.g. 2026-07-24T15:00)") from None
     eid = db.execute(
         "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
         " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

@@ -12,7 +12,6 @@ from datetime import date, datetime, timedelta, timezone
 from .. import db
 
 WINDOW_DAYS = 28
-SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2, "positive": 3}
 
 
 def _today() -> date:
@@ -74,12 +73,12 @@ def automation_ratio(months: int = 6) -> list[dict]:
     rejections is a problem, not a win."""
     since = _iso(_today() - timedelta(days=31 * months))
     union = " UNION ALL ".join(
-        f"SELECT substr(created_at, 1, 7) AS month, origin FROM {t}"
+        f"SELECT substr(created_at, 1, 7) AS month, origin FROM {t}"  # noqa: S608 — table tuple below
         f" WHERE created_at >= ?"
         for t in ("tasks", "milestones", "decisions", "notes", "blockers",
                   "questions", "standups", "commitments"))
     rows = db.query(
-        f"SELECT month, origin, COUNT(*) AS n FROM ({union})"
+        f"SELECT month, origin, COUNT(*) AS n FROM ({union})"  # noqa: S608 — built just above
         " GROUP BY month, origin ORDER BY month",
         tuple([since] * 8))
     months_map: dict[str, dict] = {}
@@ -165,7 +164,7 @@ def _r_mttr() -> list[dict]:
     cur, prev = w["current"], w["previous"]
     if cur["n"] < 8 or prev["n"] < 8 or not prev["median_hours"]:
         return []
-    ratio = cur["median_hours"] / prev["median_hours"] if prev["median_hours"] else None
+    ratio = cur["median_hours"] / prev["median_hours"]
     slowest = db.query(
         "SELECT id, title, ROUND((julianday(resolved_at) - julianday(created_at)) * 24) AS hours"
         " FROM blockers WHERE status = 'resolved' AND resolved_at >= ?"
@@ -375,7 +374,7 @@ def _r_question_aging() -> list[dict]:
 
 def _r_decision_decay() -> list[dict]:
     stale = db.query("SELECT id, title, review_by FROM decisions WHERE status = 'stale'")
-    corpus = db.query_one(
+    corpus = db.query_row(
         "SELECT COUNT(*) AS n FROM decisions WHERE status != 'superseded'")
     if not stale:
         return []

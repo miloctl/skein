@@ -2,7 +2,7 @@
 Monday job drafts the plan as a pending-changes proposal — the same review
 inbox humans already work, so the plan is approved, not imposed."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from .. import db
 from .work import WEEK_RE, update_task

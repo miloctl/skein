@@ -18,7 +18,7 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     )
     mil_ids = [m["id"] for m in milestones]
     tasks = db.query(
-        f"SELECT * FROM tasks WHERE milestone_id IN ({','.join('?' * len(mil_ids))})"
+        f"SELECT * FROM tasks WHERE milestone_id IN ({','.join('?' * len(mil_ids))})"  # noqa: S608
         " AND status != 'done'",
         tuple(mil_ids),
     ) if mil_ids else []
@@ -62,8 +62,8 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     lines += [f"- #{p['id']} {p['summary']} (proposed by {p['proposed_by']})"
               for p in pending] or ["- none"]
     lines += ["", "## Lessons relevant to this class"]
-    lines += [f"- {l['lesson']}" + (f" → {l['recommendation']}" if l["recommendation"] else "")
-              for l in lessons] or ["- none"]
+    lines += [f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
+              for les in lessons] or ["- none"]
 
     markdown = "\n".join(lines)
     safe_name = name.replace("/", "_")

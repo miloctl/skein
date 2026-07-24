@@ -2,6 +2,7 @@
 context pack, agent inbox."""
 
 import json
+from typing import Any
 
 from strands import tool
 
@@ -51,8 +52,8 @@ def add_commitment(promise: str, to_whom: str = "", due_date: str = "",
         due_date: When it's due (YYYY-MM-DD).
         engagement_id: Related engagement, or 0.
     """
-    payload = dict(promise=promise, to_whom=to_whom, due_date=due_date,
-                   engagement_id=engagement_id)
+    payload: dict[str, Any] = {"promise": promise, "to_whom": to_whom, "due_date": due_date,
+                               "engagement_id": engagement_id}
     return gated_write("commitment", "create", payload,
                        lambda: commitments.add_commitment(**payload, actor="agent",
                                                           origin="agent"))
@@ -78,7 +79,7 @@ def delegate_task(task_id: int, agent: str, sponsor: str) -> str:
         agent: Agent identity that will do the work.
         sponsor: Human teammate accountable for the outcome.
     """
-    payload = dict(task_id=task_id, agent=agent, sponsor=sponsor)
+    payload: dict[str, Any] = {"task_id": task_id, "agent": agent, "sponsor": sponsor}
     return gated_write("delegation", "create", payload,
                        summary=f"delegate task #{task_id} to {agent}",
                        direct=lambda: delegation.delegate_task(**payload, actor="agent",
@@ -98,8 +99,8 @@ def supersede_decision(decision_id: int, title: str, decision: str,
         context: Why it changed.
         review_by: Date (YYYY-MM-DD) when the new decision should be re-reviewed.
     """
-    payload = dict(title=title, decision=decision, context=context,
-                   review_by=review_by)
+    payload = {"title": title, "decision": decision, "context": context,
+                   "review_by": review_by}
     return gated_write("decision", "update", payload,
                        entity_id=decision_id,
                        summary=f"supersede decision #{decision_id}: {title}",

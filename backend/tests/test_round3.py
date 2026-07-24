@@ -184,9 +184,10 @@ def test_delegate_task_and_inbox(client, fresh_db):
 
 
 def test_authority_matrix_gate(client, fresh_db, monkeypatch):
+    import json as j
+
     from app import config
     from app.tools.portfolio import add_commitment
-    import json as j
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     # default 'review' → proposal

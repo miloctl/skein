@@ -23,6 +23,12 @@ jobs:
       - name: Install
         working-directory: backend
         run: pip install -e ".[dev]"
+      - name: Lint
+        working-directory: backend
+        run: |
+          ruff check app tests seed.py ../cli/strands_cli.py
+          mypy
+          vulture
       - name: Test
         working-directory: backend
         env:
@@ -43,6 +49,11 @@ jobs:
       - name: Install
         working-directory: frontend
         run: npm ci
+      - name: Lint
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm run knip
       - name: Build
         working-directory: frontend
         run: npm run build

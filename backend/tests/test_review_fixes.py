@@ -53,7 +53,10 @@ def test_approve_bad_payload_returns_to_pending(fresh_db):
 def test_review_gate_covers_all_mutating_tools(fresh_db, monkeypatch):
     from app import config
     from app.services import review
-    from app.tools import collab as tc, platform as tp, schedule as ts, work as tw
+    from app.tools import collab as tc
+    from app.tools import platform as tp
+    from app.tools import schedule as ts
+    from app.tools import work as tw
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
 

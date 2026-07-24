@@ -52,9 +52,9 @@ def build_pack() -> str:
 
     lines.append("## Lessons the team already paid for")
     lessons = db.query("SELECT * FROM lessons ORDER BY id DESC LIMIT 15")
-    lines += [f"- [{l['project_class']}] {l['lesson']}"
-              + (f" → {l['recommendation']}" if l["recommendation"] else "")
-              for l in lessons] or ["- none recorded"]
+    lines += [f"- [{les['project_class']}] {les['lesson']}"
+              + (f" → {les['recommendation']}" if les["recommendation"] else "")
+              for les in lessons] or ["- none recorded"]
     lines.append("")
 
     lines.append("## Conventions")
@@ -105,6 +105,8 @@ def publish_pack(*, actor: str = "system") -> dict:
     except sqlite3.IntegrityError:
         # concurrent publisher won the version — serve theirs
         last = latest_pack()
+        if last is None:
+            raise RuntimeError("context pack vanished during concurrent publish") from None
         return {"version": last["version"], "hash": last["content_hash"], "changed": False}
     pack_dir = Path(config.DATA_DIR) / "artifacts" / "context-pack"
     pack_dir.mkdir(parents=True, exist_ok=True)
@@ -120,5 +122,7 @@ def get_pack(*, actor: str = "system") -> dict:
     if not last:
         publish_pack(actor=actor)
         last = latest_pack()
+        if last is None:
+            raise RuntimeError("context pack publish produced no pack")
     return {"version": last["version"], "hash": last["content_hash"],
             "created_at": last["created_at"], "content": last["content"]}
