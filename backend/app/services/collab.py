@@ -32,6 +32,30 @@ def ask_question(
     return {"id": qid, "status": "open"}
 
 
+def assign_question(
+    question_id: int, assigned_to: str, *, actor: str = "", origin: str = "human"
+) -> dict:
+    row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
+    if not row:
+        raise ValueError(f"question #{question_id} not found")
+    if row["status"] != "open":
+        raise ValueError(f"question #{question_id} is already {row['status']}")
+    db.execute(
+        "UPDATE questions SET assigned_to = ? WHERE id = ?", (assigned_to.strip(), question_id)
+    )
+    db.log_activity(actor or "system", "assign_question", f"#{question_id} -> {assigned_to}")
+    if assigned_to.strip():
+        from .notifications import notify
+
+        notify(
+            assigned_to.strip(),
+            f"Question #{question_id} assigned to you: {row['question'][:80]}",
+            tier="digest",
+            link="/",
+        )
+    return {"id": question_id, "assigned_to": assigned_to.strip()}
+
+
 def answer_question(
     question_id: int, answer: str, answered_by: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:

@@ -104,6 +104,10 @@ def _claim(change_id: int, new_status: str, note: str, actor: str) -> None:
         if not change:
             raise ValueError(f"pending change #{change_id} not found")
         raise ValueError(f"change #{change_id} already {change['status']}")
+    # the review is handled — its "Review needed" ping must not keep nagging
+    from .notifications import mark_read_matching
+
+    mark_read_matching(f"Review needed: #{change_id} ")
 
 
 def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:

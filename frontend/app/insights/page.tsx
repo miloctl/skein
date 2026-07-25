@@ -13,6 +13,7 @@ type Finding = {
   window: string;
   week: string;
   receipt: Record<string, unknown>;
+  disposition: string;
 };
 
 type Insights = {
@@ -160,7 +161,7 @@ export default function InsightsPage() {
         ) : (
           <ul className="space-y-2 text-sm">
             {d.findings.map((f) => (
-              <li key={f.id}>
+              <li key={f.id} className={f.disposition ? "opacity-60" : ""}>
                 <button
                   onClick={() => setOpen(open === f.id ? null : f.id)}
                   aria-expanded={open === f.id}
@@ -172,6 +173,11 @@ export default function InsightsPage() {
                     {f.week}
                     {f.n ? ` · n=${f.n}` : ""}
                   </span>
+                  {f.disposition && (
+                    <span className="ml-1.5 rounded-full bg-raised px-1.5 py-px font-mono text-[10px] text-ink-2">
+                      {f.disposition}
+                    </span>
+                  )}
                 </button>
                 {open === f.id && (
                   <>
@@ -181,6 +187,7 @@ export default function InsightsPage() {
                     >
                       {JSON.stringify(f.receipt, null, 1)}
                     </pre>
+                    {f.disposition ? null : (
                     <div className="mt-1 flex gap-2 text-xs">
                       <button
                         onClick={() => convert(f.id)}
@@ -207,6 +214,7 @@ export default function InsightsPage() {
                         dismiss…
                       </button>
                     </div>
+                    )}
                   </>
                 )}
               </li>

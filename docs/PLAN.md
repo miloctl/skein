@@ -289,6 +289,27 @@ Remaining, in priority order (each S/M as sized by the review):
    on the pulse banner, origin glossary beside Review.
 8. [S] Portfolio "promised:" hint explains team vs external audience.
 
+## Dogfood backlog (from the 2026-07-25 simulated 3-week run)
+
+Shipped in the same pass: `q: <person> —` capture assignment, `review by
+YYYY-MM-DD` decision parsing, PATCH /api/questions/{id} + dashboard assign,
+review-resolution clears its notification, findings feed shows dispositions,
+pulse feedback without input_text, user deactivation (strong-identity) +
+Settings roster, intake accept carries lead/kill_criteria, digest collapses
+job_stale noise, eval corpus separates free-text corrections from
+machine-checkable labels. Full log: the session's dogfood-log.md.
+
+Remaining, still worth doing:
+
+1. [M] Task→engagement link for agent-created tasks (create_task only knows
+   milestone_id; "a task on engagement X" silently drops the linkage).
+2. [S] /ask OR-fallback when the AND query yields zero hits (natural
+   phrasing like "what latency number does the partner care about" misses).
+3. [M] User merge/rename for the trusted-LAN roster (deactivate shipped;
+   merging attribution history is the missing half).
+4. [S] Intake list shows RICE score inline once scored (score 0.0 in
+   what-if reads as unscored).
+
 ## Deferred with explicit re-entry triggers
 
 See the cut table in `docs/reviews/2026-07-24-synthesis.md`. Notables:

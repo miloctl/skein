@@ -67,6 +67,15 @@ def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
     )
 
 
+def mark_read_matching(prefix: str) -> int:
+    """Clear unread notifications whose message starts with `prefix` —
+    used when the thing they point at (a review, a blocker) is resolved."""
+    return db.execute_rowcount(
+        "UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND message LIKE ?",
+        (db.now(), prefix + "%"),
+    )
+
+
 def mark_read(user: str, notification_id: int = 0) -> dict:
     # 'team' rows are a single shared record — the first reader clears them
     # for everyone, same semantics as listing them for everyone

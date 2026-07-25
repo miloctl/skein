@@ -390,6 +390,32 @@ export default function Dashboard() {
               </span>
               <Badge value={String(q.status)} />
             </div>
+            {q.status === "open" && (
+              <p className="mt-0.5 text-xs text-ink-3">
+                {q.assigned_to ? (
+                  <>→ @{q.assigned_to}</>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      const who = prompt("Assign this question to:");
+                      if (!who?.trim()) return;
+                      try {
+                        await api(`/api/questions/${q.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ assigned_to: who.trim() }),
+                        });
+                        window.location.reload();
+                      } catch (e) {
+                        alert(String(e));
+                      }
+                    }}
+                    className="underline hover:text-ink-2"
+                  >
+                    unassigned — assign…
+                  </button>
+                )}
+              </p>
+            )}
             {q.answer ? (
               <p className="mt-1 text-xs text-ink-3">↳ {q.answer}</p>
             ) : null}

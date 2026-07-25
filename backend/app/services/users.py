@@ -28,3 +28,17 @@ def list_users(active_only: bool = True) -> list[dict]:
     if active_only:
         return db.query("SELECT * FROM users WHERE active = 1 ORDER BY kind, name")
     return db.query("SELECT * FROM users ORDER BY kind, name")
+
+
+def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
+    """Deactivate a roster entry (typo'd name, departed teammate). History
+    stays attributed; the name just leaves the roster, adoption counts, and
+    the context pack. Strong identity required at the route."""
+    row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+    if not row:
+        raise ValueError(f"no user named '{name}'")
+    if name == actor and not active:
+        raise ValueError("you cannot deactivate yourself")
+    db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))
+    db.log_activity(actor, "set_user_active", f"{name} -> {'active' if active else 'inactive'}")
+    return {"name": name, "active": bool(active)}

@@ -57,21 +57,29 @@ def list_feedback(kind: str = "") -> list[dict]:
     return db.query(f"SELECT {_COLS} FROM feedback ORDER BY id DESC LIMIT 100")  # noqa: S608
 
 
+CAPTURE_KINDS = ("question", "blocker", "decision", "commitment", "task", "note")
+
+
 def eval_capture() -> dict:
     """Replay the rule-based classifier over the labeled capture corpus.
     'up' rows assert the recorded output was right; 'corrected' rows carry
-    the right answer. Deterministic, keyless, run-anywhere."""
+    the right answer. Only rows whose expected label is a capture kind are
+    machine-checkable — free-text corrections ("review_by should have been
+    parsed") are surfaced as unscored, not counted as regressions forever."""
     from .capture import classify
 
     rows = db.query(
         "SELECT * FROM feedback WHERE kind = 'capture'"
         " AND (verdict = 'up' OR verdict = 'corrected') ORDER BY id"
     )
-    results, mismatches = [], []
+    results, mismatches, unscored = [], [], []
     for r in rows:
-        expected = r["correction"] if r["verdict"] == "corrected" else r["output"]
+        expected = (r["correction"] if r["verdict"] == "corrected" else r["output"]).strip()
+        if expected.lower() not in CAPTURE_KINDS:
+            unscored.append({"id": r["id"], "input": r["input"], "note": expected})
+            continue
         predicted = classify(r["input"])
-        ok = predicted == expected
+        ok = predicted == expected.lower()
         results.append(ok)
         if not ok:
             mismatches.append(
@@ -83,6 +91,7 @@ def eval_capture() -> dict:
         "passed": sum(results),
         "accuracy": round(sum(results) / n, 3) if n else None,
         "mismatches": mismatches,
+        "unscored": unscored,
     }
 
 

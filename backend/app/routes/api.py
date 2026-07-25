@@ -1,7 +1,7 @@
 """REST API: reads for the dashboard, writes for humans (the second write path
 alongside agent tools — both go through app.services)."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import db, ratelimit
@@ -130,6 +130,17 @@ def get_artifacts(engagement_id: int = 0):
 @router.get("/users")
 def get_users():
     return users.list_users()
+
+
+class UserActiveIn(BaseModel):
+    active: bool
+
+
+@router.post("/users/{name}/active")
+def post_user_active(name: str, body: UserActiveIn, user: StrongUser):
+    # roster edits need strong identity — a spoofed header must not be able
+    # to deactivate teammates
+    return users.set_active(name, body.active, actor=user)
 
 
 class GrowthIn(BaseModel):
@@ -345,7 +356,7 @@ def get_review_stats():
 
 class FeedbackIn(BaseModel):
     kind: str
-    input_text: str
+    input_text: str = ""  # a pulse vote has no input text
     output: str = ""
     verdict: str = "up"
     correction: str = ""
@@ -353,7 +364,12 @@ class FeedbackIn(BaseModel):
 
 @router.post("/feedback")
 def post_feedback(body: FeedbackIn, user: CurrentUser):
-    return feedback.record_feedback(**body.model_dump(), actor=user)
+    data = body.model_dump()
+    if not data["input_text"]:
+        if data["kind"] != "pulse":
+            raise HTTPException(422, "input_text is required for non-pulse feedback")
+        data["input_text"] = "weekly pulse"
+    return feedback.record_feedback(**data, actor=user)
 
 
 @router.get("/feedback")
@@ -567,6 +583,15 @@ def post_question(body: QuestionIn, user: CurrentUser):
     )
 
 
+class QuestionPatch(BaseModel):
+    assigned_to: str
+
+
+@router.patch("/questions/{question_id}")
+def patch_question(question_id: int, body: QuestionPatch, user: CurrentUser):
+    return collab.assign_question(question_id, body.assigned_to, actor=user)
+
+
 class AnswerIn(BaseModel):
     answer: str
 
@@ -684,6 +709,8 @@ class DispositionIn(BaseModel):
     kind: str = "delivery"
     timebox_end: str = ""
     outcome: str = ""
+    lead: str = ""
+    kill_criteria: str = ""
 
 
 @router.post("/intake/{request_id}/disposition")
@@ -695,6 +722,8 @@ def post_intake_disposition(request_id: int, body: DispositionIn, user: CurrentU
         kind=body.kind,
         timebox_end=body.timebox_end,
         outcome=body.outcome,
+        lead=body.lead,
+        kill_criteria=body.kill_criteria,
         actor=user,
     )
 

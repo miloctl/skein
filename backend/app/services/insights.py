@@ -733,24 +733,41 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
         " WHEN 'low' THEN 2 ELSE 3 END, id DESC LIMIT ?",
         (since_week, limit),
     )
+    # latest disposition per finding — the feed must show what's been acted on
+    dispo = {
+        d["finding_id"]: d["disposition"]
+        for d in db.query("SELECT finding_id, disposition FROM finding_dispositions ORDER BY id")
+    }
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
+        r["disposition"] = dispo.get(r["id"], "")
     return rows
 
 
 def digest_findings(limit: int = 3) -> list[dict]:
     """This week's top findings for the digest — severity-ordered, capped.
-    Dispositioned findings are excluded: acted-on means stop nagging."""
+    Dispositioned findings are excluded: acted-on means stop nagging.
+    job_stale findings collapse to one line — infra noise must not spend
+    the whole team-facing budget."""
     rows = db.query(
         "SELECT * FROM findings WHERE week = ?"
         " AND id NOT IN (SELECT finding_id FROM finding_dispositions)"
         " ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
         " WHEN 'low' THEN 2 ELSE 3 END, id LIMIT ?",
-        (_week(), limit),
+        (_week(), limit * 4),
     )
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
-    return rows
+    stale = [r for r in rows if r["rule_id"] == "job_stale"]
+    if len(stale) > 1:
+        names = ", ".join(sorted(str(r["subject"]) for r in stale))
+        merged = dict(stale[0])
+        merged["message"] = (
+            f"{len(stale)} scheduled jobs have not succeeded within twice"
+            f" their period: {names} — see /health."
+        )
+        rows = [merged if r is stale[0] else r for r in rows if r is stale[0] or r not in stale]
+    return rows[:limit]
 
 
 # ---- dispositions: what happened AFTER the finding fired --------------------

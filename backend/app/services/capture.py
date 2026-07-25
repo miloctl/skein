@@ -25,6 +25,37 @@ PREFIX = re.compile(
     re.I,
 )
 
+# `q: mira — where do we log?` assigns to mira — same person-separator grammar
+# as fb:, but only when the name matches an active user (else it stays text)
+_Q_ASSIGN = re.compile(r"^(?P<person>[^\s—:-][^—:]{0,40}?)\s*(?:—|:|\s-\s)\s*(?P<body>.+)$", re.S)
+# `decision: … review by 2026-10-01` feeds the half-life sweep
+_REVIEW_BY = re.compile(r"[\s,;\u2014\u2013-]*\breview by\s+(?P<date>\d{4}-\d{2}-\d{2})\s*$", re.I)
+
+
+def _known_user(name: str) -> str:
+    from . import users
+
+    candidates = {u["name"].lower(): u["name"] for u in users.list_users()}
+    return candidates.get(name.strip().lower(), "")
+
+
+def split_assignee(body: str) -> tuple[str, str]:
+    """(assignee, rest) when the body starts with a known user + separator."""
+    m = _Q_ASSIGN.match(body)
+    if m:
+        person = _known_user(m.group("person"))
+        if person:
+            return person, m.group("body").strip()
+    return "", body
+
+
+def split_review_by(body: str) -> tuple[str, str]:
+    """(review_by, rest) when the body ends with `review by YYYY-MM-DD`."""
+    m = _REVIEW_BY.search(body)
+    if m:
+        return m.group("date"), body[: m.start()].strip()
+    return "", body
+
 
 def classify(text: str) -> str:
     for kind, pattern in PATTERNS:
@@ -67,14 +98,23 @@ def capture(
     body = PREFIX.sub("", text).strip() or text
 
     if kind == "question":
-        result = collab.ask_question(body, asked_by=actor, actor=actor, origin=origin)
+        assignee, body = split_assignee(body)
+        result = collab.ask_question(
+            body, asked_by=actor, assigned_to=assignee, actor=actor, origin=origin
+        )
     elif kind == "blocker":
         result = blockers.raise_blocker(
             title=body[:120], detail=body, owner=actor, actor=actor, origin=origin
         )
     elif kind == "decision":
+        review_by, body = split_review_by(body)
         result = collab.record_decision(
-            title=body[:80], decision=body, decided_by=actor, actor=actor, origin=origin
+            title=body[:80],
+            decision=body,
+            decided_by=actor,
+            review_by=review_by,
+            actor=actor,
+            origin=origin,
         )
     elif kind == "commitment":
         result = commitments.add_commitment(body, actor=actor, origin=origin)

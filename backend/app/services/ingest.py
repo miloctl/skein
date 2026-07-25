@@ -30,12 +30,16 @@ def _classify_strict(line: str) -> str | None:
 
 
 def _payload(kind: str, body: str, actor: str) -> dict:
+    from .capture import split_assignee, split_review_by
+
     if kind == "question":
-        return {"question": body, "asked_by": actor}
+        assignee, body = split_assignee(body)
+        return {"question": body, "asked_by": actor, "assigned_to": assignee}
     if kind == "blocker":
         return {"title": body[:120], "detail": body, "owner": actor}
     if kind == "decision":
-        return {"title": body[:80], "decision": body, "decided_by": actor}
+        review_by, body = split_review_by(body)
+        return {"title": body[:80], "decision": body, "decided_by": actor, "review_by": review_by}
     if kind == "commitment":
         return {"promise": body}
     if kind == "task":

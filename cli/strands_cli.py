@@ -174,7 +174,8 @@ def cmd_search(args):
 
 def cmd_eval(args):
     out = api("GET", "/api/eval/capture")
-    if not out["cases"]:
+    unscored = out.get("unscored", [])
+    if not out["cases"] and not unscored:
         print(
             "no labeled capture feedback yet — POST /api/feedback with"
             " kind=capture, verdict=up|corrected to build the corpus"
@@ -183,6 +184,8 @@ def cmd_eval(args):
     print(f"capture classifier: {out['passed']}/{out['cases']} passed (accuracy {out['accuracy']})")
     for m in out["mismatches"]:
         print(f"  ✗ #{m['id']} {m['input']!r}: expected {m['expected']}, got {m['predicted']}")
+    for u in unscored:
+        print(f"  ? #{u['id']} unscored (free-text correction): {u['note'][:70]}")
     if out["mismatches"]:
         sys.exit(1)
 

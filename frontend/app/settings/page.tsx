@@ -66,6 +66,14 @@ export default function SettingsPage() {
 
   useEffect(refresh, [refresh]);
 
+  const [roster, setRoster] = useState<{ name: string; kind: string }[]>([]);
+  const loadRoster = useCallback(() => {
+    api<{ name: string; kind: string }[]>("/api/users")
+      .then((u) => setRoster(u.filter((x) => x.name !== "anonymous")))
+      .catch(() => {});
+  }, []);
+  useEffect(loadRoster, [loadRoster]);
+
   const saveName = () => {
     setUser(name);
     window.location.reload();
@@ -387,6 +395,52 @@ export default function SettingsPage() {
           If the API is token-locked, the operator sets STRANDS_ICS_TOKEN and
           the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
         </p>
+      </Section>
+
+      <Section title="Team roster">
+        <p className="mb-2 text-sm text-ink-3">
+          Everyone who has picked a name here. Deactivating removes a typo or
+          departed teammate from the roster and counts — history stays
+          attributed. Requires a working API key (step 2).
+        </p>
+        {roster.length === 0 ? (
+          <p className="text-sm text-ink-3">Nobody yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {roster.map((u) => (
+              <li key={u.name} className="flex items-center justify-between text-sm">
+                <span>
+                  {u.name}
+                  {u.kind === "agent" && (
+                    <span className="ml-1.5 rounded-full bg-thread/10 px-1.5 py-px font-mono text-[10px] text-thread">
+                      agent
+                    </span>
+                  )}
+                </span>
+                {strong && u.name !== currentUser && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Deactivate ${u.name}? History stays; the name leaves the roster.`))
+                        return;
+                      try {
+                        await api(`/api/users/${encodeURIComponent(u.name)}/active`, {
+                          method: "POST",
+                          body: JSON.stringify({ active: false }),
+                        });
+                        loadRoster();
+                      } catch (e) {
+                        alert(String(e));
+                      }
+                    }}
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    deactivate
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
 
       <Section title="Dismissed cards">

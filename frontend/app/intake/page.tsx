@@ -78,6 +78,8 @@ export default function IntakePage() {
     let kind = "delivery";
     let timebox_end = "";
     let outcome = "";
+    let lead = "";
+    let kill_criteria = "";
     if (d === "accepted") {
       if (asExperiment) {
         const tb = prompt("Experiment timebox end (YYYY-MM-DD):");
@@ -88,13 +90,24 @@ export default function IntakePage() {
         }
         kind = "experiment";
         timebox_end = tb.trim();
+        kill_criteria =
+          prompt("Kill criteria (optional — what result stops this early?):") ?? "";
       }
+      lead = prompt("Lead (optional — who owns the engagement?):") ?? "";
       outcome = prompt("Outcome statement (optional — what result would success show?):") ?? "";
     }
     try {
       await api(`/api/intake/${id}/disposition`, {
         method: "POST",
-        body: JSON.stringify({ disposition: d, reason, kind, timebox_end, outcome }),
+        body: JSON.stringify({
+          disposition: d,
+          reason,
+          kind,
+          timebox_end,
+          outcome,
+          lead: lead.trim(),
+          kill_criteria: kill_criteria.trim(),
+        }),
       });
       load();
     } catch (e) {

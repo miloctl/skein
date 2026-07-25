@@ -70,6 +70,8 @@ def disposition_request(
     kind: str = "delivery",
     timebox_end: str = "",
     outcome: str = "",
+    lead: str = "",
+    kill_criteria: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -86,6 +88,8 @@ def disposition_request(
             kind=kind,
             timebox_end=timebox_end,
             outcome=outcome,
+            lead=lead,
+            kill_criteria=kill_criteria,
             actor=actor,
             origin=origin,
         )
@@ -99,6 +103,8 @@ def _disposition(
     kind: str = "delivery",
     timebox_end: str = "",
     outcome: str = "",
+    lead: str = "",
+    kill_criteria: str = "",
     actor: str,
     origin: str,
 ) -> dict:
@@ -125,6 +131,8 @@ def _disposition(
                 kind=kind,
                 timebox_end=timebox_end,
                 outcome=outcome,
+                lead=lead,
+                kill_criteria=kill_criteria,
                 actor=actor,
                 origin=origin,
             )
