@@ -122,6 +122,8 @@ def test_canary_absent_from_every_disk_file(client, fresh_db):
     admin.export()
     assert "BEGIN:VCALENDAR" in client.get("/api/calendar.ics").text  # exercise the feed
     assert CANARY not in client.get("/api/calendar.ics").text
+    # /ask reads the same FTS: the echo of the question is fine, citations must be empty
+    assert client.get(f"/api/ask?q={CANARY}").json()["citations"] == []
     for f in Path(config.DATA_DIR).rglob("*"):
         if f.is_file() and "private.db" not in f.name:
             assert CANARY.encode() not in f.read_bytes(), f"canary leaked into {f}"

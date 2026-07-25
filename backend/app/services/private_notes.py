@@ -136,8 +136,8 @@ def feedback_gap_days(author: str, person: str) -> int | None:
 
 
 def delete_note(author: str, note_id: int) -> dict:
-    """Author-only delete with a tombstone audit row — 'prove note #N about
-    dana was destroyed' must be answerable."""
+    """Author-only delete with a tombstone audit row: proves note #N existed
+    and was destroyed (deliberately NOT whom it concerned — less residue)."""
     with closing(_connect()) as conn:
         cur = conn.execute(
             "DELETE FROM private_notes WHERE id = ? AND author = ?", (note_id, author)

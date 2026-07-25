@@ -131,6 +131,7 @@ def update_task(
     priority: str = "",
     due_date: str = "",
     description: str = "",
+    waiting_on: str = "",
 ) -> str:
     """Update fields on an existing task. Only pass the fields to change.
 
@@ -141,6 +142,8 @@ def update_task(
         priority: One of low, medium, high, urgent.
         due_date: New due date (YYYY-MM-DD).
         description: New description.
+        waiting_on: What this task is stuck behind — 'task:12', 'blocker:3',
+            or 'commitment:7'; '-' clears it.
     """
     payload = {
         "status": status,
@@ -148,6 +151,7 @@ def update_task(
         "priority": priority,
         "due_date": due_date,
         "description": description,
+        "waiting_on": waiting_on,
     }
     payload = {k: v for k, v in payload.items() if v}
     return gated_write(

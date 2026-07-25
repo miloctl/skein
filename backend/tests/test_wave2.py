@@ -127,6 +127,69 @@ def test_private_note_delete_and_audit(client, fresh_db):
     assert client.get("/api/private/audit", headers=other).json() == []
 
 
+def test_charter_supersede_keeps_category_and_requires_review_by(client, fresh_db):
+    from app.services.collab import record_decision, supersede_decision
+
+    with pytest.raises(ValueError, match="review_by"):
+        record_decision("no date", "x", category="charter", actor="m")
+    old = record_decision(
+        "Quality bar", "tests before merge", review_by="2099-01-01", category="charter", actor="m"
+    )
+    new = supersede_decision(old["id"], "Quality bar v2", "tests + lint before merge", actor="m")
+    charter = client.get("/api/decisions?category=charter").json()
+    by_id = {d["id"]: d for d in charter}
+    assert new["id"] in by_id  # the replacement stays on the charter page
+    assert by_id[new["id"]]["review_by"] is not None  # 90d default applied
+
+
+def test_satisfied_waits_stop_yellowing(client, fresh_db):
+    from app.services import blockers, engagements, work
+
+    engagements.create_engagement("Nimbus", actor="m")
+    m = work.create_milestone(title="M1", project="Nimbus", actor="m")
+    t = work.create_task(title="stuck", milestone_id=m["id"], actor="m")
+    b = blockers.raise_blocker("upstream", actor="m")
+    work.update_task(t["id"], waiting_on=f"blocker:{b['id']}", actor="m")
+    assert client.get("/api/portfolio/health").json()[0]["health"] == "yellow"
+    blockers.resolve_blocker(b["id"], actor="m")
+    health = client.get("/api/portfolio/health").json()[0]
+    assert health["health"] == "green"  # dependency cleared → receipt gone
+    assert not any("waiting" in r for r in health["receipts"])
+
+
+def test_agent_tools_cover_wave2_fields(fresh_db, monkeypatch):
+    from app import config
+    from app.services import blockers as blockers_svc
+    from app.services import work as work_svc
+    from app.tools import collab as tc
+    from app.tools import work as tw
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    t = work_svc.create_task(title="agent task", actor="m")
+    b = blockers_svc.raise_blocker("dep", actor="m")
+    tw.update_task(t["id"], waiting_on=f"blocker:{b['id']}")
+    row = fresh_db.query_row("SELECT waiting_on_type FROM tasks WHERE id = ?", (t["id"],))
+    assert row["waiting_on_type"] == "blocker"
+    tc.record_decision(
+        "Charter via agent",
+        "agents can draft charter entries",
+        review_by="2099-01-01",
+        category="charter",
+    )
+    assert len(fresh_db.query("SELECT * FROM decisions WHERE category = 'charter'")) == 1
+
+
+def test_authority_stale_null_review_by_falls_back(fresh_db):
+    from app.services.insights import run_findings
+
+    fresh_db.execute(
+        "INSERT INTO agent_authority (agent, entity, level, updated_by, updated_at)"
+        " VALUES ('old-agent', 'task', 'autonomous', 'm', '2020-01-01T00:00:00')"
+    )
+    hits = [f for f in run_findings(actor="t")["findings"] if f["rule_id"] == "authority_stale"]
+    assert len(hits) == 1  # pre-017-style row (NULL review_by) still expires
+
+
 def test_rate_caps(client, fresh_db):
     from app import ratelimit
 

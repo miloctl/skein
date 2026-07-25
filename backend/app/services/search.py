@@ -31,7 +31,9 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
 def ask(q: str, limit: int = 5) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
     its row (entity #id), findings-style. Degrades honestly keyless — an LLM
-    synthesis can be layered on top later, but the citations ARE the answer."""
+    synthesis can be layered on top later, but the citations ARE the answer.
+    NOTE for any future UI: snippets contain literal <b> markup from FTS —
+    render as text or strip it; never innerHTML indexed user content."""
     hits = search(q, limit)
     return {
         "question": q,

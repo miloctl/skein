@@ -615,10 +615,12 @@ def _r_experiment_overdue() -> list[dict]:
 def _r_authority_stale() -> list[dict]:
     """Elevated authority grants past their review-by date. The nudge, not a
     demotion state machine — the human reconfirms (re-grants) or demotes."""
+    # NULL review_by falls back to updated_at + 90d — a grant that dodged
+    # migration 018 (direct SQL, restored backup) must still expire to a nag
     stale = db.query(
         "SELECT agent, entity, level, review_by, updated_by FROM agent_authority"
-        " WHERE level IN ('autonomous', 'notify') AND review_by IS NOT NULL"
-        " AND review_by < ?",
+        " WHERE level IN ('autonomous', 'notify')"
+        " AND COALESCE(review_by, date(updated_at, '+90 days')) < ?",
         (_iso(_today()),),
     )
     return [

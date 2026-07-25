@@ -12,6 +12,24 @@ def _today() -> date:
     return datetime.now(timezone.utc).date()
 
 
+# a wait on a resolved/done/kept target is satisfied — it must stop yellowing
+# the engagement the moment the dependency clears, without a manual unset
+_WAIT_SATISFIED = {
+    "task": "SELECT 1 FROM tasks WHERE id = ? AND status = 'done'",
+    "blocker": "SELECT 1 FROM blockers WHERE id = ? AND status = 'resolved'",
+    "commitment": "SELECT 1 FROM commitments WHERE id = ? AND status != 'open'",
+}
+
+
+def _unsatisfied_waits(sql: str, params: tuple) -> list[dict]:
+    out = []
+    for t in db.query(sql, params):
+        satisfied = db.query_one(_WAIT_SATISFIED[t["waiting_on_type"]], (t["waiting_on_id"],))
+        if not satisfied:
+            out.append(t)
+    return out
+
+
 def _linked_blockers(engagement_id: int) -> list[dict]:
     return db.query(
         "SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id"
@@ -54,14 +72,13 @@ def engagement_health() -> list[dict]:
                 f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d"
                 f" (@{t['assignee'] or 'unassigned'})"
             )
-        waiting = db.query(
+        for t in _unsatisfied_waits(
             "SELECT t.id, t.title, t.waiting_on_type, t.waiting_on_id FROM tasks t"
             " JOIN milestones m ON m.id = t.milestone_id"
             " WHERE m.engagement_id = ? AND t.status != 'done'"
             " AND t.waiting_on_type IS NOT NULL",
             (eng["id"],),
-        )
-        for t in waiting:
+        ):
             receipts.append(
                 f"task #{t['id']} '{t['title']}' waiting on"
                 f" {t['waiting_on_type']} #{t['waiting_on_id']}"
@@ -210,7 +227,7 @@ def slip_forecast() -> dict:
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     ):
         forecast = (date.fromisoformat(m["due_date"]) + timedelta(days=round(applied))).isoformat()
-        waiting = db.query(
+        waiting = _unsatisfied_waits(
             "SELECT id, waiting_on_type, waiting_on_id FROM tasks"
             " WHERE milestone_id = ? AND status != 'done' AND waiting_on_type IS NOT NULL",
             (m["id"],),

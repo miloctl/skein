@@ -178,7 +178,8 @@ def update_task(
     waiting_id: int | None = None
     if waiting_on and waiting_on != "-":
         kind, _, ref = waiting_on.partition(":")
-        if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdigit():
+        # isdecimal, not isdigit: '²' passes isdigit but blows up int()
+        if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdecimal():
             raise ValueError(
                 f"waiting_on must look like 'task:12', 'blocker:3', or"
                 f" 'commitment:7' (one of {WAITING_ON_TYPES}), or '-' to clear"

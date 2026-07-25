@@ -17,9 +17,10 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
     """Self-declared growth interests — person-level data used to plan the
     future (staffing fit), never to judge the past. Display-only: no
     matching logic, no scores."""
-    ensure_user(name)
+    prev = ensure_user(name).get("growth_interests", "")
     db.execute("UPDATE users SET growth_interests = ? WHERE name = ?", (interests.strip(), name))
-    db.log_activity(actor, "set_growth_interests", name)
+    # old→new in the ledger: a spoofed overwrite must be visible + recoverable
+    db.log_activity(actor, "set_growth_interests", f"{name}: '{prev}' -> '{interests.strip()}'")
     return {"name": name, "growth_interests": interests.strip()}
 
 

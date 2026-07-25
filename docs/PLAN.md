@@ -226,6 +226,19 @@ deviations from the spec above:
 | `/ask` with receipts | Relabel of FTS search: answer = top snippets with entity#id citations; optional LLM synthesis when a provider exists | 1 session |
 | `authority_stale` findings rule | Fires when an `autonomous`/`notify` grant is >90 days old — the half-life as a nudge, not a demotion state machine | 1 session |
 
+**Wave 2 shipped 2026-07-24** (+ three-agent review; all confirmed findings
+fixed). Recorded deviations:
+- `/ask` LLM synthesis deliberately skipped (keyless citations ARE the
+  answer); endpoint-only, no UI surface yet.
+- Growth interests display in the what-if API payload only (no what-if UI
+  page exists); setter is the 🌱 link on My Day.
+- Setting `waiting_on` bumps `updated_at` (declaring stuckness resets the
+  stale clock) — deliberate: the waiting receipt itself keeps the task
+  visible, and declaring a dependency IS activity.
+- Charter entries require `review_by`; category survives supersession.
+- authority_stale falls back to `updated_at`+90d when `review_by` is NULL
+  (migration 018 backfills pre-017 grants).
+
 ## Wave 3 — post-adoption (month 3+, team is using it)
 
 | Item | Notes |

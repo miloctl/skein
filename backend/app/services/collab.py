@@ -76,6 +76,11 @@ def record_decision(
         )
     if category not in DECISION_CATEGORIES:
         raise ValueError(f"category must be one of {DECISION_CATEGORIES}")
+    if category == "charter" and not review_by:
+        raise ValueError(
+            "charter entries need a review_by date — the whole point is that"
+            " they get reconfirmed instead of silently rotting"
+        )
     did = db.execute(
         "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
         " origin, created_by, created_at)"
@@ -128,12 +133,18 @@ def supersede_decision(
         raise ValueError(
             f"decision #{decision_id} already superseded by #{current['superseded_by']}"
         )
+    if old["category"] == "charter" and not review_by:
+        # charter replacements keep riding the sweep — default the 90-day push
+        from datetime import date, timedelta
+
+        review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
     new = record_decision(
         title,
         decision,
         context or f"Supersedes #{decision_id}: {old['title']}",
         decided_by,
         review_by,
+        category=old["category"],  # a charter entry's replacement stays charter
         actor=actor,
         origin=origin,
     )

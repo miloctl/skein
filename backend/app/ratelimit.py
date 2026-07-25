@@ -12,6 +12,7 @@ _lock = Lock()
 
 WINDOW_SECONDS = 60.0
 LIMITS = {"capture": 30, "ingest": 6}
+MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 
 
 def check(surface: str, user: str) -> None:
@@ -22,6 +23,11 @@ def check(surface: str, user: str) -> None:
     now = time.monotonic()
     key = (surface, user)
     with _lock:
+        # shed drained windows so rotated X-User names can't grow the dict
+        for k in [k for k, w in _hits.items() if k != key and w and now - w[-1] > WINDOW_SECONDS]:
+            del _hits[k]
+        if key not in _hits and len(_hits) >= MAX_KEYS:
+            raise ValueError("slow down — too many distinct senders")
         window = _hits[key]
         while window and now - window[0] > WINDOW_SECONDS:
             window.popleft()

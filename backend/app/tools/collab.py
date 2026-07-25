@@ -56,7 +56,14 @@ def list_questions(status: str = "open") -> str:
 
 
 @tool
-def record_decision(title: str, decision: str, context: str = "", decided_by: str = "") -> str:
+def record_decision(
+    title: str,
+    decision: str,
+    context: str = "",
+    decided_by: str = "",
+    review_by: str = "",
+    category: str = "",
+) -> str:
     """Record a team decision in the decision log so future work can reference it.
 
     Args:
@@ -64,8 +71,14 @@ def record_decision(title: str, decision: str, context: str = "", decided_by: st
         decision: What was decided.
         context: Why — the options considered and reasoning.
         decided_by: Who made or ratified the decision.
+        review_by: YYYY-MM-DD date when the decision should be revisited.
+        category: '' for normal decisions, 'charter' for team charter /
+            decision-rights entries (charter requires review_by).
     """
-    payload = {"title": title, "decision": decision, "context": context, "decided_by": decided_by}
+    optional = {"context": context, "decided_by": decided_by, "review_by": review_by}
+    if category:
+        optional["category"] = category
+    payload = {"title": title, "decision": decision, **optional}
     return gated_write(
         "decision",
         "create",

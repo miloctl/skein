@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (15 rule IDs across 14 entries)
+## The findings rules (16 rule IDs across 15 entries)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -69,8 +69,9 @@ within a week even on severity change.
 12. **Token spend anomaly** — weekly ≥2× median of prior 4 weeks AND above an absolute floor.
 13. **Job stale** — a registered scheduled job with no successful run within 2× its period (from `job_outcomes`); never fires on a fresh install (needs ≥1 recorded attempt older than the threshold); subject = job name.
 14. **Experiment overdue** — an open experiment engagement past its `timebox_end` with no recorded conclusion; conclude it or extend the timebox on purpose (`PATCH /api/engagements/{id}` accepts `timebox_end`). Subject = engagement id; n=1 fires.
+15. **Authority stale** — an `autonomous`/`notify` grant past its `review_by` (set to grant+90d; NULL falls back to `updated_at`+90d). The half-life as a nudge, not a demotion state machine: reconfirm by re-granting, or demote. `forbidden`/`review` never expire — the kill switch is forever. Subject = agent+entity; n=1 fires.
 
-(15. Forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
+(16. Forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as
