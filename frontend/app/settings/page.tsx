@@ -7,12 +7,15 @@ import {
   APPEARANCES,
   COLORWAYS,
   CUSTOM_DEFAULT,
+  PACKS,
   getAppearance,
   getColorway,
   getCustomHues,
+  getPack,
   setAppearance,
   setColorway,
   setCustomHues,
+  setPack,
 } from "@/lib/theme";
 
 function subscribeStorage(cb: () => void) {
@@ -143,6 +146,7 @@ export default function SettingsPage() {
 
   const appearance = useSyncExternalStore(subscribeStorage, getAppearance, () => "system");
   const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
+  const pack = useSyncExternalStore(subscribeStorage, getPack, () => "loom");
   const customThread = useSyncExternalStore(
     subscribeStorage,
     () => getCustomHues().thread,
@@ -196,6 +200,37 @@ export default function SettingsPage() {
                 }
               >
                 {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mb-4 flex items-start gap-2">
+          <span className="w-24 pt-1.5 text-sm text-ink-2">Fabric</span>
+          <div className="flex flex-wrap gap-2">
+            {PACKS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setPack(p.id)}
+                aria-pressed={pack === p.id}
+                title={p.blurb}
+                className={
+                  "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
+                  (pack === p.id
+                    ? "border-thread-solid bg-thread/10 font-medium text-ink"
+                    : "border-line-strong text-ink-2 hover:bg-raised")
+                }
+              >
+                <span aria-hidden className="flex">
+                  <span
+                    className="size-3 rounded-full ring-1 ring-line-strong"
+                    style={{ background: p.swatch[0] }}
+                  />
+                  <span
+                    className="-ml-1 size-3 rounded-full ring-1 ring-line-strong"
+                    style={{ background: p.swatch[1] }}
+                  />
+                </span>
+                {p.label}
               </button>
             ))}
           </div>

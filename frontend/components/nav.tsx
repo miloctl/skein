@@ -50,7 +50,7 @@ function NavLink({
     <Link
       href={href}
       className={
-        "relative flex h-14 items-center text-[13px] transition-colors " +
+        "relative flex h-14 items-center whitespace-nowrap text-[13px] transition-colors " +
         (active ? "font-medium text-ink" : "text-ink-2 hover:text-ink")
       }
     >
@@ -107,7 +107,7 @@ export function Nav() {
 
   return (
     <header className="sticky top-0 z-10 bg-page/85 backdrop-blur">
-      <div className="flex h-14 items-center justify-between px-6">
+      <div className="flex h-14 items-center justify-between gap-6 px-6">
         <Link href="/" className="flex items-baseline gap-2 whitespace-nowrap">
           <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
             Skein

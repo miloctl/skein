@@ -6,6 +6,36 @@
 const THEME_KEY = "skein-theme";
 const APPEARANCE_KEY = "skein-appearance";
 const CUSTOM_KEY = "skein-custom";
+const PACK_KEY = "skein-pack";
+
+// Fabric packs re-weave surfaces, texture, and type (globals.css owns the
+// values); colorways and custom hues dye the accents on top of any pack.
+export const PACKS = [
+  {
+    id: "loom",
+    label: "Loom",
+    blurb: "Warm neutrals, vertical warp threads",
+    swatch: ["#faf9f6", "#141311"],
+  },
+  {
+    id: "ledger",
+    label: "Ledger",
+    blurb: "Cool paper, ruled lines, print-crisp",
+    swatch: ["#f5f6f8", "#13151a"],
+  },
+  {
+    id: "phosphor",
+    label: "Phosphor",
+    blurb: "Terminal green-black, scanlines, mono type",
+    swatch: ["#f2f5ef", "#0c100c"],
+  },
+  {
+    id: "contrast",
+    label: "High contrast",
+    blurb: "Pure black & white, no texture, strong borders",
+    swatch: ["#ffffff", "#000000"],
+  },
+] as const;
 
 export const COLORWAYS = [
   { id: "indigo", label: "Indigo & ochre", thread: "#3b4dbf", weld: "#935a1c" },
@@ -82,6 +112,17 @@ export function getAppearance(): string {
   return a === "light" || a === "dark" ? a : "system";
 }
 
+export function getPack(): string {
+  if (typeof window === "undefined") return "loom";
+  const p = read(PACK_KEY);
+  return PACKS.some((x) => x.id === p) ? (p as string) : "loom";
+}
+
+export function setPack(id: string) {
+  write(PACK_KEY, id === "loom" ? null : id);
+  applyAndPing();
+}
+
 export function applyPrefs() {
   const root = document.documentElement;
   const t = getColorway();
@@ -100,6 +141,9 @@ export function applyPrefs() {
   const a = getAppearance();
   if (a === "system") delete root.dataset.appearance;
   else root.dataset.appearance = a;
+  const p = getPack();
+  if (p === "loom") delete root.dataset.pack;
+  else root.dataset.pack = p;
 }
 
 function applyAndPing() {
