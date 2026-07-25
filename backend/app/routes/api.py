@@ -73,8 +73,8 @@ def get_standups():
 
 
 @router.get("/events")
-def get_events():
-    return schedule.list_events()
+def get_events(from_date: str = ""):
+    return schedule.list_events(from_date)
 
 
 @router.get("/notes")

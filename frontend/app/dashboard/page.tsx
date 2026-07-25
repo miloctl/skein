@@ -166,8 +166,19 @@ export default function Dashboard() {
       "engagements",
       "capacity",
     ];
+    // calendar shows what's ahead — without the cutoff the card fills with
+    // the 50 oldest events and never today's
+    const today = new Date().toISOString().slice(0, 10);
     Promise.all(
-      endpoints.map(async (e) => [e, await api<Row[]>(`/api/${e}`)] as const),
+      endpoints.map(
+        async (e) =>
+          [
+            e,
+            await api<Row[]>(
+              e === "events" ? `/api/events?from_date=${today}` : `/api/${e}`,
+            ),
+          ] as const,
+      ),
     )
       .then((pairs) => setData(Object.fromEntries(pairs)))
       .catch((err) => setError(String(err)));
@@ -429,7 +440,9 @@ export default function Dashboard() {
         render={(d) => (
           <li key={d.id} className="text-sm">
             <span className="font-medium">{d.title}</span>
-            <p className="text-xs text-ink-3">{d.decision}</p>
+            {d.decision !== d.title && (
+              <p className="text-xs text-ink-3">{d.decision}</p>
+            )}
           </li>
         )}
       />
@@ -452,7 +465,10 @@ export default function Dashboard() {
         render={(n) => (
           <li key={n.id} className="text-sm">
             <span className="font-medium">{n.topic}</span>
-            <p className="line-clamp-2 text-xs text-ink-3">{n.content}</p>
+            <p className="line-clamp-2 text-xs text-ink-3">
+              {/* notes hold markdown; this is a plain-text preview */}
+              {String(n.content).replace(/[*#`]/g, "").replace(/\s+/g, " ")}
+            </p>
           </li>
         )}
       />

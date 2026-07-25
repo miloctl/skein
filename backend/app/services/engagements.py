@@ -202,7 +202,8 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
     from .notifications import notify
 
     save_note(topic=f"shipped-{name}", content=recap, author=actor, actor=actor, origin="human")
-    notify("team", recap, tier="immediate", link="/dashboard")
+    # the note renders markdown; notifications land on plain-text surfaces
+    notify("team", recap.replace("**", ""), tier="immediate", link="/dashboard")
 
 
 def list_engagements(status: str = "") -> list[dict]:

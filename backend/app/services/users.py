@@ -25,9 +25,13 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
 
 
 def list_users(active_only: bool = True) -> list[dict]:
+    """'anonymous' is the pre-name-pick fallback identity, not a teammate —
+    no listing surface (roster, People, staffing) should show it."""
     if active_only:
-        return db.query("SELECT * FROM users WHERE active = 1 ORDER BY kind, name")
-    return db.query("SELECT * FROM users ORDER BY kind, name")
+        return db.query(
+            "SELECT * FROM users WHERE active = 1 AND name != 'anonymous' ORDER BY kind, name"
+        )
+    return db.query("SELECT * FROM users WHERE name != 'anonymous' ORDER BY kind, name")
 
 
 # every column that attributes a row to a person, per table — explicit so a

@@ -287,7 +287,8 @@ export default function MyDay() {
                           >
                             <span>
                               <Link href={a.link} className="hover:underline">
-                                {a.label}
+                                {/* notifications may carry markdown bold; this list is plain text */}
+                                {a.label.replaceAll("**", "")}
                               </Link>
                               <span
                                 className="ml-2 block text-xs text-ink-3"

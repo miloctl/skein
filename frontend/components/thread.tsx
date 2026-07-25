@@ -194,8 +194,8 @@ export function Thread() {
             <p className="mt-6 text-xs text-ink-3">
               Type <code>/help</code> for commands — <code>/plan</code>,{" "}
               <code>/playbooks</code>, <code>/search</code>,{" "}
-              <code>/briefing</code>, <code>/remember</code>. Anything else is
-              smart-captured.
+              <code>/briefing</code>, <code>/remember</code> — they run
+              instantly, no model needed. Anything else goes to the agent.
             </p>
           </div>
         </ThreadPrimitive.Empty>
