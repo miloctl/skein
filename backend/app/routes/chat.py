@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from ..agents import commands
 from ..agents.team_agent import build_agent
 from ..config import MODEL_ID
 from ..services.usage import record_chat_usage
@@ -24,6 +25,12 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     thread_id: str = "default"
     message: str
+
+
+@router.get("/api/chat/commands")
+def chat_commands() -> list[dict]:
+    """Command catalog for the composer autocomplete — static metadata."""
+    return commands.catalog()
 
 
 def _log_usage(agent, thread_id: str) -> None:
@@ -67,6 +74,26 @@ async def chat(req: ChatRequest, user: CurrentUser):
             yield _sse({"type": "done"})
 
         return StreamingResponse(fb_stream(), media_type="text/event-stream")
+
+    # slash commands are deterministic for EVERY provider: no agent, no
+    # session write, no tokens — same engine the mock agent and Slack use
+    command_events = commands.dispatch(req.message, user)
+    if command_events is not None:
+
+        async def command_stream():
+            try:
+                async for event in command_events:
+                    if "data" in event:
+                        yield _sse({"type": "text", "text": event["data"]})
+                    elif "current_tool_use" in event:
+                        name = event["current_tool_use"].get("name", "")
+                        yield _sse({"type": "tool", "name": name})
+            except Exception as exc:
+                logging.getLogger("strands.chat").exception("command failed (user=%s)", user)
+                yield _sse({"type": "error", "message": str(exc)})
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(command_stream(), media_type="text/event-stream")
     # thread_id becomes a session filename — restrict to a safe charset
     thread_id = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
     try:

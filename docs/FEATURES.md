@@ -65,7 +65,8 @@ both write paths (human REST, agent tools) and carry provenance
 
 | Feature | How |
 |---|---|
-| Chief-of-Staff chat | streaming SSE; `STRANDS_MODEL_PROVIDER=mock` gives a command-driven agent (`/plan`, `/briefing`, `/search`, `/remember`, `/playbooks`, `/help`) keyless; `ollama` gives a real model for free (local daemon or Ollama Cloud via signed-in daemon / `OLLAMA_API_KEY`); anthropic/openai are the paid tiers |
+| Chief-of-Staff chat | streaming SSE; freeform text goes to the agent (`mock` = keyless smart-capture; `ollama` free via local daemon or Ollama Cloud; anthropic/openai paid) |
+| Slash commands | `/plan`, `/briefing`, `/search`, `/remember`, `/playbooks`, `/help` run deterministically for EVERY provider (`app/agents/commands.py` — no model call, no tokens); composer autocomplete driven by `GET /api/chat/commands` (type `/h`, ↵ runs, tab completes); unknown `/cmd` gets a did-you-mean instead of a model trip |
 | Agent write path | 40+ Strands `@tool` wrappers over the same services humans use (plus planner, memory, and opt-in extra tools on the chat agent) |
 | Review gate | `STRANDS_AGENT_REVIEW=1` routes mutating agent tools through `pending_changes`; approval applies via the service registry as `origin=agent_verified` |
 | **Authority matrix** | per (agent, entity): `autonomous` (direct), `notify` (direct + team ping), `review` (default — proposal), `forbidden` (refused). Enforced in the shared tool gate (chat AND MCP); only humans can set levels | `GET/POST /api/agents/authority` · `GET /api/agents/entities` · `/agents` page |
