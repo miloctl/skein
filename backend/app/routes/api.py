@@ -342,7 +342,7 @@ def post_feedback(body: FeedbackIn, user: CurrentUser):
 
 
 @router.get("/feedback")
-def get_feedback(kind: str = ""):
+def get_feedback(user: CurrentUser, kind: str = ""):
     return feedback.list_feedback(kind)
 
 

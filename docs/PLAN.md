@@ -258,6 +258,12 @@ disposition analytics). Recorded deviations:
   model-theater. Scenarios live in `tests/test_golden_traces.py`, run in CI.
 - Pulse shipped pre-adoption (buttons on My Day + Monday digest line) — the
   tally stays empty until the team arrives, which is honest.
+- Pulse votes are stored and logged UNATTRIBUTED (no created_by, ledger gets
+  neither actor nor verdict; migration 020 scrubbed early rows) — a
+  documented narrowing of the provenance norm: the vote is honest only if it
+  cannot be attributed. Regression-tested across feedback/activity/export.
+- Engagement packs are agent-reachable (chat tool + MCP get_context_pack
+  accept engagement_id); the CLI has no --engagement flag yet.
 - Shared 1:1 agendas + incident timeline REMAIN deferred (need real usage).
 
 ## Deferred with explicit re-entry triggers

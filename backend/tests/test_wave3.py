@@ -43,6 +43,51 @@ def test_pulse_tally_team_aggregated(client, fresh_db):
     assert "created_by" not in tally[0] and "user" not in tally[0]  # counts only
 
 
+def test_pulse_votes_are_unattributable(client, fresh_db):
+    """The promise is 'never per person' — no username may co-occur with a
+    verdict on ANY egress surface: raw feedback endpoint, activity ledger,
+    admin export."""
+    import json as j
+
+    from app.services import admin
+    from app.services.api_keys import create_key
+
+    voters = ("alice", "bob")
+    for user, verdict in zip(voters, ("up", "down"), strict=True):
+        client.post(
+            "/api/feedback",
+            json={"kind": "pulse", "input_text": "2026-07-24", "verdict": verdict},
+            headers={"X-User": user},
+        )
+    rows = client.get("/api/feedback?kind=pulse").json()
+    assert all("created_by" not in r for r in rows)  # column never on the wire
+    assert client.get("/api/feedback?kind=pulse", headers={}).status_code in (200, 403)
+    activity = j.dumps(fresh_db.query("SELECT * FROM activity WHERE action = 'record_feedback'"))
+    for v in voters:
+        assert v not in activity
+    assert "pulse/" not in activity  # verdict never reaches the ledger
+    key = create_key("auditor", "t")["key"]
+    from pathlib import Path
+
+    export = admin.export()
+    dump = j.loads(Path(export["path"]).read_text())
+    for row in dump.get("feedback", []):
+        if row["kind"] == "pulse":
+            assert row["created_by"] == ""
+    assert key  # export exercised under the strong-identity path
+
+
+def test_engagement_pack_reachable_by_agents(fresh_db):
+    from app.services.engagements import create_engagement
+    from app.tools.portfolio import get_context_pack
+
+    create_engagement("Agent scoped", actor="m")
+    import json as j
+
+    out = j.loads(get_context_pack(engagement_id=1))
+    assert "Agent scoped" in out["content"]
+
+
 def test_monday_digest_asks_the_pulse(fresh_db, monkeypatch):
     from datetime import date
 

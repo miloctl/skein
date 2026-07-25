@@ -125,9 +125,23 @@ def supersede_decision(
 
 
 @tool
-def get_context_pack() -> str:
+def get_context_pack(engagement_id: int = 0) -> str:
     """The team context pack (org-brain): active decisions, engagement state,
-    lessons, conventions. Load this before working on anything team-related."""
+    lessons, conventions. Load this before working on anything team-related.
+
+    Args:
+        engagement_id: Pass an engagement id to get the SCOPED pack for that
+            engagement only (outcome, milestones, open tasks, blockers,
+            lessons) — cheaper and more focused for delegated work. 0 = the
+            full team pack.
+    """
+    if engagement_id:
+        return json.dumps(
+            {
+                "engagement": engagement_id,
+                "content": context_pack.build_engagement_pack(engagement_id),
+            }
+        )
     return json.dumps(context_pack.get_pack(actor="agent"))
 
 

@@ -59,7 +59,9 @@ type Insights = {
     dispositioned: number;
     converted: number;
     dismissed: number;
+    median_days_to_disposition: number | null;
   }[];
+  pulse_tally: { week: string; up: number; down: number }[];
 };
 
 const SEV = {
@@ -223,9 +225,32 @@ export default function InsightsPage() {
                 <code>{r.rule_id}</code>: fired {r.fired} · acted on{" "}
                 {r.dispositioned} · converted {r.converted} · dismissed{" "}
                 {r.dismissed}
+                {r.median_days_to_disposition !== null &&
+                  ` · median ${r.median_days_to_disposition}d to act`}
                 {r.fired >= 3 && r.dismissed === r.dispositioned && r.dismissed > 0 && (
                   <span className="ml-1 text-amber-600">· retire candidate?</span>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Weekly pulse (team tally — never per person)">
+        {(d.pulse_tally ?? []).length === 0 ? (
+          <p className="text-sm text-zinc-400">
+            No votes yet. The Monday digest asks; 👍/👎 lives on My Day.
+          </p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {d.pulse_tally.map((w) => (
+              <li key={w.week}>
+                {w.week}: 👍 {w.up} · 👎 {w.down}
+                <span className="ml-2 text-xs text-zinc-400">
+                  {w.up + w.down > 0 && w.down > w.up
+                    ? "Skein is adding effort — worth a retro"
+                    : ""}
+                </span>
               </li>
             ))}
           </ul>

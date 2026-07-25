@@ -37,6 +37,8 @@ uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/vulture                                       # dead code
 .venv/bin/uvicorn app.main:app --port 8000 --reload     # run
 .venv/bin/python seed.py                                # demo data
+.venv/bin/python -m app.bootstrap_key <name>            # first API key per person
+                                                        # (private surfaces need one)
 
 # frontend (from frontend/)
 npm run dev     # dev server on :3000

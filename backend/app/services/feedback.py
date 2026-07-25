@@ -28,19 +28,33 @@ def record_feedback(
         raise ValueError("input_text is required")
     if verdict == "corrected" and not correction.strip():
         raise ValueError("a corrected verdict needs the correction")
+    # pulse votes are DESIGNED anonymous: no created_by, and the ledger gets
+    # neither actor nor verdict (on a 6-person team, actor-without-verdict is
+    # still deanonymizable against the tally). A documented narrowing of the
+    # provenance norm — the vote is honest only if it can't be attributed.
+    stored_by = "" if kind == "pulse" else actor
     fid = db.execute(
         "INSERT INTO feedback (kind, input, output, verdict, correction,"
         " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (kind, input_text, output, verdict, correction, actor, db.now()),
+        (kind, input_text, output, verdict, correction, stored_by, db.now()),
     )
-    db.log_activity(actor, "record_feedback", f"#{fid} {kind}/{verdict}")
+    if kind == "pulse":
+        db.log_activity("team", "record_feedback", f"#{fid} pulse")
+    else:
+        db.log_activity(actor, "record_feedback", f"#{fid} {kind}/{verdict}")
     return {"id": fid, "kind": kind, "verdict": verdict}
+
+
+_COLS = "id, kind, input, output, verdict, correction, created_at"  # never created_by
 
 
 def list_feedback(kind: str = "") -> list[dict]:
     if kind:
-        return db.query("SELECT * FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100", (kind,))
-    return db.query("SELECT * FROM feedback ORDER BY id DESC LIMIT 100")
+        return db.query(
+            f"SELECT {_COLS} FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100",  # noqa: S608
+            (kind,),
+        )
+    return db.query(f"SELECT {_COLS} FROM feedback ORDER BY id DESC LIMIT 100")  # noqa: S608
 
 
 def eval_capture() -> dict:

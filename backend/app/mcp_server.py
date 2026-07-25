@@ -179,10 +179,19 @@ def remember(content: str, topic: str = "") -> str:
 
 
 @mcp.tool()
-def get_context_pack() -> str:
+def get_context_pack(engagement_id: int = 0) -> str:
     """The team context pack (org-brain): decisions, engagement health,
-    lessons, conventions. Load before working on anything team-related."""
+    lessons, conventions. Load before working on anything team-related.
+    Pass engagement_id for the scoped single-engagement pack (cheaper,
+    focused — for delegated work)."""
     record_use(ACTOR, "mcp")
+    if engagement_id:
+        return json.dumps(
+            {
+                "engagement": engagement_id,
+                "content": context_pack.build_engagement_pack(engagement_id),
+            }
+        )
     return json.dumps(context_pack.get_pack(actor=ACTOR))
 
 

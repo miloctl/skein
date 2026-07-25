@@ -124,6 +124,11 @@ def test_canary_absent_from_every_disk_file(client, fresh_db):
     assert CANARY not in client.get("/api/calendar.ics").text
     # /ask reads the same FTS: the echo of the question is fine, citations must be empty
     assert client.get(f"/api/ask?q={CANARY}").json()["citations"] == []
+    # the on-demand engagement pack is the one context surface never written
+    # to disk — scan its output directly
+    client.post("/api/engagements", json={"name": "Canary Pack Probe"})
+    eng = client.get("/api/engagements").json()[0]
+    assert CANARY not in client.get(f"/api/context-pack?engagement={eng['id']}").text
     for f in Path(config.DATA_DIR).rglob("*"):
         if f.is_file() and "private.db" not in f.name:
             assert CANARY.encode() not in f.read_bytes(), f"canary leaked into {f}"

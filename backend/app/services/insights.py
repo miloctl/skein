@@ -855,24 +855,30 @@ def rule_stats() -> list[dict]:
     median days-to-disposition. TEAM aggregates about rules, never about
     people. Rules that fire a lot and get dismissed a lot are candidates for
     retirement at season end."""
+    # one disposition per finding: the LATEST is the verdict that stands
+    # (deferred-then-converted must not count in both columns), the FIRST
+    # marks time-to-action for the median
     rows = db.query(
-        "SELECT f.rule_id,"
+        "WITH latest AS (SELECT finding_id, disposition FROM finding_dispositions d1"
+        " WHERE id = (SELECT MAX(id) FROM finding_dispositions d2"
+        "   WHERE d2.finding_id = d1.finding_id))"
+        " SELECT f.rule_id,"
         " COUNT(DISTINCT f.id) AS fired,"
-        " COUNT(DISTINCT d.finding_id) AS dispositioned,"
-        " COUNT(DISTINCT CASE WHEN d.disposition = 'converted' THEN d.finding_id END)"
+        " COUNT(DISTINCT l.finding_id) AS dispositioned,"
+        " COUNT(DISTINCT CASE WHEN l.disposition = 'converted' THEN l.finding_id END)"
         "   AS converted,"
-        " COUNT(DISTINCT CASE WHEN d.disposition = 'dismissed' THEN d.finding_id END)"
+        " COUNT(DISTINCT CASE WHEN l.disposition = 'dismissed' THEN l.finding_id END)"
         "   AS dismissed"
-        " FROM findings f LEFT JOIN finding_dispositions d ON d.finding_id = f.id"
+        " FROM findings f LEFT JOIN latest l ON l.finding_id = f.id"
         " GROUP BY f.rule_id ORDER BY fired DESC"
     )
     for r in rows:
         days = [
             x["d"]
             for x in db.query(
-                "SELECT julianday(d.created_at) - julianday(f.created_at) AS d"
+                "SELECT MIN(julianday(d.created_at)) - julianday(f.created_at) AS d"
                 " FROM finding_dispositions d JOIN findings f ON f.id = d.finding_id"
-                " WHERE f.rule_id = ?",
+                " WHERE f.rule_id = ? GROUP BY d.finding_id",
                 (r["rule_id"],),
             )
             if x["d"] is not None

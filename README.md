@@ -79,6 +79,9 @@ Key mechanics:
 docker compose up --build -d     # backend :8000 + frontend :3000, data in a named volume
 docker compose exec backend python seed.py   # optional demo data
 docker compose logs -f backend               # watch migrations + scheduler start
+# private surfaces (People page, admin export) need a personal API key —
+# mint each person's FIRST key out-of-band, then paste via the 🔑 button:
+docker compose exec backend python -m app.bootstrap_key <name>
 ```
 
 If something already uses port 3000 on the host (true on this box — a

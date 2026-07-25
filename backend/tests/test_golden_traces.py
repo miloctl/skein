@@ -144,7 +144,9 @@ def test_golden_review_roundtrip(fresh_db, monkeypatch):
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     out = json.loads(tw.create_task(title="proposed by agent"))
-    assert out.get("status") == "pending_review" or "pending" in json.dumps(out)
+    # pin the actual tool-output contract (gated_write review path)
+    assert out.get("status") == "pending"
+    assert out.get("note") == "queued for human review"
     assert fresh_db.query("SELECT * FROM tasks") == []
     p = fresh_db.query_row("SELECT id FROM pending_changes WHERE status = 'pending'")
     review.approve_change(p["id"], actor="human-reviewer")
