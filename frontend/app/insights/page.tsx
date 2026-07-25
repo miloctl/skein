@@ -105,7 +105,11 @@ export default function InsightsPage() {
   const disposition = async (id: number, d: string) => {
     let reason = "";
     let deferred_until = "";
-    if (d === "dismissed") reason = prompt("Why dismiss? (false positive, known, …)") ?? "";
+    if (d === "dismissed") {
+      const answer = prompt("Why dismiss? (false positive, known, …)");
+      if (answer === null) return; // cancelled — don't dismiss
+      reason = answer;
+    }
     if (d === "deferred") {
       const until = prompt("Defer until (YYYY-MM-DD)?");
       if (!until) return;

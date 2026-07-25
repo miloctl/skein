@@ -76,3 +76,8 @@ EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("STRANDS_EXTRA_TOOLS", "").spli
 # Optional shared bearer token for the whole API (set when exposing beyond
 # a trusted network). Empty = open (trusted-LAN mode).
 API_TOKEN = os.getenv("STRANDS_API_TOKEN", "")
+
+# Dedicated secret for the ICS calendar feed URL (?token=...). Calendar
+# clients put the URL in configs/logs, so it must NEVER be the API token.
+# When API_TOKEN is set but this is not, the feed is disabled (fail closed).
+ICS_TOKEN = os.getenv("STRANDS_ICS_TOKEN", "")

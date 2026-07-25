@@ -111,9 +111,14 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
     if not change:
         raise ValueError(f"pending change #{change_id} not found")
 
-    _claim(change_id, "approved", note, actor)
-    fn = _registry()[change["entity"]][change["action"]]
+    # resolve the handler BEFORE claiming — a stale entity/action must not
+    # leave the row marked approved with nothing applied
+    try:
+        fn = _registry()[change["entity"]][change["action"]]
+    except KeyError as exc:
+        raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
     payload = json.loads(change["payload"])
+    _claim(change_id, "approved", note, actor)
     try:
         # compound applies (playbook, weekly_plan) land atomically or not at
         # all — a failed apply rolls back, so pending is safe for EVERY entity
@@ -122,7 +127,9 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
                 result = fn(change["entity_id"], **payload, actor=actor, origin="agent_verified")
             else:
                 result = fn(**payload, actor=actor, origin="agent_verified")
-    except (TypeError, ValueError) as exc:
+    except Exception as exc:
+        # ANY failure (also IntegrityError, lock timeout) resets the claim —
+        # an approved-but-never-applied proposal would vanish from the queue
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, review_note = ? WHERE id = ?",
@@ -213,19 +220,26 @@ def review_stats() -> dict:
         "SELECT entity, summary, review_note, reviewed_by FROM pending_changes"
         " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
     )
-    active = db.query_one(
-        "SELECT ROUND(AVG((julianday(reviewed_at) - julianday(claim_at)) * 24 * 60), 1) AS m,"
-        " COUNT(*) AS n FROM pending_changes"
-        " WHERE reviewed_at IS NOT NULL AND claim_at IS NOT NULL"
+    minutes = sorted(
+        r["m"]
+        for r in db.query(
+            "SELECT (julianday(reviewed_at) - julianday(claim_at)) * 24 * 60 AS m"
+            " FROM pending_changes WHERE reviewed_at IS NOT NULL AND claim_at IS NOT NULL"
+        )
+        if r["m"] is not None
+    )
+    n = len(minutes)
+    median = (
+        round(minutes[n // 2] if n % 2 else (minutes[n // 2 - 1] + minutes[n // 2]) / 2, 1)
+        if n
+        else None
     )
     return {
         "by_entity": by_entity,
         "by_proposer": by_proposer,
         "recent_rejections": rejection_reasons,
-        "active_review_minutes": {
-            "avg": active["m"] if active else None,
-            "n": active["n"] if active else 0,
-        },
+        # medians over means (docs/INSIGHTS.md contract)
+        "active_review_minutes": {"median": median, "n": n},
     }
 
 

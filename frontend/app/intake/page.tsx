@@ -68,17 +68,33 @@ export default function IntakePage() {
     }
   };
 
-  const disposition = async (id: number, d: string) => {
+  const disposition = async (id: number, d: string, asExperiment = false) => {
     const reason = prompt(`Reason for "${d}" (requesters see this):`);
     if (reason === null) return; // cancelled
     if (!reason.trim()) {
       alert("A reason is required — requesters see it.");
       return;
     }
+    let kind = "delivery";
+    let timebox_end = "";
+    let outcome = "";
+    if (d === "accepted") {
+      if (asExperiment) {
+        const tb = prompt("Experiment timebox end (YYYY-MM-DD):");
+        if (tb === null) return; // cancelled
+        if (!tb.trim()) {
+          alert("Experiments need a timebox.");
+          return;
+        }
+        kind = "experiment";
+        timebox_end = tb.trim();
+      }
+      outcome = prompt("Outcome statement (optional — what result would success show?):") ?? "";
+    }
     try {
       await api(`/api/intake/${id}/disposition`, {
         method: "POST",
-        body: JSON.stringify({ disposition: d, reason }),
+        body: JSON.stringify({ disposition: d, reason, kind, timebox_end, outcome }),
       });
       load();
     } catch (e) {
@@ -181,6 +197,11 @@ export default function IntakePage() {
                     <button onClick={() => disposition(r.id, "accepted")}
                             className="rounded bg-green-100 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-200">
                       accept
+                    </button>
+                    <button onClick={() => disposition(r.id, "accepted", true)}
+                            title="Accept as a timeboxed experiment — invalidated on time is a success, not a slip"
+                            className="rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-200">
+                      🧪 accept as experiment
                     </button>
                     <button onClick={() => disposition(r.id, "deferred")}
                             className="rounded bg-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-300">

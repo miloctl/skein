@@ -63,9 +63,10 @@ def strong_user(
     if not strong:
         raise HTTPException(
             status_code=403,
-            detail="this surface requires a personal API key"
-            " (create one with POST /api/keys, then set it in the UI or"
-            " send Authorization: Bearer sk-strands-...)",
+            detail="this surface requires a personal API key. Get your first"
+            " one from whoever runs the box (python -m app.bootstrap_key"
+            " <you>), then set it via the 🔑 button or send"
+            " Authorization: Bearer sk-strands-...",
         )
     request.state.strong_auth = True
     record_use(user, _surface(request, x_client))

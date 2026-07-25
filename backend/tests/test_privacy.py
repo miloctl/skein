@@ -70,38 +70,61 @@ def test_fb_capture_refuses_agents(fresh_db):
         capture("fb: dana — sneaky agent note", actor="agent-x", origin="agent", strong_auth=True)
 
 
-def test_canary_absent_from_all_egress_surfaces(client, fresh_db, monkeypatch):
-    headers = _write_private(client, fresh_db)
+def _spray_canary(client, headers):
+    """Every write path an fb: line could plausibly transit."""
     client.post("/api/capture", json={"text": f"fb: dana — {CANARY} extra"}, headers=headers)
+    # multi-line capture containing an fb: line must be REFUSED whole
+    r = client.post(
+        "/api/capture",
+        json={"text": f"todo: ship the thing\nfb: dana — {CANARY} sneaky"},
+        headers=headers,
+    )
+    assert r.status_code == 400 and "alone" in r.json()["detail"]
+    # ingest skips fb: lines
+    ing = client.post(
+        "/api/ingest",
+        json={"text": f"todo: real work\nfb: dana — {CANARY} in transcript"},
+        headers={"X-User": "m"},
+    ).json()
+    assert ing["skipped_private"] == 1
+    # chat refuses fb: before the agent ever sees it
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "t", "message": f"fb: dana — {CANARY} via chat"}
+    ) as resp:
+        chat_out = resp.read().decode()
+    assert "private" in chat_out and CANARY not in json.dumps(
+        [r["title"] for r in client.get("/api/tasks").json()]
+    )
 
-    # search + FTS
-    assert client.get(f"/api/search?q={CANARY.split('-')[0]}").json() == []
-    assert fresh_db.query("SELECT * FROM search_index") == []
-    # context pack (DB + artifact file)
-    pack = client.post("/api/context-pack/publish", json={}).json()
-    assert CANARY not in json.dumps(pack)
-    # digest markdown AND the digest's saved note row
+
+def test_canary_absent_from_every_platform_table(client, fresh_db):
+    """Exhaustive: scan EVERY table in platform.db, not an enumerated list —
+    a leak into any new table fails this without anyone remembering to add it."""
+    headers = _write_private(client, fresh_db)
+    _spray_canary(client, headers)
+    for t in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'"):
+        rows = fresh_db.query(f"SELECT * FROM {t['name']}")  # noqa: S608 — names from sqlite_master
+        assert CANARY not in json.dumps(rows, default=str), f"canary leaked into {t['name']}"
+
+
+def test_canary_absent_from_every_disk_file(client, fresh_db):
+    """Exhaustive: after exercising every artifact-producing surface, no file
+    under DATA_DIR except private.db itself may contain the canary."""
+    from app import config
+    from app.services import admin
     from app.services.digest import publish_digest
 
-    digest = publish_digest(actor="tester", force=True)
-    assert CANARY not in digest["markdown"]
-    assert CANARY not in json.dumps(fresh_db.query("SELECT * FROM notes"))
-    # export files
-    from app.services import admin
-
-    result = admin.export()
-    assert CANARY not in Path(result["path"]).read_text()
-    # activity + notifications
-    assert CANARY not in json.dumps(fresh_db.query("SELECT * FROM activity"))
-    assert CANARY not in json.dumps(fresh_db.query("SELECT * FROM notifications"))
-    # every artifact on disk
-    from app import config
-
-    artifacts = Path(config.DATA_DIR) / "artifacts"
-    if artifacts.exists():
-        for f in artifacts.rglob("*"):
-            if f.is_file():
-                assert CANARY not in f.read_text()
+    headers = _write_private(client, fresh_db)
+    _spray_canary(client, headers)
+    client.post("/api/context-pack/publish", json={})
+    publish_digest(actor="tester", force=True)
+    admin.backup()
+    admin.export()
+    assert "BEGIN:VCALENDAR" in client.get("/api/calendar.ics").text  # exercise the feed
+    assert CANARY not in client.get("/api/calendar.ics").text
+    for f in Path(config.DATA_DIR).rglob("*"):
+        if f.is_file() and "private.db" not in f.name:
+            assert CANARY.encode() not in f.read_bytes(), f"canary leaked into {f}"
 
 
 def test_private_db_not_in_platform_tables_or_backups(client, fresh_db):
@@ -133,6 +156,33 @@ def test_no_agent_or_review_surface_over_private_entities(fresh_db):
     from app import mcp_server
 
     assert "private_notes" not in inspect.getsource(mcp_server)
+
+
+def test_key_minting_requires_strong_identity(client, fresh_db):
+    """The escalation that defeats the whole boundary: X-User must NOT be
+    able to mint a usable key for any identity."""
+    r = client.post("/api/keys", json={"label": "evil"}, headers={"X-User": "manager"})
+    assert r.status_code == 403
+    # and therefore private notes stay unreachable for header-only callers
+    assert client.get("/api/private/notes", headers={"X-User": "manager"}).status_code == 403
+
+
+def test_private_db_file_permissions(client, fresh_db):
+    import stat
+
+    from app import config
+
+    _write_private(client, fresh_db)
+    mode = stat.S_IMODE(Path(config.PRIVATE_DB_PATH).stat().st_mode)
+    assert mode == 0o600, f"private.db is {oct(mode)}, expected 0600"
+
+
+def test_feedback_parses_hyphenated_names(fresh_db):
+    from app.services.private_notes import parse_feedback
+
+    assert parse_feedback("fb: mary-jane — crushed the demo") == ("mary-jane", "crushed the demo")
+    assert parse_feedback("fb: dana - solid week") == ("dana", "solid week")
+    assert parse_feedback("fb: chen: good pushback") == ("chen", "good pushback")
 
 
 def test_brief_degrades_to_empty(client, fresh_db):

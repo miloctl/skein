@@ -14,9 +14,12 @@ function that reads the PLATFORM db — team-visible data only, assembled for
 1:1 prep; it never writes.
 """
 
+import os
 import re
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from .. import config, db
 
@@ -44,12 +47,26 @@ CREATE TABLE IF NOT EXISTS private_audit (
 """
 
 
+_schema_ready: set[str] = set()
+
+
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.PRIVATE_DB_PATH, timeout=10)
+    path = Path(config.PRIVATE_DB_PATH)
+    fresh = not path.exists()
+    conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
-    conn.executescript(_SCHEMA)
+    if str(path) not in _schema_ready:
+        conn.executescript(_SCHEMA)
+        _schema_ready.add(str(path))
+    if fresh:
+        # evaluative content about named people: owner-only on disk, and the
+        # WAL sidecars must not be looser than the db itself
+        os.chmod(path, 0o600)
+    for sidecar in (f"{path}-wal", f"{path}-shm"):
+        if os.path.exists(sidecar):
+            os.chmod(sidecar, 0o600)
     return conn
 
 
@@ -66,23 +83,27 @@ def add_note(author: str, person: str, body: str, kind: str = "note") -> dict:
         raise ValueError("person is required")
     if not body:
         raise ValueError("note body is required")
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         cur = conn.execute(
             "INSERT INTO private_notes (author, person, kind, body, created_at)"
             " VALUES (?, ?, ?, ?, ?)",
             (author, person, kind, body, _now()),
         )
         note_id = cur.lastrowid
-        conn.execute(
-            "INSERT INTO private_audit (author, action, note_id, created_at) VALUES (?, ?, ?, ?)",
-            (author, f"add_{kind}", note_id, _now()),
-        )
+        _audit(conn, author, f"add_{kind}", note_id)
         conn.commit()
     return {"id": note_id, "person": person, "kind": kind}
 
 
+def _audit(conn: sqlite3.Connection, author: str, action: str, note_id: int | None) -> None:
+    conn.execute(
+        "INSERT INTO private_audit (author, action, note_id, created_at) VALUES (?, ?, ?, ?)",
+        (author, action, note_id, _now()),
+    )
+
+
 def list_notes(author: str, person: str = "") -> list[dict]:
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         if person:
             rows = conn.execute(
                 "SELECT * FROM private_notes WHERE author = ? AND person = ? ORDER BY id DESC",
@@ -93,6 +114,8 @@ def list_notes(author: str, person: str = "") -> list[dict]:
                 "SELECT * FROM private_notes WHERE author = ? ORDER BY id DESC LIMIT 200",
                 (author,),
             ).fetchall()
+        _audit(conn, author, f"list:{person.strip() or 'all'}", None)
+        conn.commit()
         return [dict(r) for r in rows]
 
 
@@ -100,7 +123,7 @@ def feedback_gap_days(author: str, person: str) -> int | None:
     """Days since the author's last feedback note for person; None if never.
     Computed at read time for the author's own page — never stored, never
     notified, never aggregated (anti-surveillance rule)."""
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT MAX(created_at) AS ts FROM private_notes"
             " WHERE author = ? AND person = ? AND kind = 'feedback'",
@@ -110,6 +133,14 @@ def feedback_gap_days(author: str, person: str) -> int | None:
         return None
     last = datetime.fromisoformat(row["ts"])
     return (datetime.now(timezone.utc) - last).days
+
+
+def audit_brief(author: str, person: str) -> None:
+    """Record that author pulled person's 1:1 brief (audit lives in
+    private.db — the fact a brief was pulled is itself private)."""
+    with closing(_connect()) as conn:
+        _audit(conn, author, f"brief:{person.strip()}", None)
+        conn.commit()
 
 
 def one_on_one_brief(person: str, days: int = 14) -> dict:
@@ -149,14 +180,15 @@ def one_on_one_brief(person: str, days: int = 14) -> dict:
     }
 
 
-_FB = re.compile(r"^\s*fb:\s*(?P<person>[^—:-]+?)\s*[—:-]\s*(?P<body>.+)$", re.I | re.S)
+# a bare '-' only separates when whitespace-surrounded, so hyphenated names
+# (mary-jane) never get split into person="mary", body="jane — …"
+FB_LINE = re.compile(r"^\s*fb:", re.I)
+_FB = re.compile(r"^\s*fb:\s*(?P<person>.+?)\s*(?:—|:|\s-\s)\s*(?P<body>.+)$", re.I | re.S)
 
 
-def parse_feedback(text: str) -> tuple[str, str] | None:
-    """Parse 'fb: <person> — <note>' (also ':' or '-' separators).
-    Returns (person, body) or None if the text is not an fb: line."""
-    if not re.match(r"^\s*fb:", text, re.I):
-        return None
+def parse_feedback(text: str) -> tuple[str, str]:
+    """Parse 'fb: <person> — <note>' (also ':' or spaced '-' separators).
+    Only call on FB_LINE-matching text; raises on malformed input."""
     m = _FB.match(text)
     if not m:
         raise ValueError("feedback format: fb: <person> — <note>")

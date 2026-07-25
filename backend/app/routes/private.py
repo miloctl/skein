@@ -30,6 +30,7 @@ def post_note(body: NoteIn, user: StrongUser):
 
 @router.get("/brief/{person}")
 def get_brief(person: str, user: StrongUser, days: int = 14):
+    private_notes.audit_brief(user, person)
     brief = private_notes.one_on_one_brief(person, days=days)
     gap = private_notes.feedback_gap_days(user, person)
     brief["feedback_gap_days"] = gap

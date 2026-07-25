@@ -367,7 +367,7 @@ def _r_commitments_external() -> list[dict]:
     today = _iso(_today())
     soon = _iso(_today() + timedelta(days=7))
     for c in db.query(
-        "SELECT * FROM commitments WHERE status = 'open'"
+        "SELECT * FROM commitments WHERE status = 'open' AND audience = 'external'"
         " AND due_date IS NOT NULL AND due_date <= ?",
         (soon,),
     ):
@@ -593,7 +593,7 @@ def _r_token_anomaly() -> list[dict]:
 def _r_experiment_overdue() -> list[dict]:
     overdue = db.query(
         "SELECT id, name, timebox_end, kill_criteria FROM engagements"
-        " WHERE kind = 'experiment' AND status != 'closed'"
+        " WHERE kind = 'experiment' AND status != 'closed' AND conclusion IS NULL"
         " AND timebox_end IS NOT NULL AND timebox_end < ?",
         (_iso(_today()),),
     )
@@ -604,7 +604,8 @@ def _r_experiment_overdue() -> list[dict]:
             f"Experiment '{e['name']}' is past its timebox ({e['timebox_end']})"
             " with no recorded conclusion — conclude it or extend it on purpose.",
             {"engagement_id": e["id"], "kill_criteria": e["kill_criteria"]},
-            subject=f"engagement:{e['id']}",
+            n=1,
+            subject=f"engagement-{e['id']}",
             window="point-in-time",
         )
         for e in overdue
@@ -761,8 +762,12 @@ def disposition_finding(
 ) -> dict:
     if disposition not in DISPOSITIONS:
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
-    if disposition == "deferred" and not deferred_until:
-        raise ValueError("deferred needs a deferred_until date (YYYY-MM-DD)")
+    if disposition == "deferred":
+        # string-compared later — an unparseable value would suppress forever
+        try:
+            date.fromisoformat(deferred_until)
+        except (TypeError, ValueError):
+            raise ValueError("deferred needs a deferred_until date (YYYY-MM-DD)") from None
     if origin != "human":
         raise ValueError("dispositions are human judgments — agents cannot make them")
     finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))

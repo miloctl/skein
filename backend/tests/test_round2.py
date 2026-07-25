@@ -1,8 +1,22 @@
 """Tests for round-2 features: API keys, CI webhook, pulse, ship-it, funerals."""
 
 
+def _bootstrap(owner="tester", label="test"):
+    # first key comes from the out-of-band bootstrap (python -m app.bootstrap_key)
+    from app.services.api_keys import create_key
+
+    return create_key(owner, label)
+
+
 def test_api_key_lifecycle_and_attribution(client):
-    created = client.post("/api/keys", json={"label": "cli"}).json()
+    # minting via the API needs an existing key (X-User alone must not mint)
+    assert client.post("/api/keys", json={"label": "spoof"}).status_code == 403
+    boot = _bootstrap()
+    created = client.post(
+        "/api/keys",
+        json={"label": "cli"},
+        headers={"Authorization": f"Bearer {boot['key']}"},
+    ).json()
     key = created["key"]
     assert key.startswith("sk-strands-")
 
@@ -19,7 +33,9 @@ def test_api_key_lifecycle_and_attribution(client):
     assert keys[0]["last_used_at"] is not None
     assert "key" not in keys[0]  # full key never re-exposed
 
-    client.delete(f"/api/keys/{created['id']}")
+    # revoking also requires strong identity
+    assert client.delete(f"/api/keys/{created['id']}").status_code == 403
+    client.delete(f"/api/keys/{created['id']}", headers={"Authorization": f"Bearer {boot['key']}"})
     # a presented-but-revoked key is a hard 401 — never a silent fallback
     r = client.post(
         "/api/capture",
@@ -31,22 +47,27 @@ def test_api_key_lifecycle_and_attribution(client):
 
 
 def test_admin_key_visibility_and_kill_switch(client):
-    client.post("/api/keys", json={"label": "one"}, headers={"X-User": "spoofed-bot"})
-    client.post("/api/keys", json={"label": "two"})
+    boot = _bootstrap()
+    other = _bootstrap("other-person", "one")
 
     all_keys = client.get("/api/admin/keys").json()
     owners = {k["owner"] for k in all_keys}
-    assert "spoofed-bot" in owners  # hidden keys are discoverable by anyone
+    assert "other-person" in owners  # every key is discoverable by anyone
 
-    out = client.post("/api/admin/keys/revoke-all").json()
+    # the kill switch requires strong identity — a spoofed header can't nuke keys
+    assert client.post("/api/admin/keys/revoke-all").status_code == 403
+    out = client.post(
+        "/api/admin/keys/revoke-all", headers={"Authorization": f"Bearer {boot['key']}"}
+    ).json()
     assert out["revoked"] >= 2
     assert all(not k["active"] for k in client.get("/api/admin/keys").json())
+    assert other  # both bootstrapped keys revoked
 
 
 def test_api_key_satisfies_shared_token_gate(client, monkeypatch):
     from app import config
 
-    key = client.post("/api/keys", json={"label": "ci"}).json()["key"]
+    key = _bootstrap()["key"]
     monkeypatch.setattr(config, "API_TOKEN", "sekrit")
     assert client.get("/api/tasks").status_code == 401
     ok = client.get("/api/tasks", headers={"Authorization": f"Bearer {key}"})

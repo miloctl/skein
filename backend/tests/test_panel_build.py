@@ -41,7 +41,10 @@ def test_onboarding_checklist_progresses(client):
     client.post("/api/capture", json={"text": "todo: onboard me"})
     client.post("/api/engagements", json={"name": "First real work"})
     client.post("/api/standups", json={"today": "getting started"})
-    client.post("/api/keys", json={"label": "cli"})
+    # keys are bootstrapped out-of-band now (python -m app.bootstrap_key)
+    from app.services.api_keys import create_key
+
+    create_key("tester", "cli")
 
     after = client.get("/api/onboarding").json()
     by_id = {s["id"]: s["done"] for s in after["steps"]}

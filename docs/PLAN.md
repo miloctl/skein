@@ -194,6 +194,25 @@ for every report with zero team adoption · closing an engagement demands a
 conclusion · findings can be dismissed/converted and dismissals suppress
 re-fires · all five lint gates + full test suite green.
 
+**Wave 1 shipped 2026-07-24** (+ a three-agent review pass: security,
+correctness, spec compliance — all confirmed findings fixed). Recorded
+deviations from the spec above:
+- Key minting hardened beyond spec: `POST /api/keys` requires an existing
+  key; first key per person via `python -m app.bootstrap_key <name>`
+  (out-of-band). The review proved self-service minting on X-User identity
+  defeats the entire private-record boundary.
+- The canary test is EXHAUSTIVE (every platform table via sqlite_master +
+  every file under DATA_DIR), not an enumerated surface list.
+- ICS uses a dedicated `STRANDS_ICS_TOKEN`, never the API token; fail-closed
+  when the API is token-locked. Multi-line captures containing `fb:` are
+  refused whole; chat refuses `fb:` before the agent/session/model sees it.
+- Portfolio shows commitments as one list with team/external markers rather
+  than two sections (deliberate; revisit if it reads badly in use).
+- Badge counts decide+unblock+commit+review (not just decide/unblock);
+  notice tier stays badge-silent.
+- Deferred to Wave 2 from the review: private-note delete/retention +
+  author-readable audit view; per-user rate limits on capture/ingest.
+
 ---
 
 ## Wave 2 — early post-transition (evening-sized increments)

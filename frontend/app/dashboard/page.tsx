@@ -178,7 +178,32 @@ export default function Dashboard() {
                 <span className="ml-2 text-xs text-zinc-400">({String(e.conclusion)})</span>
               ) : null}
             </span>
-            <Badge value={String(e.status)} />
+            <span className="flex items-center gap-2">
+              {e.status !== "closed" && (
+                <button
+                  onClick={async () => {
+                    const conclusion = prompt(
+                      `Close "${e.name}" — conclusion?\n(achieved / partial / missed / invalidated / unmeasured / stopped)`,
+                      e.kind === "experiment" ? "invalidated" : "achieved",
+                    );
+                    if (!conclusion) return;
+                    try {
+                      await api(`/api/engagements/${e.id}`, {
+                        method: "PATCH",
+                        body: JSON.stringify({ status: "closed", conclusion }),
+                      });
+                      window.location.reload();
+                    } catch (err) {
+                      alert(String(err));
+                    }
+                  }}
+                  className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  close…
+                </button>
+              )}
+              <Badge value={String(e.status)} />
+            </span>
           </li>
         )}
       />

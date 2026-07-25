@@ -16,9 +16,12 @@ both write paths (human REST, agent tools) and carry provenance
 | Standups | blocker text auto-files a real blocker | `POST /api/standups` · CLI `strands standup` |
 | Knowledge base | notes; `convention: …` topics feed the context pack | `/api/notes` |
 | Calendar | events, today's shown in My Day | `/api/events` |
-| Quick capture | rule-based routing: `q:`→question, `todo:`→task, `blocked …`→blocker, `decision:`→decision, `promised:`→commitment, else note | ⌘K palette · `POST /api/capture` · CLI `strands capture` · Slack `/strands` · MCP `capture` |
+| Quick capture | rule-based routing: `q:`→question, `todo:`→task, `blocked …`→blocker, `decision:`→decision, `promised:`→commitment, `fb: <person> — …`→author-private feedback journal (strong identity required, single-line only, refused in chat), else note | ⌘K palette · `POST /api/capture` · CLI `strands capture` · Slack `/strands` · MCP `capture` |
+| Meeting-notes ingestion | paste raw notes; deterministic per-line capture-grammar pass; every hit becomes a review-queue **proposal** (never a direct write); `fb:` lines flagged and skipped; unclassified lines returned for a human skim; batch-approve in `/review` | `/ingest` page · `POST /api/ingest` |
 | Full-text search | FTS5 over every entity; optional embeddings (`STRANDS_EMBEDDINGS=1`) | `GET /api/search?q=` · CLI `skein search` |
-| My Day briefing | what needs *you* + your work + team happenings; attention count feeds the nav badge | `GET /api/briefing` · `GET /api/attention` · CLI `skein my-day` |
+| My Day briefing | attention items grouped by judgment type (Decide/Unblock/Commit/Review/Notice), each with a "why you're seeing this" reason; badge counts action tiers only | `GET /api/briefing` · `GET /api/attention` · CLI `skein my-day` |
+| People (private) | per-report 1:1 prep: deterministic "since last time" brief from team-visible data + author-private notes/feedback journal in a separate `private.db` (0600) that backup/export/FTS/MCP/agents structurally never open; read-time-only feedback-gap nudge; strong identity (personal key) required — X-User is 403 | `/people` page · `/api/private/*` |
+| ICS calendar feed | events + milestone/commitment due dates; dedicated `STRANDS_ICS_TOKEN` (never the API token); fail-closed when the API is token-locked | `GET /api/calendar.ics` |
 | First-run onboarding | checklist computed from real state (name, engagement, capture, standup, teammate, key); dismissible card on My Day | `GET /api/onboarding` |
 | Artifacts & digest | handoffs, readouts, digests archived under `data/artifacts/` | `GET /api/artifacts` · `POST /api/digest` · `GET /api/users` |
 
@@ -26,7 +29,7 @@ both write paths (human REST, agent tools) and carry provenance
 
 | Feature | How | Surface |
 |---|---|---|
-| Engagements | the strike-team unit of work; classes (prototype/incident/migration/…) | `/api/engagements` · dashboard |
+| Engagements | the strike-team unit of work; classes (prototype/incident/migration/…); `kind: delivery\|experiment` — experiments carry a timebox + kill criteria, skip the slip forecast, and auto-draft a lesson at close; closing ANY engagement requires an honest conclusion (achieved/partial/missed/invalidated/unmeasured/stopped) — invalidated-on-time is a success, not a slip | `/api/engagements` · dashboard (close… button) · intake "accept as experiment" |
 | Playbooks | YAML templates → engagement + milestones + tasks + rituals, lessons from the same class surfaced at kickoff | `backend/playbooks/*.yaml` · `POST /api/playbooks/instantiate` · chat `/plan` |
 | Intake triage | submit → RICE-lite score (`reach*impact*confidence/effort`) → accept/defer/decline with a reason; accept creates the engagement; dispositions are terminal | `/intake` page · `/api/intake…` |
 | **What-if staffing** | project capacity if a request is accepted ("puts Dana at 130%") | `POST /api/intake/{id}/what-if` · tool `what_if_staffing` |
@@ -36,7 +39,7 @@ both write paths (human REST, agent tools) and carry provenance
 | **Slip forecast** | avg slip from the team's own completed milestones projected onto open ones — labeled heuristic, basis shown | `GET /api/portfolio/forecast` |
 | **Flow metrics** | cycle time (created→`completed_at`), weekly throughput, WIP per person, stale-WIP list; Monday nudges to owners | `GET /api/portfolio/flow` · `/portfolio` |
 | **Exec readout** | curated markdown projection (health, ships, risks, commitments, flow), saved as an artifact | `POST /api/portfolio/readout` |
-| **Commitment ledger** | promises to people outside the team; open→kept/missed/withdrawn (terminal); due-soon ones appear in the readout | `/api/commitments…` · capture `promised: …` |
+| **Commitment ledger** | promises with `audience: external\|team` — external ones feed the exec readout and findings; `team` ones are the manager's own promises to the team, visible so they get kept; open→kept/missed/withdrawn (terminal) | `/api/commitments…` · capture `promised: …` |
 | Lessons | retro lessons tagged by class, surfaced at next kickoff | `/api/lessons` |
 | Handoff packages | deterministic markdown artifact of everything the incoming roster needs | `POST /api/engagements/{id}/handoff` |
 
@@ -91,8 +94,9 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 
 | Feature | How |
 |---|---|
-| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | a dozen deterministic rules — 14 distinct rule IDs, spec in docs/INSIGHTS.md over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens, scheduled jobs; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
-| `/insights` page | findings feed (receipts on click) + team-rolled trends: rolling-28d blocker MTTR (median/P85, n shown, verdicts withheld under n=8), automation ratio by month (co-presented with review verdicts), intake funnel, weekly token spend, adoption |
+| Findings engine (`GET /api/findings`, `POST /api/findings/run`, `GET /api/insights`) | deterministic rules — 15 distinct rule IDs, spec in docs/INSIGHTS.md over blockers, WIP, commitments, review queue, intake, questions, decisions, tokens, scheduled jobs, experiments; receipts (row IDs + numbers) stored at fire time; dedupe = one fire per (rule, subject, ISO week); daily run 06:50 UTC + startup catch-up; max 3 in the digest, severity-ordered — silence is a valid output |
+| Finding dispositions | dismiss / defer / convert-to-work / resolved (`POST /api/findings/{id}/disposition`, `/convert`); suppression keyed (rule_id, subject) so dismissals survive the weekly re-fire; converted work carries `source_finding_id`; dispositioned findings leave the digest; per-rule follow-through stats on /insights |
+| `/insights` page | findings feed (receipts on click, disposition buttons) + team-rolled trends: rolling-28d blocker MTTR (median/P85, n shown, verdicts withheld under n=8), automation ratio by month (co-presented with review verdicts), intake funnel, weekly token spend, adoption, rule follow-through |
 | Adoption telemetry | `tool_usage` (day × user × surface), `GET /api/adoption`; measures the tool's reach, never people's output |
 | Anti-surveillance rule | person-level data only for planning the future (capacity, private nudges, My Day); team aggregates only for judging the past — enforced in the service layer, no person-keyed insight endpoints exist |
 | Findings feedback | `POST /api/feedback` with `kind=finding` — the eval corpus extends to the findings engine; rules nobody acts on get retired at season end |
@@ -101,7 +105,7 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 
 | Feature | How |
 |---|---|
-| Per-teammate API keys | `POST /api/keys` → `sk-strands-…` (hashed, shown once); authenticates *and* attributes; satisfies the shared token gate; presented-but-revoked keys hard-401. Admin: `GET /api/admin/keys`, `POST /api/admin/keys/revoke-all` |
+| Per-teammate API keys | first key per person via `python -m app.bootstrap_key <name>` (out-of-band — minting via `POST /api/keys` requires an existing key, or any LAN caller could become anyone); `sk-strands-…` hashed, shown once; authenticates *and* attributes; the STRONG identity for private surfaces; presented-but-revoked keys hard-401. Admin: `GET /api/admin/keys`, `POST /api/admin/keys/revoke-all` (strong-identity-only) |
 | `strands` CLI | stdlib-only; `pipx install ./cli`; config at `~/.config/strands/config.json` (0600, key prompted) |
 | Git trailers | `strands install-hooks`; `Closes-Task: #12` / `Refs-Task: #7` sync on commit |
 | CI webhook | `POST /api/webhooks/ci` (generic or GitHub Actions payload): red default-branch run files a deduped high-impact blocker; green auto-resolves; cancelled/skipped ignored |

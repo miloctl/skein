@@ -79,6 +79,8 @@ def update_engagement(
     lead: str = "",
     conclusion: str = "",
     outcome: str = "",
+    timebox_end: str = "",
+    kill_criteria: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -107,6 +109,10 @@ def update_engagement(
             ("lead", lead),
             ("conclusion", conclusion),
             ("outcome", outcome),
+            # extending a timebox on purpose is the answer to the
+            # experiment_overdue finding — it must be possible via the API
+            ("timebox_end", timebox_end),
+            ("kill_criteria", kill_criteria),
         ]
         if v
     }

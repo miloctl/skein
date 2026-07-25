@@ -42,17 +42,25 @@ def capture(
     # fb: short-circuits BEFORE classification — feedback never becomes a
     # team-visible, FTS-indexed record. Human-only, strong-identity-only;
     # no index_record, no activity log (audit lives inside private.db).
+    # Line-oriented and fail-closed: an fb: line buried in a multi-line
+    # capture must never ride along into a task/note (it would land in FTS).
     from . import private_notes
 
-    fb = private_notes.parse_feedback(text)
-    if fb is not None:
+    if any(private_notes.FB_LINE.match(ln) for ln in text.splitlines()):
+        if len(text.splitlines()) > 1:
+            raise ValueError(
+                "fb: lines must be captured alone — they are private and the"
+                " rest of this text would be team-visible. Use /ingest for"
+                " multi-line notes (fb: lines are skipped there)."
+            )
         if origin != "human":
             raise ValueError("feedback notes are human-only — agents cannot write them")
         if not strong_auth:
             raise ValueError(
-                "feedback notes require a personal API key (POST /api/keys, then set it in the UI)"
+                "feedback notes require a personal API key"
+                " (bootstrap: python -m app.bootstrap_key <you>; then 🔑 in the UI)"
             )
-        person, body = fb
+        person, body = private_notes.parse_feedback(text)  # raises on bad format
         result = private_notes.add_note(actor, person, body, kind="feedback")
         return {"kind": "feedback", **result}
     kind = classify(text)

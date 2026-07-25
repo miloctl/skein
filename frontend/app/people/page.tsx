@@ -90,9 +90,10 @@ export default function PeoplePage() {
 
       {needsKey && (
         <p className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-          This page needs your personal API key (strong identity). Create one
-          via <code>POST /api/keys</code> or the CLI, then set it with the 🔑
-          button in the top bar.
+          This page needs your personal API key (strong identity). Get your
+          first one from whoever runs the box (
+          <code>python -m app.bootstrap_key you</code>), then set it with the
+          🔑 button in the top bar.
         </p>
       )}
 

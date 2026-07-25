@@ -171,8 +171,10 @@ def my_day(user: str) -> dict:
 
 
 def attention_count(user: str) -> int:
-    """Nav badge: the action tiers only (decide/unblock/review). notice-tier
-    items (unread notifications) inform but must not nag from the nav."""
+    """Nav badge: the action tiers (decide/unblock/commit/review). notice-tier
+    items (unread notifications) inform but must not nag from the nav.
+    Caps (MIN) mirror the display limits in _attention/my_day so the badge
+    never exceeds what the page can show."""
     today = datetime.now(timezone.utc).date()
     week = (today + timedelta(days=7)).isoformat()
     row = db.query_one(
@@ -180,8 +182,9 @@ def attention_count(user: str) -> int:
         " (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
         " + (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
         " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
-        " + (SELECT COUNT(*) FROM intake_requests WHERE status IN ('submitted', 'scored'))"
-        " + (SELECT COUNT(*) FROM decisions WHERE status = 'stale')"
+        " + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
+        "    WHERE status IN ('submitted', 'scored'))"
+        " + (SELECT MIN(COUNT(*), 5) FROM decisions WHERE status = 'stale')"
         " + (SELECT COUNT(*) FROM commitments WHERE status = 'open'"
         "    AND due_date IS NOT NULL AND due_date <= ?)"
         " AS n",

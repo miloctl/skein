@@ -63,10 +63,10 @@ def ingest_notes(text: str, *, actor: str) -> dict:
                 break
             line = stripped
         line = line.strip()
-        if len(line) < MIN_LINE_CHARS:
-            continue
-        if _FB_LINE.match(line):
+        if _FB_LINE.match(line):  # before the length gate — short fb: lines still count
             skipped_private += 1  # counted, flagged, never stored or routed
+            continue
+        if len(line) < MIN_LINE_CHARS:
             continue
         kind = _classify_strict(line)
         if kind is None:

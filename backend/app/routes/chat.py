@@ -51,6 +51,22 @@ def _log_usage(agent, thread_id: str) -> None:
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, user: CurrentUser):
+    # fb: is private and chat is a sink (session files on disk, the model
+    # provider, OTEL traces) — reject BEFORE the message reaches the agent
+    if any(re.match(r"^\s*fb:", ln, re.I) for ln in req.message.splitlines()):
+
+        async def fb_stream():
+            yield _sse(
+                {
+                    "type": "text",
+                    "text": "Feedback notes are private — chat would send them"
+                    " to the model and session log. Use ⌘K capture or the"
+                    " People page instead.",
+                }
+            )
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(fb_stream(), media_type="text/event-stream")
     # thread_id becomes a session filename — restrict to a safe charset
     thread_id = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
     try:

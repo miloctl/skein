@@ -15,12 +15,26 @@ def test_ics_feed_open_when_no_token(client, fresh_db):
     assert "due: Beta" in body
 
 
-def test_ics_feed_requires_token_when_configured(client, fresh_db, monkeypatch):
+def test_ics_feed_token_semantics(client, fresh_db, monkeypatch):
     from app import config
 
-    monkeypatch.setattr(config, "API_TOKEN", "sekrit")
+    # dedicated feed secret — NEVER the API token (URLs land in calendar
+    # configs and access logs)
+    monkeypatch.setattr(config, "ICS_TOKEN", "feed-secret")
     assert client.get("/api/calendar.ics").status_code == 401
-    assert client.get("/api/calendar.ics?token=sekrit").status_code == 200
+    assert client.get("/api/calendar.ics?token=feed-secret").status_code == 200
+    assert client.get("/api/calendar.ics?token=é").status_code == 401  # not a 500
+    # API locked but no feed secret: fail closed, and the API token must NOT work
+    monkeypatch.setattr(config, "ICS_TOKEN", "")
+    monkeypatch.setattr(config, "API_TOKEN", "sekrit")
+    assert client.get("/api/calendar.ics").status_code == 403
+    assert client.get("/api/calendar.ics?token=sekrit").status_code == 403
+
+
+def test_ics_datetime_format_is_rfc5545(client, fresh_db):
+    client.post("/api/events", json={"title": "Ops", "starts_at": "2026-08-01T15:00"})
+    body = client.get("/api/calendar.ics").text
+    assert "DTSTART:20260801T150000" in body  # padded to 15 chars, not 13
 
 
 def test_review_diff_for_updates(client, fresh_db):

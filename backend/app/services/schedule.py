@@ -1,5 +1,6 @@
 """Team calendar services."""
 
+import re
 from datetime import datetime
 
 from .. import db
@@ -52,11 +53,32 @@ def cancel_event(event_id: int, *, actor: str = "system", origin: str = "human")
 
 
 def _ics_escape(text: str) -> str:
-    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+    return (
+        text.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\r\n", "\\n")
+        .replace("\r", "\\n")
+        .replace("\n", "\\n")
+    )
 
 
 def _ics_dt(iso: str) -> str:
-    return iso.replace("-", "").replace(":", "")[:15]
+    """RFC 5545 DATE-TIME is exactly YYYYMMDDTHHMMSS — pad the seconds our
+    API's own suggested format (2026-07-24T15:00) omits."""
+    out = iso.replace("-", "").replace(":", "")[:15]
+    if len(out) == 13:  # date + T + HHMM
+        out += "00"
+    return out
+
+
+def _ics_dt_lines(prop: str, iso: str) -> list[str]:
+    value = _ics_dt(iso)
+    if re.fullmatch(r"\d{8}", value):
+        return [f"{prop};VALUE=DATE:{value}"]
+    if re.fullmatch(r"\d{8}T\d{6}", value):
+        return [f"{prop}:{value}"]
+    return []  # malformed stored timestamp: drop the property, not the feed
 
 
 def ics_feed() -> str:
@@ -70,11 +92,14 @@ def ics_feed() -> str:
         "X-WR-CALNAME:Skein",
     ]
     for e in db.query("SELECT * FROM events ORDER BY starts_at LIMIT 500"):
+        start = _ics_dt_lines("DTSTART", e["starts_at"])
+        if not start:
+            continue
         lines += [
             "BEGIN:VEVENT",
             f"UID:event-{e['id']}@skein",
-            f"DTSTART:{_ics_dt(e['starts_at'])}",
-            *([f"DTEND:{_ics_dt(e['ends_at'])}"] if e["ends_at"] else []),
+            *start,
+            *(_ics_dt_lines("DTEND", e["ends_at"]) if e["ends_at"] else []),
             f"SUMMARY:{_ics_escape(e['title'])}",
             *([f"DESCRIPTION:{_ics_escape(e['description'])}"] if e["description"] else []),
             "END:VEVENT",

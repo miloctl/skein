@@ -5,6 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { emptyState } from "@/lib/whimsy";
 
+function cell(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+
 type Change = {
   id: number;
   entity: string;
@@ -170,10 +175,10 @@ export default function ReviewPage() {
                     <tr key={k} className="align-top">
                       <td className="p-2 font-medium">{k}</td>
                       <td className="p-2 text-red-700 dark:text-red-400">
-                        {String(diffs[c.id].current[k] ?? "—")}
+                        {cell(diffs[c.id].current[k])}
                       </td>
                       <td className="p-2 text-green-700 dark:text-green-400">
-                        {String(diffs[c.id].proposed[k])}
+                        {cell(diffs[c.id].proposed[k])}
                       </td>
                     </tr>
                   ))}

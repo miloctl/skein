@@ -2,7 +2,7 @@
 alongside agent tools — both go through app.services)."""
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import db
 from ..services import (
@@ -151,8 +151,13 @@ class KeyIn(BaseModel):
     label: str = ""
 
 
+# Key MUTATION requires an existing key (StrongUser): minting on X-User
+# identity alone would let any LAN caller become anyone and defeat the whole
+# private-record boundary. First key per person: python -m app.bootstrap_key.
+
+
 @router.post("/keys")
-def post_key(body: KeyIn, user: CurrentUser):
+def post_key(body: KeyIn, user: StrongUser):
     return api_keys.create_key(user, body.label)
 
 
@@ -162,7 +167,7 @@ def get_keys(user: CurrentUser):
 
 
 @router.delete("/keys/{key_id}")
-def delete_key(key_id: int, user: CurrentUser):
+def delete_key(key_id: int, user: StrongUser):
     return api_keys.revoke_key(key_id, user)
 
 
@@ -172,7 +177,7 @@ def get_all_keys(user: CurrentUser):
 
 
 @router.post("/admin/keys/revoke-all")
-def post_revoke_all_keys(user: CurrentUser):
+def post_revoke_all_keys(user: StrongUser):
     return api_keys.revoke_all_keys(actor=user)
 
 
@@ -641,11 +646,22 @@ def post_intake_score(request_id: int, body: ScoreIn, user: CurrentUser):
 class DispositionIn(BaseModel):
     disposition: str
     reason: str
+    kind: str = "delivery"
+    timebox_end: str = ""
+    outcome: str = ""
 
 
 @router.post("/intake/{request_id}/disposition")
 def post_intake_disposition(request_id: int, body: DispositionIn, user: CurrentUser):
-    return intake.disposition_request(request_id, body.disposition, body.reason, actor=user)
+    return intake.disposition_request(
+        request_id,
+        body.disposition,
+        body.reason,
+        kind=body.kind,
+        timebox_end=body.timebox_end,
+        outcome=body.outcome,
+        actor=user,
+    )
 
 
 class ReviewActionIn(BaseModel):
@@ -673,7 +689,7 @@ def post_capture(body: CaptureIn, user: CurrentUser, request: Request):
 
 
 class IngestIn(BaseModel):
-    text: str
+    text: str = Field(max_length=70_000)  # 422 at validation, before buffering costs
 
 
 @router.post("/ingest")
@@ -682,16 +698,16 @@ def post_ingest(body: IngestIn, user: CurrentUser):
 
 
 class BatchApproveIn(BaseModel):
-    ids: list[int]
+    ids: list[int] = Field(max_length=100)
 
 
 @router.get("/review/{change_id}/diff")
-def get_review_diff(change_id: int):
+def get_review_diff(change_id: int, user: CurrentUser):
     return review.change_diff(change_id)
 
 
 class SeenIn(BaseModel):
-    ids: list[int]
+    ids: list[int] = Field(max_length=200)
 
 
 @router.post("/review/seen")
@@ -733,6 +749,8 @@ class EngagementPatch(BaseModel):
     lead: str = ""
     conclusion: str = ""
     outcome: str = ""
+    timebox_end: str = ""
+    kill_criteria: str = ""
 
 
 @router.patch("/engagements/{engagement_id}")
@@ -793,19 +811,31 @@ def post_digest(user: CurrentUser):
 @router.get("/calendar.ics")
 def get_calendar_ics(token: str = ""):
     """iCalendar feed of events + due dates (team-visible data only).
-    LAN-only; calendar clients can't send headers, so when a shared API
-    token is configured it must come as ?token=."""
+    LAN-only. Calendar clients can't send headers, so auth is a DEDICATED
+    feed secret (?token=STRANDS_ICS_TOKEN) — never the API token, which
+    would end up in calendar configs and access logs. Fully-open mode only
+    when the whole API is open (no API_TOKEN); otherwise fail closed."""
     import hmac
 
+    from fastapi import HTTPException
     from fastapi.responses import Response
 
     from .. import config
 
-    if config.API_TOKEN and not hmac.compare_digest(token, config.API_TOKEN):
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=401, detail="token required")
-    return Response(schedule.ics_feed(), media_type="text/calendar")
+    if config.ICS_TOKEN:
+        # bytes compare: str compare_digest raises on non-ASCII input (→500)
+        if not hmac.compare_digest(token.encode(), config.ICS_TOKEN.encode()):
+            raise HTTPException(status_code=401, detail="token required")
+    elif config.API_TOKEN:
+        raise HTTPException(
+            status_code=403,
+            detail="calendar feed disabled — set STRANDS_ICS_TOKEN to enable it",
+        )
+    return Response(
+        schedule.ics_feed(),
+        media_type="text/calendar",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 # ---- admin -----------------------------------------------------------------

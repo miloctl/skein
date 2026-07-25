@@ -64,18 +64,43 @@ def score_request(
 
 
 def disposition_request(
-    request_id: int, disposition: str, reason: str, *, actor: str = "system", origin: str = "human"
+    request_id: int,
+    disposition: str,
+    reason: str,
+    kind: str = "delivery",
+    timebox_end: str = "",
+    outcome: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
 ) -> dict:
     if disposition not in DISPOSITIONS:
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
     if not reason.strip():
         raise ValueError("a reason is required — requesters see it")
     with db.transaction():
-        return _disposition(request_id, disposition, reason, actor=actor, origin=origin)
+        return _disposition(
+            request_id,
+            disposition,
+            reason,
+            kind=kind,
+            timebox_end=timebox_end,
+            outcome=outcome,
+            actor=actor,
+            origin=origin,
+        )
 
 
 def _disposition(
-    request_id: int, disposition: str, reason: str, *, actor: str, origin: str
+    request_id: int,
+    disposition: str,
+    reason: str,
+    *,
+    kind: str = "delivery",
+    timebox_end: str = "",
+    outcome: str = "",
+    actor: str,
+    origin: str,
 ) -> dict:
     current = db.query_one("SELECT status FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
@@ -97,6 +122,9 @@ def _disposition(
                 name=row["title"],
                 project_class=row["project_class"] or "general",
                 summary=row["detail"],
+                kind=kind,
+                timebox_end=timebox_end,
+                outcome=outcome,
                 actor=actor,
                 origin=origin,
             )
