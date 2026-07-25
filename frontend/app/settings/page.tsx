@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
+import {
+  APPEARANCES,
+  COLORWAYS,
+  getAppearance,
+  getColorway,
+  setAppearance,
+  setColorway,
+} from "@/lib/theme";
 
 function subscribeStorage(cb: () => void) {
   window.addEventListener("storage", cb);
@@ -110,6 +118,9 @@ export default function SettingsPage() {
   );
   const strong = who?.strong ?? false;
 
+  const appearance = useSyncExternalStore(subscribeStorage, getAppearance, () => "system");
+  const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
+
   // the My Day checklist dismissal lives in this browser's localStorage;
   // restoring is just deleting the flag (progress is recomputed server-side)
   const checklistHidden = useSyncExternalStore(
@@ -130,6 +141,63 @@ export default function SettingsPage() {
         Everything you need to set up lives here — nothing requires reading
         the docs first.
       </p>
+
+      <Section title="Appearance">
+        <p className="mb-3 text-sm text-ink-3">
+          Per-browser, applies immediately. Colorways re-dye the accent
+          threads; every one passes contrast checks in both modes.
+        </p>
+        <div className="mb-4 flex items-center gap-2">
+          <span className="w-24 text-sm text-ink-2">Mode</span>
+          <div className="flex overflow-hidden rounded-lg border border-line-strong">
+            {APPEARANCES.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => setAppearance(a.id)}
+                aria-pressed={appearance === a.id}
+                className={
+                  "px-3 py-1.5 text-sm transition-colors " +
+                  (appearance === a.id
+                    ? "bg-thread-solid font-medium text-white"
+                    : "text-ink-2 hover:bg-raised")
+                }
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className="w-24 pt-1.5 text-sm text-ink-2">Colorway</span>
+          <div className="flex flex-wrap gap-2">
+            {COLORWAYS.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setColorway(c.id)}
+                aria-pressed={colorway === c.id}
+                className={
+                  "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
+                  (colorway === c.id
+                    ? "border-thread-solid bg-thread/10 font-medium text-ink"
+                    : "border-line-strong text-ink-2 hover:bg-raised")
+                }
+              >
+                <span aria-hidden className="flex">
+                  <span
+                    className="size-3 rounded-full"
+                    style={{ background: c.thread }}
+                  />
+                  <span
+                    className="-ml-1 size-3 rounded-full"
+                    style={{ background: c.weld }}
+                  />
+                </span>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Section>
 
       <Section title="1 · Identity">
         <p className="mb-2 text-sm text-ink-3">

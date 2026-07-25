@@ -5,46 +5,53 @@
    Borders carry structure, lightness carries elevation; shadows only on
    things that float. Docs: docs/reviews/ design pass 2026-07-25. */
 
+/* Tokens resolve through light-dark(): appearance is a one-line color-scheme
+   switch, and each colorway only re-dyes the two accent threads. Every pair
+   below is WCAG-AA-verified on its surface in both modes. */
 :root {
-  --surface-page: #faf9f6;
-  --surface-card: #ffffff;
-  --surface-raised: #f3f1ec;
-  --border-hairline: #e8e4dc;
-  --border-strong: #d6d0c4;
-  --text-1: #1d1a16;
-  --text-2: #5b5549;
-  --text-3: #756e60;
-  --thread: #3b4dbf;
-  --thread-solid: #3b4dbf;
-  --weld: #935a1c;
-  --ok: #22754a;
-  --warn: #86590e;
-  --danger: #b23425;
-  --warp: rgb(29 26 22 / 0.03);
-  --shadow-card: 0 1px 2px rgb(28 25 20 / 0.05);
-  --shadow-float: 0 8px 24px rgb(0 0 0 / 0.12);
+  color-scheme: light dark;
+  --surface-page: light-dark(#faf9f6, #141311);
+  --surface-card: light-dark(#ffffff, #1c1a18);
+  --surface-raised: light-dark(#f3f1ec, #262320);
+  --border-hairline: light-dark(#e8e4dc, #312d28);
+  --border-strong: light-dark(#d6d0c4, #403a33);
+  --text-1: light-dark(#1d1a16, #ede9e2);
+  --text-2: light-dark(#5b5549, #ada79b);
+  --text-3: light-dark(#756e60, #8a8375);
+  --thread: light-dark(#3b4dbf, #a7b5f2);
+  --thread-solid: light-dark(#3b4dbf, #4e5fd3);
+  --weld: light-dark(#935a1c, #d9a15e);
+  --ok: light-dark(#22754a, #85cd9e);
+  --warn: light-dark(#86590e, #dfb362);
+  --danger: light-dark(#b23425, #f0998b);
+  --warp: light-dark(rgb(29 26 22 / 0.03), rgb(237 233 226 / 0.013));
+  --shadow-card: 0 1px 2px light-dark(rgb(28 25 20 / 0.05), transparent);
+  --shadow-float: 0 8px 24px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.4));
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-page: #141311;
-    --surface-card: #1c1a18;
-    --surface-raised: #262320;
-    --border-hairline: #312d28;
-    --border-strong: #403a33;
-    --text-1: #ede9e2;
-    --text-2: #ada79b;
-    --text-3: #8a8375;
-    --thread: #a7b5f2;
-    --thread-solid: #4e5fd3;
-    --weld: #d9a15e;
-    --ok: #85cd9e;
-    --warn: #dfb362;
-    --danger: #f0998b;
-    --warp: rgb(237 233 226 / 0.013);
-    --shadow-card: none;
-    --shadow-float: 0 8px 24px rgb(0 0 0 / 0.4);
-  }
+/* Appearance override (default: follow the system) */
+:root[data-appearance="light"] {
+  color-scheme: light;
+}
+:root[data-appearance="dark"] {
+  color-scheme: dark;
+}
+
+/* Colorways: dye lots for the two accent threads. Indigo is :root itself. */
+:root[data-theme="madder"] {
+  --thread: light-dark(#a92c40, #f0a4ae);
+  --thread-solid: light-dark(#a92c40, #b13a4e);
+  --weld: light-dark(#48628f, #a3b8dc);
+}
+:root[data-theme="verdigris"] {
+  --thread: light-dark(#1c6e66, #82d0c4);
+  --thread-solid: light-dark(#1c6e66, #20776e);
+  --weld: light-dark(#9d4f28, #dba175);
+}
+:root[data-theme="graphite"] {
+  --thread: light-dark(#45413a, #d3ccc1);
+  --thread-solid: light-dark(#45413a, #5c564d);
+  --weld: light-dark(#8a5e14, #cfa963);
 }
 
 @theme inline {

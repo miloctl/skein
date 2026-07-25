@@ -34,7 +34,16 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        {/* apply saved theme prefs before first paint (mirrors lib/theme.ts) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("skein-theme");if(t&&t!=="indigo")d.dataset.theme=t;var a=localStorage.getItem("skein-appearance");if(a==="light"||a==="dark")d.dataset.appearance=a}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         <Nav />
         <CapturePalette />
