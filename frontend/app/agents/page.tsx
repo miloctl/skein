@@ -159,7 +159,7 @@ export default function Agents() {
       <Card title="Authority matrix">
         <p className="mb-2 text-xs text-ink-3">
           Default is <b>review</b> — every write goes through the review inbox. Promote per
-          entity as trust builds; the chat agent acts as “agent”.
+          entity as trust builds. The built-in chat agent appears here as “agent”.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <input
@@ -203,7 +203,7 @@ export default function Agents() {
         </div>
       </Card>
 
-      <Card title="Trust (from review verdicts)">
+      <Card title="Trust — earned from review verdicts">
         {trust.length === 0 ? (
           <p className="text-sm text-ink-3">
             No reviewed proposals yet — trust is earned in the review inbox.

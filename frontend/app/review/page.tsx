@@ -107,7 +107,7 @@ export default function ReviewPage() {
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Review inbox</h1>
       <p className="mb-6 text-sm text-ink-3">
         Proposed changes from agents (and cautious humans). Approving applies
-        the change with origin <code>agent_verified</code>.
+        the change and records that a human verified it.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
 
@@ -133,8 +133,8 @@ export default function ReviewPage() {
         <p className="rounded-xl border border-dashed border-line-strong p-8 text-center text-sm text-ink-3">
           {emptyState("review")}
           <span className="mt-1 block text-xs">
-            Agent proposals land here when
-            <code className="mx-1">STRANDS_AGENT_REVIEW=1</code>.
+            Agent proposals land here when agent review is enabled on the
+            server (<code>STRANDS_AGENT_REVIEW=1</code>).
           </span>
         </p>
       )}

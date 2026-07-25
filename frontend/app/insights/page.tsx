@@ -152,7 +152,11 @@ export default function InsightsPage() {
 
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
-      <Card title="Findings (receipts on click)">
+      <p className="text-xs text-ink-3 md:col-span-2">
+        Everything on this page measures the system — rules, jobs, funnels —
+        never individual people.
+      </p>
+      <Card title="Findings — click one for its evidence">
         {d.findings.length === 0 ? (
           <p className="text-sm text-ink-3">
             Nothing to report — silence is a valid output. Findings appear here
@@ -223,7 +227,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
-      <Card title="Rule follow-through (rules, never people)">
+      <Card title="Rule follow-through — do finding rules earn action?">
         {(d.rule_stats ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">No findings fired yet.</p>
         ) : (
@@ -236,7 +240,9 @@ export default function InsightsPage() {
                 {r.median_days_to_disposition !== null &&
                   ` · median ${r.median_days_to_disposition}d to act`}
                 {r.fired >= 3 && r.dismissed === r.dispositioned && r.dismissed > 0 && (
-                  <span className="ml-1 text-weld">· retire candidate?</span>
+                  <span className="ml-1 text-weld">
+                    · mostly dismissed — retire this rule?
+                  </span>
                 )}
               </li>
             ))}
@@ -244,7 +250,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
-      <Card title="Weekly pulse (team tally — never per person)">
+      <Card title="Weekly pulse — team tally">
         {(d.pulse_tally ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">
             No votes yet. The Monday digest asks; 👍/👎 lives on My Day.
@@ -265,7 +271,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
-      <Card title="Adoption (the tool's reach, not people's output)">
+      <Card title="Adoption — the tool's reach">
         <p className="text-sm">
           {d.adoption.weekly_active_users}/{d.adoption.team_humans} humans active
           this week
@@ -286,7 +292,7 @@ export default function InsightsPage() {
         </ul>
       </Card>
 
-      <Card title={`Blocker clear time (rolling ${m.window_days}d)`}>
+      <Card title={`Blocker clear time — rolling ${m.window_days} days`}>
         <p className="text-sm">
           median{" "}
           <b>{m.current.median_hours !== null ? `${m.current.median_hours}h` : "—"}</b>{" "}
@@ -306,7 +312,11 @@ export default function InsightsPage() {
         )}
       </Card>
 
-      <Card title="Automation ratio (read next to rejection rate)">
+      <Card title="Automation ratio — share of writes made by agents">
+        <p className="mb-2 text-xs text-ink-3">
+          Read it next to the rejection rate below — volume only counts if
+          quality holds.
+        </p>
         {d.automation_ratio.length === 0 ? (
           <p className="text-sm text-ink-3">No records yet.</p>
         ) : (

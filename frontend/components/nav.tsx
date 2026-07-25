@@ -26,7 +26,7 @@ const GROUPS: { href: string; label: string }[][] = [
   [
     { href: "/review", label: "Review" },
     { href: "/intake", label: "Intake" },
-    { href: "/ingest", label: "Ingest" },
+    { href: "/ingest", label: "Notes" },
   ],
   [
     { href: "/agents", label: "Agents" },

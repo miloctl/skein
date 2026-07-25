@@ -12,7 +12,7 @@ const EMPTY: Record<string, string[]> = {
   review: [
     "Review inbox: zero. The agents fear you.",
     "Nothing pending. Approve yourself a coffee.",
-    "Empty. Either the agents are idle or they're flawless. Investigate.",
+    "Empty. The agents have nothing pending — enjoy the quiet.",
   ],
   blockers: [
     "No unresolved blockers. Suspicious. Enjoy it.",

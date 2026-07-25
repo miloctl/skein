@@ -94,7 +94,11 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "ref_id": n["id"],
                 "group": "notice",
                 "label": n["message"][:100],
-                "reason": "unread notification",
+                "reason": (
+                    "unread team-wide notification"
+                    if n["user"] == "team"
+                    else "unread notification"
+                ),
                 "link": n["link"] or "/",
             }
         )

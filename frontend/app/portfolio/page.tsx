@@ -117,11 +117,14 @@ export default function Portfolio() {
           </button>
         </div>
       )}
-      <Card title="Engagement health (receipts shown)">
+      <Card title="Engagement health — each rating shows why">
         {health === null ? (
           <p className="text-sm text-ink-3">Loading…</p>
         ) : health.length === 0 ? (
-          <p className="text-sm text-ink-3">No active engagements.</p>
+          <p className="text-sm text-ink-3">
+            No active engagements — accept a request on the Intake page to
+            start one.
+          </p>
         ) : (
           <ul className="space-y-3">
             {health.map((h) => (
@@ -147,6 +150,9 @@ export default function Portfolio() {
       </Card>
 
       <Card title={`Commitment line — ${week?.week ?? ""}`}>
+        <p className="mb-2 text-xs text-ink-3">
+          The tasks the team promised to finish this week.
+        </p>
         {week === null ? (
           <p className="text-sm text-ink-3">Loading…</p>
         ) : week.committed > 0 ? (
@@ -230,7 +236,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Flow (from real timestamps)">
+      <Card title="Flow — cycle time from real task history">
         {flow && (
           <div className="space-y-2 text-sm">
             <p>
@@ -289,7 +295,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Commitments (external + yours to the team)">
+      <Card title="Commitments — external + yours to the team">
         {commitments.length === 0 ? (
           <p className="text-sm text-ink-3">
             None recorded — capture one with “promised: …”.

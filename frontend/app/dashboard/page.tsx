@@ -241,7 +241,7 @@ export default function Dashboard() {
                 aria-hidden
                 className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
               />
-              <p className="text-xs text-ink-3">blockers spotted (spotting scores!)</p>
+              <p className="text-xs text-ink-3">blockers spotted — spotting one is a win</p>
             </div>
             <div>
               <p className="font-display text-[30px]/none font-semibold text-ink">
@@ -256,9 +256,9 @@ export default function Dashboard() {
           </div>
           {pulse.blocker_speedrun.length > 0 && (
             <p className="mt-3 text-xs text-ink-3">
-              ⏱️ Blocker speedruns:{" "}
+              ⏱️ Time to clear blockers this season, by impact:{" "}
               {pulse.blocker_speedrun
-                .map((s) => `${s.impact} avg ${s.avg_hours}h (best ${s.best_hours}h)`)
+                .map((s) => `${s.impact} — avg ${s.avg_hours}h (fastest ${s.best_hours}h)`)
                 .join(" · ")}
             </p>
           )}
@@ -267,7 +267,7 @@ export default function Dashboard() {
       <Section
         title="Engagements"
         rows={data.engagements ?? []}
-        empty="No engagements — accept an intake request or instantiate a playbook."
+        empty="No engagements — accept an intake request or start one from a playbook."
         render={(e) => (
           <li key={e.id} className="flex items-start justify-between gap-3 text-sm">
             <span className="min-w-0">

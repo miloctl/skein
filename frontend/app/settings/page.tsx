@@ -375,8 +375,9 @@ export default function SettingsPage() {
       <Section title="1 · Identity">
         <p className="mb-2 text-sm text-ink-3">
           Your name attributes everything you create (tasks, standups,
-          captures). It is the trusted-LAN identity — fine for team-visible
-          work, not enough for private surfaces (step 2 covers those).
+          captures). It works on the honor system inside the team network —
+          fine for team-visible work, not enough for the private People page
+          or admin export (step 2 covers those).
         </p>
         <p className="mb-2 text-sm">
           Current:{" "}

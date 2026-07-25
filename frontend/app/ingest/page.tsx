@@ -37,11 +37,11 @@ export default function IngestPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Ingest meeting notes</h1>
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
       <p className="mb-4 text-sm text-ink-3">
-        Paste raw notes. Lines that match the capture grammar (todo:, q:,
-        decision:, blocked…, promised:) become <b>review proposals</b> — nothing
-        is written directly. <code>fb:</code> lines are skipped, never stored.
+        Lines that start with a prefix (todo:, q:, decision:, blocked on …,
+        promised:) become <b>review proposals</b> — nothing is written
+        directly. <code>fb:</code> lines are skipped, never stored.
       </p>
 
       <textarea
@@ -58,7 +58,7 @@ export default function IngestPage() {
         disabled={busy || !text.trim()}
         className="rounded-lg bg-thread-solid px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
       >
-        {busy ? "Ingesting…" : "Ingest"}
+        {busy ? "Extracting…" : "Extract proposals"}
       </button>
 
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
