@@ -128,8 +128,10 @@ def get_artifacts(engagement_id: int = 0):
 
 
 @router.get("/users")
-def get_users():
-    return users.list_users()
+def get_users(all: bool = False):
+    # all=1 includes deactivated rows — the Settings roster needs them so
+    # deactivation stays reversible from the UI
+    return users.list_users(active_only=not all)
 
 
 class UserActiveIn(BaseModel):

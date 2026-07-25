@@ -40,20 +40,30 @@ def assign_question(
         raise ValueError(f"question #{question_id} not found")
     if row["status"] != "open":
         raise ValueError(f"question #{question_id} is already {row['status']}")
-    db.execute(
-        "UPDATE questions SET assigned_to = ? WHERE id = ?", (assigned_to.strip(), question_id)
+    assigned_to = assigned_to.strip()
+    if assigned_to:
+        # a typo'd assignee looks handled but notifies nobody — refuse it
+        from .users import list_users
+
+        known = {u["name"].lower(): u["name"] for u in list_users()}
+        match = known.get(assigned_to.lower())
+        if not match:
+            raise ValueError(f"'{assigned_to}' is not an active user")
+        assigned_to = match
+    db.execute("UPDATE questions SET assigned_to = ? WHERE id = ?", (assigned_to, question_id))
+    db.log_activity(
+        actor or "system", "assign_question", f"#{question_id} -> {assigned_to} [{origin}]"
     )
-    db.log_activity(actor or "system", "assign_question", f"#{question_id} -> {assigned_to}")
-    if assigned_to.strip():
+    if assigned_to:
         from .notifications import notify
 
         notify(
-            assigned_to.strip(),
+            assigned_to,
             f"Question #{question_id} assigned to you: {row['question'][:80]}",
             tier="digest",
             link="/",
         )
-    return {"id": question_id, "assigned_to": assigned_to.strip()}
+    return {"id": question_id, "assigned_to": assigned_to}
 
 
 def answer_question(
@@ -94,6 +104,13 @@ def record_decision(
 ) -> dict:
     if not title.strip() or not decision.strip():
         raise ValueError("decision title and text are required")
+    if review_by:
+        from datetime import date
+
+        try:
+            date.fromisoformat(review_by)
+        except ValueError as exc:
+            raise ValueError(f"review_by is not a real date: {review_by}") from exc
     if review_by and not DATE_RE.match(review_by):
         raise ValueError(
             "review_by must be YYYY-MM-DD — anything else would never trigger the stale sweep"
@@ -141,6 +158,13 @@ def supersede_decision(
     nobody cites a dead decision without seeing what replaced it."""
     # validate successor inputs BEFORE the CAS claim — a failed create after
     # the flip would orphan the old decision as superseded-by-nothing
+    if review_by:
+        from datetime import date
+
+        try:
+            date.fromisoformat(review_by)
+        except ValueError as exc:
+            raise ValueError(f"review_by is not a real date: {review_by}") from exc
     if review_by and not DATE_RE.match(review_by):
         raise ValueError("review_by must be YYYY-MM-DD")
     old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
@@ -218,6 +242,13 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
         raise ValueError(f"decision #{decision_id} not found")
     if row["status"] == "superseded":
         raise ValueError(f"decision #{decision_id} was superseded — reconfirm the successor")
+    if review_by:
+        from datetime import date
+
+        try:
+            date.fromisoformat(review_by)
+        except ValueError as exc:
+            raise ValueError(f"review_by is not a real date: {review_by}") from exc
     if review_by and not DATE_RE.match(review_by):
         raise ValueError("review_by must be YYYY-MM-DD")
     if not review_by:

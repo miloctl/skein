@@ -163,3 +163,73 @@ def test_eval_capture_freetext_correction_is_unscored(client):
     out = client.get("/api/eval/capture").json()
     assert out["cases"] == 1 and out["passed"] == 1
     assert len(out["unscored"]) == 1
+
+
+def test_adoption_excludes_deactivated_users(client, fresh_db):
+    from app.services import adoption, users
+
+    users.ensure_user("ghost")
+    adoption.record_use("ghost", "api")
+    adoption.record_use("tester", "api")
+    users.ensure_user("tester")
+    users.set_active("ghost", False, actor="tester")
+    d = adoption.adoption()
+    names = [a["user"] for a in d["active_users"]]
+    assert "ghost" not in names and "tester" in names
+    assert d["weekly_active_users"] == 1
+
+
+def test_reject_clears_notification_too(client, fresh_db):
+    from app.services import review
+
+    p = review.propose_change("task", "create", {"title": "x"}, actor="scout", origin="agent")
+    review.reject_change(p["id"], "nope", actor="tester")
+    still = fresh_db.query(
+        "SELECT * FROM notifications WHERE read_at IS NULL AND message LIKE ?",
+        (f"Review needed: #{p['id']}%",),
+    )
+    assert not still
+
+
+def test_failed_apply_keeps_notification_unread(client, fresh_db):
+    from app.services import review
+
+    # empty title makes create_task raise -> apply fails -> reset to pending
+    p = review.propose_change("task", "create", {"title": ""}, actor="scout", origin="agent")
+    import contextlib
+
+    with contextlib.suppress(ValueError):
+        review.approve_change(p["id"], actor="tester")
+    row = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
+    assert row["status"] == "pending"
+    unread = fresh_db.query(
+        "SELECT * FROM notifications WHERE read_at IS NULL AND message LIKE ?",
+        (f"Review needed: #{p['id']}%",),
+    )
+    assert unread
+
+
+def test_deactivate_revokes_keys(client, fresh_db):
+    from app.services import api_keys, users
+
+    users.ensure_user("leaver")
+    minted = api_keys.create_key("leaver", label="test")
+    assert api_keys.verify_key(minted["key"]) == "leaver"
+    out = users.set_active("leaver", False, actor="tester")
+    assert out["keys_revoked"] == 1
+    assert api_keys.verify_key(minted["key"]) is None
+
+
+def test_assign_question_rejects_unknown_user(client):
+    qid = client.post("/api/questions", json={"question": "who?"}).json()["id"]
+    r = client.patch(f"/api/questions/{qid}", json={"assigned_to": "mria"})
+    assert r.status_code == 400
+
+
+def test_users_all_param_lists_inactive(client, fresh_db):
+    from app.services import users
+
+    users.ensure_user("gone")
+    users.set_active("gone", False, actor="tester")
+    assert "gone" not in [u["name"] for u in client.get("/api/users").json()]
+    assert "gone" in [u["name"] for u in client.get("/api/users?all=1").json()]

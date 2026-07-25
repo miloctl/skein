@@ -1,6 +1,7 @@
 // Theme prefs live in this browser, like identity. Two axes:
 // appearance (system/light/dark -> color-scheme) and colorway (accent dyes).
-// globals.css owns the actual values; layout.tsx applies these before paint.
+// globals.css owns the actual values; layout.tsx applies these before paint
+// with an inline script that mirrors this logic (keep the two in sync).
 
 const THEME_KEY = "skein-theme";
 const APPEARANCE_KEY = "skein-appearance";
@@ -18,19 +19,36 @@ export const APPEARANCES = [
   { id: "dark", label: "Dark" },
 ] as const;
 
+// storage can throw (blocked third-party contexts, some private modes) —
+// theme prefs must never take the page down with them
+function read(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function write(key: string, value: string | null) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch {}
+}
+
 export function getColorway(): string {
   if (typeof window === "undefined") return "indigo";
-  const t = window.localStorage.getItem(THEME_KEY);
+  const t = read(THEME_KEY);
   return COLORWAYS.some((c) => c.id === t) ? (t as string) : "indigo";
 }
 
 export function getAppearance(): string {
   if (typeof window === "undefined") return "system";
-  const a = window.localStorage.getItem(APPEARANCE_KEY);
+  const a = read(APPEARANCE_KEY);
   return a === "light" || a === "dark" ? a : "system";
 }
 
-function apply() {
+export function applyPrefs() {
   const root = document.documentElement;
   const t = getColorway();
   if (t === "indigo") delete root.dataset.theme;
@@ -38,18 +56,20 @@ function apply() {
   const a = getAppearance();
   if (a === "system") delete root.dataset.appearance;
   else root.dataset.appearance = a;
+}
+
+function applyAndPing() {
+  applyPrefs();
   // same-tab subscribers (useSyncExternalStore) listen for this
   window.dispatchEvent(new Event("storage"));
 }
 
 export function setColorway(id: string) {
-  if (id === "indigo") window.localStorage.removeItem(THEME_KEY);
-  else window.localStorage.setItem(THEME_KEY, id);
-  apply();
+  write(THEME_KEY, id === "indigo" ? null : id);
+  applyAndPing();
 }
 
 export function setAppearance(id: string) {
-  if (id === "system") window.localStorage.removeItem(APPEARANCE_KEY);
-  else window.localStorage.setItem(APPEARANCE_KEY, id);
-  apply();
+  write(APPEARANCE_KEY, id === "system" ? null : id);
+  applyAndPing();
 }

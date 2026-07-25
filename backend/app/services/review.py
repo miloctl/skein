@@ -25,6 +25,7 @@ def _registry() -> dict:
         "milestone": {"create": work.create_milestone, "update": work.update_milestone},
         "task": {"create": work.create_task, "update": work.update_task},
         "question": {"create": collab.ask_question, "update": collab.answer_question},
+        "question_assign": {"update": collab.assign_question},
         "decision": {"create": collab.record_decision, "update": collab.supersede_decision},
         "standup": {"create": collab.post_standup},
         "note": {"create": collab.save_note},
@@ -104,10 +105,6 @@ def _claim(change_id: int, new_status: str, note: str, actor: str) -> None:
         if not change:
             raise ValueError(f"pending change #{change_id} not found")
         raise ValueError(f"change #{change_id} already {change['status']}")
-    # the review is handled — its "Review needed" ping must not keep nagging
-    from .notifications import mark_read_matching
-
-    mark_read_matching(f"Review needed: #{change_id} ")
 
 
 def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:
@@ -146,12 +143,23 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
     )
     applied = f"#{result['id']}" if result.get("id") is not None else "applied"
     db.log_activity(actor, "approve_change", f"#{change_id} -> {change['entity']} {applied}")
+    _clear_review_ping(change_id)
     return {"id": change_id, "status": "approved", "result": result}
+
+
+def _clear_review_ping(change_id: int) -> None:
+    """The review is handled — its "Review needed" ping must not keep
+    nagging. Called AFTER the apply succeeds (a failed apply resets the
+    proposal to pending and must keep its notification unread)."""
+    from .notifications import mark_read_matching
+
+    mark_read_matching(f"Review needed: #{change_id} ")
 
 
 def reject_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:
     _claim(change_id, "rejected", note, actor)
     db.log_activity(actor, "reject_change", f"#{change_id}")
+    _clear_review_ping(change_id)
     return {"id": change_id, "status": "rejected"}
 
 

@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { CapturePalette } from "@/components/capture-palette";
 import { Nav } from "@/components/nav";
+import { ThemeSync } from "@/components/theme-sync";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,14 +38,16 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* apply saved theme prefs before first paint (mirrors lib/theme.ts) */}
+        {/* apply saved theme prefs before first paint (mirrors lib/theme.ts —
+            keep the key names and allow-lists in sync) */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("skein-theme");if(t&&t!=="indigo")d.dataset.theme=t;var a=localStorage.getItem("skein-appearance");if(a==="light"||a==="dark")d.dataset.appearance=a}catch(e){}})()`,
+            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("skein-theme");if(["madder","verdigris","graphite"].indexOf(t)>=0)d.dataset.theme=t;var a=localStorage.getItem("skein-appearance");if(a==="light"||a==="dark")d.dataset.appearance=a}catch(e){}})()`,
           }}
         />
       </head>
       <body className="min-h-full flex flex-col">
+        <ThemeSync />
         <Nav />
         <CapturePalette />
         {children}

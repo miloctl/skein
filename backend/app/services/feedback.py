@@ -25,7 +25,9 @@ def record_feedback(
     if verdict not in VERDICTS:
         raise ValueError(f"verdict must be one of {VERDICTS}")
     if not input_text.strip():
-        raise ValueError("input_text is required")
+        if kind != "pulse":
+            raise ValueError("input_text is required")
+        input_text = "weekly pulse"  # a pulse vote has no input text
     if verdict == "corrected" and not correction.strip():
         raise ValueError("a corrected verdict needs the correction")
     # pulse votes are DESIGNED anonymous: no created_by, and the ledger gets

@@ -1,6 +1,7 @@
 from .collab import (
     answer_question,
     ask_question,
+    assign_question,
     list_decisions,
     list_questions,
     list_standups,
@@ -53,6 +54,7 @@ ALL_TOOLS = [
     list_tasks,
     ask_question,
     answer_question,
+    assign_question,
     list_questions,
     record_decision,
     list_decisions,

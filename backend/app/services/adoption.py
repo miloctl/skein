@@ -33,9 +33,12 @@ def adoption(weeks: int = 4) -> dict:
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1 AND name != 'anonymous'"
     )
+    # deactivated names drop out here too — else "4/3 humans active" after
+    # a roster cleanup
     active = db.query(
-        "SELECT user, MAX(day) AS last_day, SUM(actions) AS actions"
-        " FROM tool_usage WHERE day >= ? GROUP BY user ORDER BY last_day DESC",
+        "SELECT t.user, MAX(t.day) AS last_day, SUM(t.actions) AS actions"
+        " FROM tool_usage t JOIN users u ON u.name = t.user AND u.active = 1"
+        " WHERE t.day >= ? GROUP BY t.user ORDER BY last_day DESC",
         (cutoff,),
     )
     by_surface = db.query(
@@ -44,7 +47,9 @@ def adoption(weeks: int = 4) -> dict:
         (cutoff,),
     )
     weekly_active = db.query_row(
-        "SELECT COUNT(DISTINCT user) AS n FROM tool_usage WHERE day >= ?", (week_ago,)
+        "SELECT COUNT(DISTINCT t.user) AS n FROM tool_usage t"
+        " JOIN users u ON u.name = t.user AND u.active = 1 WHERE t.day >= ?",
+        (week_ago,),
     )
     capture_total = db.query_row(
         "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture' AND created_at >= ?", (cutoff,)

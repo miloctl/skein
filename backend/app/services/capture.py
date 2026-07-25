@@ -26,8 +26,14 @@ PREFIX = re.compile(
 )
 
 # `q: mira — where do we log?` assigns to mira — same person-separator grammar
-# as fb:, but only when the name matches an active user (else it stays text)
-_Q_ASSIGN = re.compile(r"^(?P<person>[^\s—:-][^—:]{0,40}?)\s*(?:—|:|\s-\s)\s*(?P<body>.+)$", re.S)
+# as fb:, but only when the name matches an active user (else it stays text).
+# The known-user gate is LOAD-BEARING: with re.S the person group can span
+# newlines, and only the gate keeps arbitrary text from becoming an assignee.
+_Q_ASSIGN = re.compile(
+    r"^(?P<person>[^\s\u2014\u2013:-][^\u2014\u2013:]{0,40}?)"
+    r"\s*(?:\u2014|\u2013|:|\s-\s)\s*(?P<body>.+)$",
+    re.S,
+)
 # `decision: … review by 2026-10-01` feeds the half-life sweep
 _REVIEW_BY = re.compile(r"[\s,;\u2014\u2013-]*\breview by\s+(?P<date>\d{4}-\d{2}-\d{2})\s*$", re.I)
 

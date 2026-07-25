@@ -71,3 +71,14 @@ def revoke_all_keys(*, actor: str) -> dict:
     n = db.execute_rowcount("UPDATE api_keys SET active = 0 WHERE active = 1")
     db.log_activity(actor, "revoke_all_api_keys", f"{n} keys")
     return {"revoked": n}
+
+
+def revoke_keys_for(owner: str, *, actor: str = "system") -> int:
+    """Revoke every active key an owner holds — the offboarding half of
+    users.set_active(False)."""
+    n = db.execute_rowcount(
+        "UPDATE api_keys SET active = 0 WHERE owner = ? AND active = 1", (owner,)
+    )
+    if n:
+        db.log_activity(actor, "revoke_api_keys_for", f"{owner}: {n} key(s)")
+    return n

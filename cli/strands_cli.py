@@ -186,6 +186,11 @@ def cmd_eval(args):
         print(f"  ✗ #{m['id']} {m['input']!r}: expected {m['expected']}, got {m['predicted']}")
     for u in unscored:
         print(f"  ? #{u['id']} unscored (free-text correction): {u['note'][:70]}")
+    if not out["cases"] and unscored:
+        print(
+            "warning: nothing machine-checkable — corrections must be a kind label"
+            " (question/blocker/decision/commitment/task/note) to gate regressions"
+        )
     if out["mismatches"]:
         sys.exit(1)
 

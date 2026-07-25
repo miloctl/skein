@@ -32,13 +32,26 @@ def list_users(active_only: bool = True) -> list[dict]:
 
 def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     """Deactivate a roster entry (typo'd name, departed teammate). History
-    stays attributed; the name just leaves the roster, adoption counts, and
-    the context pack. Strong identity required at the route."""
+    stays attributed; the name leaves the roster, adoption counts, and the
+    context pack — and every API key they own is revoked, so deactivation
+    IS the offboarding switch for strong identity too. Reactivation does
+    not resurrect keys (mint fresh ones). Strong identity required at the
+    route."""
     row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
     if not row:
         raise ValueError(f"no user named '{name}'")
     if name == actor and not active:
         raise ValueError("you cannot deactivate yourself")
     db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))
-    db.log_activity(actor, "set_user_active", f"{name} -> {'active' if active else 'inactive'}")
-    return {"name": name, "active": bool(active)}
+    revoked = 0
+    if not active:
+        from .api_keys import revoke_keys_for
+
+        revoked = revoke_keys_for(name, actor=actor)
+    db.log_activity(
+        actor,
+        "set_user_active",
+        f"{name} -> {'active' if active else 'inactive'}"
+        + (f" ({revoked} key(s) revoked)" if revoked else ""),
+    )
+    return {"name": name, "active": bool(active), "keys_revoked": revoked}

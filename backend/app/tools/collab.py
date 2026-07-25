@@ -46,6 +46,24 @@ def answer_question(question_id: int, answer: str, answered_by: str = "") -> str
 
 
 @tool
+def assign_question(question_id: int, assigned_to: str) -> str:
+    """Assign an open question to a teammate (must be an active user).
+
+    Args:
+        question_id: ID of the open question.
+        assigned_to: Who should answer it.
+    """
+    payload = {"assigned_to": assigned_to}
+    return gated_write(
+        "question_assign",
+        "update",
+        payload,
+        lambda: collab.assign_question(question_id, **payload, actor="agent", origin="agent"),
+        entity_id=question_id,
+    )
+
+
+@tool
 def list_questions(status: str = "open") -> str:
     """List logged questions.
 
