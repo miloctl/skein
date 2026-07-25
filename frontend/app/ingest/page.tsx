@@ -80,7 +80,7 @@ export default function IngestPage() {
           <ul className="space-y-1">
             {result.proposals.map((p) => (
               <li key={p.id} className="text-ink-2">
-                <span className="mr-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
+                <span className="mr-2 rounded bg-raised px-1.5 py-0.5 text-xs">
                   {p.kind}
                 </span>
                 {p.line}

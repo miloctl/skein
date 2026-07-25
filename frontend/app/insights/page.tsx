@@ -84,7 +84,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Bar({ share }: { share: number }) {
   return (
-    <span className="inline-block h-2 w-28 overflow-hidden rounded bg-raised align-middle dark:bg-zinc-800">
+    <span className="inline-block h-2 w-28 overflow-hidden rounded bg-raised align-middle">
       <span
         className="block h-2 rounded bg-thread-solid"
         style={{ width: `${Math.min(100, Math.round(share * 100))}%` }}

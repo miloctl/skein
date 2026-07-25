@@ -56,7 +56,10 @@ function NavLink({
     >
       {label}
       {badge ? (
-        <span className="ml-1.5 rounded-full border border-danger/25 bg-danger/10 px-1.5 py-px font-mono text-[10px] tabular-nums text-danger">
+        <span
+          aria-label={`${badge} items needing review`}
+          className="ml-1.5 rounded-full border border-danger/25 bg-danger/10 px-1.5 py-px font-mono text-[10px] tabular-nums text-danger"
+        >
           {badge}
         </span>
       ) : null}
@@ -134,6 +137,7 @@ export function Nav() {
               autoFocus
               defaultValue={anonymous ? "" : user}
               placeholder="your name"
+              aria-label="Your name"
               className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-sm outline-none focus:border-thread-solid"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -176,6 +180,9 @@ export function Nav() {
           <Link
             href="/settings"
             className="relative text-ink-3 hover:text-ink"
+            aria-label={
+              hasKey ? "Settings — strong identity active" : "Settings"
+            }
             title={
               hasKey
                 ? "Settings — strong identity active"
@@ -191,7 +198,7 @@ export function Nav() {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              aria-label="Settings"
+              aria-hidden
             >
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />

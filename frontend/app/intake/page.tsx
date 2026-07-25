@@ -189,18 +189,18 @@ export default function IntakePage() {
             {(r.status === "submitted" || r.status === "scored") && (
               <div className="mt-2 flex gap-2">
                 <button onClick={() => score(r.id)}
-                        className="rounded bg-thread/15 px-2 py-1 text-xs font-medium text-thread hover:bg-thread/25">
+                        className="rounded bg-thread/15 px-2 py-1 text-xs font-medium text-thread hover:bg-thread/20">
                   score
                 </button>
                 {r.status === "scored" && (
                   <>
                     <button onClick={() => disposition(r.id, "accepted")}
-                            className="rounded bg-ok/15 px-2 py-1 text-xs font-medium text-ok hover:bg-ok/25">
+                            className="rounded bg-ok/15 px-2 py-1 text-xs font-medium text-ok hover:bg-ok/20">
                       accept
                     </button>
                     <button onClick={() => disposition(r.id, "accepted", true)}
                             title="Accept as a timeboxed experiment — invalidated on time is a success, not a slip"
-                            className="rounded bg-weld/15 px-2 py-1 text-xs font-medium text-weld hover:bg-weld/25">
+                            className="rounded bg-weld/15 px-2 py-1 text-xs font-medium text-weld hover:bg-weld/20">
                       🧪 accept as experiment
                     </button>
                     <button onClick={() => disposition(r.id, "deferred")}
@@ -208,7 +208,7 @@ export default function IntakePage() {
                       defer
                     </button>
                     <button onClick={() => disposition(r.id, "declined")}
-                            className="rounded bg-danger/15 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/25">
+                            className="rounded bg-danger/15 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/20">
                       decline
                     </button>
                   </>

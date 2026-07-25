@@ -41,7 +41,7 @@
     --ok: #85cd9e;
     --warn: #dfb362;
     --danger: #f0998b;
-    --warp: rgb(237 233 226 / 0.02);
+    --warp: rgb(237 233 226 / 0.013);
     --shadow-card: none;
     --shadow-float: 0 8px 24px rgb(0 0 0 / 0.4);
   }
@@ -87,13 +87,14 @@ body {
 }
 
 /* The selvage: the fabric's finished edge, along the bottom of the nav.
+   A whisper, not hazard tape — indigo and ochre threads at low volume.
    On Ship It the loom advances one repeat. */
 .selvage {
   height: 2px;
   background: repeating-linear-gradient(
     135deg,
-    var(--thread-solid) 0 8px,
-    color-mix(in oklab, var(--thread-solid) 55%, var(--surface-page)) 8px 16px
+    color-mix(in oklab, var(--thread-solid) 38%, var(--surface-page)) 0 10px,
+    color-mix(in oklab, var(--weld) 30%, var(--surface-page)) 10px 20px
   );
 }
 .selvage-celebrate {
@@ -112,6 +113,30 @@ body {
     var(--warp) 0 2px,
     transparent 2px 8px
   );
+}
+
+/* The idle loom: the calm state rendered as even resting threads — one
+   indigo strand through loom-neutrals. Beautiful when nothing is wrong. */
+.loom-idle {
+  height: 28px;
+  border-radius: 6px;
+  background:
+    linear-gradient(
+      0deg,
+      transparent 0 45%,
+      color-mix(in oklab, var(--thread-solid) 55%, var(--surface-card)) 45% 55%,
+      transparent 55% 100%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in oklab, var(--text-3) 25%, var(--surface-card)) 0 1px,
+      transparent 1px 7px
+    );
+}
+
+/* the goose must survive a white card in light mode */
+.goose {
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.45));
 }
 
 /* One wave per session, then stillness */

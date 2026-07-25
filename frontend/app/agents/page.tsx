@@ -37,10 +37,10 @@ type Inbox = {
 const LEVELS = ["autonomous", "notify", "review", "forbidden"];
 
 const LEVEL_COLOR: Record<string, string> = {
-  autonomous: "bg-green-100 text-ok",
-  notify: "bg-blue-100 text-blue-700",
-  review: "bg-amber-100 text-amber-700",
-  forbidden: "bg-red-100 text-danger",
+  autonomous: "bg-ok/15 text-ok",
+  notify: "bg-thread/15 text-thread",
+  review: "bg-warn/15 text-warn",
+  forbidden: "bg-danger/15 text-danger",
 };
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
@@ -129,7 +129,7 @@ export default function Agents() {
                   <span className="font-medium">🤖 {a.agent}</span>
                   <button
                     onClick={() => openInbox(a.agent)}
-                    className="rounded bg-zinc-100 px-2 py-0.5 text-xs hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                    className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line"
                   >
                     inbox
                   </button>
@@ -166,7 +166,7 @@ export default function Agents() {
             value={targetAgent}
             onChange={(e) => setTargetAgent(e.target.value)}
             list="agent-names"
-            className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-700"
+            className="w-28 rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
             placeholder="agent name"
           />
           <datalist id="agent-names">
@@ -178,7 +178,7 @@ export default function Agents() {
           <select
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
-            className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
           >
             {(entities.length ? entities : ["task"]).map((e) => (
               <option key={e}>{e}</option>
@@ -187,7 +187,7 @@ export default function Agents() {
           <select
             value={level}
             onChange={(e) => setLevel(e.target.value)}
-            className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
           >
             {LEVELS.map((l) => (
               <option key={l}>{l}</option>

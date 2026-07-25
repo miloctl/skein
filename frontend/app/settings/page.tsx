@@ -26,7 +26,7 @@ function CopyLine({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center gap-2">
-      <code className="flex-1 overflow-x-auto rounded bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+      <code className="flex-1 overflow-x-auto rounded bg-raised px-2 py-1 text-xs">
         {text}
       </code>
       <button
@@ -36,7 +36,7 @@ function CopyLine({ text }: { text: string }) {
             setTimeout(() => setCopied(false), 1500);
           });
         }}
-        className="shrink-0 rounded bg-zinc-200 px-2 py-1 text-xs hover:bg-zinc-300 dark:bg-zinc-700"
+        className="shrink-0 rounded bg-raised px-2 py-1 text-xs hover:bg-line"
       >
         {copied ? "✓ copied" : "copy"}
       </button>
@@ -85,7 +85,7 @@ export default function SettingsPage() {
       setApiKey(candidate);
       setKeyDraft("");
       setKeyStatus(
-        `✅ key works — you are authenticated as ${w.user}` +
+        `Key works — you are authenticated as ${w.user}.` +
           (w.user !== getUser() && getUser() !== "anonymous"
             ? ` (note: your display name is ${getUser()} — the key's owner wins for private surfaces)`
             : ""),
@@ -153,11 +153,11 @@ export default function SettingsPage() {
           Status:{" "}
           {strong ? (
             <span className="font-medium text-ok">
-              ✅ strong identity active as {who?.user}
+              ● strong identity active as {who?.user}
             </span>
           ) : hasBrowserKey ? (
             <span className="font-medium text-danger">
-              ⚠ a key is stored in this browser but it is not working — paste
+              A key is stored in this browser but it is not working — paste
               a fresh one below
             </span>
           ) : (

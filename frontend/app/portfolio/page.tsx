@@ -320,7 +320,7 @@ export default function Portfolio() {
                             }),
                           )
                         }
-                        className="rounded bg-zinc-100 px-2 py-0.5 text-xs hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50"
                       >
                         {s}
                       </button>
@@ -350,7 +350,7 @@ export default function Portfolio() {
           {busy ? "Working…" : "Generate readout"}
         </button>
         {readout && (
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-zinc-50 p-3 text-xs dark:bg-zinc-950">
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
             {readout}
           </pre>
         )}

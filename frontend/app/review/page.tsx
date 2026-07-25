@@ -198,7 +198,7 @@ export default function ReviewPage() {
               </button>
               <button
                 onClick={() => act(c.id, "reject")}
-                className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/25"
+                className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/20"
               >
                 Reject
               </button>

@@ -18,22 +18,22 @@ const STATUS_COLORS: Record<string, string> = {
   planned: "bg-raised text-ink-2",
   todo: "bg-raised text-ink-2",
   in_progress: "bg-thread/15 text-thread",
-  blocked: "bg-red-100 text-danger",
-  done: "bg-green-100 text-ok",
+  blocked: "bg-danger/15 text-danger",
+  done: "bg-ok/15 text-ok",
   open: "bg-warn/15 text-warn",
-  answered: "bg-green-100 text-ok",
-  escalated: "bg-red-100 text-danger",
-  resolved: "bg-green-100 text-ok",
+  answered: "bg-ok/15 text-ok",
+  escalated: "bg-danger/15 text-danger",
+  resolved: "bg-ok/15 text-ok",
   active: "bg-thread/15 text-thread",
   proposed: "bg-raised text-ink-2",
   closing: "bg-warn/15 text-warn",
-  closed: "bg-raised text-ink-3",
+  closed: "bg-raised text-ink-2",
 };
 
 function Badge({ value }: { value: string }) {
   return (
     <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+      className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
         STATUS_COLORS[value] ?? "bg-raised text-ink-2"
       }`}
     >
@@ -132,7 +132,12 @@ function StandupCard({ rows }: { rows: Row[] }) {
               <span className="font-medium">{s.author}</span>
               <p className="text-xs text-ink-3">
                 {s.today}
-                {s.blockers ? ` · ⛔ ${s.blockers}` : ""}
+                {s.blockers ? (
+                  <>
+                    {" · "}
+                    <span className="text-danger">blocked: {s.blockers}</span>
+                  </>
+                ) : null}
               </p>
             </li>
           ))}
@@ -253,25 +258,27 @@ export default function Dashboard() {
         rows={data.engagements ?? []}
         empty="No engagements — accept an intake request or instantiate a playbook."
         render={(e) => (
-          <li key={e.id} className="flex items-center justify-between gap-2 text-sm">
-            <span>
-              <span className="text-ink-3">#{e.id}</span>{" "}
-              {e.kind === "experiment" ? "🧪 " : ""}
-              {e.name}
-              <span className="ml-2 text-xs text-ink-3">[{e.project_class}]</span>
-              {e.lead ? (
-                <span className="ml-2 text-xs text-ink-3">lead @{e.lead}</span>
-              ) : null}
-              {e.kind === "experiment" && e.timebox_end ? (
-                <span className="ml-2 text-xs text-weld">
-                  timebox → {String(e.timebox_end)}
-                </span>
-              ) : null}
-              {e.conclusion ? (
-                <span className="ml-2 text-xs text-ink-3">({String(e.conclusion)})</span>
-              ) : null}
+          <li key={e.id} className="flex items-start justify-between gap-3 text-sm">
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="font-mono text-xs text-ink-3">#{e.id}</span>
+                <span className="truncate font-medium">{e.name}</span>
+                {e.kind === "experiment" && (
+                  <span className="whitespace-nowrap rounded-full border border-weld/25 bg-weld/10 px-1.5 py-px font-mono text-[10px] text-weld">
+                    experiment
+                  </span>
+                )}
+              </span>
+              <span className="mt-0.5 block font-mono text-[11px] text-ink-3">
+                {e.project_class}
+                {e.lead ? ` · lead @${e.lead}` : ""}
+                {e.kind === "experiment" && e.timebox_end
+                  ? ` · timebox ${String(e.timebox_end)}`
+                  : ""}
+                {e.conclusion ? ` · ${String(e.conclusion)}` : ""}
+              </span>
             </span>
-            <span className="flex items-center gap-2">
+            <span className="flex shrink-0 items-center gap-2">
               {e.status !== "closed" && (
                 <button
                   onClick={async () => {
@@ -290,9 +297,9 @@ export default function Dashboard() {
                       alert(String(err));
                     }
                   }}
-                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
-                  close…
+                  close out
                 </button>
               )}
               <Badge value={String(e.status)} />
@@ -328,7 +335,7 @@ export default function Dashboard() {
             </span>
             <span
               className={`text-xs font-semibold ${
-                Number(c.total_percent) > 100 ? "text-danger" : "text-green-600"
+                Number(c.total_percent) > 100 ? "text-danger" : "text-ok"
               }`}
             >
               {c.total_percent}%

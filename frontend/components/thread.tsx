@@ -31,6 +31,13 @@ const AssistantMessage = () => (
   </MessagePrimitive.Root>
 );
 
+const SUGGESTIONS = [
+  "Plan a launch for our new onboarding flow",
+  "What's on the calendar this week?",
+  "What needs my attention today?",
+  "/briefing",
+];
+
 const Composer = () => (
   <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
     <ComposerPrimitive.Input
@@ -48,28 +55,42 @@ const Composer = () => (
 export function Thread() {
   return (
     <ThreadPrimitive.Root className="flex h-full flex-col">
-      <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto px-4 pt-4">
+      <ThreadPrimitive.Viewport className="flex flex-1 flex-col overflow-y-auto px-4 pt-4">
         <ThreadPrimitive.Empty>
-          <div className="mx-auto mt-16 max-w-md text-center text-ink-3">
-            <p className="text-lg font-semibold text-ink">
+          <div className="mx-auto flex max-w-lg flex-1 flex-col items-center justify-center pb-24 text-center">
+            <div className="loom-idle mb-6 w-40" aria-hidden />
+            <p className="font-display text-2xl font-semibold tracking-tight text-ink">
               Skein Chief of Staff
             </p>
-            <p className="mt-2 text-sm">
+            <p className="mt-2 text-sm text-ink-3">
               Track milestones, log questions, record decisions, post standups,
-              and plan projects — just ask. Try: <em>“Plan a launch for our new
-              onboarding flow”</em> or <em>“What&apos;s on the calendar this week?”</em>
+              and plan projects — just ask.
             </p>
-            <p className="mt-3 text-xs text-ink-3">
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              {SUGGESTIONS.map((s) => (
+                <ThreadPrimitive.Suggestion
+                  key={s}
+                  prompt={s}
+                  method="replace"
+                  autoSend
+                  className="cursor-pointer rounded-full border border-line-strong bg-card px-3 py-1.5 text-xs text-ink-2 transition-colors hover:border-thread-solid hover:text-thread"
+                >
+                  {s.startsWith("/") ? <code>{s}</code> : s}
+                </ThreadPrimitive.Suggestion>
+              ))}
+            </div>
+            <p className="mt-6 text-xs text-ink-3">
               Type <code>/help</code> for commands — <code>/plan</code>,{" "}
-              <code>/playbooks</code>, <code>/search</code>, <code>/briefing</code>,{" "}
-              <code>/remember</code>. Anything else is smart-captured.
+              <code>/playbooks</code>, <code>/search</code>,{" "}
+              <code>/briefing</code>, <code>/remember</code>. Anything else is
+              smart-captured.
             </p>
           </div>
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages
           components={{ UserMessage, AssistantMessage }}
         />
-        <ThreadPrimitive.ViewportFooter className="sticky bottom-0 bg-gradient-to-t from-page via-page to-transparent pb-4 pt-2 ">
+        <ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto bg-gradient-to-t from-page via-page to-transparent pb-4 pt-2">
           <Composer />
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>

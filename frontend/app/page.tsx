@@ -54,11 +54,25 @@ type Onboarding = {
   progress: string;
 };
 
+// one wave per session, then stillness; memoized so StrictMode double-renders
+// and mid-animation re-renders see the same answer (wave renders client-only,
+// behind the briefing-loaded gate, so SSR never sees it)
+let wavedThisSession: boolean | undefined;
+function shouldWave() {
+  if (typeof window === "undefined") return false;
+  if (wavedThisSession === undefined) {
+    wavedThisSession = !sessionStorage.getItem("skein-waved");
+    sessionStorage.setItem("skein-waved", "1");
+  }
+  return wavedThisSession;
+}
+
 export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pulseVoted, setPulseVoted] = useState(false);
+  const waveOnce = shouldWave();
 
   const generation = useRef(0);
   const load = useCallback(() => {
@@ -142,18 +156,14 @@ export default function MyDay() {
     );
   if (!b) return <main className="p-8 text-sm text-ink-3">{loadingLine()}</main>;
 
-  // one wave per session, then stillness
-  const waveOnce = typeof window !== "undefined" && !sessionStorage.getItem("skein-waved");
-  if (waveOnce) sessionStorage.setItem("skein-waved", "1");
-
   const attention = b.attention ?? [];
   const needsCount = attention.filter((a) => a.group !== "notice").length;
-  const GROUP_META: Record<AttentionItem["group"], { title: string; icon: string }> = {
-    decide: { title: "Decide", icon: "⚖️" },
-    unblock: { title: "Unblock", icon: "⛔" },
-    commit: { title: "Commit", icon: "🤝" },
-    review: { title: "Review", icon: "📥" },
-    notice: { title: "Notice", icon: "🔔" },
+  const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
+    decide: { title: "Decide", tone: "bg-thread-solid" },
+    unblock: { title: "Unblock", tone: "bg-danger" },
+    commit: { title: "Commit", tone: "bg-weld" },
+    review: { title: "Review", tone: "bg-thread-solid" },
+    notice: { title: "Notice", tone: "bg-line-strong" },
   };
 
   return (
@@ -209,15 +219,15 @@ export default function MyDay() {
                       "absolute top-1/2 size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full " +
                       (s.done ? "bg-thread-solid" : "border border-line-strong bg-card")
                     }
-                    style={{ left: `${(i / (total - 1)) * 100}%` }}
+                    style={{ left: `${total > 1 ? (i / (total - 1)) * 100 : 0}%` }}
                   />
                 ))}
                 <span
-                  className="absolute -top-[20px] -translate-x-1/2 text-sm transition-[left] duration-500"
+                  className="absolute -top-[20px] -translate-x-1/2 text-sm motion-safe:transition-[left] motion-safe:duration-500"
                   style={{ left: `${Math.min(pct, 97)}%` }}
                   aria-hidden
                 >
-                  🪿
+                  <span className="goose">🪿</span>
                 </span>
               </div>
             );
@@ -226,7 +236,7 @@ export default function MyDay() {
             {onboarding.steps.map((s) => (
               <li key={s.id}>
                 {s.done ? (
-                  <span className="text-ink-3 line-through">✓ {s.label}</span>
+                  <span className="text-ink-3">✓ {s.label}</span>
                 ) : (
                   <>
                     <Link
@@ -262,8 +272,9 @@ export default function MyDay() {
                 .filter((g) => attention.some((a) => a.group === g))
                 .map((g) => (
                   <div key={g}>
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-3">
-                      {GROUP_META[g].icon} {GROUP_META[g].title}
+                    <p className="mb-1 flex items-center gap-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                      <span aria-hidden className={`h-0.5 w-3 rounded-full ${GROUP_META[g].tone}`} />
+                      {GROUP_META[g].title}
                     </p>
                     <ul className="space-y-1.5 text-sm">
                       {attention
@@ -287,7 +298,7 @@ export default function MyDay() {
                             {a.kind === "blocker" && (
                               <button
                                 onClick={() => resolveBlocker(a.ref_id)}
-                                className="shrink-0 rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/25"
+                                className="shrink-0 rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                               >
                                 resolve
                               </button>
@@ -341,7 +352,7 @@ export default function MyDay() {
                   {t.status !== "done" && (
                     <button
                       onClick={() => patchTask(Number(t.id), "done")}
-                      className="rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/25"
+                      className="rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                     >
                       done
                     </button>
@@ -356,7 +367,7 @@ export default function MyDay() {
             )}
             {b.your_work.due_soon.length > 0 && (
               <li className="pt-1 text-xs text-weld">
-                ⏰ Due within a week:{" "}
+                Due within a week:{" "}
                 {b.your_work.due_soon.map((t) => `#${t.id} ${t.title}`).join(" · ")}
               </li>
             )}
@@ -396,7 +407,7 @@ export default function MyDay() {
             </li>
             <li className="pt-1 text-xs text-ink-3">
               <Link href="/settings" className="underline hover:text-ink-2">
-                🌱 set your growth interests (Settings)
+                Set your growth interests (Settings)
               </Link>
             </li>
           </ul>
@@ -405,18 +416,32 @@ export default function MyDay() {
         <Card title="Team pulse">
           <ul className="space-y-2 text-sm">
             {b.team.escalated_blockers.map((e) => (
-              <li key={e.id} className="text-danger">
-                🚨 Escalated: #{e.id} {e.title} (owner: {e.owner || "unowned"})
+              <li key={e.id} className="flex items-center gap-2 text-danger">
+                <span
+                  aria-hidden
+                  className="knot-escalated size-2 shrink-0 rounded-full bg-danger"
+                />
+                <span>
+                  Escalated: #{e.id} {e.title} (owner: {e.owner || "unowned"})
+                </span>
               </li>
             ))}
             {b.team.todays_events.map((e) => (
-              <li key={e.id}>
-                📅 {String(e.starts_at).slice(11, 16)} {e.title}
+              <li key={e.id} className="flex items-baseline gap-2">
+                <span className="font-mono text-xs text-ink-3">
+                  {String(e.starts_at).slice(11, 16)}
+                </span>
+                <span>{e.title}</span>
               </li>
             ))}
             {b.team.escalated_blockers.length === 0 &&
               b.team.todays_events.length === 0 && (
-                <li className="text-ink-3">No escalations, nothing scheduled today.</li>
+                <li>
+                  <div className="loom-idle mb-2" aria-hidden />
+                  <p className="text-xs text-ink-3">
+                    All threads even — no escalations, nothing scheduled today.
+                  </p>
+                </li>
               )}
           </ul>
         </Card>
