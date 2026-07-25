@@ -1,0 +1,58 @@
+name: New engineering manager onboarding
+project_class: manager_onboarding
+description: >
+  First 90 days as an EM: listening tour first, share-back before changing
+  anything, ramp rituals from day one. Instantiate with yourself as lead.
+
+milestones:
+  - title: "Listening tour: 1:1 with every report"
+    description: >
+      One conversation each, no agenda beyond: what's working, what's not,
+      what should the new manager know, what do you want more/less of.
+      Capture privately (fb:/People page), not in team notes.
+    due_after_days: 14
+    tasks:
+      - title: "Schedule recurring 1:1s with every report"
+        priority: high
+      - "Ask each report: what should I absolutely not change?"
+      - "Map who owns what today (actual, not org-chart)"
+      - "Collect the top 3 frustrations mentioned more than once"
+  - title: "Stakeholder map and expectations"
+    description: >
+      Meet your manager, peer managers, and the loudest internal customers.
+      Write down what each expects from the team and by when.
+    due_after_days: 21
+    tasks:
+      - "1:1 with your manager: role contract, decision rights, first-quarter expectations"
+      - "Meet each peer manager and note shared dependencies"
+      - "List every standing commitment the team has already made"
+  - title: "Share back what I learned"
+    description: >
+      Month-2 ritual: present the themes from the listening tour back to the
+      team before changing anything. Corrections welcome — that is the point.
+    due_after_days: 45
+    tasks:
+      - title: "Write the share-back doc (themes, not attributions)"
+        priority: high
+      - "Team session: present, collect corrections, agree first changes"
+      - "Record the agreed changes as decisions with review dates"
+  - title: "90-day operating rhythm"
+    description: >
+      The rituals that survive contact: weekly operating review, monthly
+      lessons pass, quarterly decision-review sweep.
+    due_after_days: 90
+    tasks:
+      - "Run the first weekly operating review from the exec readout"
+      - "30-day self-check: am I still doing IC work that isn't mine to do?"
+      - "60-day feedback checkpoint with every report (ask for feedback ON you)"
+      - "90-day: revisit the team charter decisions and reconfirm or supersede"
+
+rituals:
+  - title: Weekly operating review
+    day_offset: 7
+    time: "15:00"
+    description: Portfolio health + commitments + findings, 30 minutes, from the readout.
+  - title: Share-back session
+    day_offset: 45
+    time: "14:00"
+    description: Present listening-tour themes back to the team before changing anything.

@@ -33,10 +33,28 @@ def classify(text: str) -> str:
     return "note"
 
 
-def capture(text: str, *, actor: str = "system", origin: str = "human") -> dict:
+def capture(
+    text: str, *, actor: str = "system", origin: str = "human", strong_auth: bool = False
+) -> dict:
     text = text.strip()
     if not text:
         raise ValueError("nothing to capture")
+    # fb: short-circuits BEFORE classification — feedback never becomes a
+    # team-visible, FTS-indexed record. Human-only, strong-identity-only;
+    # no index_record, no activity log (audit lives inside private.db).
+    from . import private_notes
+
+    fb = private_notes.parse_feedback(text)
+    if fb is not None:
+        if origin != "human":
+            raise ValueError("feedback notes are human-only — agents cannot write them")
+        if not strong_auth:
+            raise ValueError(
+                "feedback notes require a personal API key (POST /api/keys, then set it in the UI)"
+            )
+        person, body = fb
+        result = private_notes.add_note(actor, person, body, kind="feedback")
+        return {"kind": "feedback", **result}
     kind = classify(text)
     body = PREFIX.sub("", text).strip() or text
 

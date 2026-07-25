@@ -187,6 +187,7 @@ def insights() -> dict:
         "token_spend_weekly": token_spend_weekly(),
         "adoption": adoption(),
         "findings": list_findings(weeks=4),
+        "rule_stats": rule_stats(),
     }
 
 
@@ -589,6 +590,27 @@ def _r_token_anomaly() -> list[dict]:
     return []
 
 
+def _r_experiment_overdue() -> list[dict]:
+    overdue = db.query(
+        "SELECT id, name, timebox_end, kill_criteria FROM engagements"
+        " WHERE kind = 'experiment' AND status != 'closed'"
+        " AND timebox_end IS NOT NULL AND timebox_end < ?",
+        (_iso(_today()),),
+    )
+    return [
+        _finding(
+            "experiment_overdue",
+            "medium",
+            f"Experiment '{e['name']}' is past its timebox ({e['timebox_end']})"
+            " with no recorded conclusion — conclude it or extend it on purpose.",
+            {"engagement_id": e["id"], "kill_criteria": e["kill_criteria"]},
+            subject=f"engagement:{e['id']}",
+            window="point-in-time",
+        )
+        for e in overdue
+    ]
+
+
 def _r_job_stale() -> list[dict]:
     from .jobs import job_health
 
@@ -620,6 +642,7 @@ RULES = (
     _r_decision_decay,
     _r_token_anomaly,
     _r_job_stale,
+    _r_experiment_overdue,
 )
 
 
@@ -644,6 +667,9 @@ def run_findings(*, actor: str = "scheduler") -> dict:
                 (f["rule_id"], f["subject"], week),
             ):
                 continue  # already fired this week
+            if _suppressed(f["rule_id"], f["subject"]):
+                continue  # dismissed/deferred by a human — findings re-fire
+                # weekly as NEW rows, so suppression keys on (rule, subject)
             fid = db.execute(
                 "INSERT OR IGNORE INTO findings (rule_id, subject, severity,"
                 " message, n, window, receipt, week, created_at)"
@@ -682,13 +708,125 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
 
 
 def digest_findings(limit: int = 3) -> list[dict]:
-    """This week's top findings for the digest — severity-ordered, capped."""
+    """This week's top findings for the digest — severity-ordered, capped.
+    Dispositioned findings are excluded: acted-on means stop nagging."""
     rows = db.query(
-        "SELECT * FROM findings WHERE week = ? ORDER BY"
-        " CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
+        "SELECT * FROM findings WHERE week = ?"
+        " AND id NOT IN (SELECT finding_id FROM finding_dispositions)"
+        " ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1"
         " WHEN 'low' THEN 2 ELSE 3 END, id LIMIT ?",
         (_week(), limit),
     )
     for r in rows:
         r["receipt"] = json.loads(r["receipt"])
     return rows
+
+
+# ---- dispositions: what happened AFTER the finding fired --------------------
+
+
+def _latest_disposition(rule_id: str, subject: str) -> dict | None:
+    return db.query_one(
+        "SELECT * FROM finding_dispositions WHERE rule_id = ? AND subject = ?"
+        " ORDER BY id DESC LIMIT 1",
+        (rule_id, subject),
+    )
+
+
+def _suppressed(rule_id: str, subject: str) -> bool:
+    """dismissed quiets a (rule, subject) for 28 days; deferred until its
+    date. resolved/converted do NOT suppress — a re-fire after a fix is
+    signal, not noise."""
+    d = _latest_disposition(rule_id, subject)
+    if not d:
+        return False
+    if d["disposition"] == "dismissed":
+        return d["created_at"] >= _iso(_today() - timedelta(days=28))
+    if d["disposition"] == "deferred" and d["deferred_until"]:
+        return d["deferred_until"] > _iso(_today())
+    return False
+
+
+DISPOSITIONS = ("dismissed", "deferred", "converted", "resolved")
+
+
+def disposition_finding(
+    finding_id: int,
+    disposition: str,
+    reason: str = "",
+    deferred_until: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    if disposition not in DISPOSITIONS:
+        raise ValueError(f"disposition must be one of {DISPOSITIONS}")
+    if disposition == "deferred" and not deferred_until:
+        raise ValueError("deferred needs a deferred_until date (YYYY-MM-DD)")
+    if origin != "human":
+        raise ValueError("dispositions are human judgments — agents cannot make them")
+    finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))
+    if not finding:
+        raise ValueError(f"finding #{finding_id} not found")
+    did = db.execute(
+        "INSERT INTO finding_dispositions (finding_id, rule_id, subject, disposition,"
+        " reason, deferred_until, created_by, origin, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            finding_id,
+            finding["rule_id"],
+            finding["subject"],
+            disposition,
+            reason,
+            deferred_until or None,
+            actor,
+            origin,
+            db.now(),
+        ),
+    )
+    db.log_activity(actor, "disposition_finding", f"#{finding_id} {disposition}")
+    return {"id": did, "finding_id": finding_id, "disposition": disposition}
+
+
+def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str = "system") -> dict:
+    """One-click finding → work item, linked back via source_finding_id."""
+    finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))
+    if not finding:
+        raise ValueError(f"finding #{finding_id} not found")
+    text = title.strip() or finding["message"]
+    if kind == "task":
+        from .work import create_task
+
+        created = create_task(title=text[:120], description=text, actor=actor, origin="human")
+        db.execute(
+            "UPDATE tasks SET source_finding_id = ? WHERE id = ?", (finding_id, created["id"])
+        )
+    elif kind == "question":
+        from .collab import ask_question
+
+        created = ask_question(text, asked_by=actor, actor=actor, origin="human")
+        db.execute(
+            "UPDATE questions SET source_finding_id = ? WHERE id = ?",
+            (finding_id, created["id"]),
+        )
+    else:
+        raise ValueError("kind must be 'task' or 'question'")
+    disposition_finding(finding_id, "converted", reason=f"{kind} #{created['id']}", actor=actor)
+    return {"finding_id": finding_id, "kind": kind, **created}
+
+
+def rule_stats() -> list[dict]:
+    """Per-rule follow-through: fired vs dispositioned vs converted. TEAM
+    aggregates about rules, never about people. Rules that fire a lot and
+    get dismissed a lot are candidates for retirement at season end."""
+    return db.query(
+        "SELECT f.rule_id,"
+        " COUNT(DISTINCT f.id) AS fired,"
+        " COUNT(DISTINCT d.finding_id) AS dispositioned,"
+        " COUNT(DISTINCT CASE WHEN d.disposition = 'converted' THEN d.finding_id END)"
+        "   AS converted,"
+        " COUNT(DISTINCT CASE WHEN d.disposition = 'dismissed' THEN d.finding_id END)"
+        "   AS dismissed"
+        " FROM findings f LEFT JOIN finding_dispositions d ON d.finding_id = f.id"
+        " GROUP BY f.rule_id ORDER BY fired DESC"
+    )

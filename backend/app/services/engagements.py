@@ -5,6 +5,10 @@ from .. import db
 from .search import index_record
 
 STATUSES = ("proposed", "active", "closing", "closed")
+KINDS = ("delivery", "experiment")
+# closing an engagement requires an honest conclusion — "shipped" is evidence
+# of output, not of value; an invalidated experiment can be a success
+CONCLUSIONS = ("achieved", "partial", "missed", "invalidated", "unmeasured", "stopped")
 
 
 def create_engagement(
@@ -12,6 +16,10 @@ def create_engagement(
     project_class: str = "general",
     summary: str = "",
     lead: str = "",
+    kind: str = "delivery",
+    timebox_end: str = "",
+    kill_criteria: str = "",
+    outcome: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -19,14 +27,33 @@ def create_engagement(
     name = name.strip()
     if not name:
         raise ValueError("engagement name is required")
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}")
+    if kind == "experiment" and not timebox_end:
+        raise ValueError("experiments need a timebox_end date (YYYY-MM-DD)")
     if db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
         raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
     eid = db.execute(
         "INSERT INTO engagements (name, project_class, summary, lead, started_at,"
+        " kind, timebox_end, kill_criteria, outcome,"
         " origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (name, project_class, summary, lead, ts, origin, actor, ts, ts),
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            project_class,
+            summary,
+            lead,
+            ts,
+            kind,
+            timebox_end or None,
+            kill_criteria,
+            outcome,
+            origin,
+            actor,
+            ts,
+            ts,
+        ),
     )
     # adopt milestones created under this name before the engagement existed —
     # health/handoff/ship-it join on engagement_id, not the display name
@@ -36,7 +63,13 @@ def create_engagement(
     )
     db.log_activity(actor, "create_engagement", f"#{eid} {name} [{project_class}]")
     index_record("engagement", eid, name, f"{summary} {project_class} {lead}")
-    return {"id": eid, "name": name, "project_class": project_class, "status": "active"}
+    return {
+        "id": eid,
+        "name": name,
+        "project_class": project_class,
+        "kind": kind,
+        "status": "active",
+    }
 
 
 def update_engagement(
@@ -44,17 +77,39 @@ def update_engagement(
     status: str = "",
     summary: str = "",
     lead: str = "",
+    conclusion: str = "",
+    outcome: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
     if status and status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
-    current = db.query_one("SELECT status FROM engagements WHERE id = ?", (engagement_id,))
+    if conclusion and conclusion not in CONCLUSIONS:
+        raise ValueError(f"conclusion must be one of {CONCLUSIONS}")
+    current = db.query_one(
+        "SELECT status, kind, outcome, conclusion FROM engagements WHERE id = ?",
+        (engagement_id,),
+    )
     if not current:
         raise ValueError(f"engagement #{engagement_id} not found")
     freshly_closed = status == "closed" and current["status"] != "closed"
-    fields = {k: v for k, v in [("status", status), ("summary", summary), ("lead", lead)] if v}
+    if freshly_closed and not (conclusion or current["conclusion"]):
+        raise ValueError(
+            f"closing needs a conclusion — one of {CONCLUSIONS}."
+            " 'invalidated' is a fine outcome for an experiment; 'unmeasured' is honest too."
+        )
+    fields = {
+        k: v
+        for k, v in [
+            ("status", status),
+            ("summary", summary),
+            ("lead", lead),
+            ("conclusion", conclusion),
+            ("outcome", outcome),
+        ]
+        if v
+    }
     if not fields:
         raise ValueError("nothing to update")
     if freshly_closed:
@@ -67,7 +122,26 @@ def update_engagement(
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
     if freshly_closed:
         _ship_it(engagement_id, actor=actor)
+        if current["kind"] == "experiment":
+            _experiment_lesson(engagement_id, actor=actor, origin=origin)
     return {"id": engagement_id, "updated": list(fields)}
+
+
+def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
+    """Closing an experiment auto-drafts a lesson — the whole point of
+    running one is what it taught."""
+    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    if not eng:
+        return
+    record_lesson(
+        lesson=f"Experiment '{eng['name']}' concluded: {eng['conclusion']}."
+        + (f" Outcome: {eng['outcome']}" if eng["outcome"] else ""),
+        recommendation="",
+        engagement_id=engagement_id,
+        project_class=eng["project_class"],
+        actor=actor,
+        origin=origin,
+    )
 
 
 def _ship_it(engagement_id: int, *, actor: str) -> None:
@@ -106,8 +180,13 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
             (engagement_id,),
         ),
     }
+    if eng["kind"] == "experiment":
+        # an invalidated hypothesis that finished on time is a success
+        head = f"🧪 **Experiment concluded: {name}** — {eng['conclusion'] or 'unmeasured'}"
+    else:
+        head = f"🚢🪿 **Shipped: {name}**"
     recap = (
-        f"🚢🪿 **Shipped: {name}**"
+        head
         + (f" — {days}" if days else "")
         + f" · {stats['milestones']['n']} milestones"
         + f" · {stats['tasks_done']['n']} tasks done"

@@ -50,6 +50,7 @@ type Commitment = {
   to_whom: string;
   due_date: string | null;
   status: string;
+  audience: "external" | "team";
 };
 
 const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
@@ -288,7 +289,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="External commitments">
+      <Card title="Commitments (external + yours to the team)">
         {commitments.length === 0 ? (
           <p className="text-sm text-zinc-400">
             None recorded — capture one with “promised: …”.
@@ -298,8 +299,10 @@ export default function Portfolio() {
             {commitments.map((c) => (
               <li key={c.id} className="flex items-center justify-between gap-2">
                 <span className={c.status !== "open" ? "text-zinc-400 line-through" : ""}>
+                  {c.audience === "team" ? "🤝 " : ""}
                   {c.promise}
                   <span className="ml-2 text-xs text-zinc-400">
+                    {c.audience === "team" && "promise to the team · "}
                     {c.to_whom && `to ${c.to_whom}`} {c.due_date && `· due ${c.due_date}`}
                   </span>
                 </span>

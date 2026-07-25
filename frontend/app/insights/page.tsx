@@ -53,6 +53,13 @@ type Insights = {
     by_surface: { surface: string; users: number; actions: number }[];
   };
   findings: Finding[];
+  rule_stats: {
+    rule_id: string;
+    fired: number;
+    dispositioned: number;
+    converted: number;
+    dismissed: number;
+  }[];
 };
 
 const SEV = {
@@ -89,9 +96,45 @@ export default function InsightsPage() {
   const [open, setOpen] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = () =>
     api<Insights>("/api/insights").then(setD).catch((e) => setError(String(e)));
+  useEffect(() => {
+    load();
   }, []);
+
+  const disposition = async (id: number, d: string) => {
+    let reason = "";
+    let deferred_until = "";
+    if (d === "dismissed") reason = prompt("Why dismiss? (false positive, known, …)") ?? "";
+    if (d === "deferred") {
+      const until = prompt("Defer until (YYYY-MM-DD)?");
+      if (!until) return;
+      deferred_until = until;
+    }
+    try {
+      await api(`/api/findings/${id}/disposition`, {
+        method: "POST",
+        body: JSON.stringify({ disposition: d, reason, deferred_until }),
+      });
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
+  const convert = async (id: number) => {
+    const kind = prompt("Convert to 'task' or 'question'?", "task");
+    if (kind !== "task" && kind !== "question") return;
+    try {
+      await api(`/api/findings/${id}/convert`, {
+        method: "POST",
+        body: JSON.stringify({ kind }),
+      });
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
 
   if (error)
     return <main className="p-8 text-sm text-red-600">Backend unreachable: {error}</main>;
@@ -125,12 +168,59 @@ export default function InsightsPage() {
                   </span>
                 </button>
                 {open === f.id && (
-                  <pre
-                    id={`receipt-${f.id}`}
-                    className="mt-1 max-h-48 overflow-auto rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-950"
-                  >
-                    {JSON.stringify(f.receipt, null, 1)}
-                  </pre>
+                  <>
+                    <pre
+                      id={`receipt-${f.id}`}
+                      className="mt-1 max-h-48 overflow-auto rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-950"
+                    >
+                      {JSON.stringify(f.receipt, null, 1)}
+                    </pre>
+                    <div className="mt-1 flex gap-2 text-xs">
+                      <button
+                        onClick={() => convert(f.id)}
+                        className="rounded bg-zinc-900 px-2 py-1 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      >
+                        → work item
+                      </button>
+                      <button
+                        onClick={() => disposition(f.id, "resolved")}
+                        className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800"
+                      >
+                        resolved
+                      </button>
+                      <button
+                        onClick={() => disposition(f.id, "deferred")}
+                        className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800"
+                      >
+                        defer…
+                      </button>
+                      <button
+                        onClick={() => disposition(f.id, "dismissed")}
+                        className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800"
+                      >
+                        dismiss…
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Rule follow-through (rules, never people)">
+        {(d.rule_stats ?? []).length === 0 ? (
+          <p className="text-sm text-zinc-400">No findings fired yet.</p>
+        ) : (
+          <ul className="space-y-1 text-xs text-zinc-500">
+            {d.rule_stats.map((r) => (
+              <li key={r.rule_id}>
+                <code>{r.rule_id}</code>: fired {r.fired} · acted on{" "}
+                {r.dispositioned} · converted {r.converted} · dismissed{" "}
+                {r.dismissed}
+                {r.fired >= 3 && r.dismissed === r.dispositioned && r.dismissed > 0 && (
+                  <span className="ml-1 text-amber-600">· retire candidate?</span>
                 )}
               </li>
             ))}

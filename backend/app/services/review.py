@@ -55,6 +55,7 @@ def propose_change(
     *,
     actor: str = "agent",
     origin: str = "agent",
+    notify_team: bool = True,
 ) -> dict:
     reg = _registry()
     if entity not in reg:
@@ -78,14 +79,15 @@ def propose_change(
         ),
     )
     db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
-    from .notifications import notify
+    if notify_team:  # bulk producers (ingestion) send ONE summary instead
+        from .notifications import notify
 
-    notify(
-        "team",
-        f"Review needed: #{pid} {summary or f'{action} {entity}'}",
-        tier="digest",
-        link="/review",
-    )
+        notify(
+            "team",
+            f"Review needed: #{pid} {summary or f'{action} {entity}'}",
+            tier="digest",
+            link="/review",
+        )
     return {"id": pid, "status": "pending"}
 
 
@@ -113,23 +115,14 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
     fn = _registry()[change["entity"]][change["action"]]
     payload = json.loads(change["payload"])
     try:
-        if change["action"] == "update":
-            result = fn(change["entity_id"], **payload, actor=actor, origin="agent_verified")
-        else:
-            result = fn(**payload, actor=actor, origin="agent_verified")
+        # compound applies (playbook, weekly_plan) land atomically or not at
+        # all — a failed apply rolls back, so pending is safe for EVERY entity
+        with db.transaction():
+            if change["action"] == "update":
+                result = fn(change["entity_id"], **payload, actor=actor, origin="agent_verified")
+            else:
+                result = fn(**payload, actor=actor, origin="agent_verified")
     except (TypeError, ValueError) as exc:
-        # compound applies (many writes, no transaction) may have partially
-        # landed — resetting those to pending creates a permanently wedged
-        # proposal ("engagement already exists" forever). Fail them terminally.
-        if change["entity"] in ("playbook", "weekly_plan"):
-            db.execute(
-                "UPDATE pending_changes SET review_note = ? WHERE id = ?",
-                (f"apply failed (may be partial — check and repropose): {exc}", change_id),
-            )
-            raise ValueError(
-                f"{change['entity']} apply failed and was closed as approved-with-error:"
-                f" {exc} — review what landed and repropose the remainder"
-            ) from exc
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, review_note = ? WHERE id = ?",
@@ -149,6 +142,50 @@ def reject_change(change_id: int, note: str = "", *, actor: str = "system") -> d
     _claim(change_id, "rejected", note, actor)
     db.log_activity(actor, "reject_change", f"#{change_id}")
     return {"id": change_id, "status": "rejected"}
+
+
+_DIFF_TABLES = {
+    "task": "tasks",
+    "milestone": "milestones",
+    "engagement": "engagements",
+    "commitment": "commitments",
+    "blocker": "blockers",
+    "question": "questions",
+    "decision": "decisions",
+}
+
+
+def change_diff(change_id: int) -> dict:
+    """Before/after view for update proposals: current row values for exactly
+    the fields the payload would change."""
+    change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
+    if not change:
+        raise ValueError(f"pending change #{change_id} not found")
+    table = _DIFF_TABLES.get(change["entity"])
+    if change["action"] != "update" or not table or not change["entity_id"]:
+        return {"id": change_id, "diff": None}
+    row = db.query_one(
+        f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 — table from constant map
+        (change["entity_id"],),
+    )
+    payload = json.loads(change["payload"])
+    current = {k: (row.get(k) if row else None) for k in payload}
+    return {"id": change_id, "diff": {"current": current, "proposed": payload}}
+
+
+def mark_seen(ids: list[int], *, actor: str = "system") -> dict:
+    """The review UI calls this when a human loads pending proposals —
+    first-seen (claim_at) starts the active-review clock, so review burden
+    can be measured as seen→verdict instead of created→verdict (which is
+    dominated by queue wait, not human effort)."""
+    n = 0
+    for cid in ids[:200]:
+        n += db.execute_rowcount(
+            "UPDATE pending_changes SET claim_at = ?"
+            " WHERE id = ? AND status = 'pending' AND claim_at IS NULL",
+            (db.now(), cid),
+        )
+    return {"seen": n}
 
 
 def review_stats() -> dict:
@@ -176,10 +213,19 @@ def review_stats() -> dict:
         "SELECT entity, summary, review_note, reviewed_by FROM pending_changes"
         " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
     )
+    active = db.query_one(
+        "SELECT ROUND(AVG((julianday(reviewed_at) - julianday(claim_at)) * 24 * 60), 1) AS m,"
+        " COUNT(*) AS n FROM pending_changes"
+        " WHERE reviewed_at IS NOT NULL AND claim_at IS NOT NULL"
+    )
     return {
         "by_entity": by_entity,
         "by_proposer": by_proposer,
         "recent_rejections": rejection_reasons,
+        "active_review_minutes": {
+            "avg": active["m"] if active else None,
+            "n": active["n"] if active else 0,
+        },
     }
 
 

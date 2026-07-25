@@ -1,7 +1,7 @@
 """REST API: reads for the dashboard, writes for humans (the second write path
 alongside agent tools — both go through app.services)."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from .. import db
@@ -19,6 +19,7 @@ from ..services import (
     engagements,
     feedback,
     handoff,
+    ingest,
     intake,
     memory,
     notifications,
@@ -33,7 +34,7 @@ from ..services import (
     weekly,
     work,
 )
-from .deps import CurrentUser
+from .deps import CurrentUser, StrongUser
 
 router = APIRouter(prefix="/api")
 
@@ -255,8 +256,8 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
 
 
 @router.get("/commitments")
-def get_commitments(status: str = ""):
-    return commitments.list_commitments(status)
+def get_commitments(status: str = "", audience: str = ""):
+    return commitments.list_commitments(status, audience)
 
 
 class CommitmentIn(BaseModel):
@@ -264,6 +265,7 @@ class CommitmentIn(BaseModel):
     to_whom: str = ""
     due_date: str = ""
     engagement_id: int = 0
+    audience: str = "external"
 
 
 @router.post("/commitments")
@@ -413,6 +415,33 @@ def get_findings(weeks: int = 4):
     from ..services import insights as insights_svc
 
     return insights_svc.list_findings(weeks)
+
+
+class FindingDispositionIn(BaseModel):
+    disposition: str
+    reason: str = ""
+    deferred_until: str = ""
+
+
+@router.post("/findings/{finding_id}/disposition")
+def post_finding_disposition(finding_id: int, body: FindingDispositionIn, user: CurrentUser):
+    from ..services import insights as insights_svc
+
+    return insights_svc.disposition_finding(
+        finding_id, body.disposition, body.reason, body.deferred_until, actor=user
+    )
+
+
+class ConvertIn(BaseModel):
+    kind: str
+    title: str = ""
+
+
+@router.post("/findings/{finding_id}/convert")
+def post_finding_convert(finding_id: int, body: ConvertIn, user: CurrentUser):
+    from ..services import insights as insights_svc
+
+    return insights_svc.convert_finding(finding_id, body.kind, body.title, actor=user)
 
 
 @router.post("/findings/run")
@@ -638,8 +667,48 @@ class CaptureIn(BaseModel):
 
 
 @router.post("/capture")
-def post_capture(body: CaptureIn, user: CurrentUser):
-    return capture.capture(body.text, actor=user)
+def post_capture(body: CaptureIn, user: CurrentUser, request: Request):
+    strong = bool(getattr(request.state, "strong_auth", False))
+    return capture.capture(body.text, actor=user, strong_auth=strong)
+
+
+class IngestIn(BaseModel):
+    text: str
+
+
+@router.post("/ingest")
+def post_ingest(body: IngestIn, user: CurrentUser):
+    return ingest.ingest_notes(body.text, actor=user)
+
+
+class BatchApproveIn(BaseModel):
+    ids: list[int]
+
+
+@router.get("/review/{change_id}/diff")
+def get_review_diff(change_id: int):
+    return review.change_diff(change_id)
+
+
+class SeenIn(BaseModel):
+    ids: list[int]
+
+
+@router.post("/review/seen")
+def post_review_seen(body: SeenIn, user: CurrentUser):
+    return review.mark_seen(body.ids, actor=user)
+
+
+@router.post("/review/approve-batch")
+def post_approve_batch(body: BatchApproveIn, user: CurrentUser):
+    results = []
+    for cid in body.ids[:100]:
+        try:
+            r = review.approve_change(cid, actor=user)
+            results.append({"id": cid, "status": r["status"]})
+        except ValueError as exc:
+            results.append({"id": cid, "status": "error", "detail": str(exc)})
+    return {"results": results}
 
 
 class EngagementIn(BaseModel):
@@ -647,6 +716,10 @@ class EngagementIn(BaseModel):
     project_class: str = "general"
     summary: str = ""
     lead: str = ""
+    kind: str = "delivery"
+    timebox_end: str = ""
+    kill_criteria: str = ""
+    outcome: str = ""
 
 
 @router.post("/engagements")
@@ -658,6 +731,8 @@ class EngagementPatch(BaseModel):
     status: str = ""
     summary: str = ""
     lead: str = ""
+    conclusion: str = ""
+    outcome: str = ""
 
 
 @router.patch("/engagements/{engagement_id}")
@@ -715,6 +790,24 @@ def post_digest(user: CurrentUser):
     return digest.publish_digest(actor=user)
 
 
+@router.get("/calendar.ics")
+def get_calendar_ics(token: str = ""):
+    """iCalendar feed of events + due dates (team-visible data only).
+    LAN-only; calendar clients can't send headers, so when a shared API
+    token is configured it must come as ?token=."""
+    import hmac
+
+    from fastapi.responses import Response
+
+    from .. import config
+
+    if config.API_TOKEN and not hmac.compare_digest(token, config.API_TOKEN):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=401, detail="token required")
+    return Response(schedule.ics_feed(), media_type="text/calendar")
+
+
 # ---- admin -----------------------------------------------------------------
 
 
@@ -724,5 +817,6 @@ def post_backup(user: CurrentUser):
 
 
 @router.get("/admin/export")
-def get_export(user: CurrentUser):
+def get_export(user: StrongUser):
+    # full-table dump — strong identity required, never the X-User header
     return admin.export()

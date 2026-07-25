@@ -49,3 +49,57 @@ def cancel_event(event_id: int, *, actor: str = "system", origin: str = "human")
     db.execute("DELETE FROM events WHERE id = ?", (event_id,))
     db.log_activity(actor, "cancel_event", f"#{event_id}")
     return {"id": event_id, "cancelled": True}
+
+
+def _ics_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def _ics_dt(iso: str) -> str:
+    return iso.replace("-", "").replace(":", "")[:15]
+
+
+def ics_feed() -> str:
+    """Events + open milestone/commitment due dates as an iCalendar feed.
+    Team-visible data only; LAN-only surface (hosted calendar clients would
+    mirror titles off-box — prefer local clients)."""
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Skein//calendar//EN",
+        "X-WR-CALNAME:Skein",
+    ]
+    for e in db.query("SELECT * FROM events ORDER BY starts_at LIMIT 500"):
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:event-{e['id']}@skein",
+            f"DTSTART:{_ics_dt(e['starts_at'])}",
+            *([f"DTEND:{_ics_dt(e['ends_at'])}"] if e["ends_at"] else []),
+            f"SUMMARY:{_ics_escape(e['title'])}",
+            *([f"DESCRIPTION:{_ics_escape(e['description'])}"] if e["description"] else []),
+            "END:VEVENT",
+        ]
+    for m in db.query(
+        "SELECT id, title, due_date FROM milestones"
+        " WHERE status != 'done' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
+    ):
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:milestone-{m['id']}@skein",
+            f"DTSTART;VALUE=DATE:{m['due_date'].replace('-', '')}",
+            f"SUMMARY:{_ics_escape('🎯 due: ' + m['title'])}",
+            "END:VEVENT",
+        ]
+    for c in db.query(
+        "SELECT id, promise, due_date FROM commitments"
+        " WHERE status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
+    ):
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:commitment-{c['id']}@skein",
+            f"DTSTART;VALUE=DATE:{c['due_date'].replace('-', '')}",
+            f"SUMMARY:{_ics_escape('🤝 promised: ' + c['promise'][:80])}",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"

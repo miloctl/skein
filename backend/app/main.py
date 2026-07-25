@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import config, db
-from .routes import api, chat, slack, webhooks
+from .routes import api, chat, private, slack, webhooks
 from .services.jobs import JOBS, job_health, run_job
 from .telemetry import setup_telemetry
 
@@ -65,7 +65,9 @@ app.add_middleware(
 async def bearer_auth(request: Request, call_next):
     """Optional shared-token auth: enforced only when STRANDS_API_TOKEN is set.
     /health stays open for container checks; Slack verifies its own signature."""
-    open_paths = ("/health", "/api/slack/")
+    # calendar.ics: calendar clients can't send headers — the route checks
+    # ?token= itself when a shared token is configured
+    open_paths = ("/health", "/api/slack/", "/api/calendar.ics")
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.
     if (
@@ -99,6 +101,7 @@ async def overflow_error_handler(request: Request, exc: OverflowError):
 
 app.include_router(api.router)
 app.include_router(chat.router)
+app.include_router(private.router)
 app.include_router(slack.router)
 app.include_router(webhooks.router)
 

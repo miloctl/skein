@@ -135,7 +135,7 @@ def test_ship_it_recap_and_notification(fresh_db, monkeypatch):
 
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     e = engagements.create_engagement("Big launch", actor="ava")
-    engagements.update_engagement(e["id"], status="closed", actor="ava")
+    engagements.update_engagement(e["id"], status="closed", conclusion="achieved", actor="ava")
 
     notes = fresh_db.query("SELECT * FROM notes WHERE topic = 'shipped-Big launch'")
     assert notes and "Shipped" in notes[0]["content"]

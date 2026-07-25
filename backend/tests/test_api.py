@@ -21,8 +21,8 @@ def test_question_answer_flow(client):
     q = client.post(
         "/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"}
     ).json()
-    # open question + its assignment notification
-    assert client.get("/api/attention").json()["count"] == 2
+    # the open question counts; its notification is notice-tier (badge-silent)
+    assert client.get("/api/attention").json()["count"] == 1
     client.post(f"/api/questions/{q['id']}/answer", json={"answer": "Alice does"})
     client.post("/api/notifications/read", json={"notification_id": 0})
     assert client.get("/api/attention").json()["count"] == 0
@@ -96,7 +96,12 @@ def test_users_autoregister(client):
 def test_admin_backup_and_export(client):
     b = client.post("/api/admin/backup").json()
     assert b["path"].endswith(".db")
-    e = client.get("/api/admin/export").json()
+    # export is a full-table dump: strong identity required, X-User is a 403
+    assert client.get("/api/admin/export").status_code == 403
+    from app.services.api_keys import create_key
+
+    key = create_key("tester", "t")["key"]
+    e = client.get("/api/admin/export", headers={"Authorization": f"Bearer {key}"}).json()
     assert e["tables"]["users"] >= 1
 
 

@@ -12,6 +12,11 @@ DATA_DIR = Path(os.getenv("STRANDS_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "platform.db"
+# Author-private records (1:1 prep, feedback journal) live in a SEPARATE
+# database file that backup/export/FTS/MCP/agents never open. Excluded from
+# the daily backup chain by design — back it up manually and encrypted if at
+# all (it is small and reconstructible personal notes).
+PRIVATE_DB_PATH = Path(os.getenv("STRANDS_PRIVATE_DB", DATA_DIR / "private.db"))
 SESSIONS_DIR = DATA_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 

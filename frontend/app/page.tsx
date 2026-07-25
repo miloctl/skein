@@ -8,6 +8,15 @@ import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Row = Record<string, string | number | null>;
 
+type AttentionItem = {
+  kind: string;
+  ref_id: number;
+  group: "decide" | "unblock" | "commit" | "review" | "notice";
+  label: string;
+  reason: string;
+  link: string;
+};
+
 type Briefing = {
   user: string;
   date: string;
@@ -18,6 +27,7 @@ type Briefing = {
     intake_to_triage: Row[];
     notifications: Row[];
   };
+  attention: AttentionItem[];
   your_work: { tasks: Row[]; due_soon: Row[] };
   team: {
     recently_shipped: Row[];
@@ -113,13 +123,15 @@ export default function MyDay() {
     );
   if (!b) return <main className="p-8 text-sm text-zinc-400">{loadingLine()}</main>;
 
-  const n = b.needs_you;
-  const needsCount =
-    n.open_questions.length +
-    n.pending_reviews.length +
-    n.your_blockers.length +
-    n.intake_to_triage.length +
-    (n.notifications ?? []).length;
+  const attention = b.attention ?? [];
+  const needsCount = attention.filter((a) => a.group !== "notice").length;
+  const GROUP_META: Record<AttentionItem["group"], { title: string; icon: string }> = {
+    decide: { title: "Decide", icon: "⚖️" },
+    unblock: { title: "Unblock", icon: "⛔" },
+    commit: { title: "Commit", icon: "🤝" },
+    review: { title: "Review", icon: "📥" },
+    notice: { title: "Notice", icon: "🔔" },
+  };
 
   return (
     <main className="mx-auto w-full max-w-5xl p-6">
@@ -173,72 +185,69 @@ export default function MyDay() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
-          <ul className="space-y-2 text-sm">
-            {n.open_questions.map((q) => (
-              <li key={`q${q.id}`}>
-                ❓ <span className="text-zinc-400">#{q.id}</span> {q.question}{" "}
-                <span className="text-xs text-zinc-400">from {q.asked_by}</span>
-              </li>
-            ))}
-            {n.your_blockers.map((bl) => (
-              <li key={`b${bl.id}`} className="flex items-center justify-between gap-2">
-                <span>
-                  ⛔ <span className="text-zinc-400">#{bl.id}</span> {bl.title}{" "}
-                  <span className="text-xs text-zinc-400">({bl.impact})</span>
-                </span>
-                <button
-                  onClick={() => resolveBlocker(Number(bl.id))}
-                  className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-200"
-                >
-                  resolve
-                </button>
-              </li>
-            ))}
-            {n.pending_reviews.length > 0 && (
-              <li>
-                📥 <Link href="/review" className="underline">
-                  {n.pending_reviews.length} pending review
-                  {n.pending_reviews.length > 1 ? "s" : ""}
-                </Link>{" "}
-                awaiting a human
-              </li>
-            )}
-            {n.intake_to_triage.length > 0 && (
-              <li>
-                📨 <Link href="/intake" className="underline">
-                  {n.intake_to_triage.length} intake request
-                  {n.intake_to_triage.length > 1 ? "s" : ""}
-                </Link>{" "}
-                to triage
-              </li>
-            )}
-            {(n.notifications ?? []).map((nt) => (
-              <li key={`n${nt.id}`} className="flex items-center justify-between gap-2">
-                <span>🔔 {nt.message}</span>
-                <button
-                  onClick={async () => {
-                    try {
-                      await api("/api/notifications/read", {
-                        method: "POST",
-                        body: JSON.stringify({ notification_id: nt.id }),
-                      });
-                    } catch (e) {
-                      alert(String(e));
-                    }
-                    load();
-                  }}
-                  className="rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-300"
-                >
-                  dismiss
-                </button>
-              </li>
-            ))}
-            {needsCount === 0 &&
-              n.intake_to_triage.length === 0 &&
-              (n.notifications ?? []).length === 0 && (
-                <li className="text-zinc-400">{emptyState("allclear")}</li>
-              )}
-          </ul>
+          {attention.length === 0 ? (
+            <p className="text-sm text-zinc-400">{emptyState("allclear")}</p>
+          ) : (
+            <div className="space-y-3">
+              {(Object.keys(GROUP_META) as AttentionItem["group"][])
+                .filter((g) => attention.some((a) => a.group === g))
+                .map((g) => (
+                  <div key={g}>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                      {GROUP_META[g].icon} {GROUP_META[g].title}
+                    </p>
+                    <ul className="space-y-1.5 text-sm">
+                      {attention
+                        .filter((a) => a.group === g)
+                        .map((a, i) => (
+                          <li
+                            key={`${a.kind}${a.ref_id}${i}`}
+                            className="flex items-start justify-between gap-2"
+                          >
+                            <span>
+                              <Link href={a.link} className="hover:underline">
+                                {a.label}
+                              </Link>
+                              <span
+                                className="ml-2 block text-xs text-zinc-400"
+                                title="why you're seeing this"
+                              >
+                                {a.reason}
+                              </span>
+                            </span>
+                            {a.kind === "blocker" && (
+                              <button
+                                onClick={() => resolveBlocker(a.ref_id)}
+                                className="shrink-0 rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-200"
+                              >
+                                resolve
+                              </button>
+                            )}
+                            {a.kind === "notification" && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await api("/api/notifications/read", {
+                                      method: "POST",
+                                      body: JSON.stringify({ notification_id: a.ref_id }),
+                                    });
+                                  } catch (e) {
+                                    alert(String(e));
+                                  }
+                                  load();
+                                }}
+                                className="shrink-0 rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-300"
+                              >
+                                dismiss
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ))}
+            </div>
+          )}
         </Card>
 
         <Card title="Your work">

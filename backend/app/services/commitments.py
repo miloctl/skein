@@ -6,6 +6,9 @@ from .. import db
 from .search import index_record
 
 STATUSES = ("open", "kept", "missed", "withdrawn")
+# 'external': promises to people outside the team (exec readout material).
+# 'team': the manager's own promises TO the team — visible so they get kept.
+AUDIENCES = ("external", "team")
 
 
 def add_commitment(
@@ -13,22 +16,35 @@ def add_commitment(
     to_whom: str = "",
     due_date: str = "",
     engagement_id: int = 0,
+    audience: str = "external",
     *,
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
     if not promise.strip():
         raise ValueError("the promise text is required")
+    if audience not in AUDIENCES:
+        raise ValueError(f"audience must be one of {AUDIENCES}")
     if engagement_id and not db.query_one(
         "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
     ):
         raise ValueError(f"engagement #{engagement_id} not found")
     ts = db.now()
     cid = db.execute(
-        "INSERT INTO commitments (promise, to_whom, engagement_id, due_date,"
+        "INSERT INTO commitments (promise, to_whom, engagement_id, due_date, audience,"
         " origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (promise, to_whom, engagement_id or None, due_date or None, origin, actor, ts, ts),
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            promise,
+            to_whom,
+            engagement_id or None,
+            due_date or None,
+            audience,
+            origin,
+            actor,
+            ts,
+            ts,
+        ),
     )
     db.log_activity(actor, "add_commitment", f"#{cid} {promise[:80]}")
     index_record("commitment", cid, promise[:120], f"{promise} {to_whom}")
@@ -53,13 +69,17 @@ def update_commitment(
     return {"id": commitment_id, "status": status}
 
 
-def list_commitments(status: str = "") -> list[dict]:
+def list_commitments(status: str = "", audience: str = "") -> list[dict]:
+    where, params = [], []
     if status:
-        return db.query(
-            "SELECT * FROM commitments WHERE status = ? ORDER BY due_date IS NULL, due_date, id",
-            (status,),
-        )
+        where.append("status = ?")
+        params.append(status)
+    if audience:
+        where.append("audience = ?")
+        params.append(audience)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
     return db.query(
-        "SELECT * FROM commitments"
-        " ORDER BY status != 'open', due_date IS NULL, due_date, id DESC LIMIT 100"
+        f"SELECT * FROM commitments{clause}"  # noqa: S608 — clauses hardcoded
+        " ORDER BY status != 'open', due_date IS NULL, due_date, id DESC LIMIT 100",
+        tuple(params),
     )

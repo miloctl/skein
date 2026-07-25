@@ -194,8 +194,8 @@ def slip_forecast() -> dict:
     forecasts = []
     for m in db.query(
         "SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id"
-        " WHERE e.status != 'closed' AND m.status != 'done'"
-        " AND m.due_date IS NOT NULL ORDER BY m.due_date"
+        " WHERE e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
+        " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     ):
         forecast = (date.fromisoformat(m["due_date"]) + timedelta(days=round(applied))).isoformat()
         forecasts.append(

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { api, getUser, setUser } from "@/lib/api";
+import { api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
 
 // notifies on cross-tab changes; same-tab changes reload the page
 function subscribeUser(cb: () => void) {
@@ -21,6 +21,8 @@ const LINKS = [
   { href: "/agents", label: "Agents" },
   { href: "/review", label: "Review" },
   { href: "/intake", label: "Intake" },
+  { href: "/ingest", label: "Ingest" },
+  { href: "/people", label: "People" },
 ];
 
 export function Nav() {
@@ -28,6 +30,12 @@ export function Nav() {
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   const [attention, setAttention] = useState(0);
   const [editing, setEditing] = useState(false);
+  // localStorage is client-only; same-tab changes reload the page (setApiKey callers)
+  const hasKey = useSyncExternalStore(
+    subscribeUser,
+    () => Boolean(getApiKey()),
+    () => false,
+  );
 
   useEffect(() => {
     let generation = 0;
@@ -109,6 +117,25 @@ export function Nav() {
             👤 {user}
           </button>
         )}
+        <button
+          onClick={() => {
+            const current = getApiKey();
+            const key = prompt(
+              "Personal API key (sk-strands-…) — required for People/private surfaces. Empty clears it.",
+              current,
+            );
+            if (key !== null) {
+              setApiKey(key);
+              window.location.reload();
+            }
+          }}
+          className={
+            "text-xs " + (hasKey ? "text-emerald-600" : "text-zinc-400 hover:text-zinc-600")
+          }
+          title={hasKey ? "API key set (strong identity)" : "Set your personal API key"}
+        >
+          🔑
+        </button>
         <span
           className="hidden text-xs text-zinc-400 md:inline"
           title="Quick capture"

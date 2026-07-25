@@ -118,7 +118,7 @@ def test_ship_it_counts_only_linked_blockers(client, fresh_db, monkeypatch):
     other = client.post("/api/blockers", json={"title": "unrelated"}).json()
     client.post(f"/api/blockers/{other['id']}/resolve", json={})
 
-    client.patch(f"/api/engagements/{e['id']}", json={"status": "closed"})
+    client.patch(f"/api/engagements/{e['id']}", json={"status": "closed", "conclusion": "achieved"})
     note = fresh_db.query_one("SELECT content FROM notes WHERE topic = 'shipped-Scoped'")
     assert "1 blockers survived" in note["content"]
 

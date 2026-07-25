@@ -54,7 +54,9 @@ def test_briefing_includes_team_notifications(client, monkeypatch):
     notifications.notify("team", "review the thing", tier="digest")
     b = client.get("/api/briefing").json()
     assert any("review the thing" in n["message"] for n in b["needs_you"]["notifications"])
-    assert client.get("/api/attention").json()["count"] >= 1
+    # notifications are notice-tier: visible in the briefing, silent on the badge
+    assert any(a["group"] == "notice" for a in b["attention"])
+    assert client.get("/api/attention").json()["count"] == 0
     client.post("/api/notifications/read", json={"notification_id": 0})
 
 

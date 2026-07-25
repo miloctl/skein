@@ -162,10 +162,20 @@ export default function Dashboard() {
         render={(e) => (
           <li key={e.id} className="flex items-center justify-between gap-2 text-sm">
             <span>
-              <span className="text-zinc-400">#{e.id}</span> {e.name}
+              <span className="text-zinc-400">#{e.id}</span>{" "}
+              {e.kind === "experiment" ? "🧪 " : ""}
+              {e.name}
               <span className="ml-2 text-xs text-zinc-400">[{e.project_class}]</span>
               {e.lead ? (
                 <span className="ml-2 text-xs text-zinc-400">lead @{e.lead}</span>
+              ) : null}
+              {e.kind === "experiment" && e.timebox_end ? (
+                <span className="ml-2 text-xs text-amber-600">
+                  timebox → {String(e.timebox_end)}
+                </span>
+              ) : null}
+              {e.conclusion ? (
+                <span className="ml-2 text-xs text-zinc-400">({String(e.conclusion)})</span>
               ) : null}
             </span>
             <Badge value={String(e.status)} />

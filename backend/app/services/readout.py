@@ -27,8 +27,8 @@ def exec_readout(*, actor: str = "system") -> dict:
         (s["start"],),
     )
     due_soon = db.query(
-        "SELECT * FROM commitments WHERE status = 'open' AND due_date IS NOT NULL"
-        " AND due_date <= ? ORDER BY due_date",
+        "SELECT * FROM commitments WHERE status = 'open' AND audience = 'external'"
+        " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         ((_today() + timedelta(days=14)).isoformat(),),
     )
     escalated = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
