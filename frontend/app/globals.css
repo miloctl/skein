@@ -8,7 +8,10 @@
 /* Tokens resolve through light-dark(): appearance is a one-line color-scheme
    switch, and each colorway only re-dyes the two accent threads. Every pair
    below is WCAG-AA-verified on its surface in both modes. */
-:root {
+/* the [data-pack="loom"] alias lets a Settings theme card preview the
+   default fabric even while the root wears a different pack */
+:root,
+[data-pack="loom"] {
   color-scheme: light dark;
   --font-body: var(--font-geist-sans);
   --font-heading: var(--font-bricolage);
@@ -27,6 +30,11 @@
   --warn: light-dark(#86590e, #dfb362);
   --danger: light-dark(#b23425, #f0998b);
   --warp: light-dark(rgb(29 26 22 / 0.03), rgb(237 233 226 / 0.013));
+  --fabric-texture: repeating-linear-gradient(
+    90deg,
+    var(--warp) 0 1px,
+    transparent 1px 64px
+  );
   --shadow-card: 0 1px 2px light-dark(rgb(28 25 20 / 0.05), transparent);
   --shadow-float: 0 8px 24px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.4));
 }
@@ -61,10 +69,14 @@
    the accent threads on top. Invariant, verified in pack_check.py: pack
    light surfaces are at least as bright as the loom's dimmest light surface
    and dark surfaces at most as bright as its brightest dark one — so every
-   AA-verified accent (all 360 custom hues included) stays AA on every pack. */
+   AA-verified accent (all 360 custom hues included) stays AA on every pack.
+   Selectors match ANY [data-pack] element, not just :root, so the Settings
+   theme cards can render live scoped previews of each fabric. */
 
 /* Ledger: cool paper, ruled lines, print-crisp */
-:root[data-pack="ledger"] {
+[data-pack="ledger"] {
+  --font-body: var(--font-geist-sans);
+  --font-heading: var(--font-bricolage);
   --surface-page: light-dark(#f5f6f8, #13151a);
   --surface-card: light-dark(#ffffff, #1a1d24);
   --surface-raised: light-dark(#f0f2f5, #20232c);
@@ -74,9 +86,7 @@
   --text-2: light-dark(#525763, #a6abb8);
   --text-3: light-dark(#6b7180, #848b9b);
   --warp: light-dark(rgb(24 26 31 / 0.05), rgb(233 235 239 / 0.025));
-}
-:root[data-pack="ledger"] body {
-  background-image: repeating-linear-gradient(
+  --fabric-texture: repeating-linear-gradient(
     0deg,
     var(--warp) 0 1px,
     transparent 1px 28px
@@ -84,7 +94,7 @@
 }
 
 /* Phosphor: terminal fabric — green-black, scanlines, mono type */
-:root[data-pack="phosphor"] {
+[data-pack="phosphor"] {
   --font-body: var(--font-geist-mono);
   --font-heading: var(--font-geist-mono);
   --surface-page: light-dark(#f2f5ef, #0c100c);
@@ -96,9 +106,7 @@
   --text-2: light-dark(#4c584a, #9cb399);
   --text-3: light-dark(#657263, #7d947a);
   --warp: light-dark(rgb(23 29 22 / 0.03), rgb(220 234 217 / 0.03));
-}
-:root[data-pack="phosphor"] body {
-  background-image: repeating-linear-gradient(
+  --fabric-texture: repeating-linear-gradient(
     0deg,
     var(--warp) 0 1px,
     transparent 1px 4px
@@ -107,7 +115,9 @@
 
 /* High contrast: pure black & white, no texture, borders carry everything.
    An accessibility fabric first — plain name on purpose. */
-:root[data-pack="contrast"] {
+[data-pack="contrast"] {
+  --font-body: var(--font-geist-sans);
+  --font-heading: var(--font-bricolage);
   --surface-page: light-dark(#ffffff, #000000);
   --surface-card: light-dark(#ffffff, #0a0a0a);
   --surface-raised: light-dark(#f5f5f5, #181818);
@@ -118,9 +128,16 @@
   --text-3: light-dark(#494949, #b0b0b0);
   --shadow-card: 0 0 #0000;
   --shadow-float: 0 0 #0000;
+  --fabric-texture: none;
 }
-:root[data-pack="contrast"] body {
-  background-image: none;
+
+/* Settings theme cards: a swatch of the actual cloth — the pack's own
+   surface, texture, text color, and (via --font-body) its type */
+.pack-tile {
+  background-color: var(--surface-page);
+  background-image: var(--fabric-texture);
+  color: var(--text-1);
+  font-family: var(--font-body), system-ui, sans-serif;
 }
 
 @theme inline {
@@ -147,12 +164,8 @@
 
 body {
   background-color: var(--surface-page);
-  /* the warp: faint vertical threads — texture, never pattern */
-  background-image: repeating-linear-gradient(
-    90deg,
-    var(--warp) 0 1px,
-    transparent 1px 64px
-  );
+  /* the warp: faint threads — texture, never pattern; packs re-weave it */
+  background-image: var(--fabric-texture);
   color: var(--text-1);
   font-family: var(--font-body), system-ui, sans-serif;
 }

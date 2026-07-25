@@ -10,31 +10,13 @@ const PACK_KEY = "skein-pack";
 
 // Fabric packs re-weave surfaces, texture, and type (globals.css owns the
 // values); colorways and custom hues dye the accents on top of any pack.
+// In Settings a pack is a "theme card": picking one also applies its
+// signature accent, and the accent stays overridable under Customize.
 export const PACKS = [
-  {
-    id: "loom",
-    label: "Loom",
-    blurb: "Warm neutrals, vertical warp threads",
-    swatch: ["#faf9f6", "#141311"],
-  },
-  {
-    id: "ledger",
-    label: "Ledger",
-    blurb: "Cool paper, ruled lines, print-crisp",
-    swatch: ["#f5f6f8", "#13151a"],
-  },
-  {
-    id: "phosphor",
-    label: "Phosphor",
-    blurb: "Terminal green-black, scanlines, mono type",
-    swatch: ["#f2f5ef", "#0c100c"],
-  },
-  {
-    id: "contrast",
-    label: "High contrast",
-    blurb: "Pure black & white, no texture, strong borders",
-    swatch: ["#ffffff", "#000000"],
-  },
+  { id: "loom", label: "Loom", subtitle: "Warm, woven", accent: "indigo" },
+  { id: "ledger", label: "Ledger", subtitle: "Cool paper, ruled", accent: "madder" },
+  { id: "phosphor", label: "Phosphor", subtitle: "Terminal green", accent: "verdigris" },
+  { id: "contrast", label: "High contrast", subtitle: "Maximum legibility", accent: "graphite" },
 ] as const;
 
 export const COLORWAYS = [

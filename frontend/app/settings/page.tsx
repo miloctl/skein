@@ -147,6 +147,9 @@ export default function SettingsPage() {
   const appearance = useSyncExternalStore(subscribeStorage, getAppearance, () => "system");
   const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
   const pack = useSyncExternalStore(subscribeStorage, getPack, () => "loom");
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const accentOverridden =
+    colorway !== (PACKS.find((p) => p.id === pack)?.accent ?? "indigo");
   const customThread = useSyncExternalStore(
     subscribeStorage,
     () => getCustomHues().thread,
@@ -180,10 +183,7 @@ export default function SettingsPage() {
       </p>
 
       <Section title="Appearance">
-        <p className="mb-3 text-sm text-ink-3">
-          Per-browser, applies immediately. Colorways re-dye the accent
-          threads; every one passes contrast checks in both modes.
-        </p>
+        <p className="mb-3 text-sm text-ink-3">Saved in this browser.</p>
         <div className="mb-4 flex items-center gap-2">
           <span className="w-24 text-sm text-ink-2">Mode</span>
           <div className="flex overflow-hidden rounded-lg border border-line-strong">
@@ -204,117 +204,170 @@ export default function SettingsPage() {
             ))}
           </div>
         </div>
-        <div className="mb-4 flex items-start gap-2">
-          <span className="w-24 pt-1.5 text-sm text-ink-2">Fabric</span>
-          <div className="flex flex-wrap gap-2">
-            {PACKS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setPack(p.id)}
-                aria-pressed={pack === p.id}
-                title={p.blurb}
-                className={
-                  "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
-                  (pack === p.id
-                    ? "border-thread-solid bg-thread/10 font-medium text-ink"
-                    : "border-line-strong text-ink-2 hover:bg-raised")
-                }
-              >
-                <span aria-hidden className="flex">
-                  <span
-                    className="size-3 rounded-full ring-1 ring-line-strong"
-                    style={{ background: p.swatch[0] }}
-                  />
-                  <span
-                    className="-ml-1 size-3 rounded-full ring-1 ring-line-strong"
-                    style={{ background: p.swatch[1] }}
-                  />
-                </span>
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
         <div className="flex items-start gap-2">
-          <span className="w-24 pt-1.5 text-sm text-ink-2">Colorway</span>
-          <div className="flex flex-wrap gap-2">
-            {COLORWAYS.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setColorway(c.id)}
-                aria-pressed={colorway === c.id}
-                className={
-                  "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
-                  (colorway === c.id
-                    ? "border-thread-solid bg-thread/10 font-medium text-ink"
-                    : "border-line-strong text-ink-2 hover:bg-raised")
-                }
-              >
-                <span aria-hidden className="flex">
+          <span className="w-24 pt-1.5 text-sm text-ink-2">Theme</span>
+          <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+            {PACKS.map((p) => {
+              const cw = COLORWAYS.find((c) => c.id === p.accent)!;
+              const selected = pack === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setPack(p.id);
+                    setColorway(p.accent);
+                  }}
+                  aria-pressed={selected}
+                  className={
+                    "rounded-lg border p-1.5 text-left transition-colors " +
+                    (selected
+                      ? "border-thread-solid bg-thread/10"
+                      : "border-line-strong hover:bg-raised")
+                  }
+                >
                   <span
-                    className="size-3 rounded-full ring-1 ring-line-strong"
-                    style={{ background: c.thread }}
-                  />
-                  <span
-                    className="-ml-1 size-3 rounded-full ring-1 ring-line-strong"
-                    style={{ background: c.weld }}
-                  />
-                </span>
-                {c.label}
-              </button>
-            ))}
-            <button
-              onClick={() => setCustomHues(customThread, customWeld)}
-              aria-pressed={colorway === "custom"}
-              className={
-                "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
-                (colorway === "custom"
-                  ? "border-thread-solid bg-thread/10 font-medium text-ink"
-                  : "border-line-strong text-ink-2 hover:bg-raised")
-              }
-            >
-              <span aria-hidden className="flex">
-                <span
-                  className="size-3 rounded-full ring-1 ring-line-strong"
-                  style={{ background: `oklch(0.44 0.13 ${customThread})` }}
-                />
-                <span
-                  className="-ml-1 size-3 rounded-full ring-1 ring-line-strong"
-                  style={{ background: `oklch(0.47 0.09 ${customWeld})` }}
-                />
-              </span>
-              Custom…
-            </button>
+                    aria-hidden
+                    data-pack={p.id}
+                    className="pack-tile block overflow-hidden rounded-md border border-line px-2 py-1.5"
+                  >
+                    <span className="block truncate text-[11px] font-medium">
+                      Standup at 10:00
+                    </span>
+                    <span className="block truncate text-[10px] opacity-60">
+                      3 tasks · 1 question
+                    </span>
+                    <span className="mt-1.5 flex gap-1">
+                      <span
+                        className="h-1.5 w-6 rounded-full"
+                        style={{ background: cw.thread }}
+                      />
+                      <span
+                        className="h-1.5 w-3 rounded-full"
+                        style={{ background: cw.weld }}
+                      />
+                    </span>
+                  </span>
+                  <span className="mt-1.5 flex items-center gap-1 px-0.5 text-sm text-ink">
+                    {p.label}
+                    {selected && (
+                      <span aria-hidden className="text-thread">
+                        ✓
+                      </span>
+                    )}
+                  </span>
+                  <span className="block px-0.5 text-xs text-ink-3">{p.subtitle}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
-        {colorway === "custom" && (
-          <div className="mt-4 space-y-3 rounded-lg border border-line bg-raised/50 p-3">
-            <p className="text-xs text-ink-3">
-              Dye your own threads. Any hue stays readable — lightness and
-              contrast are fixed at values that pass WCAG AA in both modes.
-            </p>
-            {(
-              [
-                ["Accent", customThread, (v: number) => setCustomHues(v, customWeld)],
-                ["Highlight", customWeld, (v: number) => setCustomHues(customThread, v)],
-              ] as const
-            ).map(([label, value, onChange]) => (
-              <div key={label} className="flex items-center gap-3">
-                <span className="w-24 text-sm text-ink-2">{label}</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={359}
-                  value={value}
-                  onChange={(e) => onChange(Number(e.target.value))}
-                  aria-label={`${label} hue`}
-                  className="hue-track flex-1"
-                />
-                <span className="w-10 text-right font-mono text-xs text-ink-3">
-                  {value}°
-                </span>
+        <button
+          onClick={() => setCustomizeOpen((v) => !v)}
+          aria-expanded={customizeOpen}
+          className="mt-3 flex items-center gap-1.5 text-sm text-ink-2 transition-colors hover:text-ink"
+        >
+          <span
+            aria-hidden
+            className={"inline-block transition-transform " + (customizeOpen ? "rotate-90" : "")}
+          >
+            ▸
+          </span>
+          Customize
+          {accentOverridden && !customizeOpen && (
+            <span
+              aria-label="custom accent active"
+              className="size-2 rounded-full"
+              style={{ background: "var(--thread)" }}
+            />
+          )}
+        </button>
+        {customizeOpen && (
+          <div className="mt-2 space-y-3 rounded-lg border border-line bg-raised/50 p-3">
+            <div className="flex items-center gap-2">
+              <span className="w-24 text-sm text-ink-2">Accent</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {COLORWAYS.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setColorway(c.id)}
+                    aria-pressed={colorway === c.id}
+                    aria-label={c.label}
+                    title={c.label}
+                    className={
+                      "flex items-center rounded-full border p-1 transition-colors " +
+                      (colorway === c.id
+                        ? "border-thread-solid bg-thread/10"
+                        : "border-line-strong hover:bg-raised")
+                    }
+                  >
+                    <span
+                      className="size-4 rounded-full ring-1 ring-line-strong"
+                      style={{ background: c.thread }}
+                    />
+                    <span
+                      className="-ml-1.5 size-4 rounded-full ring-1 ring-line-strong"
+                      style={{ background: c.weld }}
+                    />
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCustomHues(customThread, customWeld)}
+                  aria-pressed={colorway === "custom"}
+                  className={
+                    "flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-sm transition-colors " +
+                    (colorway === "custom"
+                      ? "border-thread-solid bg-thread/10 font-medium text-ink"
+                      : "border-line-strong text-ink-2 hover:bg-raised")
+                  }
+                >
+                  <span aria-hidden className="flex">
+                    <span
+                      className="size-4 rounded-full ring-1 ring-line-strong"
+                      style={{ background: `oklch(0.44 0.13 ${customThread})` }}
+                    />
+                    <span
+                      className="-ml-1.5 size-4 rounded-full ring-1 ring-line-strong"
+                      style={{ background: `oklch(0.47 0.09 ${customWeld})` }}
+                    />
+                  </span>
+                  Custom
+                </button>
               </div>
-            ))}
+            </div>
+            {colorway === "custom" && (
+              <>
+                <p className="text-xs text-ink-3">
+                  Pick any hue — every combination stays readable.
+                </p>
+                {(
+                  [
+                    ["Accent", customThread, (v: number) => setCustomHues(v, customWeld)],
+                    ["Second accent", customWeld, (v: number) => setCustomHues(customThread, v)],
+                  ] as const
+                ).map(([label, value, onChange]) => (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className="w-24 text-sm text-ink-2">{label}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={359}
+                      value={value}
+                      onChange={(e) => onChange(Number(e.target.value))}
+                      aria-label={`${label} hue`}
+                      aria-valuetext={`${value} degrees`}
+                      className="hue-track flex-1"
+                    />
+                    <span
+                      aria-hidden
+                      className="size-4 shrink-0 rounded-full ring-1 ring-line-strong"
+                      style={{
+                        background: `light-dark(oklch(0.44 0.13 ${value}), oklch(0.8 0.09 ${value}))`,
+                      }}
+                    />
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
       </Section>
