@@ -66,16 +66,22 @@ export default function SettingsPage() {
   const testAndSaveKey = async () => {
     const candidate = keyDraft.trim();
     if (!candidate) return;
+    if (!candidate.startsWith("sk-strands-")) {
+      setKeyStatus("❌ that doesn't look like a Skein key — they start with sk-strands-");
+      return;
+    }
     setKeyStatus("testing…");
     try {
       const res = await fetch(`${API_URL}/api/whoami`, {
         headers: { Authorization: `Bearer ${candidate}`, "X-Client": "web" },
       });
-      if (res.status === 401) {
+      const w = res.ok ? ((await res.json()) as WhoAmI) : null;
+      // strong === true is EXACTLY the property being tested — a malformed
+      // key falls through to weak identity and would otherwise "succeed"
+      if (!w || !w.strong) {
         setKeyStatus("❌ that key is invalid or revoked — check for typos, or mint a new one");
         return;
       }
-      const w = (await res.json()) as WhoAmI;
       setApiKey(candidate);
       setKeyDraft("");
       setKeyStatus(
@@ -162,23 +168,31 @@ export default function SettingsPage() {
         </p>
         {!strong && (
           <div className="mb-3 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800/50">
-            {who !== null && who.keys_minted === 0 ? (
+            {currentUser === "anonymous" ? (
+              <p>
+                Pick your name in <b>step 1</b> first — your key is minted for
+                that name.
+              </p>
+            ) : who === null || who.keys_minted === 0 ? (
               <>
                 <p className="mb-2">
-                  No key has been minted for <b>{who.user}</b> yet. Whoever
-                  runs the box mints your first one (it prints once — they
-                  send it to you privately):
+                  {who === null
+                    ? "Can't verify your key status right now (the stored key may be revoked). If you need a fresh one, whoever runs the box mints it:"
+                    : `No key has been minted for ${currentUser} yet. Whoever runs the box mints your first one (it prints once — they send it to you privately):`}
                 </p>
-                <CopyLine text={`python -m app.bootstrap_key ${who.user}`} />
+                <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
                 <p className="mt-2 text-xs text-zinc-500">
-                  Docker: <code>docker compose exec backend python -m app.bootstrap_key {who.user}</code>
+                  Docker:{" "}
+                  <code>
+                    docker compose exec backend python -m app.bootstrap_key {currentUser}
+                  </code>
                 </p>
               </>
             ) : (
               <p>
-                A key exists for {who?.user ?? "you"} — paste it below. Lost
-                it? Keys are shown only once; ask for a new one to be minted
-                (same command), or revoke old ones from the CLI.
+                A key exists for {who.user} — paste it below. Lost it? Keys are
+                shown only once; ask for a new one to be minted (same command),
+                or revoke old ones from the CLI.
               </p>
             )}
           </div>
@@ -248,7 +262,35 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      <Section title="4 · Calendar feed (optional)">
+      <Section title="4 · Connect your own AI agent (optional)">
+        <p className="mb-2 text-sm text-zinc-500">
+          Skein is an MCP server — Claude Code or any MCP client can read and
+          write the platform natively. New agents start at{" "}
+          <b>review</b> authority: every write becomes a proposal in{" "}
+          <a href="/review" className="underline">
+            /review
+          </a>{" "}
+          until a human grants more (see{" "}
+          <a href="/agents" className="underline">
+            /agents
+          </a>
+          ).
+        </p>
+        <p className="mb-1 text-xs font-medium text-zinc-500">Claude Code registration:</p>
+        <CopyLine
+          text={`claude mcp add skein -- env STRANDS_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
+        />
+        <p className="mb-1 mt-3 text-xs font-medium text-zinc-500">
+          Team context pack (org-brain for any agent — also an MCP resource):
+        </p>
+        <CopyLine text={`${API_URL}/api/context-pack`} />
+        <p className="mt-2 text-xs text-zinc-400">
+          Scoped per-engagement packs: append ?engagement=&lt;id&gt;. The CLI
+          can also emit it: <code>skein context --write AGENTS.md</code>.
+        </p>
+      </Section>
+
+      <Section title="5 · Calendar feed (optional)">
         <p className="mb-2 text-sm text-zinc-500">
           Subscribe your calendar app to team events + milestone/commitment
           due dates. Use a local calendar client — hosted ones (Google) would

@@ -103,6 +103,18 @@ export default function MyDay() {
     window.localStorage.setItem("strands-confetti", JSON.stringify([...seen]));
   }, [b]);
 
+  const patchTask = async (id: number, status: string) => {
+    try {
+      await api(`/api/tasks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+    } catch (e) {
+      alert(String(e));
+    }
+    load();
+  };
+
   const resolveBlocker = async (id: number) => {
     try {
       await api(`/api/blockers/${id}/resolve`, {
@@ -262,15 +274,37 @@ export default function MyDay() {
         <Card title="Your work">
           <ul className="space-y-2 text-sm">
             {b.your_work.tasks.map((t) => (
-              <li key={t.id}>
-                <span className="text-zinc-400">#{t.id}</span> {t.title}{" "}
-                <span className="text-xs text-zinc-400">
-                  [{t.priority}/{t.status}]
+              <li key={t.id} className="flex items-center justify-between gap-2">
+                <span>
+                  <span className="text-zinc-400">#{t.id}</span> {t.title}{" "}
+                  <span className="text-xs text-zinc-400">
+                    [{t.priority}/{t.status}]
+                  </span>
+                </span>
+                <span className="flex shrink-0 gap-1">
+                  {t.status === "todo" && (
+                    <button
+                      onClick={() => patchTask(Number(t.id), "in_progress")}
+                      className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800"
+                    >
+                      start
+                    </button>
+                  )}
+                  {t.status !== "done" && (
+                    <button
+                      onClick={() => patchTask(Number(t.id), "done")}
+                      className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-200"
+                    >
+                      done
+                    </button>
+                  )}
                 </span>
               </li>
             ))}
             {b.your_work.tasks.length === 0 && (
-              <li className="text-zinc-400">No tasks assigned to you.</li>
+              <li className="text-zinc-400">
+                No tasks assigned to you — press ⌘K and type &lsquo;todo: …&rsquo;.
+              </li>
             )}
             {b.your_work.due_soon.length > 0 && (
               <li className="pt-1 text-xs text-amber-600">

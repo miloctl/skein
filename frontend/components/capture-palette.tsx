@@ -86,6 +86,14 @@ export function CapturePalette() {
             Capture
           </button>
         </div>
+        <div className="mt-3 border-t border-zinc-200 pt-2 text-[11px] leading-relaxed text-zinc-400 dark:border-zinc-800">
+          <span className="font-medium text-zinc-500">Prefixes:</span>{" "}
+          <code>todo:</code> task · <code>q:</code> question · <code>decision:</code> decision ·{" "}
+          <code>promised:</code> commitment · <code>note:</code>/<code>til:</code> note ·{" "}
+          <code>blocked on …</code> blocker ·{" "}
+          <code>fb: name — …</code> private feedback (needs your API key — see ⚙️ Settings) ·
+          no prefix = smart-routed
+        </div>
       </div>
     </div>
   );

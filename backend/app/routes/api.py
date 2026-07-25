@@ -161,7 +161,9 @@ def get_whoami(user: CurrentUser, request: Request):
     return {
         "user": user,
         "strong": bool(getattr(request.state, "strong_auth", False)),
-        "keys_minted": len(list_keys(user)),
+        # active only — after a revoke-all, Settings must show the bootstrap
+        # command again, not "a key exists, paste it"
+        "keys_minted": sum(1 for k in list_keys(user) if k["active"]),
     }
 
 

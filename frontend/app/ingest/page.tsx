@@ -49,7 +49,7 @@ export default function IngestPage() {
         onChange={(e) => setText(e.target.value)}
         rows={12}
         placeholder={
-          "- todo: update the runbook\n- q: who owns the staging cluster?\n- decided: we ship Fridays\n- blocked on the API key from vendor"
+          "- todo: update the runbook\n- q: who owns the staging cluster?\n- decided: we ship Fridays\n- blocked on the API key from vendor\n- promised: revised beta date to ops by Friday\n- note: retro moved to Thursdays"
         }
         className="mb-3 w-full rounded-xl border border-zinc-300 bg-transparent p-3 font-mono text-sm outline-none dark:border-zinc-700"
       />

@@ -35,7 +35,7 @@ const Composer = () => (
   <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-zinc-300 bg-white p-2 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
     <ComposerPrimitive.Input
       autoFocus
-      placeholder="Message the Chief of Staff… (e.g. “plan our Q3 launch”, “what's blocked?”)"
+      placeholder="Message the Chief of Staff… (/help for commands, or just ask)"
       className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-zinc-400"
       rows={1}
     />
@@ -58,6 +58,11 @@ export function Thread() {
               Track milestones, log questions, record decisions, post standups,
               and plan projects — just ask. Try: <em>“Plan a launch for our new
               onboarding flow”</em> or <em>“What&apos;s on the calendar this week?”</em>
+            </p>
+            <p className="mt-3 text-xs text-zinc-400">
+              Type <code>/help</code> for commands — <code>/plan</code>,{" "}
+              <code>/playbooks</code>, <code>/search</code>, <code>/briefing</code>,{" "}
+              <code>/remember</code>. Anything else is smart-captured.
             </p>
           </div>
         </ThreadPrimitive.Empty>

@@ -67,6 +67,81 @@ function Section({
   );
 }
 
+function StandupCard({ rows }: { rows: Row[] }) {
+  const [yesterday, setYesterday] = useState("");
+  const [today, setToday] = useState("");
+  const [blockers, setBlockers] = useState("");
+  const [posted, setPosted] = useState(false);
+
+  const post = async () => {
+    if (!today.trim()) return;
+    try {
+      await api("/api/standups", {
+        method: "POST",
+        body: JSON.stringify({ yesterday, today, blockers }),
+      });
+      setPosted(true);
+      setTimeout(() => window.location.reload(), 700);
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        Standups
+      </h2>
+      <div className="mb-3 space-y-1.5">
+        <input
+          value={yesterday}
+          onChange={(e) => setYesterday(e.target.value)}
+          placeholder="yesterday (optional)"
+          className="w-full rounded-lg border border-zinc-200 bg-transparent px-2 py-1 text-sm outline-none dark:border-zinc-700"
+        />
+        <input
+          value={today}
+          onChange={(e) => setToday(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && post()}
+          placeholder="today — what are you on?"
+          className="w-full rounded-lg border border-zinc-200 bg-transparent px-2 py-1 text-sm outline-none dark:border-zinc-700"
+        />
+        <div className="flex gap-1.5">
+          <input
+            value={blockers}
+            onChange={(e) => setBlockers(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && post()}
+            placeholder="blockers — auto-filed with an escalation clock"
+            className="flex-1 rounded-lg border border-zinc-200 bg-transparent px-2 py-1 text-sm outline-none dark:border-zinc-700"
+          />
+          <button
+            onClick={post}
+            disabled={!today.trim()}
+            className="rounded-lg bg-zinc-900 px-3 py-1 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            {posted ? "✓" : "Post"}
+          </button>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-zinc-400">No standups posted yet — yours can be first.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((s) => (
+            <li key={s.id} className="text-sm">
+              <span className="font-medium">{s.author}</span>
+              <p className="text-xs text-zinc-500">
+                {s.today}
+                {s.blockers ? ` · ⛔ ${s.blockers}` : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function Dashboard() {
   const [data, setData] = useState<Record<string, Row[]>>({});
   const [pulse, setPulse] = useState<Pulse | null>(null);
@@ -262,7 +337,7 @@ export default function Dashboard() {
       <Section
         title="Tasks"
         rows={data.tasks ?? []}
-        empty="No tasks yet."
+        empty="No tasks yet — press ⌘K and type 'todo: …'."
         render={(t) => (
           <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
             <span>
@@ -307,24 +382,11 @@ export default function Dashboard() {
           </li>
         )}
       />
-      <Section
-        title="Standups"
-        rows={data.standups ?? []}
-        empty="No standups posted."
-        render={(s) => (
-          <li key={s.id} className="text-sm">
-            <span className="font-medium">{s.author}</span>
-            <p className="text-xs text-zinc-500">
-              {s.today}
-              {s.blockers ? ` · ⛔ ${s.blockers}` : ""}
-            </p>
-          </li>
-        )}
-      />
+      <StandupCard rows={data.standups ?? []} />
       <Section
         title="Calendar"
         rows={data.events ?? []}
-        empty="Nothing scheduled."
+        empty="Nothing scheduled — ask the chat agent to schedule an event."
         render={(e) => (
           <li key={e.id} className="flex items-center justify-between text-sm">
             <span>{e.title}</span>

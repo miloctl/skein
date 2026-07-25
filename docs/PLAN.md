@@ -266,6 +266,29 @@ disposition analytics). Recorded deviations:
   accept engagement_id); the CLI has no --engagement flag yet.
 - Shared 1:1 agendas + incident timeline REMAIN deferred (need real usage).
 
+## Self-serve UX backlog (from the 2026-07-24 fresh-user review)
+
+Shipped in the same pass: standup composer on the dashboard (the checklist's
+"post a standup" step used to point at a read-only card), start/done buttons
+on My Day tasks, capture-palette prefix cheatsheet (incl. fb: caveat), chat
+/help discoverability, Settings "connect your own agent" section (MCP command
++ context-pack URL + authority default), ingest placeholder covers promised:/
+note:, entry-path empty states.
+
+Remaining, in priority order (each S/M as sized by the review):
+
+1. [M] Global search box in the nav (`GET /api/search` exists, invisible).
+2. [M] What-if staffing button on scored intake rows (closes the dangling
+   "shown in staffing what-ifs" reference from Settings).
+3. [S] Delegate-task affordance (Agents empty state advertises it; no UI).
+4. [M] Generate-handoff button on closing/closed engagements.
+5. [S] Allocation inline form (or honest empty state) on the Capacity card.
+6. [M] Engagement-close conclusion select with one-phrase glosses (replace
+   the prompt(); the vocabulary currently lives inside a browser prompt).
+7. [S] ?-tooltips: ISO week format on the commitment card, season definition
+   on the pulse banner, origin glossary beside Review.
+8. [S] Portfolio "promised:" hint explains team vs external audience.
+
 ## Deferred with explicit re-entry triggers
 
 See the cut table in `docs/reviews/2026-07-24-synthesis.md`. Notables:
