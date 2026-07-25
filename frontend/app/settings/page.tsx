@@ -102,8 +102,26 @@ export default function SettingsPage() {
     refresh();
   };
 
-  const hasBrowserKey = typeof window !== "undefined" && Boolean(getApiKey());
+  // hydration-safe: server snapshot says "no key", client corrects post-hydration
+  const hasBrowserKey = useSyncExternalStore(
+    subscribeStorage,
+    () => Boolean(getApiKey()),
+    () => false,
+  );
   const strong = who?.strong ?? false;
+
+  // the My Day checklist dismissal lives in this browser's localStorage;
+  // restoring is just deleting the flag (progress is recomputed server-side)
+  const checklistHidden = useSyncExternalStore(
+    subscribeStorage,
+    () =>
+      window.localStorage.getItem(`skein-onboarded:${currentUser}`) === "1",
+    () => false,
+  );
+  const restoreChecklist = () => {
+    window.localStorage.removeItem(`skein-onboarded:${currentUser}`);
+    window.dispatchEvent(new Event("storage"));
+  };
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-4 p-6">
@@ -300,6 +318,41 @@ export default function SettingsPage() {
         <p className="mt-2 text-xs text-ink-3">
           If the API is token-locked, the operator sets STRANDS_ICS_TOKEN and
           the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
+        </p>
+      </Section>
+
+      <Section title="Dismissed cards">
+        {checklistHidden ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-ink-2">
+              The <b>first-week checklist</b> on My Day is hidden in this
+              browser. Your progress was never lost — it retires itself for
+              good once all six steps are done.
+            </p>
+            <button
+              onClick={restoreChecklist}
+              className="shrink-0 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+            >
+              Bring it back
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-3">
+            Nothing is dismissed in this browser. If you dismiss the
+            first-week checklist on My Day, this is where you bring it back.
+          </p>
+        )}
+        <p className="mt-2 text-xs text-ink-3">
+          Dismissed NOTICE items are just markers — the proposals, blockers,
+          and reviews they point to stay visible on{" "}
+          <a href="/review" className="underline">
+            Review
+          </a>{" "}
+          and the{" "}
+          <a href="/dashboard" className="underline">
+            Dashboard
+          </a>{" "}
+          until acted on.
         </p>
       </Section>
     </main>

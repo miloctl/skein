@@ -195,6 +195,7 @@ export default function MyDay() {
                 setOnboarding(null);
               }}
               className="text-xs text-ink-3 underline"
+              title="Bring it back anytime from Settings"
             >
               dismiss
             </button>
