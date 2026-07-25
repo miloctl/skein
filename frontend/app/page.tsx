@@ -101,7 +101,9 @@ export default function MyDay() {
     if (shipped.length === 0) return;
     let stored: unknown[] = [];
     try {
-      stored = JSON.parse(window.localStorage.getItem("strands-confetti") ?? "[]");
+      stored = JSON.parse(
+        window.localStorage.getItem(`skein-confetti:${getUser()}`) ?? "[]",
+      );
       if (!Array.isArray(stored)) stored = [];
     } catch {
       stored = []; // corrupted storage must never crash My Day
@@ -121,7 +123,10 @@ export default function MyDay() {
       }
     }
     fresh.forEach((e) => seen.add(e.id));
-    window.localStorage.setItem("strands-confetti", JSON.stringify([...seen]));
+    window.localStorage.setItem(
+      `skein-confetti:${getUser()}`,
+      JSON.stringify([...seen].slice(-100)),
+    );
   }, [b]);
 
   const patchTask = async (id: number, status: string) => {

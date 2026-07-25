@@ -54,6 +54,10 @@ def cancel_event(event_id: int) -> str:
     Args:
         event_id: ID of the event to cancel.
     """
+    from ..services import delegation
+
+    if delegation.authority_level("agent", "event") == "forbidden":
+        return json.dumps({"error": "event writes are forbidden for this agent"})
     blocked = blocked_when_gated("cancelling an event")
     if blocked:
         return blocked

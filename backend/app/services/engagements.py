@@ -130,6 +130,29 @@ def update_engagement(
         _ship_it(engagement_id, actor=actor)
         if current["kind"] == "experiment":
             _experiment_lesson(engagement_id, actor=actor, origin=origin)
+        # closing over live work must be loud, not blocking: orphaned tasks
+        # silently stop counting anywhere once their engagement is closed
+        open_tasks = db.query_one(
+            "SELECT COUNT(*) AS n FROM tasks WHERE status NOT IN ('done')"
+            " AND (engagement_id = ? OR milestone_id IN"
+            " (SELECT id FROM milestones WHERE engagement_id = ?))",
+            (engagement_id, engagement_id),
+        )
+        if open_tasks and open_tasks["n"]:
+            from .notifications import notify
+
+            notify(
+                "team",
+                f"Engagement #{engagement_id} closed with {open_tasks['n']}"
+                " open task(s) — rehome or close them.",
+                tier="digest",
+                link="/dashboard",
+            )
+            return {
+                "id": engagement_id,
+                "updated": list(fields),
+                "open_tasks": open_tasks["n"],
+            }
     return {"id": engagement_id, "updated": list(fields)}
 
 

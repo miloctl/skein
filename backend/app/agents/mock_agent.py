@@ -3,6 +3,7 @@ a real Strands Agent. Slash commands come from the shared commands engine
 (also used by the chat route for every provider); freeform text is
 smart-captured — no model, no keys, fully testable."""
 
+from .. import ratelimit
 from ..services import capture
 from . import commands
 
@@ -25,6 +26,7 @@ class MockAgent:
 
         yield {"current_tool_use": {"toolUseId": "mock-capture", "name": "capture"}}
         try:
+            ratelimit.check("capture", self.user)
             result = capture.capture(text, actor=self.user, origin="human")
             acks = {
                 "task": (

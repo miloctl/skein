@@ -68,6 +68,26 @@ def resolve_blocker(
         )
     db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
 
+    # tasks explicitly waiting on this blocker can move again — tell their
+    # owners, or the unblock is a tree falling in an empty forest
+    waiting = db.query(
+        "SELECT id, title, assignee FROM tasks"
+        " WHERE waiting_on_type = 'blocker' AND waiting_on_id = ?",
+        (blocker_id,),
+    )
+    if waiting:
+        from .notifications import notify
+
+        for t in waiting:
+            if t["assignee"] and t["assignee"] != actor:
+                notify(
+                    t["assignee"],
+                    f"Blocker #{blocker_id} resolved — task #{t['id']}"
+                    f" “{t['title']}” can move again.",
+                    tier="immediate",
+                    link="/dashboard",
+                )
+
     created = datetime.fromisoformat(row["created_at"])
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
@@ -79,9 +99,7 @@ def resolve_blocker(
         notify(
             "team",
             f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
-            f" It fought hard. It lost. {days} days"
-            + (", escalated" if row["status"] == "escalated" else "")
-            + ".",
+            f" It fought hard. It lost. {days} days.",
             tier="digest",
             link="/dashboard",
         )

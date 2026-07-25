@@ -120,6 +120,15 @@ def _disposition(
     )
     db.log_activity(actor, "disposition_intake", f"#{request_id} {disposition}")
     row = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
+    if row and row["requester"] and row["requester"] != actor:
+        from .notifications import notify
+
+        notify(
+            row["requester"],
+            f"Your request #{request_id} “{row['title']}” was {disposition}: {reason[:140]}",
+            tier="digest",
+            link="/intake",
+        )
     if disposition == "accepted" and row:
         from .engagements import create_engagement
 

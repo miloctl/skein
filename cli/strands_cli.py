@@ -4,9 +4,10 @@
 
 Setup:
     skein config --url http://localhost:8000 --key sk-strands-... [--user you]
-    (create a key: curl -X POST $URL/api/keys -H 'X-User: you'
-       -H 'Content-Type: application/json' -d '{"label":"cli"}')
-    Env fallbacks: STRANDS_URL, STRANDS_API_KEY (config file wins).
+    (first key: whoever runs the box mints it with
+       `python -m app.bootstrap_key <you>`; later keys via Settings)
+    Env fallbacks: STRANDS_URL / STRANDS_API_URL, STRANDS_API_KEY
+    (config file wins).
 
 Examples (the `strands` alias works everywhere `skein` does):
     skein capture "todo: ship the API"
@@ -52,7 +53,12 @@ def save_config(cfg: dict) -> None:
 
 def api(method: str, path: str, body: dict | None = None) -> dict | list:
     cfg = load_config()
-    url = (cfg.get("url") or os.getenv("STRANDS_URL") or "http://localhost:8000").rstrip("/")
+    url = (
+        cfg.get("url")
+        or os.getenv("STRANDS_URL")
+        or os.getenv("STRANDS_API_URL")
+        or "http://localhost:8000"
+    ).rstrip("/")
     headers = {"Content-Type": "application/json", "X-Client": "cli"}
     key = cfg.get("key") or os.getenv("STRANDS_API_KEY")
     if key:

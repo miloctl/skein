@@ -79,6 +79,16 @@ def answer_question(
     row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
     if row:
         index_record("question", question_id, row["question"][:120], f"{row['question']} {answer}")
+        who = actor or answered_by
+        if row["asked_by"] and row["asked_by"] != who:
+            from .notifications import notify
+
+            notify(
+                row["asked_by"],
+                f"Your question #{question_id} was answered: {answer[:120]}",
+                tier="digest",
+                link="/dashboard",
+            )
     return {"id": question_id, "status": "answered"}
 
 

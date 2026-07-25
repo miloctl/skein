@@ -191,7 +191,9 @@ body {
 }
 @keyframes loom-advance {
   to {
-    background-position: -32px 0;
+    /* exactly one repeat of the 135deg/20px pattern (20px / sin 45deg),
+       so the end-of-animation reset lands on an identical frame */
+    background-position: -28.284px 0;
   }
 }
 

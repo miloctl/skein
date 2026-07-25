@@ -2,7 +2,10 @@
  * shared jokes become team rituals. Deterministic, no LLM. */
 
 function seeded(pool: string[], seedExtra = ""): string {
-  const seed = new Date().toISOString().slice(0, 10) + seedExtra;
+  // LOCAL date: the shared daily joke must not roll over mid-afternoon
+  const d = new Date();
+  const seed =
+    `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}` + seedExtra;
   let h = 0;
   for (const c of seed) h = (h * 31 + c.charCodeAt(0)) % 100003;
   return pool[h % pool.length];
@@ -20,13 +23,9 @@ const EMPTY: Record<string, string[]> = {
     "Nothing is blocked. Someone is about to change that — capture it fast.",
   ],
   allclear: [
-    "All clear. 🎉 Go build something.",
+    "All clear. Go build something.",
     "Nothing needs you. A rare and beautiful state.",
     "Inbox zero, blocker zero. Frame this moment.",
-  ],
-  chat: [
-    "The Chief of Staff is listening.",
-    "Say the thing. It gets tracked, not lost.",
   ],
 };
 
@@ -43,5 +42,5 @@ const LOADING = [
 ];
 
 export function loadingLine(): string {
-  return seeded(LOADING, String(new Date().getHours()));
+  return seeded(LOADING, "loading");
 }
