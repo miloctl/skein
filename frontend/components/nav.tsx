@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
+import { api, getApiKey, getUser, setUser } from "@/lib/api";
 
 // notifies on cross-tab changes; same-tab changes reload the page
 function subscribeUser(cb: () => void) {
@@ -118,25 +118,19 @@ export function Nav() {
             👤 {user}
           </button>
         )}
-        <button
-          onClick={() => {
-            const current = getApiKey();
-            const key = prompt(
-              "Personal API key (sk-strands-…) — required for People/private surfaces. Empty clears it.",
-              current,
-            );
-            if (key !== null) {
-              setApiKey(key);
-              window.location.reload();
-            }
-          }}
+        <Link
+          href="/settings"
           className={
             "text-xs " + (hasKey ? "text-emerald-600" : "text-zinc-400 hover:text-zinc-600")
           }
-          title={hasKey ? "API key set (strong identity)" : "Set your personal API key"}
+          title={
+            hasKey
+              ? "API key set (strong identity) — Settings"
+              : "Settings — identity, API key, calendar"
+          }
         >
-          🔑
-        </button>
+          ⚙️
+        </Link>
         <span
           className="hidden text-xs text-zinc-400 md:inline"
           title="Quick capture"

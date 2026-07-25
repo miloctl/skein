@@ -49,7 +49,7 @@ def test_onboarding_checklist_progresses(client):
     after = client.get("/api/onboarding").json()
     by_id = {s["id"]: s["done"] for s in after["steps"]}
     assert by_id["first_capture"] and by_id["first_engagement"]
-    assert by_id["first_standup"] and by_id["create_key"]
+    assert by_id["first_standup"] and by_id["setup_key"]
     assert after["next"]["id"] == "invite_team"  # still a team of one
 
 

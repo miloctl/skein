@@ -49,7 +49,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 type Onboarding = {
-  steps: { id: string; label: string; done: boolean }[];
+  steps: { id: string; label: string; done: boolean; link: string; hint: string }[];
   complete: boolean;
   progress: string;
 };
@@ -162,13 +162,22 @@ export default function MyDay() {
               dismiss
             </button>
           </div>
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {onboarding.steps.map((s) => (
-              <li
-                key={s.id}
-                className={s.done ? "text-zinc-400 line-through" : "text-zinc-700 dark:text-zinc-200"}
-              >
-                {s.done ? "✓" : "○"} {s.label}
+              <li key={s.id}>
+                {s.done ? (
+                  <span className="text-zinc-400 line-through">✓ {s.label}</span>
+                ) : (
+                  <>
+                    <Link
+                      href={s.link}
+                      className="font-medium text-zinc-700 underline decoration-dotted hover:text-zinc-900 dark:text-zinc-200"
+                    >
+                      ○ {s.label}
+                    </Link>
+                    <span className="ml-1 block pl-4 text-xs text-zinc-500">{s.hint}</span>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -296,26 +305,9 @@ export default function MyDay() {
               ))}
             </li>
             <li className="pt-1 text-xs text-zinc-400">
-              <button
-                onClick={async () => {
-                  const interests = prompt(
-                    "Your growth interests (shown in staffing what-ifs so interesting work finds you):",
-                  );
-                  if (interests === null) return;
-                  try {
-                    await api("/api/users/growth-interests", {
-                      method: "POST",
-                      body: JSON.stringify({ interests }),
-                    });
-                    alert("Saved.");
-                  } catch (e) {
-                    alert(String(e));
-                  }
-                }}
-                className="underline hover:text-zinc-600"
-              >
-                🌱 set your growth interests
-              </button>
+              <Link href="/settings" className="underline hover:text-zinc-600">
+                🌱 set your growth interests (Settings)
+              </Link>
             </li>
           </ul>
         </Card>

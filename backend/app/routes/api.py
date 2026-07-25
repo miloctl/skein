@@ -152,6 +152,19 @@ def get_ask(q: str):
     return search.ask(q)
 
 
+@router.get("/whoami")
+def get_whoami(user: CurrentUser, request: Request):
+    """Who the API thinks you are and how strongly — the Settings page uses
+    this to validate a pasted key without the user needing to know anything."""
+    from ..services.api_keys import list_keys
+
+    return {
+        "user": user,
+        "strong": bool(getattr(request.state, "strong_auth", False)),
+        "keys_minted": len(list_keys(user)),
+    }
+
+
 @router.get("/briefing")
 def get_briefing(user: CurrentUser):
     return briefing.my_day(user)

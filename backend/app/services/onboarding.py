@@ -4,19 +4,47 @@ someone in a workspace that describes THEIR work, not seed fiction."""
 
 from .. import db
 
+# (id, label, link, hint) — every step must be actionable from the UI: the
+# link goes where the step happens, the hint says HOW, so nobody needs to
+# have read the docs to finish setup
 STEPS = (
-    ("pick_name", "Pick your name (top right) so work is attributed to you"),
+    (
+        "pick_name",
+        "Pick your name so work is attributed to you",
+        "/settings",
+        "Settings → Identity, or click the 👤 button in the top bar.",
+    ),
     (
         "first_engagement",
-        "Start your first real engagement — instantiate a playbook or accept an intake request",
+        "Start your first real engagement",
+        "/intake",
+        "Submit + accept an intake request, or ask the chat agent to /plan a playbook.",
     ),
     (
         "first_capture",
-        "Capture something with ⌘K — try 'todo: …', 'blocked on …', or 'decision: …'",
+        "Capture something",
+        "/",
+        "Press ⌘K anywhere — try 'todo: …', 'blocked on …', or 'decision: …'.",
     ),
-    ("first_standup", "Post a standup — blockers in it are auto-filed"),
-    ("invite_team", "Get a teammate in — the platform is a team sport"),
-    ("create_key", "Create your API key for the CLI / git hooks / MCP"),
+    (
+        "first_standup",
+        "Post a standup",
+        "/dashboard",
+        "Blockers mentioned in it are auto-filed with an escalation clock.",
+    ),
+    (
+        "invite_team",
+        "Get a teammate in",
+        "/settings",
+        "Send them the URL; they pick a name in Settings. The platform is a team sport.",
+    ),
+    (
+        "setup_key",
+        "Set up your personal API key",
+        "/settings",
+        "Needed for private surfaces (People page) and the CLI. Settings"
+        " shows the exact command to mint your first one.",
+    ),
 )
 
 
@@ -53,9 +81,12 @@ def checklist(user: str) -> dict:
         "first_capture": captures > 0,
         "first_standup": standups > 0,
         "invite_team": humans > 1,
-        "create_key": keys > 0,
+        "setup_key": keys > 0,
     }
-    steps = [{"id": sid, "label": label, "done": done[sid]} for sid, label in STEPS]
+    steps = [
+        {"id": sid, "label": label, "done": done[sid], "link": link, "hint": hint}
+        for sid, label, link, hint in STEPS
+    ]
     remaining = [s for s in steps if not s["done"]]
     return {
         "steps": steps,

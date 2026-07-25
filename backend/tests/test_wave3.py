@@ -117,3 +117,20 @@ def test_rule_stats_median_days(fresh_db):
     stats = {s["rule_id"]: s for s in rule_stats()}
     assert stats["r1"]["median_days_to_disposition"] is not None
     assert stats["r1"]["median_days_to_disposition"] >= 3  # planted 4 days ago
+
+
+def test_whoami_reports_identity_strength(client, fresh_db):
+    from app.services.api_keys import create_key
+
+    weak = client.get("/api/whoami", headers={"X-User": "chen"}).json()
+    assert weak == {"user": "chen", "strong": False, "keys_minted": 0}
+    key = create_key("chen", "t")["key"]
+    strong = client.get("/api/whoami", headers={"Authorization": f"Bearer {key}"}).json()
+    assert strong["user"] == "chen" and strong["strong"] is True
+    assert strong["keys_minted"] == 1
+
+
+def test_onboarding_steps_are_actionable(client, fresh_db):
+    steps = client.get("/api/onboarding").json()["steps"]
+    assert all(s["link"].startswith("/") and s["hint"] for s in steps)
+    assert any(s["id"] == "setup_key" and s["link"] == "/settings" for s in steps)
