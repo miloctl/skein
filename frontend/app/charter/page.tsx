@@ -50,32 +50,32 @@ export default function CharterPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 text-xl font-bold">Team charter & decision rights</h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Team charter & decision rights</h1>
+      <p className="mb-6 text-sm text-ink-3">
         Mission, ownership, escalation rules, working agreements — recorded as
         decisions with review dates, so they get reconfirmed or superseded
         instead of silently rotting.
       </p>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
 
-      <div className="mb-6 space-y-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mb-6 space-y-2 rounded-xl border border-line bg-card p-4 shadow-card">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Production incident escalation path"
-          className="w-full rounded-lg border border-zinc-300 bg-transparent px-3 py-1.5 text-sm outline-none dark:border-zinc-700"
+          className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={2}
           placeholder="The agreement itself…"
-          className="w-full rounded-lg border border-zinc-300 bg-transparent px-3 py-1.5 text-sm outline-none dark:border-zinc-700"
+          className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
         <button
           onClick={add}
           disabled={!title.trim() || !text.trim()}
-          className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+          className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
         >
           Record charter entry
         </button>
@@ -85,27 +85,27 @@ export default function CharterPage() {
         {decisions.map((d) => (
           <li
             key={d.id}
-            className="rounded-xl border border-zinc-200 bg-white p-4 text-sm shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+            className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
           >
             <div className="mb-1 flex items-center justify-between">
               <span className="font-semibold">{d.title}</span>
               <span
                 className={
-                  "text-xs " + (d.status === "stale" ? "text-amber-600" : "text-zinc-400")
+                  "text-xs " + (d.status === "stale" ? "text-weld" : "text-ink-3")
                 }
               >
                 {d.status === "stale" ? "⚠ stale — reconfirm or supersede" : d.status}
                 {d.review_by ? ` · review by ${d.review_by}` : ""}
               </span>
             </div>
-            <p className="text-zinc-600 dark:text-zinc-300">{d.decision}</p>
-            <p className="mt-1 text-xs text-zinc-400">
+            <p className="text-ink-2">{d.decision}</p>
+            <p className="mt-1 text-xs text-ink-3">
               by {d.decided_by || "unrecorded"} · {d.created_at.slice(0, 10)}
             </p>
           </li>
         ))}
         {decisions.length === 0 && (
-          <li className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-400 dark:border-zinc-700">
+          <li className="rounded-xl border border-dashed border-line-strong p-8 text-center text-sm text-ink-3">
             No charter entries yet. Start with: who owns what, how we escalate,
             what quality bar we hold.
           </li>

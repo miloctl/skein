@@ -56,10 +56,10 @@ export function CapturePalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Quick capture"
-        className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="w-full max-w-lg rounded-xl border border-line-strong bg-card p-4 shadow-float"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+        <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Quick capture — routed to task / question / note / decision / blocker / commitment
         </p>
         <textarea
@@ -74,20 +74,20 @@ export function CapturePalette() {
             }
           }}
           placeholder="todo: ship the API · why is staging down? · blocked on vendor…"
-          className="w-full resize-none rounded-lg border border-zinc-300 bg-transparent p-2 text-sm outline-none dark:border-zinc-700"
+          className="w-full resize-none rounded-lg border border-line-strong bg-transparent p-2 text-sm outline-none focus:border-thread-solid"
         />
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-zinc-500">{result ?? "Enter to save · Esc to close"}</span>
+          <span className="text-xs text-ink-3">{result ?? "Enter to save · Esc to close"}</span>
           <button
             onClick={submit}
             disabled={busy || !text.trim()}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Capture
           </button>
         </div>
-        <div className="mt-3 border-t border-zinc-200 pt-2 text-[11px] leading-relaxed text-zinc-400 dark:border-zinc-800">
-          <span className="font-medium text-zinc-500">Prefixes:</span>{" "}
+        <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">
+          <span className="font-medium text-ink-3">Prefixes:</span>{" "}
           <code>todo:</code> task · <code>q:</code> question · <code>decision:</code> decision ·{" "}
           <code>promised:</code> commitment · <code>note:</code>/<code>til:</code> note ·{" "}
           <code>blocked on …</code> blocker ·{" "}

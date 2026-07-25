@@ -15,26 +15,26 @@ type Pulse = {
 type Row = Record<string, string | number | null>;
 
 const STATUS_COLORS: Record<string, string> = {
-  planned: "bg-zinc-200 text-zinc-700",
-  todo: "bg-zinc-200 text-zinc-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  blocked: "bg-red-100 text-red-700",
-  done: "bg-green-100 text-green-700",
-  open: "bg-amber-100 text-amber-700",
-  answered: "bg-green-100 text-green-700",
-  escalated: "bg-red-100 text-red-700",
-  resolved: "bg-green-100 text-green-700",
-  active: "bg-blue-100 text-blue-700",
-  proposed: "bg-zinc-200 text-zinc-700",
-  closing: "bg-amber-100 text-amber-700",
-  closed: "bg-zinc-200 text-zinc-500",
+  planned: "bg-raised text-ink-2",
+  todo: "bg-raised text-ink-2",
+  in_progress: "bg-thread/15 text-thread",
+  blocked: "bg-red-100 text-danger",
+  done: "bg-green-100 text-ok",
+  open: "bg-warn/15 text-warn",
+  answered: "bg-green-100 text-ok",
+  escalated: "bg-red-100 text-danger",
+  resolved: "bg-green-100 text-ok",
+  active: "bg-thread/15 text-thread",
+  proposed: "bg-raised text-ink-2",
+  closing: "bg-warn/15 text-warn",
+  closed: "bg-raised text-ink-3",
 };
 
 function Badge({ value }: { value: string }) {
   return (
     <span
       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-        STATUS_COLORS[value] ?? "bg-zinc-200 text-zinc-700"
+        STATUS_COLORS[value] ?? "bg-raised text-ink-2"
       }`}
     >
       {value.replace("_", " ")}
@@ -54,12 +54,12 @@ function Section({
   empty: string;
 }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         {title}
       </h2>
       {rows.length === 0 ? (
-        <p className="text-sm text-zinc-400">{empty}</p>
+        <p className="text-sm text-ink-3">{empty}</p>
       ) : (
         <ul className="space-y-2">{rows.map((r) => render(r))}</ul>
       )}
@@ -88,8 +88,8 @@ function StandupCard({ rows }: { rows: Row[] }) {
   };
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         Standups
       </h2>
       <div className="mb-3 space-y-1.5">
@@ -97,14 +97,14 @@ function StandupCard({ rows }: { rows: Row[] }) {
           value={yesterday}
           onChange={(e) => setYesterday(e.target.value)}
           placeholder="yesterday (optional)"
-          className="w-full rounded-lg border border-zinc-200 bg-transparent px-2 py-1 text-sm outline-none dark:border-zinc-700"
+          className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
         />
         <input
           value={today}
           onChange={(e) => setToday(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && post()}
           placeholder="today — what are you on?"
-          className="w-full rounded-lg border border-zinc-200 bg-transparent px-2 py-1 text-sm outline-none dark:border-zinc-700"
+          className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
         />
         <div className="flex gap-1.5">
           <input
@@ -112,25 +112,25 @@ function StandupCard({ rows }: { rows: Row[] }) {
             onChange={(e) => setBlockers(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && post()}
             placeholder="blockers — auto-filed with an escalation clock"
-            className="flex-1 rounded-lg border border-zinc-200 bg-transparent px-2 py-1 text-sm outline-none dark:border-zinc-700"
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
           />
           <button
             onClick={post}
             disabled={!today.trim()}
-            className="rounded-lg bg-zinc-900 px-3 py-1 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+            className="rounded-lg bg-thread-solid px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             {posted ? "✓" : "Post"}
           </button>
         </div>
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-zinc-400">No standups posted yet — yours can be first.</p>
+        <p className="text-sm text-ink-3">No standups posted yet — yours can be first.</p>
       ) : (
         <ul className="space-y-2">
           {rows.map((s) => (
             <li key={s.id} className="text-sm">
               <span className="font-medium">{s.author}</span>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-ink-3">
                 {s.today}
                 {s.blockers ? ` · ⛔ ${s.blockers}` : ""}
               </p>
@@ -173,55 +173,73 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <main className="mx-auto max-w-3xl p-8 text-sm text-red-600">
+      <main className="mx-auto max-w-3xl p-8 text-sm text-danger">
         Could not reach the backend at {API_URL} — is it running? ({error})
       </main>
     );
   }
 
   if (Object.keys(data).length === 0)
-    return <main className="p-8 text-sm text-zinc-400">{loadingLine()}</main>;
+    return <main className="p-8 text-sm text-ink-3">{loadingLine()}</main>;
 
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
       {pulse && (
-        <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm md:col-span-2 dark:border-indigo-900 dark:bg-indigo-950/30">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-indigo-500">
+        <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
+          <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">
             Team pulse · season {pulse.season.label}
-            <span className="ml-2 font-normal normal-case text-zinc-400">
+            <span className="ml-2 font-normal normal-case text-ink-3">
               {pulse.season.days_left} days left
             </span>
           </h2>
           <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
             <div>
-              <p className="text-2xl font-bold">
+              <p className="font-display text-[30px]/none font-semibold text-ink">
                 {pulse.standup_chain.chain}
-                <span className="ml-1 text-sm font-normal text-zinc-400">days</span>
+                <span className="ml-1 text-sm font-normal text-ink-3">days</span>
               </p>
-              <p className="text-xs text-zinc-500">standup chain (whole team)</p>
+              <span
+                aria-hidden
+                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.standup_chain.chain > 0 ? "bg-ok" : "bg-line-strong"}`}
+              />
+              <p className="text-xs text-ink-3">standup chain (whole team)</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">
+              <p className="font-display text-[30px]/none font-semibold text-ink">
                 {pulse.season_totals.engagements_shipped}
               </p>
-              <p className="text-xs text-zinc-500">shipped this season</p>
+              <span
+                aria-hidden
+                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped > 0 ? "bg-weld" : "bg-line-strong"}`}
+              />
+              <p className="text-xs text-ink-3">shipped this season</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">
+              <p className="font-display text-[30px]/none font-semibold text-ink">
                 {pulse.season_totals.blockers_spotted}
-                <span className="ml-1 text-sm font-normal text-zinc-400">
+                <span className="ml-1 text-sm font-normal text-ink-3">
                   / {pulse.season_totals.blockers_open} open
                 </span>
               </p>
-              <p className="text-xs text-zinc-500">blockers spotted (spotting scores!)</p>
+              <span
+                aria-hidden
+                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
+              />
+              <p className="text-xs text-ink-3">blockers spotted (spotting scores!)</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">{pulse.season_totals.lessons_recorded}</p>
-              <p className="text-xs text-zinc-500">lessons recorded</p>
+              <p className="font-display text-[30px]/none font-semibold text-ink">
+                {pulse.season_totals.lessons_recorded}
+              </p>
+              <span
+                aria-hidden
+                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.lessons_recorded > 0 ? "bg-thread-solid" : "bg-line-strong"}`}
+              />
+              <p className="text-xs text-ink-3">lessons recorded</p>
             </div>
           </div>
           {pulse.blocker_speedrun.length > 0 && (
-            <p className="mt-3 text-xs text-zinc-500">
+            <p className="mt-3 text-xs text-ink-3">
               ⏱️ Blocker speedruns:{" "}
               {pulse.blocker_speedrun
                 .map((s) => `${s.impact} avg ${s.avg_hours}h (best ${s.best_hours}h)`)
@@ -237,20 +255,20 @@ export default function Dashboard() {
         render={(e) => (
           <li key={e.id} className="flex items-center justify-between gap-2 text-sm">
             <span>
-              <span className="text-zinc-400">#{e.id}</span>{" "}
+              <span className="text-ink-3">#{e.id}</span>{" "}
               {e.kind === "experiment" ? "🧪 " : ""}
               {e.name}
-              <span className="ml-2 text-xs text-zinc-400">[{e.project_class}]</span>
+              <span className="ml-2 text-xs text-ink-3">[{e.project_class}]</span>
               {e.lead ? (
-                <span className="ml-2 text-xs text-zinc-400">lead @{e.lead}</span>
+                <span className="ml-2 text-xs text-ink-3">lead @{e.lead}</span>
               ) : null}
               {e.kind === "experiment" && e.timebox_end ? (
-                <span className="ml-2 text-xs text-amber-600">
+                <span className="ml-2 text-xs text-weld">
                   timebox → {String(e.timebox_end)}
                 </span>
               ) : null}
               {e.conclusion ? (
-                <span className="ml-2 text-xs text-zinc-400">({String(e.conclusion)})</span>
+                <span className="ml-2 text-xs text-ink-3">({String(e.conclusion)})</span>
               ) : null}
             </span>
             <span className="flex items-center gap-2">
@@ -272,7 +290,7 @@ export default function Dashboard() {
                       alert(String(err));
                     }
                   }}
-                  className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
                   close…
                 </button>
@@ -289,8 +307,8 @@ export default function Dashboard() {
         render={(b) => (
           <li key={b.id} className="flex items-center justify-between gap-2 text-sm">
             <span>
-              <span className="text-zinc-400">#{b.id}</span> {b.title}
-              <span className="ml-2 text-xs text-zinc-400">
+              <span className="text-ink-3">#{b.id}</span> {b.title}
+              <span className="ml-2 text-xs text-ink-3">
                 {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
               </span>
             </span>
@@ -306,11 +324,11 @@ export default function Dashboard() {
           <li key={String(c.person)} className="flex items-center justify-between text-sm">
             <span>
               {c.person}
-              <span className="ml-2 text-xs text-zinc-400">{c.detail}</span>
+              <span className="ml-2 text-xs text-ink-3">{c.detail}</span>
             </span>
             <span
               className={`text-xs font-semibold ${
-                Number(c.total_percent) > 100 ? "text-red-600" : "text-green-600"
+                Number(c.total_percent) > 100 ? "text-danger" : "text-green-600"
               }`}
             >
               {c.total_percent}%
@@ -325,9 +343,9 @@ export default function Dashboard() {
         render={(m) => (
           <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
             <span>
-              <span className="text-zinc-400">#{m.id}</span> {m.title}
+              <span className="text-ink-3">#{m.id}</span> {m.title}
               {m.due_date ? (
-                <span className="ml-2 text-xs text-zinc-400">due {m.due_date}</span>
+                <span className="ml-2 text-xs text-ink-3">due {m.due_date}</span>
               ) : null}
             </span>
             <Badge value={String(m.status)} />
@@ -341,9 +359,9 @@ export default function Dashboard() {
         render={(t) => (
           <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
             <span>
-              <span className="text-zinc-400">#{t.id}</span> {t.title}
+              <span className="text-ink-3">#{t.id}</span> {t.title}
               {t.assignee ? (
-                <span className="ml-2 text-xs text-zinc-400">@{t.assignee}</span>
+                <span className="ml-2 text-xs text-ink-3">@{t.assignee}</span>
               ) : null}
             </span>
             <span className="flex items-center gap-1">
@@ -361,12 +379,12 @@ export default function Dashboard() {
           <li key={q.id} className="text-sm">
             <div className="flex items-center justify-between gap-2">
               <span>
-                <span className="text-zinc-400">#{q.id}</span> {q.question}
+                <span className="text-ink-3">#{q.id}</span> {q.question}
               </span>
               <Badge value={String(q.status)} />
             </div>
             {q.answer ? (
-              <p className="mt-1 text-xs text-zinc-500">↳ {q.answer}</p>
+              <p className="mt-1 text-xs text-ink-3">↳ {q.answer}</p>
             ) : null}
           </li>
         )}
@@ -378,7 +396,7 @@ export default function Dashboard() {
         render={(d) => (
           <li key={d.id} className="text-sm">
             <span className="font-medium">{d.title}</span>
-            <p className="text-xs text-zinc-500">{d.decision}</p>
+            <p className="text-xs text-ink-3">{d.decision}</p>
           </li>
         )}
       />
@@ -390,7 +408,7 @@ export default function Dashboard() {
         render={(e) => (
           <li key={e.id} className="flex items-center justify-between text-sm">
             <span>{e.title}</span>
-            <span className="text-xs text-zinc-400">{e.starts_at}</span>
+            <span className="text-xs text-ink-3">{e.starts_at}</span>
           </li>
         )}
       />
@@ -401,7 +419,7 @@ export default function Dashboard() {
         render={(n) => (
           <li key={n.id} className="text-sm">
             <span className="font-medium">{n.topic}</span>
-            <p className="line-clamp-2 text-xs text-zinc-500">{n.content}</p>
+            <p className="line-clamp-2 text-xs text-ink-3">{n.content}</p>
           </li>
         )}
       />
@@ -410,12 +428,12 @@ export default function Dashboard() {
         rows={data.activity ?? []}
         empty="No activity yet."
         render={(a) => (
-          <li key={a.id} className="text-xs text-zinc-500">
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+          <li key={a.id} className="text-xs text-ink-3">
+            <span className="font-medium text-ink-2">
               {a.actor}
             </span>{" "}
             {String(a.action).replace("_", " ")} {a.detail}
-            <span className="ml-1 text-zinc-400">{a.created_at}</span>
+            <span className="ml-1 text-ink-3">{a.created_at}</span>
           </li>
         )}
       />

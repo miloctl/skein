@@ -81,15 +81,15 @@ export default function PeoplePage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-6">
-      <h1 className="mb-1 text-xl font-bold">People</h1>
-      <p className="mb-4 text-sm text-zinc-500">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">People</h1>
+      <p className="mb-4 text-sm text-ink-3">
         Private 1:1 prep and feedback journal. Only you can read what you
         write here — it lives outside search, digests, packs, exports, and
         every agent surface.
       </p>
 
       {needsKey && (
-        <p className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+        <p className="mb-4 rounded-xl border border-weld/40 bg-weld/10 p-4 text-sm text-weld">
           This page needs your personal API key (strong identity).{" "}
           <a href="/settings" className="font-medium underline">
             Settings
@@ -109,8 +109,8 @@ export default function PeoplePage() {
               className={
                 "rounded-full px-3 py-1 text-sm " +
                 (person === u.name
-                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200")
+                  ? "bg-thread-solid text-white"
+                  : "bg-raised text-ink-2 hover:bg-line")
               }
             >
               {u.name}
@@ -118,20 +118,20 @@ export default function PeoplePage() {
           ))}
       </div>
 
-      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {error && <p className="mb-4 text-sm text-danger">{error}</p>}
 
       {person && (
         <div className="grid gap-6 md:grid-cols-2">
           <section>
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            <h2 className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
               Since last time
             </h2>
             {brief === null ? (
-              <p className="text-sm text-zinc-400">no brief available</p>
+              <p className="text-sm text-ink-3">no brief available</p>
             ) : (
               <div className="space-y-3 text-sm">
                 {brief.nudge && (
-                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  <p className="rounded-lg bg-weld/10 px-3 py-2 text-weld">
                     💡 {brief.nudge}
                   </p>
                 )}
@@ -164,14 +164,14 @@ export default function PeoplePage() {
           </section>
 
           <section>
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            <h2 className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
               Your private notes
             </h2>
             <div className="mb-3 flex gap-2">
               <select
                 value={kind}
                 onChange={(e) => setKind(e.target.value as "note" | "feedback")}
-                className="rounded-lg border border-zinc-300 bg-transparent px-2 py-1.5 text-sm dark:border-zinc-700"
+                className="rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm focus:border-thread-solid"
               >
                 <option value="note">1:1 note</option>
                 <option value="feedback">feedback</option>
@@ -181,11 +181,11 @@ export default function PeoplePage() {
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addNote()}
                 placeholder={kind === "feedback" ? "great pushback in design review…" : "agenda item, observation…"}
-                className="flex-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-1.5 text-sm outline-none dark:border-zinc-700"
+                className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
               />
               <button
                 onClick={addNote}
-                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
+                className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
               >
                 Add
               </button>
@@ -194,16 +194,16 @@ export default function PeoplePage() {
               {notes.map((n) => (
                 <li
                   key={n.id}
-                  className="rounded-xl border border-zinc-200 bg-white p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                  className="rounded-xl border border-line bg-card p-3 text-sm shadow-card"
                 >
-                  <span className="mr-2 text-xs text-zinc-400">
+                  <span className="mr-2 text-xs text-ink-3">
                     {n.kind === "feedback" ? "💬" : "📝"} {n.created_at.slice(0, 10)}
                   </span>
                   {n.body}
                 </li>
               ))}
               {notes.length === 0 && (
-                <li className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
+                <li className="rounded-xl border border-dashed border-line-strong p-6 text-center text-sm text-ink-3">
                   No notes for {person} yet. <code>fb: {person} — …</code> in
                   ⌘K capture works too.
                 </li>
@@ -220,8 +220,8 @@ function BriefList({ title, items }: { title: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="font-medium text-zinc-700 dark:text-zinc-300">{title}</p>
-      <ul className="ml-4 list-disc text-zinc-600 dark:text-zinc-400">
+      <p className="font-medium text-ink-2">{title}</p>
+      <ul className="ml-4 list-disc text-ink-2">
         {items.slice(0, 6).map((it, i) => (
           <li key={i}>{it}</li>
         ))}

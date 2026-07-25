@@ -104,25 +104,25 @@ export default function ReviewPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 text-xl font-bold">Review inbox</h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Review inbox</h1>
+      <p className="mb-6 text-sm text-ink-3">
         Proposed changes from agents (and cautious humans). Approving applies
         the change with origin <code>agent_verified</code>.
       </p>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
 
       {selected.size > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-line bg-raised px-4 py-2 text-sm">
           <span>{selected.size} selected</span>
           <button
             onClick={approveBatch}
-            className="rounded-lg bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-500"
+            className="rounded-lg bg-ok px-3 py-1 text-sm font-medium text-white hover:opacity-90"
           >
             Approve selected
           </button>
           <button
             onClick={() => setSelected(new Set())}
-            className="text-zinc-500 hover:text-zinc-700"
+            className="text-ink-3 hover:text-ink"
           >
             clear
           </button>
@@ -130,7 +130,7 @@ export default function ReviewPage() {
       )}
 
       {changes.length === 0 && !error && (
-        <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-400 dark:border-zinc-700">
+        <p className="rounded-xl border border-dashed border-line-strong p-8 text-center text-sm text-ink-3">
           {emptyState("review")}
           <span className="mt-1 block text-xs">
             Agent proposals land here when
@@ -143,7 +143,7 @@ export default function ReviewPage() {
         {changes.map((c) => (
           <li
             key={c.id}
-            className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+            className="rounded-xl border border-line bg-card p-4 shadow-card"
           >
             <div className="mb-2 flex items-center justify-between">
               <span className="flex items-center gap-2 text-sm font-semibold">
@@ -156,15 +156,15 @@ export default function ReviewPage() {
                 #{c.id} · {c.action} {c.entity}
                 {c.entity_id ? ` #${c.entity_id}` : ""}
               </span>
-              <span className="text-xs text-zinc-400">
+              <span className="text-xs text-ink-3">
                 by {c.proposed_by} · {c.created_at}
               </span>
             </div>
-            {c.summary && <p className="mb-2 text-sm text-zinc-600 dark:text-zinc-300">{c.summary}</p>}
+            {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}
             {diffs[c.id] ? (
-              <table className="mb-3 w-full rounded-lg bg-zinc-50 text-xs dark:bg-zinc-800">
+              <table className="mb-3 w-full rounded-lg bg-raised text-xs">
                 <thead>
-                  <tr className="text-left text-zinc-400">
+                  <tr className="text-left text-ink-3">
                     <th className="p-2">field</th>
                     <th className="p-2">current</th>
                     <th className="p-2">proposed</th>
@@ -174,10 +174,10 @@ export default function ReviewPage() {
                   {Object.keys(diffs[c.id].proposed).map((k) => (
                     <tr key={k} className="align-top">
                       <td className="p-2 font-medium">{k}</td>
-                      <td className="p-2 text-red-700 dark:text-red-400">
+                      <td className="p-2 text-danger">
                         {cell(diffs[c.id].current[k])}
                       </td>
-                      <td className="p-2 text-green-700 dark:text-green-400">
+                      <td className="p-2 text-ok">
                         {cell(diffs[c.id].proposed[k])}
                       </td>
                     </tr>
@@ -185,20 +185,20 @@ export default function ReviewPage() {
                 </tbody>
               </table>
             ) : (
-              <pre className="mb-3 overflow-x-auto rounded-lg bg-zinc-50 p-3 text-xs dark:bg-zinc-800">
+              <pre className="mb-3 overflow-x-auto rounded-lg bg-raised p-3 text-xs">
                 {JSON.stringify(c.payload, null, 2)}
               </pre>
             )}
             <div className="flex gap-2">
               <button
                 onClick={() => act(c.id, "approve")}
-                className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+                className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
               >
                 Approve
               </button>
               <button
                 onClick={() => act(c.id, "reject")}
-                className="rounded-lg bg-red-100 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-200"
+                className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/25"
               >
                 Reject
               </button>
@@ -209,13 +209,13 @@ export default function ReviewPage() {
 
       {history.length > 0 && (
         <>
-          <h2 className="mb-2 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mb-2 mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
             Recently approved
           </h2>
           <ul className="space-y-1">
             {history.slice(0, 10).map((c) => (
-              <li key={c.id} className="text-xs text-zinc-500">
-                ✅ #{c.id} {c.summary} <span className="text-zinc-400">by {c.proposed_by}</span>
+              <li key={c.id} className="text-xs text-ink-3">
+                ✅ #{c.id} {c.summary} <span className="text-ink-3">by {c.proposed_by}</span>
               </li>
             ))}
           </ul>

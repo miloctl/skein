@@ -39,8 +39,8 @@ type Briefing = {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         {title}
       </h2>
       {children}
@@ -58,6 +58,7 @@ export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pulseVoted, setPulseVoted] = useState(false);
 
   const generation = useRef(0);
   const load = useCallback(() => {
@@ -98,6 +99,12 @@ export default function MyDay() {
       import("canvas-confetti").then(({ default: confetti }) => {
         confetti({ particleCount: 140, spread: 80, origin: { y: 0.6 } });
       });
+      // the loom advances one repeat — Ship It is the selvage's only trigger
+      const selvage = document.getElementById("selvage");
+      if (selvage) {
+        selvage.classList.add("selvage-celebrate");
+        setTimeout(() => selvage.classList.remove("selvage-celebrate"), 700);
+      }
     }
     fresh.forEach((e) => seen.add(e.id));
     window.localStorage.setItem("strands-confetti", JSON.stringify([...seen]));
@@ -129,11 +136,15 @@ export default function MyDay() {
 
   if (error)
     return (
-      <main className="mx-auto max-w-3xl p-8 text-sm text-red-600">
+      <main className="mx-auto max-w-3xl p-8 text-sm text-danger">
         Could not reach the backend — is it running? ({error})
       </main>
     );
-  if (!b) return <main className="p-8 text-sm text-zinc-400">{loadingLine()}</main>;
+  if (!b) return <main className="p-8 text-sm text-ink-3">{loadingLine()}</main>;
+
+  // one wave per session, then stillness
+  const waveOnce = typeof window !== "undefined" && !sessionStorage.getItem("skein-waved");
+  if (waveOnce) sessionStorage.setItem("skein-waved", "1");
 
   const attention = b.attention ?? [];
   const needsCount = attention.filter((a) => a.group !== "notice").length;
@@ -147,10 +158,11 @@ export default function MyDay() {
 
   return (
     <main className="mx-auto w-full max-w-5xl p-6">
-      <h1 className="mb-1 text-xl font-bold">
-        Good day, {b.user === "anonymous" ? "there" : b.user} 👋
+      <h1 className="mb-1 font-display text-[28px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+        Good day, {b.user === "anonymous" ? "there" : b.user}{" "}
+        <span className={waveOnce ? "wave-once" : ""}>👋</span>
       </h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <p className="mb-6 text-sm text-ink-3">
         {b.date} ·{" "}
         {needsCount === 0
           ? "nothing is waiting on you"
@@ -159,35 +171,71 @@ export default function MyDay() {
       </p>
 
       {onboarding && !onboarding.complete && (
-        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 text-sm dark:border-indigo-900 dark:bg-indigo-950/30">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="font-semibold text-indigo-700 dark:text-indigo-300">
-              🪿 Getting started ({onboarding.progress})
+        <div className="mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-semibold text-ink">
+              Weaving your first week{" "}
+              <span className="font-mono text-[11px] font-medium text-ink-3">
+                {onboarding.progress}
+              </span>
             </span>
             <button
               onClick={() => {
                 window.localStorage.setItem(`skein-onboarded:${getUser()}`, "1");
                 setOnboarding(null);
               }}
-              className="text-xs text-zinc-400 underline"
+              className="text-xs text-ink-3 underline"
             >
               dismiss
             </button>
           </div>
+          {(() => {
+            const total = onboarding.steps.length;
+            const doneN = onboarding.steps.filter((s) => s.done).length;
+            const pct = total ? (doneN / total) * 100 : 0;
+            return (
+              <div className="relative mb-5 mt-4 h-[3px] rounded-full bg-line">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500"
+                  style={{
+                    width: `${pct}%`,
+                    background: "linear-gradient(90deg, var(--thread-solid), var(--weld))",
+                  }}
+                />
+                {onboarding.steps.map((s, i) => (
+                  <span
+                    key={s.id}
+                    className={
+                      "absolute top-1/2 size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full " +
+                      (s.done ? "bg-thread-solid" : "border border-line-strong bg-card")
+                    }
+                    style={{ left: `${(i / (total - 1)) * 100}%` }}
+                  />
+                ))}
+                <span
+                  className="absolute -top-[20px] -translate-x-1/2 text-sm transition-[left] duration-500"
+                  style={{ left: `${Math.min(pct, 97)}%` }}
+                  aria-hidden
+                >
+                  🪿
+                </span>
+              </div>
+            );
+          })()}
           <ul className="space-y-1.5">
             {onboarding.steps.map((s) => (
               <li key={s.id}>
                 {s.done ? (
-                  <span className="text-zinc-400 line-through">✓ {s.label}</span>
+                  <span className="text-ink-3 line-through">✓ {s.label}</span>
                 ) : (
                   <>
                     <Link
                       href={s.link}
-                      className="font-medium text-zinc-700 underline decoration-dotted hover:text-zinc-900 dark:text-zinc-200"
+                      className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
                     >
                       ○ {s.label}
                     </Link>
-                    <span className="ml-1 block pl-4 text-xs text-zinc-500">{s.hint}</span>
+                    <span className="ml-1 block pl-4 text-xs text-ink-3">{s.hint}</span>
                   </>
                 )}
               </li>
@@ -197,7 +245,7 @@ export default function MyDay() {
       )}
 
       {b.team.recently_shipped.length > 0 && (
-        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
+        <div className="mb-4 rounded-xl border border-ok/30 bg-ok/10 p-4 text-sm font-medium text-ok">
           🚢 Shipped:{" "}
           {b.team.recently_shipped.map((e) => e.name).join(" · ")} — recap in
           the knowledge base. Nice work, team.
@@ -207,14 +255,14 @@ export default function MyDay() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
           {attention.length === 0 ? (
-            <p className="text-sm text-zinc-400">{emptyState("allclear")}</p>
+            <p className="text-sm text-ink-3">{emptyState("allclear")}</p>
           ) : (
             <div className="space-y-3">
               {(Object.keys(GROUP_META) as AttentionItem["group"][])
                 .filter((g) => attention.some((a) => a.group === g))
                 .map((g) => (
                   <div key={g}>
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-3">
                       {GROUP_META[g].icon} {GROUP_META[g].title}
                     </p>
                     <ul className="space-y-1.5 text-sm">
@@ -230,7 +278,7 @@ export default function MyDay() {
                                 {a.label}
                               </Link>
                               <span
-                                className="ml-2 block text-xs text-zinc-400"
+                                className="ml-2 block text-xs text-ink-3"
                                 title="why you're seeing this"
                               >
                                 {a.reason}
@@ -239,7 +287,7 @@ export default function MyDay() {
                             {a.kind === "blocker" && (
                               <button
                                 onClick={() => resolveBlocker(a.ref_id)}
-                                className="shrink-0 rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-200"
+                                className="shrink-0 rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/25"
                               >
                                 resolve
                               </button>
@@ -257,7 +305,7 @@ export default function MyDay() {
                                   }
                                   load();
                                 }}
-                                className="shrink-0 rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-300"
+                                className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                               >
                                 dismiss
                               </button>
@@ -276,8 +324,8 @@ export default function MyDay() {
             {b.your_work.tasks.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-2">
                 <span>
-                  <span className="text-zinc-400">#{t.id}</span> {t.title}{" "}
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-ink-3">#{t.id}</span> {t.title}{" "}
+                  <span className="text-xs text-ink-3">
                     [{t.priority}/{t.status}]
                   </span>
                 </span>
@@ -285,7 +333,7 @@ export default function MyDay() {
                   {t.status === "todo" && (
                     <button
                       onClick={() => patchTask(Number(t.id), "in_progress")}
-                      className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800"
+                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                     >
                       start
                     </button>
@@ -293,7 +341,7 @@ export default function MyDay() {
                   {t.status !== "done" && (
                     <button
                       onClick={() => patchTask(Number(t.id), "done")}
-                      className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-200"
+                      className="rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/25"
                     >
                       done
                     </button>
@@ -302,44 +350,52 @@ export default function MyDay() {
               </li>
             ))}
             {b.your_work.tasks.length === 0 && (
-              <li className="text-zinc-400">
+              <li className="text-ink-3">
                 No tasks assigned to you — press ⌘K and type &lsquo;todo: …&rsquo;.
               </li>
             )}
             {b.your_work.due_soon.length > 0 && (
-              <li className="pt-1 text-xs text-amber-600">
+              <li className="pt-1 text-xs text-weld">
                 ⏰ Due within a week:{" "}
                 {b.your_work.due_soon.map((t) => `#${t.id} ${t.title}`).join(" · ")}
               </li>
             )}
-            <li className="pt-2 text-xs text-zinc-400">
-              🌡️ Did Skein reduce coordination effort this week?{" "}
-              {(["up", "down"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={async () => {
-                    try {
-                      await api("/api/feedback", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          kind: "pulse",
-                          input_text: new Date().toISOString().slice(0, 10),
-                          verdict: v,
-                        }),
-                      });
-                      alert("Counted — team tally only, never per person.");
-                    } catch (e) {
-                      alert(String(e));
-                    }
-                  }}
-                  className="mx-0.5 rounded bg-zinc-100 px-1.5 py-0.5 hover:bg-zinc-200 dark:bg-zinc-800"
-                >
-                  {v === "up" ? "👍" : "👎"}
-                </button>
-              ))}
+            <li className="pt-2 text-xs text-ink-3">
+              {pulseVoted ? (
+                // identical quiet acknowledgment for both votes — a 👎 must
+                // never trigger anything peppy, and no modal ever
+                <span>Counted. Team tally only.</span>
+              ) : (
+                <>
+                  Did Skein reduce coordination effort this week?{" "}
+                  {(["up", "down"] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={async () => {
+                        try {
+                          await api("/api/feedback", {
+                            method: "POST",
+                            body: JSON.stringify({
+                              kind: "pulse",
+                              input_text: new Date().toISOString().slice(0, 10),
+                              verdict: v,
+                            }),
+                          });
+                          setPulseVoted(true);
+                        } catch (e) {
+                          alert(String(e));
+                        }
+                      }}
+                      className="mx-0.5 rounded bg-raised px-1.5 py-0.5 hover:bg-line"
+                    >
+                      {v === "up" ? "👍" : "👎"}
+                    </button>
+                  ))}
+                </>
+              )}
             </li>
-            <li className="pt-1 text-xs text-zinc-400">
-              <Link href="/settings" className="underline hover:text-zinc-600">
+            <li className="pt-1 text-xs text-ink-3">
+              <Link href="/settings" className="underline hover:text-ink-2">
                 🌱 set your growth interests (Settings)
               </Link>
             </li>
@@ -349,7 +405,7 @@ export default function MyDay() {
         <Card title="Team pulse">
           <ul className="space-y-2 text-sm">
             {b.team.escalated_blockers.map((e) => (
-              <li key={e.id} className="text-red-600">
+              <li key={e.id} className="text-danger">
                 🚨 Escalated: #{e.id} {e.title} (owner: {e.owner || "unowned"})
               </li>
             ))}
@@ -360,7 +416,7 @@ export default function MyDay() {
             ))}
             {b.team.escalated_blockers.length === 0 &&
               b.team.todays_events.length === 0 && (
-                <li className="text-zinc-400">No escalations, nothing scheduled today.</li>
+                <li className="text-ink-3">No escalations, nothing scheduled today.</li>
               )}
           </ul>
         </Card>
@@ -368,15 +424,15 @@ export default function MyDay() {
         <Card title="Since yesterday">
           <ul className="space-y-1">
             {b.team.recent_activity.slice(0, 12).map((a) => (
-              <li key={a.id} className="text-xs text-zinc-500">
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              <li key={a.id} className="text-xs text-ink-3">
+                <span className="font-medium text-ink-2">
                   {a.actor}
                 </span>{" "}
                 {String(a.action).replace(/_/g, " ")} {a.detail}
               </li>
             ))}
             {b.team.recent_activity.length === 0 && (
-              <li className="text-xs text-zinc-400">Quiet so far.</li>
+              <li className="text-xs text-ink-3">Quiet so far.</li>
             )}
           </ul>
         </Card>

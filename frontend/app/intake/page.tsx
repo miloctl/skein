@@ -20,11 +20,11 @@ type Req = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  submitted: "bg-amber-100 text-amber-700",
-  scored: "bg-blue-100 text-blue-700",
-  accepted: "bg-green-100 text-green-700",
-  deferred: "bg-zinc-200 text-zinc-700",
-  declined: "bg-red-100 text-red-700",
+  submitted: "bg-warn/15 text-warn",
+  scored: "bg-thread/15 text-thread",
+  accepted: "bg-ok/15 text-ok",
+  deferred: "bg-raised text-ink-2",
+  declined: "bg-danger/15 text-danger",
 };
 
 export default function IntakePage() {
@@ -104,15 +104,15 @@ export default function IntakePage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 text-xl font-bold">Engagement intake</h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Engagement intake</h1>
+      <p className="mb-6 text-sm text-ink-3">
         The team&apos;s front door. Score with RICE-lite (reach × impact ×
         confidence ÷ effort), then accept, defer, or decline — with a reason
         the requester sees. Accepting creates an engagement.
       </p>
 
-      <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <div className="mb-8 rounded-xl border border-line bg-card p-4 shadow-card">
+        <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           New request
         </h2>
         <div className="flex flex-col gap-2">
@@ -120,20 +120,20 @@ export default function IntakePage() {
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
             placeholder="What are you asking the team to do?"
-            className="rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none dark:border-zinc-700"
+            className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
           />
           <textarea
             value={form.detail}
             onChange={(e) => setForm({ ...form, detail: e.target.value })}
             placeholder="Context, goals, constraints…"
             rows={2}
-            className="rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none dark:border-zinc-700"
+            className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
           />
           <div className="flex items-center gap-2">
             <select
               value={form.project_class}
               onChange={(e) => setForm({ ...form, project_class: e.target.value })}
-              className="rounded-lg border border-zinc-300 bg-transparent px-2 py-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              className="rounded-lg border border-line-strong bg-card px-2 py-2 text-sm outline-none"
             >
               <option value="">class: unknown</option>
               <option value="prototype">prototype</option>
@@ -144,7 +144,7 @@ export default function IntakePage() {
             <button
               onClick={submit}
               disabled={!form.title.trim()}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+              className="rounded-lg bg-thread-solid px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
             >
               Submit
             </button>
@@ -152,25 +152,25 @@ export default function IntakePage() {
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
       <ul className="space-y-3">
         {reqs.map((r) => (
           <li
             key={r.id}
-            className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+            className="rounded-xl border border-line bg-card p-4 shadow-card"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-semibold">
                 #{r.id} {r.title}
                 {r.project_class && (
-                  <span className="ml-2 text-xs font-normal text-zinc-400">
+                  <span className="ml-2 text-xs font-normal text-ink-3">
                     [{r.project_class}]
                   </span>
                 )}
               </span>
               <span className="flex items-center gap-2">
                 {r.status !== "submitted" && (
-                  <span className="text-xs text-zinc-400" title="reach×impact×confidence÷effort">
+                  <span className="text-xs text-ink-3" title="reach×impact×confidence÷effort">
                     score {r.score}
                   </span>
                 )}
@@ -181,34 +181,34 @@ export default function IntakePage() {
                 </span>
               </span>
             </div>
-            {r.detail && <p className="mt-1 text-sm text-zinc-500">{r.detail}</p>}
-            <p className="mt-1 text-xs text-zinc-400">requested by {r.requester}</p>
+            {r.detail && <p className="mt-1 text-sm text-ink-3">{r.detail}</p>}
+            <p className="mt-1 text-xs text-ink-3">requested by {r.requester}</p>
             {r.disposition_reason && (
-              <p className="mt-1 text-xs italic text-zinc-500">↳ {r.disposition_reason}</p>
+              <p className="mt-1 text-xs italic text-ink-3">↳ {r.disposition_reason}</p>
             )}
             {(r.status === "submitted" || r.status === "scored") && (
               <div className="mt-2 flex gap-2">
                 <button onClick={() => score(r.id)}
-                        className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200">
+                        className="rounded bg-thread/15 px-2 py-1 text-xs font-medium text-thread hover:bg-thread/25">
                   score
                 </button>
                 {r.status === "scored" && (
                   <>
                     <button onClick={() => disposition(r.id, "accepted")}
-                            className="rounded bg-green-100 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-200">
+                            className="rounded bg-ok/15 px-2 py-1 text-xs font-medium text-ok hover:bg-ok/25">
                       accept
                     </button>
                     <button onClick={() => disposition(r.id, "accepted", true)}
                             title="Accept as a timeboxed experiment — invalidated on time is a success, not a slip"
-                            className="rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-200">
+                            className="rounded bg-weld/15 px-2 py-1 text-xs font-medium text-weld hover:bg-weld/25">
                       🧪 accept as experiment
                     </button>
                     <button onClick={() => disposition(r.id, "deferred")}
-                            className="rounded bg-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-300">
+                            className="rounded bg-raised px-2 py-1 text-xs font-medium text-ink-2 hover:bg-line">
                       defer
                     </button>
                     <button onClick={() => disposition(r.id, "declined")}
-                            className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200">
+                            className="rounded bg-danger/15 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/25">
                       decline
                     </button>
                   </>

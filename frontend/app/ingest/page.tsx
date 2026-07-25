@@ -37,8 +37,8 @@ export default function IngestPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 text-xl font-bold">Ingest meeting notes</h1>
-      <p className="mb-4 text-sm text-zinc-500">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Ingest meeting notes</h1>
+      <p className="mb-4 text-sm text-ink-3">
         Paste raw notes. Lines that match the capture grammar (todo:, q:,
         decision:, blocked…, promised:) become <b>review proposals</b> — nothing
         is written directly. <code>fb:</code> lines are skipped, never stored.
@@ -51,17 +51,17 @@ export default function IngestPage() {
         placeholder={
           "- todo: update the runbook\n- q: who owns the staging cluster?\n- decided: we ship Fridays\n- blocked on the API key from vendor\n- promised: revised beta date to ops by Friday\n- note: retro moved to Thursdays"
         }
-        className="mb-3 w-full rounded-xl border border-zinc-300 bg-transparent p-3 font-mono text-sm outline-none dark:border-zinc-700"
+        className="mb-3 w-full rounded-xl border border-line-strong bg-transparent p-3 font-mono text-sm outline-none focus:border-thread-solid"
       />
       <button
         onClick={run}
         disabled={busy || !text.trim()}
-        className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+        className="rounded-lg bg-thread-solid px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
       >
         {busy ? "Ingesting…" : "Ingest"}
       </button>
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
       {result && (
         <div className="mt-6 space-y-4 text-sm">
@@ -71,7 +71,7 @@ export default function IngestPage() {
               review them
             </Link>
             {result.skipped_private > 0 && (
-              <span className="ml-2 text-amber-600">
+              <span className="ml-2 text-weld">
                 · {result.skipped_private} fb: line(s) skipped (private — use ⌘K
                 with your key)
               </span>
@@ -79,7 +79,7 @@ export default function IngestPage() {
           </p>
           <ul className="space-y-1">
             {result.proposals.map((p) => (
-              <li key={p.id} className="text-zinc-600 dark:text-zinc-300">
+              <li key={p.id} className="text-ink-2">
                 <span className="mr-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
                   {p.kind}
                 </span>
@@ -89,11 +89,11 @@ export default function IngestPage() {
           </ul>
           {result.unclassified.length > 0 && (
             <div>
-              <p className="mb-1 font-medium text-zinc-500">
+              <p className="mb-1 font-medium text-ink-3">
                 Not captured ({result.unclassified.length}) — add a prefix and
                 re-paste if any matter:
               </p>
-              <ul className="ml-4 list-disc text-zinc-400">
+              <ul className="ml-4 list-disc text-ink-3">
                 {result.unclassified.slice(0, 20).map((l, i) => (
                   <li key={i}>{l}</li>
                 ))}

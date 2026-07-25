@@ -57,8 +57,8 @@ const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         {title}
       </h2>
       {children}
@@ -110,7 +110,7 @@ export default function Portfolio() {
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
       {banner && (
-        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
           <span>{banner}</span>
           <button onClick={() => setBanner(null)} className="text-xs underline">
             dismiss
@@ -119,9 +119,9 @@ export default function Portfolio() {
       )}
       <Card title="Engagement health (receipts shown)">
         {health === null ? (
-          <p className="text-sm text-zinc-400">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : health.length === 0 ? (
-          <p className="text-sm text-zinc-400">No active engagements.</p>
+          <p className="text-sm text-ink-3">No active engagements.</p>
         ) : (
           <ul className="space-y-3">
             {health.map((h) => (
@@ -129,12 +129,12 @@ export default function Portfolio() {
                 <div className="flex items-center gap-2">
                   <span>{DOT[h.health]}</span>
                   <span className="font-medium">{h.name}</span>
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-ink-3">
                     {h.status} · lead {h.lead || "unset"}
                   </span>
                 </div>
                 {h.receipts.length > 0 && (
-                  <ul className="ml-6 mt-1 list-disc text-xs text-zinc-500">
+                  <ul className="ml-6 mt-1 list-disc text-xs text-ink-3">
                     {h.receipts.map((r, i) => (
                       <li key={i}>{r}</li>
                     ))}
@@ -148,26 +148,26 @@ export default function Portfolio() {
 
       <Card title={`Commitment line — ${week?.week ?? ""}`}>
         {week === null ? (
-          <p className="text-sm text-zinc-400">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : week.committed > 0 ? (
           <>
             <p className="mb-2 text-sm">
               {week.done}/{week.committed} done
               {week.kept_percent !== null && (
-                <span className="ml-2 text-xs text-zinc-400">({week.kept_percent}%)</span>
+                <span className="ml-2 text-xs text-ink-3">({week.kept_percent}%)</span>
               )}
             </p>
             <ul className="space-y-1 text-sm">
               {week.tasks.map((t) => (
-                <li key={t.id} className={t.status === "done" ? "text-zinc-400 line-through" : ""}>
+                <li key={t.id} className={t.status === "done" ? "text-ink-3 line-through" : ""}>
                   #{t.id} {t.title}
-                  <span className="ml-1 text-xs text-zinc-400">@{t.assignee || "unassigned"}</span>
+                  <span className="ml-1 text-xs text-ink-3">@{t.assignee || "unassigned"}</span>
                 </li>
               ))}
             </ul>
           </>
         ) : (
-          <p className="text-sm text-zinc-400">Nothing committed this week yet.</p>
+          <p className="text-sm text-ink-3">Nothing committed this week yet.</p>
         )}
         <div className="mt-3 flex gap-2">
           <button
@@ -176,7 +176,7 @@ export default function Portfolio() {
                 .then(setDraft)
                 .catch((e) => setBanner(`${e.message ?? e}`))
             }
-            className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-medium hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+            className="rounded-lg bg-raised px-3 py-1 text-xs font-medium hover:bg-line"
           >
             Draft a plan
           </button>
@@ -194,14 +194,14 @@ export default function Portfolio() {
                   }),
                 ).then(() => setDraft(null))
               }
-              className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
               {busy ? "Committing…" : `Commit ${draft.items.length} task(s)`}
             </button>
           )}
         </div>
         {draft && (
-          <ul className="mt-2 space-y-1 text-xs text-zinc-500">
+          <ul className="mt-2 space-y-1 text-xs text-ink-3">
             {draft.items.length === 0 && <li>Nothing to draft — assign some tasks first.</li>}
             {draft.items.map((i) => (
               <li key={i.task_id}>
@@ -214,16 +214,16 @@ export default function Portfolio() {
 
       <Card title="Capacity conflicts">
         {conflicts.length === 0 ? (
-          <p className="text-sm text-zinc-400">Nobody is over 100%.</p>
+          <p className="text-sm text-ink-3">Nobody is over 100%.</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {conflicts.map((c) => (
               <li key={c.person} className="flex items-center justify-between">
                 <span>
                   {c.person}
-                  <span className="ml-2 text-xs text-zinc-400">{c.detail}</span>
+                  <span className="ml-2 text-xs text-ink-3">{c.detail}</span>
                 </span>
-                <span className="text-xs font-semibold text-red-600">{c.total_percent}%</span>
+                <span className="text-xs font-semibold text-danger">{c.total_percent}%</span>
               </li>
             ))}
           </ul>
@@ -236,21 +236,21 @@ export default function Portfolio() {
             <p>
               {flow.cycle_time.tasks_done} tasks done in 8 weeks
               {flow.cycle_time.tasks_done > 0 && (
-                <span className="text-xs text-zinc-400">
+                <span className="text-xs text-ink-3">
                   {" "}
                   · median {flow.cycle_time.median_days}d · avg {flow.cycle_time.avg_days}d
                 </span>
               )}
             </p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-ink-3">
               WIP:{" "}
               {flow.wip_by_person.map((w) => `${w.person} ${w.in_progress}`).join(" · ") ||
                 "none"}
             </p>
             {flow.stale_wip.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-amber-600">Stale in-progress:</p>
-                <ul className="ml-4 list-disc text-xs text-zinc-500">
+                <p className="text-xs font-medium text-weld">Stale in-progress:</p>
+                <ul className="ml-4 list-disc text-xs text-ink-3">
                   {flow.stale_wip.map((s) => (
                     <li key={s.id}>
                       #{s.id} {s.title} — {s.days_stale}d (@{s.assignee || "unassigned"})
@@ -266,19 +266,19 @@ export default function Portfolio() {
       <Card title="Slip forecast">
         {forecast && (
           <>
-            <p className="mb-2 text-xs text-zinc-400">
+            <p className="mb-2 text-xs text-ink-3">
               Based on {forecast.basis.milestones_measured} completed milestone(s), avg slip{" "}
               {forecast.basis.avg_slip_days}d.
             </p>
             {forecast.forecasts.length === 0 ? (
-              <p className="text-sm text-zinc-400">No dated open milestones.</p>
+              <p className="text-sm text-ink-3">No dated open milestones.</p>
             ) : (
               <ul className="space-y-1 text-sm">
                 {forecast.forecasts.map((f) => (
                   <li key={f.milestone_id}>
                     {f.at_risk ? "⚠️ " : ""}
                     {f.title}
-                    <span className="ml-2 text-xs text-zinc-400">
+                    <span className="ml-2 text-xs text-ink-3">
                       due {f.due_date} → likely {f.forecast_date}
                     </span>
                   </li>
@@ -291,17 +291,17 @@ export default function Portfolio() {
 
       <Card title="Commitments (external + yours to the team)">
         {commitments.length === 0 ? (
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-ink-3">
             None recorded — capture one with “promised: …”.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">
             {commitments.map((c) => (
               <li key={c.id} className="flex items-center justify-between gap-2">
-                <span className={c.status !== "open" ? "text-zinc-400 line-through" : ""}>
+                <span className={c.status !== "open" ? "text-ink-3 line-through" : ""}>
                   {c.audience === "team" ? "🤝 " : ""}
                   {c.promise}
-                  <span className="ml-2 text-xs text-zinc-400">
+                  <span className="ml-2 text-xs text-ink-3">
                     {c.audience === "team" && "promise to the team · "}
                     {c.to_whom && `to ${c.to_whom}`} {c.due_date && `· due ${c.due_date}`}
                   </span>
@@ -327,7 +327,7 @@ export default function Portfolio() {
                     ))}
                   </span>
                 ) : (
-                  <span className="text-xs text-zinc-400">{c.status}</span>
+                  <span className="text-xs text-ink-3">{c.status}</span>
                 )}
               </li>
             ))}
@@ -345,7 +345,7 @@ export default function Portfolio() {
               .catch((e) => setBanner(`${e.message ?? e}`))
               .finally(() => setBusy(false));
           }}
-          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {busy ? "Working…" : "Generate readout"}
         </button>

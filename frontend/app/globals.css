@@ -1,28 +1,147 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Skein design language — "The Loom".
+   Warm loom-neutral surfaces, indigo-dye thread accent, weld-ochre signature.
+   Borders carry structure, lightness carries elevation; shadows only on
+   things that float. Docs: docs/reviews/ design pass 2026-07-25. */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  --surface-page: #faf9f6;
+  --surface-card: #ffffff;
+  --surface-raised: #f3f1ec;
+  --border-hairline: #e8e4dc;
+  --border-strong: #d6d0c4;
+  --text-1: #1d1a16;
+  --text-2: #5b5549;
+  --text-3: #756e60;
+  --thread: #3b4dbf;
+  --thread-solid: #3b4dbf;
+  --weld: #935a1c;
+  --ok: #22754a;
+  --warn: #86590e;
+  --danger: #b23425;
+  --warp: rgb(29 26 22 / 0.03);
+  --shadow-card: 0 1px 2px rgb(28 25 20 / 0.05);
+  --shadow-float: 0 8px 24px rgb(0 0 0 / 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --surface-page: #141311;
+    --surface-card: #1c1a18;
+    --surface-raised: #262320;
+    --border-hairline: #312d28;
+    --border-strong: #403a33;
+    --text-1: #ede9e2;
+    --text-2: #ada79b;
+    --text-3: #8a8375;
+    --thread: #a7b5f2;
+    --thread-solid: #4e5fd3;
+    --weld: #d9a15e;
+    --ok: #85cd9e;
+    --warn: #dfb362;
+    --danger: #f0998b;
+    --warp: rgb(237 233 226 / 0.02);
+    --shadow-card: none;
+    --shadow-float: 0 8px 24px rgb(0 0 0 / 0.4);
   }
 }
 
+@theme inline {
+  --color-page: var(--surface-page);
+  --color-card: var(--surface-card);
+  --color-raised: var(--surface-raised);
+  --color-line: var(--border-hairline);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text-1);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-thread: var(--thread);
+  --color-thread-solid: var(--thread-solid);
+  --color-weld: var(--weld);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-bricolage);
+  --shadow-card: var(--shadow-card);
+  --shadow-float: var(--shadow-float);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--surface-page);
+  /* the warp: faint vertical threads — texture, never pattern */
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--warp) 0 1px,
+    transparent 1px 64px
+  );
+  color: var(--text-1);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--thread);
+  outline-offset: 2px;
+}
+
+/* The selvage: the fabric's finished edge, along the bottom of the nav.
+   On Ship It the loom advances one repeat. */
+.selvage {
+  height: 2px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--thread-solid) 0 8px,
+    color-mix(in oklab, var(--thread-solid) 55%, var(--surface-page)) 8px 16px
+  );
+}
+.selvage-celebrate {
+  animation: loom-advance 600ms ease;
+}
+@keyframes loom-advance {
+  to {
+    background-position: -32px 0;
+  }
+}
+
+/* Team Pulse: the loom band — the one card where the weave speaks up */
+.loom-band {
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--warp) 0 2px,
+    transparent 2px 8px
+  );
+}
+
+/* One wave per session, then stillness */
+.wave-once {
+  display: inline-block;
+  animation: wave 0.6s ease 0.3s 1 both;
+  transform-origin: 70% 70%;
+}
+@keyframes wave {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-12deg); }
+  50% { transform: rotate(10deg); }
+  75% { transform: rotate(-6deg); }
+}
+
+/* Escalated knots breathe */
+.knot-escalated {
+  animation: knot-breathe 2s ease-in-out infinite alternate;
+}
+@keyframes knot-breathe {
+  from { box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent); }
+  to { box-shadow: 0 0 0 6px color-mix(in oklab, var(--danger) 12%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selvage-celebrate,
+  .wave-once,
+  .knot-escalated {
+    animation: none;
+  }
 }
 
 /* Minimal markdown styling for chat messages */
@@ -40,14 +159,14 @@ body {
 .prose-chat code {
   font-family: var(--font-geist-mono), monospace;
   font-size: 0.85em;
-  background: rgba(127, 127, 127, 0.15);
+  background: var(--surface-raised);
   border-radius: 0.25rem;
   padding: 0.1rem 0.3rem;
 }
 .prose-chat pre {
   overflow-x: auto;
   border-radius: 0.5rem;
-  background: rgba(127, 127, 127, 0.12);
+  background: var(--surface-raised);
   padding: 0.75rem;
 }
 .prose-chat pre code {
@@ -55,7 +174,7 @@ body {
   padding: 0;
 }
 .prose-chat blockquote {
-  border-left: 3px solid rgba(127, 127, 127, 0.4);
+  border-left: 3px solid var(--border-strong);
   padding-left: 0.75rem;
   color: inherit;
   opacity: 0.85;
@@ -69,6 +188,6 @@ body {
   margin: 0.5rem 0;
 }
 .prose-chat :is(th, td) {
-  border: 1px solid rgba(127, 127, 127, 0.3);
+  border: 1px solid var(--border-hairline);
   padding: 0.25rem 0.5rem;
 }

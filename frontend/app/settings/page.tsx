@@ -13,8 +13,8 @@ type WhoAmI = { user: string; strong: boolean; keys_minted: number };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         {title}
       </h2>
       {children}
@@ -107,14 +107,14 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-4 p-6">
-      <h1 className="text-xl font-bold">Settings</h1>
-      <p className="text-sm text-zinc-500">
+      <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Settings</h1>
+      <p className="text-sm text-ink-3">
         Everything you need to set up lives here — nothing requires reading
         the docs first.
       </p>
 
       <Section title="1 · Identity">
-        <p className="mb-2 text-sm text-zinc-500">
+        <p className="mb-2 text-sm text-ink-3">
           Your name attributes everything you create (tasks, standups,
           captures). It is the trusted-LAN identity — fine for team-visible
           work, not enough for private surfaces (step 2 covers those).
@@ -131,12 +131,12 @@ export default function SettingsPage() {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && saveName()}
             placeholder={currentUser === "anonymous" ? "your name" : "change name"}
-            className="flex-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-1.5 text-sm outline-none dark:border-zinc-700"
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
           />
           <button
             onClick={saveName}
             disabled={!name.trim()}
-            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Save
           </button>
@@ -144,7 +144,7 @@ export default function SettingsPage() {
       </Section>
 
       <Section title="2 · Personal API key (private surfaces + CLI)">
-        <p className="mb-2 text-sm text-zinc-500">
+        <p className="mb-2 text-sm text-ink-3">
           The People page (1:1 prep, feedback journal) and admin export need a
           key — a spoofable name isn&apos;t enough for private data. The key
           also powers the CLI and git hooks.
@@ -152,22 +152,22 @@ export default function SettingsPage() {
         <p className="mb-3 text-sm">
           Status:{" "}
           {strong ? (
-            <span className="font-medium text-emerald-600">
+            <span className="font-medium text-ok">
               ✅ strong identity active as {who?.user}
             </span>
           ) : hasBrowserKey ? (
-            <span className="font-medium text-red-600">
+            <span className="font-medium text-danger">
               ⚠ a key is stored in this browser but it is not working — paste
               a fresh one below
             </span>
           ) : (
-            <span className="font-medium text-amber-600">
+            <span className="font-medium text-weld">
               no key in this browser yet
             </span>
           )}
         </p>
         {!strong && (
-          <div className="mb-3 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800/50">
+          <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
             {currentUser === "anonymous" ? (
               <p>
                 Pick your name in <b>step 1</b> first — your key is minted for
@@ -181,7 +181,7 @@ export default function SettingsPage() {
                     : `No key has been minted for ${currentUser} yet. Whoever runs the box mints your first one (it prints once — they send it to you privately):`}
                 </p>
                 <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
-                <p className="mt-2 text-xs text-zinc-500">
+                <p className="mt-2 text-xs text-ink-3">
                   Docker:{" "}
                   <code>
                     docker compose exec backend python -m app.bootstrap_key {currentUser}
@@ -204,33 +204,33 @@ export default function SettingsPage() {
             onKeyDown={(e) => e.key === "Enter" && testAndSaveKey()}
             placeholder="sk-strands-…"
             type="password"
-            className="flex-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-1.5 font-mono text-sm outline-none dark:border-zinc-700"
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 font-mono text-sm outline-none focus:border-thread-solid"
           />
           <button
             onClick={testAndSaveKey}
             disabled={!keyDraft.trim()}
-            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Test & save
           </button>
           {hasBrowserKey && (
             <button
               onClick={clearKey}
-              className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800"
+              className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
             >
               Remove
             </button>
           )}
         </div>
         {keyStatus && <p className="mt-2 text-sm">{keyStatus}</p>}
-        <p className="mt-2 text-xs text-zinc-400">
+        <p className="mt-2 text-xs text-ink-3">
           Stored only in this browser (localStorage). OIDC sign-in replaces
           this flow at deployment.
         </p>
       </Section>
 
       <Section title="3 · Growth interests (optional)">
-        <p className="mb-2 text-sm text-zinc-500">
+        <p className="mb-2 text-sm text-ink-3">
           Self-declared; shown in staffing what-ifs so interesting work finds
           you. Display-only — never scored, never matched automatically.
         </p>
@@ -239,7 +239,7 @@ export default function SettingsPage() {
             value={interests}
             onChange={(e) => setInterests(e.target.value)}
             placeholder="e.g. RAG evaluation, incident command, design reviews"
-            className="flex-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-1.5 text-sm outline-none dark:border-zinc-700"
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
           />
           <button
             onClick={async () => {
@@ -255,7 +255,7 @@ export default function SettingsPage() {
               }
             }}
             disabled={!interests.trim()}
-            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Save
           </button>
@@ -263,7 +263,7 @@ export default function SettingsPage() {
       </Section>
 
       <Section title="4 · Connect your own AI agent (optional)">
-        <p className="mb-2 text-sm text-zinc-500">
+        <p className="mb-2 text-sm text-ink-3">
           Skein is an MCP server — Claude Code or any MCP client can read and
           write the platform natively. New agents start at{" "}
           <b>review</b> authority: every write becomes a proposal in{" "}
@@ -276,28 +276,28 @@ export default function SettingsPage() {
           </a>
           ).
         </p>
-        <p className="mb-1 text-xs font-medium text-zinc-500">Claude Code registration:</p>
+        <p className="mb-1 text-xs font-medium text-ink-3">Claude Code registration:</p>
         <CopyLine
           text={`claude mcp add skein -- env STRANDS_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
         />
-        <p className="mb-1 mt-3 text-xs font-medium text-zinc-500">
+        <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
           Team context pack (org-brain for any agent — also an MCP resource):
         </p>
         <CopyLine text={`${API_URL}/api/context-pack`} />
-        <p className="mt-2 text-xs text-zinc-400">
+        <p className="mt-2 text-xs text-ink-3">
           Scoped per-engagement packs: append ?engagement=&lt;id&gt;. The CLI
           can also emit it: <code>skein context --write AGENTS.md</code>.
         </p>
       </Section>
 
       <Section title="5 · Calendar feed (optional)">
-        <p className="mb-2 text-sm text-zinc-500">
+        <p className="mb-2 text-sm text-ink-3">
           Subscribe your calendar app to team events + milestone/commitment
           due dates. Use a local calendar client — hosted ones (Google) would
           mirror titles off-LAN.
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
-        <p className="mt-2 text-xs text-zinc-400">
+        <p className="mt-2 text-xs text-ink-3">
           If the API is token-locked, the operator sets STRANDS_ICS_TOKEN and
           the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
         </p>

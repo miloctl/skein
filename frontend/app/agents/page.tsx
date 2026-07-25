@@ -37,16 +37,16 @@ type Inbox = {
 const LEVELS = ["autonomous", "notify", "review", "forbidden"];
 
 const LEVEL_COLOR: Record<string, string> = {
-  autonomous: "bg-green-100 text-green-700",
+  autonomous: "bg-green-100 text-ok",
   notify: "bg-blue-100 text-blue-700",
   review: "bg-amber-100 text-amber-700",
-  forbidden: "bg-red-100 text-red-700",
+  forbidden: "bg-red-100 text-danger",
 };
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         {title}
       </h2>
       {children}
@@ -107,7 +107,7 @@ export default function Agents() {
   return (
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
       {banner && (
-        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
           <span>{banner}</span>
           <button onClick={() => setBanner(null)} className="text-xs underline">
             dismiss
@@ -116,9 +116,9 @@ export default function Agents() {
       )}
       <Card title="Mission control">
         {agents === null ? (
-          <p className="text-sm text-zinc-400">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : agents.length === 0 ? (
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-ink-3">
             No agent identities yet — delegate a task or let the chat agent write something.
           </p>
         ) : (
@@ -134,7 +134,7 @@ export default function Agents() {
                     inbox
                   </button>
                 </div>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-ink-3">
                   {a.open_tasks} open task(s) · {a.pending_proposals} pending proposal(s)
                   {a.last_seen && ` · last seen ${a.last_seen}`}
                 </p>
@@ -157,7 +157,7 @@ export default function Agents() {
       </Card>
 
       <Card title="Authority matrix">
-        <p className="mb-2 text-xs text-zinc-400">
+        <p className="mb-2 text-xs text-ink-3">
           Default is <b>review</b> — every write goes through the review inbox. Promote per
           entity as trust builds; the chat agent acts as “agent”.
         </p>
@@ -196,7 +196,7 @@ export default function Agents() {
           <button
             disabled={busy}
             onClick={setAuthority}
-            className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             {busy ? "Setting…" : "Set"}
           </button>
@@ -205,7 +205,7 @@ export default function Agents() {
 
       <Card title="Trust (from review verdicts)">
         {trust.length === 0 ? (
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-ink-3">
             No reviewed proposals yet — trust is earned in the review inbox.
           </p>
         ) : (
@@ -228,32 +228,32 @@ export default function Agents() {
         <Card title={`Inbox — ${inbox.agent}`}>
           <div className="space-y-3 text-sm">
             <div>
-              <p className="text-xs font-medium text-zinc-500">Delegated tasks</p>
-              <ul className="text-xs text-zinc-600 dark:text-zinc-300">
+              <p className="text-xs font-medium text-ink-3">Delegated tasks</p>
+              <ul className="text-xs text-ink-2">
                 {inbox.delegated_tasks.map((t) => (
                   <li key={t.id}>
                     #{t.id} {t.title} [{t.status}] (sponsor: {t.sponsor})
                   </li>
                 ))}
-                {inbox.delegated_tasks.length === 0 && <li className="text-zinc-400">none</li>}
+                {inbox.delegated_tasks.length === 0 && <li className="text-ink-3">none</li>}
               </ul>
             </div>
             <div>
-              <p className="text-xs font-medium text-zinc-500">
+              <p className="text-xs font-medium text-ink-3">
                 Rejected proposals (learn from the notes)
               </p>
-              <ul className="text-xs text-zinc-600 dark:text-zinc-300">
+              <ul className="text-xs text-ink-2">
                 {inbox.rejected_proposals.map((p) => (
                   <li key={p.id}>
                     #{p.id} {p.summary} — “{p.review_note || "no note"}”
                   </li>
                 ))}
-                {inbox.rejected_proposals.length === 0 && <li className="text-zinc-400">none</li>}
+                {inbox.rejected_proposals.length === 0 && <li className="text-ink-3">none</li>}
               </ul>
             </div>
             <div>
-              <p className="text-xs font-medium text-zinc-500">Questions & notifications</p>
-              <ul className="text-xs text-zinc-600 dark:text-zinc-300">
+              <p className="text-xs font-medium text-ink-3">Questions & notifications</p>
+              <ul className="text-xs text-ink-2">
                 {inbox.open_questions.map((q) => (
                   <li key={q.id}>? {q.question}</li>
                 ))}
@@ -261,7 +261,7 @@ export default function Agents() {
                   <li key={n.id}>🔔 {n.message}</li>
                 ))}
                 {inbox.open_questions.length + inbox.notifications.length === 0 && (
-                  <li className="text-zinc-400">none</li>
+                  <li className="text-ink-3">none</li>
                 )}
               </ul>
             </div>

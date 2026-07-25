@@ -73,8 +73,8 @@ const SEV = {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
         {title}
       </h2>
       {children}
@@ -84,9 +84,9 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Bar({ share }: { share: number }) {
   return (
-    <span className="inline-block h-2 w-28 overflow-hidden rounded bg-zinc-200 align-middle dark:bg-zinc-800">
+    <span className="inline-block h-2 w-28 overflow-hidden rounded bg-raised align-middle dark:bg-zinc-800">
       <span
-        className="block h-2 rounded bg-indigo-500"
+        className="block h-2 rounded bg-thread-solid"
         style={{ width: `${Math.min(100, Math.round(share * 100))}%` }}
       />
     </span>
@@ -143,8 +143,8 @@ export default function InsightsPage() {
   };
 
   if (error)
-    return <main className="p-8 text-sm text-red-600">Backend unreachable: {error}</main>;
-  if (!d) return <main className="p-8 text-sm text-zinc-400">Reading the tea leaves…</main>;
+    return <main className="p-8 text-sm text-danger">Backend unreachable: {error}</main>;
+  if (!d) return <main className="p-8 text-sm text-ink-3">Reading the tea leaves…</main>;
 
   const m = d.mttr;
   const smallN = m.current.n < 8 || m.previous.n < 8;
@@ -153,7 +153,7 @@ export default function InsightsPage() {
     <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
       <Card title="Findings (receipts on click)">
         {d.findings.length === 0 ? (
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-ink-3">
             Nothing to report — silence is a valid output. Findings appear here
             (and in the digest) as real usage accrues.
           </p>
@@ -168,7 +168,7 @@ export default function InsightsPage() {
                   className="text-left"
                 >
                   {SEV[f.severity] ?? "·"} {f.message}{" "}
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-ink-3">
                     {f.week}
                     {f.n ? ` · n=${f.n}` : ""}
                   </span>
@@ -177,32 +177,32 @@ export default function InsightsPage() {
                   <>
                     <pre
                       id={`receipt-${f.id}`}
-                      className="mt-1 max-h-48 overflow-auto rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-950"
+                      className="mt-1 max-h-48 overflow-auto rounded bg-raised p-2 text-xs"
                     >
                       {JSON.stringify(f.receipt, null, 1)}
                     </pre>
                     <div className="mt-1 flex gap-2 text-xs">
                       <button
                         onClick={() => convert(f.id)}
-                        className="rounded bg-zinc-900 px-2 py-1 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                        className="rounded bg-thread-solid px-2 py-1 font-medium text-white hover:opacity-90"
                       >
                         → work item
                       </button>
                       <button
                         onClick={() => disposition(f.id, "resolved")}
-                        className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800"
+                        className="rounded bg-raised px-2 py-1"
                       >
                         resolved
                       </button>
                       <button
                         onClick={() => disposition(f.id, "deferred")}
-                        className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800"
+                        className="rounded bg-raised px-2 py-1"
                       >
                         defer…
                       </button>
                       <button
                         onClick={() => disposition(f.id, "dismissed")}
-                        className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800"
+                        className="rounded bg-raised px-2 py-1"
                       >
                         dismiss…
                       </button>
@@ -217,9 +217,9 @@ export default function InsightsPage() {
 
       <Card title="Rule follow-through (rules, never people)">
         {(d.rule_stats ?? []).length === 0 ? (
-          <p className="text-sm text-zinc-400">No findings fired yet.</p>
+          <p className="text-sm text-ink-3">No findings fired yet.</p>
         ) : (
-          <ul className="space-y-1 text-xs text-zinc-500">
+          <ul className="space-y-1 text-xs text-ink-3">
             {d.rule_stats.map((r) => (
               <li key={r.rule_id}>
                 <code>{r.rule_id}</code>: fired {r.fired} · acted on{" "}
@@ -228,7 +228,7 @@ export default function InsightsPage() {
                 {r.median_days_to_disposition !== null &&
                   ` · median ${r.median_days_to_disposition}d to act`}
                 {r.fired >= 3 && r.dismissed === r.dispositioned && r.dismissed > 0 && (
-                  <span className="ml-1 text-amber-600">· retire candidate?</span>
+                  <span className="ml-1 text-weld">· retire candidate?</span>
                 )}
               </li>
             ))}
@@ -238,7 +238,7 @@ export default function InsightsPage() {
 
       <Card title="Weekly pulse (team tally — never per person)">
         {(d.pulse_tally ?? []).length === 0 ? (
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-ink-3">
             No votes yet. The Monday digest asks; 👍/👎 lives on My Day.
           </p>
         ) : (
@@ -246,7 +246,7 @@ export default function InsightsPage() {
             {d.pulse_tally.map((w) => (
               <li key={w.week}>
                 {w.week}: 👍 {w.up} · 👎 {w.down}
-                <span className="ml-2 text-xs text-zinc-400">
+                <span className="ml-2 text-xs text-ink-3">
                   {w.up + w.down > 0 && w.down > w.up
                     ? "Skein is adding effort — worth a retro"
                     : ""}
@@ -262,13 +262,13 @@ export default function InsightsPage() {
           {d.adoption.weekly_active_users}/{d.adoption.team_humans} humans active
           this week
           {d.adoption.non_web_share !== null && (
-            <span className="ml-2 text-xs text-zinc-400">
+            <span className="ml-2 text-xs text-ink-3">
               · {Math.round(d.adoption.non_web_share * 100)}% of actions outside
               the web UI (bar: &gt;50%)
             </span>
           )}
         </p>
-        <ul className="mt-2 space-y-1 text-xs text-zinc-500">
+        <ul className="mt-2 space-y-1 text-xs text-ink-3">
           {d.adoption.by_surface.map((s) => (
             <li key={s.surface}>
               {s.surface}: {s.actions} actions · {s.users} user(s)
@@ -283,15 +283,15 @@ export default function InsightsPage() {
           median{" "}
           <b>{m.current.median_hours !== null ? `${m.current.median_hours}h` : "—"}</b>{" "}
           · P85 {m.current.p85_hours !== null ? `${m.current.p85_hours}h` : "—"}
-          <span className="ml-2 text-xs text-zinc-400">n={m.current.n}</span>
+          <span className="ml-2 text-xs text-ink-3">n={m.current.n}</span>
         </p>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-ink-3">
           prior window: median{" "}
           {m.previous.median_hours !== null ? `${m.previous.median_hours}h` : "—"} (n=
           {m.previous.n})
         </p>
         {smallN && (
-          <p className="mt-1 text-xs text-amber-600">
+          <p className="mt-1 text-xs text-weld">
             Too few blockers for a trend claim (n&lt;8) — numbers shown, verdict
             withheld.
           </p>
@@ -300,24 +300,24 @@ export default function InsightsPage() {
 
       <Card title="Automation ratio (read next to rejection rate)">
         {d.automation_ratio.length === 0 ? (
-          <p className="text-sm text-zinc-400">No records yet.</p>
+          <p className="text-sm text-ink-3">No records yet.</p>
         ) : (
           <ul className="space-y-1 text-sm">
             {d.automation_ratio.map((r) => (
               <li key={r.month} className="flex items-center gap-2">
-                <span className="w-16 text-xs text-zinc-400">{r.month}</span>
+                <span className="w-16 text-xs text-ink-3">{r.month}</span>
                 {r.automation_share !== null && <Bar share={r.automation_share} />}
                 <span className="text-xs">
                   {r.automation_share !== null
                     ? `${Math.round(r.automation_share * 100)}% agent-written`
                     : "—"}{" "}
-                  <span className="text-zinc-400">of {r.total}</span>
+                  <span className="text-ink-3">of {r.total}</span>
                 </span>
               </li>
             ))}
           </ul>
         )}
-        <ul className="mt-2 space-y-1 text-xs text-zinc-500">
+        <ul className="mt-2 space-y-1 text-xs text-ink-3">
           {d.review_trend.map((r) => (
             <li key={r.month}>
               {r.month}: {r.proposed} proposed · {r.approved} approved ·{" "}
@@ -334,7 +334,7 @@ export default function InsightsPage() {
           accepted · {d.intake_funnel.deferred ?? 0} deferred ·{" "}
           {d.intake_funnel.declined ?? 0} declined
         </p>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-ink-3">
           median {d.intake_funnel.median_days_to_disposition ?? "—"} days to
           disposition (n={d.intake_funnel.dispositioned_n})
         </p>
@@ -342,12 +342,12 @@ export default function InsightsPage() {
 
       <Card title="Token spend by week">
         {d.token_spend_weekly.length === 0 ? (
-          <p className="text-sm text-zinc-400">No model usage recorded.</p>
+          <p className="text-sm text-ink-3">No model usage recorded.</p>
         ) : (
           <ul className="space-y-1 text-sm">
             {d.token_spend_weekly.map((w) => (
               <li key={w.week}>
-                <span className="text-xs text-zinc-400">{w.week}</span>{" "}
+                <span className="text-xs text-ink-3">{w.week}</span>{" "}
                 {w.tokens.toLocaleString()} tokens
               </li>
             ))}
