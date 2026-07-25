@@ -182,10 +182,17 @@ export default function IntakePage() {
                 )}
               </span>
               <span className="flex items-center gap-2">
-                {r.status !== "submitted" && (
-                  <span className="text-xs text-ink-3" title="reach×impact×confidence÷effort">
-                    score {r.score}
+                {r.score > 0 ? (
+                  <span
+                    className="font-mono text-xs text-thread"
+                    title="reach×impact×confidence÷effort"
+                  >
+                    RICE {r.score}
                   </span>
+                ) : (
+                  r.status !== "submitted" && (
+                    <span className="text-xs text-ink-3">unscored</span>
+                  )
                 )}
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[r.status]}`}

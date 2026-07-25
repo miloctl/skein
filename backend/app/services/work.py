@@ -115,6 +115,7 @@ def create_task(
     assignee: str = "",
     priority: str = "medium",
     due_date: str = "",
+    engagement_id: int = 0,
     *,
     actor: str = "system",
     origin: str = "human",
@@ -125,13 +126,18 @@ def create_task(
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if milestone_id and not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
         raise ValueError(f"milestone #{milestone_id} not found")
+    if engagement_id and not db.query_one(
+        "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+    ):
+        raise ValueError(f"engagement #{engagement_id} not found")
     ts = db.now()
     tid = db.execute(
-        "INSERT INTO tasks (milestone_id, title, description, assignee, priority,"
-        " due_date, origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (milestone_id, engagement_id, title, description, assignee,"
+        " priority, due_date, origin, created_by, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             milestone_id or None,
+            engagement_id or None,
             title,
             description,
             assignee,

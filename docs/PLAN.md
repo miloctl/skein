@@ -299,16 +299,20 @@ Settings roster, intake accept carries lead/kill_criteria, digest collapses
 job_stale noise, eval corpus separates free-text corrections from
 machine-checkable labels. Full log: the session's dogfood-log.md.
 
-Remaining, still worth doing:
+All four follow-ups shipped 2026-07-25 (same day):
 
-1. [M] Task→engagement link for agent-created tasks (create_task only knows
-   milestone_id; "a task on engagement X" silently drops the linkage).
-2. [S] /ask OR-fallback when the AND query yields zero hits (natural
-   phrasing like "what latency number does the partner care about" misses).
-3. [M] User merge/rename for the trusted-LAN roster (deactivate shipped;
-   merging attribution history is the missing half).
-4. [S] Intake list shows RICE score inline once scored (score 0.0 in
-   what-if reads as unscored).
+1. ✅ Task→engagement link: migration 021 adds `tasks.engagement_id`;
+   create_task (service/REST/tool) accepts it; health, handoff, and the
+   per-engagement context pack include direct-linked tasks.
+2. ✅ /ask OR-fallback: zero phrase hits retries with OR of the meaningful
+   words, bm25-ranked, note says "loosely related".
+3. ✅ User rename/merge: `POST /api/users/{name}/rename` (strong identity)
+   sweeps every attribution column (explicit map, parity-tested against
+   the schema), folds unique-keyed rows (tool_usage, agent_authority),
+   follows into private.db, merges when the target name exists. Settings
+   roster gets rename…
+4. ✅ Intake rows show `RICE <score>` once scored, "unscored" if
+   dispositioned without a score.
 
 ## Deferred with explicit re-entry triggers
 

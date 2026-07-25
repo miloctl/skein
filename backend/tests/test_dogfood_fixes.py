@@ -233,3 +233,93 @@ def test_users_all_param_lists_inactive(client, fresh_db):
     users.set_active("gone", False, actor="tester")
     assert "gone" not in [u["name"] for u in client.get("/api/users").json()]
     assert "gone" in [u["name"] for u in client.get("/api/users?all=1").json()]
+
+
+def test_task_links_to_engagement_directly(client, fresh_db):
+    from app.services import engagements, portfolio, work
+
+    eng = engagements.create_engagement(name="Direct-link", actor="tester")
+    t = work.create_task(title="orphan work", engagement_id=eng["id"], actor="tester")
+    health = {h["name"]: h for h in portfolio.engagement_health()}
+    assert "Direct-link" in health
+    # the direct-linked task counts as engagement work (silence check sees it)
+    row = fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (t["id"],))
+    assert row["engagement_id"] == eng["id"]
+
+
+def test_task_engagement_in_handoff_and_pack(client):
+    from app.services import context_pack, engagements, handoff, work
+
+    eng = engagements.create_engagement(name="Pack-link", actor="tester")
+    work.create_task(title="direct task for pack", engagement_id=eng["id"], actor="tester")
+    pack = context_pack.build_engagement_pack(eng["id"])
+    assert "direct task for pack" in pack
+    h = handoff.generate_handoff(eng["id"], actor="tester")
+    if "path" in h:
+        from pathlib import Path
+
+        text = Path(h["path"]).read_text()
+    else:
+        text = str(h)
+    assert "direct task for pack" in text
+
+
+def test_create_task_rejects_unknown_engagement(client):
+    r = client.post("/api/tasks", json={"title": "x", "engagement_id": 999})
+    assert r.status_code == 400
+
+
+def test_ask_or_fallback(client):
+    client.post(
+        "/api/questions",
+        json={"question": "what latency percentile does the partner team care about?"},
+    )
+    out = client.get("/api/ask", params={"q": "which latency number matters to the partner"}).json()
+    assert out["citations"]
+    assert "loosely related" in out["note"]
+
+
+def test_rename_user_moves_attribution(client, fresh_db):
+    from app.services import users, work
+
+    users.ensure_user("Mira")
+    work.create_task(title="typo-cased work", assignee="Mira", actor="Mira")
+    out = users.rename_user("Mira", "mira", actor="tester")
+    assert out["merged"] is False and out["rows_moved"] >= 2
+    t = fresh_db.query_one(
+        "SELECT assignee, created_by FROM tasks WHERE title = ?", ("typo-cased work",)
+    )
+    assert t["assignee"] == "mira" and t["created_by"] == "mira"
+    names = [u["name"] for u in users.list_users(active_only=False)]
+    assert "Mira" not in names and "mira" in names
+
+
+def test_rename_user_merges_into_existing(client, fresh_db):
+    from app.services import adoption, users, work
+
+    users.ensure_user("Mira")
+    users.ensure_user("mira")
+    adoption.record_use("Mira", "api")
+    adoption.record_use("mira", "api")
+    work.create_task(title="merge me", assignee="Mira", actor="Mira")
+    out = users.rename_user("Mira", "mira", actor="tester")
+    assert out["merged"] is True
+    row = fresh_db.query_one("SELECT SUM(actions) AS n FROM tool_usage WHERE user = 'mira'")
+    assert row["n"] == 2
+    assert not fresh_db.query("SELECT * FROM tool_usage WHERE user = 'Mira'")
+    assert len([u for u in users.list_users(active_only=False) if u["name"].lower() == "mira"]) == 1
+
+
+def test_attribution_map_matches_schema(client, fresh_db):
+    """Every declared column exists; new attribution-shaped columns must be
+    added to the map (or this fails and forces the decision)."""
+    from app.services.users import _ATTRIBUTION
+
+    tables = {
+        r["name"] for r in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    for table, cols in _ATTRIBUTION.items():
+        assert table in tables, table
+        have = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
+        for col in cols:
+            assert col in have, f"{table}.{col}"

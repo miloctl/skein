@@ -149,6 +149,17 @@ def delete_note(author: str, note_id: int) -> dict:
     return {"id": note_id, "deleted": True}
 
 
+def rename_author(old: str, new: str) -> None:
+    """Follow a roster rename/merge into private.db: notes and audit stay
+    with the person (access is keyed by author name). Person references in
+    notes move too, so 1:1 journals survive the rename."""
+    with closing(_connect()) as conn:
+        conn.execute("UPDATE private_notes SET author = ? WHERE author = ?", (new, old))
+        conn.execute("UPDATE private_notes SET person = ? WHERE person = ?", (new, old))
+        conn.execute("UPDATE private_audit SET author = ? WHERE author = ?", (new, old))
+        conn.commit()
+
+
 def list_audit(author: str, limit: int = 100) -> list[dict]:
     """The author's own audit trail: adds, reads, briefs, deletes."""
     with closing(_connect()) as conn:

@@ -30,6 +30,103 @@ def list_users(active_only: bool = True) -> list[dict]:
     return db.query("SELECT * FROM users ORDER BY kind, name")
 
 
+# every column that attributes a row to a person, per table — explicit so a
+# new table with an attribution column fails the parity test until added here
+_ATTRIBUTION: dict[str, tuple[str, ...]] = {
+    "milestones": ("created_by", "owner"),
+    "tasks": ("created_by", "assignee", "delegated_agent", "sponsor"),
+    "questions": ("created_by", "asked_by", "assigned_to"),
+    "decisions": ("created_by", "decided_by"),
+    "standups": ("created_by", "author"),
+    "notes": ("created_by", "author"),
+    "events": ("created_by",),
+    "blockers": ("created_by", "owner"),
+    "commitments": ("created_by",),
+    "engagements": ("created_by", "lead"),
+    "allocations": ("created_by", "person"),
+    "intake_requests": ("created_by", "requester"),
+    "lessons": ("created_by",),
+    "pending_changes": ("proposed_by", "reviewed_by"),
+    "notifications": ("user",),
+    "activity": ("actor",),
+    "tool_usage": ("user",),
+    "feedback": ("created_by",),  # pulse rows store '' and stay untouched
+    "api_keys": ("owner",),
+    "memories": ("user",),
+    "agent_authority": ("agent", "updated_by"),
+    "artifacts": ("created_by",),
+    "context_packs": ("created_by",),
+    "finding_dispositions": ("created_by",),
+}
+
+
+def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
+    """Rename (or merge, when `new` already exists) a roster entry across
+    every attribution column — the fix for 'Mira' vs 'mira'. History moves;
+    the old row is deleted (merge) or renamed in place. Strong identity
+    required at the route; team-visible tables only (private.db is scoped
+    by author name, so the author keeps access by renaming there too)."""
+    old, new = old.strip(), new.strip()
+    if not old or not new:
+        raise ValueError("both names are required")
+    if old == new:
+        raise ValueError("that is already their name")
+    if old == "anonymous" or new == "anonymous":
+        raise ValueError("anonymous is not renamable")
+    row = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
+    if not row:
+        raise ValueError(f"no user named '{old}'")
+    target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+    moved: dict[str, int] = {}
+    with db.transaction():
+        # unique-keyed tables first: fold rather than collide
+        # tool_usage (day, user, surface): sum counts into the target's rows
+        db.execute(
+            "UPDATE tool_usage SET actions = actions + COALESCE((SELECT o.actions"
+            " FROM tool_usage o WHERE o.day = tool_usage.day"
+            " AND o.surface = tool_usage.surface AND o.user = ?), 0) WHERE user = ?",
+            (old, new),
+        )
+        db.execute(
+            "DELETE FROM tool_usage WHERE user = ? AND EXISTS (SELECT 1 FROM tool_usage n"
+            " WHERE n.day = tool_usage.day AND n.surface = tool_usage.surface AND n.user = ?)",
+            (old, new),
+        )
+        # agent_authority (agent, entity): the target's existing grant wins
+        db.execute(
+            "DELETE FROM agent_authority WHERE agent = ? AND EXISTS"
+            " (SELECT 1 FROM agent_authority n WHERE n.entity = agent_authority.entity"
+            " AND n.agent = ?)",
+            (old, new),
+        )
+        for table, cols in _ATTRIBUTION.items():
+            for col in cols:
+                n = db.execute_rowcount(
+                    f"UPDATE {table} SET {col} = ? WHERE {col} = ?",  # noqa: S608 — constant map
+                    (new, old),
+                )
+                if n:
+                    moved[f"{table}.{col}"] = moved.get(f"{table}.{col}", 0) + n
+        if target:
+            db.execute("DELETE FROM users WHERE name = ?", (old,))
+        else:
+            db.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
+    from . import private_notes
+
+    private_notes.rename_author(old, new)
+    db.log_activity(
+        actor,
+        "rename_user",
+        f"{old} -> {new} ({'merged' if target else 'renamed'}, {sum(moved.values())} rows)",
+    )
+    return {
+        "old": old,
+        "new": new,
+        "merged": bool(target),
+        "rows_moved": sum(moved.values()),
+    }
+
+
 def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     """Deactivate a roster entry (typo'd name, departed teammate). History
     stays attributed; the name leaves the roster, adoption counts, and the

@@ -128,11 +128,12 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     lines.append("## Open tasks")
     tasks = db.query(
-        "SELECT t.* FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE m.engagement_id = ? AND t.status != 'done'"
+        "SELECT t.* FROM tasks t"
+        " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        " AND t.status != 'done'"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END",
-        (engagement_id,),
+        (engagement_id, engagement_id),
     )
     for t in tasks:
         line = f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"

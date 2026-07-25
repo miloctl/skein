@@ -33,9 +33,9 @@ def _unsatisfied_waits(sql: str, params: tuple) -> list[dict]:
 def _linked_blockers(engagement_id: int) -> list[dict]:
     return db.query(
         "SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id"
-        " JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE m.engagement_id = ? AND b.status != 'resolved'",
-        (engagement_id,),
+        " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        " AND b.status != 'resolved'",
+        (engagement_id, engagement_id),
     )
 
 
@@ -63,9 +63,9 @@ def engagement_health() -> list[dict]:
                 receipts.append(f"blocker #{b['id']} '{b['title']}' open")
         stale = db.query(
             "SELECT t.id, t.title, t.assignee FROM tasks t"
-            " JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.engagement_id = ? AND t.status = 'in_progress' AND t.updated_at < ?",
-            (eng["id"], stale_cutoff),
+            " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status = 'in_progress' AND t.updated_at < ?",
+            (eng["id"], eng["id"], stale_cutoff),
         )
         for t in stale:
             receipts.append(
@@ -74,24 +74,23 @@ def engagement_health() -> list[dict]:
             )
         for t in _unsatisfied_waits(
             "SELECT t.id, t.title, t.waiting_on_type, t.waiting_on_id FROM tasks t"
-            " JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.engagement_id = ? AND t.status != 'done'"
-            " AND t.waiting_on_type IS NOT NULL",
-            (eng["id"],),
+            " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done' AND t.waiting_on_type IS NOT NULL",
+            (eng["id"], eng["id"]),
         ):
             receipts.append(
                 f"task #{t['id']} '{t['title']}' waiting on"
                 f" {t['waiting_on_type']} #{t['waiting_on_id']}"
             )
         last = db.query_one(
-            "SELECT MAX(t.updated_at) AS ts FROM tasks t"
-            " JOIN milestones m ON m.id = t.milestone_id WHERE m.engagement_id = ?",
-            (eng["id"],),
+            "SELECT MAX(t.updated_at) AS ts FROM tasks t WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))",
+            (eng["id"], eng["id"]),
         )
         open_tasks = db.query_one(
-            "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.engagement_id = ? AND t.status != 'done'",
-            (eng["id"],),
+            "SELECT COUNT(*) AS n FROM tasks t"
+            " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done'",
+            (eng["id"], eng["id"]),
         )
         silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
         silent = bool(

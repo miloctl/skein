@@ -35,6 +35,17 @@ def ask(q: str, limit: int = 5) -> dict:
     NOTE for any future UI: snippets contain literal <b> markup from FTS —
     render as text or strip it; never innerHTML indexed user content."""
     hits = search(q, limit)
+    note = ""
+    if not hits:
+        # natural phrasing rarely matches as a phrase — fall back to OR of
+        # the meaningful words, bm25-ranked, and say so
+        words = [w for w in q.split() if len(w) > 2]
+        if len(words) > 1:
+            hits = search(" OR ".join(_fts_quote(w) for w in words), limit, raw=True)
+            if hits:
+                note = "no exact match — loosely related results (word overlap)"
+    if not hits:
+        note = "nothing indexed matches — try different words"
     return {
         "question": q,
         "citations": [
@@ -45,11 +56,13 @@ def ask(q: str, limit: int = 5) -> dict:
             }
             for h in hits
         ],
-        "note": "" if hits else "nothing indexed matches — try different words",
+        "note": note,
     }
 
 
-def search(q: str, limit: int = 20) -> list[dict]:
+def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
+    """raw=True passes q as a pre-built FTS expression (callers must quote
+    each term themselves — ask()'s OR fallback does)."""
     if not q.strip():
         return []
     hits = db.query(
@@ -58,7 +71,7 @@ def search(q: str, limit: int = 20) -> list[dict]:
         " bm25(search_index) AS rank"
         " FROM search_index WHERE search_index MATCH ?"
         " ORDER BY rank LIMIT ?",
-        (_fts_quote(q), limit),
+        (q if raw else _fts_quote(q), limit),
     )
     if len(hits) < limit:
         seen = {(h["entity"], h["entity_id"]) for h in hits}

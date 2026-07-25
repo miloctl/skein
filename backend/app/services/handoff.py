@@ -17,15 +17,10 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
         "SELECT * FROM milestones WHERE engagement_id = ? ORDER BY due_date IS NULL, due_date",
         (engagement_id,),
     )
-    mil_ids = [m["id"] for m in milestones]
-    tasks = (
-        db.query(
-            f"SELECT * FROM tasks WHERE milestone_id IN ({','.join('?' * len(mil_ids))})"  # noqa: S608
-            " AND status != 'done'",
-            tuple(mil_ids),
-        )
-        if mil_ids
-        else []
+    tasks = db.query(
+        "SELECT t.* FROM tasks t WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        " AND t.status != 'done'",
+        (engagement_id, engagement_id),
     )
     from .portfolio import _linked_blockers
 

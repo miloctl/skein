@@ -96,8 +96,9 @@ def create_task(
     assignee: str = "",
     priority: str = "medium",
     due_date: str = "",
+    engagement_id: int = 0,
 ) -> str:
-    """Create a task, optionally attached to a milestone.
+    """Create a task, optionally attached to a milestone or an engagement.
 
     Args:
         title: Short name of the task.
@@ -106,6 +107,8 @@ def create_task(
         assignee: Team member (human or agent) doing the work.
         priority: One of low, medium, high, urgent.
         due_date: Target date in YYYY-MM-DD format, or empty if none.
+        engagement_id: Engagement to link the task to directly (0 for none) —
+            use when the work belongs to an engagement but no milestone fits.
     """
     payload: dict[str, Any] = {
         "title": title,
@@ -114,6 +117,7 @@ def create_task(
         "assignee": assignee,
         "priority": priority,
         "due_date": due_date,
+        "engagement_id": engagement_id,
     }
     return gated_write(
         "task",

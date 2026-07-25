@@ -442,28 +442,50 @@ export default function SettingsPage() {
                   )}
                 </span>
                 {strong && u.name !== who?.user && (
-                  u.active ? (
+                  <span className="flex gap-1.5">
                     <button
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Deactivate ${u.name}? History stays; the name leaves the roster and their API keys are revoked.`,
-                          )
-                        )
-                          setActive(u.name, false);
+                      onClick={async () => {
+                        const to = prompt(
+                          `Rename ${u.name} to (merges history if the name exists):`,
+                        );
+                        if (!to?.trim()) return;
+                        try {
+                          await api(`/api/users/${encodeURIComponent(u.name)}/rename`, {
+                            method: "POST",
+                            body: JSON.stringify({ new_name: to.trim() }),
+                          });
+                          loadRoster();
+                        } catch (e) {
+                          alert(String(e));
+                        }
                       }}
                       className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                     >
-                      deactivate
+                      rename…
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => setActive(u.name, true)}
-                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                    >
-                      reactivate
-                    </button>
-                  )
+                    {u.active ? (
+                      <button
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Deactivate ${u.name}? History stays; the name leaves the roster and their API keys are revoked.`,
+                            )
+                          )
+                            setActive(u.name, false);
+                        }}
+                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                      >
+                        deactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setActive(u.name, true)}
+                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                      >
+                        reactivate
+                      </button>
+                    )}
+                  </span>
                 )}
               </li>
             ))}

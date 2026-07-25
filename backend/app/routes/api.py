@@ -134,6 +134,16 @@ def get_users(all: bool = False):
     return users.list_users(active_only=not all)
 
 
+class UserRenameIn(BaseModel):
+    new_name: str
+
+
+@router.post("/users/{name}/rename")
+def post_user_rename(name: str, body: UserRenameIn, user: StrongUser):
+    # rename/merge moves attribution history — strong identity only
+    return users.rename_user(name, body.new_name, actor=user)
+
+
 class UserActiveIn(BaseModel):
     active: bool
 
@@ -550,6 +560,7 @@ class TaskIn(BaseModel):
     assignee: str = ""
     priority: str = "medium"
     due_date: str = ""
+    engagement_id: int = 0
 
 
 @router.post("/tasks")
