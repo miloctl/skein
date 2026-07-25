@@ -42,7 +42,7 @@ export default function RootLayout({
             keep the key names and allow-lists in sync) */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("skein-theme");if(["madder","verdigris","graphite"].indexOf(t)>=0)d.dataset.theme=t;var a=localStorage.getItem("skein-appearance");if(a==="light"||a==="dark")d.dataset.appearance=a}catch(e){}})()`,
+            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("skein-theme");if(["madder","verdigris","graphite"].indexOf(t)>=0)d.dataset.theme=t;else if(t==="custom"){var c=JSON.parse(localStorage.getItem("skein-custom")||"{}"),th=((Math.round(+c.thread)%360)+360)%360,w=((Math.round(+c.weld)%360)+360)%360;if(isFinite(th)&&isFinite(w)){d.dataset.theme="custom";d.style.setProperty("--thread","light-dark(oklch(0.44 0.13 "+th+"), oklch(0.8 0.09 "+th+"))");d.style.setProperty("--thread-solid","light-dark(oklch(0.44 0.13 "+th+"), oklch(0.5 0.13 "+th+"))");d.style.setProperty("--weld","light-dark(oklch(0.47 0.09 "+w+"), oklch(0.78 0.09 "+w+"))")}}var a=localStorage.getItem("skein-appearance");if(a==="light"||a==="dark")d.dataset.appearance=a}catch(e){}})()`,
           }}
         />
       </head>

@@ -28,7 +28,7 @@ both write paths (human REST, agent tools) and carry provenance
 | Rate caps | per-user sliding window on flood-prone writes: capture 30/min, ingest 6/min — a DoS-annoyance guard, not a security control | `app/ratelimit.py` |
 | ICS calendar feed | events + milestone/commitment due dates; dedicated `STRANDS_ICS_TOKEN` (never the API token); fail-closed when the API is token-locked | `GET /api/calendar.ics` |
 | First-run onboarding | checklist computed from real state (name, engagement, capture, standup, teammate, key); dismissible card on My Day (restorable from Settings) | `GET /api/onboarding` |
-| Themes | 4 colorways (Indigo/Madder/Verdigris/Graphite, WCAG-AA-verified) × system/light/dark appearance; per-browser, picked in Settings. Tokens use CSS `light-dark()` — needs Chrome 123+/Safari 17.5+/Firefox 120+ (older browsers render unstyled) | Settings · `frontend/lib/theme.ts` |
+| Themes | 4 preset colorways + a Custom mode (two hue dials; lightness/chroma fixed at sweep-verified WCAG-AA values, so every hue stays readable) × system/light/dark appearance; per-browser, picked in Settings. Tokens use CSS `light-dark()` + OKLCH — needs Chrome 123+/Safari 17.5+/Firefox 120+ (older browsers render unstyled) | Settings · `frontend/lib/theme.ts` |
 | Artifacts & digest | handoffs, readouts, digests archived under `data/artifacts/` | `GET /api/artifacts` · `POST /api/digest` · `GET /api/users` |
 
 ## Engagements & portfolio

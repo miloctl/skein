@@ -6,10 +6,13 @@ import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api"
 import {
   APPEARANCES,
   COLORWAYS,
+  CUSTOM_DEFAULT,
   getAppearance,
   getColorway,
+  getCustomHues,
   setAppearance,
   setColorway,
+  setCustomHues,
 } from "@/lib/theme";
 
 function subscribeStorage(cb: () => void) {
@@ -140,6 +143,16 @@ export default function SettingsPage() {
 
   const appearance = useSyncExternalStore(subscribeStorage, getAppearance, () => "system");
   const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
+  const customThread = useSyncExternalStore(
+    subscribeStorage,
+    () => getCustomHues().thread,
+    () => CUSTOM_DEFAULT.thread,
+  );
+  const customWeld = useSyncExternalStore(
+    subscribeStorage,
+    () => getCustomHues().weld,
+    () => CUSTOM_DEFAULT.weld,
+  );
 
   // the My Day checklist dismissal lives in this browser's localStorage;
   // restoring is just deleting the flag (progress is recomputed server-side)
@@ -215,8 +228,60 @@ export default function SettingsPage() {
                 {c.label}
               </button>
             ))}
+            <button
+              onClick={() => setCustomHues(customThread, customWeld)}
+              aria-pressed={colorway === "custom"}
+              className={
+                "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
+                (colorway === "custom"
+                  ? "border-thread-solid bg-thread/10 font-medium text-ink"
+                  : "border-line-strong text-ink-2 hover:bg-raised")
+              }
+            >
+              <span aria-hidden className="flex">
+                <span
+                  className="size-3 rounded-full ring-1 ring-line-strong"
+                  style={{ background: `oklch(0.44 0.13 ${customThread})` }}
+                />
+                <span
+                  className="-ml-1 size-3 rounded-full ring-1 ring-line-strong"
+                  style={{ background: `oklch(0.47 0.09 ${customWeld})` }}
+                />
+              </span>
+              Custom…
+            </button>
           </div>
         </div>
+        {colorway === "custom" && (
+          <div className="mt-4 space-y-3 rounded-lg border border-line bg-raised/50 p-3">
+            <p className="text-xs text-ink-3">
+              Dye your own threads. Any hue stays readable — lightness and
+              contrast are fixed at values that pass WCAG AA in both modes.
+            </p>
+            {(
+              [
+                ["Accent", customThread, (v: number) => setCustomHues(v, customWeld)],
+                ["Highlight", customWeld, (v: number) => setCustomHues(customThread, v)],
+              ] as const
+            ).map(([label, value, onChange]) => (
+              <div key={label} className="flex items-center gap-3">
+                <span className="w-24 text-sm text-ink-2">{label}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={359}
+                  value={value}
+                  onChange={(e) => onChange(Number(e.target.value))}
+                  aria-label={`${label} hue`}
+                  className="hue-track flex-1"
+                />
+                <span className="w-10 text-right font-mono text-xs text-ink-3">
+                  {value}°
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       <Section title="1 · Identity">

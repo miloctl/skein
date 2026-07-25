@@ -176,6 +176,37 @@ body {
   }
 }
 
+/* Custom-colorway hue dials: the track is the full dye spectrum at the
+   same lightness the accent will actually wear */
+.hue-track {
+  appearance: none;
+  height: 10px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    in oklch longer hue 90deg,
+    oklch(0.6 0.14 0),
+    oklch(0.6 0.14 359)
+  );
+}
+.hue-track::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--surface-card);
+  border: 2px solid var(--text-2);
+  box-shadow: var(--shadow-card);
+  cursor: grab;
+}
+.hue-track::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--surface-card);
+  border: 2px solid var(--text-2);
+  cursor: grab;
+}
+
 /* Minimal markdown styling for chat messages */
 .prose-chat :is(p, ul, ol, pre, blockquote) {
   margin: 0.5rem 0;
