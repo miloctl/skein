@@ -103,6 +103,13 @@ def build_digest() -> str:
         "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
         (today, (_utc_today() + timedelta(days=1)).isoformat()),
     )
+    if _utc_today().weekday() == 0:  # Monday: the one-question pulse
+        lines.append(
+            "## 🌡️ Weekly pulse\n"
+            "- Did Skein reduce or increase coordination effort last week?"
+            " 👍/👎 on the My Day pulse line — counted as a team tally, never per person.\n"
+        )
+
     lines.append("## 📋 Today")
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
     lines += [

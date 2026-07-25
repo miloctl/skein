@@ -270,6 +270,32 @@ export default function MyDay() {
               </li>
             )}
             <li className="pt-2 text-xs text-zinc-400">
+              🌡️ Did Skein reduce coordination effort this week?{" "}
+              {(["up", "down"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={async () => {
+                    try {
+                      await api("/api/feedback", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          kind: "pulse",
+                          input_text: new Date().toISOString().slice(0, 10),
+                          verdict: v,
+                        }),
+                      });
+                      alert("Counted — team tally only, never per person.");
+                    } catch (e) {
+                      alert(String(e));
+                    }
+                  }}
+                  className="mx-0.5 rounded bg-zinc-100 px-1.5 py-0.5 hover:bg-zinc-200 dark:bg-zinc-800"
+                >
+                  {v === "up" ? "👍" : "👎"}
+                </button>
+              ))}
+            </li>
+            <li className="pt-1 text-xs text-zinc-400">
               <button
                 onClick={async () => {
                   const interests = prompt(

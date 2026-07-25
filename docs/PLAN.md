@@ -250,6 +250,16 @@ fixed). Recorded deviations:
 | Shared 1:1 agendas | Only if reports ask for it after seeing the manager-side workflow; participants-visibility tier designed then, not before |
 | Incident timeline | After the first real incident flows through Skein — draft from activity ledger, human edits, archive as artifact |
 
+**Wave 3 shipped 2026-07-24** (golden traces, engagement packs, pulse,
+disposition analytics). Recorded deviations:
+- Golden traces pin the TOOL layer (trajectory, policy compliance, final DB
+  state through the real gate) — what a model would *choose* to call is
+  untestable keyless; the scriptable-provider idea was dropped as
+  model-theater. Scenarios live in `tests/test_golden_traces.py`, run in CI.
+- Pulse shipped pre-adoption (buttons on My Day + Monday digest line) — the
+  tally stays empty until the team arrives, which is honest.
+- Shared 1:1 agendas + incident timeline REMAIN deferred (need real usage).
+
 ## Deferred with explicit re-entry triggers
 
 See the cut table in `docs/reviews/2026-07-24-synthesis.md`. Notables:

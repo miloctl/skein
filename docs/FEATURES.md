@@ -94,6 +94,10 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 - MCP resource `strands://context-pack` + tool `get_context_pack`
 - CLI: `strands context` or `strands context --write AGENTS.md` — Skein
   becomes the context supplier to every other agent the team uses.
+- Per-engagement packs: `GET /api/context-pack?engagement=<id>` — a scoped
+  subset (outcome, experiment frame, milestones, open tasks + waits, linked
+  blockers, class lessons, standing decisions) for delegated agents: cheaper
+  tokens, less noise, cleaner blast radius. Generated on demand, unversioned.
 
 ## Insights & findings
 
@@ -104,7 +108,9 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 | `/insights` page | findings feed (receipts on click, disposition buttons) + team-rolled trends: rolling-28d blocker MTTR (median/P85, n shown, verdicts withheld under n=8), automation ratio by month (co-presented with review verdicts), intake funnel, weekly token spend, adoption, rule follow-through |
 | Adoption telemetry | `tool_usage` (day × user × surface), `GET /api/adoption`; measures the tool's reach, never people's output |
 | Anti-surveillance rule | person-level data only for planning the future (capacity, private nudges, My Day); team aggregates only for judging the past — enforced in the service layer, no person-keyed insight endpoints exist |
-| Findings feedback | `POST /api/feedback` with `kind=finding` — the eval corpus extends to the findings engine; rules nobody acts on get retired at season end |
+| Findings feedback | `POST /api/feedback` with `kind=finding` — the eval corpus extends to the findings engine; rules nobody acts on get retired at season end. Rule follow-through stats include median days-to-disposition |
+| Weekly pulse | Monday digest asks the one question telemetry can't: "did Skein reduce coordination effort?" — 👍/👎 on My Day (`POST /api/feedback kind=pulse`); tallied per week as team counts only, never per person |
+| Golden-trace evals | scenario suite (`tests/test_golden_traces.py`) pins tool-call sequences → expected DB state through the REAL agent tool layer + gate: playbook planning, capture routing, review-mode queuing, forbidden refusal, waiting-on, and the propose→approve→agent_verified roundtrip. Keyless, runs in CI |
 
 ## Developer loop
 

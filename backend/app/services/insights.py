@@ -178,8 +178,10 @@ def token_spend_weekly(weeks: int = 8) -> list[dict]:
 
 def insights() -> dict:
     from .adoption import adoption
+    from .feedback import pulse_tally
 
     return {
+        "pulse_tally": pulse_tally(),
         "mttr": mttr_windows(),
         "automation_ratio": automation_ratio(),
         "review_trend": review_trend(),
@@ -849,10 +851,11 @@ def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str =
 
 
 def rule_stats() -> list[dict]:
-    """Per-rule follow-through: fired vs dispositioned vs converted. TEAM
-    aggregates about rules, never about people. Rules that fire a lot and
-    get dismissed a lot are candidates for retirement at season end."""
-    return db.query(
+    """Per-rule follow-through: fired vs dispositioned vs converted, plus
+    median days-to-disposition. TEAM aggregates about rules, never about
+    people. Rules that fire a lot and get dismissed a lot are candidates for
+    retirement at season end."""
+    rows = db.query(
         "SELECT f.rule_id,"
         " COUNT(DISTINCT f.id) AS fired,"
         " COUNT(DISTINCT d.finding_id) AS dispositioned,"
@@ -863,3 +866,16 @@ def rule_stats() -> list[dict]:
         " FROM findings f LEFT JOIN finding_dispositions d ON d.finding_id = f.id"
         " GROUP BY f.rule_id ORDER BY fired DESC"
     )
+    for r in rows:
+        days = [
+            x["d"]
+            for x in db.query(
+                "SELECT julianday(d.created_at) - julianday(f.created_at) AS d"
+                " FROM finding_dispositions d JOIN findings f ON f.id = d.finding_id"
+                " WHERE f.rule_id = ?",
+                (r["rule_id"],),
+            )
+            if x["d"] is not None
+        ]
+        r["median_days_to_disposition"] = _median(days)
+    return rows

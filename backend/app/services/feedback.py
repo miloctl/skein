@@ -4,7 +4,10 @@ correction history — run it before changing the rules (or a model prompt)."""
 
 from .. import db
 
-KINDS = ("chat", "capture", "proposal", "finding")
+# pulse: the weekly one-question check — "did Skein reduce coordination
+# effort this week?" (up/down + optional note in correction). Team-aggregated
+# only; never displayed per person.
+KINDS = ("chat", "capture", "proposal", "finding", "pulse")
 VERDICTS = ("up", "down", "corrected")
 
 
@@ -67,3 +70,23 @@ def eval_capture() -> dict:
         "accuracy": round(sum(results) / n, 3) if n else None,
         "mismatches": mismatches,
     }
+
+
+def pulse_tally(weeks: int = 8) -> list[dict]:
+    """Team-aggregated weekly pulse: up = Skein reduced coordination effort,
+    down = it added effort. Counts only — never who said what (the one burden
+    signal telemetry can't measure honestly if people feel watched)."""
+    rows = db.query(
+        "SELECT substr(created_at, 1, 10) AS day, verdict FROM feedback"
+        " WHERE kind = 'pulse' ORDER BY id DESC LIMIT 500"
+    )
+    from datetime import date
+
+    buckets: dict[str, dict] = {}
+    for r in rows:
+        iso = date.fromisoformat(r["day"]).isocalendar()
+        wk = f"{iso.year}-W{iso.week:02d}"
+        b = buckets.setdefault(wk, {"week": wk, "up": 0, "down": 0})
+        if r["verdict"] in ("up", "down"):
+            b[r["verdict"]] += 1
+    return sorted(buckets.values(), key=lambda b: b["week"], reverse=True)[:weeks]

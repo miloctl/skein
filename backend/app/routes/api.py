@@ -400,7 +400,9 @@ def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser):
 
 
 @router.get("/context-pack")
-def get_context_pack(user: CurrentUser):
+def get_context_pack(user: CurrentUser, engagement: int = 0):
+    if engagement:
+        return {"engagement": engagement, "content": context_pack.build_engagement_pack(engagement)}
     return context_pack.get_pack(actor=user)
 
 

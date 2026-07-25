@@ -91,6 +91,86 @@ def build_pack() -> str:
     return "\n".join(lines)
 
 
+def build_engagement_pack(engagement_id: int) -> str:
+    """Scoped pack for ONE engagement — what a delegated agent needs and
+    nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
+    on demand (unversioned; versioning is for the org-brain)."""
+    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    if not eng:
+        raise ValueError(f"engagement #{engagement_id} not found")
+    lines = [
+        f"# Engagement context: {eng['name']}",
+        "",
+        f"*Class: {eng['project_class']} · kind: {eng['kind']} · status: {eng['status']}"
+        f" · lead: {eng['lead'] or 'unset'}*",
+        "",
+    ]
+    if eng["outcome"]:
+        lines += ["## Intended outcome", eng["outcome"], ""]
+    if eng["kind"] == "experiment":
+        lines += [
+            "## Experiment frame",
+            f"- Timebox ends: {eng['timebox_end'] or 'unset'}",
+            f"- Kill criteria: {eng['kill_criteria'] or 'unset'}",
+            "- An invalidated hypothesis concluded on time is a SUCCESS.",
+            "",
+        ]
+    lines.append("## Milestones")
+    milestones = db.query(
+        "SELECT * FROM milestones WHERE engagement_id = ? ORDER BY due_date IS NULL, due_date",
+        (engagement_id,),
+    )
+    lines += [
+        f"- [{m['status']}] #{m['id']} {m['title']}"
+        + (f" — due {m['due_date']}" if m["due_date"] else "")
+        for m in milestones
+    ] or ["- none"]
+    lines.append("")
+    lines.append("## Open tasks")
+    tasks = db.query(
+        "SELECT t.* FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
+        " WHERE m.engagement_id = ? AND t.status != 'done'"
+        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END",
+        (engagement_id,),
+    )
+    for t in tasks:
+        line = f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"
+        if t["assignee"]:
+            line += f" (@{t['assignee']})"
+        if t["waiting_on_type"]:
+            line += f" — waiting on {t['waiting_on_type']} #{t['waiting_on_id']}"
+        lines.append(line)
+    if not tasks:
+        lines.append("- none")
+    lines.append("")
+    from .portfolio import _linked_blockers
+
+    blockers = _linked_blockers(engagement_id)
+    lines.append("## Unresolved blockers")
+    lines += [f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}" for b in blockers] or [
+        "- none"
+    ]
+    lines.append("")
+    lines.append("## Lessons from this class")
+    lessons = db.query(
+        "SELECT * FROM lessons WHERE engagement_id = ? OR project_class = ?"
+        " ORDER BY id DESC LIMIT 10",
+        (engagement_id, eng["project_class"]),
+    )
+    lines += [
+        f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
+        for les in lessons
+    ] or ["- none recorded"]
+    lines.append("")
+    lines.append("## Standing decisions that bind this work")
+    decisions = db.query(
+        "SELECT * FROM decisions WHERE status = 'active' ORDER BY id DESC LIMIT 10"
+    )
+    lines += [f"- **{d['title']}** — {d['decision']}" for d in decisions] or ["- none"]
+    return "\n".join(lines)
+
+
 def latest_pack() -> dict | None:
     return db.query_one("SELECT * FROM context_packs ORDER BY version DESC, id DESC LIMIT 1")
 
