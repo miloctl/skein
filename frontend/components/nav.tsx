@@ -23,6 +23,7 @@ const LINKS = [
   { href: "/intake", label: "Intake" },
   { href: "/ingest", label: "Ingest" },
   { href: "/people", label: "People" },
+  { href: "/charter", label: "Charter" },
 ];
 
 export function Nav() {

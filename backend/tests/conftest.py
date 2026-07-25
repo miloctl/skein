@@ -10,6 +10,15 @@ os.environ["STRANDS_EMBEDDINGS"] = "0"
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_ratelimit():
+    from app import ratelimit
+
+    ratelimit.reset()
+    yield
+    ratelimit.reset()
+
+
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
     from app import config, db

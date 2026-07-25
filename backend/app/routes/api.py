@@ -4,7 +4,7 @@ alongside agent tools — both go through app.services)."""
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from .. import db
+from .. import db, ratelimit
 from ..services import (
     admin,
     api_keys,
@@ -63,8 +63,8 @@ def get_questions(status: str = ""):
 
 
 @router.get("/decisions")
-def get_decisions(status: str = ""):
-    return collab.list_decisions(status=status)
+def get_decisions(status: str = "", category: str = ""):
+    return collab.list_decisions(status=status, category=category)
 
 
 @router.get("/standups")
@@ -132,9 +132,24 @@ def get_users():
     return users.list_users()
 
 
+class GrowthIn(BaseModel):
+    interests: str = Field(max_length=500)
+
+
+@router.post("/users/growth-interests")
+def post_growth_interests(body: GrowthIn, user: CurrentUser):
+    # self-declared only: you set YOURS (future-planning data, never scored)
+    return users.set_growth_interests(user, body.interests, actor=user)
+
+
 @router.get("/search")
 def get_search(q: str):
     return search.search(q)
+
+
+@router.get("/ask")
+def get_ask(q: str):
+    return search.ask(q)
 
 
 @router.get("/briefing")
@@ -515,6 +530,7 @@ class TaskPatch(BaseModel):
     description: str = ""
     title: str = ""
     committed_week: str = ""
+    waiting_on: str = ""  # "blocker:12" | "task:3" | "commitment:7" | "-"
 
 
 @router.patch("/tasks/{task_id}")
@@ -548,6 +564,7 @@ class DecisionIn(BaseModel):
     decision: str
     context: str = ""
     review_by: str = ""
+    category: str = ""
 
 
 @router.post("/decisions")
@@ -558,6 +575,7 @@ def post_decision(body: DecisionIn, user: CurrentUser):
         body.context,
         decided_by=user,
         review_by=body.review_by,
+        category=body.category,
         actor=user,
     )
 
@@ -684,6 +702,7 @@ class CaptureIn(BaseModel):
 
 @router.post("/capture")
 def post_capture(body: CaptureIn, user: CurrentUser, request: Request):
+    ratelimit.check("capture", user)
     strong = bool(getattr(request.state, "strong_auth", False))
     return capture.capture(body.text, actor=user, strong_auth=strong)
 
@@ -694,6 +713,7 @@ class IngestIn(BaseModel):
 
 @router.post("/ingest")
 def post_ingest(body: IngestIn, user: CurrentUser):
+    ratelimit.check("ingest", user)
     return ingest.ingest_notes(body.text, actor=user)
 
 

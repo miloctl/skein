@@ -53,15 +53,25 @@ def set_authority(agent: str, entity: str, level: str, *, actor: str = "system")
     if entity not in _registry():
         raise ValueError(f"unknown entity '{entity}'; one of {sorted(_registry())}")
     ensure_user(agent, kind="agent")
+    # authority half-life: elevated grants carry a review-by date (90d
+    # default) — "nothing in Skein is trusted forever, not decisions, not
+    # agents." The authority_stale findings rule nags past it; reconfirm by
+    # re-granting.
+    review_by = None
+    if level in ("autonomous", "notify"):
+        from datetime import date, timedelta
+
+        review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
     db.execute(
-        "INSERT INTO agent_authority (agent, entity, level, updated_by, updated_at)"
-        " VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO agent_authority (agent, entity, level, updated_by, updated_at, review_by)"
+        " VALUES (?, ?, ?, ?, ?, ?)"
         " ON CONFLICT (agent, entity) DO UPDATE SET level = excluded.level,"
-        " updated_by = excluded.updated_by, updated_at = excluded.updated_at",
-        (agent, entity, level, actor, db.now()),
+        " updated_by = excluded.updated_by, updated_at = excluded.updated_at,"
+        " review_by = excluded.review_by",
+        (agent, entity, level, actor, db.now(), review_by),
     )
     db.log_activity(actor, "set_authority", f"{agent}/{entity} -> {level}")
-    return {"agent": agent, "entity": entity, "level": level}
+    return {"agent": agent, "entity": entity, "level": level, "review_by": review_by}
 
 
 def authority_level(agent: str, entity: str) -> str:

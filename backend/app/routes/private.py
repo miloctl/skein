@@ -28,6 +28,16 @@ def post_note(body: NoteIn, user: StrongUser):
     return private_notes.add_note(user, body.person, body.body, kind=body.kind)
 
 
+@router.delete("/notes/{note_id}")
+def delete_note(note_id: int, user: StrongUser):
+    return private_notes.delete_note(user, note_id)
+
+
+@router.get("/audit")
+def get_audit(user: StrongUser):
+    return private_notes.list_audit(user)
+
+
 @router.get("/brief/{person}")
 def get_brief(person: str, user: StrongUser, days: int = 14):
     private_notes.audit_brief(user, person)

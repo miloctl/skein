@@ -148,6 +148,10 @@ def create_task(
     return {"id": tid, "title": title, "status": "todo"}
 
 
+WAITING_ON_TYPES = ("task", "blocker", "commitment")
+_WAITING_TABLES = {"task": "tasks", "blocker": "blockers", "commitment": "commitments"}
+
+
 def update_task(
     task_id: int,
     status: str = "",
@@ -157,6 +161,7 @@ def update_task(
     description: str = "",
     title: str = "",
     committed_week: str = "",
+    waiting_on: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -167,10 +172,27 @@ def update_task(
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):
         raise ValueError("committed_week must look like 2026-W31 (or '-' to clear)")
+    # waiting_on: "blocker:12" (what is this stuck behind — deliberately NOT
+    # Gantt), or "-" to clear
+    waiting_type: str | None = None
+    waiting_id: int | None = None
+    if waiting_on and waiting_on != "-":
+        kind, _, ref = waiting_on.partition(":")
+        if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdigit():
+            raise ValueError(
+                f"waiting_on must look like 'task:12', 'blocker:3', or"
+                f" 'commitment:7' (one of {WAITING_ON_TYPES}), or '-' to clear"
+            )
+        waiting_type, waiting_id = kind, int(ref.strip().lstrip("#"))
+        if kind == "task" and waiting_id == task_id:
+            raise ValueError("a task cannot wait on itself")
+        table = _WAITING_TABLES[kind]
+        if not db.query_one(f"SELECT id FROM {table} WHERE id = ?", (waiting_id,)):  # noqa: S608
+            raise ValueError(f"{kind} #{waiting_id} not found")
     current = db.query_one("SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise ValueError(f"task #{task_id} not found")
-    fields: dict[str, str | None] = {
+    fields: dict[str, str | int | None] = {
         k: v
         for k, v in [
             ("status", status),
@@ -183,6 +205,12 @@ def update_task(
         ]
         if v
     }
+    if waiting_on == "-":
+        fields["waiting_on_type"] = None
+        fields["waiting_on_id"] = None
+    elif waiting_type:
+        fields["waiting_on_type"] = waiting_type
+        fields["waiting_on_id"] = waiting_id
     if not fields:
         raise ValueError("nothing to update")
     if committed_week == "-":

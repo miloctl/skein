@@ -54,6 +54,18 @@ def engagement_health() -> list[dict]:
                 f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d"
                 f" (@{t['assignee'] or 'unassigned'})"
             )
+        waiting = db.query(
+            "SELECT t.id, t.title, t.waiting_on_type, t.waiting_on_id FROM tasks t"
+            " JOIN milestones m ON m.id = t.milestone_id"
+            " WHERE m.engagement_id = ? AND t.status != 'done'"
+            " AND t.waiting_on_type IS NOT NULL",
+            (eng["id"],),
+        )
+        for t in waiting:
+            receipts.append(
+                f"task #{t['id']} '{t['title']}' waiting on"
+                f" {t['waiting_on_type']} #{t['waiting_on_id']}"
+            )
         last = db.query_one(
             "SELECT MAX(t.updated_at) AS ts FROM tasks t"
             " JOIN milestones m ON m.id = t.milestone_id WHERE m.engagement_id = ?",
@@ -198,6 +210,11 @@ def slip_forecast() -> dict:
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     ):
         forecast = (date.fromisoformat(m["due_date"]) + timedelta(days=round(applied))).isoformat()
+        waiting = db.query(
+            "SELECT id, waiting_on_type, waiting_on_id FROM tasks"
+            " WHERE milestone_id = ? AND status != 'done' AND waiting_on_type IS NOT NULL",
+            (m["id"],),
+        )
         forecasts.append(
             {
                 "milestone_id": m["id"],
@@ -206,6 +223,10 @@ def slip_forecast() -> dict:
                 "due_date": m["due_date"],
                 "forecast_date": forecast,
                 "at_risk": forecast < _today().isoformat() or m["due_date"] < _today().isoformat(),
+                "waiting_on": [
+                    f"{w['waiting_on_type']} #{w['waiting_on_id']} (task #{w['id']})"
+                    for w in waiting
+                ],
             }
         )
     return {
@@ -239,6 +260,10 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
             (today, today),
         )
     }
+    interests = {
+        r["name"]: r["growth_interests"]
+        for r in db.query("SELECT name, growth_interests FROM users WHERE growth_interests != ''")
+    }
     projection = []
     for p in people:
         total = current.get(p, 0) + percent
@@ -248,6 +273,8 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
                 "current_percent": current.get(p, 0),
                 "projected_percent": total,
                 "overcommitted": total > 100,
+                # display-only: the human weighs growth fit, no matching logic
+                "growth_interests": interests.get(p, ""),
             }
         )
     return {

@@ -54,12 +54,16 @@ def list_questions(status: str = "") -> list[dict]:
     return db.query("SELECT * FROM questions ORDER BY status = 'answered', id DESC")
 
 
+DECISION_CATEGORIES = ("", "charter")  # charter: team mission/ownership/norms
+
+
 def record_decision(
     title: str,
     decision: str,
     context: str = "",
     decided_by: str = "",
     review_by: str = "",
+    category: str = "",
     *,
     actor: str = "",
     origin: str = "human",
@@ -70,16 +74,19 @@ def record_decision(
         raise ValueError(
             "review_by must be YYYY-MM-DD — anything else would never trigger the stale sweep"
         )
+    if category not in DECISION_CATEGORIES:
+        raise ValueError(f"category must be one of {DECISION_CATEGORIES}")
     did = db.execute(
-        "INSERT INTO decisions (title, context, decision, decided_by, review_by,"
+        "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
         " origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             title,
             context,
             decision,
             decided_by,
             review_by or None,
+            category,
             origin,
             actor or decided_by,
             db.now(),
@@ -188,12 +195,19 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
     return {"id": decision_id, "status": "active", "review_by": review_by}
 
 
-def list_decisions(limit: int = 50, status: str = "") -> list[dict]:
+def list_decisions(limit: int = 50, status: str = "", category: str = "") -> list[dict]:
+    where, params = [], []
     if status:
-        return db.query(
-            "SELECT * FROM decisions WHERE status = ? ORDER BY id DESC LIMIT ?", (status, limit)
-        )
-    return db.query("SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,))
+        where.append("status = ?")
+        params.append(status)
+    if category:
+        where.append("category = ?")
+        params.append(category)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    return db.query(
+        f"SELECT * FROM decisions{clause} ORDER BY id DESC LIMIT ?",  # noqa: S608 — clauses hardcoded
+        (*params, limit),
+    )
 
 
 def post_standup(

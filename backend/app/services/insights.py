@@ -612,6 +612,31 @@ def _r_experiment_overdue() -> list[dict]:
     ]
 
 
+def _r_authority_stale() -> list[dict]:
+    """Elevated authority grants past their review-by date. The nudge, not a
+    demotion state machine — the human reconfirms (re-grants) or demotes."""
+    stale = db.query(
+        "SELECT agent, entity, level, review_by, updated_by FROM agent_authority"
+        " WHERE level IN ('autonomous', 'notify') AND review_by IS NOT NULL"
+        " AND review_by < ?",
+        (_iso(_today()),),
+    )
+    return [
+        _finding(
+            "authority_stale",
+            "medium",
+            f"Agent '{g['agent']}' has held {g['level']} authority over"
+            f" {g['entity']} past its review date ({g['review_by']}) —"
+            " reconfirm the grant or demote it to review.",
+            {"agent": g["agent"], "entity": g["entity"], "granted_by": g["updated_by"]},
+            n=1,
+            subject=f"authority-{g['agent']}-{g['entity']}",
+            window="point-in-time",
+        )
+        for g in stale
+    ]
+
+
 def _r_job_stale() -> list[dict]:
     from .jobs import job_health
 
@@ -644,6 +669,7 @@ RULES = (
     _r_token_anomaly,
     _r_job_stale,
     _r_experiment_overdue,
+    _r_authority_stale,
 )
 
 

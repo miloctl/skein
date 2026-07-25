@@ -28,6 +28,25 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
     _maybe_embed(entity, entity_id, f"{title}\n{body}")
 
 
+def ask(q: str, limit: int = 5) -> dict:
+    """Q&A with receipts: deterministic FTS answer where every snippet cites
+    its row (entity #id), findings-style. Degrades honestly keyless — an LLM
+    synthesis can be layered on top later, but the citations ARE the answer."""
+    hits = search(q, limit)
+    return {
+        "question": q,
+        "citations": [
+            {
+                "ref": f"{h['entity']} #{h['entity_id']}",
+                "title": h["title"],
+                "snippet": h["snippet"],
+            }
+            for h in hits
+        ],
+        "note": "" if hits else "nothing indexed matches — try different words",
+    }
+
+
 def search(q: str, limit: int = 20) -> list[dict]:
     if not q.strip():
         return []

@@ -13,6 +13,16 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
 
 
+def set_growth_interests(name: str, interests: str, *, actor: str = "system") -> dict:
+    """Self-declared growth interests — person-level data used to plan the
+    future (staffing fit), never to judge the past. Display-only: no
+    matching logic, no scores."""
+    ensure_user(name)
+    db.execute("UPDATE users SET growth_interests = ? WHERE name = ?", (interests.strip(), name))
+    db.log_activity(actor, "set_growth_interests", name)
+    return {"name": name, "growth_interests": interests.strip()}
+
+
 def list_users(active_only: bool = True) -> list[dict]:
     if active_only:
         return db.query("SELECT * FROM users WHERE active = 1 ORDER BY kind, name")

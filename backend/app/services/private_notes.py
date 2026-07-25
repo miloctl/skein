@@ -135,6 +135,30 @@ def feedback_gap_days(author: str, person: str) -> int | None:
     return (datetime.now(timezone.utc) - last).days
 
 
+def delete_note(author: str, note_id: int) -> dict:
+    """Author-only delete with a tombstone audit row — 'prove note #N about
+    dana was destroyed' must be answerable."""
+    with closing(_connect()) as conn:
+        cur = conn.execute(
+            "DELETE FROM private_notes WHERE id = ? AND author = ?", (note_id, author)
+        )
+        if not cur.rowcount:
+            raise ValueError(f"note #{note_id} not found (or not yours)")
+        _audit(conn, author, "delete", note_id)
+        conn.commit()
+    return {"id": note_id, "deleted": True}
+
+
+def list_audit(author: str, limit: int = 100) -> list[dict]:
+    """The author's own audit trail: adds, reads, briefs, deletes."""
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM private_audit WHERE author = ? ORDER BY id DESC LIMIT ?",
+            (author, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def audit_brief(author: str, person: str) -> None:
     """Record that author pulled person's 1:1 brief (audit lives in
     private.db — the fact a brief was pulled is itself private)."""

@@ -269,6 +269,28 @@ export default function MyDay() {
                 {b.your_work.due_soon.map((t) => `#${t.id} ${t.title}`).join(" · ")}
               </li>
             )}
+            <li className="pt-2 text-xs text-zinc-400">
+              <button
+                onClick={async () => {
+                  const interests = prompt(
+                    "Your growth interests (shown in staffing what-ifs so interesting work finds you):",
+                  );
+                  if (interests === null) return;
+                  try {
+                    await api("/api/users/growth-interests", {
+                      method: "POST",
+                      body: JSON.stringify({ interests }),
+                    });
+                    alert("Saved.");
+                  } catch (e) {
+                    alert(String(e));
+                  }
+                }}
+                className="underline hover:text-zinc-600"
+              >
+                🌱 set your growth interests
+              </button>
+            </li>
           </ul>
         </Card>
 
