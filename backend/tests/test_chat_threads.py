@@ -29,6 +29,7 @@ def test_command_output_is_in_transcript(client):
     _read_chat(client, "/personas", thread="th-3")
     msgs = client.get("/api/chats/th-3/messages").json()
     assert "The bench" in msgs[1]["content"]
+    assert "🔧" in msgs[1]["content"]  # tool markers survive rehydration
 
 
 def test_fb_never_reaches_transcript(client):

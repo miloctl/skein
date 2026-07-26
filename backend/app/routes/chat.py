@@ -169,6 +169,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         yield _sse({"type": "text", "text": event["data"]})
                     elif "current_tool_use" in event:
                         name = event["current_tool_use"].get("name", "")
+                        parts.append(f"\n\n*🔧 {name}…*\n\n")
                         yield _sse({"type": "tool", "name": name})
             except Exception as exc:
                 logging.getLogger("strands.chat").exception("command failed (user=%s)", user)
