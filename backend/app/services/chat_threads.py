@@ -89,6 +89,51 @@ def get_messages(thread_id: str, owner: str) -> list[dict]:
     )
 
 
+FOLDER_LEN = 40
+
+
+def create_folder(owner: str, name: str) -> dict:
+    name = name.strip()[:FOLDER_LEN]
+    if not name:
+        raise ValueError("folder name is required")
+    existing = _snap_folder(owner, name)
+    db.execute(
+        "INSERT OR IGNORE INTO chat_folders (owner, name, created_at) VALUES (?, ?, ?)",
+        (owner, existing, db.now()),
+    )
+    return {"name": existing}
+
+
+def list_folders(owner: str) -> list[str]:
+    """Union of registered folders and any legacy folder still on a thread."""
+    rows = db.query(
+        "SELECT name FROM chat_folders WHERE owner = ?"
+        " UNION SELECT DISTINCT folder FROM chat_threads WHERE owner = ? AND folder != ''"
+        " ORDER BY 1",
+        (owner, owner),
+    )
+    return [r["name"] for r in rows]
+
+
+def delete_folder(owner: str, name: str) -> dict:
+    """Remove the folder; its chats become unfiled (never deleted)."""
+    name = name.strip()
+    unfiled = db.execute_rowcount(
+        "UPDATE chat_threads SET folder = '' WHERE owner = ? AND folder = ?",
+        (owner, name),
+    )
+    db.execute("DELETE FROM chat_folders WHERE owner = ? AND name = ?", (owner, name))
+    return {"name": name, "unfiled": unfiled}
+
+
+def _snap_folder(owner: str, wanted: str) -> str:
+    """Case-insensitively reuse an existing folder spelling."""
+    for existing in list_folders(owner):
+        if existing.lower() == wanted.lower():
+            return existing
+    return wanted
+
+
 def update_thread(
     thread_id: str, owner: str, *, title: str = "", folder: str | None = None
 ) -> dict:
@@ -99,16 +144,14 @@ def update_thread(
             (title.strip()[:TITLE_LEN], db.now(), thread_id),
         )
     if folder is not None:
-        wanted = folder.strip()[:40]
+        wanted = folder.strip()[:FOLDER_LEN]
         if wanted:
-            existing = db.query(
-                "SELECT DISTINCT folder FROM chat_threads WHERE owner = ? AND folder != ''",
-                (owner,),
+            wanted = _snap_folder(owner, wanted)
+            # register it: a folder emptied later must not vanish
+            db.execute(
+                "INSERT OR IGNORE INTO chat_folders (owner, name, created_at) VALUES (?, ?, ?)",
+                (owner, wanted, db.now()),
             )
-            for e in existing:
-                if e["folder"].lower() == wanted.lower():
-                    wanted = e["folder"]  # snap to the existing spelling
-                    break
         db.execute(
             "UPDATE chat_threads SET folder = ?, updated_at = ? WHERE id = ?",
             (wanted, db.now(), thread_id),

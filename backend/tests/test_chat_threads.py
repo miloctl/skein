@@ -95,3 +95,29 @@ def test_remember_refuses_fb(client):
         out = resp.read().decode()
     assert "private" in out
     assert client.get("/api/memories").json() == []
+
+
+def test_empty_folders_persist(client):
+    client.post("/api/chats/folders", json={"name": "Research"})
+    assert "Research" in client.get("/api/chats/folders").json()
+    # case-insensitive create returns the existing spelling
+    client.post("/api/chats/folders", json={"name": "research"})
+    folders = client.get("/api/chats/folders").json()
+    assert folders.count("Research") == 1 and "research" not in folders
+
+
+def test_emptied_folder_survives_and_delete_unfiles(client):
+    def chat(thread, msg):
+        with client.stream("POST", "/api/chat", json={"thread_id": thread, "message": msg}) as r:
+            r.read()
+
+    chat("ef-1", "note: hello")
+    client.patch("/api/chats/ef-1", json={"folder": "Keep"})
+    client.patch("/api/chats/ef-1", json={"folder": ""})  # emptied
+    assert "Keep" in client.get("/api/chats/folders").json()  # survives
+    client.patch("/api/chats/ef-1", json={"folder": "Keep"})
+    out = client.delete("/api/chats/folders/Keep").json()
+    assert out["unfiled"] == 1
+    assert "Keep" not in client.get("/api/chats/folders").json()
+    chats = {c["id"]: c for c in client.get("/api/chats").json()}
+    assert chats["ef-1"]["folder"] == ""
