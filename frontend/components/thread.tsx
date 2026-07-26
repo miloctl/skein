@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   ThreadPrimitive,
@@ -13,6 +13,14 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { api } from "@/lib/api";
+import {
+  findPersona,
+  getActivePersona,
+  setActivePersona,
+  setBench,
+  subscribePersona,
+  type Persona,
+} from "@/lib/persona";
 
 const MarkdownText = () => (
   <MarkdownTextPrimitive
@@ -57,8 +65,6 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "remember", args: "<fact>", description: "Save a durable cross-thread memory" },
 ];
 
-type Persona = { slug: string; name: string; description: string; emoji: string };
-
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
@@ -66,19 +72,28 @@ const Composer = () => {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const activePersona = useSyncExternalStore(
+    subscribePersona,
+    getActivePersona,
+    () => null,
+  );
 
   useEffect(() => {
     api<SlashCommand[]>("/api/chat/commands").then(setCommands).catch(() => {});
-    api<Persona[]>("/api/personas").then(setPersonas).catch(() => {});
+    api<Persona[]>("/api/personas")
+      .then((list) => {
+        setPersonas(list);
+        setBench(list);
+        // /agents bench cards link to /chat?as=<slug> — enter that
+        // persona's session directly (the chip shows the mode)
+        const slug = new URLSearchParams(window.location.search).get("as");
+        if (slug) {
+          const p = list.find((x) => x.slug === slug);
+          if (p) setActivePersona(p);
+        }
+      })
+      .catch(() => {});
   }, []);
-
-  // /agents bench cards link to /chat?as=<slug> — prefill the invocation
-  useEffect(() => {
-    const slug = new URLSearchParams(window.location.search).get("as");
-    if (slug && /^[a-z0-9-]+$/.test(slug) && !composer.getState().text) {
-      composer.setText(`/as ${slug} `);
-    }
-  }, [composer]);
 
   // two popup modes: the command token ("/bri"), and the persona slug
   // right after "/as " — the hard-to-recall half of the invocation
@@ -108,6 +123,14 @@ const Composer = () => {
   const active = matches[Math.min(sel, matches.length - 1)];
 
   const run = (c: SlashCommand) => {
+    if (c.name.startsWith("as ")) {
+      const p = findPersona(c.name.slice(3));
+      if (p) {
+        setActivePersona(p);
+        composer.setText("");
+      }
+      return;
+    }
     if (c.args) {
       composer.setText(`/${c.name} `);
     } else {
@@ -174,10 +197,33 @@ const Composer = () => {
           ))}
         </div>
       )}
+      {activePersona && (
+        <div className="mb-1.5 flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-1.5 rounded-full border border-thread-solid/40 bg-thread/10 py-0.5 pl-2 pr-1 font-medium text-thread">
+            <span aria-hidden>{activePersona.emoji}</span>
+            {activePersona.name}
+            <button
+              onClick={() => setActivePersona(null)}
+              aria-label={`Leave ${activePersona.name} mode`}
+              className="rounded-full px-1 leading-none hover:bg-thread/20"
+            >
+              ×
+            </button>
+          </span>
+          <span className="text-ink-3">
+            every message goes to this specialist — × returns to the Chief of
+            Staff
+          </span>
+        </div>
+      )}
       <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
         <ComposerPrimitive.Input
           autoFocus
-          placeholder="Message the Chief of Staff… (/help for commands, or just ask)"
+          placeholder={
+            activePersona
+              ? `Message ${activePersona.name}…`
+              : "Message the Chief of Staff… (/help for commands, or just ask)"
+          }
           className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
           rows={1}
         />
