@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import {
   APPEARANCES,
   COLORWAYS,
@@ -44,11 +45,11 @@ function CopyLine({ text }: { text: string }) {
         {text}
       </code>
       <button
-        onClick={() => {
-          navigator.clipboard.writeText(text).then(() => {
+        onClick={async () => {
+          if (await copyText(text)) {
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
-          });
+          }
         }}
         className="shrink-0 rounded bg-raised px-2 py-1 text-xs hover:bg-line"
       >

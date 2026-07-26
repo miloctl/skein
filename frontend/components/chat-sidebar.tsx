@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { api, getUser } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 
 export type ChatThread = {
   id: string;
@@ -219,7 +220,7 @@ export function ChatSidebar({
         msgs
           .map((m) => `**${m.role === "user" ? me : "Skein"}:**\n\n${m.content}`)
           .join("\n\n---\n\n");
-      await navigator.clipboard.writeText(md);
+      if (!(await copyText(md))) throw new Error("couldn't copy — select and copy manually");
       setCopied(t.id);
       setTimeout(() => {
         // identity-guarded: never clobber a newer menu/toast (review fix)
