@@ -23,7 +23,7 @@ from ..agents.identity import (
 )
 from ..agents.team_agent import build_agent
 from ..config import MODEL_ID
-from ..services import personas
+from ..services import chat_threads, personas
 from ..services.usage import record_chat_usage
 from .deps import CurrentUser
 
@@ -39,6 +39,31 @@ class ChatRequest(BaseModel):
 def chat_commands() -> list[dict]:
     """Command catalog for the composer autocomplete — static metadata."""
     return commands.catalog()
+
+
+class ChatPatch(BaseModel):
+    title: str = ""
+    folder: str | None = None
+
+
+@router.get("/api/chats")
+def get_chats(user: CurrentUser):
+    return chat_threads.list_threads(user)
+
+
+@router.get("/api/chats/{thread_id}/messages")
+def get_chat_messages(thread_id: str, user: CurrentUser):
+    return chat_threads.get_messages(thread_id, user)
+
+
+@router.patch("/api/chats/{thread_id}")
+def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
+    return chat_threads.update_thread(thread_id, user, title=body.title, folder=body.folder)
+
+
+@router.delete("/api/chats/{thread_id}")
+def delete_chat(thread_id: str, user: CurrentUser):
+    return chat_threads.delete_thread(thread_id, user)
 
 
 def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
@@ -125,13 +150,19 @@ async def chat(req: ChatRequest, user: CurrentUser):
 
     # slash commands are deterministic for EVERY provider: no agent, no
     # session write, no tokens — same engine the mock agent and Slack use
+    # the UI transcript is keyed by the BASE thread id (persona sessions
+    # share one visible conversation); sanitize once, up front
+    ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
+
     command_events = commands.dispatch(message, user)
     if command_events is not None:
 
         async def command_stream():
+            parts: list[str] = []
             try:
                 async for event in command_events:
                     if "data" in event:
+                        parts.append(event["data"])
                         yield _sse({"type": "text", "text": event["data"]})
                     elif "current_tool_use" in event:
                         name = event["current_tool_use"].get("name", "")
@@ -139,12 +170,11 @@ async def chat(req: ChatRequest, user: CurrentUser):
             except Exception as exc:
                 logging.getLogger("strands.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
+            _log_transcript(ui_thread, user, message, "".join(parts))
             yield _sse({"type": "done"})
 
         return StreamingResponse(command_stream(), media_type="text/event-stream")
-    # thread_id becomes a session filename — restrict to a safe charset;
-    # personas get their own session thread so heads don't share memory
-    thread_id = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
+    thread_id = ui_thread
     if persona:
         # truncate the BASE, never the suffix — a clipped suffix would let a
         # persona share the CoS session (the contamination this prevents)
@@ -172,6 +202,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
 
     async def stream():
         seen_tools: set[str] = set()
+        transcript: list[str] = [masthead] if masthead else []
         # identity is set INSIDE the generator: tool calls run during this
         # iteration, in this context — proposals sign the persona's name
         token = set_agent_identity(persona or "agent")
@@ -181,17 +212,21 @@ async def chat(req: ChatRequest, user: CurrentUser):
         try:
             async for event in agent.stream_async(message):
                 if "data" in event:
+                    transcript.append(event["data"])
                     yield _sse({"type": "text", "text": event["data"]})
                 elif "current_tool_use" in event:
                     tool_use = event["current_tool_use"]
                     tool_id = tool_use.get("toolUseId", "")
                     if tool_id and tool_id not in seen_tools:
                         seen_tools.add(tool_id)
-                        yield _sse({"type": "tool", "name": tool_use.get("name", "")})
+                        name = tool_use.get("name", "")
+                        transcript.append(f"\n\n*🔧 {name}…*\n\n")
+                        yield _sse({"type": "tool", "name": name})
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("strands.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
+            transcript.append(f"\n\n> ⚠️ {exc}\n")
             yield _sse({"type": "error", "message": str(exc)})
         finally:
             # an abandoned stream may be finalized in a foreign context,
@@ -202,9 +237,19 @@ async def chat(req: ChatRequest, user: CurrentUser):
             except ValueError:
                 pass
         _log_usage(agent, thread_id, agent_name=persona or "chief-of-staff")
+        _log_transcript(ui_thread, user, message, "".join(transcript))
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+def _log_transcript(thread_id: str, owner: str, user_text: str, assistant_text: str) -> None:
+    """Best-effort UI history — a transcript failure must not break the chat."""
+    try:
+        chat_threads.log_message(thread_id, owner, "user", user_text)
+        chat_threads.log_message(thread_id, owner, "assistant", assistant_text)
+    except Exception:
+        logging.getLogger("strands.chat").exception("transcript log failed")
 
 
 def _sse(payload: dict) -> str:
