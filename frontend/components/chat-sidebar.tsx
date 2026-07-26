@@ -406,6 +406,7 @@ export function ChatSidebar({
       {creatingFolder && !selectMode && (
         <input
           autoFocus
+          name="new-folder"
           placeholder="Folder name — ↵ to create, esc to cancel"
           onKeyDown={(e) => {
             if (e.key === "Enter") createFolder(e.currentTarget.value);
@@ -591,6 +592,7 @@ export function ChatSidebar({
                     >
                       <input
                         autoFocus
+                        name="rename-chat"
                         defaultValue={t.title}
                         aria-label="New chat name"
                         onFocus={(e) => e.currentTarget.select()}
@@ -631,6 +633,7 @@ export function ChatSidebar({
                         ))}
                       <input
                         autoFocus={folders.length === 0 && !t.folder}
+                        name="move-to-new-folder"
                         placeholder="New folder — ↵ to move"
                         aria-label="Move to a new folder"
                         onKeyDown={(e) => {
