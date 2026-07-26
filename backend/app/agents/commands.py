@@ -108,7 +108,9 @@ async def _personas(args: str, user: str) -> AsyncIterator[Event]:
         )
         or "No personas installed."
     )
-    yield {"data": f"The bench:\n\n{body}\n\nInvoke one with `/as <persona> <message>`."}
+    yield {
+        "data": f"The bench — specialists you can call in with `/as <persona> <message>`:\n\n{body}"
+    }
 
 
 async def _remember(args: str, user: str) -> AsyncIterator[Event]:

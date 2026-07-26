@@ -4,6 +4,7 @@ import json
 
 from strands import tool
 
+from ..agents.identity import agent_identity
 from ..services import memory
 
 
@@ -20,7 +21,7 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
         about_user: Team member the memory concerns, if any.
     """
     try:
-        return json.dumps(memory.remember(content, topic, user=about_user))
+        return json.dumps(memory.remember(content, topic, user=about_user, actor=agent_identity()))
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 

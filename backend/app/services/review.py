@@ -57,6 +57,7 @@ def propose_change(
     actor: str = "agent",
     origin: str = "agent",
     notify_team: bool = True,
+    requested_by: str = "",
 ) -> dict:
     reg = _registry()
     if entity not in reg:
@@ -67,7 +68,8 @@ def propose_change(
         raise ValueError("entity_id required for updates")
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
-        " proposed_by, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " proposed_by, origin, created_at, requested_by)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entity,
             entity_id or None,
@@ -77,9 +79,14 @@ def propose_change(
             actor,
             origin,
             db.now(),
+            requested_by or None,
         ),
     )
-    db.log_activity(actor, "propose_change", f"#{pid} {action} {entity}")
+    db.log_activity(
+        actor,
+        "propose_change",
+        f"#{pid} {action} {entity}" + (f" (asked by {requested_by})" if requested_by else ""),
+    )
     if notify_team:  # bulk producers (ingestion) send ONE summary instead
         from .notifications import notify
 

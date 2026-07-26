@@ -15,6 +15,12 @@ def _days_ahead(days: int) -> str:
 # ---- flow / completed_at -----------------------------------------------------
 
 
+def _strong_headers():
+    from app.services.api_keys import create_key
+
+    return {"Authorization": f"Bearer {create_key('tester', 'test')['key']}"}
+
+
 def test_completed_at_stamped_and_cleared(client, fresh_db):
     t = client.post("/api/tasks", json={"title": "flow me"}).json()
     client.patch(f"/api/tasks/{t['id']}", json={"status": "done"})
@@ -201,6 +207,7 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     # autonomous → direct write even with review mode on
     client.post(
         "/api/agents/authority",
+        headers=_strong_headers(),
         json={"agent": "agent", "entity": "commitment", "level": "autonomous"},
     )
     out = j.loads(add_commitment(promise="p2"))
@@ -209,6 +216,7 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     # forbidden → refused
     client.post(
         "/api/agents/authority",
+        headers=_strong_headers(),
         json={"agent": "agent", "entity": "commitment", "level": "forbidden"},
     )
     out = j.loads(add_commitment(promise="p3"))

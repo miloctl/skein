@@ -11,7 +11,7 @@ from pathlib import Path
 
 PERSONAS_DIR = Path(__file__).resolve().parent.parent.parent / "personas"
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
-_FIELDS = ("name", "description", "emoji", "vibe")
+_FIELDS = ("name", "description", "emoji", "vibe", "disclosure")
 
 
 def _parse(path: Path) -> dict | None:
@@ -38,6 +38,7 @@ def _parse(path: Path) -> dict | None:
         "description": meta["description"],
         "emoji": meta.get("emoji", "🎭"),
         "vibe": meta.get("vibe", ""),
+        "disclosure": meta.get("disclosure", ""),
         "body": body.strip(),
     }
 
@@ -49,7 +50,12 @@ def list_personas() -> list[dict]:
         for path in sorted(PERSONAS_DIR.glob("*.md")):
             p = _parse(path)
             if p:
-                out.append({k: p[k] for k in ("slug", "name", "description", "emoji", "vibe")})
+                out.append(
+                    {
+                        k: p[k]
+                        for k in ("slug", "name", "description", "emoji", "vibe", "disclosure")
+                    }
+                )
     return out
 
 

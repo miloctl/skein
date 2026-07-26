@@ -57,15 +57,19 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "remember", args: "<fact>", description: "Save a durable cross-thread memory" },
 ];
 
+type Persona = { slug: string; name: string; description: string; emoji: string };
+
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
+  const [personas, setPersonas] = useState<Persona[]>([]);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     api<SlashCommand[]>("/api/chat/commands").then(setCommands).catch(() => {});
+    api<Persona[]>("/api/personas").then(setPersonas).catch(() => {});
   }, []);
 
   // /agents bench cards link to /chat?as=<slug> — prefill the invocation
@@ -76,17 +80,30 @@ const Composer = () => {
     }
   }, [composer]);
 
-  // the popup tracks the command token: "/" plus letters, before any space
-  const token = /^\/[a-z]*$/i.test(text) ? text.slice(1).toLowerCase() : null;
-  const [prevToken, setPrevToken] = useState(token);
-  if (prevToken !== token) {
-    setPrevToken(token);
+  // two popup modes: the command token ("/bri"), and the persona slug
+  // right after "/as " — the hard-to-recall half of the invocation
+  const cmdToken = /^\/[a-z]*$/i.test(text) ? text.slice(1).toLowerCase() : null;
+  const asToken = /^\/as\s+([a-z0-9-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
+  const resetKey = asToken !== null ? `as:${asToken}` : cmdToken;
+  const [prevToken, setPrevToken] = useState(resetKey);
+  if (prevToken !== resetKey) {
+    setPrevToken(resetKey);
     setSel(0);
     setDismissed(false);
   }
 
-  const matches =
-    token === null ? [] : commands.filter((c) => c.name.startsWith(token));
+  const matches: SlashCommand[] =
+    asToken !== null
+      ? personas
+          .filter((p) => p.slug.startsWith(asToken))
+          .map((p) => ({
+            name: `as ${p.slug}`,
+            args: "<message>",
+            description: `${p.emoji} ${p.description}`,
+          }))
+      : cmdToken === null
+        ? []
+        : commands.filter((c) => c.name.startsWith(cmdToken));
   const open = !dismissed && matches.length > 0;
   const active = matches[Math.min(sel, matches.length - 1)];
 
@@ -203,7 +220,8 @@ export function Thread() {
               Type <code>/help</code> for commands — <code>/plan</code>,{" "}
               <code>/playbooks</code>, <code>/search</code>,{" "}
               <code>/briefing</code>, <code>/remember</code> — they run
-              instantly, no model needed. Anything else goes to the agent.
+              instantly, no model needed. <code>/personas</code> lists the
+              bench of specialists. Anything else goes to the agent.
             </p>
           </div>
         </ThreadPrimitive.Empty>

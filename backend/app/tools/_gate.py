@@ -9,7 +9,7 @@ approved proposals, they don't start with it."""
 import json
 
 from .. import config
-from ..agents.identity import agent_identity
+from ..agents.identity import agent_identity, requester_identity
 from ..services import review
 from ..services.delegation import authority_level
 
@@ -56,6 +56,7 @@ def gated_write(
             entity_id=entity_id,
             actor=actor,
             origin="agent",
+            requested_by=requester_identity(),
         )
     except ValueError as exc:
         return json.dumps({"error": str(exc)})

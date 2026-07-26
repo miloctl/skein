@@ -147,14 +147,14 @@ def get_context_pack(engagement_id: int = 0) -> str:
 
 
 @tool
-def my_agent_inbox(agent: str = "agent") -> str:
+def my_agent_inbox(agent: str = "") -> str:
     """Ambient inbox for an agent identity: delegated tasks, questions
     assigned to it, rejected proposals (with reviewer notes), notifications.
 
     Args:
-        agent: The agent identity to check (default 'agent').
+        agent: The agent identity to check (defaults to your own).
     """
     try:
-        return json.dumps(delegation.agent_inbox(agent))
+        return json.dumps(delegation.agent_inbox(agent or agent_identity()))
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
