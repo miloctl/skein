@@ -9,6 +9,7 @@ from typing import Any
 
 from strands import tool
 
+from ..agents.identity import agent_identity
 from ..services import work
 from ._gate import gated_write
 
@@ -37,7 +38,7 @@ def create_milestone(
         "milestone",
         "create",
         dict(payload),
-        lambda: work.create_milestone(**payload, actor="agent", origin="agent"),
+        lambda: work.create_milestone(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -72,7 +73,9 @@ def update_milestone(
         "milestone",
         "update",
         payload,
-        lambda: work.update_milestone(milestone_id, **payload, actor="agent", origin="agent"),
+        lambda: work.update_milestone(
+            milestone_id, **payload, actor=agent_identity(), origin="agent"
+        ),
         entity_id=milestone_id,
     )
 
@@ -123,7 +126,7 @@ def create_task(
         "task",
         "create",
         dict(payload),
-        lambda: work.create_task(**payload, actor="agent", origin="agent"),
+        lambda: work.create_task(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -162,7 +165,7 @@ def update_task(
         "task",
         "update",
         payload,
-        lambda: work.update_task(task_id, **payload, actor="agent", origin="agent"),
+        lambda: work.update_task(task_id, **payload, actor=agent_identity(), origin="agent"),
         entity_id=task_id,
     )
 

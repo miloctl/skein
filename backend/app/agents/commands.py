@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from difflib import get_close_matches
 
 from .. import config
-from ..services import briefing, memory, playbooks, search
+from ..services import briefing, memory, personas, playbooks, search
 
 Event = dict
 
@@ -97,6 +97,20 @@ async def _playbooks(args: str, user: str) -> AsyncIterator[Event]:
     yield {"data": f"Available playbooks:\n\n{body}"}
 
 
+async def _personas(args: str, user: str) -> AsyncIterator[Event]:
+    yield _tool_event("list_personas")
+    rows = personas.list_personas()
+    body = (
+        "\n".join(
+            f"- {p['emoji']} **{p['slug']}** — {p['description']}"
+            + (f" *({p['vibe']})*" if p["vibe"] else "")
+            for p in rows
+        )
+        or "No personas installed."
+    )
+    yield {"data": f"The bench:\n\n{body}\n\nInvoke one with `/as <persona> <message>`."}
+
+
 async def _remember(args: str, user: str) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/remember <fact>`"}
@@ -145,6 +159,20 @@ COMMANDS: list[dict] = [
         "args": "<fact>",
         "description": "Save a durable cross-thread memory",
         "handler": _remember,
+    },
+    {
+        "name": "personas",
+        "args": "",
+        "description": "List the bench of invokable specialist personas",
+        "handler": _personas,
+    },
+    # handler None: resolved by the chat route (needs the agent layer);
+    # listed here so autocomplete and /help stay a single source of truth
+    {
+        "name": "as",
+        "args": "<persona> <message>",
+        "description": "Ask a bench persona instead of the Chief of Staff",
+        "handler": None,
     },
 ]
 
@@ -197,5 +225,7 @@ def dispatch(text: str, user: str) -> AsyncIterator[Event] | None:
     rest = stripped[len(token) :].strip()
     for c in COMMANDS:
         if c["name"] == name:
+            if c["handler"] is None:
+                return None  # route-level command (e.g. /as needs the agent)
             return c["handler"](rest, user)
     return _unknown(name)

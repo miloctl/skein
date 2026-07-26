@@ -23,6 +23,7 @@ from ..services import (
     intake,
     memory,
     notifications,
+    personas,
     playbooks,
     portfolio,
     pulse,
@@ -75,6 +76,16 @@ def get_standups():
 @router.get("/events")
 def get_events(from_date: str = ""):
     return schedule.list_events(from_date)
+
+
+@router.get("/personas")
+def get_personas():
+    return personas.list_personas()
+
+
+@router.get("/personas/{slug}")
+def get_persona(slug: str):
+    return personas.get_persona(slug)
 
 
 @router.get("/notes")

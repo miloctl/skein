@@ -14,8 +14,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..agents import commands
+from ..agents.identity import reset_agent_identity, set_agent_identity
 from ..agents.team_agent import build_agent
 from ..config import MODEL_ID
+from ..services import personas
 from ..services.usage import record_chat_usage
 from .deps import CurrentUser
 
@@ -75,9 +77,39 @@ async def chat(req: ChatRequest, user: CurrentUser):
 
         return StreamingResponse(fb_stream(), media_type="text/event-stream")
 
+    # /as <persona> <message>: resolve the bench persona BEFORE any model —
+    # unknown slugs get a deterministic error, valid ones swap the agent's
+    # head and identity (writes are attributed and gated per persona)
+    persona = ""
+    message = req.message
+    stripped = message.strip()
+    if stripped.lower().split(maxsplit=1)[:1] == ["/as"]:
+        parts = stripped.split(maxsplit=2)
+        if len(parts) < 3:
+            err = "Usage: `/as <persona> <message>` — `/personas` lists the bench."
+        else:
+            try:
+                persona = str(personas.get_persona(parts[1].lower())["slug"])
+                message = parts[2]
+                err = ""
+            except ValueError as exc:
+                err = f"⚠️ {exc}"
+        if err:
+
+            async def usage_stream(text=err):
+                yield _sse({"type": "text", "text": text})
+                yield _sse({"type": "done"})
+
+            return StreamingResponse(usage_stream(), media_type="text/event-stream")
+        from ..services.users import ensure_user
+
+        # deliberate registration from the curated bench (not typo-minting):
+        # the persona needs a user row for authority, trust, and its inbox
+        ensure_user(persona, kind="agent")
+
     # slash commands are deterministic for EVERY provider: no agent, no
     # session write, no tokens — same engine the mock agent and Slack use
-    command_events = commands.dispatch(req.message, user)
+    command_events = commands.dispatch(message, user)
     if command_events is not None:
 
         async def command_stream():
@@ -94,10 +126,13 @@ async def chat(req: ChatRequest, user: CurrentUser):
             yield _sse({"type": "done"})
 
         return StreamingResponse(command_stream(), media_type="text/event-stream")
-    # thread_id becomes a session filename — restrict to a safe charset
+    # thread_id becomes a session filename — restrict to a safe charset;
+    # personas get their own session thread so heads don't share memory
     thread_id = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
+    if persona:
+        thread_id = f"{thread_id}--{persona}"[:64]
     try:
-        agent = build_agent(thread_id, user)
+        agent = build_agent(thread_id, user, persona=persona)
     except Exception as exc:
         # keep the SSE protocol even when agent construction fails (bad model id, etc.)
         async def error_stream(message=str(exc)):
@@ -108,8 +143,11 @@ async def chat(req: ChatRequest, user: CurrentUser):
 
     async def stream():
         seen_tools: set[str] = set()
+        # identity is set INSIDE the generator: tool calls run during this
+        # iteration, in this context — proposals sign the persona's name
+        token = set_agent_identity(persona or "agent")
         try:
-            async for event in agent.stream_async(req.message):
+            async for event in agent.stream_async(message):
                 if "data" in event:
                     yield _sse({"type": "text", "text": event["data"]})
                 elif "current_tool_use" in event:
@@ -123,6 +161,8 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
             yield _sse({"type": "error", "message": str(exc)})
+        finally:
+            reset_agent_identity(token)
         _log_usage(agent, thread_id)
         yield _sse({"type": "done"})
 

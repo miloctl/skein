@@ -68,6 +68,14 @@ const Composer = () => {
     api<SlashCommand[]>("/api/chat/commands").then(setCommands).catch(() => {});
   }, []);
 
+  // /agents bench cards link to /chat?as=<slug> — prefill the invocation
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get("as");
+    if (slug && /^[a-z0-9-]+$/.test(slug) && !composer.getState().text) {
+      composer.setText(`/as ${slug} `);
+    }
+  }, [composer]);
+
   // the popup tracks the command token: "/" plus letters, before any space
   const token = /^\/[a-z]*$/i.test(text) ? text.slice(1).toLowerCase() : null;
   const [prevToken, setPrevToken] = useState(token);

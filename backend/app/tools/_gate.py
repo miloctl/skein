@@ -9,10 +9,9 @@ approved proposals, they don't start with it."""
 import json
 
 from .. import config
+from ..agents.identity import agent_identity
 from ..services import review
 from ..services.delegation import authority_level
-
-AGENT_ACTOR = "agent"
 
 
 def gated_write(
@@ -22,11 +21,12 @@ def gated_write(
     direct,
     entity_id: int = 0,
     summary: str = "",
-    actor: str = AGENT_ACTOR,
+    actor: str = "",
 ) -> str:
     """One gate for every agent write path (chat tools AND the MCP server) —
     per-agent authority and the review inbox see all agent traffic, so trust
     scores accrue no matter which door the agent came through."""
+    actor = actor or agent_identity()
     level = authority_level(actor, entity)
     if level == "forbidden":
         return json.dumps(

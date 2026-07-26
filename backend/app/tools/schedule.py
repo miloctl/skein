@@ -4,6 +4,7 @@ import json
 
 from strands import tool
 
+from ..agents.identity import agent_identity
 from ..services import schedule
 from ._gate import blocked_when_gated, gated_write
 
@@ -32,7 +33,7 @@ def schedule_event(
         "event",
         "create",
         payload,
-        lambda: schedule.schedule_event(**payload, actor="agent", origin="agent"),
+        lambda: schedule.schedule_event(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -56,9 +57,9 @@ def cancel_event(event_id: int) -> str:
     """
     from ..services import delegation
 
-    if delegation.authority_level("agent", "event") == "forbidden":
+    if delegation.authority_level(agent_identity(), "event") == "forbidden":
         return json.dumps({"error": "event writes are forbidden for this agent"})
     blocked = blocked_when_gated("cancelling an event")
     if blocked:
         return blocked
-    return json.dumps(schedule.cancel_event(event_id, actor="agent", origin="agent"))
+    return json.dumps(schedule.cancel_event(event_id, actor=agent_identity(), origin="agent"))
