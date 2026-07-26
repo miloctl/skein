@@ -18,7 +18,9 @@ from .. import config, db
 log = logging.getLogger(__name__)
 
 # everything except: search_index/schema_version (derived), api_keys (secret
-# hashes must not travel in portable exports — recreate keys after a restore)
+# hashes must not travel in portable exports — recreate keys after a restore),
+# and chat_threads/chat_messages (owner-scoped transcripts stay out of
+# portable exports on purpose; sqlite backups still carry them)
 TABLES = (
     "users",
     "milestones",

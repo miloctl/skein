@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -65,46 +65,71 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         return acc;
       };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          if (handle(chunk) !== null) {
-            yield { content: [{ type: "text", text: acc }] };
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const chunks = buffer.split("\n\n");
+          buffer = chunks.pop() ?? "";
+          for (const chunk of chunks) {
+            if (handle(chunk) !== null) {
+              yield { content: [{ type: "text", text: acc }] };
+            }
           }
         }
+        buffer += decoder.decode(); // flush a truncated tail on abrupt close
+        if (buffer && handle(buffer) !== null) {
+          yield { content: [{ type: "text", text: acc }] };
+        }
+      } finally {
+        // sidebar refresh even when the stream was stopped/aborted — the
+        // backend keeps the partial exchange, so the list must update too
+        window.dispatchEvent(new Event("skein-chat-activity"));
       }
-      buffer += decoder.decode(); // flush a truncated tail on abrupt close
-      if (buffer && handle(buffer) !== null) {
-        yield { content: [{ type: "text", text: acc }] };
-      }
-      // the sidebar refreshes titles/ordering after every exchange
-      window.dispatchEvent(new Event("skein-chat-activity"));
     },
   };
 }
 
 type StoredMessage = { role: "user" | "assistant"; content: string };
 
-/** Loads the stored transcript into the (fresh) runtime on mount. */
-function ThreadHydrator({ threadId }: { threadId: string }) {
+/** Loads the stored transcript into the (fresh) runtime, then reveals the
+ *  thread UI — gating children prevents both the empty-state flash and the
+ *  send-before-hydration race (reset() would clobber an in-flight run). */
+function ThreadHydrator({
+  threadId,
+  children,
+}: {
+  threadId: string;
+  children: ReactNode;
+}) {
   const thread = useThreadRuntime();
+  const [ready, setReady] = useState(false);
   useEffect(() => {
+    let cancelled = false;
     api<StoredMessage[]>(`/api/chats/${threadId}/messages`)
       .then((msgs) => {
-        if (msgs.length === 0) return;
-        const initial: ThreadMessageLike[] = msgs.map((m) => ({
-          role: m.role,
-          content: [{ type: "text", text: m.content }],
-        }));
-        thread.reset(initial);
+        if (cancelled) return;
+        // never clobber messages that already exist (e.g. a fast send)
+        if (msgs.length > 0 && thread.getState().messages.length === 0) {
+          const initial: ThreadMessageLike[] = msgs.map((m) => ({
+            role: m.role,
+            content: [{ type: "text", text: m.content }],
+          }));
+          thread.reset(initial);
+        }
       })
-      .catch(() => {}); // brand-new thread: nothing stored yet
+      .catch(() => {}) // brand-new thread: nothing stored yet
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [thread, threadId]);
-  return null;
+  if (!ready)
+    return <p className="p-8 text-sm text-ink-3">Unrolling the transcript…</p>;
+  return <>{children}</>;
 }
 
 export function RuntimeProvider({
@@ -118,8 +143,7 @@ export function RuntimeProvider({
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadHydrator threadId={threadId} />
-      {children}
+      <ThreadHydrator threadId={threadId}>{children}</ThreadHydrator>
     </AssistantRuntimeProvider>
   );
 }

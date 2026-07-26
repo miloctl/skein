@@ -18,12 +18,36 @@ function newId() {
   return crypto.randomUUID();
 }
 
+const LAST_KEY = "skein-last-chat";
+
+function initialThread(): string {
+  // reopen where you left off — a daily driver must not forget your chat
+  // every time you visit another page (unsaved blanks leave no residue)
+  try {
+    return sessionStorage.getItem(LAST_KEY) || newId();
+  } catch {
+    return newId();
+  }
+}
+
 export default function ChatPage() {
-  const [threadId, setThreadId] = useState<string>(newId);
+  const [threadId, setThreadId] = useState<string>(initialThread);
   const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LAST_KEY, threadId);
+    } catch {}
+  }, [threadId]);
 
   const load = useCallback(() => {
-    api<ChatThread[]>("/api/chats").then(setThreads).catch(() => {});
+    api<ChatThread[]>("/api/chats")
+      .then((rows) => {
+        setThreads(rows);
+        setLoadError(false);
+      })
+      .catch(() => setLoadError(true));
   }, []);
 
   useEffect(() => {
@@ -36,6 +60,9 @@ export default function ChatPage() {
     if (id === threadId) return;
     setActivePersona(null); // persona mode is per-conversation
     setThreadId(id);
+    document
+      .getElementById(`chat-${id}`)
+      ?.scrollIntoView({ block: "nearest" });
   };
 
   const startNew = () => {
@@ -69,11 +96,13 @@ export default function ChatPage() {
 
   const remove = async (t: ChatThread) => {
     if (!confirm(`Delete “${t.title}”? The transcript is gone for good.`)) return;
-    await api(`/api/chats/${t.id}`, { method: "DELETE" }).catch((e) =>
-      alert(String(e)),
-    );
-    if (t.id === threadId) startNew();
-    load();
+    try {
+      await api(`/api/chats/${t.id}`, { method: "DELETE" });
+      if (t.id === threadId) startNew();
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
   };
 
   // unfiled chats first, then folders alphabetically — recency within each
@@ -90,7 +119,20 @@ export default function ChatPage() {
         >
           + New chat
         </button>
-        {threads.length === 0 && (
+        {loadError && (
+          <p className="px-1 text-xs text-danger">
+            Couldn’t load your chats — is the backend running?
+          </p>
+        )}
+        {!threads.some((t) => t.id === threadId) && (
+          <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
+            New chat
+            <span className="ml-1.5 text-xs font-normal text-ink-3">
+              — saved after your first message
+            </span>
+          </div>
+        )}
+        {threads.length === 0 && !loadError && (
           <p className="px-1 text-xs text-ink-3">
             Your chats appear here after the first message — rename them or
             file them into folders to keep threads you return to.
@@ -107,7 +149,7 @@ export default function ChatPage() {
               {threads
                 .filter((t) => t.folder === folder)
                 .map((t) => (
-                  <li key={t.id} className="group relative">
+                  <li key={t.id} id={`chat-${t.id}`} className="group relative">
                     <button
                       onClick={() => open(t.id)}
                       className={
@@ -120,10 +162,16 @@ export default function ChatPage() {
                     >
                       {t.title}
                     </button>
-                    <span className="absolute right-1 top-1/2 hidden -translate-y-1/2 gap-0.5 group-hover:flex">
+                    <span
+                      className={
+                        "absolute right-1 top-1/2 -translate-y-1/2 gap-0.5 group-focus-within:flex group-hover:flex " +
+                        (t.id === threadId ? "flex" : "hidden")
+                      }
+                    >
                       <button
                         onClick={() => rename(t)}
                         title="Rename"
+                        aria-label={`Rename ${t.title}`}
                         className="rounded p-1 text-xs hover:bg-line"
                       >
                         ✏️
@@ -131,6 +179,7 @@ export default function ChatPage() {
                       <button
                         onClick={() => move(t)}
                         title="Move to folder"
+                        aria-label={`Move ${t.title} to a folder`}
                         className="rounded p-1 text-xs hover:bg-line"
                       >
                         📁
@@ -138,6 +187,7 @@ export default function ChatPage() {
                       <button
                         onClick={() => remove(t)}
                         title="Delete chat"
+                        aria-label={`Delete ${t.title}`}
                         className="rounded p-1 text-xs hover:bg-line"
                       >
                         🗑

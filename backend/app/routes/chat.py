@@ -158,6 +158,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
     if command_events is not None:
 
         async def command_stream():
+            # user turn first, assistant turn in finally: a cancelled stream
+            # (stop button, tab close, thread switch) must not lose history
+            _log_turn(ui_thread, user, "user", message)
             parts: list[str] = []
             try:
                 async for event in command_events:
@@ -170,15 +173,16 @@ async def chat(req: ChatRequest, user: CurrentUser):
             except Exception as exc:
                 logging.getLogger("strands.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
-            _log_transcript(ui_thread, user, message, "".join(parts))
+            finally:
+                _log_turn(ui_thread, user, "assistant", "".join(parts))
             yield _sse({"type": "done"})
 
         return StreamingResponse(command_stream(), media_type="text/event-stream")
     thread_id = ui_thread
     if persona:
-        # truncate the BASE, never the suffix — a clipped suffix would let a
-        # persona share the CoS session (the contamination this prevents)
-        thread_id = f"{thread_id[: 64 - len(persona) - 2]}--{persona}"
+        # stable, untruncated suffix: deletion globs session_{id}--* and the
+        # base is already capped at 64, so names stay filesystem-safe
+        thread_id = f"{thread_id}--{persona}"
     masthead = ""
     if persona:
         # deterministic nameplate for EVERY provider, once per thread — who
@@ -194,6 +198,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
         agent = build_agent(thread_id, user, persona=persona)
     except Exception as exc:
         # keep the SSE protocol even when agent construction fails (bad model id, etc.)
+        _log_turn(ui_thread, user, "user", message)
+        _log_turn(ui_thread, user, "assistant", f"> ⚠️ {str(exc)[:300]}")
+
         async def error_stream(message=str(exc)):
             yield _sse({"type": "error", "message": message})
             yield _sse({"type": "done"})
@@ -203,6 +210,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
     async def stream():
         seen_tools: set[str] = set()
         transcript: list[str] = [masthead] if masthead else []
+        # user turn first, assistant turn in finally: a cancelled stream
+        # (stop button, tab close, thread switch) keeps the partial exchange
+        _log_turn(ui_thread, user, "user", message)
         # identity is set INSIDE the generator: tool calls run during this
         # iteration, in this context — proposals sign the persona's name
         token = set_agent_identity(persona or "agent")
@@ -226,7 +236,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
             logging.getLogger("strands.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
-            transcript.append(f"\n\n> ⚠️ {exc}\n")
+            transcript.append(f"\n\n> ⚠️ {str(exc)[:300]}\n")
             yield _sse({"type": "error", "message": str(exc)})
         finally:
             # an abandoned stream may be finalized in a foreign context,
@@ -236,18 +246,17 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 reset_requester_identity(req_token)
             except ValueError:
                 pass
-        _log_usage(agent, thread_id, agent_name=persona or "chief-of-staff")
-        _log_transcript(ui_thread, user, message, "".join(transcript))
+            _log_usage(agent, thread_id, agent_name=persona or "chief-of-staff")
+            _log_turn(ui_thread, user, "assistant", "".join(transcript))
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-def _log_transcript(thread_id: str, owner: str, user_text: str, assistant_text: str) -> None:
+def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:
     """Best-effort UI history — a transcript failure must not break the chat."""
     try:
-        chat_threads.log_message(thread_id, owner, "user", user_text)
-        chat_threads.log_message(thread_id, owner, "assistant", assistant_text)
+        chat_threads.log_message(thread_id, owner, role, text)
     except Exception:
         logging.getLogger("strands.chat").exception("transcript log failed")
 
