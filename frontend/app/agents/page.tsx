@@ -132,7 +132,8 @@ export default function Agents() {
           </h2>
           <p className="mb-3 text-xs text-ink-3">
             Specialist personas you can invoke in chat — same tools, same
-            review gate, their own name on every proposal.
+            review gate, their own name on every proposal. They appear in
+            Mission Control below after their first use.
           </p>
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {bench.map((p) => (

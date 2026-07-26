@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react";
 
 import { API_URL, getUser } from "@/lib/api";
+import { outgoing } from "@/lib/persona";
 
 /** Streams from the FastAPI backend, which emits SSE lines of
  *  {"type": "text" | "tool" | "error" | "done", ...}.
@@ -20,10 +21,13 @@ function makeAdapter(threadId: string): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }) {
       const last = messages[messages.length - 1];
-      const text = last.content
-        .filter((p) => p.type === "text")
-        .map((p) => p.text)
-        .join("\n");
+      // sticky persona: freeform text is invisibly prefixed with /as <slug>
+      const text = outgoing(
+        last.content
+          .filter((p) => p.type === "text")
+          .map((p) => p.text)
+          .join("\n"),
+      );
 
       const token = process.env.NEXT_PUBLIC_API_TOKEN;
       const res = await fetch(`${API_URL}/api/chat`, {

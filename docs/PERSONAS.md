@@ -66,11 +66,20 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 
 ## UI
 
-- **Agents page**: "The bench" card — emoji, name, one-line description,
-  vibe; click → `/chat?as=<slug>` which prefills the composer with
-  `/as <slug> `.
-- **Chat**: `/as` + `/personas` appear in the composer autocomplete via
-  the existing data-driven command catalog.
+- **Sticky sessions**: invoking a persona (bench card, `/as` message, or
+  picking one from the autocomplete) enters that persona's mode for the
+  thread — a chip above the composer shows the emoji + name with an ×
+  that returns to the Chief of Staff, and the placeholder reads "Message
+  <name>…". Freeform messages are invisibly prefixed with `/as <slug> `
+  by the runtime adapter (the backend contract is unchanged); slash
+  commands are never prefixed, so they stay deterministic. An explicit
+  `/as <other> <message>` switches modes.
+- **Agents page**: "The bench" card — emoji, name, `/as` slug,
+  description, vibe; click → `/chat?as=<slug>` which enters that
+  persona's mode directly. Personas appear in Mission Control after
+  first use.
+- **Chat**: `/as` + `/personas` in the composer autocomplete; typing
+  `/as ` continues into slug completion from the live bench.
 
 ## Non-goals (this iteration)
 
@@ -96,7 +105,5 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
   The growth personas therefore disclose (masthead) that chat is stored
   server-side and their filings are team-visible, and they ask before
   filing. Genuinely private career prep belongs on the People page.
-- **Future work (deferred, needs a UX decision):** sticky persona
-  sessions with a visible mode chip instead of per-message `/as`
-  prefixing. The composer autocompletes the slug after `/as ` in the
-  meantime.
+- **Sticky sessions (shipped):** the mode chip + invisible prefixing
+  resolved the per-message `/as` interaction cost flagged in review.
