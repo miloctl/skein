@@ -10,7 +10,14 @@ import { setActivePersona } from "@/lib/persona";
 const LAST_KEY = "skein-last-chat";
 
 function newId() {
-  return crypto.randomUUID();
+  // crypto.randomUUID is secure-context-only — absent over plain http on a
+  // LAN IP, which is exactly how Skein is served. getRandomValues is not.
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 function initialThread(): string {
