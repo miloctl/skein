@@ -83,6 +83,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "context_packs": ("created_by",),
     "finding_dispositions": ("created_by",),
     "chat_threads": ("owner",),
+    "chat_folders": ("owner",),
 }
 
 

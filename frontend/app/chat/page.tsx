@@ -33,6 +33,8 @@ function initialThread(): string {
 export default function ChatPage() {
   const [threadId, setThreadId] = useState<string>(initialThread);
   const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
@@ -48,6 +50,7 @@ export default function ChatPage() {
         setLoadError(false);
       })
       .catch(() => setLoadError(true));
+    api<string[]>("/api/chats/folders").then(setFolders).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -94,6 +97,37 @@ export default function ChatPage() {
     load();
   };
 
+  const newFolder = async () => {
+    const name = prompt("Folder name:");
+    if (!name?.trim()) return;
+    await api("/api/chats/folders", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim() }),
+    }).catch((e) => alert(String(e)));
+    load();
+  };
+
+  const deleteFolder = async (name: string) => {
+    if (!confirm(`Delete folder “${name}”? Its chats stay, unfiled.`)) return;
+    await api(`/api/chats/folders/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }).catch((e) => alert(String(e)));
+    load();
+  };
+
+  const dropInto = async (e: React.DragEvent, folder: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(null);
+    const id = e.dataTransfer.getData("text/plain");
+    if (!id) return;
+    await api(`/api/chats/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ folder }),
+    }).catch((err) => alert(String(err)));
+    load();
+  };
+
   const remove = async (t: ChatThread) => {
     if (!confirm(`Delete “${t.title}”? The transcript is gone for good.`)) return;
     try {
@@ -105,20 +139,39 @@ export default function ChatPage() {
     }
   };
 
-  // unfiled chats first, then folders alphabetically — recency within each
-  const folders = [...new Set(threads.map((t) => t.folder))].sort((a, b) =>
-    a === "" ? -1 : b === "" ? 1 : a.localeCompare(b),
-  );
+  // unfiled chats first, then every folder (including empty ones)
+  const groups = ["", ...folders];
 
   return (
     <div className="mx-auto flex h-[calc(100vh-3.5rem)] w-full max-w-6xl">
-      <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-line p-3 md:flex">
-        <button
-          onClick={startNew}
-          className="mb-3 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-        >
-          + New chat
-        </button>
+      <aside
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDropTarget("");
+        }}
+        onDrop={(e) => dropInto(e, "")}
+        onDragLeave={() => setDropTarget(null)}
+        className={
+          "hidden w-64 shrink-0 flex-col overflow-y-auto border-r p-3 md:flex " +
+          (dropTarget === "" ? "border-thread-solid bg-thread/5" : "border-line")
+        }
+      >
+        <div className="mb-3 flex gap-1.5">
+          <button
+            onClick={startNew}
+            className="flex-1 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+          >
+            + New chat
+          </button>
+          <button
+            onClick={newFolder}
+            title="New folder"
+            aria-label="New folder"
+            className="rounded-lg border border-line-strong px-2.5 py-1.5 text-sm text-ink-2 hover:bg-raised"
+          >
+            📁+
+          </button>
+        </div>
         {loadError && (
           <p className="px-1 text-xs text-danger">
             Couldn’t load your chats — is the backend running?
@@ -138,13 +191,45 @@ export default function ChatPage() {
             file them into folders to keep threads you return to.
           </p>
         )}
-        {folders.map((folder) => (
-          <div key={folder || "(none)"} className="mb-2">
+        {groups.map((folder) => (
+          <div
+            key={folder || "(none)"}
+            onDragOver={
+              folder
+                ? (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDropTarget(folder);
+                  }
+                : undefined
+            }
+            onDrop={folder ? (e) => dropInto(e, folder) : undefined}
+            className={
+              "mb-2 rounded-lg " +
+              (folder && dropTarget === folder
+                ? "bg-thread/10 ring-1 ring-thread-solid"
+                : "")
+            }
+          >
             {folder && (
-              <p className="mb-1 mt-2 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
-                📁 {folder}
+              <p className="group/folder mb-1 mt-2 flex items-center justify-between px-1 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                <span>📁 {folder}</span>
+                <button
+                  onClick={() => deleteFolder(folder)}
+                  title="Delete folder (chats stay, unfiled)"
+                  aria-label={`Delete folder ${folder}`}
+                  className="hidden rounded px-1 hover:bg-line group-hover/folder:block"
+                >
+                  ×
+                </button>
               </p>
             )}
+            {folder &&
+              threads.filter((t) => t.folder === folder).length === 0 && (
+                <p className="px-2 pb-1 text-[11px] italic text-ink-3">
+                  drag chats here
+                </p>
+              )}
             <ul className="space-y-0.5">
               {threads
                 .filter((t) => t.folder === folder)
@@ -152,8 +237,12 @@ export default function ChatPage() {
                   <li key={t.id} id={`chat-${t.id}`} className="group relative">
                     <button
                       onClick={() => open(t.id)}
+                      draggable
+                      onDragStart={(e) =>
+                        e.dataTransfer.setData("text/plain", t.id)
+                      }
                       className={
-                        "w-full truncate rounded-lg px-2 py-1.5 pr-16 text-left text-sm transition-colors " +
+                        "w-full cursor-grab truncate rounded-lg px-2 py-1.5 pr-16 text-left text-sm transition-colors active:cursor-grabbing " +
                         (t.id === threadId
                           ? "bg-thread/10 font-medium text-ink"
                           : "text-ink-2 hover:bg-raised")

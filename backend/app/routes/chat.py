@@ -51,6 +51,25 @@ def get_chats(user: CurrentUser):
     return chat_threads.list_threads(user)
 
 
+class FolderIn(BaseModel):
+    name: str
+
+
+@router.get("/api/chats/folders")
+def get_chat_folders(user: CurrentUser):
+    return chat_threads.list_folders(user)
+
+
+@router.post("/api/chats/folders")
+def post_chat_folder(body: FolderIn, user: CurrentUser):
+    return chat_threads.create_folder(user, body.name)
+
+
+@router.delete("/api/chats/folders/{name}")
+def delete_chat_folder(name: str, user: CurrentUser):
+    return chat_threads.delete_folder(user, name)
+
+
 @router.get("/api/chats/{thread_id}/messages")
 def get_chat_messages(thread_id: str, user: CurrentUser):
     return chat_threads.get_messages(thread_id, user)
