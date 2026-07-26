@@ -166,7 +166,7 @@ const Composer = () => {
         <div
           role="listbox"
           aria-label="Commands"
-          className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-card"
+          className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-float"
         >
           <p className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
             Commands — ↵ to run, tab to complete
