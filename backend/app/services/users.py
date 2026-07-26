@@ -2,9 +2,30 @@
 
 from .. import db
 
+_bench_slugs: set[str] | None = None
+
+
+def _is_bench_slug(name: str) -> bool:
+    global _bench_slugs
+    if _bench_slugs is None:
+        from . import personas
+
+        _bench_slugs = {p["slug"] for p in personas.list_personas()}
+    return name in _bench_slugs
+
 
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
+    # bench persona slugs are reserved identities: a human picking one would
+    # silently absorb the persona's trust/authority history (and vice versa)
+    existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+    if existing is None and kind == "human" and _is_bench_slug(name):
+        raise ValueError(f"'{name}' is reserved for a bench persona — pick another name")
+    if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
+        raise ValueError(
+            f"'{name}' already exists as a {existing['kind']} — bench persona"
+            " slugs can't be shared across kinds"
+        )
     # INSERT OR IGNORE + SELECT: safe under concurrent first requests
     db.execute(
         "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
@@ -50,7 +71,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "allocations": ("created_by", "person"),
     "intake_requests": ("created_by", "requester"),
     "lessons": ("created_by",),
-    "pending_changes": ("proposed_by", "reviewed_by"),
+    "pending_changes": ("proposed_by", "reviewed_by", "requested_by"),
     "notifications": ("user",),
     "activity": ("actor",),
     "tool_usage": ("user",),

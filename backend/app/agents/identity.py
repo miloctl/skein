@@ -23,3 +23,20 @@ def set_agent_identity(name: str) -> Token:
 
 def reset_agent_identity(token: Token) -> None:
     _current_agent.reset(token)
+
+
+_current_requester: ContextVar[str] = ContextVar("current_requester", default="")
+
+
+def requester_identity() -> str:
+    """The human whose message caused the acting agent's writes ('' when
+    unknown, e.g. MCP where the agent IS the caller)."""
+    return _current_requester.get()
+
+
+def set_requester_identity(name: str) -> Token:
+    return _current_requester.set(name)
+
+
+def reset_requester_identity(token: Token) -> None:
+    _current_requester.reset(token)

@@ -434,12 +434,16 @@ class AuthorityIn(BaseModel):
 
 
 @router.post("/agents/authority")
-def post_agents_authority(body: AuthorityIn, user: CurrentUser):
+def post_agents_authority(body: AuthorityIn, user: StrongUser):
+    """Authority IS the kill switch — a spoofable X-User must not flip it."""
     return delegation.set_authority(body.agent, body.entity, body.level, actor=user)
 
 
 @router.get("/agents/{agent}/inbox")
-def get_agent_inbox(agent: str):
+def get_agent_inbox(agent: str, user: CurrentUser):
+    row = db.query_one("SELECT kind FROM users WHERE name = ?", (agent,))
+    if not row or row["kind"] != "agent":
+        raise HTTPException(status_code=404, detail=f"no agent named '{agent}'")
     return delegation.agent_inbox(agent)
 
 

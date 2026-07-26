@@ -3,6 +3,12 @@
 import pytest
 
 
+def _strong_headers():
+    from app.services.api_keys import create_key
+
+    return {"Authorization": f"Bearer {create_key('tester', 'test')['key']}"}
+
+
 def test_apply_plan_skips_missing_tasks(client, fresh_db):
     from app.services import weekly
 
@@ -37,13 +43,17 @@ def test_committed_week_clearable(client, fresh_db):
 def test_set_authority_rejects_blank_agent(client, fresh_db):
     assert (
         client.post(
-            "/api/agents/authority", json={"agent": "", "entity": "task", "level": "notify"}
+            "/api/agents/authority",
+            headers=_strong_headers(),
+            json={"agent": "", "entity": "task", "level": "notify"},
         ).status_code
         == 400
     )
     assert (
         client.post(
-            "/api/agents/authority", json={"agent": "   ", "entity": "task", "level": "notify"}
+            "/api/agents/authority",
+            headers=_strong_headers(),
+            json={"agent": "   ", "entity": "task", "level": "notify"},
         ).status_code
         == 400
     )
@@ -52,7 +62,7 @@ def test_set_authority_rejects_blank_agent(client, fresh_db):
 
 
 def test_agent_inbox_unknown_agent_is_an_error(client):
-    assert client.get("/api/agents/definitely-a-typo/inbox").status_code == 400
+    assert client.get("/api/agents/definitely-a-typo/inbox").status_code == 404
 
 
 def test_supersede_with_bad_date_leaves_old_decision_intact(client, fresh_db):

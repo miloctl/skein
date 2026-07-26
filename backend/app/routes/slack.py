@@ -50,6 +50,11 @@ async def slack_command(request: Request):
     from ..services.adoption import record_use
 
     record_use(user, "slack")
+    if text.lower().split(maxsplit=1)[:1] == ["/as"]:
+        return {
+            "response_type": "ephemeral",
+            "text": "Bench personas live in the web chat — open /chat and use /as there.",
+        }
     agent = MockAgent(thread_id="slack", user=user)
     chunks = []
     try:

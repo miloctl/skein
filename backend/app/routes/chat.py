@@ -13,8 +13,14 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .. import config
 from ..agents import commands
-from ..agents.identity import reset_agent_identity, set_agent_identity
+from ..agents.identity import (
+    reset_agent_identity,
+    reset_requester_identity,
+    set_agent_identity,
+    set_requester_identity,
+)
 from ..agents.team_agent import build_agent
 from ..config import MODEL_ID
 from ..services import personas
@@ -35,7 +41,7 @@ def chat_commands() -> list[dict]:
     return commands.catalog()
 
 
-def _log_usage(agent, thread_id: str) -> None:
+def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
     """Best-effort token accounting from strands event-loop metrics."""
     try:
         metrics = agent.event_loop_metrics
@@ -47,7 +53,7 @@ def _log_usage(agent, thread_id: str) -> None:
             return
         record_chat_usage(
             thread_id=thread_id,
-            agent_name="chief-of-staff",
+            agent_name=agent_name,
             model_id=MODEL_ID,
             input_tokens=input_t,
             output_tokens=output_t,
@@ -60,23 +66,6 @@ def _log_usage(agent, thread_id: str) -> None:
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, user: CurrentUser):
-    # fb: is private and chat is a sink (session files on disk, the model
-    # provider, OTEL traces) — reject BEFORE the message reaches the agent
-    if any(re.match(r"^\s*fb:", ln, re.I) for ln in req.message.splitlines()):
-
-        async def fb_stream():
-            yield _sse(
-                {
-                    "type": "text",
-                    "text": "Feedback notes are private — chat would send them"
-                    " to the model and session log. Use ⌘K capture or the"
-                    " People page instead.",
-                }
-            )
-            yield _sse({"type": "done"})
-
-        return StreamingResponse(fb_stream(), media_type="text/event-stream")
-
     # /as <persona> <message>: resolve the bench persona BEFORE any model —
     # unknown slugs get a deterministic error, valid ones swap the agent's
     # head and identity (writes are attributed and gated per persona)
@@ -105,7 +94,34 @@ async def chat(req: ChatRequest, user: CurrentUser):
 
         # deliberate registration from the curated bench (not typo-minting):
         # the persona needs a user row for authority, trust, and its inbox
-        ensure_user(persona, kind="agent")
+        try:
+            ensure_user(persona, kind="agent")
+        except ValueError as exc:
+            # e.g. a human already claimed the slug — SSE, not a bare 400
+
+            async def clash_stream(text=f"⚠️ {exc}"):
+                yield _sse({"type": "text", "text": text})
+                yield _sse({"type": "done"})
+
+            return StreamingResponse(clash_stream(), media_type="text/event-stream")
+
+    # fb: is private and chat is a sink (session files on disk, the model
+    # provider, OTEL traces) — reject BEFORE the message reaches the agent.
+    # Checked AFTER /as extraction so "/as x fb: ..." can't smuggle it past.
+    if any(re.match(r"^\s*fb:", ln, re.I) for ln in message.splitlines()):
+
+        async def fb_stream():
+            yield _sse(
+                {
+                    "type": "text",
+                    "text": "Feedback notes are private — chat would send them"
+                    " to the model and session log. Use ⌘K capture or the"
+                    " People page instead.",
+                }
+            )
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(fb_stream(), media_type="text/event-stream")
 
     # slash commands are deterministic for EVERY provider: no agent, no
     # session write, no tokens — same engine the mock agent and Slack use
@@ -130,7 +146,20 @@ async def chat(req: ChatRequest, user: CurrentUser):
     # personas get their own session thread so heads don't share memory
     thread_id = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
     if persona:
-        thread_id = f"{thread_id}--{persona}"[:64]
+        # truncate the BASE, never the suffix — a clipped suffix would let a
+        # persona share the CoS session (the contamination this prevents)
+        thread_id = f"{thread_id[: 64 - len(persona) - 2]}--{persona}"
+    masthead = ""
+    if persona:
+        # deterministic nameplate for EVERY provider, once per thread — who
+        # answered must never depend on whether the model signs its work
+        pdef = personas.get_persona(persona)
+        if not (config.SESSIONS_DIR / f"session_{thread_id}").exists():
+            vibe = f" — *{pdef['vibe']}*" if pdef["vibe"] else ""
+            masthead = f"{pdef['emoji']} **{pdef['name']}**{vibe}\n"
+            if pdef["disclosure"]:
+                masthead += f"\n> {pdef['disclosure']}\n"
+            masthead += "\n"
     try:
         agent = build_agent(thread_id, user, persona=persona)
     except Exception as exc:
@@ -146,6 +175,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
         # identity is set INSIDE the generator: tool calls run during this
         # iteration, in this context — proposals sign the persona's name
         token = set_agent_identity(persona or "agent")
+        req_token = set_requester_identity(user if persona else "")
+        if masthead:
+            yield _sse({"type": "text", "text": masthead})
         try:
             async for event in agent.stream_async(message):
                 if "data" in event:
@@ -162,8 +194,14 @@ async def chat(req: ChatRequest, user: CurrentUser):
             )
             yield _sse({"type": "error", "message": str(exc)})
         finally:
-            reset_agent_identity(token)
-        _log_usage(agent, thread_id)
+            # an abandoned stream may be finalized in a foreign context,
+            # where reset raises — identity is per-task, so it can't leak
+            try:
+                reset_agent_identity(token)
+                reset_requester_identity(req_token)
+            except ValueError:
+                pass
+        _log_usage(agent, thread_id, agent_name=persona or "chief-of-staff")
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")

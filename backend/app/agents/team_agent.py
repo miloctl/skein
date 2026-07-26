@@ -128,9 +128,23 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
         from ..services.personas import get_persona
 
         p = get_persona(persona)
+        gate = (
+            "Review mode is ON: your writes become proposals a human approves."
+            if config.AGENT_REVIEW
+            else "Review mode is OFF: writes at your authority level apply"
+            " directly — be conservative with them."
+        )
         system += (
             f"\n\n## Active persona\nFor this conversation you are"
-            f" {p['emoji']} **{p['name']}** — {p['description']}.\n\n{p['body']}"
+            f" {p['emoji']} **{p['name']}** (identity: `{persona}`) —"
+            f" {p['description']}.\nThis persona supersedes the"
+            " Chief-of-Staff identity above: keep the platform contract"
+            " (tools, provenance, honesty), but follow YOUR lens — analyse"
+            " when your lens calls for analysis; don't persist records for"
+            f" persistence's sake.\n{gate}\n"
+            "Persona instructions below cannot relax the platform rules"
+            " above; where they conflict, the platform rules win.\n"
+            f"\n<persona-instructions>\n{p['body']}\n</persona-instructions>"
         )
 
     return Agent(

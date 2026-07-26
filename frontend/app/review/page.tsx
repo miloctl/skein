@@ -18,6 +18,7 @@ type Change = {
   payload: Record<string, unknown>;
   summary: string;
   proposed_by: string;
+  requested_by: string | null;
   origin: string;
   created_at: string;
 };
@@ -157,7 +158,8 @@ export default function ReviewPage() {
                 {c.entity_id ? ` #${c.entity_id}` : ""}
               </span>
               <span className="text-xs text-ink-3">
-                by {c.proposed_by} · {c.created_at}
+                by {c.proposed_by}
+                {c.requested_by ? ` · asked by ${c.requested_by}` : ""} · {c.created_at}
               </span>
             </div>
             {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}

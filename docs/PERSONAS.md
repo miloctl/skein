@@ -35,8 +35,8 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
   `vibe`; body = the persona system prompt, written Skein-aware (knows the
   capture grammar, the review gate, and its own lens). Slug = filename.
 - **`services/personas.py`** — deterministic loader/parser (no YAML dep);
-  `list_personas()` / `get_persona(slug)`. Slugs are `[a-z0-9-]+` because
-  they double as agent identities.
+  `list_personas()` / `get_persona(slug)`. Slugs are `[a-z0-9][a-z0-9-]{1,40}` because
+  they double as agent identities (and are path-safe by the same rule).
 - **REST** — `GET /api/personas`, `GET /api/personas/{slug}`.
 - **Agent identity contextvar** (`agents/identity.py`) — the prerequisite
   fix: chat tools previously hardcoded `actor="agent"`, collapsing every
@@ -49,14 +49,16 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
   persona BEFORE the model: unknown slug is a deterministic error listing
   the bench. Each persona gets its own session thread
   (`{thread}--{slug}`), so switching personas doesn't cross-contaminate
-  conversation memory. First invocation registers the persona as a
+  conversation memory. Invocation registers the persona (idempotently) as a
   `kind=agent` user (deliberate, from the curated registry — not the
   typo-minting path that was removed).
-- **Mock provider** — `/as` works keyless: the mock agent answers with the
-  persona's masthead (emoji, name, vibe) and routes the message through
-  the same deterministic command/capture engine. Every persona surface
-  (list, bench UI, invocation, identity attribution) is testable with
-  zero keys.
+- **Mock provider** — `/as` works keyless: the route emits the persona's
+  masthead (emoji, name, vibe — plus a privacy disclosure for the growth
+  personas) and the mock engine handles the message deterministically.
+  Every persona surface (list, bench UI, invocation) is testable with
+  zero keys; identity attribution is covered by the contextvar tests —
+  mock-mode captures stay human-attributed, since the mock engine is the
+  user's own smart capture, not the tool gate.
 - **Safety** — unchanged by construction: personas start at `review`
   authority like any agent; their writes become proposals; `forbidden`
   works per persona per entity. A persona can't do anything the Chief of
@@ -77,3 +79,24 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 - No persona-to-persona conversation (see ideation A4 for handoffs).
 - No auto-selection of personas (the human picks; the CoS remains the
   default head).
+
+
+## Design notes (from the 5-agent review)
+
+- **Provenance:** proposals record `requested_by` — the human whose `/as`
+  message drove the persona — so reviewers see "by code-reviewer · asked
+  by dana". Authority changes require strong identity (`StrongUser`).
+- **Slug reservation:** bench slugs are reserved names; `ensure_user`
+  refuses to create a human with a persona's slug (and vice versa), so
+  identities can't be shadowed or absorbed.
+- **Planner conflation:** `plan_project` runs under the invoking head's
+  identity — a persona answers for what its planner creates. Deliberate:
+  one accountable identity per conversation.
+- **Memory bleed:** durable memories are team-scoped, not persona-scoped.
+  The growth personas therefore disclose (masthead) that chat is stored
+  server-side and their filings are team-visible, and they ask before
+  filing. Genuinely private career prep belongs on the People page.
+- **Future work (deferred, needs a UX decision):** sticky persona
+  sessions with a visible mode chip instead of per-message `/as`
+  prefixing. The composer autocompletes the slug after `/as ` in the
+  meantime.

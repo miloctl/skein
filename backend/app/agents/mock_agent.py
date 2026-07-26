@@ -19,15 +19,6 @@ class MockAgent:
         if text.lower() in ("help", ""):
             text = "/help"
 
-        if self.persona:
-            # keyless persona masthead: the bench works end-to-end with no
-            # model — same deterministic engine, a different nameplate
-            from ..services.personas import get_persona
-
-            p = get_persona(self.persona)
-            vibe = f" — *{p['vibe']}*" if p["vibe"] else ""
-            yield {"data": f"🎭 {p['emoji']} **{p['name']}**{vibe}\n\n"}
-
         it = commands.dispatch(text, self.user)
         if it is not None:
             async for event in it:

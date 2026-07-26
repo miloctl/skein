@@ -84,3 +84,101 @@ def test_identity_contextvar_signs_proposals(fresh_db, monkeypatch):
 
 def test_dispatch_passes_as_through_to_route():
     assert commands.dispatch("/as code-reviewer hello", "tester") is None
+
+
+def test_as_cannot_smuggle_fb_past_the_guard(client):
+    out = _read_chat(client, "/as growth-mentor fb: mira — private thing")
+    assert "Feedback notes are private" in out
+
+
+def test_masthead_and_disclosure_on_fresh_thread(client):
+    out = _read_chat(client, "/as growth-mentor note: thinking about goals")
+    assert "Growth Mentor" in out  # route-emitted masthead, provider-agnostic
+    assert "chat isn" in out  # privacy disclosure for growth personas
+
+
+def test_bench_slugs_are_reserved_names(client, fresh_db):
+    from app.services.users import ensure_user
+
+    try:
+        ensure_user("code-reviewer", kind="human")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "reserved" in str(exc)
+    # and a human row can't be absorbed by the persona
+    fresh_db.execute(
+        "INSERT INTO users (name, kind, created_at) VALUES ('growth-mentor', 'human', '2026-01-01')"
+    )
+    out = _read_chat(client, "/as growth-mentor hello there")
+    assert "can't be shared across kinds" in out
+
+
+def test_persona_session_suffix_survives_long_thread_ids(client):
+    # a 64-char base must still yield a distinct, suffix-intact session id
+    long_thread = "x" * 80
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": long_thread, "message": "/as code-reviewer hi"}
+    ) as resp:
+        assert resp.status_code == 200
+        assert "Code Reviewer" in resp.read().decode()
+    base = ("x" * 80)[:64]
+    composed = f"{base[: 64 - len('code-reviewer') - 2]}--code-reviewer"
+    assert composed.endswith("--code-reviewer")
+    assert len(composed) <= 64
+
+
+def test_authority_post_requires_strong_identity(client):
+    r = client.post(
+        "/api/agents/authority",
+        json={"agent": "code-reviewer", "entity": "task", "level": "autonomous"},
+    )
+    assert r.status_code == 403
+
+
+def test_agent_inbox_rejects_human_targets(client):
+    client.get("/api/briefing")  # ensure 'tester' exists as a human
+    assert client.get("/api/agents/tester/inbox").status_code == 404
+
+
+def test_requested_by_recorded_on_persona_proposals(fresh_db, monkeypatch):
+    from app import config
+    from app.agents.identity import (
+        reset_requester_identity,
+        set_requester_identity,
+    )
+    from app.tools._gate import gated_write
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    t1 = set_agent_identity("sprint-prioritizer")
+    t2 = set_requester_identity("mira")
+    try:
+        gated_write("task", "create", {"title": "asked-for"}, direct=lambda: {"id": 0})
+    finally:
+        reset_agent_identity(t1)
+        reset_requester_identity(t2)
+    row = fresh_db.query_one("SELECT * FROM pending_changes ORDER BY id DESC")
+    assert row["proposed_by"] == "sprint-prioritizer"
+    assert row["requested_by"] == "mira"
+
+
+def test_slack_as_points_to_web_chat(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "s3cret")
+    import hashlib
+    import hmac
+    import time
+
+    body = "text=%2Fas+code-reviewer+todo%3A+x&user_name=mira"
+    ts = str(int(time.time()))
+    sig = "v0=" + hmac.new(b"s3cret", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    r = client.post(
+        "/api/slack/command",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": sig,
+        },
+    )
+    assert "web chat" in r.json()["text"]

@@ -150,6 +150,9 @@ export default function Agents() {
                       <code className="text-[10px] text-ink-3">/as {p.slug}</code>
                     </span>
                     <span className="block text-xs text-ink-3">{p.description}</span>
+                    {p.vibe && (
+                      <span className="block text-xs italic text-ink-3/80">{p.vibe}</span>
+                    )}
                   </span>
                 </Link>
               </li>
