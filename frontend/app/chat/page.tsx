@@ -35,6 +35,8 @@ export default function ChatPage() {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [movePicker, setMovePicker] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
@@ -62,6 +64,7 @@ export default function ChatPage() {
   const open = (id: string) => {
     if (id === threadId) return;
     setActivePersona(null); // persona mode is per-conversation
+    setMovePicker(null);
     setThreadId(id);
     document
       .getElementById(`chat-${id}`)
@@ -83,26 +86,21 @@ export default function ChatPage() {
     load();
   };
 
-  const move = async (t: ChatThread) => {
-    const existing = [...new Set(threads.map((x) => x.folder).filter(Boolean))];
-    const folder = prompt(
-      `Folder (empty to unfile)${existing.length ? ` — existing: ${existing.join(", ")}` : ""}:`,
-      t.folder,
-    );
-    if (folder === null) return;
-    await api(`/api/chats/${t.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ folder: folder.trim() }),
+  const createFolder = async (name: string) => {
+    if (!name.trim()) return;
+    setCreatingFolder(false);
+    await api("/api/chats/folders", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim() }),
     }).catch((e) => alert(String(e)));
     load();
   };
 
-  const newFolder = async () => {
-    const name = prompt("Folder name:");
-    if (!name?.trim()) return;
-    await api("/api/chats/folders", {
-      method: "POST",
-      body: JSON.stringify({ name: name.trim() }),
+  const setFolder = async (id: string, folder: string) => {
+    setMovePicker(null);
+    await api(`/api/chats/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ folder }),
     }).catch((e) => alert(String(e)));
     load();
   };
@@ -164,14 +162,27 @@ export default function ChatPage() {
             + New chat
           </button>
           <button
-            onClick={newFolder}
+            onClick={() => setCreatingFolder((v) => !v)}
             title="New folder"
             aria-label="New folder"
+            aria-expanded={creatingFolder}
             className="rounded-lg border border-line-strong px-2.5 py-1.5 text-sm text-ink-2 hover:bg-raised"
           >
             📁+
           </button>
         </div>
+        {creatingFolder && (
+          <input
+            autoFocus
+            placeholder="Folder name — ↵ to create, esc to cancel"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") createFolder(e.currentTarget.value);
+              if (e.key === "Escape") setCreatingFolder(false);
+            }}
+            onBlur={() => setCreatingFolder(false)}
+            className="mb-2 rounded-lg border border-thread-solid bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
+          />
+        )}
         {loadError && (
           <p className="px-1 text-xs text-danger">
             Couldn’t load your chats — is the backend running?
@@ -266,9 +277,12 @@ export default function ChatPage() {
                         ✏️
                       </button>
                       <button
-                        onClick={() => move(t)}
+                        onClick={() =>
+                          setMovePicker(movePicker === t.id ? null : t.id)
+                        }
                         title="Move to folder"
                         aria-label={`Move ${t.title} to a folder`}
+                        aria-expanded={movePicker === t.id}
                         className="rounded p-1 text-xs hover:bg-line"
                       >
                         📁
@@ -282,6 +296,41 @@ export default function ChatPage() {
                         🗑
                       </button>
                     </span>
+                    {movePicker === t.id && (
+                      <div className="mt-1 rounded-lg border border-line bg-card p-1.5 shadow-float">
+                        <p className="mb-1 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                          Move to
+                        </p>
+                        {t.folder && (
+                          <button
+                            onClick={() => setFolder(t.id, "")}
+                            className="block w-full rounded px-2 py-1 text-left text-xs text-ink-2 hover:bg-raised"
+                          >
+                            ⊘ Unfiled
+                          </button>
+                        )}
+                        {folders
+                          .filter((f) => f !== t.folder)
+                          .map((f) => (
+                            <button
+                              key={f}
+                              onClick={() => setFolder(t.id, f)}
+                              className="block w-full truncate rounded px-2 py-1 text-left text-xs text-ink-2 hover:bg-raised"
+                            >
+                              📁 {f}
+                            </button>
+                          ))}
+                        <input
+                          placeholder="New folder — ↵ to move"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && e.currentTarget.value.trim())
+                              setFolder(t.id, e.currentTarget.value.trim());
+                            if (e.key === "Escape") setMovePicker(null);
+                          }}
+                          className="mt-1 w-full rounded border border-line-strong bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-3"
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
             </ul>
