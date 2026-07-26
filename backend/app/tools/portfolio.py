@@ -6,6 +6,7 @@ from typing import Any
 
 from strands import tool
 
+from ..agents.identity import agent_identity
 from ..services import collab, commitments, context_pack, delegation, portfolio
 from ._gate import gated_write
 
@@ -63,7 +64,7 @@ def add_commitment(
         "commitment",
         "create",
         payload,
-        lambda: commitments.add_commitment(**payload, actor="agent", origin="agent"),
+        lambda: commitments.add_commitment(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -93,7 +94,7 @@ def delegate_task(task_id: int, agent: str, sponsor: str) -> str:
         "create",
         payload,
         summary=f"delegate task #{task_id} to {agent}",
-        direct=lambda: delegation.delegate_task(**payload, actor="agent", origin="agent"),
+        direct=lambda: delegation.delegate_task(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -119,7 +120,7 @@ def supersede_decision(
         entity_id=decision_id,
         summary=f"supersede decision #{decision_id}: {title}",
         direct=lambda: collab.supersede_decision(
-            decision_id, **payload, actor="agent", origin="agent"
+            decision_id, **payload, actor=agent_identity(), origin="agent"
         ),
     )
 
@@ -142,7 +143,7 @@ def get_context_pack(engagement_id: int = 0) -> str:
                 "content": context_pack.build_engagement_pack(engagement_id),
             }
         )
-    return json.dumps(context_pack.get_pack(actor="agent"))
+    return json.dumps(context_pack.get_pack(actor=agent_identity()))
 
 
 @tool

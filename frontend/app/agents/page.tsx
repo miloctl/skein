@@ -1,8 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
+
+type Persona = {
+  slug: string;
+  name: string;
+  description: string;
+  emoji: string;
+  vibe: string;
+};
 
 type Authority = { agent: string; entity: string; level: string };
 
@@ -59,6 +68,7 @@ export default function Agents() {
   const [trust, setTrust] = useState<Trust[]>([]);
   const [entities, setEntities] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
+  const [bench, setBench] = useState<Persona[]>([]);
   const [entity, setEntity] = useState("task");
   const [level, setLevel] = useState("review");
   const [targetAgent, setTargetAgent] = useState("agent");
@@ -72,6 +82,7 @@ export default function Agents() {
       .catch((e) => setBanner(`Load failed: ${e.message ?? e}`));
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
     api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
+    api<Persona[]>("/api/personas").then(setBench).catch(() => {});
   }, []);
 
   useEffect(load, [load]);
@@ -113,6 +124,38 @@ export default function Agents() {
             dismiss
           </button>
         </div>
+      )}
+      {bench.length > 0 && (
+        <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2">
+          <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            The bench
+          </h2>
+          <p className="mb-3 text-xs text-ink-3">
+            Specialist personas you can invoke in chat — same tools, same
+            review gate, their own name on every proposal.
+          </p>
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {bench.map((p) => (
+              <li key={p.slug}>
+                <Link
+                  href={`/chat?as=${p.slug}`}
+                  className="flex items-start gap-2.5 rounded-lg border border-line-strong p-2.5 transition-colors hover:border-thread-solid hover:bg-thread/5"
+                >
+                  <span aria-hidden className="text-lg leading-6">
+                    {p.emoji}
+                  </span>
+                  <span className="min-w-0 text-sm">
+                    <span className="flex items-baseline gap-2">
+                      <span className="font-medium text-ink">{p.name}</span>
+                      <code className="text-[10px] text-ink-3">/as {p.slug}</code>
+                    </span>
+                    <span className="block text-xs text-ink-3">{p.description}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       <Card title="Mission control">
         {agents === null ? (

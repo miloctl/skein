@@ -75,13 +75,14 @@ Guidelines:
   clarifying question rather than guessing."""
 
 
-def build_agent(thread_id: str, user: str = "anonymous"):
+def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     """One agent per chat thread. Mock provider needs no keys and no strands
-    session; real providers persist conversations via FileSessionManager."""
+    session; real providers persist conversations via FileSessionManager.
+    A persona swaps the head (system prompt + identity), never the tools."""
     if config.MODEL_PROVIDER == "mock":
         from .mock_agent import MockAgent
 
-        return MockAgent(thread_id, user)
+        return MockAgent(thread_id, user, persona=persona)
 
     from strands import Agent, tool
     from strands.session import FileSessionManager
@@ -123,6 +124,14 @@ def build_agent(thread_id: str, user: str = "anonymous"):
     system = SYSTEM_PROMPT.format(
         today=datetime.now(timezone.utc).date().isoformat(), user=user
     ) + memory_prompt(user)
+    if persona:
+        from ..services.personas import get_persona
+
+        p = get_persona(persona)
+        system += (
+            f"\n\n## Active persona\nFor this conversation you are"
+            f" {p['emoji']} **{p['name']}** — {p['description']}.\n\n{p['body']}"
+        )
 
     return Agent(
         model=_model(),

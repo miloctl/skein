@@ -4,6 +4,7 @@ import json
 
 from strands import tool
 
+from ..agents.identity import agent_identity
 from ..services import collab
 from ._gate import gated_write
 
@@ -22,7 +23,7 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "") -> str:
         "question",
         "create",
         payload,
-        lambda: collab.ask_question(**payload, actor="agent", origin="agent"),
+        lambda: collab.ask_question(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -40,7 +41,9 @@ def answer_question(question_id: int, answer: str, answered_by: str = "") -> str
         "question",
         "update",
         payload,
-        lambda: collab.answer_question(question_id, **payload, actor="agent", origin="agent"),
+        lambda: collab.answer_question(
+            question_id, **payload, actor=agent_identity(), origin="agent"
+        ),
         entity_id=question_id,
     )
 
@@ -58,7 +61,9 @@ def assign_question(question_id: int, assigned_to: str) -> str:
         "question_assign",
         "update",
         payload,
-        lambda: collab.assign_question(question_id, **payload, actor="agent", origin="agent"),
+        lambda: collab.assign_question(
+            question_id, **payload, actor=agent_identity(), origin="agent"
+        ),
         entity_id=question_id,
     )
 
@@ -101,7 +106,7 @@ def record_decision(
         "decision",
         "create",
         payload,
-        lambda: collab.record_decision(**payload, actor="agent", origin="agent"),
+        lambda: collab.record_decision(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -131,7 +136,7 @@ def post_standup(author: str, yesterday: str = "", today: str = "", blockers: st
         "standup",
         "create",
         payload,
-        lambda: collab.post_standup(**payload, actor="agent", origin="agent"),
+        lambda: collab.post_standup(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -159,7 +164,7 @@ def save_note(topic: str, content: str, author: str = "") -> str:
         "note",
         "create",
         payload,
-        lambda: collab.save_note(**payload, actor="agent", origin="agent"),
+        lambda: collab.save_note(**payload, actor=agent_identity(), origin="agent"),
     )
 
 

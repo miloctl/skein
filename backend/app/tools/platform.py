@@ -5,6 +5,7 @@ from typing import Any
 
 from strands import tool
 
+from ..agents.identity import agent_identity
 from ..services import blockers, engagements, handoff, intake, playbooks, search
 from ._gate import gated_write
 
@@ -40,7 +41,7 @@ def raise_blocker(
         "blocker",
         "create",
         payload,
-        lambda: blockers.raise_blocker(**payload, actor="agent", origin="agent"),
+        lambda: blockers.raise_blocker(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -57,7 +58,9 @@ def resolve_blocker(blocker_id: int, resolution: str = "") -> str:
         "blocker",
         "update",
         payload,
-        lambda: blockers.resolve_blocker(blocker_id, **payload, actor="agent", origin="agent"),
+        lambda: blockers.resolve_blocker(
+            blocker_id, **payload, actor=agent_identity(), origin="agent"
+        ),
         entity_id=blocker_id,
     )
 
@@ -95,7 +98,7 @@ def submit_intake_request(
         "intake",
         "create",
         payload,
-        lambda: intake.submit_request(**payload, actor="agent", origin="agent"),
+        lambda: intake.submit_request(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -149,7 +152,7 @@ def record_lesson(
         "lesson",
         "create",
         payload,
-        lambda: engagements.record_lesson(**payload, actor="agent", origin="agent"),
+        lambda: engagements.record_lesson(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -184,7 +187,7 @@ def start_engagement_from_playbook(
         "create",
         payload,
         summary=f"instantiate playbook {playbook_slug} -> {engagement_name}",
-        direct=lambda: playbooks.instantiate(**payload, actor="agent", origin="agent"),
+        direct=lambda: playbooks.instantiate(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
@@ -197,7 +200,7 @@ def generate_handoff(engagement_id: int) -> str:
     Args:
         engagement_id: ID of the engagement to hand off.
     """
-    return _safe(lambda: handoff.generate_handoff(engagement_id, actor="agent"))
+    return _safe(lambda: handoff.generate_handoff(engagement_id, actor=agent_identity()))
 
 
 @tool
