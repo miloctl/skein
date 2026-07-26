@@ -1,22 +1,23 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
+  useThreadRuntime,
   type ChatModelAdapter,
+  type ThreadMessageLike,
 } from "@assistant-ui/react";
 
-import { API_URL, getUser } from "@/lib/api";
+import { API_URL, api, getUser } from "@/lib/api";
 import { outgoing } from "@/lib/persona";
 
 /** Streams from the FastAPI backend, which emits SSE lines of
  *  {"type": "text" | "tool" | "error" | "done", ...}.
  *
- *  The thread id is minted per runtime mount so the visible UI history and
- *  the backend session always agree (navigating away starts a fresh thread).
- *  TODO: add a backend chat-history endpoint, then persist the thread id and
- *  hydrate past messages on mount instead. */
+ *  The thread id is owned by the chat page (sidebar); the backend logs a
+ *  provider-agnostic transcript per thread, which ThreadHydrator loads on
+ *  mount so switching chats restores history. */
 function makeAdapter(threadId: string): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }) {
@@ -80,16 +81,44 @@ function makeAdapter(threadId: string): ChatModelAdapter {
       if (buffer && handle(buffer) !== null) {
         yield { content: [{ type: "text", text: acc }] };
       }
+      // the sidebar refreshes titles/ordering after every exchange
+      window.dispatchEvent(new Event("skein-chat-activity"));
     },
   };
 }
 
-export function RuntimeProvider({ children }: { children: ReactNode }) {
-  const [threadId] = useState(() => crypto.randomUUID());
+type StoredMessage = { role: "user" | "assistant"; content: string };
+
+/** Loads the stored transcript into the (fresh) runtime on mount. */
+function ThreadHydrator({ threadId }: { threadId: string }) {
+  const thread = useThreadRuntime();
+  useEffect(() => {
+    api<StoredMessage[]>(`/api/chats/${threadId}/messages`)
+      .then((msgs) => {
+        if (msgs.length === 0) return;
+        const initial: ThreadMessageLike[] = msgs.map((m) => ({
+          role: m.role,
+          content: [{ type: "text", text: m.content }],
+        }));
+        thread.reset(initial);
+      })
+      .catch(() => {}); // brand-new thread: nothing stored yet
+  }, [thread, threadId]);
+  return null;
+}
+
+export function RuntimeProvider({
+  threadId,
+  children,
+}: {
+  threadId: string;
+  children: ReactNode;
+}) {
   const adapter = useMemo(() => makeAdapter(threadId), [threadId]);
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <ThreadHydrator threadId={threadId} />
       {children}
     </AssistantRuntimeProvider>
   );
