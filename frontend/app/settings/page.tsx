@@ -92,6 +92,20 @@ export default function SettingsPage() {
     }
   };
 
+  const renameUser = async (from: string) => {
+    const to = prompt(`Rename ${from} to (merges history if the name exists):`);
+    if (!to?.trim()) return;
+    try {
+      await api(`/api/users/${encodeURIComponent(from)}/rename`, {
+        method: "POST",
+        body: JSON.stringify({ new_name: to.trim() }),
+      });
+      loadRoster();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
   const saveName = () => {
     setUser(name);
     window.location.reload();
@@ -143,6 +157,57 @@ export default function SettingsPage() {
     () => false,
   );
   const strong = who?.strong ?? false;
+
+  const rosterRows = (list: { name: string; kind: string; active: number }[]) =>
+    list.map((u) => (
+      <li
+        key={u.name}
+        className={
+          "flex items-center justify-between text-sm" + (u.active ? "" : " opacity-60")
+        }
+      >
+        <span>
+          {u.name}
+          {!u.active && (
+            <span className="ml-1.5 rounded-full bg-raised px-1.5 py-px font-mono text-[10px] text-ink-3">
+              inactive
+            </span>
+          )}
+        </span>
+        {strong && u.name !== who?.user && (
+          <span className="flex gap-1.5">
+            <button
+              onClick={() => renameUser(u.name)}
+              className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+            >
+              rename…
+            </button>
+            {u.active ? (
+              <button
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Deactivate ${u.name}? History stays; the name leaves the roster and their API keys are revoked.`,
+                    )
+                  )
+                    setActive(u.name, false);
+                }}
+                className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+              >
+                deactivate
+              </button>
+            ) : (
+              <button
+                onClick={() => setActive(u.name, true)}
+                className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+              >
+                reactivate
+              </button>
+            )}
+          </span>
+        )}
+      </li>
+    ));
 
   const appearance = useSyncExternalStore(subscribeStorage, getAppearance, () => "system");
   const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
@@ -570,80 +635,28 @@ export default function SettingsPage() {
           keys — history stays attributed. Requires a working API key (step
           2).
         </p>
-        {roster.length === 0 ? (
+        <h3 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+          Teammates
+        </h3>
+        {roster.filter((u) => u.kind !== "agent").length === 0 ? (
           <p className="text-sm text-ink-3">Nobody yet.</p>
         ) : (
-          <ul className="space-y-1">
-            {roster.map((u) => (
-              <li
-                key={u.name}
-                className={
-                  "flex items-center justify-between text-sm" +
-                  (u.active ? "" : " opacity-60")
-                }
-              >
-                <span>
-                  {u.name}
-                  {u.kind === "agent" && (
-                    <span className="ml-1.5 rounded-full bg-thread/10 px-1.5 py-px font-mono text-[10px] text-thread">
-                      agent
-                    </span>
-                  )}
-                  {!u.active && (
-                    <span className="ml-1.5 rounded-full bg-raised px-1.5 py-px font-mono text-[10px] text-ink-3">
-                      inactive
-                    </span>
-                  )}
-                </span>
-                {strong && u.name !== who?.user && (
-                  <span className="flex gap-1.5">
-                    <button
-                      onClick={async () => {
-                        const to = prompt(
-                          `Rename ${u.name} to (merges history if the name exists):`,
-                        );
-                        if (!to?.trim()) return;
-                        try {
-                          await api(`/api/users/${encodeURIComponent(u.name)}/rename`, {
-                            method: "POST",
-                            body: JSON.stringify({ new_name: to.trim() }),
-                          });
-                          loadRoster();
-                        } catch (e) {
-                          alert(String(e));
-                        }
-                      }}
-                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                    >
-                      rename…
-                    </button>
-                    {u.active ? (
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              `Deactivate ${u.name}? History stays; the name leaves the roster and their API keys are revoked.`,
-                            )
-                          )
-                            setActive(u.name, false);
-                        }}
-                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                      >
-                        deactivate
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setActive(u.name, true)}
-                        className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                      >
-                        reactivate
-                      </button>
-                    )}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <ul className="space-y-1">{rosterRows(roster.filter((u) => u.kind !== "agent"))}</ul>
+        )}
+        {roster.some((u) => u.kind === "agent") && (
+          <>
+            <h3 className="mt-5 mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+              Agent identities
+            </h3>
+            <p className="mb-2 text-xs text-ink-3">
+              Created automatically the first time an agent writes — the
+              Chief-of-Staff and any bench persona someone has called with{" "}
+              <code>/as</code>. Not teammates; they exist so every write stays
+              attributed. Deactivating one retires the name but keeps its
+              history.
+            </p>
+            <ul className="space-y-1">{rosterRows(roster.filter((u) => u.kind === "agent"))}</ul>
+          </>
         )}
       </Section>
 
