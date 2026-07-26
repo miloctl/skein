@@ -50,3 +50,47 @@ def test_delete_removes_transcript(client):
     _read_chat(client, "note: delete me soon", thread="th-5")
     assert client.delete("/api/chats/th-5").json()["deleted"] is True
     assert client.get("/api/chats/th-5/messages").status_code == 400
+
+
+def test_log_message_never_cross_files_on_id_collision(client, fresh_db):
+    from app.services import chat_threads
+
+    chat_threads.log_message("shared-id", "alice", "user", "alice's thread")
+    chat_threads.log_message("shared-id", "bob", "user", "bob's message")
+    msgs = chat_threads.get_messages("shared-id", "alice")
+    assert all("bob" not in m["content"] for m in msgs)
+
+
+def test_delete_glob_is_precise(client, fresh_db, tmp_path):
+    from app import config
+    from app.services import chat_threads
+
+    chat_threads.log_message("abc", "tester", "user", "mine")
+    (config.SESSIONS_DIR / "session_abc").mkdir(parents=True, exist_ok=True)
+    (config.SESSIONS_DIR / "session_abc--growth-mentor").mkdir(exist_ok=True)
+    (config.SESSIONS_DIR / "session_abc2").mkdir(exist_ok=True)  # different thread
+    chat_threads.delete_thread("abc", "tester")
+    assert not (config.SESSIONS_DIR / "session_abc").exists()
+    assert not (config.SESSIONS_DIR / "session_abc--growth-mentor").exists()
+    assert (config.SESSIONS_DIR / "session_abc2").exists()  # untouched
+
+
+def test_folder_snap_is_case_insensitive(client):
+    def chat(thread, msg):
+        with client.stream("POST", "/api/chat", json={"thread_id": thread, "message": msg}) as resp:
+            resp.read()
+
+    chat("f-1", "note: one")
+    chat("f-2", "note: two")
+    client.patch("/api/chats/f-1", json={"folder": "ops"})
+    r = client.patch("/api/chats/f-2", json={"folder": "OPS"}).json()
+    assert r["folder"] == "ops"
+
+
+def test_remember_refuses_fb(client):
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "fbm", "message": "/remember fb: mira struggles"}
+    ) as resp:
+        out = resp.read().decode()
+    assert "private" in out
+    assert client.get("/api/memories").json() == []

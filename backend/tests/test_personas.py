@@ -114,17 +114,14 @@ def test_bench_slugs_are_reserved_names(client, fresh_db):
 
 
 def test_persona_session_suffix_survives_long_thread_ids(client):
-    # a 64-char base must still yield a distinct, suffix-intact session id
+    # persona sessions keep the FULL base id + suffix (no truncation), so
+    # deletion can glob session_{id}--* without collateral matches
     long_thread = "x" * 80
     with client.stream(
         "POST", "/api/chat", json={"thread_id": long_thread, "message": "/as code-reviewer hi"}
     ) as resp:
         assert resp.status_code == 200
         assert "Code Reviewer" in resp.read().decode()
-    base = ("x" * 80)[:64]
-    composed = f"{base[: 64 - len('code-reviewer') - 2]}--code-reviewer"
-    assert composed.endswith("--code-reviewer")
-    assert len(composed) <= 64
 
 
 def test_authority_post_requires_strong_identity(client):

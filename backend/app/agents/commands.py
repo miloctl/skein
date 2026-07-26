@@ -117,6 +117,12 @@ async def _remember(args: str, user: str) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/remember <fact>`"}
         return
+    if args.lower().startswith("fb:"):
+        yield {
+            "data": "Feedback notes are private — memories are team-visible."
+            " Use ⌘K capture with your key instead."
+        }
+        return
     yield _tool_event("remember")
     try:
         m = memory.remember(args, user=user, actor=user)

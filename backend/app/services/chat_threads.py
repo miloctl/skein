@@ -5,9 +5,11 @@ sidebar rehydrates from — written by the chat route for mock and real
 providers alike, so history is keyless-first. It is the UI's copy; the
 strands session files remain the model's own conversation memory.
 
-Threads are owner-scoped views (trusted-LAN identity, like everything
-team-visible). fb: messages never reach this table — the chat route
-refuses them before any logging.
+Threads are owner-scoped by the trusted-LAN identity (X-User) — a
+convenience boundary, not privacy: anything you'd mark fb: belongs in
+⌘K capture or the People page, and the chat route enforces that by
+refusing fb: lines before any logging. When OIDC lands, these routes
+are first in line for strong identity.
 """
 
 import re
@@ -20,7 +22,7 @@ TITLE_LEN = 60
 
 
 def _check_id(thread_id: str) -> str:
-    if not _THREAD_ID.match(thread_id):
+    if not _THREAD_ID.fullmatch(thread_id):
         raise ValueError("invalid thread id")
     return thread_id
 
@@ -46,6 +48,11 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
         " VALUES (?, ?, 'New chat', ?, ?)",
         (thread_id, owner, now, now),
     )
+    row = db.query_one("SELECT owner FROM chat_threads WHERE id = ?", (thread_id,))
+    if row and row["owner"] != owner:
+        # id collision with someone else's thread (e.g. the shared "default"):
+        # never cross-file a conversation into another owner's transcript
+        return
     if role == "user":
         db.execute(
             "UPDATE chat_threads SET title = ? WHERE id = ? AND title = 'New chat'",
@@ -61,7 +68,7 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
 def list_threads(owner: str) -> list[dict]:
     return db.query(
         "SELECT id, title, folder, created_at, updated_at FROM chat_threads"
-        " WHERE owner = ? ORDER BY updated_at DESC",
+        " WHERE owner = ? ORDER BY updated_at DESC, rowid DESC",
         (owner,),
     )
 
@@ -92,9 +99,19 @@ def update_thread(
             (title.strip()[:TITLE_LEN], db.now(), thread_id),
         )
     if folder is not None:
+        wanted = folder.strip()[:40]
+        if wanted:
+            existing = db.query(
+                "SELECT DISTINCT folder FROM chat_threads WHERE owner = ? AND folder != ''",
+                (owner,),
+            )
+            for e in existing:
+                if e["folder"].lower() == wanted.lower():
+                    wanted = e["folder"]  # snap to the existing spelling
+                    break
         db.execute(
             "UPDATE chat_threads SET folder = ?, updated_at = ? WHERE id = ?",
-            (folder.strip()[:40], db.now(), thread_id),
+            (wanted, db.now(), thread_id),
         )
     return db.query_row("SELECT * FROM chat_threads WHERE id = ?", (thread_id,))
 
@@ -105,7 +122,8 @@ def delete_thread(thread_id: str, owner: str) -> dict:
     _own(thread_id, owner)
     db.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
     db.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
-    for path in config.SESSIONS_DIR.glob(f"session_{thread_id}*"):
-        shutil.rmtree(path, ignore_errors=True)
+    for pattern in (f"session_{thread_id}", f"session_{thread_id}--*"):
+        for path in config.SESSIONS_DIR.glob(pattern):
+            shutil.rmtree(path, ignore_errors=True)
     db.log_activity(owner, "delete_chat", f"thread {thread_id}")
     return {"id": thread_id, "deleted": True}
