@@ -44,7 +44,13 @@ def _payload(kind: str, body: str, actor: str) -> dict:
         return {"promise": body}
     if kind == "task":
         return {"title": body[:120], "description": body if len(body) > 120 else ""}
+    if kind == "request":
+        return {"title": body[:120], "detail": body, "requester": actor}
     return {"topic": body[:60], "content": body, "author": actor}
+
+
+# capture kinds → review-registry entities where the names differ
+_ENTITY = {"request": "intake"}
 
 
 def ingest_notes(text: str, *, actor: str) -> dict:
@@ -78,7 +84,7 @@ def ingest_notes(text: str, *, actor: str) -> dict:
             continue
         body = PREFIX.sub("", line).strip() or line
         p = review.propose_change(
-            kind,
+            _ENTITY.get(kind, kind),
             "create",
             _payload(kind, body, actor),
             summary=line[:80],

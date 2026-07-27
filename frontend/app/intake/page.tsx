@@ -134,12 +134,14 @@ export default function IntakePage() {
           <input
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
+            aria-label="What are you asking the team to do?"
             placeholder="What are you asking the team to do?"
             className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
           />
           <textarea
             value={form.detail}
             onChange={(e) => setForm({ ...form, detail: e.target.value })}
+            aria-label="Context, goals, constraints"
             placeholder="Context, goals, constraints…"
             rows={2}
             className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
@@ -168,6 +170,13 @@ export default function IntakePage() {
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
+      {!manage && reqs.some((r) => r.status === "submitted" || r.status === "scored") && (
+        <p className="mb-3 rounded-lg bg-raised px-3 py-2 text-xs text-ink-2">
+          {reqs.filter((r) => r.status === "submitted" || r.status === "scored").length}{" "}
+          request(s) await triage — turn on{" "}
+          <b>manager controls</b> (top right) to score and decide.
+        </p>
+      )}
       <ul className="space-y-3">
         {reqs.map((r) => (
           <li
@@ -233,8 +242,11 @@ export default function IntakePage() {
               </div>
             )}
             {panel?.id === r.id && panel.mode === "score" && (
-              <div className="mt-3 rounded-lg bg-raised p-3">
-                <p className="mb-2 text-xs text-ink-3">
+              <div
+                className="mt-3 rounded-lg bg-raised p-3"
+                onKeyDown={(e) => e.key === "Escape" && setPanel(null)}
+              >
+                <p className="mb-2 text-xs text-ink-2">
                   1–5 each. Score = reach × impact × confidence ÷ effort —
                   higher effort lowers it.
                 </p>
@@ -245,6 +257,7 @@ export default function IntakePage() {
                       <input
                         type="number"
                         name={`rice-${k}`}
+                        autoFocus={k === "reach"}
                         min={1}
                         max={5}
                         value={rice[k]}
@@ -255,26 +268,34 @@ export default function IntakePage() {
                       />
                     </label>
                   ))}
-                  <span className="pb-1 font-mono text-xs text-thread">
+                  <output
+                    aria-live="polite"
+                    className="pb-1 font-mono text-xs text-thread"
+                    aria-label="Computed score"
+                  >
                     = {Math.round((rice.reach * rice.impact * rice.confidence) / rice.effort * 10) / 10}
-                  </span>
+                  </output>
                   <button
                     onClick={() => submitScore(r.id)}
                     className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90"
                   >
                     Save score
                   </button>
-                  <button onClick={() => setPanel(null)} className="pb-1 text-xs text-ink-3 hover:text-ink">
+                  <button onClick={() => setPanel(null)} className="pb-1 text-xs text-ink-2 hover:text-ink">
                     cancel
                   </button>
                 </div>
               </div>
             )}
             {panel?.id === r.id && panel.mode !== "score" && (
-              <div className="mt-3 space-y-2 rounded-lg bg-raised p-3">
+              <div
+                className="mt-3 space-y-2 rounded-lg bg-raised p-3"
+                onKeyDown={(e) => e.key === "Escape" && setPanel(null)}
+              >
                 <input
                   autoFocus
                   name="verdict-reason"
+                  aria-label="Reason — the requester sees it"
                   value={verdict.reason}
                   onChange={(e) => setVerdict({ ...verdict, reason: e.target.value })}
                   placeholder={`Reason for "${panel.mode.replace("ed", "ing").replace("accepting", "accepting this")}" — the requester sees it`}

@@ -51,6 +51,7 @@ function CopyLine({ text }: { text: string }) {
             setTimeout(() => setCopied(false), 1500);
           }
         }}
+        aria-live="polite"
         className="shrink-0 rounded bg-raised px-2 py-1 text-xs hover:bg-line"
       >
         {copied ? "✓ copied" : "copy"}
@@ -456,6 +457,7 @@ export default function SettingsPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && saveName()}
+            aria-label="Your name"
             placeholder={currentUser === "anonymous" ? "your name" : "change name"}
             className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
           />
@@ -555,6 +557,7 @@ export default function SettingsPage() {
             value={keyDraft}
             onChange={(e) => setKeyDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && testAndSaveKey()}
+            aria-label="Personal API key"
             placeholder="sk-strands-…"
             type="password"
             className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 font-mono text-sm outline-none focus:border-thread-solid"
@@ -575,7 +578,11 @@ export default function SettingsPage() {
             </button>
           )}
         </div>
-        {keyStatus && <p className="mt-2 text-sm">{keyStatus}</p>}
+        {keyStatus && (
+          <p role="status" aria-live="polite" className="mt-2 text-sm">
+            {keyStatus}
+          </p>
+        )}
         <p className="mt-2 text-xs text-ink-3">
           Stored only in this browser (localStorage). OIDC sign-in replaces
           this flow at deployment.
@@ -591,6 +598,7 @@ export default function SettingsPage() {
           <input
             value={interests}
             onChange={(e) => setInterests(e.target.value)}
+            aria-label="Growth interests"
             placeholder="e.g. RAG evaluation, incident command, design reviews"
             className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
           />
@@ -619,9 +627,9 @@ export default function SettingsPage() {
         <p className="mb-2 text-sm text-ink-3">
           Skein is an MCP server — Claude Code or any MCP client can read and
           write the platform natively. New agents start at{" "}
-          <b>review</b> authority: every write becomes a proposal in{" "}
+          <b>needs-approval</b> authority: every write becomes a proposal in{" "}
           <a href="/review" className="underline">
-            /review
+            Inbox → Approvals
           </a>{" "}
           until a human grants more (see{" "}
           <a href="/agents" className="underline">
@@ -711,13 +719,13 @@ export default function SettingsPage() {
         )}
         <p className="mt-2 text-xs text-ink-3">
           Dismissed NOTICE items are just markers — the proposals, blockers,
-          and reviews they point to stay visible on{" "}
+          and reviews they point to stay visible in{" "}
           <a href="/review" className="underline">
-            Review
+            Inbox → Approvals
           </a>{" "}
-          and the{" "}
+          and{" "}
           <a href="/dashboard" className="underline">
-            Dashboard
+            Work → Browse
           </a>{" "}
           until acted on.
         </p>

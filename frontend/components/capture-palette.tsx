@@ -26,7 +26,14 @@ const KNOWN_PREFIX =
   /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|req|request|fb):\s*/i;
 
 function previewKind(text: string): string {
-  if (/^\s*fb:/i.test(text)) return "private feedback";
+  const lines = text.split("\n");
+  // backend hard-rejects fb: buried in multi-line text — the preview must
+  // say so, not claim "task" and then 400
+  if (lines.some((l) => /^\s*fb:/i.test(l))) {
+    return lines.filter((l) => l.trim()).length > 1
+      ? "⚠ won't file — fb: must be captured alone"
+      : "private feedback";
+  }
   for (const [kind, re] of RULES) if (re.test(text)) return kind;
   return "note";
 }
@@ -49,13 +56,18 @@ export function CapturePalette() {
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (closeTimer.current) clearTimeout(closeTimer.current);
-        setOpen((o) => !o);
+        setOpen((o) => {
+          if (!o) openerRef.current = document.activeElement as HTMLElement | null;
+          return !o;
+        });
         setResult(null);
       }
       if (e.key === "Escape") setOpen(false);
@@ -67,6 +79,28 @@ export function CapturePalette() {
     };
   }, []);
 
+  // dialog contract: focus returns to wherever ⌘K was pressed
+  useEffect(() => {
+    if (!open) openerRef.current?.focus();
+  }, [open]);
+
+  const trapTab = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
+      "button, textarea, [tabindex]",
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   const submit = useCallback(async () => {
     if (!text.trim() || busy) return;
     setBusy(true);
@@ -77,7 +111,8 @@ export function CapturePalette() {
       });
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
-      closeTimer.current = setTimeout(() => setOpen(false), 900);
+      // long enough for the live region to announce before the dialog goes
+      closeTimer.current = setTimeout(() => setOpen(false), 1400);
     } catch (err) {
       setResult(`⚠️ ${String(err)}`);
     } finally {
@@ -98,11 +133,13 @@ export function CapturePalette() {
       onClick={() => setOpen(false)}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Quick capture"
         className="w-full max-w-lg rounded-xl border border-line-strong bg-card p-4 shadow-float"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={trapTab}
       >
         <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Quick capture
@@ -122,6 +159,7 @@ export function CapturePalette() {
         <textarea
           autoFocus
           ref={inputRef}
+          aria-label="What to capture"
           rows={3}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -135,10 +173,16 @@ export function CapturePalette() {
           className="w-full resize-none rounded-lg border border-line-strong bg-transparent p-2 text-sm outline-none focus:border-thread-solid"
         />
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-ink-3">
+          <span
+            role={result?.startsWith("⚠️") ? "alert" : "status"}
+            aria-live="polite"
+            className="text-xs text-ink-3"
+          >
             {result ??
               (kind
-                ? `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
+                ? kind.startsWith("⚠")
+                  ? kind
+                  : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
                 : "Enter to save · Esc to close")}
           </span>
           <button

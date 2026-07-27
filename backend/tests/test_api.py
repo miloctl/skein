@@ -21,11 +21,21 @@ def test_question_answer_flow(client):
     q = client.post(
         "/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"}
     ).json()
-    # the open question counts; its notification is notice-tier (badge-silent)
-    assert client.get("/api/attention").json()["count"] == 1
+    # questions render on My Day, not Inbox — the badge counts only Inbox work
+    assert client.get("/api/attention").json()["count"] == 0
+    b = client.get("/api/briefing").json()
+    assert any(a["kind"] == "question" for a in b["attention"])
     client.post(f"/api/questions/{q['id']}/answer", json={"answer": "Alice does"})
     client.post("/api/notifications/read", json={"notification_id": 0})
     assert client.get("/api/attention").json()["count"] == 0
+
+
+def test_attention_counts_only_inbox_work(client):
+    from app.services import review
+
+    client.post("/api/intake", json={"title": "Need a thing"})
+    review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="agent-x")
+    assert client.get("/api/attention").json()["count"] == 2
 
 
 def test_briefing_shape(client):

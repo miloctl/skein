@@ -189,7 +189,8 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
             )
             or {}
         ).get("d")
-        days = f"{int(delta)} days" if delta is not None else ""
+        # same-day closes skip the duration — "— 0 days" reads as a bug
+        days = f"{int(delta)} days" if delta else ""
     stats = {
         "milestones": db.query_row(
             "SELECT COUNT(*) AS n FROM milestones WHERE engagement_id = ?", (engagement_id,)

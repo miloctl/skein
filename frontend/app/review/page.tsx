@@ -155,6 +155,7 @@ export default function ReviewPage() {
                   type="checkbox"
                   checked={selected.has(c.id)}
                   onChange={() => toggle(c.id)}
+                  aria-label={`Select #${c.id} ${c.action} ${c.entity} for batch approval`}
                   className="h-4 w-4"
                 />
                 #{c.id} · {c.action} {c.entity}
@@ -202,15 +203,18 @@ export default function ReviewPage() {
                   value={rejectNote}
                   onChange={(e) => setRejectNote(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") act(c.id, "reject", rejectNote);
+                    if (e.key === "Enter" && rejectNote.trim())
+                      act(c.id, "reject", rejectNote.trim());
                     if (e.key === "Escape") setRejecting(null);
                   }}
+                  aria-label="Rejection reason — sent back to the proposer"
                   placeholder="Why? — sent back to the proposer"
                   className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
                 />
                 <button
-                  onClick={() => act(c.id, "reject", rejectNote)}
-                  className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                  onClick={() => act(c.id, "reject", rejectNote.trim())}
+                  disabled={!rejectNote.trim()}
+                  className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
                 >
                   Reject
                 </button>

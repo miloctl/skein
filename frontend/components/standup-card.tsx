@@ -17,9 +17,13 @@ export function StandupComposer({
   const [today, setToday] = useState("");
   const [blockers, setBlockers] = useState("");
   const [posted, setPosted] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const post = async () => {
-    if (!today.trim()) return;
+    // in-flight guard: a held Enter key must not file N standups (each
+    // blockers line would raise its own escalating blocker)
+    if (!today.trim() || busy || posted) return;
+    setBusy(true);
     try {
       await api("/api/standups", {
         method: "POST",
@@ -35,6 +39,8 @@ export function StandupComposer({
       }, 700);
     } catch (e) {
       alert(String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -42,6 +48,7 @@ export function StandupComposer({
     <div className="space-y-1.5">
       <input
         name="standup-yesterday"
+        aria-label="Standup: yesterday (optional)"
         value={yesterday}
         onChange={(e) => setYesterday(e.target.value)}
         placeholder={suggestion ? `yesterday — ${suggestion}` : "yesterday (optional)"}
@@ -49,6 +56,7 @@ export function StandupComposer({
       />
       <input
         name="standup-today"
+        aria-label="Standup: what are you on today?"
         value={today}
         onChange={(e) => setToday(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && post()}
@@ -58,6 +66,7 @@ export function StandupComposer({
       <div className="flex gap-1.5">
         <input
           name="standup-blockers"
+          aria-label="Standup: blockers"
           value={blockers}
           onChange={(e) => setBlockers(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && post()}
@@ -66,10 +75,11 @@ export function StandupComposer({
         />
         <button
           onClick={post}
-          disabled={!today.trim()}
+          disabled={!today.trim() || busy}
+          aria-live="polite"
           className="rounded-lg bg-thread-solid px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
         >
-          {posted ? "✓" : "Post"}
+          {posted ? "✓ posted" : busy ? "…" : "Post"}
         </button>
       </div>
     </div>

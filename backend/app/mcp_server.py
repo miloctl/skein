@@ -24,7 +24,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from . import db
+from . import db, ratelimit
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
@@ -60,6 +60,7 @@ def capture(text: str) -> str:
     """Quick-capture freeform text; auto-routed to task / question / note /
     decision / blocker / commitment (e.g. 'todo: ship the API', 'blocked on vendor')."""
     record_use(ACTOR, "mcp")
+    ratelimit.check("capture", ACTOR)
     # the kill switch must cover the routed entity, not just direct tools
     kind = capture_svc.classify(text.strip())
     _check_authority(
@@ -69,6 +70,7 @@ def capture(text: str) -> str:
             "decision": "decision",
             "blocker": "blocker",
             "commitment": "commitment",
+            "request": "intake",
             "note": "note",
         }.get(kind, "note")
     )
