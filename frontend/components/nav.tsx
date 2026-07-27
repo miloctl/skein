@@ -48,6 +48,7 @@ function NavLink({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={
         "relative flex h-14 items-center whitespace-nowrap text-[13px] transition-colors " +
         (active ? "font-medium text-ink" : "text-ink-2 hover:text-ink")
