@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
 
 type Req = {
@@ -338,11 +339,11 @@ export default function IntakePage() {
                     <div className="flex flex-wrap gap-2">
                       <label className="text-xs text-ink-2">
                         lead (optional)
-                        <input
+                        <PersonInput
                           name="lead"
                           value={verdict.lead}
                           onChange={(e) => setVerdict({ ...verdict, lead: e.target.value })}
-                          placeholder="who owns it?"
+                          placeholder="who owns it? — teammates suggested"
                           className="mt-0.5 block rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
                         />
                       </label>
