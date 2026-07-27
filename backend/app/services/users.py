@@ -45,12 +45,7 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
     return {"name": name, "growth_interests": interests.strip()}
 
 
-def set_theme(name: str, theme: str) -> dict:
-    """Theme prefs follow the person across browsers. Stored as a small JSON
-    object; validated for shape and size, never interpreted server-side.
-    Deliberate provenance exception: NOT activity-logged — saves arrive on a
-    debounced timer (slider drags would flood the ledger), the data is
-    cosmetic and self-visible only, and it's recoverable from backups."""
+def _validate_theme(theme: str) -> str:
     import json
 
     theme = theme.strip()
@@ -68,9 +63,38 @@ def set_theme(name: str, theme: str) -> dict:
             "custom",
         }:
             raise ValueError("unknown keys in theme")
+    return theme
+
+
+def set_theme(name: str, theme: str) -> dict:
+    """Theme prefs follow the person across browsers. Stored as a small JSON
+    object; validated for shape and size, never interpreted server-side.
+    Deliberate provenance exception: NOT activity-logged — saves arrive on a
+    debounced timer (slider drags would flood the ledger), the data is
+    cosmetic and self-visible only, and it's recoverable from backups."""
+    theme = _validate_theme(theme)
     ensure_user(name)
     db.execute("UPDATE users SET theme = ? WHERE name = ?", (theme, name))
     return {"name": name, "saved": bool(theme)}
+
+
+def set_team_default_theme(theme: str, *, actor: str) -> dict:
+    """Operator-set look for fresh browsers and anonymous visitors — a
+    default, never an override: any personal choice beats it."""
+    theme = _validate_theme(theme)
+    db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES ('team_theme', ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+        " updated_at = excluded.updated_at",
+        (theme, db.now()),
+    )
+    db.log_activity(actor, "set_team_theme", "team default theme updated")
+    return {"saved": bool(theme)}
+
+
+def get_team_default_theme() -> str:
+    row = db.query_one("SELECT value FROM app_settings WHERE key = 'team_theme'")
+    return row["value"] if row else ""
 
 
 def get_theme(name: str) -> str:

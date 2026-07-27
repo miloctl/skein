@@ -75,6 +75,18 @@ def test_user_theme_roundtrip(client):
     assert client.post("/api/users/theme", json={"theme": '{"evil":1}'}).status_code == 400
 
 
+def test_team_default_theme(client):
+    from app.services.api_keys import create_key
+
+    theme = '{"pack":"phosphor","colorway":"verdigris"}'
+    # weak identity cannot set the team default
+    assert client.post("/api/users/theme/default", json={"theme": theme}).status_code == 403
+    headers = {"Authorization": f"Bearer {create_key('tester', 't')['key']}"}
+    ok = client.post("/api/users/theme/default", json={"theme": theme}, headers=headers)
+    assert ok.json()["saved"] is True
+    assert client.get("/api/users/theme").json()["team_default"] == theme
+
+
 def test_agents_status_shape(client):
     s = client.get("/api/agents/status").json()
     assert set(s) == {"provider", "model", "review_gate"}

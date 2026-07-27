@@ -6,6 +6,8 @@ import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api"
 import { copyText } from "@/lib/clipboard";
 import {
   APPEARANCES,
+  applyThemeCode,
+  themeCode,
   COLORWAYS,
   CUSTOM_DEFAULT,
   PACKS,
@@ -215,6 +217,8 @@ export default function SettingsPage() {
   const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
   const pack = useSyncExternalStore(subscribeStorage, getPack, () => "loom");
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [codeDraft, setCodeDraft] = useState("");
+  const [codeStatus, setCodeStatus] = useState("");
   const accentOverridden =
     colorway !== (PACKS.find((p) => p.id === pack)?.accent ?? "indigo");
   const customThread = useSyncExternalStore(
@@ -439,6 +443,66 @@ export default function SettingsPage() {
                 ))}
               </>
             )}
+            <div className="mt-4 border-t border-line pt-3">
+              <p className="mb-1.5 text-xs font-medium text-ink-2">
+                Theme code — copy to share this exact look, paste to apply one
+              </p>
+              <CopyLine text={themeCode()} />
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  value={codeDraft}
+                  onChange={(e) => setCodeDraft(e.target.value)}
+                  aria-label="Paste a theme code"
+                  placeholder='paste a theme code {"pack":…}'
+                  className="flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 font-mono text-xs outline-none focus:border-thread-solid"
+                />
+                <button
+                  disabled={!codeDraft.trim()}
+                  onClick={() => {
+                    setCodeStatus(
+                      applyThemeCode(codeDraft.trim())
+                        ? "Applied."
+                        : "That doesn't look like a theme code.",
+                    );
+                    setCodeDraft("");
+                  }}
+                  className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+                >
+                  Apply
+                </button>
+              </div>
+              {codeStatus && (
+                <p role="status" className="mt-1 text-xs text-ink-3">
+                  {codeStatus}
+                </p>
+              )}
+              {strong && (
+                <div className="mt-3 border-t border-line pt-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api("/api/users/theme/default", {
+                          method: "POST",
+                          body: JSON.stringify({ theme: themeCode() }),
+                        });
+                        setCodeStatus(
+                          "Saved as the team default — fresh browsers and anonymous visitors start here.",
+                        );
+                      } catch (e) {
+                        setCodeStatus(String(e));
+                      }
+                    }}
+                    className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25"
+                  >
+                    Make this the team default
+                  </button>
+                  <p className="mt-1 text-xs text-ink-3">
+                    A default, never an override — anyone&apos;s personal
+                    choice beats it. Needs your API key.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Section>
