@@ -13,16 +13,18 @@ export function ThemeSync() {
   const [note, setNote] = useState("");
   useEffect(() => {
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     adoptServerTheme().then((adopted) => {
       if (!alive || adopted !== "profile") return;
       setNote("Applied the theme saved on your profile.");
-      setTimeout(() => {
+      timer = setTimeout(() => {
         if (alive) setNote("");
-      }, 4000);
+      }, 6000);
     });
     window.addEventListener("storage", applyPrefs);
     return () => {
       alive = false;
+      if (timer) clearTimeout(timer);
       window.removeEventListener("storage", applyPrefs);
     };
   }, []);
