@@ -6,19 +6,21 @@ import re
 
 from . import blockers, collab, commitments, work
 
+# explicit prefixes first, content heuristics second — a typed prefix always
+# wins ("req: blocked on X" is a request, not a blocker)
 PATTERNS = [
     ("question", re.compile(r"^\s*(q:|question:)", re.I)),
-    ("question", re.compile(r"\?\s*$")),
     ("blocker", re.compile(r"^\s*(blocked|blocker|stuck)\b[:\s]", re.I)),
-    ("blocker", re.compile(r"\b(blocked (by|on)|waiting on)\b", re.I)),
     ("decision", re.compile(r"^\s*(decision:|decided\b)", re.I)),
-    ("decision", re.compile(r"\bwe (decided|chose|are going with)\b", re.I)),
     ("commitment", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
-    ("commitment", re.compile(r"\bwe (promised|committed to)\b", re.I)),
     ("request", re.compile(r"^\s*(req:|request:)", re.I)),
     ("task", re.compile(r"^\s*(todo:|task:)", re.I)),
-    ("task", re.compile(r"^\s*(fix|add|update|implement|write|ship|review|schedule)\b", re.I)),
     ("note", re.compile(r"^\s*(note:|fyi:|til:)", re.I)),
+    ("question", re.compile(r"\?\s*$")),
+    ("blocker", re.compile(r"\b(blocked (by|on)|waiting on)\b", re.I)),
+    ("decision", re.compile(r"\bwe (decided|chose|are going with)\b", re.I)),
+    ("commitment", re.compile(r"\bwe (promised|committed to)\b", re.I)),
+    ("task", re.compile(r"^\s*(fix|add|update|implement|write|ship|review|schedule)\b", re.I)),
 ]
 
 PREFIX = re.compile(

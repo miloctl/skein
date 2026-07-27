@@ -9,17 +9,17 @@ import { api } from "@/lib/api";
 // memorized
 const RULES: [string, RegExp][] = [
   ["question", /^\s*(q:|question:)/i],
-  ["question", /\?\s*$/],
-  ["blocker", /^\s*(blocked|blocker|stuck)[:\s]/i],
-  ["blocker", /\b(blocked (by|on)|waiting on)\b/i],
+  ["blocker", /^\s*(blocked|blocker|stuck)\b[:\s]/i],
   ["decision", /^\s*(decision:|decided\b)/i],
-  ["decision", /\bwe (decided|chose|are going with)\b/i],
   ["commitment", /^\s*(promised?:|commitment:)/i],
-  ["commitment", /\bwe (promised|committed to)\b/i],
   ["request", /^\s*(req:|request:)/i],
   ["task", /^\s*(todo:|task:)/i],
-  ["task", /^\s*(fix|add|update|implement|write|ship|review|schedule)\b/i],
   ["note", /^\s*(note:|fyi:|til:)/i],
+  ["question", /\?\s*$/],
+  ["blocker", /\b(blocked (by|on)|waiting on)\b/i],
+  ["decision", /\bwe (decided|chose|are going with)\b/i],
+  ["commitment", /\bwe (promised|committed to)\b/i],
+  ["task", /^\s*(fix|add|update|implement|write|ship|review|schedule)\b/i],
 ];
 
 const KNOWN_PREFIX =
