@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, getUser } from "@/lib/api";
+import { api, getUser, setUser } from "@/lib/api";
+import { StandupComposer } from "@/components/standup-card";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Row = Record<string, string | number | null>;
@@ -49,10 +50,68 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 type Onboarding = {
-  steps: { id: string; label: string; done: boolean; link: string; hint: string }[];
+  steps: {
+    id: string;
+    label: string;
+    done: boolean;
+    link: string;
+    hint: string;
+    scope: "you" | "team";
+  }[];
   complete: boolean;
   progress: string;
 };
+
+/** Identity is the concept everything else hangs off — until a name is
+ *  picked, the rest of My Day is noise. One question, then the real page. */
+function WhoAreYou() {
+  const [people, setPeople] = useState<{ name: string; kind: string }[]>([]);
+  useEffect(() => {
+    api<{ name: string; kind: string }[]>("/api/users")
+      .then((u) => setPeople(u.filter((x) => x.kind !== "agent")))
+      .catch(() => {});
+  }, []);
+  const pick = (name: string) => {
+    setUser(name);
+    window.location.reload();
+  };
+  return (
+    <main className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col justify-center p-6">
+      <h1 className="mb-1 font-display text-[28px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+        Who are you?
+      </h1>
+      <p className="mb-5 text-sm text-ink-3">
+        Everything you do here is recorded under your name — pick it once and
+        this browser remembers.
+      </p>
+      <input
+        autoFocus
+        name="pick-name"
+        placeholder="Your name — Enter to continue"
+        aria-label="Your name"
+        className="mb-3 w-full rounded-xl border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
+        onKeyDown={(e) => {
+          const name = (e.target as HTMLInputElement).value.trim();
+          if (e.key === "Enter" && name) pick(name);
+        }}
+      />
+      {people.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="py-1 text-xs text-ink-3">Already on the team:</span>
+          {people.map((p) => (
+            <button
+              key={p.name}
+              onClick={() => pick(p.name)}
+              className="rounded-full bg-raised px-3 py-1 text-sm text-ink-2 hover:bg-line hover:text-ink"
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
 
 // one wave per session, then stillness; memoized so StrictMode double-renders
 // and mid-animation re-renders see the same answer (wave renders client-only,
@@ -160,13 +219,14 @@ export default function MyDay() {
       </main>
     );
   if (!b) return <main className="p-8 text-sm text-ink-3">{loadingLine()}</main>;
+  if (b.user === "anonymous") return <WhoAreYou />;
 
   const attention = b.attention ?? [];
   const needsCount = attention.filter((a) => a.group !== "notice").length;
   const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
     decide: { title: "Decide", tone: "bg-thread-solid" },
     unblock: { title: "Unblock", tone: "bg-danger" },
-    commit: { title: "Commit", tone: "bg-weld" },
+    commit: { title: "Promise", tone: "bg-weld" },
     review: { title: "Review", tone: "bg-thread-solid" },
     notice: { title: "Notice", tone: "bg-line-strong" },
   };
@@ -182,81 +242,103 @@ export default function MyDay() {
         {needsCount === 0
           ? "nothing is waiting on you"
           : `${needsCount} thing${needsCount > 1 ? "s" : ""} need${needsCount > 1 ? "" : "s"} you`}
-        {b.user === "anonymous" ? " · set your name (top right) to personalize" : ""}
       </p>
 
       {onboarding && !onboarding.complete && (
         <div className="mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="font-semibold text-ink">
-              Weaving your first week{" "}
-              <span className="font-mono text-[11px] font-medium text-ink-3">
-                {onboarding.progress}
-              </span>
-            </span>
-            <button
-              onClick={() => {
-                window.localStorage.setItem(`skein-onboarded:${getUser()}`, "1");
-                setOnboarding(null);
-              }}
-              className="text-xs text-ink-3 underline"
-              title="Bring it back anytime from Settings"
-            >
-              dismiss
-            </button>
-          </div>
           {(() => {
-            const total = onboarding.steps.length;
-            const doneN = onboarding.steps.filter((s) => s.done).length;
+            // personal steps drive the checklist; team facts are a separate
+            // strip — a new teammate is never handed team-level workflows
+            const personal = onboarding.steps.filter((s) => s.scope !== "team");
+            const teamSteps = onboarding.steps.filter((s) => s.scope === "team");
+            const total = personal.length;
+            const doneN = personal.filter((s) => s.done).length;
             const pct = total ? (doneN / total) * 100 : 0;
             return (
-              <div className="relative mb-5 mt-4 h-[3px] rounded-full bg-line">
-                <div
-                  className="h-full rounded-full transition-[width] duration-500"
-                  style={{
-                    width: `${pct}%`,
-                    background: "linear-gradient(90deg, var(--thread-solid), var(--weld))",
-                  }}
-                />
-                {onboarding.steps.map((s, i) => (
-                  <span
-                    key={s.id}
-                    className={
-                      "absolute top-1/2 size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full " +
-                      (s.done ? "bg-thread-solid" : "border border-line-strong bg-card")
-                    }
-                    style={{ left: `${total > 1 ? (i / (total - 1)) * 100 : 0}%` }}
+              <>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-semibold text-ink">
+                    Your first-week setup{" "}
+                    <span className="font-mono text-[11px] font-medium text-ink-3">
+                      {doneN}/{total}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      window.localStorage.setItem(`skein-onboarded:${getUser()}`, "1");
+                      setOnboarding(null);
+                    }}
+                    className="text-xs text-ink-3 underline"
+                    title="Bring it back anytime from Settings"
+                  >
+                    dismiss
+                  </button>
+                </div>
+                <div className="relative mb-5 mt-4 h-[3px] rounded-full bg-line">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-500"
+                    style={{
+                      width: `${pct}%`,
+                      background: "linear-gradient(90deg, var(--thread-solid), var(--weld))",
+                    }}
                   />
-                ))}
-                <span
-                  className="absolute -top-[20px] -translate-x-1/2 text-sm motion-safe:transition-[left] motion-safe:duration-500"
-                  style={{ left: `${Math.min(pct, 97)}%` }}
-                  aria-hidden
-                >
-                  <span className="goose">🪿</span>
-                </span>
-              </div>
+                  {personal.map((s, i) => (
+                    <span
+                      key={s.id}
+                      className={
+                        "absolute top-1/2 size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full " +
+                        (s.done ? "bg-thread-solid" : "border border-line-strong bg-card")
+                      }
+                      style={{ left: `${total > 1 ? (i / (total - 1)) * 100 : 0}%` }}
+                    />
+                  ))}
+                  <span
+                    className="absolute -top-[20px] -translate-x-1/2 text-sm motion-safe:transition-[left] motion-safe:duration-500"
+                    style={{ left: `${Math.min(pct, 97)}%` }}
+                    aria-hidden
+                  >
+                    <span className="goose">🪿</span>
+                  </span>
+                </div>
+                <ul className="space-y-1.5">
+                  {personal.map((s) => (
+                    <li key={s.id}>
+                      {s.done ? (
+                        <span className="text-ink-3">✓ {s.label}</span>
+                      ) : (
+                        <>
+                          <Link
+                            href={s.link}
+                            className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
+                          >
+                            ○ {s.label}
+                          </Link>
+                          <span className="ml-1 block pl-4 text-xs text-ink-3">{s.hint}</span>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {teamSteps.some((s) => !s.done) && (
+                  <p className="mt-3 border-t border-line pt-2 text-xs text-ink-3">
+                    Team setup (anyone can do these):{" "}
+                    {teamSteps.map((s, i) => (
+                      <span key={s.id}>
+                        {i > 0 && " · "}
+                        {s.done ? (
+                          <span>✓ {s.label}</span>
+                        ) : (
+                          <Link href={s.link} className="underline hover:text-ink-2">
+                            ○ {s.label}
+                          </Link>
+                        )}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </>
             );
           })()}
-          <ul className="space-y-1.5">
-            {onboarding.steps.map((s) => (
-              <li key={s.id}>
-                {s.done ? (
-                  <span className="text-ink-3">✓ {s.label}</span>
-                ) : (
-                  <>
-                    <Link
-                      href={s.link}
-                      className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
-                    >
-                      ○ {s.label}
-                    </Link>
-                    <span className="ml-1 block pl-4 text-xs text-ink-3">{s.hint}</span>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
@@ -338,6 +420,9 @@ export default function MyDay() {
         </Card>
 
         <Card title="Your work">
+          <div className="mb-3 border-b border-line pb-3">
+            <StandupComposer onPosted={load} />
+          </div>
           <ul className="space-y-2 text-sm">
             {b.your_work.tasks.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-2">
@@ -420,7 +505,7 @@ export default function MyDay() {
           </ul>
         </Card>
 
-        <Card title="Team pulse">
+        <Card title="Team today">
           <ul className="space-y-2 text-sm">
             {b.team.escalated_blockers.map((e) => (
               <li key={e.id} className="flex items-center gap-2 text-danger">

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { SectionTabs } from "@/components/section-tabs";
 
 type Req = {
   id: number;
@@ -31,6 +33,7 @@ export default function IntakePage() {
   const [reqs, setReqs] = useState<Req[]>([]);
   const [form, setForm] = useState({ title: "", detail: "", project_class: "" });
   const [error, setError] = useState<string | null>(null);
+  const manage = useManageMode();
 
   const load = useCallback(() => {
     api<Req[]>("/api/intake").then(setReqs).catch((e) => setError(String(e)));
@@ -48,70 +51,62 @@ export default function IntakePage() {
     }
   };
 
-  const score = async (id: number) => {
-    const raw = prompt(
-      "Score 1-5 each — reach, impact, confidence, effort (higher effort lowers the score):",
-      "3,3,3,3",
-    );
-    if (!raw) return;
-    const parts = raw.split(",").map((n) => parseInt(n.trim(), 10));
-    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 1 || n > 5)) {
-      alert("Need exactly four numbers, each 1-5 (e.g. 3,4,2,3).");
-      return;
-    }
-    const [reach, impact, confidence, effort] = parts;
+  // triage happens in inline panels — one open at a time, no browser prompts
+  type PanelMode = "score" | "accepted" | "deferred" | "declined";
+  const [panel, setPanel] = useState<{ id: number; mode: PanelMode } | null>(null);
+  const [rice, setRice] = useState({ reach: 3, impact: 3, confidence: 3, effort: 3 });
+  const [verdict, setVerdict] = useState({
+    reason: "",
+    experiment: false,
+    timebox_end: "",
+    kill_criteria: "",
+    lead: "",
+    outcome: "",
+  });
+
+  const openPanel = (id: number, mode: PanelMode) => {
+    setPanel({ id, mode });
+    setRice({ reach: 3, impact: 3, confidence: 3, effort: 3 });
+    setVerdict({
+      reason: "",
+      experiment: false,
+      timebox_end: "",
+      kill_criteria: "",
+      lead: "",
+      outcome: "",
+    });
+  };
+
+  const submitScore = async (id: number) => {
     try {
       await api(`/api/intake/${id}/score`, {
         method: "POST",
-        body: JSON.stringify({ reach, impact, confidence, effort }),
+        body: JSON.stringify(rice),
       });
+      setPanel(null);
       load();
     } catch (e) {
       alert(String(e));
     }
   };
 
-  const disposition = async (id: number, d: string, asExperiment = false) => {
-    const reason = prompt(`Reason for "${d}" (requesters see this):`);
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      alert("A reason is required — requesters see it.");
-      return;
-    }
-    let kind = "delivery";
-    let timebox_end = "";
-    let outcome = "";
-    let lead = "";
-    let kill_criteria = "";
-    if (d === "accepted") {
-      if (asExperiment) {
-        const tb = prompt("Experiment timebox end (YYYY-MM-DD):");
-        if (tb === null) return; // cancelled
-        if (!tb.trim()) {
-          alert("Experiments need a timebox.");
-          return;
-        }
-        kind = "experiment";
-        timebox_end = tb.trim();
-        kill_criteria =
-          prompt("Kill criteria (optional — what result stops this early?):") ?? "";
-      }
-      lead = prompt("Lead (optional — who owns the engagement?):") ?? "";
-      outcome = prompt("Outcome statement (optional — what result would success show?):") ?? "";
-    }
+  const submitVerdict = async (id: number, d: Exclude<PanelMode, "score">) => {
+    if (!verdict.reason.trim()) return;
+    if (d === "accepted" && verdict.experiment && !verdict.timebox_end) return;
     try {
       await api(`/api/intake/${id}/disposition`, {
         method: "POST",
         body: JSON.stringify({
           disposition: d,
-          reason,
-          kind,
-          timebox_end,
-          outcome,
-          lead: lead.trim(),
-          kill_criteria: kill_criteria.trim(),
+          reason: verdict.reason.trim(),
+          kind: d === "accepted" && verdict.experiment ? "experiment" : "delivery",
+          timebox_end: verdict.experiment ? verdict.timebox_end : "",
+          outcome: verdict.outcome.trim(),
+          lead: verdict.lead.trim(),
+          kill_criteria: verdict.experiment ? verdict.kill_criteria.trim() : "",
         }),
       });
+      setPanel(null);
       load();
     } catch (e) {
       alert(String(e));
@@ -120,11 +115,15 @@ export default function IntakePage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Engagement intake</h1>
+      <div className="flex items-start justify-between">
+        <SectionTabs set="inbox" />
+        <ManageToggle />
+      </div>
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Requests</h1>
       <p className="mb-6 text-sm text-ink-3">
-        The team&apos;s front door. Score with RICE-lite (reach × impact ×
-        confidence ÷ effort), then accept, defer, or decline — with a reason
-        the requester sees. Accepting creates an engagement.
+        The team&apos;s front door: ask here instead of a DM. Whoever triages
+        scores each request and answers with a reason you can see. Accepting
+        one starts an engagement.
       </p>
 
       <div className="mb-8 rounded-xl border border-line bg-card p-4 shadow-card">
@@ -151,7 +150,7 @@ export default function IntakePage() {
               onChange={(e) => setForm({ ...form, project_class: e.target.value })}
               className="rounded-lg border border-line-strong bg-card px-2 py-2 text-sm outline-none"
             >
-              <option value="">class: unknown</option>
+              <option value="">type of work (optional)</option>
               <option value="prototype">prototype</option>
               <option value="incident">incident</option>
               <option value="migration">migration</option>
@@ -209,33 +208,157 @@ export default function IntakePage() {
             {r.disposition_reason && (
               <p className="mt-1 text-xs italic text-ink-3">↳ {r.disposition_reason}</p>
             )}
-            {(r.status === "submitted" || r.status === "scored") && (
-              <div className="mt-2 flex gap-2">
-                <button onClick={() => score(r.id)}
+            {manage && (r.status === "submitted" || r.status === "scored") && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={() => openPanel(r.id, "score")}
                         className="rounded bg-thread/15 px-2 py-1 text-xs font-medium text-thread hover:bg-thread/20">
-                  score
+                  score…
                 </button>
                 {r.status === "scored" && (
                   <>
-                    <button onClick={() => disposition(r.id, "accepted")}
+                    <button onClick={() => openPanel(r.id, "accepted")}
                             className="rounded bg-ok/15 px-2 py-1 text-xs font-medium text-ok hover:bg-ok/20">
-                      accept
+                      accept…
                     </button>
-                    <button onClick={() => disposition(r.id, "accepted", true)}
-                            title="Accept as a timeboxed experiment — invalidated on time is a success, not a slip"
-                            className="rounded bg-weld/15 px-2 py-1 text-xs font-medium text-weld hover:bg-weld/20">
-                      🧪 accept as experiment
-                    </button>
-                    <button onClick={() => disposition(r.id, "deferred")}
+                    <button onClick={() => openPanel(r.id, "deferred")}
                             className="rounded bg-raised px-2 py-1 text-xs font-medium text-ink-2 hover:bg-line">
-                      defer
+                      defer…
                     </button>
-                    <button onClick={() => disposition(r.id, "declined")}
+                    <button onClick={() => openPanel(r.id, "declined")}
                             className="rounded bg-danger/15 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/20">
-                      decline
+                      decline…
                     </button>
                   </>
                 )}
+              </div>
+            )}
+            {panel?.id === r.id && panel.mode === "score" && (
+              <div className="mt-3 rounded-lg bg-raised p-3">
+                <p className="mb-2 text-xs text-ink-3">
+                  1–5 each. Score = reach × impact × confidence ÷ effort —
+                  higher effort lowers it.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  {(["reach", "impact", "confidence", "effort"] as const).map((k) => (
+                    <label key={k} className="text-xs text-ink-2">
+                      {k}
+                      <input
+                        type="number"
+                        name={`rice-${k}`}
+                        min={1}
+                        max={5}
+                        value={rice[k]}
+                        onChange={(e) =>
+                          setRice({ ...rice, [k]: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })
+                        }
+                        className="mt-0.5 block w-14 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+                      />
+                    </label>
+                  ))}
+                  <span className="pb-1 font-mono text-xs text-thread">
+                    = {Math.round((rice.reach * rice.impact * rice.confidence) / rice.effort * 10) / 10}
+                  </span>
+                  <button
+                    onClick={() => submitScore(r.id)}
+                    className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+                  >
+                    Save score
+                  </button>
+                  <button onClick={() => setPanel(null)} className="pb-1 text-xs text-ink-3 hover:text-ink">
+                    cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {panel?.id === r.id && panel.mode !== "score" && (
+              <div className="mt-3 space-y-2 rounded-lg bg-raised p-3">
+                <input
+                  autoFocus
+                  name="verdict-reason"
+                  value={verdict.reason}
+                  onChange={(e) => setVerdict({ ...verdict, reason: e.target.value })}
+                  placeholder={`Reason for "${panel.mode.replace("ed", "ing").replace("accepting", "accepting this")}" — the requester sees it`}
+                  className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm outline-none focus:border-thread-solid"
+                />
+                {panel.mode === "accepted" && (
+                  <>
+                    <label className="flex items-center gap-2 text-xs text-ink-2">
+                      <input
+                        type="checkbox"
+                        checked={verdict.experiment}
+                        onChange={(e) => setVerdict({ ...verdict, experiment: e.target.checked })}
+                      />
+                      🧪 timeboxed experiment — invalidated on time is a success, not a slip
+                    </label>
+                    {verdict.experiment && (
+                      <div className="flex flex-wrap gap-2">
+                        <label className="text-xs text-ink-2">
+                          timebox end
+                          <input
+                            type="date"
+                            name="timebox-end"
+                            value={verdict.timebox_end}
+                            onChange={(e) => setVerdict({ ...verdict, timebox_end: e.target.value })}
+                            className="mt-0.5 block rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+                          />
+                        </label>
+                        <label className="flex-1 text-xs text-ink-2">
+                          kill criteria (optional)
+                          <input
+                            name="kill-criteria"
+                            value={verdict.kill_criteria}
+                            onChange={(e) => setVerdict({ ...verdict, kill_criteria: e.target.value })}
+                            placeholder="what result stops this early?"
+                            className="mt-0.5 block w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+                          />
+                        </label>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <label className="text-xs text-ink-2">
+                        lead (optional)
+                        <input
+                          name="lead"
+                          value={verdict.lead}
+                          onChange={(e) => setVerdict({ ...verdict, lead: e.target.value })}
+                          placeholder="who owns it?"
+                          className="mt-0.5 block rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+                        />
+                      </label>
+                      <label className="flex-1 text-xs text-ink-2">
+                        outcome (optional)
+                        <input
+                          name="outcome"
+                          value={verdict.outcome}
+                          onChange={(e) => setVerdict({ ...verdict, outcome: e.target.value })}
+                          placeholder="what result would success show?"
+                          className="mt-0.5 block w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    disabled={
+                      !verdict.reason.trim() ||
+                      (panel.mode === "accepted" && verdict.experiment && !verdict.timebox_end)
+                    }
+                    onClick={() => submitVerdict(r.id, panel.mode as "accepted" | "deferred" | "declined")}
+                    className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+                  >
+                    {panel.mode === "accepted"
+                      ? verdict.experiment
+                        ? "Accept as experiment"
+                        : "Accept"
+                      : panel.mode === "deferred"
+                        ? "Defer"
+                        : "Decline"}
+                  </button>
+                  <button onClick={() => setPanel(null)} className="text-xs text-ink-3 hover:text-ink">
+                    cancel
+                  </button>
+                </div>
               </div>
             )}
           </li>

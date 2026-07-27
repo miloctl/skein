@@ -6,6 +6,15 @@ but never require one. All writes flow through `backend/app/services/` from
 both write paths (human REST, agent tools) and carry provenance
 (`origin`, `created_by`) plus an activity-log entry.
 
+**Navigation (since 2026-07-26):** five top-level destinations — My Day ·
+Chat · **Work** (Health `/portfolio` · Browse `/dashboard` · Insights
+`/insights`) · **Inbox** (Approvals `/review` · Requests `/intake` · Paste
+notes `/ingest`) · **Team** (Agents `/agents` · 1:1s `/people` · Charter
+`/charter`). All URLs are unchanged; the groups are tabs. Manager-grade
+controls (request triage, exec readout, authority editing, commitment
+verdicts) sit behind a per-browser "manager controls" toggle so developers
+never carry the manager cockpit by default.
+
 ## Work tracking
 
 | Feature | How | Surface |

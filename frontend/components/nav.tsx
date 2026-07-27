@@ -12,26 +12,25 @@ function subscribeUser(cb: () => void) {
   return () => window.removeEventListener("storage", cb);
 }
 
-// grouped by job: daily driving | reading the state | deciding | people & rules
-const GROUPS: { href: string; label: string }[][] = [
+// five destinations, grouped by job: my work | team work | needs a verdict |
+// people & rules. Former top-level pages live on as tabs inside Work
+// (Health/Browse/Insights), Inbox (Approvals/Requests/Paste notes), and Team
+// (Agents/1:1s/Charter) — their URLs are unchanged.
+const GROUPS: { href: string; label: string; paths: string[] }[][] = [
   [
-    { href: "/", label: "My Day" },
-    { href: "/chat", label: "Chat" },
+    { href: "/", label: "My Day", paths: ["/"] },
+    { href: "/chat", label: "Chat", paths: ["/chat"] },
   ],
   [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/portfolio", label: "Portfolio" },
-    { href: "/insights", label: "Insights" },
+    {
+      href: "/portfolio",
+      label: "Work",
+      paths: ["/portfolio", "/dashboard", "/insights"],
+    },
+    { href: "/review", label: "Inbox", paths: ["/review", "/intake", "/ingest"] },
   ],
   [
-    { href: "/review", label: "Review" },
-    { href: "/intake", label: "Intake" },
-    { href: "/ingest", label: "Notes" },
-  ],
-  [
-    { href: "/agents", label: "Agents" },
-    { href: "/people", label: "People" },
-    { href: "/charter", label: "Charter" },
+    { href: "/agents", label: "Team", paths: ["/agents", "/people", "/charter"] },
   ],
 ];
 
@@ -57,7 +56,7 @@ function NavLink({
       {label}
       {badge ? (
         <span
-          aria-label={`${badge} items needing review`}
+          aria-label={`${badge} items waiting on a person`}
           className="ml-1.5 rounded-full border border-danger/25 bg-danger/10 px-1.5 py-px font-mono text-[10px] tabular-nums text-danger"
         >
           {badge}
@@ -125,7 +124,7 @@ export function Nav() {
                   key={l.href}
                   href={l.href}
                   label={l.label}
-                  active={pathname === l.href}
+                  active={l.paths.includes(pathname)}
                   badge={l.href === "/review" ? attention : undefined}
                 />
               ))}

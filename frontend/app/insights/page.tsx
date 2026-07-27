@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { SectionTabs } from "@/components/section-tabs";
 
 type Finding = {
   id: number;
@@ -105,33 +106,34 @@ export default function InsightsPage() {
     load();
   }, []);
 
-  const disposition = async (id: number, d: string) => {
-    let reason = "";
-    let deferred_until = "";
-    if (d === "dismissed") {
-      const answer = prompt("Why dismiss? (false positive, known, …)");
-      if (answer === null) return; // cancelled — don't dismiss
-      reason = answer;
-    }
-    if (d === "deferred") {
-      const until = prompt("Defer until (YYYY-MM-DD)?");
-      if (!until) return;
-      deferred_until = until;
-    }
+  // inline follow-up for actions that need one more piece of information —
+  // no browser prompt() anywhere on this page
+  const [ask, setAsk] = useState<{ id: number; kind: "dismissed" | "deferred" } | null>(null);
+  const [askValue, setAskValue] = useState("");
+
+  const disposition = async (
+    id: number,
+    d: string,
+    extra: { reason?: string; deferred_until?: string } = {},
+  ) => {
     try {
       await api(`/api/findings/${id}/disposition`, {
         method: "POST",
-        body: JSON.stringify({ disposition: d, reason, deferred_until }),
+        body: JSON.stringify({
+          disposition: d,
+          reason: extra.reason ?? "",
+          deferred_until: extra.deferred_until ?? "",
+        }),
       });
+      setAsk(null);
+      setAskValue("");
       load();
     } catch (e) {
       alert(String(e));
     }
   };
 
-  const convert = async (id: number) => {
-    const kind = prompt("Convert to 'task' or 'question'?", "task");
-    if (kind !== "task" && kind !== "question") return;
+  const convert = async (id: number, kind: "task" | "question") => {
     try {
       await api(`/api/findings/${id}/convert`, {
         method: "POST",
@@ -151,7 +153,9 @@ export default function InsightsPage() {
   const smallN = m.current.n < 8 || m.previous.n < 8;
 
   return (
-    <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+    <main className="mx-auto max-w-6xl p-6">
+      <SectionTabs set="work" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <p className="text-xs text-ink-3 md:col-span-2">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.
@@ -192,12 +196,18 @@ export default function InsightsPage() {
                       {JSON.stringify(f.receipt, null, 1)}
                     </pre>
                     {f.disposition ? null : (
-                    <div className="mt-1 flex gap-2 text-xs">
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                       <button
-                        onClick={() => convert(f.id)}
+                        onClick={() => convert(f.id, "task")}
                         className="rounded bg-thread-solid px-2 py-1 font-medium text-white hover:opacity-90"
                       >
-                        → work item
+                        → task
+                      </button>
+                      <button
+                        onClick={() => convert(f.id, "question")}
+                        className="rounded bg-thread-solid/80 px-2 py-1 font-medium text-white hover:opacity-90"
+                      >
+                        → question
                       </button>
                       <button
                         onClick={() => disposition(f.id, "resolved")}
@@ -206,18 +216,66 @@ export default function InsightsPage() {
                         resolved
                       </button>
                       <button
-                        onClick={() => disposition(f.id, "deferred")}
+                        onClick={() => {
+                          setAsk({ id: f.id, kind: "deferred" });
+                          setAskValue("");
+                        }}
                         className="rounded bg-raised px-2 py-1"
                       >
                         defer…
                       </button>
                       <button
-                        onClick={() => disposition(f.id, "dismissed")}
+                        onClick={() => {
+                          setAsk({ id: f.id, kind: "dismissed" });
+                          setAskValue("");
+                        }}
                         className="rounded bg-raised px-2 py-1"
                       >
                         dismiss…
                       </button>
                     </div>
+                    )}
+                    {ask?.id === f.id && (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                        <input
+                          autoFocus
+                          name={ask.kind === "deferred" ? "defer-until" : "dismiss-reason"}
+                          type={ask.kind === "deferred" ? "date" : "text"}
+                          placeholder="why dismiss? (false positive, known, …)"
+                          value={askValue}
+                          onChange={(e) => setAskValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setAsk(null);
+                            if (e.key === "Enter" && askValue)
+                              disposition(
+                                f.id,
+                                ask.kind,
+                                ask.kind === "deferred"
+                                  ? { deferred_until: askValue }
+                                  : { reason: askValue },
+                              );
+                          }}
+                          className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+                        />
+                        <button
+                          disabled={!askValue}
+                          onClick={() =>
+                            disposition(
+                              f.id,
+                              ask.kind,
+                              ask.kind === "deferred"
+                                ? { deferred_until: askValue }
+                                : { reason: askValue },
+                            )
+                          }
+                          className="rounded bg-thread-solid px-2 py-1 font-medium text-white disabled:opacity-40"
+                        >
+                          {ask.kind === "deferred" ? "defer" : "dismiss"}
+                        </button>
+                        <button onClick={() => setAsk(null)} className="rounded bg-raised px-2 py-1">
+                          cancel
+                        </button>
+                      </div>
                     )}
                   </>
                 )}
@@ -250,7 +308,7 @@ export default function InsightsPage() {
         )}
       </Card>
 
-      <Card title="Weekly pulse — team tally">
+      <Card title="Weekly check-in — team tally">
         {(d.pulse_tally ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">
             No votes yet. The Monday digest asks; 👍/👎 lives on My Day.
@@ -372,6 +430,7 @@ export default function InsightsPage() {
           </ul>
         )}
       </Card>
+      </div>
     </main>
   );
 }

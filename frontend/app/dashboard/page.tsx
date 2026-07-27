@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { API_URL, api } from "@/lib/api";
+import { SectionTabs } from "@/components/section-tabs";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Pulse = {
@@ -68,63 +69,15 @@ function Section({
 }
 
 function StandupCard({ rows }: { rows: Row[] }) {
-  const [yesterday, setYesterday] = useState("");
-  const [today, setToday] = useState("");
-  const [blockers, setBlockers] = useState("");
-  const [posted, setPosted] = useState(false);
-
-  const post = async () => {
-    if (!today.trim()) return;
-    try {
-      await api("/api/standups", {
-        method: "POST",
-        body: JSON.stringify({ yesterday, today, blockers }),
-      });
-      setPosted(true);
-      setTimeout(() => window.location.reload(), 700);
-    } catch (e) {
-      alert(String(e));
-    }
-  };
-
   return (
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
       <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        Standups
+        Recent standups
       </h2>
-      <div className="mb-3 space-y-1.5">
-        <input
-          value={yesterday}
-          onChange={(e) => setYesterday(e.target.value)}
-          placeholder="yesterday (optional)"
-          className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
-        />
-        <input
-          value={today}
-          onChange={(e) => setToday(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && post()}
-          placeholder="today — what are you on?"
-          className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
-        />
-        <div className="flex gap-1.5">
-          <input
-            value={blockers}
-            onChange={(e) => setBlockers(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && post()}
-            placeholder="blockers — auto-filed with an escalation clock"
-            className="flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
-          />
-          <button
-            onClick={post}
-            disabled={!today.trim()}
-            className="rounded-lg bg-thread-solid px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-          >
-            {posted ? "✓" : "Post"}
-          </button>
-        </div>
-      </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-ink-3">No standups posted yet — yours can be first.</p>
+        <p className="text-sm text-ink-3">
+          No standups posted yet — post yours from My Day.
+        </p>
       ) : (
         <ul className="space-y-2">
           {rows.map((s) => (
@@ -147,10 +100,30 @@ function StandupCard({ rows }: { rows: Row[] }) {
   );
 }
 
+const CONCLUSIONS = [
+  "achieved",
+  "partial",
+  "missed",
+  "invalidated",
+  "unmeasured",
+  "stopped",
+] as const;
+
+const CONCLUSION_HINTS: Record<string, string> = {
+  achieved: "the outcome landed",
+  partial: "some of it landed",
+  missed: "the outcome didn't land",
+  invalidated: "the experiment disproved the idea — on time, that's a win",
+  unmeasured: "closed without measuring the outcome",
+  stopped: "halted early on purpose",
+};
+
 export default function Dashboard() {
   const [data, setData] = useState<Record<string, Row[]>>({});
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [closing, setClosing] = useState<number | null>(null);
+  const [assigning, setAssigning] = useState<number | null>(null);
 
   useEffect(() => {
     const endpoints = [
@@ -199,11 +172,13 @@ export default function Dashboard() {
     return <main className="p-8 text-sm text-ink-3">{loadingLine()}</main>;
 
   return (
-    <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+    <main className="mx-auto max-w-6xl p-6">
+      <SectionTabs set="work" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {pulse && (
         <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
           <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">
-            Team pulse · season {pulse.season.label}
+            Season {pulse.season.label}
             <span className="ml-2 font-normal normal-case text-ink-3">
               {pulse.season.days_left} days left
             </span>
@@ -267,9 +242,9 @@ export default function Dashboard() {
       <Section
         title="Engagements"
         rows={data.engagements ?? []}
-        empty="No engagements — accept an intake request or start one from a playbook."
+        empty="No engagements — accept a request (Inbox → Requests) or start one from a playbook."
         render={(e) => (
-          <li key={e.id} className="flex items-start justify-between gap-3 text-sm">
+          <li key={e.id} className="flex flex-wrap items-start justify-between gap-3 text-sm">
             <span className="min-w-0">
               <span className="flex items-center gap-2">
                 <span className="font-mono text-xs text-ink-3">#{e.id}</span>
@@ -290,31 +265,44 @@ export default function Dashboard() {
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-2">
-              {e.status !== "closed" && (
+              {e.status !== "closed" && closing !== e.id && (
                 <button
-                  onClick={async () => {
-                    const conclusion = prompt(
-                      `Close "${e.name}" — conclusion?\n(achieved / partial / missed / invalidated / unmeasured / stopped)`,
-                      e.kind === "experiment" ? "invalidated" : "achieved",
-                    );
-                    if (!conclusion) return;
-                    try {
-                      await api(`/api/engagements/${e.id}`, {
-                        method: "PATCH",
-                        body: JSON.stringify({ status: "closed", conclusion }),
-                      });
-                      window.location.reload();
-                    } catch (err) {
-                      alert(String(err));
-                    }
-                  }}
+                  onClick={() => setClosing(Number(e.id))}
                   className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
-                  close out
+                  close out…
                 </button>
               )}
               <Badge value={String(e.status)} />
             </span>
+            {closing === e.id && (
+              <span className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-ink-3">How did it end?</span>
+                {CONCLUSIONS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={async () => {
+                      try {
+                        await api(`/api/engagements/${e.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ status: "closed", conclusion: c }),
+                        });
+                        window.location.reload();
+                      } catch (err) {
+                        alert(String(err));
+                      }
+                    }}
+                    title={CONCLUSION_HINTS[c]}
+                    className="rounded bg-raised px-2 py-0.5 hover:bg-line"
+                  >
+                    {c}
+                  </button>
+                ))}
+                <button onClick={() => setClosing(null)} className="text-ink-3 hover:text-ink">
+                  cancel
+                </button>
+              </span>
+            )}
           </li>
         )}
       />
@@ -405,21 +393,35 @@ export default function Dashboard() {
               <p className="mt-0.5 text-xs text-ink-3">
                 {q.assigned_to ? (
                   <>→ @{q.assigned_to}</>
+                ) : assigning === q.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      autoFocus
+                      name="assign-question"
+                      placeholder="teammate's name — Enter to assign"
+                      onKeyDown={async (ev) => {
+                        if (ev.key === "Escape") setAssigning(null);
+                        const who = (ev.target as HTMLInputElement).value.trim();
+                        if (ev.key !== "Enter" || !who) return;
+                        try {
+                          await api(`/api/questions/${q.id}`, {
+                            method: "PATCH",
+                            body: JSON.stringify({ assigned_to: who }),
+                          });
+                          window.location.reload();
+                        } catch (e) {
+                          alert(String(e));
+                        }
+                      }}
+                      className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                    />
+                    <button onClick={() => setAssigning(null)} className="hover:text-ink">
+                      cancel
+                    </button>
+                  </span>
                 ) : (
                   <button
-                    onClick={async () => {
-                      const who = prompt("Assign this question to:");
-                      if (!who?.trim()) return;
-                      try {
-                        await api(`/api/questions/${q.id}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ assigned_to: who.trim() }),
-                        });
-                        window.location.reload();
-                      } catch (e) {
-                        alert(String(e));
-                      }
-                    }}
+                    onClick={() => setAssigning(Number(q.id))}
                     className="underline hover:text-ink-2"
                   >
                     unassigned — assign…
@@ -486,6 +488,7 @@ export default function Dashboard() {
           </li>
         )}
       />
+      </div>
     </main>
   );
 }

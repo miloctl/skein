@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { SectionTabs } from "@/components/section-tabs";
 import { emptyState } from "@/lib/whimsy";
 
 function cell(v: unknown): string {
@@ -85,18 +86,19 @@ export default function ReviewPage() {
     }
   };
 
-  const act = async (id: number, verb: "approve" | "reject") => {
-    let note = "";
-    if (verb === "reject") {
-      const answer = prompt("Why? (sent back to the proposer)");
-      if (answer === null) return; // cancelled — don't reject
-      note = answer;
-    }
+  // rejecting needs a reason the proposer will read — asked inline, not via
+  // a browser prompt
+  const [rejecting, setRejecting] = useState<number | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+
+  const act = async (id: number, verb: "approve" | "reject", note = "") => {
     try {
       await api(`/api/review/${id}/${verb}`, {
         method: "POST",
         body: JSON.stringify({ note }),
       });
+      setRejecting(null);
+      setRejectNote("");
       load();
     } catch (e) {
       alert(String(e));
@@ -105,7 +107,8 @@ export default function ReviewPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Review inbox</h1>
+      <SectionTabs set="inbox" />
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
       <p className="mb-6 text-sm text-ink-3">
         Proposed changes from agents (and cautious humans). Approving applies
         the change and records that a human verified it.
@@ -134,8 +137,8 @@ export default function ReviewPage() {
         <p className="rounded-xl border border-dashed border-line-strong p-8 text-center text-sm text-ink-3">
           {emptyState("review")}
           <span className="mt-1 block text-xs">
-            Agent proposals land here when agent review is enabled on the
-            server (<code>STRANDS_AGENT_REVIEW=1</code>).
+            When agents (or careful humans) propose changes, they wait here
+            for a person to approve them.
           </span>
         </p>
       )}
@@ -191,20 +194,52 @@ export default function ReviewPage() {
                 {JSON.stringify(c.payload, null, 2)}
               </pre>
             )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => act(c.id, "approve")}
-                className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-              >
-                Approve
-              </button>
-              <button
-                onClick={() => act(c.id, "reject")}
-                className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/20"
-              >
-                Reject
-              </button>
-            </div>
+            {rejecting === c.id ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  name="reject-reason"
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") act(c.id, "reject", rejectNote);
+                    if (e.key === "Escape") setRejecting(null);
+                  }}
+                  placeholder="Why? — sent back to the proposer"
+                  className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+                />
+                <button
+                  onClick={() => act(c.id, "reject", rejectNote)}
+                  className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Reject
+                </button>
+                <button
+                  onClick={() => setRejecting(null)}
+                  className="text-sm text-ink-3 hover:text-ink"
+                >
+                  cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => act(c.id, "approve")}
+                  className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => {
+                    setRejecting(c.id);
+                    setRejectNote("");
+                  }}
+                  className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/20"
+                >
+                  Reject…
+                </button>
+              </div>
+            )}
           </li>
         ))}
       </ul>

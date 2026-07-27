@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { api } from "@/lib/api";
+import { SectionTabs } from "@/components/section-tabs";
 
 type IngestResult = {
   proposals: { id: number; kind: string; line: string }[];
@@ -37,6 +38,7 @@ export default function IngestPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
+      <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
       <p className="mb-4 text-sm text-ink-3">
         Lines that start with a prefix (todo:, q:, decision:, blocked on …,
