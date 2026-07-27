@@ -19,6 +19,20 @@ def remember(
     return {"id": mid, "topic": topic}
 
 
+def forget(memory_id: int, *, actor: str) -> dict:
+    """Memories steer every future conversation — a wrong or injected one
+    must be removable, and the removal itself is on the record."""
+    row = db.query_one("SELECT topic, content FROM memories WHERE id = ?", (memory_id,))
+    if not row:
+        raise ValueError(f"no memory #{memory_id}")
+    db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    from .search import deindex_record
+
+    deindex_record("memory", memory_id)
+    db.log_activity(actor, "forget", f"#{memory_id} {row['topic'] or row['content'][:60]}")
+    return {"id": memory_id, "deleted": True}
+
+
 def recall(query: str = "", user: str = "", limit: int = 10) -> list[dict]:
     if query:
         from .search import search

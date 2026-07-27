@@ -300,6 +300,14 @@ def get_memories(q: str = ""):
     return memory.recall(q)
 
 
+@router.delete("/memories/{memory_id}")
+def delete_memory(memory_id: int, user: CurrentUser):
+    try:
+        return memory.forget(memory_id, actor=user)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
 @router.get("/pulse")
 def get_pulse():
     return pulse.pulse()

@@ -9,7 +9,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 
-import { API_URL, api, getUser } from "@/lib/api";
+import { API_URL, api, getApiKey, getUser } from "@/lib/api";
 import { outgoing } from "@/lib/persona";
 
 /** Streams from the FastAPI backend, which emits SSE lines of
@@ -30,13 +30,15 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           .join("\n"),
       );
 
-      const token = process.env.NEXT_PUBLIC_API_TOKEN;
+      // same auth ladder as lib/api.ts: personal key first, then the
+      // deployment token — chat was the one surface that skipped the key
+      const auth = getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN;
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-User": getUser(),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         },
         body: JSON.stringify({ thread_id: threadId, message: text }),
         signal: abortSignal,

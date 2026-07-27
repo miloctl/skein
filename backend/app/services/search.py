@@ -28,6 +28,15 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
     _maybe_embed(entity, entity_id, f"{title}\n{body}")
 
 
+def deindex_record(entity: str, entity_id: int) -> None:
+    """Hard-deleted rows must leave the index too — search and /ask must
+    never cite a record that no longer exists."""
+    db.execute(
+        "DELETE FROM search_index WHERE entity = ? AND entity_id = ?",
+        (entity, entity_id),
+    )
+
+
 def ask(q: str, limit: int = 5) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
     its row (entity #id), findings-style. Degrades honestly keyless — an LLM

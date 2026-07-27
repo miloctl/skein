@@ -85,6 +85,9 @@ export default function Agents() {
   const [targetAgent, setTargetAgent] = useState("agent");
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [memories, setMemories] = useState<
+    { id: number; topic: string; content: string; user: string }[]
+  >([]);
   const [status, setStatus] = useState<{
     provider: string;
     model: string;
@@ -102,6 +105,9 @@ export default function Agents() {
     api<Persona[]>("/api/personas").then(setBench).catch(() => {});
     api<{ provider: string; model: string; review_gate: boolean }>("/api/agents/status")
       .then(setStatus)
+      .catch(() => {});
+    api<{ id: number; topic: string; content: string; user: string }[]>("/api/memories")
+      .then(setMemories)
       .catch(() => {});
   }, []);
 
@@ -371,6 +377,40 @@ export default function Agents() {
                 {t.suggestion && (
                   <p className="text-xs font-medium text-green-600">💡 {t.suggestion}</p>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Team memory — injected into every agent conversation">
+        {memories.length === 0 ? (
+          <p className="text-sm text-ink-3">
+            Nothing remembered yet — /remember in chat adds one.
+          </p>
+        ) : (
+          <ul className="space-y-1.5 text-sm">
+            {memories.map((m) => (
+              <li key={m.id} className="flex items-start justify-between gap-2">
+                <span className="min-w-0">
+                  {m.topic && <span className="mr-1.5 font-medium">[{m.topic}]</span>}
+                  {m.content}
+                </span>
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Forget this? Agents stop seeing it immediately.`)) return;
+                    try {
+                      await api(`/api/memories/${m.id}`, { method: "DELETE" });
+                      setMemories((ms) => ms.filter((x) => x.id !== m.id));
+                    } catch (e) {
+                      setBanner(String(e));
+                    }
+                  }}
+                  aria-label={`Forget memory: ${m.topic || m.content.slice(0, 40)}`}
+                  className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                >
+                  forget
+                </button>
               </li>
             ))}
           </ul>
