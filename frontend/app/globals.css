@@ -228,7 +228,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .loom-idle::after {
+  [data-pack] .loom-idle::after {
     animation: none;
   }
 }
@@ -243,6 +243,7 @@
   :root,
   [data-pack] {
     --fabric-texture: none;
+    --display-glow: none;
   }
 }
 @media (forced-colors: active) {

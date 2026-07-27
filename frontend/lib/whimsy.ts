@@ -34,24 +34,34 @@ const EMPTY: Record<string, string[]> = {
 // state gets the default pool for free; packs never block feature work.
 const PACK_EMPTY: Record<string, Record<string, string[]>> = {
   phosphor: {
-    review: ["approvals: 0 pending_", "queue empty. exit 0_"],
-    blockers: ["no blocked processes_", "blockers: none. uptime holds_"],
-    allclear: ["all systems nominal_", "idle loop engaged. nothing needs you_"],
+    review: ["approvals: 0 pending. exit 0", "queue empty. nothing to sign off", "0 proposals awaiting verdict"],
+    blockers: ["no blocked processes", "blockers: none. uptime holds", "escalation daemon: idle"],
+    allclear: ["all systems nominal", "idle loop engaged. nothing needs you", "inbox 0. load average 0.00"],
   },
   ledger: {
-    review: ["Nothing awaits approval. The ledger is balanced."],
-    blockers: ["No blockers on record. The escalation column is blank."],
-    allclear: ["Nothing outstanding. The books close clean today."],
+    review: ["Nothing awaits approval. The ledger is balanced.", "No entries pending. The columns reconcile.", "Approvals: nil. Carried forward: nothing."],
+    blockers: ["No blockers on record. The escalation column is blank.", "Obstructions: none filed.", "The blocker register shows a clean page."],
+    allclear: ["Nothing outstanding. The books close clean today.", "All accounts settled. Go to press.", "No items carried over. A tidy edition."],
   },
   atelier: {
-    review: ["Nothing to approve — the gallery is hung."],
-    blockers: ["No blockers. The studio is quiet."],
-    allclear: ["Nothing needs you. Step back and admire the work."],
+    review: ["Nothing to approve — the gallery is hung.", "No proposals on the easel.", "The review wall is bare, beautifully."],
+    blockers: ["No blockers. The studio is quiet.", "Nothing in the way of the work.", "Every piece has room to breathe."],
+    allclear: ["Nothing needs you. Step back and admire the work.", "The studio is swept. Make something.", "A blank canvas kind of day."],
   },
 };
 
+// SSR and the hydration pass must render the same text: the pack voice only
+// speaks after hydration (callers re-render when their data loads, which is
+// when empty states actually matter)
+let hydrated = false;
+if (typeof window !== "undefined") {
+  queueMicrotask(() => {
+    hydrated = true;
+  });
+}
+
 function currentPack(): string {
-  if (typeof document === "undefined") return "loom";
+  if (typeof document === "undefined" || !hydrated) return "loom";
   return document.documentElement.dataset.pack ?? "loom";
 }
 

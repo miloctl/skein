@@ -347,7 +347,7 @@ export default function SettingsPage() {
           >
             ▸
           </span>
-          Customize
+          Customize & share
           {accentOverridden && !customizeOpen && (
             <span
               aria-label="custom accent active"
@@ -459,26 +459,23 @@ export default function SettingsPage() {
                 <button
                   disabled={!codeDraft.trim()}
                   onClick={() => {
+                    const ok = applyThemeCode(codeDraft.trim());
                     setCodeStatus(
-                      applyThemeCode(codeDraft.trim())
-                        ? "Applied."
-                        : "That doesn't look like a theme code.",
+                      ok ? "Applied." : "That doesn't look like a theme code — check the paste.",
                     );
-                    setCodeDraft("");
+                    if (ok) setCodeDraft("");
                   }}
                   className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
                 >
                   Apply
                 </button>
               </div>
-              {codeStatus && (
-                <p role="status" className="mt-1 text-xs text-ink-3">
-                  {codeStatus}
-                </p>
-              )}
-              {strong && (
-                <div className="mt-3 border-t border-line pt-3">
+              <p role="status" aria-live="polite" className="mt-1 min-h-4 text-xs text-ink-3">
+                {codeStatus}
+              </p>
+              <div className="mt-3 border-t border-line pt-3">
                   <button
+                    disabled={!strong}
                     onClick={async () => {
                       try {
                         await api("/api/users/theme/default", {
@@ -492,16 +489,18 @@ export default function SettingsPage() {
                         setCodeStatus(String(e));
                       }
                     }}
-                    className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25"
+                    className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
                   >
                     Make this the team default
                   </button>
                   <p className="mt-1 text-xs text-ink-3">
                     A default, never an override — anyone&apos;s personal
-                    choice beats it. Needs your API key.
+                    choice beats it.{" "}
+                    {strong
+                      ? "Fresh browsers and anonymous visitors start here."
+                      : "Needs your API key — step 2 below."}
                   </p>
                 </div>
-              )}
             </div>
           </div>
         )}

@@ -131,8 +131,10 @@ export function applyPrefs() {
   else root.dataset.pack = p;
 }
 
+const ADOPTED_KEY = "skein-adopted";
+
 function applyAndPing() {
-  write("skein-adopted", null); // an explicit choice is no longer an adoption
+  write(ADOPTED_KEY, null); // an explicit choice is no longer an adoption
   applyPrefs();
   // same-tab subscribers (useSyncExternalStore) listen for this
   window.dispatchEvent(new Event("storage"));
@@ -194,14 +196,19 @@ export function applyThemeCode(code: string): boolean {
   try {
     const t = JSON.parse(code);
     if (typeof t !== "object" || t === null) return false;
+    // validate EVERYTHING before the first write — a rejected code must
+    // leave zero residue, and every present field must be reproducible
     const packOk = PACKS.some((p) => p.id === t.pack);
-    const colorOk = t.colorway === "custom" || COLORWAYS.some((c) => c.id === t.colorway);
-    if (!packOk && !colorOk) return false;
+    const colorOk = COLORWAYS.some((c) => c.id === t.colorway);
+    const isCustom = t.colorway === "custom";
+    const thread = Number(t.custom?.thread);
+    const weld = Number(t.custom?.weld);
+    if (isCustom && (!Number.isFinite(thread) || !Number.isFinite(weld))) return false;
+    if (t.pack !== undefined && !packOk) return false;
+    if (t.colorway !== undefined && !colorOk && !isCustom) return false;
+    if (!packOk && !colorOk && !isCustom) return false;
     if (packOk) write(PACK_KEY, t.pack);
-    if (t.colorway === "custom" && t.custom) {
-      const thread = Number(t.custom.thread);
-      const weld = Number(t.custom.weld);
-      if (!Number.isFinite(thread) || !Number.isFinite(weld)) return false;
+    if (isCustom) {
       write(CUSTOM_KEY, JSON.stringify({ thread, weld }));
       write(THEME_KEY, "custom");
     } else if (colorOk) {
@@ -221,7 +228,6 @@ export function themeCode(): string {
   return serialize();
 }
 
-const ADOPTED_KEY = "skein-adopted";
 
 // "no opinion yet" = no local keys, OR the keys came from adopting the TEAM
 // default (not a human choice) — a personal profile may still supersede that
@@ -258,6 +264,8 @@ export async function adoptServerTheme() {
     }
     if (t.appearance === "light" || t.appearance === "dark") {
       write(APPEARANCE_KEY, t.appearance);
+    } else if (t.appearance === "system") {
+      write(APPEARANCE_KEY, null); // fully supersede an adopted light/dark
     }
     applyPrefs();
     window.dispatchEvent(new Event("storage"));
