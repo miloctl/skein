@@ -89,8 +89,16 @@ def get_persona(slug: str):
 
 
 @router.get("/notes")
-def get_notes():
-    return collab.search_notes()
+def get_notes(q: str = ""):
+    return collab.search_notes(q)
+
+
+@router.delete("/events/{event_id}")
+def delete_event(event_id: int, user: CurrentUser):
+    try:
+        return schedule.cancel_event(event_id, actor=user)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("/activity")
@@ -116,6 +124,19 @@ def get_review(status: str = "pending"):
 @router.get("/engagements")
 def get_engagements(status: str = ""):
     return engagements.list_engagements(status)
+
+
+@router.get("/allocations")
+def get_allocations(engagement_id: int = 0):
+    return engagements.list_allocations(engagement_id)
+
+
+@router.delete("/allocations/{allocation_id}")
+def delete_allocation(allocation_id: int, user: CurrentUser):
+    try:
+        return engagements.deallocate(allocation_id, actor=user)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("/capacity")
@@ -272,7 +293,9 @@ def delete_key(key_id: int, user: StrongUser):
 
 
 @router.get("/admin/keys")
-def get_all_keys(user: CurrentUser):
+def get_all_keys(user: StrongUser):
+    # key metadata (owners, prefixes, last use) is admin surface — a spoofed
+    # X-User must not enumerate it; matches revoke-all and /admin/export
     return api_keys.list_all_keys()
 
 
@@ -993,7 +1016,7 @@ def get_calendar_ics(token: str = ""):
 
 
 @router.post("/admin/backup")
-def post_backup(user: CurrentUser):
+def post_backup(user: StrongUser):
     return admin.backup()
 
 

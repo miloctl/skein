@@ -105,7 +105,7 @@ def list_milestones(project: str = "", status: str = "") -> list[dict]:
     if status:
         sql += " AND status = ?"
         params.append(status)
-    return db.query(sql + " ORDER BY due_date IS NULL, due_date, id", tuple(params))
+    return db.query(sql + " ORDER BY due_date IS NULL, due_date, id LIMIT 500", tuple(params))
 
 
 def create_task(
@@ -263,5 +263,6 @@ def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> l
     sql += (
         " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, id"
+        " LIMIT 500"  # Browse renders these unpaginated — bound the dump
     )
     return db.query(sql, tuple(params))

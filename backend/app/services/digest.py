@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .. import config, db
-from . import collab
 from .slas import DIGEST_STALLED_DAYS
 
 
@@ -160,8 +159,7 @@ def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
         "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
         ("digest", f"Daily digest {today}", str(path), actor, db.now()),
     )
-    collab.save_note(
-        topic=f"digest-{today}", content=markdown, author=actor, actor=actor, origin="agent"
-    )
+    # archived as an artifact only — filing every digest as a note buried the
+    # knowledge base within weeks and doubled every FTS hit it quoted
     db.log_activity(actor, "publish_digest", today)
     return {"date": today, "path": str(path), "markdown": markdown}

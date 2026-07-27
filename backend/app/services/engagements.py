@@ -281,14 +281,53 @@ def allocate(
     return {"id": aid, "person": person, "percent": percent}
 
 
+def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
+    """Allocations were append-only — one fat-fingered percent permanently
+    skewed capacity, conflicts, and what-if staffing."""
+    row = db.query_one(
+        "SELECT person, engagement_id, percent FROM allocations WHERE id = ?", (allocation_id,)
+    )
+    if not row:
+        raise ValueError(f"no allocation #{allocation_id}")
+    db.execute("DELETE FROM allocations WHERE id = ?", (allocation_id,))
+    db.log_activity(
+        actor,
+        "deallocate",
+        f"#{allocation_id} {row['person']} -> engagement #{row['engagement_id']}"
+        f" @{row['percent']}%",
+    )
+    return {"id": allocation_id, "deleted": True}
+
+
+def list_allocations(engagement_id: int = 0) -> list[dict]:
+    if engagement_id:
+        return db.query(
+            "SELECT a.*, e.name AS engagement FROM allocations a"
+            " JOIN engagements e ON e.id = a.engagement_id WHERE a.engagement_id = ?"
+            " ORDER BY a.id DESC",
+            (engagement_id,),
+        )
+    return db.query(
+        "SELECT a.*, e.name AS engagement FROM allocations a"
+        " JOIN engagements e ON e.id = a.engagement_id WHERE e.status != 'closed'"
+        " ORDER BY a.id DESC"
+    )
+
+
 def capacity() -> list[dict]:
-    """Total allocation per person across non-closed engagements; >100 = overcommitted."""
+    """Total allocation per person across non-closed engagements; >100 =
+    overcommitted. Window-aware like allocation_conflicts: rows whose date
+    window excludes today don't count (capacity and conflicts must agree)."""
+    today = db.now()[:10]
     return db.query(
         "SELECT a.person, SUM(a.percent) AS total_percent,"
         " GROUP_CONCAT(e.name || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
-        " GROUP BY a.person ORDER BY total_percent DESC"
+        " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
+        " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
+        " GROUP BY a.person ORDER BY total_percent DESC",
+        (today, today),
     )
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { api, getApiKey } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
@@ -49,17 +49,28 @@ export default function PeoplePage() {
     api<User[]>("/api/users").then(setPeople).catch(() => {});
   }, []);
 
+  // last-request-wins: clicking Alice then Bob quickly must never render
+  // Alice's private notes under Bob's chip
+  const generation = useRef(0);
   const load = useCallback((p: string) => {
     if (!p) return;
+    const g = ++generation.current;
     api<Note[]>(`/api/private/notes?person=${encodeURIComponent(p)}`)
       .then((n) => {
+        if (g !== generation.current) return;
         setNotes(n);
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (g === generation.current) setError(String(e));
+      });
     api<Brief>(`/api/private/brief/${encodeURIComponent(p)}`)
-      .then(setBrief)
-      .catch(() => setBrief(null));
+      .then((b) => {
+        if (g === generation.current) setBrief(b);
+      })
+      .catch(() => {
+        if (g === generation.current) setBrief(null);
+      });
   }, []);
 
   useEffect(() => {

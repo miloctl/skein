@@ -50,9 +50,13 @@ def test_admin_key_visibility_and_kill_switch(client):
     boot = _bootstrap()
     other = _bootstrap("other-person", "one")
 
-    all_keys = client.get("/api/admin/keys").json()
+    # key metadata is admin surface now — weak identity is a 403
+    assert client.get("/api/admin/keys").status_code == 403
+    all_keys = client.get(
+        "/api/admin/keys", headers={"Authorization": f"Bearer {boot['key']}"}
+    ).json()
     owners = {k["owner"] for k in all_keys}
-    assert "other-person" in owners  # every key is discoverable by anyone
+    assert "other-person" in owners
 
     # the kill switch requires strong identity — a spoofed header can't nuke keys
     assert client.post("/api/admin/keys/revoke-all").status_code == 403
@@ -60,7 +64,10 @@ def test_admin_key_visibility_and_kill_switch(client):
         "/api/admin/keys/revoke-all", headers={"Authorization": f"Bearer {boot['key']}"}
     ).json()
     assert out["revoked"] >= 2
-    assert all(not k["active"] for k in client.get("/api/admin/keys").json())
+    # after the kill switch no strong identity remains — verify via the service
+    from app.services.api_keys import list_all_keys
+
+    assert all(not k["active"] for k in list_all_keys())
     assert other  # both bootstrapped keys revoked
 
 
