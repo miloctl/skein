@@ -17,6 +17,22 @@ export default function IngestPage() {
   const [result, setResult] = useState<IngestResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filed, setFiled] = useState<Record<string, string>>({});
+
+  // an unmatched line gets filed by re-running it through the same
+  // proposals-only pipeline with the chosen prefix — never a direct write
+  const fileLine = async (line: string, prefix: string) => {
+    try {
+      const r = await api<IngestResult>("/api/ingest", {
+        method: "POST",
+        body: JSON.stringify({ text: `${prefix} ${line}` }),
+      });
+      const kind = r.proposals[0]?.kind ?? "proposal";
+      setFiled((f) => ({ ...f, [line]: kind }));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const run = async () => {
     if (!text.trim()) return;
@@ -28,6 +44,7 @@ export default function IngestPage() {
         body: JSON.stringify({ text }),
       });
       setResult(r);
+      setFiled({});
       setText("");
     } catch (e) {
       setError(String(e));
@@ -92,12 +109,37 @@ export default function IngestPage() {
           {result.unclassified.length > 0 && (
             <div>
               <p className="mb-1 font-medium text-ink-3">
-                Not captured ({result.unclassified.length}) — add a prefix and
-                re-paste if any matter:
+                Not captured ({result.unclassified.length}) — file any that
+                matter, right here:
               </p>
-              <ul className="ml-4 list-disc text-ink-3">
+              <ul className="space-y-1 text-ink-3">
                 {result.unclassified.slice(0, 20).map((l, i) => (
-                  <li key={i}>{l}</li>
+                  <li key={i} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate" title={l}>
+                      {l}
+                    </span>
+                    {filed[l] ? (
+                      <span className="text-xs text-ok">✓ proposed as {filed[l]}</span>
+                    ) : (
+                      <select
+                        defaultValue=""
+                        aria-label={`File "${l}" as`}
+                        onChange={(e) => e.target.value && fileLine(l, e.target.value)}
+                        className="rounded border border-line-strong bg-card px-1.5 py-0.5 text-xs"
+                      >
+                        <option value="" disabled>
+                          file as…
+                        </option>
+                        <option value="todo:">task</option>
+                        <option value="q:">question</option>
+                        <option value="decision:">decision</option>
+                        <option value="promised:">promise</option>
+                        <option value="blocked on">blocker</option>
+                        <option value="req:">request</option>
+                        <option value="note:">note</option>
+                      </select>
+                    )}
+                  </li>
                 ))}
               </ul>
             </div>

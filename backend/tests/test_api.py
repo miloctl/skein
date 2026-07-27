@@ -40,6 +40,28 @@ def test_capture_endpoint(client):
     assert out["kind"] == "task"
 
 
+def test_capture_req_routes_to_intake(client):
+    out = client.post("/api/capture", json={"text": "req: dashboards for the ops team"}).json()
+    assert out["kind"] == "request"
+    reqs = client.get("/api/intake").json()
+    assert any(r["title"] == "dashboards for the ops team" for r in reqs)
+
+
+def test_key_request_files_team_notification(client):
+    out = client.post("/api/keys/request").json()
+    assert out == {"requested": True, "already_pending": False}
+    again = client.post("/api/keys/request").json()
+    assert again["already_pending"] is True
+    notes = client.get("/api/notifications").json()
+    assert any("requests a personal API key" in n["message"] for n in notes)
+
+
+def test_agents_status_shape(client):
+    s = client.get("/api/agents/status").json()
+    assert set(s) == {"provider", "model", "review_gate"}
+    assert s["provider"] == "mock" and s["model"] == ""
+
+
 def test_review_flow_via_api(client):
     from app.services import review
 

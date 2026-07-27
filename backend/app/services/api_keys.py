@@ -24,6 +24,26 @@ def create_key(owner: str, label: str = "") -> dict:
     return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
 
 
+def request_key(user: str) -> dict:
+    """Self-serve ask: a key can only be minted at the server, but requesting
+    one shouldn't require finding the operator — this files a team-visible
+    nudge with the exact command. Idempotent while one is still unread."""
+    if not user or user == "anonymous":
+        raise ValueError("pick your name first — the key is minted for it")
+    message = f"{user} requests a personal API key — mint: python -m app.bootstrap_key {user}"
+    pending = db.query_one(
+        "SELECT id FROM notifications WHERE user = 'team' AND message = ? AND read_at IS NULL",
+        (message,),
+    )
+    if pending:
+        return {"requested": True, "already_pending": True}
+    from . import notifications
+
+    notifications.notify("team", message, tier="immediate", link="/settings")
+    db.log_activity(user, "request_key", "asked for a personal API key")
+    return {"requested": True, "already_pending": False}
+
+
 def verify_key(key: str) -> str | None:
     """Return the owning user for a valid active key, else None."""
     if not key.startswith(PREFIX):

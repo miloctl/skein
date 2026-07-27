@@ -128,6 +128,22 @@ def _coalesce(notifications: list[dict]) -> list[tuple[dict, int]]:
 _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
 
+def _standup_suggestion(user: str, since: str) -> str:
+    """Derive "yesterday" from what actually happened instead of asking for
+    it — the minimum daily ask is one 'today' line plus blockers if any."""
+    rows = db.query(
+        "SELECT action, detail FROM activity WHERE actor = ? AND created_at >= ?"
+        " AND action NOT IN ('delete_chat', 'rename_chat', 'move_chat', 'request_key')"
+        " ORDER BY id DESC LIMIT 6",
+        (user, since),
+    )
+    parts = []
+    for r in rows[:3]:
+        detail = _UUID_RE.sub("…", str(r["detail"] or "")).strip()
+        parts.append(f"{str(r['action']).replace('_', ' ')} {detail}".strip()[:60])
+    return "; ".join(parts)
+
+
 def _human_digest(rows: list[dict]) -> list[dict]:
     """The "Since yesterday" card is for teammates, not operators: drop
     chat-housekeeping rows (coalesced to one line per actor) and never show
@@ -202,6 +218,7 @@ def my_day(user: str) -> dict:
                 " AND due_date <= ? ORDER BY due_date",
                 (week,),
             ),
+            "standup_suggestion": _standup_suggestion(user, yesterday),
         },
         "team": {
             "recently_shipped": db.query(
