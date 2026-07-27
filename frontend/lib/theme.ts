@@ -13,9 +13,10 @@ const PACK_KEY = "skein-pack";
 // In Settings a pack is a "theme card": picking one also applies its
 // signature accent, and the accent stays overridable under Customize.
 export const PACKS = [
-  { id: "loom", label: "Loom", subtitle: "Warm, woven", accent: "indigo" },
-  { id: "ledger", label: "Ledger", subtitle: "Cool paper, ruled", accent: "madder" },
-  { id: "phosphor", label: "Phosphor", subtitle: "Terminal green", accent: "verdigris" },
+  { id: "loom", label: "Loom", subtitle: "Warm, woven, rounded", accent: "indigo" },
+  { id: "ledger", label: "Ledger", subtitle: "Broadsheet — ruled, square, serif", accent: "madder" },
+  { id: "phosphor", label: "Phosphor", subtitle: "Terminal — mono, scanlines, glow", accent: "verdigris" },
+  { id: "atelier", label: "Atelier", subtitle: "Editorial — serif, soft, gallery", accent: "madder" },
   { id: "contrast", label: "High contrast", subtitle: "Maximum legibility", accent: "graphite" },
 ] as const;
 
@@ -132,6 +133,60 @@ function applyAndPing() {
   applyPrefs();
   // same-tab subscribers (useSyncExternalStore) listen for this
   window.dispatchEvent(new Event("storage"));
+  pushTheme();
+}
+
+// --- profile sync: the theme follows the person, not the browser ---------
+// Every change auto-saves to the profile (debounced); a browser with no
+// local prefs adopts the profile on load. Local prefs win locally — they
+// were set deliberately in that browser and immediately re-save anyway.
+
+let pushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function pushTheme() {
+  import("./api").then(({ api, getUser }) => {
+    if (getUser() === "anonymous") return;
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => {
+      const theme = JSON.stringify({
+        pack: getPack(),
+        colorway: getColorway(),
+        appearance: getAppearance(),
+        custom: getCustomHues(),
+      });
+      api("/api/users/theme", { method: "POST", body: JSON.stringify({ theme }) }).catch(
+        () => {},
+      );
+    }, 800);
+  });
+}
+
+export async function adoptServerTheme() {
+  const { api, getUser } = await import("./api");
+  if (getUser() === "anonymous") return;
+  // any explicit local pref means this browser already has an opinion
+  if (read(THEME_KEY) || read(PACK_KEY) || read(APPEARANCE_KEY) || read(CUSTOM_KEY)) return;
+  try {
+    const r = await api<{ theme: string }>("/api/users/theme");
+    if (!r.theme) return;
+    const t = JSON.parse(r.theme);
+    if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === "loom" ? null : t.pack);
+    if (t.colorway === "custom" && t.custom) {
+      const thread = Number(t.custom.thread);
+      const weld = Number(t.custom.weld);
+      if (Number.isFinite(thread) && Number.isFinite(weld)) {
+        write(CUSTOM_KEY, JSON.stringify({ thread, weld }));
+        write(THEME_KEY, "custom");
+      }
+    } else if (COLORWAYS.some((c) => c.id === t.colorway)) {
+      write(THEME_KEY, t.colorway === "indigo" ? null : t.colorway);
+    }
+    if (t.appearance === "light" || t.appearance === "dark") {
+      write(APPEARANCE_KEY, t.appearance);
+    }
+    applyPrefs();
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
 }
 
 export function setColorway(id: string) {

@@ -250,7 +250,11 @@ export default function SettingsPage() {
       </p>
 
       <Section title="Appearance">
-        <p className="mb-3 text-sm text-ink-3">Saved in this browser.</p>
+        <p className="mb-3 text-sm text-ink-3">
+          {currentUser === "anonymous"
+            ? "Saved in this browser — pick your name and it follows you everywhere."
+            : "Saved to your profile — the whole theme, custom colors included, follows you to any browser."}
+        </p>
         <div className="mb-4 flex items-center gap-2">
           <span className="w-24 text-sm text-ink-2">Mode</span>
           <div className="flex overflow-hidden rounded-lg border border-line-strong">

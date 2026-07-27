@@ -73,10 +73,18 @@
    Selectors match ANY [data-pack] element, not just :root, so the Settings
    theme cards can render live scoped previews of each fabric. */
 
-/* Ledger: cool paper, ruled lines, print-crisp */
+/* Ledger: cool paper, ruled lines, print-crisp. Square corners, serif
+   headlines, zero shadow — a broadsheet, not a web app. */
 [data-pack="ledger"] {
   --font-body: var(--font-geist-sans);
-  --font-heading: var(--font-bricolage);
+  --font-heading: var(--font-fraunces);
+  --r-sm: 0px;
+  --r-lg: 0px;
+  --r-xl: 0px;
+  --r-2xl: 0px;
+  --shadow-card: 0 0 #0000;
+  --shadow-float: 0 2px 0 light-dark(#181a1f, #000),
+    0 10px 28px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.5));
   --surface-page: light-dark(#f5f6f8, #13151a);
   --surface-card: light-dark(#ffffff, #1a1d24);
   --surface-raised: light-dark(#f0f2f5, #20232c);
@@ -93,10 +101,18 @@
   );
 }
 
-/* Phosphor: terminal fabric — green-black, scanlines, mono type */
+/* Phosphor: terminal fabric — green-black, scanlines, mono type, square
+   corners, a faint CRT glow instead of shadows */
 [data-pack="phosphor"] {
   --font-body: var(--font-geist-mono);
   --font-heading: var(--font-geist-mono);
+  --r-sm: 0px;
+  --r-lg: 0px;
+  --r-xl: 0px;
+  --r-2xl: 0px;
+  --shadow-card: 0 0 14px light-dark(rgb(23 29 22 / 0.05), rgb(120 200 130 / 0.07));
+  --shadow-float: 0 0 0 1px light-dark(rgb(0 0 0 / 0.06), rgb(120 200 130 / 0.18)),
+    0 8px 28px light-dark(rgb(0 0 0 / 0.12), rgb(120 200 130 / 0.12));
   --surface-page: light-dark(#f2f5ef, #0c100c);
   --surface-card: light-dark(#fbfdf8, #131813);
   --surface-raised: light-dark(#eef3e9, #1b231b);
@@ -131,6 +147,28 @@
   --fabric-texture: none;
 }
 
+/* Atelier: editorial paper — serif body, Fraunces display, generous corners,
+   soft ink shadows, warm gallery-cream by day and aubergine ink by night */
+[data-pack="atelier"] {
+  --font-body: var(--font-source-serif);
+  --font-heading: var(--font-fraunces);
+  --r-sm: 0.375rem;
+  --r-lg: 0.875rem;
+  --r-xl: 1.25rem;
+  --r-2xl: 1.5rem;
+  --surface-page: light-dark(#faf6ee, #17121a);
+  --surface-card: light-dark(#fffdf7, #1e1822);
+  --surface-raised: light-dark(#f4eee2, #261e2a);
+  --border-hairline: light-dark(#eae2d2, #322939);
+  --border-strong: light-dark(#d8ccb6, #453a4e);
+  --text-1: light-dark(#231c14, #efe8f0);
+  --text-2: light-dark(#5f564a, #b3a8b8);
+  --text-3: light-dark(#786d5e, #90859a);
+  --fabric-texture: none;
+  --shadow-card: 0 2px 10px light-dark(rgb(60 40 20 / 0.06), rgb(0 0 0 / 0.3));
+  --shadow-float: 0 12px 36px light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
+}
+
 /* Settings theme cards: a swatch of the actual cloth — the pack's own
    surface, texture, text color, and (via --font-body) its type */
 .pack-tile {
@@ -160,6 +198,19 @@
   --font-display: var(--font-heading);
   --shadow-card: var(--shadow-card);
   --shadow-float: var(--shadow-float);
+  /* radius utilities resolve through pack-overridable vars so a fabric can
+     square every corner (Ledger, Phosphor) or soften them (Atelier) without
+     touching a single component */
+  --radius-sm: var(--r-sm, 0.25rem);
+  --radius-lg: var(--r-lg, 0.5rem);
+  --radius-xl: var(--r-xl, 0.75rem);
+  --radius-2xl: var(--r-2xl, 1rem);
+}
+
+/* Tailwind's bare `rounded` is a legacy literal — route it through the same
+   pack-overridable var as the rest of the radius scale */
+.rounded {
+  border-radius: var(--r-sm, 0.25rem);
 }
 
 body {

@@ -45,6 +45,36 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
     return {"name": name, "growth_interests": interests.strip()}
 
 
+def set_theme(name: str, theme: str) -> dict:
+    """Theme prefs follow the person across browsers. Stored as a small JSON
+    object; validated for shape and size, never interpreted server-side."""
+    import json
+
+    theme = theme.strip()
+    if theme:
+        if len(theme) > 400:
+            raise ValueError("theme blob too large")
+        try:
+            parsed = json.loads(theme)
+        except ValueError as e:
+            raise ValueError("theme must be JSON") from e
+        if not isinstance(parsed, dict) or not set(parsed) <= {
+            "pack",
+            "colorway",
+            "appearance",
+            "custom",
+        }:
+            raise ValueError("unknown keys in theme")
+    ensure_user(name)
+    db.execute("UPDATE users SET theme = ? WHERE name = ?", (theme, name))
+    return {"name": name, "saved": bool(theme)}
+
+
+def get_theme(name: str) -> str:
+    row = db.query_one("SELECT theme FROM users WHERE name = ?", (name,))
+    return row["theme"] if row else ""
+
+
 def list_users(active_only: bool = True) -> list[dict]:
     """'anonymous' is the pre-name-pick fallback identity, not a teammate —
     no listing surface (roster, People, staffing) should show it."""
