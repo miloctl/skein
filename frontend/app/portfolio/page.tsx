@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { SectionTabs } from "@/components/section-tabs";
 
 type Health = {
   id: number;
@@ -77,6 +79,7 @@ export default function Portfolio() {
   const [readout, setReadout] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const manage = useManageMode();
 
   const load = useCallback(() => {
     api<Health[]>("/api/portfolio/health")
@@ -108,7 +111,12 @@ export default function Portfolio() {
   );
 
   return (
-    <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+    <main className="mx-auto max-w-6xl p-6">
+      <div className="flex items-start justify-between">
+        <SectionTabs set="work" />
+        <ManageToggle />
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {banner && (
         <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
           <span>{banner}</span>
@@ -122,7 +130,7 @@ export default function Portfolio() {
           <p className="text-sm text-ink-3">Loading…</p>
         ) : health.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No active engagements — accept a request on the Intake page to
+            No active engagements — accept a request on Inbox → Requests to
             start one.
           </p>
         ) : (
@@ -149,7 +157,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title={`Commitment line — ${week?.week ?? ""}`}>
+      <Card title={`This week's plan — ${week?.week ?? ""}`}>
         <p className="mb-2 text-xs text-ink-3">
           The tasks the team promised to finish this week.
         </p>
@@ -202,7 +210,7 @@ export default function Portfolio() {
               }
               className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              {busy ? "Committing…" : `Commit ${draft.items.length} task(s)`}
+              {busy ? "Planning…" : `Add ${draft.items.length} task(s) to the plan`}
             </button>
           )}
         </div>
@@ -313,27 +321,44 @@ export default function Portfolio() {
                   </span>
                 </span>
                 {c.status === "open" ? (
-                  <span className="flex gap-1">
-                    {(["kept", "missed"] as const).map((s) => (
-                      <button
-                        key={s}
-                        disabled={busy}
-                        onClick={() =>
-                          mutate(
-                            api(`/api/commitments/${c.id}/status`, {
-                              method: "POST",
-                              body: JSON.stringify({ status: s }),
-                            }),
-                          )
-                        }
-                        className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </span>
+                  manage ? (
+                    <span className="flex gap-1">
+                      {(["kept", "missed"] as const).map((s) => (
+                        <button
+                          key={s}
+                          disabled={busy}
+                          onClick={() =>
+                            mutate(
+                              api(`/api/commitments/${c.id}/status`, {
+                                method: "POST",
+                                body: JSON.stringify({ status: s }),
+                              }),
+                            )
+                          }
+                          className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50"
+                        >
+                          mark {s}
+                        </button>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-raised px-2 py-0.5 text-xs text-ink-3">
+                      open
+                    </span>
+                  )
                 ) : (
-                  <span className="text-xs text-ink-3">{c.status}</span>
+                  <span
+                    className={
+                      "rounded-full px-2 py-0.5 text-xs " +
+                      (c.status === "kept"
+                        ? "bg-ok/15 text-ok"
+                        : c.status === "missed"
+                          ? "bg-danger/15 text-danger"
+                          : "bg-raised text-ink-3")
+                    }
+                  >
+                    {c.status}
+                  </span>
                 )}
               </li>
             ))}
@@ -341,26 +366,29 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Exec readout">
-        <button
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
-              .then((r) => setReadout(r.markdown))
-              .catch((e) => setBanner(`${e.message ?? e}`))
-              .finally(() => setBusy(false));
-          }}
-          className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? "Working…" : "Generate readout"}
-        </button>
-        {readout && (
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
-            {readout}
-          </pre>
-        )}
-      </Card>
+      {manage && (
+        <Card title="Exec readout">
+          <button
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
+                .then((r) => setReadout(r.markdown))
+                .catch((e) => setBanner(`${e.message ?? e}`))
+                .finally(() => setBusy(false));
+            }}
+            className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? "Working…" : "Generate readout"}
+          </button>
+          {readout && (
+            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
+              {readout}
+            </pre>
+          )}
+        </Card>
+      )}
+      </div>
     </main>
   );
 }

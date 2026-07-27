@@ -442,7 +442,7 @@ export default function SettingsPage() {
         <p className="mb-2 text-sm text-ink-3">
           Your name attributes everything you create (tasks, standups,
           captures). It works on the honor system inside the team network —
-          fine for team-visible work, not enough for the private People page
+          fine for team-visible work, not enough for the private 1:1s page
           or admin export (step 2 covers those).
         </p>
         <p className="mb-2 text-sm">
@@ -471,7 +471,7 @@ export default function SettingsPage() {
 
       <Section title="2 · Personal API key (private surfaces + CLI)">
         <p className="mb-2 text-sm text-ink-3">
-          The People page (1:1 prep, feedback journal) and admin export need a
+          The 1:1s page (private prep, feedback journal) and admin export need a
           key — a spoofable name isn&apos;t enough for private data. The key
           also powers the CLI and git hooks.
         </p>
@@ -503,16 +503,24 @@ export default function SettingsPage() {
               <>
                 <p className="mb-2">
                   {who === null
-                    ? "Can't verify your key status right now (the stored key may be revoked). If you need a fresh one, whoever runs the box mints it:"
-                    : `No key has been minted for ${currentUser} yet. Whoever runs the box mints your first one (it prints once — they send it to you privately):`}
+                    ? "Can't verify your key status right now (the stored key may be revoked). Ask whoever runs the server for a fresh one."
+                    : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
                 </p>
-                <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
-                <p className="mt-2 text-xs text-ink-3">
-                  Docker:{" "}
-                  <code>
-                    docker compose exec backend python -m app.bootstrap_key {currentUser}
-                  </code>
-                </p>
+                <details>
+                  <summary className="cursor-pointer text-xs text-ink-3 hover:text-ink-2">
+                    I run the server — show me the command
+                  </summary>
+                  <div className="mt-2">
+                    <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
+                    <p className="mt-2 text-xs text-ink-3">
+                      Docker:{" "}
+                      <code>
+                        docker compose exec backend python -m app.bootstrap_key {currentUser}
+                      </code>{" "}
+                      — the key prints once.
+                    </p>
+                  </div>
+                </details>
               </>
             ) : (
               <p>

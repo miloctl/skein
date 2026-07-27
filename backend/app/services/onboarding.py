@@ -4,46 +4,54 @@ someone in a workspace that describes THEIR work, not seed fiction."""
 
 from .. import db
 
-# (id, label, link, hint) — every step must be actionable from the UI: the
-# link goes where the step happens, the hint says HOW, so nobody needs to
-# have read the docs to finish setup
+# (id, label, link, hint, scope) — every step must be actionable from the UI:
+# the link goes where the step happens, the hint says HOW, so nobody needs to
+# have read the docs to finish setup. Personal steps come first — a new
+# teammate should never be routed into team-level workflows before they've
+# captured a single todo; team facts render as a separate strip.
 STEPS = (
     (
         "pick_name",
         "Pick your name so work is attributed to you",
         "/settings",
         "Settings → Identity, or click the 👤 button in the top bar.",
-    ),
-    (
-        "first_engagement",
-        "Start your first real engagement",
-        "/intake",
-        "Submit + accept an intake request, or ask the chat agent to /plan a playbook.",
+        "you",
     ),
     (
         "first_capture",
         "Capture something",
         "/",
         "Press ⌘K anywhere — try 'todo: …', 'blocked on …', or 'decision: …'.",
+        "you",
     ),
     (
         "first_standup",
         "Post a standup",
-        "/dashboard",
+        "/",
         "Blockers mentioned in it are auto-filed with an escalation clock.",
+        "you",
+    ),
+    (
+        "setup_key",
+        "Set up your personal API key",
+        "/settings",
+        "Needed for private surfaces (1:1s page) and the CLI. Settings"
+        " shows the exact command to mint your first one.",
+        "you",
+    ),
+    (
+        "first_engagement",
+        "Start the team's first engagement",
+        "/intake",
+        "Submit a request on Inbox → Requests, then accept it.",
+        "team",
     ),
     (
         "invite_team",
         "Get a teammate in",
         "/settings",
         "Send them the URL; they pick a name in Settings. The platform is a team sport.",
-    ),
-    (
-        "setup_key",
-        "Set up your personal API key",
-        "/settings",
-        "Needed for private surfaces (People page) and the CLI. Settings"
-        " shows the exact command to mint your first one.",
+        "team",
     ),
 )
 
@@ -84,8 +92,8 @@ def checklist(user: str) -> dict:
         "setup_key": keys > 0,
     }
     steps = [
-        {"id": sid, "label": label, "done": done[sid], "link": link, "hint": hint}
-        for sid, label, link, hint in STEPS
+        {"id": sid, "label": label, "done": done[sid], "link": link, "hint": hint, "scope": scope}
+        for sid, label, link, hint, scope in STEPS
     ]
     remaining = [s for s in steps if not s["done"]]
     return {

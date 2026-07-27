@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
+import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { SectionTabs } from "@/components/section-tabs";
+import { timeAgo } from "@/lib/time";
 
 type Persona = {
   slug: string;
@@ -45,6 +48,14 @@ type Inbox = {
 
 const LEVELS = ["autonomous", "notify", "review", "forbidden"];
 
+// API keeps the compact level names; people read what each one means
+const LEVEL_LABEL: Record<string, string> = {
+  autonomous: "acts alone",
+  notify: "acts, then tells you",
+  review: "needs approval",
+  forbidden: "not allowed",
+};
+
 const LEVEL_COLOR: Record<string, string> = {
   autonomous: "bg-ok/15 text-ok",
   notify: "bg-thread/15 text-thread",
@@ -74,6 +85,7 @@ export default function Agents() {
   const [targetAgent, setTargetAgent] = useState("agent");
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const manage = useManageMode();
   const inboxGeneration = useRef(0);
 
   const load = useCallback(() => {
@@ -96,17 +108,12 @@ export default function Agents() {
       .catch((e) => setBanner(`${e.message ?? e}`));
   };
 
-  const setAuthority = () => {
-    const agent = targetAgent.trim();
-    if (!agent) {
-      setBanner("Agent name is required.");
-      return;
-    }
+  const changeAuthority = (agent: string, ent: string, lvl: string) => {
     setBusy(true);
     setBanner(null);
     api("/api/agents/authority", {
       method: "POST",
-      body: JSON.stringify({ agent, entity, level }),
+      body: JSON.stringify({ agent, entity: ent, level: lvl }),
     })
       .catch((e) => setBanner(`${e.message ?? e}`))
       .finally(() => {
@@ -115,8 +122,22 @@ export default function Agents() {
       });
   };
 
+  const setAuthority = () => {
+    const agent = targetAgent.trim();
+    if (!agent) {
+      setBanner("Agent name is required.");
+      return;
+    }
+    changeAuthority(agent, entity, level);
+  };
+
   return (
-    <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-6 md:grid-cols-2">
+    <main className="mx-auto max-w-6xl p-6">
+      <div className="flex items-start justify-between">
+        <SectionTabs set="team" />
+        <ManageToggle />
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {banner && (
         <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
           <span>{banner}</span>
@@ -182,17 +203,20 @@ export default function Agents() {
                   </button>
                 </div>
                 <p className="text-xs text-ink-3">
-                  {a.open_tasks} open task(s) · {a.pending_proposals} pending proposal(s)
-                  {a.last_seen && ` · last seen ${a.last_seen}`}
+                  {a.open_tasks === 0 && a.pending_proposals === 0
+                    ? "idle — nothing assigned, nothing pending"
+                    : `${a.open_tasks} open task${a.open_tasks === 1 ? "" : "s"} · ${a.pending_proposals} pending proposal${a.pending_proposals === 1 ? "" : "s"}`}
+                  {a.last_seen && ` · last seen ${timeAgo(a.last_seen)}`}
                 </p>
                 {a.authority.length > 0 && (
                   <p className="mt-1 flex flex-wrap gap-1">
                     {a.authority.map((au) => (
                       <span
                         key={au.entity}
+                        title={`${au.entity}: ${au.level}`}
                         className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level]}`}
                       >
-                        {au.entity}: {au.level}
+                        {au.entity}: {LEVEL_LABEL[au.level] ?? au.level}
                       </span>
                     ))}
                   </p>
@@ -203,51 +227,104 @@ export default function Agents() {
         )}
       </Card>
 
-      <Card title="Authority matrix">
+      <Card title="Authority — what each agent may do alone">
         <p className="mb-2 text-xs text-ink-3">
-          Default is <b>review</b> — every write goes through the review inbox. Promote per
-          entity as trust builds. The built-in chat agent appears here as “agent”.
+          By default every agent write <b>needs approval</b> (it waits in
+          Inbox → Approvals). Promote per entity as trust builds. The built-in
+          chat agent is “agent”.
         </p>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <input
-            value={targetAgent}
-            onChange={(e) => setTargetAgent(e.target.value)}
-            list="agent-names"
-            className="w-28 rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
-            placeholder="agent name"
-          />
-          <datalist id="agent-names">
-            {(agents ?? []).map((a) => (
-              <option key={a.agent} value={a.agent} />
-            ))}
-            <option value="agent" />
-          </datalist>
-          <select
-            value={entity}
-            onChange={(e) => setEntity(e.target.value)}
-            className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
-          >
-            {(entities.length ? entities : ["task"]).map((e) => (
-              <option key={e}>{e}</option>
-            ))}
-          </select>
-          <select
-            value={level}
-            onChange={(e) => setLevel(e.target.value)}
-            className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
-          >
-            {LEVELS.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </select>
-          <button
-            disabled={busy}
-            onClick={setAuthority}
-            className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {busy ? "Setting…" : "Set"}
-          </button>
-        </div>
+        {(() => {
+          const grants = (agents ?? []).flatMap((a) =>
+            a.authority.map((au) => ({ ...au, agent: a.agent })),
+          );
+          return grants.length === 0 ? (
+            <p className="text-sm text-ink-3">
+              No overrides yet — everything an agent writes needs approval.
+            </p>
+          ) : (
+            <ul className="mb-2 space-y-1 text-sm">
+              {grants.map((g) => (
+                <li key={`${g.agent}-${g.entity}`} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{g.agent}</span>
+                    <span className="text-ink-3"> on {g.entity}</span>
+                  </span>
+                  {manage ? (
+                    <select
+                      value={g.level}
+                      disabled={busy}
+                      onChange={(e) => changeAuthority(g.agent, g.entity, e.target.value)}
+                      className="rounded border border-line-strong bg-card px-2 py-1 text-xs"
+                      aria-label={`Authority for ${g.agent} on ${g.entity}`}
+                    >
+                      {LEVELS.map((l) => (
+                        <option key={l} value={l}>
+                          {LEVEL_LABEL[l]}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.level]}`}>
+                      {LEVEL_LABEL[g.level] ?? g.level}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          );
+        })()}
+        {manage && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-sm">
+            <span className="text-xs text-ink-3">New rule:</span>
+            <input
+              value={targetAgent}
+              onChange={(e) => setTargetAgent(e.target.value)}
+              list="agent-names"
+              name="authority-agent"
+              className="w-28 rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
+              placeholder="agent name"
+            />
+            <datalist id="agent-names">
+              {(agents ?? []).map((a) => (
+                <option key={a.agent} value={a.agent} />
+              ))}
+              <option value="agent" />
+            </datalist>
+            <select
+              value={entity}
+              onChange={(e) => setEntity(e.target.value)}
+              className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
+            >
+              {(entities.length ? entities : ["task"]).map((e) => (
+                <option key={e}>{e}</option>
+              ))}
+            </select>
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
+            >
+              {LEVELS.map((l) => (
+                <option key={l} value={l}>
+                  {LEVEL_LABEL[l]}
+                </option>
+              ))}
+            </select>
+            <button
+              disabled={busy}
+              onClick={setAuthority}
+              className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {busy ? "Setting…" : "Set"}
+            </button>
+          </div>
+        )}
+        {!manage && (
+          <p className="text-xs text-ink-3">
+            Changing these needs “manager controls” (top right) and a personal
+            API key.
+          </p>
+        )}
       </Card>
 
       <Card title="Trust — earned from review verdicts">
@@ -315,6 +392,7 @@ export default function Agents() {
           </div>
         </Card>
       )}
+      </div>
     </main>
   );
 }

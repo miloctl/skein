@@ -112,9 +112,11 @@ def test_job_health_flags_stale(fresh_db):
     assert by_name["daily-backup"]["stale"] is False  # never attempted != stale
 
 
-def test_job_stale_finding_fires(fresh_db):
+def test_job_stale_finding_fires(fresh_db, monkeypatch):
+    from app import config
     from app.services.insights import run_findings
 
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", True)
     fresh_db.execute(
         "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
         " VALUES ('daily-digest', 'ok', '', 0, ?)",
@@ -123,6 +125,20 @@ def test_job_stale_finding_fires(fresh_db):
     result = run_findings(actor="tester")
     stale = [f for f in result["findings"] if f["rule_id"] == "job_stale"]
     assert len(stale) == 1 and stale[0]["subject"] == "daily-digest"
+
+
+def test_job_stale_finding_suppressed_when_scheduler_off(fresh_db, monkeypatch):
+    from app import config
+    from app.services.insights import run_findings
+
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", False)
+    fresh_db.execute(
+        "INSERT INTO job_outcomes (job, status, detail, duration_ms, created_at)"
+        " VALUES ('daily-digest', 'ok', '', 0, ?)",
+        (_iso_hours_ago(100),),
+    )
+    result = run_findings(actor="tester")
+    assert not [f for f in result["findings"] if f["rule_id"] == "job_stale"]
 
 
 def test_health_endpoint_reports_jobs(client):

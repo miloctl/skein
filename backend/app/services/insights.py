@@ -642,8 +642,13 @@ def _r_authority_stale() -> list[dict]:
 
 
 def _r_job_stale() -> list[dict]:
+    from .. import config
     from .jobs import job_health
 
+    if not config.SCHEDULER_ENABLED:
+        # scheduler deliberately off: every job is "stale" by definition —
+        # six red alarms about a setting is noise, not a finding
+        return []
     return [
         _finding(
             "job_stale",

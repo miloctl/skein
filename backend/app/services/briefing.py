@@ -3,6 +3,7 @@ in one call. Items are grouped by the kind of judgment required (decide /
 unblock / commit / review / notice) and each carries a "why you're seeing
 this" reason. An LLM narrative can be layered on top later (see digest.py)."""
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from .. import db
@@ -87,22 +88,71 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "link": "/portfolio",
             }
         )
-    for n in needs["notifications"][:5]:
+    for n, similar in _coalesce(needs["notifications"])[:5]:
         items.append(
             {
                 "kind": "notification",
                 "ref_id": n["id"],
                 "group": "notice",
-                "label": n["message"][:100],
+                "label": _ellipsize(n["message"], 100)
+                + (f" (+{similar} similar)" if similar else ""),
                 "reason": (
-                    "unread team-wide notification"
+                    "for the whole team — dismiss when read"
                     if n["user"] == "team"
-                    else "unread notification"
+                    else "for you — dismiss when read"
                 ),
                 "link": n["link"] or "/",
             }
         )
     return items
+
+
+def _ellipsize(text: str, limit: int) -> str:
+    """Cut at a word boundary with an ellipsis — never mid-word ("0 blocke")."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ·—-")
+    return cut + "…"
+
+
+def _coalesce(notifications: list[dict]) -> list[tuple[dict, int]]:
+    """Stack near-duplicates ("claude ingested meeting notes: …" × 3) into one
+    entry with a count; dismissing it surfaces the next on reload."""
+    grouped: dict[str, list[dict]] = {}
+    for n in notifications:
+        key = (n["link"] or "") + "|" + n["message"].split(":", 1)[0]
+        grouped.setdefault(key, []).append(n)
+    return [(g[0], len(g) - 1) for g in grouped.values()]
+
+
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
+
+def _human_digest(rows: list[dict]) -> list[dict]:
+    """The "Since yesterday" card is for teammates, not operators: drop
+    chat-housekeeping rows (coalesced to one line per actor) and never show
+    raw UUIDs in a human digest."""
+    out: list[dict] = []
+    tidied: dict[str, int] = {}
+    for r in rows:
+        if r["action"] in ("delete_chat", "rename_chat", "move_chat"):
+            tidied[r["actor"]] = tidied.get(r["actor"], 0) + 1
+            continue
+        detail = _UUID_RE.sub("…", str(r["detail"] or "")).strip()
+        out.append({**r, "detail": detail})
+        if len(out) >= 20:
+            break
+    for actor, n in tidied.items():
+        out.append(
+            {
+                "id": f"tidy-{actor}",
+                "actor": actor,
+                "action": "tidied",
+                "detail": f"{n} chat{'s' if n > 1 else ''}",
+                "created_at": "",
+            }
+        )
+    return out
 
 
 def my_day(user: str) -> dict:
@@ -166,9 +216,11 @@ def my_day(user: str) -> dict:
                 "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
                 (today, (utc_today + timedelta(days=1)).isoformat()),
             ),
-            "recent_activity": db.query(
-                "SELECT * FROM activity WHERE created_at >= ? ORDER BY id DESC LIMIT 20",
-                (yesterday,),
+            "recent_activity": _human_digest(
+                db.query(
+                    "SELECT * FROM activity WHERE created_at >= ? ORDER BY id DESC LIMIT 40",
+                    (yesterday,),
+                )
             ),
         },
     }

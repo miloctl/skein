@@ -214,13 +214,16 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
         head = f"🧪 **Experiment concluded: {name}** — {eng['conclusion'] or 'unmeasured'}"
     else:
         head = f"🚢🪿 **Shipped: {name}**"
-    recap = (
-        head
-        + (f" — {days}" if days else "")
-        + f" · {stats['milestones']['n']} milestones"
-        + f" · {stats['tasks_done']['n']} tasks done"
-        + f" · {stats['blockers_survived']['n']} blockers survived"
-    )
+    # zero-valued stats are noise in a celebration line — say only what happened
+    parts = [
+        f"{stats['milestones']['n']} milestones" if stats["milestones"]["n"] else "",
+        f"{stats['tasks_done']['n']} tasks done" if stats["tasks_done"]["n"] else "",
+        f"{stats['blockers_survived']['n']} blockers survived"
+        if stats["blockers_survived"]["n"]
+        else "",
+    ]
+    tail = " · ".join(p for p in parts if p)
+    recap = head + (f" — {days}" if days else "") + (f" · {tail}" if tail else "")
     from .collab import save_note
     from .notifications import notify
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { SectionTabs } from "@/components/section-tabs";
 
 type Decision = {
   id: number;
@@ -20,6 +21,9 @@ export default function CharterPage() {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
+  const [reviewBy, setReviewBy] = useState(
+    () => new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10),
+  );
 
   const load = useCallback(() => {
     api<Decision[]>("/api/decisions?category=charter")
@@ -30,15 +34,15 @@ export default function CharterPage() {
 
   const add = async () => {
     if (!title.trim() || !text.trim()) return;
-    const review_by = prompt(
-      "Review by (YYYY-MM-DD)? Charter entries go stale like decisions do.",
-      new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10),
-    );
-    if (review_by === null) return;
     try {
       await api("/api/decisions", {
         method: "POST",
-        body: JSON.stringify({ title, decision: text, review_by, category: "charter" }),
+        body: JSON.stringify({
+          title,
+          decision: text,
+          review_by: reviewBy,
+          category: "charter",
+        }),
       });
       setTitle("");
       setText("");
@@ -50,6 +54,7 @@ export default function CharterPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
+      <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Team charter & decision rights</h1>
       <p className="mb-6 text-sm text-ink-3">
         Mission, ownership, escalation rules, working agreements — recorded as
@@ -72,9 +77,22 @@ export default function CharterPage() {
           placeholder="The agreement itself…"
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
+        <div className="flex items-center gap-2 text-xs text-ink-2">
+          <label htmlFor="charter-review-by">
+            Review by — charter entries go stale like decisions do:
+          </label>
+          <input
+            id="charter-review-by"
+            name="charter-review-by"
+            type="date"
+            value={reviewBy}
+            onChange={(e) => setReviewBy(e.target.value)}
+            className="rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+          />
+        </div>
         <button
           onClick={add}
-          disabled={!title.trim() || !text.trim()}
+          disabled={!title.trim() || !text.trim() || !reviewBy}
           className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
         >
           Record charter entry
