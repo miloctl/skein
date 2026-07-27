@@ -66,6 +66,15 @@ def test_key_request_files_team_notification(client):
     assert any("requests a personal API key" in n["message"] for n in notes)
 
 
+def test_user_theme_roundtrip(client):
+    theme = '{"pack":"atelier","colorway":"custom","appearance":"dark","custom":{"thread":12,"weld":200}}'
+    assert client.post("/api/users/theme", json={"theme": theme}).json()["saved"] is True
+    assert client.get("/api/users/theme").json()["theme"] == theme
+    assert client.post("/api/users/theme", json={"theme": ""}).json()["saved"] is False
+    assert client.post("/api/users/theme", json={"theme": "not json"}).status_code == 400
+    assert client.post("/api/users/theme", json={"theme": '{"evil":1}'}).status_code == 400
+
+
 def test_agents_status_shape(client):
     s = client.get("/api/agents/status").json()
     assert set(s) == {"provider", "model", "review_gate"}

@@ -176,6 +176,23 @@ def post_growth_interests(body: GrowthIn, user: CurrentUser):
     return users.set_growth_interests(user, body.interests, actor=user)
 
 
+class ThemeIn(BaseModel):
+    theme: str = Field(max_length=400)
+
+
+@router.post("/users/theme")
+def post_user_theme(body: ThemeIn, user: CurrentUser):
+    try:
+        return users.set_theme(user, body.theme)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.get("/users/theme")
+def get_user_theme(user: CurrentUser):
+    return {"theme": users.get_theme(user)}
+
+
 @router.get("/search")
 def get_search(q: str):
     return search.search(q)
