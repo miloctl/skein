@@ -101,6 +101,61 @@ function StandupCard({ rows }: { rows: Row[] }) {
   );
 }
 
+function EditRow({
+  fields,
+  onSave,
+  onCancel,
+}: {
+  fields: Record<string, string>;
+  onSave: (f: Record<string, string>) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(fields);
+  return (
+    <li
+      className="flex flex-wrap items-center gap-1.5 text-sm"
+      onKeyDown={(e) => e.key === "Escape" && onCancel()}
+    >
+      {Object.keys(fields).map((k, i) =>
+        k === "assignee" ? (
+          <PersonInput
+            key={k}
+            aria-label="Assignee"
+            value={draft[k]}
+            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+            placeholder="assignee"
+            className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
+          />
+        ) : (
+          <input
+            key={k}
+            autoFocus={i === 0}
+            aria-label={k.replace("_", " ")}
+            type={k === "due_date" ? "date" : "text"}
+            value={draft[k]}
+            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+            placeholder={k.replace("_", " ")}
+            className={
+              (k === "title" ? "min-w-40 flex-1" : "w-32") +
+              " rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
+            }
+          />
+        ),
+      )}
+      <button
+        disabled={!draft.title?.trim()}
+        onClick={() => onSave(draft)}
+        className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+      >
+        save
+      </button>
+      <button onClick={onCancel} className="text-xs text-ink-3 hover:text-ink">
+        cancel
+      </button>
+    </li>
+  );
+}
+
 const CONCLUSIONS = [
   "achieved",
   "partial",
@@ -126,6 +181,9 @@ export default function Dashboard() {
   const [closing, setClosing] = useState<number | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
+  const [editing, setEditing] = useState<{ kind: "task" | "milestone"; id: number } | null>(
+    null,
+  );
 
 
   // inline actions re-fetch instead of window.location.reload() — a reload
@@ -166,6 +224,16 @@ export default function Dashboard() {
       .catch(() => {}); // pulse is decorative — its failure must not blank the page
   }, []);
   useEffect(load, [load]);
+
+  const patchRow = async (entity: "tasks" | "milestones", id: number, fields: Record<string, string>) => {
+    try {
+      await api(`/api/${entity}/${id}`, { method: "PATCH", body: JSON.stringify(fields) });
+      setEditing(null);
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
 
   const assignTo = async (qid: number, who: string) => {
     try {
@@ -371,36 +439,72 @@ export default function Dashboard() {
         title="Milestones"
         rows={data.milestones ?? []}
         empty="No milestones yet — ask the agent to plan a project."
-        render={(m) => (
-          <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
-            <span>
-              <span className="text-ink-3">#{m.id}</span> {m.title}
-              {m.due_date ? (
-                <span className="ml-2 text-xs text-ink-3">due {m.due_date}</span>
-              ) : null}
-            </span>
-            <Badge value={String(m.status)} />
-          </li>
-        )}
+        render={(m) =>
+          editing?.kind === "milestone" && editing.id === m.id ? (
+            <EditRow
+              key={m.id}
+              fields={{ title: String(m.title), due_date: String(m.due_date ?? "") }}
+              onSave={(f) => patchRow("milestones", Number(m.id), f)}
+              onCancel={() => setEditing(null)}
+            />
+          ) : (
+            <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
+              <span>
+                <span className="text-ink-3">#{m.id}</span> {m.title}
+                {m.due_date ? (
+                  <span className="ml-2 text-xs text-ink-3">due {m.due_date}</span>
+                ) : null}
+              </span>
+              <span className="flex items-center gap-1">
+                <button
+                  onClick={() => setEditing({ kind: "milestone", id: Number(m.id) })}
+                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                >
+                  edit…
+                </button>
+                <Badge value={String(m.status)} />
+              </span>
+            </li>
+          )
+        }
       />
       <Section
         title="Tasks"
-        rows={data.tasks ?? []}
-        empty="No tasks yet — press ⌘K and type 'todo: …'."
-        render={(t) => (
-          <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
-            <span>
-              <span className="text-ink-3">#{t.id}</span> {t.title}
-              {t.assignee ? (
-                <span className="ml-2 text-xs text-ink-3">@{t.assignee}</span>
-              ) : null}
-            </span>
-            <span className="flex items-center gap-1">
-              <Badge value={String(t.priority)} />
-              <Badge value={String(t.status)} />
-            </span>
-          </li>
-        )}
+        rows={(data.tasks ?? []).filter((t) => t.status !== "done")}
+        empty="No open tasks — press ⌘K and type 'todo: …'."
+        render={(t) =>
+          editing?.kind === "task" && editing.id === t.id ? (
+            <EditRow
+              key={t.id}
+              fields={{
+                title: String(t.title),
+                assignee: String(t.assignee ?? ""),
+                due_date: String(t.due_date ?? ""),
+              }}
+              onSave={(f) => patchRow("tasks", Number(t.id), f)}
+              onCancel={() => setEditing(null)}
+            />
+          ) : (
+            <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
+              <span>
+                <span className="text-ink-3">#{t.id}</span> {t.title}
+                {t.assignee ? (
+                  <span className="ml-2 text-xs text-ink-3">@{t.assignee}</span>
+                ) : null}
+              </span>
+              <span className="flex items-center gap-1">
+                <button
+                  onClick={() => setEditing({ kind: "task", id: Number(t.id) })}
+                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                >
+                  edit…
+                </button>
+                <Badge value={String(t.priority)} />
+                <Badge value={String(t.status)} />
+              </span>
+            </li>
+          )
+        }
       />
       <Section
         title="Open questions"

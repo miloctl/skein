@@ -147,13 +147,14 @@ def test_users_autoregister(client):
 
 
 def test_admin_backup_and_export(client):
-    b = client.post("/api/admin/backup").json()
-    assert b["path"].endswith(".db")
-    # export is a full-table dump: strong identity required, X-User is a 403
+    # backup and export are admin surfaces: strong identity required
+    assert client.post("/api/admin/backup").status_code == 403
     assert client.get("/api/admin/export").status_code == 403
     from app.services.api_keys import create_key
 
     key = create_key("tester", "t")["key"]
+    b = client.post("/api/admin/backup", headers={"Authorization": f"Bearer {key}"}).json()
+    assert b["path"].endswith(".db")
     e = client.get("/api/admin/export", headers={"Authorization": f"Bearer {key}"}).json()
     assert e["tables"]["users"] >= 1
 
