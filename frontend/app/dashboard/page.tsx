@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { API_URL, api } from "@/lib/api";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
+import { timeAgo } from "@/lib/time";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
 type Pulse = {
@@ -652,7 +653,7 @@ export default function Dashboard() {
               {a.actor}
             </span>{" "}
             {String(a.action).replace("_", " ")} {a.detail}
-            <span className="ml-1 text-ink-3">{a.created_at}</span>
+            <span className="ml-1 text-ink-3">{timeAgo(String(a.created_at))}</span>
           </li>
         )}
       />

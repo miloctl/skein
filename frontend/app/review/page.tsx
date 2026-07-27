@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
+import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
 
 function cell(v: unknown): string {
@@ -163,7 +164,7 @@ export default function ReviewPage() {
               </span>
               <span className="text-xs text-ink-3">
                 by {c.proposed_by}
-                {c.requested_by ? ` · asked by ${c.requested_by}` : ""} · {c.created_at}
+                {c.requested_by ? ` · asked by ${c.requested_by}` : ""} · {timeAgo(c.created_at)}
               </span>
             </div>
             {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}

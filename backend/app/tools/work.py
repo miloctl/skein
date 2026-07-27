@@ -61,7 +61,7 @@ def update_milestone(
         owner: New owner.
         due_date: New due date (YYYY-MM-DD).
     """
-    payload = {
+    payload: dict[str, Any] = {
         "status": status,
         "title": title,
         "description": description,
@@ -152,7 +152,7 @@ def update_task(
         waiting_on: What this task is stuck behind — 'task:12', 'blocker:3',
             or 'commitment:7'; '-' clears it.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "status": status,
         "assignee": assignee,
         "priority": priority,
