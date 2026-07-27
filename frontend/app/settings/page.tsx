@@ -506,6 +506,25 @@ export default function SettingsPage() {
                     ? "Can't verify your key status right now (the stored key may be revoked). Ask whoever runs the server for a fresh one."
                     : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
                 </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const r = await api<{ already_pending: boolean }>("/api/keys/request", {
+                        method: "POST",
+                      });
+                      setKeyStatus(
+                        r.already_pending
+                          ? "Already asked — the request is still on the team's My Day."
+                          : "Asked — the request (with the exact command) is now on the team's My Day.",
+                      );
+                    } catch (e) {
+                      setKeyStatus(`❌ ${String(e)}`);
+                    }
+                  }}
+                  className="mb-2 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Request a key
+                </button>
                 <details>
                   <summary className="cursor-pointer text-xs text-ink-3 hover:text-ink-2">
                     I run the server — show me the command

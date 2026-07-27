@@ -91,14 +91,30 @@ export default function PeoplePage() {
       </p>
 
       {needsKey && (
-        <p className="mb-4 rounded-xl border border-weld/40 bg-weld/10 p-4 text-sm text-weld">
-          Private notes need your personal API key — so nobody can read or
-          write them by just typing your name.{" "}
-          <a href="/settings" className="font-medium underline">
-            Settings
-          </a>{" "}
-          walks you through getting one.
-        </p>
+        <div className="mb-4 rounded-xl border border-weld/40 bg-weld/10 p-4 text-sm text-weld">
+          <p>
+            Private notes need your personal API key — so nobody can read or
+            write them by just typing your name.{" "}
+            <a href="/settings" className="font-medium underline">
+              Settings
+            </a>{" "}
+            walks you through getting one.
+          </p>
+          <button
+            onClick={async () => {
+              try {
+                await api("/api/keys/request", { method: "POST" });
+                setError(null);
+                alert("Asked — the request is now on the team's My Day.");
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+            className="mt-2 rounded-lg bg-weld px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          >
+            Request a key
+          </button>
+        </div>
       )}
 
       <div className="mb-6 flex flex-wrap gap-2">

@@ -201,6 +201,16 @@ def get_whoami(user: CurrentUser, request: Request):
     }
 
 
+@router.post("/keys/request")
+def post_key_request(user: CurrentUser):
+    from ..services.api_keys import request_key
+
+    try:
+        return request_key(user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.get("/briefing")
 def get_briefing(user: CurrentUser):
     return briefing.my_day(user)
@@ -408,6 +418,19 @@ def get_eval_capture():
 @router.get("/agents")
 def get_agents():
     return delegation.mission_control()
+
+
+@router.get("/agents/status")
+def get_agents_status():
+    """Plain-language state of the agent layer — the UI must never make mock
+    mode look like a live model, or hide whether the review gate is on."""
+    from .. import config
+
+    return {
+        "provider": config.MODEL_PROVIDER,
+        "model": config.MODEL_ID if config.MODEL_PROVIDER != "mock" else "",
+        "review_gate": config.AGENT_REVIEW,
+    }
 
 
 @router.get("/agents/trust")

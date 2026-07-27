@@ -15,13 +15,15 @@ PATTERNS = [
     ("decision", re.compile(r"\bwe (decided|chose|are going with)\b", re.I)),
     ("commitment", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
     ("commitment", re.compile(r"\bwe (promised|committed to)\b", re.I)),
+    ("request", re.compile(r"^\s*(req:|request:)", re.I)),
     ("task", re.compile(r"^\s*(todo:|task:)", re.I)),
     ("task", re.compile(r"^\s*(fix|add|update|implement|write|ship|review|schedule)\b", re.I)),
     ("note", re.compile(r"^\s*(note:|fyi:|til:)", re.I)),
 ]
 
 PREFIX = re.compile(
-    r"^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment):\s*",
+    r"^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck"
+    r"|promised?|commitment|req|request):\s*",
     re.I,
 )
 
@@ -124,6 +126,12 @@ def capture(
         )
     elif kind == "commitment":
         result = commitments.add_commitment(body, actor=actor, origin=origin)
+    elif kind == "request":
+        # requests arrive where people already type — route them into intake
+        # instead of letting them die as notes
+        from . import intake
+
+        result = intake.submit_request(body[:120], detail=body, actor=actor, origin=origin)
     elif kind == "task":
         result = work.create_task(
             title=body[:120],

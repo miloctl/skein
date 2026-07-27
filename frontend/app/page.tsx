@@ -29,7 +29,7 @@ type Briefing = {
     notifications: Row[];
   };
   attention: AttentionItem[];
-  your_work: { tasks: Row[]; due_soon: Row[] };
+  your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };
   team: {
     recently_shipped: Row[];
     escalated_blockers: Row[];
@@ -421,7 +421,10 @@ export default function MyDay() {
 
         <Card title="Your work">
           <div className="mb-3 border-b border-line pb-3">
-            <StandupComposer onPosted={load} />
+            <StandupComposer
+              suggestion={b.your_work.standup_suggestion ?? ""}
+              onPosted={load}
+            />
           </div>
           <ul className="space-y-2 text-sm">
             {b.your_work.tasks.map((t) => (

@@ -85,6 +85,11 @@ export default function Agents() {
   const [targetAgent, setTargetAgent] = useState("agent");
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{
+    provider: string;
+    model: string;
+    review_gate: boolean;
+  } | null>(null);
   const manage = useManageMode();
   const inboxGeneration = useRef(0);
 
@@ -95,6 +100,9 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
     api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
     api<Persona[]>("/api/personas").then(setBench).catch(() => {});
+    api<{ provider: string; model: string; review_gate: boolean }>("/api/agents/status")
+      .then(setStatus)
+      .catch(() => {});
   }, []);
 
   useEffect(load, [load]);
@@ -137,6 +145,27 @@ export default function Agents() {
         <SectionTabs set="team" />
         <ManageToggle />
       </div>
+      {status && (
+        <p className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-line bg-card px-4 py-2.5 text-xs text-ink-2 shadow-card">
+          <span>
+            <span
+              aria-hidden
+              className={
+                "mr-1.5 inline-block size-2 rounded-full " +
+                (status.provider === "mock" ? "bg-line-strong" : "bg-ok")
+              }
+            />
+            {status.provider === "mock"
+              ? "Deterministic mode — no AI model connected; chat commands and smart capture still work"
+              : `Model: ${status.model} (${status.provider})`}
+          </span>
+          <span>
+            {status.review_gate
+              ? "Review gate on — every agent write waits in Inbox → Approvals"
+              : "Review gate off — agent writes apply directly (authority rules still hold)"}
+          </span>
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {banner && (
         <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
