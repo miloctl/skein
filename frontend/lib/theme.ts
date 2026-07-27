@@ -238,17 +238,17 @@ function browserHasOpinion(): boolean {
   return hasKeys && read(ADOPTED_KEY) !== "team";
 }
 
-export async function adoptServerTheme() {
+export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
   const { api } = await import("./api");
-  if (browserHasOpinion()) return;
+  if (browserHasOpinion()) return null;
   try {
     // anonymous browsers still adopt the team default (TP3)
     const r = await api<{ theme: string; team_default: string }>("/api/users/theme");
     const blob = r.theme || r.team_default;
-    if (!blob) return;
+    if (!blob) return null;
     // re-check after the await: a theme picked while the fetch was in
     // flight must never be clobbered by the profile copy
-    if (browserHasOpinion()) return;
+    if (browserHasOpinion()) return null;
     write(ADOPTED_KEY, r.theme ? "profile" : "team");
     const t = JSON.parse(blob);
     if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === "loom" ? null : t.pack);
@@ -269,7 +269,10 @@ export async function adoptServerTheme() {
     }
     applyPrefs();
     window.dispatchEvent(new Event("storage"));
-  } catch {}
+    return r.theme ? "profile" : "team";
+  } catch {
+    return null;
+  }
 }
 
 export function setColorway(id: string) {

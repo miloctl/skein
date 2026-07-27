@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { API_URL, api } from "@/lib/api";
+import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
@@ -403,7 +404,7 @@ export default function Dashboard() {
               <p className="mt-0.5 text-xs text-ink-3">
                 {assigning === q.id ? (
                   <span className="flex items-center gap-1.5">
-                    <input
+                    <PersonInput
                       autoFocus
                       name="assign-question"
                       aria-label="Assign this question to"
