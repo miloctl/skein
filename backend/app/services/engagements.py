@@ -75,6 +75,7 @@ def create_engagement(
 def update_engagement(
     engagement_id: int,
     status: str = "",
+    name: str = "",
     summary: str = "",
     lead: str = "",
     conclusion: str = "",
@@ -90,11 +91,21 @@ def update_engagement(
     if conclusion and conclusion not in CONCLUSIONS:
         raise ValueError(f"conclusion must be one of {CONCLUSIONS}")
     current = db.query_one(
-        "SELECT status, kind, outcome, conclusion FROM engagements WHERE id = ?",
+        "SELECT name, status, kind, outcome, conclusion FROM engagements WHERE id = ?",
         (engagement_id,),
     )
     if not current:
         raise ValueError(f"engagement #{engagement_id} not found")
+    name = name.strip()
+    if name and name != current["name"]:
+        if db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
+            raise ValueError(f"engagement '{name}' already exists")
+        # the id is the real join; propagate the display name so the
+        # project label on milestones keeps matching
+        db.execute(
+            "UPDATE milestones SET project = ? WHERE engagement_id = ?",
+            (name, engagement_id),
+        )
     freshly_closed = status == "closed" and current["status"] != "closed"
     if freshly_closed and not (conclusion or current["conclusion"]):
         raise ValueError(
@@ -105,6 +116,7 @@ def update_engagement(
         k: v
         for k, v in [
             ("status", status),
+            ("name", name if name != current["name"] else ""),
             ("summary", summary),
             ("lead", lead),
             ("conclusion", conclusion),
@@ -126,6 +138,12 @@ def update_engagement(
         (*fields.values(), db.now(), engagement_id),
     )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
+    if "name" in fields:
+        row = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+        if row:
+            index_record(
+                "engagement", engagement_id, row["name"], f"{row['summary']} {row['lead']}"
+            )
     if freshly_closed:
         _ship_it(engagement_id, actor=actor)
         if current["kind"] == "experiment":

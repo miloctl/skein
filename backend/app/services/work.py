@@ -44,6 +44,16 @@ def create_milestone(
             ts,
         ),
     )
+    if eng is None and project != "default":
+        from .notifications import notify
+
+        notify(
+            "team",
+            f"Milestone #{mid} '{title}' names project '{project}' but no engagement"
+            " matches — it won't count in health/forecast until relinked.",
+            tier="digest",
+            link="/dashboard",
+        )
     db.log_activity(actor, "create_milestone", f"#{mid} {title}")
     index_record("milestone", mid, title, f"{description} {project} {owner}")
     return {"id": mid, "title": title, "status": "planned"}
@@ -56,6 +66,7 @@ def update_milestone(
     description: str = "",
     owner: str = "",
     due_date: str = "",
+    engagement_id: int = 0,
     *,
     actor: str = "system",
     origin: str = "human",
@@ -75,6 +86,14 @@ def update_milestone(
         ]
         if v
     }
+    if engagement_id:
+        # mislinked work silently drops out of health/forecast/handoff —
+        # the link must be repairable, not set-once (-1 unlinks)
+        if engagement_id > 0 and not db.query_one(
+            "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+        ):
+            raise ValueError(f"engagement #{engagement_id} not found")
+        fields["engagement_id"] = None if engagement_id < 0 else engagement_id  # type: ignore[assignment]
     if not fields:
         raise ValueError("nothing to update")
     for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
@@ -168,6 +187,8 @@ def update_task(
     title: str = "",
     committed_week: str = "",
     waiting_on: str = "",
+    milestone_id: int = 0,
+    engagement_id: int = 0,
     *,
     actor: str = "system",
     origin: str = "human",
@@ -218,6 +239,17 @@ def update_task(
     elif waiting_type:
         fields["waiting_on_type"] = waiting_type
         fields["waiting_on_id"] = waiting_id
+    for link_field, link_id, table in (
+        ("milestone_id", milestone_id, "milestones"),
+        ("engagement_id", engagement_id, "engagements"),
+    ):
+        if link_id:
+            if link_id > 0 and not db.query_one(
+                f"SELECT id FROM {table} WHERE id = ?",  # noqa: S608 — table hardcoded
+                (link_id,),
+            ):
+                raise ValueError(f"{table[:-1]} #{link_id} not found")
+            fields[link_field] = None if link_id < 0 else link_id
     if not fields:
         raise ValueError("nothing to update")
     if committed_week == "-":

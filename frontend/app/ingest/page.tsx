@@ -22,14 +22,14 @@ export default function IngestPage() {
 
   // an unmatched line gets filed by re-running it through the same
   // proposals-only pipeline with the chosen prefix — never a direct write
-  const fileLine = async (line: string, prefix: string) => {
+  const fileLine = async (key: string, line: string, prefix: string) => {
     try {
       const r = await api<IngestResult>("/api/ingest", {
         method: "POST",
         body: JSON.stringify({ text: `${prefix} ${line}` }),
       });
       const kind = r.proposals[0]?.kind ?? "proposal";
-      setFiled((f) => ({ ...f, [line]: kind }));
+      setFiled((f) => ({ ...f, [key]: kind }));
     } catch (e) {
       setError(String(e));
     }
@@ -115,21 +115,21 @@ export default function IngestPage() {
                 matter, right here:
               </p>
               <ul className="space-y-1 text-ink-3">
-                {result.unclassified.slice(0, 20).map((l, i) => (
-                  <li key={i} className="flex items-center gap-2">
+                {result.unclassified.slice(0, 20).map((l, i) => { const key = `${i}:${l}`; return (
+                  <li key={key} className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate" title={l}>
                       {l}
                     </span>
-                    {filed[l] ? (
+                    {filed[key] ? (
                       <span role="status" className="text-xs text-ok">
-                        ✓ proposed as {filed[l]}
+                        ✓ proposed as {filed[key]}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1">
                         <select
-                          value={picks[l] ?? ""}
+                          value={picks[key] ?? ""}
                           aria-label={`File "${l}" as`}
-                          onChange={(e) => setPicks((p) => ({ ...p, [l]: e.target.value }))}
+                          onChange={(e) => setPicks((p) => ({ ...p, [key]: e.target.value }))}
                           className="rounded border border-line-strong bg-card px-1.5 py-0.5 text-xs"
                         >
                           <option value="" disabled>
@@ -144,8 +144,8 @@ export default function IngestPage() {
                           <option value="note:">note</option>
                         </select>
                         <button
-                          disabled={!picks[l]}
-                          onClick={() => picks[l] && fileLine(l, picks[l])}
+                          disabled={!picks[key]}
+                          onClick={() => picks[key] && fileLine(key, l, picks[key])}
                           className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
                         >
                           file
@@ -153,7 +153,7 @@ export default function IngestPage() {
                       </span>
                     )}
                   </li>
-                ))}
+                ); })}
               </ul>
             </div>
           )}

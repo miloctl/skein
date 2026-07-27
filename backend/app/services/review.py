@@ -131,10 +131,14 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
         # compound applies (playbook, weekly_plan) land atomically or not at
         # all — a failed apply rolls back, so pending is safe for EVERY entity
         with db.transaction():
+            # authorship stays with the proposer: created_by must say who
+            # wrote it, not who clicked approve (the verdict is recorded on
+            # the pending_changes row + activity)
+            author = change["proposed_by"] or actor
             if change["action"] == "update":
-                result = fn(change["entity_id"], **payload, actor=actor, origin="agent_verified")
+                result = fn(change["entity_id"], **payload, actor=author, origin="agent_verified")
             else:
-                result = fn(**payload, actor=actor, origin="agent_verified")
+                result = fn(**payload, actor=author, origin="agent_verified")
     except Exception as exc:
         # ANY failure (also IntegrityError, lock timeout) resets the claim —
         # an approved-but-never-applied proposal would vanish from the queue

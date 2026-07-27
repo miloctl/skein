@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { api, getUser, setUser } from "@/lib/api";
 import { StandupComposer } from "@/components/standup-card";
@@ -137,7 +137,31 @@ export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pulseVoted, setPulseVoted] = useState(false);
+  // persisted per ISO week — an accidental reload must not re-ask (votes are
+  // anonymous server-side, so the client is the only dedupe there is)
+  const pulseWeek = (() => {
+    const d = new Date();
+    const day = (d.getDay() + 6) % 7;
+    const thu = new Date(d);
+    thu.setDate(d.getDate() - day + 3);
+    const jan1 = new Date(thu.getFullYear(), 0, 1);
+    const week = Math.ceil(((+thu - +jan1) / 86400000 + 1) / 7);
+    return `${thu.getFullYear()}-W${week}`;
+  })();
+  const pulseVoted = useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("storage", cb);
+      return () => window.removeEventListener("storage", cb);
+    },
+    () => {
+      try {
+        return window.localStorage.getItem("skein-pulse-voted") === pulseWeek;
+      } catch {
+        return false;
+      }
+    },
+    () => false,
+  );
   const waveOnce = shouldWave();
 
   const generation = useRef(0);
@@ -504,7 +528,10 @@ export default function MyDay() {
                               verdict: v,
                             }),
                           });
-                          setPulseVoted(true);
+                          try {
+                            window.localStorage.setItem("skein-pulse-voted", pulseWeek);
+                          } catch {}
+                          window.dispatchEvent(new Event("storage"));
                         } catch (e) {
                           alert(String(e));
                         }

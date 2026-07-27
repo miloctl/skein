@@ -445,15 +445,19 @@ def get_review_stats():
 
 
 class FeedbackIn(BaseModel):
-    kind: str
-    input_text: str = ""  # a pulse vote has no input text
-    output: str = ""
-    verdict: str = "up"
-    correction: str = ""
+    kind: str = Field(max_length=40)
+    input_text: str = Field("", max_length=2000)  # a pulse vote has no input text
+    output: str = Field("", max_length=4000)
+    verdict: str = Field("up", max_length=10)
+    correction: str = Field("", max_length=2000)
 
 
 @router.post("/feedback")
 def post_feedback(body: FeedbackIn, user: CurrentUser):
+    try:
+        ratelimit.check("feedback", user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     data = body.model_dump()
     if not data["input_text"]:
         if data["kind"] != "pulse":
@@ -641,6 +645,7 @@ class MilestonePatch(BaseModel):
     description: str = ""
     owner: str = ""
     due_date: str = ""
+    engagement_id: int = 0  # relink (-1 unlinks)
 
 
 @router.patch("/milestones/{milestone_id}")
@@ -672,6 +677,8 @@ class TaskPatch(BaseModel):
     title: str = ""
     committed_week: str = ""
     waiting_on: str = ""  # "blocker:12" | "task:3" | "commitment:7" | "-"
+    milestone_id: int = 0  # relink (-1 unlinks)
+    engagement_id: int = 0  # relink (-1 unlinks)
 
 
 @router.patch("/tasks/{task_id}")
@@ -919,6 +926,7 @@ def post_engagement(body: EngagementIn, user: CurrentUser):
 
 class EngagementPatch(BaseModel):
     status: str = ""
+    name: str = ""  # rename propagates to milestone project labels
     summary: str = ""
     lead: str = ""
     conclusion: str = ""

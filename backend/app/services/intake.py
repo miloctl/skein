@@ -21,6 +21,8 @@ def submit_request(
     actor: str = "",
     origin: str = "human",
 ) -> dict:
+    if not title.strip():
+        raise ValueError("request title is required")
     ts = db.now()
     rid = db.execute(
         "INSERT INTO intake_requests (title, detail, requester, project_class,"

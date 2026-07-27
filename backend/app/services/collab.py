@@ -69,8 +69,14 @@ def assign_question(
 def answer_question(
     question_id: int, answer: str, answered_by: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
-    if not db.query_one("SELECT id FROM questions WHERE id = ?", (question_id,)):
+    row = db.query_one("SELECT id, answer, status FROM questions WHERE id = ?", (question_id,))
+    if not row:
         raise ValueError(f"question #{question_id} not found")
+    if row["status"] == "answered" and row["answer"] and row["answer"] != answer:
+        raise ValueError(
+            f"question #{question_id} already has an answer — read it first;"
+            " ask a follow-up question instead of overwriting"
+        )
     db.execute(
         "UPDATE questions SET answer = ?, status = 'answered', answered_at = ? WHERE id = ?",
         (answer, db.now(), question_id),
