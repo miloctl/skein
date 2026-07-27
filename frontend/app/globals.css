@@ -79,6 +79,7 @@
   --font-body: var(--font-geist-sans);
   --font-heading: var(--font-fraunces);
   --r-sm: 0px;
+  --r-md: 0px;
   --r-lg: 0px;
   --r-xl: 0px;
   --r-2xl: 0px;
@@ -106,7 +107,9 @@
 [data-pack="phosphor"] {
   --font-body: var(--font-geist-mono);
   --font-heading: var(--font-geist-mono);
+  --fs-xs: 0.8125rem;
   --r-sm: 0px;
+  --r-md: 0px;
   --r-lg: 0px;
   --r-xl: 0px;
   --r-2xl: 0px;
@@ -152,7 +155,9 @@
 [data-pack="atelier"] {
   --font-body: var(--font-source-serif);
   --font-heading: var(--font-fraunces);
+  --fs-xs: 0.8125rem;
   --r-sm: 0.375rem;
+  --r-md: 0.625rem;
   --r-lg: 0.875rem;
   --r-xl: 1.25rem;
   --r-2xl: 1.5rem;
@@ -167,6 +172,33 @@
   --fabric-texture: none;
   --shadow-card: 0 2px 10px light-dark(rgb(60 40 20 / 0.06), rgb(0 0 0 / 0.3));
   --shadow-float: 0 12px 36px light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
+}
+
+/* accessibility escapes — after all pack blocks so source order wins.
+   prefers-contrast: the OS-level "calm/clarity" intent silences every
+   fabric texture (Phosphor scanlines are a visual-stress pattern).
+   forced-colors: WHCM forces background-color but NOT background-image —
+   drop author-colored gradients, and mark the active nav page with an
+   underline (text-decoration survives forcing). */
+@media (prefers-contrast: more) {
+  :root,
+  [data-pack] {
+    --fabric-texture: none;
+  }
+}
+@media (forced-colors: active) {
+  :root,
+  [data-pack] {
+    --fabric-texture: none;
+  }
+  .selvage,
+  .loom-band,
+  .loom-idle {
+    background-image: none;
+  }
+  [aria-current="page"] {
+    text-decoration: underline 2px;
+  }
 }
 
 /* Settings theme cards: a swatch of the actual cloth — the pack's own
@@ -202,9 +234,13 @@
      square every corner (Ledger, Phosphor) or soften them (Atelier) without
      touching a single component */
   --radius-sm: var(--r-sm, 0.25rem);
+  --radius-md: var(--r-md, 0.375rem);
   --radius-lg: var(--r-lg, 0.5rem);
   --radius-xl: var(--r-xl, 0.75rem);
   --radius-2xl: var(--r-2xl, 1rem);
+  /* packs with small-x-height or mono body faces bump the 12px tier so
+     dense UI text stays legible (Atelier serif, Phosphor mono) */
+  --text-xs: var(--fs-xs, 0.75rem);
 }
 
 /* Tailwind's bare `rounded` is a legacy literal — route it through the same

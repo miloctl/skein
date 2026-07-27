@@ -47,7 +47,10 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
 
 def set_theme(name: str, theme: str) -> dict:
     """Theme prefs follow the person across browsers. Stored as a small JSON
-    object; validated for shape and size, never interpreted server-side."""
+    object; validated for shape and size, never interpreted server-side.
+    Deliberate provenance exception: NOT activity-logged — saves arrive on a
+    debounced timer (slider drags would flood the ledger), the data is
+    cosmetic and self-visible only, and it's recoverable from backups."""
     import json
 
     theme = theme.strip()
@@ -165,6 +168,17 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
                 if n:
                     moved[f"{table}.{col}"] = moved.get(f"{table}.{col}", 0) + n
         if target:
+            # merge keeps the target's person-level fields but backfills any
+            # it never set — the typo'd row is usually the real profile
+            db.execute(
+                "UPDATE users SET"
+                " theme = CASE WHEN theme = '' THEN"
+                "   (SELECT theme FROM users WHERE name = ?) ELSE theme END,"
+                " growth_interests = CASE WHEN growth_interests = '' THEN"
+                "   (SELECT growth_interests FROM users WHERE name = ?) ELSE growth_interests END"
+                " WHERE name = ?",
+                (old, old, new),
+            )
             db.execute("DELETE FROM users WHERE name = ?", (old,))
         else:
             db.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))

@@ -102,7 +102,9 @@ export function getPack(): string {
 }
 
 export function setPack(id: string) {
-  write(PACK_KEY, id === "loom" ? null : id);
+  // store defaults literally: "chose loom" must be distinguishable from
+  // "never chose", or the profile theme hijacks a deliberate reset on load
+  write(PACK_KEY, id);
   applyAndPing();
 }
 
@@ -143,21 +145,45 @@ function applyAndPing() {
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 
+function serialize(): string {
+  return JSON.stringify({
+    pack: getPack(),
+    colorway: getColorway(),
+    appearance: getAppearance(),
+    custom: getCustomHues(),
+  });
+}
+
 function pushTheme() {
   import("./api").then(({ api, getUser }) => {
     if (getUser() === "anonymous") return;
     if (pushTimer) clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
-      const theme = JSON.stringify({
-        pack: getPack(),
-        colorway: getColorway(),
-        appearance: getAppearance(),
-        custom: getCustomHues(),
-      });
-      api("/api/users/theme", { method: "POST", body: JSON.stringify({ theme }) }).catch(
-        () => {},
-      );
+      pushTimer = null;
+      api("/api/users/theme", {
+        method: "POST",
+        body: JSON.stringify({ theme: serialize() }),
+      }).catch(() => {});
     }, 800);
+  });
+}
+
+// a change made <800ms before tab close must still reach the profile
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    if (!pushTimer) return;
+    clearTimeout(pushTimer);
+    pushTimer = null;
+    import("./api").then(({ API_URL, getUser }) => {
+      const user = getUser();
+      if (user === "anonymous") return;
+      fetch(`${API_URL}/api/users/theme`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User": user },
+        body: JSON.stringify({ theme: serialize() }),
+        keepalive: true,
+      }).catch(() => {});
+    });
   });
 }
 
@@ -169,6 +195,9 @@ export async function adoptServerTheme() {
   try {
     const r = await api<{ theme: string }>("/api/users/theme");
     if (!r.theme) return;
+    // re-check after the await: a theme picked while the fetch was in
+    // flight must never be clobbered by the profile copy
+    if (read(THEME_KEY) || read(PACK_KEY) || read(APPEARANCE_KEY) || read(CUSTOM_KEY)) return;
     const t = JSON.parse(r.theme);
     if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === "loom" ? null : t.pack);
     if (t.colorway === "custom" && t.custom) {
@@ -190,7 +219,7 @@ export async function adoptServerTheme() {
 }
 
 export function setColorway(id: string) {
-  write(THEME_KEY, id === "indigo" ? null : id);
+  write(THEME_KEY, id);
   applyAndPing();
 }
 
@@ -201,6 +230,6 @@ export function setCustomHues(thread: number, weld: number) {
 }
 
 export function setAppearance(id: string) {
-  write(APPEARANCE_KEY, id === "system" ? null : id);
+  write(APPEARANCE_KEY, id);
   applyAndPing();
 }
