@@ -132,6 +132,7 @@ export function applyPrefs() {
 }
 
 function applyAndPing() {
+  write("skein-adopted", null); // an explicit choice is no longer an adoption
   applyPrefs();
   // same-tab subscribers (useSyncExternalStore) listen for this
   window.dispatchEvent(new Event("storage"));
@@ -187,18 +188,63 @@ if (typeof window !== "undefined") {
   });
 }
 
-export async function adoptServerTheme() {
-  const { api, getUser } = await import("./api");
-  if (getUser() === "anonymous") return;
-  // any explicit local pref means this browser already has an opinion
-  if (read(THEME_KEY) || read(PACK_KEY) || read(APPEARANCE_KEY) || read(CUSTOM_KEY)) return;
+/** Shareable theme code (TP5): the whole theme is ~5 JSON fields — validate
+ *  a pasted blob and apply it through the normal setters. */
+export function applyThemeCode(code: string): boolean {
   try {
-    const r = await api<{ theme: string }>("/api/users/theme");
-    if (!r.theme) return;
+    const t = JSON.parse(code);
+    if (typeof t !== "object" || t === null) return false;
+    const packOk = PACKS.some((p) => p.id === t.pack);
+    const colorOk = t.colorway === "custom" || COLORWAYS.some((c) => c.id === t.colorway);
+    if (!packOk && !colorOk) return false;
+    if (packOk) write(PACK_KEY, t.pack);
+    if (t.colorway === "custom" && t.custom) {
+      const thread = Number(t.custom.thread);
+      const weld = Number(t.custom.weld);
+      if (!Number.isFinite(thread) || !Number.isFinite(weld)) return false;
+      write(CUSTOM_KEY, JSON.stringify({ thread, weld }));
+      write(THEME_KEY, "custom");
+    } else if (colorOk) {
+      write(THEME_KEY, t.colorway);
+    }
+    if (t.appearance === "light" || t.appearance === "dark" || t.appearance === "system") {
+      write(APPEARANCE_KEY, t.appearance);
+    }
+    applyAndPing();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function themeCode(): string {
+  return serialize();
+}
+
+const ADOPTED_KEY = "skein-adopted";
+
+// "no opinion yet" = no local keys, OR the keys came from adopting the TEAM
+// default (not a human choice) — a personal profile may still supersede that
+function browserHasOpinion(): boolean {
+  const hasKeys = Boolean(
+    read(THEME_KEY) || read(PACK_KEY) || read(APPEARANCE_KEY) || read(CUSTOM_KEY),
+  );
+  return hasKeys && read(ADOPTED_KEY) !== "team";
+}
+
+export async function adoptServerTheme() {
+  const { api } = await import("./api");
+  if (browserHasOpinion()) return;
+  try {
+    // anonymous browsers still adopt the team default (TP3)
+    const r = await api<{ theme: string; team_default: string }>("/api/users/theme");
+    const blob = r.theme || r.team_default;
+    if (!blob) return;
     // re-check after the await: a theme picked while the fetch was in
     // flight must never be clobbered by the profile copy
-    if (read(THEME_KEY) || read(PACK_KEY) || read(APPEARANCE_KEY) || read(CUSTOM_KEY)) return;
-    const t = JSON.parse(r.theme);
+    if (browserHasOpinion()) return;
+    write(ADOPTED_KEY, r.theme ? "profile" : "team");
+    const t = JSON.parse(blob);
     if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === "loom" ? null : t.pack);
     if (t.colorway === "custom" && t.custom) {
       const thread = Number(t.custom.thread);

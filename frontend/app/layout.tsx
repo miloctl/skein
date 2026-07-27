@@ -30,6 +30,9 @@ const bricolage = Bricolage_Grotesque({
 const fraunces = Fraunces({
   variable: "--font-fraunces",
   subsets: ["latin"],
+  // variable axes: Ledger wears the hard newsprint cut (SOFT 0, WONK 0),
+  // Atelier the soft wonky one (SOFT 80, WONK 1) — same family, two voices
+  axes: ["SOFT", "WONK", "opsz"],
 });
 
 const sourceSerif = Source_Serif_4({

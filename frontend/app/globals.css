@@ -174,6 +174,65 @@
   --shadow-float: 0 12px 36px light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
 }
 
+/* Display-type voice (TD1): packs set the letterform personality of every
+   font-display site — tracking, case, variable-font axes, glow — without
+   touching a component (unlayered, so it beats the per-site tracking-*). */
+.font-display {
+  letter-spacing: var(--display-tracking, -0.01em);
+  text-transform: var(--display-case, none);
+  font-variation-settings: var(--display-varset, normal);
+  text-shadow: var(--display-glow, none);
+}
+[data-pack="ledger"] {
+  --display-tracking: -0.02em;
+  --display-varset: "SOFT" 0, "WONK" 0;
+}
+[data-pack="phosphor"] {
+  --display-tracking: 0.05em;
+  --display-case: uppercase;
+  --display-glow: 0 0 10px light-dark(transparent, rgb(120 200 130 / 0.3));
+}
+[data-pack="atelier"] {
+  --display-varset: "SOFT" 80, "WONK" 1;
+}
+
+/* Empty-state flourishes (TD6): each fabric's own way of saying "nothing is
+   wrong" — blinking prompt, blank ruling, a fleuron. Call sites untouched. */
+[data-pack="phosphor"] .loom-idle {
+  background: none;
+}
+[data-pack="phosphor"] .loom-idle::after {
+  content: "❯ ▮";
+  color: var(--thread);
+  font-family: var(--font-geist-mono), monospace;
+  animation: cursor-blink 1.2s steps(1) infinite;
+}
+[data-pack="ledger"] .loom-idle {
+  border-radius: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    var(--border-hairline) 0 1px,
+    transparent 1px 9px
+  );
+}
+[data-pack="atelier"] .loom-idle {
+  background: none;
+}
+[data-pack="atelier"] .loom-idle::after {
+  content: "❦";
+  color: var(--text-3);
+}
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loom-idle::after {
+    animation: none;
+  }
+}
+
 /* accessibility escapes — after all pack blocks so source order wins.
    prefers-contrast: the OS-level "calm/clarity" intent silences every
    fabric texture (Phosphor scanlines are a visual-stress pattern).
@@ -266,12 +325,30 @@ body {
    A whisper, not hazard tape — indigo and ochre threads at low volume.
    On Ship It the loom advances one repeat. */
 .selvage {
-  height: 2px;
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--thread-solid) 38%, var(--surface-page)) 0 10px,
-    color-mix(in oklab, var(--weld) 30%, var(--surface-page)) 10px 20px
+  height: var(--selvage-h, 2px);
+  background: var(
+    --selvage,
+    repeating-linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--thread-solid) 38%, var(--surface-page)) 0 10px,
+      color-mix(in oklab, var(--weld) 30%, var(--surface-page)) 10px 20px
+    )
   );
+}
+/* each fabric's signature stitch on the nav's finished edge (TD2) */
+[data-pack="ledger"] {
+  --selvage-h: 3px;
+  --selvage: linear-gradient(
+    var(--text-1) 0 1px,
+    transparent 1px 2px,
+    var(--text-1) 2px 3px
+  );
+}
+[data-pack="phosphor"] {
+  --selvage: color-mix(in oklab, var(--thread-solid) 55%, var(--surface-page));
+}
+[data-pack="atelier"] {
+  --selvage: color-mix(in oklab, var(--weld) 45%, var(--surface-page));
 }
 .selvage-celebrate {
   animation: loom-advance 600ms ease;

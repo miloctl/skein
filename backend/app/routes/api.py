@@ -190,7 +190,15 @@ def post_user_theme(body: ThemeIn, user: CurrentUser):
 
 @router.get("/users/theme")
 def get_user_theme(user: CurrentUser):
-    return {"theme": users.get_theme(user)}
+    return {"theme": users.get_theme(user), "team_default": users.get_team_default_theme()}
+
+
+@router.post("/users/theme/default")
+def post_team_theme(body: ThemeIn, user: StrongUser):
+    try:
+        return users.set_team_default_theme(body.theme, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/search")
