@@ -304,6 +304,12 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Commitments — external + yours to the team">
+        {!manage && commitments.some((c) => c.status === "open") && (
+          <p className="mb-2 text-xs text-ink-3">
+            Marking kept/missed lives behind <b>manager controls</b> (top
+            right).
+          </p>
+        )}
         {commitments.length === 0 ? (
           <p className="text-sm text-ink-3">
             None recorded — capture one with “promised: …”.

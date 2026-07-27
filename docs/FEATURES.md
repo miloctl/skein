@@ -13,7 +13,10 @@ notes `/ingest`) · **Team** (Agents `/agents` · 1:1s `/people` · Charter
 `/charter`). All URLs are unchanged; the groups are tabs. Manager-grade
 controls (request triage, exec readout, authority editing, commitment
 verdicts) sit behind a per-browser "manager controls" toggle so developers
-never carry the manager cockpit by default.
+never carry the manager cockpit by default. The toggle is scope control, not
+authorization: the endpoints behind it are ordinary `CurrentUser` writes and
+stay reachable by any LAN caller — only authority editing requires a personal
+key (StrongUser).
 
 ## Work tracking
 
@@ -31,10 +34,10 @@ never carry the manager cockpit by default.
 | Quick capture | rule-based routing: `q:`→question, `todo:`→task, `blocked …`→blocker, `decision:`→decision, `promised:`→commitment, `req:`→intake request, `fb: <person> — …`→author-private feedback journal (strong identity required, single-line only, refused in chat), else note. The ⌘K palette affords the grammar: prefix chips + a live "will file as: …" preview mirroring the backend rules | ⌘K palette · `POST /api/capture` · CLI `strands capture` · Slack `/strands` · MCP `capture` |
 | Meeting-notes ingestion | paste raw notes; deterministic per-line capture-grammar pass; every hit becomes a review-queue **proposal** (never a direct write); `fb:` lines flagged and skipped; unclassified lines returned for a human skim; batch-approve in `/review` | `/ingest` page · `POST /api/ingest` |
 | Full-text search | FTS5 over every entity; optional embeddings (`STRANDS_EMBEDDINGS=1`) | `GET /api/search?q=` · CLI `skein search` |
-| My Day briefing | attention items grouped by judgment type (Decide/Unblock/Commit/Review/Notice), each with a "why you're seeing this" reason; badge counts action tiers only | `GET /api/briefing` · `GET /api/attention` · CLI `skein my-day` |
+| My Day briefing | attention items grouped by judgment type (Decide/Unblock/Promise/Review/Notice), each with a "why you're seeing this" reason; the nav badge counts only Inbox work (pending proposals + requests to triage) so it never promises more than its destination shows | `GET /api/briefing` · `GET /api/attention` · CLI `skein my-day` |
 | People (private) | per-report 1:1 prep: deterministic "since last time" brief from team-visible data + author-private notes/feedback journal in a separate `private.db` (0600) that backup/export/FTS/MCP/agents structurally never open; read-time-only feedback-gap nudge; author-only delete with tombstone; author-scoped audit trail (adds/reads/briefs/deletes); strong identity (personal key) required — X-User is 403 | `/people` page · `/api/private/*` |
 | Authority half-life | `autonomous`/`notify` grants expire to a findings nudge after 90 days (reconfirm = re-grant); `forbidden`/`review` never expire. "Nothing in Skein is trusted forever — not decisions, not agents" | `POST /api/agents/authority` · `authority_stale` rule |
-| Rate caps | per-user sliding window on flood-prone writes: capture 30/min, ingest 6/min — a DoS-annoyance guard, not a security control | `app/ratelimit.py` |
+| Rate caps | per-user sliding window on flood-prone writes: capture 30/min (REST, chat, and MCP), ingest 6/min, key requests 3/min — a DoS-annoyance guard, not a security control | `app/ratelimit.py` |
 | ICS calendar feed | events + milestone/commitment due dates; dedicated `STRANDS_ICS_TOKEN` (never the API token); fail-closed when the API is token-locked | `GET /api/calendar.ics` |
 | First-run onboarding | checklist computed from real state, personal steps (name, capture, standup, key) separated from team facts (engagement, teammate); dismissible card on My Day (restorable from Settings); anonymous visitors get a single "Who are you?" gate | `GET /api/onboarding` |
 | Key self-request | "Request a key" on Settings/1:1s files a team-visible nudge with the exact mint command (idempotent while unread) — the operator ceremony stays, finding the operator doesn't | `POST /api/keys/request` |
@@ -66,7 +69,7 @@ never carry the manager cockpit by default.
 | Feature | How |
 |---|---|
 | **Commitment line** | `committed_week` (`2026-W31`) on tasks; `/portfolio` shows done/committed and kept-% |
-| **Auto-drafted Monday plan** | scheduler drafts per-person top tasks (priority, due date, ≤5 each) and files it as a `weekly_plan` proposal in the review inbox — approved, not imposed |
+| **Auto-drafted Monday plan** | scheduler drafts per-person top tasks (priority, due date, ≤5 each) and files it as a `weekly_plan` proposal in Inbox → Approvals — approved, not imposed |
 | CLI | `strands week` (show) · `strands week draft` · `strands week commit 12 14 …` |
 | Daily digest | 07:00 UTC deterministic digest; date-seeded opener suppressed during escalations; `_narrate` hook for LLM polish |
 | Blocker escalation | impact-based deadlines (`critical` 2h → `low` 72h), hourly sweep, funerals for 3-day-old blockers at resolution |
@@ -94,7 +97,7 @@ never carry the manager cockpit by default.
 
 | Feature | How |
 |---|---|
-| Review inbox | approve/reject with notes; CAS claim prevents double-review; failed applies restore to pending | `/review` page |
+| Approvals (review queue) | approve/reject with notes; CAS claim prevents double-review; failed applies restore to pending | `/review` page |
 | **Review analytics** | approve/reject/pending + avg review latency per entity and per proposer; recent rejection reasons | `GET /api/review/stats` |
 | **Eval corpus** | `POST /api/feedback` records thumbs/corrections on chat, capture, proposals | `kind=chat\|capture\|proposal`, `verdict=up\|down\|corrected` |
 | **`strands eval`** | replays the capture classifier against its labeled corpus; exit 1 on regressions — run before changing the rules (or a prompt) | CLI · `GET /api/eval/capture` |

@@ -13,7 +13,7 @@ function seeded(pool: string[], seedExtra = ""): string {
 
 const EMPTY: Record<string, string[]> = {
   review: [
-    "Review inbox: zero. The agents fear you.",
+    "Approvals: zero. The agents fear you.",
     "Nothing pending. Approve yourself a coffee.",
     "Empty. The agents have nothing pending — enjoy the quiet.",
   ],

@@ -206,6 +206,7 @@ def post_key_request(user: CurrentUser):
     from ..services.api_keys import request_key
 
     try:
+        ratelimit.check("keys_request", user)
         return request_key(user)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -421,7 +422,7 @@ def get_agents():
 
 
 @router.get("/agents/status")
-def get_agents_status():
+def get_agents_status(user: CurrentUser):
     """Plain-language state of the agent layer — the UI must never make mock
     mode look like a live model, or hide whether the review gate is on."""
     from .. import config
@@ -794,7 +795,7 @@ def post_reject(change_id: int, body: ReviewActionIn, user: CurrentUser):
 
 
 class CaptureIn(BaseModel):
-    text: str
+    text: str = Field(max_length=10_000)  # one capture, not a document dump
 
 
 @router.post("/capture")

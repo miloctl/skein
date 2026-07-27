@@ -4,7 +4,9 @@ import { useSyncExternalStore } from "react";
 
 /** Skein has no roles (trusted-LAN), so manager-grade controls are gated by
  *  intent instead: a per-browser toggle. Off by default — a developer never
- *  carries the manager cockpit unless they ask for it. */
+ *  carries the manager cockpit unless they ask for it. Scope control, NOT
+ *  authorization: the endpoints behind it are ordinary CurrentUser writes;
+ *  only authority editing requires a personal key server-side. */
 const KEY = "skein-manage";
 
 function subscribe(cb: () => void) {

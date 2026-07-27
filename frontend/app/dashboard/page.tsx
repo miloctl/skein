@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { API_URL, api } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
@@ -124,8 +124,12 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<number | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
+  const [answering, setAnswering] = useState<number | null>(null);
 
-  useEffect(() => {
+  // inline actions re-fetch instead of window.location.reload() — a reload
+  // resets focus to the document top and strips a screen-reader user of all
+  // context mid-task
+  const load = useCallback(() => {
     const endpoints = [
       "milestones",
       "tasks",
@@ -159,6 +163,7 @@ export default function Dashboard() {
       .then(setPulse)
       .catch(() => {}); // pulse is decorative — its failure must not blank the page
   }, []);
+  useEffect(load, [load]);
 
   if (error) {
     return (
@@ -276,18 +281,23 @@ export default function Dashboard() {
               <Badge value={String(e.status)} />
             </span>
             {closing === e.id && (
-              <span className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs">
+              <span
+                className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs"
+                onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
+              >
                 <span className="text-ink-3">How did it end?</span>
-                {CONCLUSIONS.map((c) => (
+                {CONCLUSIONS.map((c, ci) => (
                   <button
                     key={c}
+                    autoFocus={ci === 0}
                     onClick={async () => {
                       try {
                         await api(`/api/engagements/${e.id}`, {
                           method: "PATCH",
                           body: JSON.stringify({ status: "closed", conclusion: c }),
                         });
-                        window.location.reload();
+                        setClosing(null);
+                        load();
                       } catch (err) {
                         alert(String(err));
                       }
@@ -391,13 +401,12 @@ export default function Dashboard() {
             </div>
             {q.status === "open" && (
               <p className="mt-0.5 text-xs text-ink-3">
-                {q.assigned_to ? (
-                  <>→ @{q.assigned_to}</>
-                ) : assigning === q.id ? (
+                {assigning === q.id ? (
                   <span className="flex items-center gap-1.5">
                     <input
                       autoFocus
                       name="assign-question"
+                      aria-label="Assign this question to"
                       placeholder="teammate's name — Enter to assign"
                       onKeyDown={async (ev) => {
                         if (ev.key === "Escape") setAssigning(null);
@@ -408,7 +417,8 @@ export default function Dashboard() {
                             method: "PATCH",
                             body: JSON.stringify({ assigned_to: who }),
                           });
-                          window.location.reload();
+                          setAssigning(null);
+                          load();
                         } catch (e) {
                           alert(String(e));
                         }
@@ -419,13 +429,53 @@ export default function Dashboard() {
                       cancel
                     </button>
                   </span>
+                ) : answering === q.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      autoFocus
+                      name="answer-question"
+                      aria-label="Answer this question"
+                      placeholder="the answer — Enter to record it"
+                      onKeyDown={async (ev) => {
+                        if (ev.key === "Escape") setAnswering(null);
+                        const answer = (ev.target as HTMLInputElement).value.trim();
+                        if (ev.key !== "Enter" || !answer) return;
+                        try {
+                          await api(`/api/questions/${q.id}/answer`, {
+                            method: "POST",
+                            body: JSON.stringify({ answer }),
+                          });
+                          setAnswering(null);
+                          load();
+                        } catch (e) {
+                          alert(String(e));
+                        }
+                      }}
+                      className="w-64 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                    />
+                    <button onClick={() => setAnswering(null)} className="hover:text-ink">
+                      cancel
+                    </button>
+                  </span>
                 ) : (
-                  <button
-                    onClick={() => setAssigning(Number(q.id))}
-                    className="underline hover:text-ink-2"
-                  >
-                    unassigned — assign…
-                  </button>
+                  <span className="flex items-center gap-2">
+                    {q.assigned_to ? (
+                      <span>→ @{q.assigned_to}</span>
+                    ) : (
+                      <button
+                        onClick={() => setAssigning(Number(q.id))}
+                        className="underline hover:text-ink-2"
+                      >
+                        unassigned — assign…
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setAnswering(Number(q.id))}
+                      className="underline hover:text-ink-2"
+                    >
+                      answer…
+                    </button>
+                  </span>
                 )}
               </p>
             )}

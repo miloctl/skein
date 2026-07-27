@@ -359,7 +359,7 @@ export default function Agents() {
       <Card title="Trust — earned from review verdicts">
         {trust.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No reviewed proposals yet — trust is earned in the review inbox.
+            No reviewed proposals yet — trust is earned in Inbox → Approvals.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">

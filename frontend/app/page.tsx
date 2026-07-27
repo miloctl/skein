@@ -109,6 +109,13 @@ function WhoAreYou() {
           ))}
         </div>
       )}
+      <p className="mt-5 text-xs text-ink-3">
+        Just looking?{" "}
+        <Link href="/dashboard" className="underline hover:text-ink-2">
+          Browse the team&apos;s work
+        </Link>{" "}
+        without picking a name — nothing is attributed to you until you do.
+      </p>
     </main>
   );
 }
@@ -138,9 +145,14 @@ export default function MyDay() {
     const g = ++generation.current;
     api<Briefing>("/api/briefing")
       .then((r) => {
-        if (g === generation.current) setB(r); // last request wins
+        if (g === generation.current) {
+          setB(r); // last request wins
+          setError(null); // a past blip must not brick a now-healthy page
+        }
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (g === generation.current) setError(String(e));
+      });
     // onboarding progress is per-user — key the dismissal that way too
     const onboardKey = `skein-onboarded:${getUser()}`;
     if (window.localStorage.getItem(onboardKey) !== "1") {
@@ -212,7 +224,7 @@ export default function MyDay() {
     load();
   };
 
-  if (error)
+  if (error && !b)
     return (
       <main className="mx-auto max-w-3xl p-8 text-sm text-danger">
         Could not reach the backend — is it running? ({error})
@@ -233,6 +245,11 @@ export default function MyDay() {
 
   return (
     <main className="mx-auto w-full max-w-5xl p-6">
+      {error && (
+        <p className="mb-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
+          Last refresh failed ({error}) — showing the previous state.
+        </p>
+      )}
       <h1 className="mb-1 font-display text-[28px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Good day, {b.user === "anonymous" ? "there" : b.user}{" "}
         <span className={waveOnce ? "wave-once" : ""}>👋</span>

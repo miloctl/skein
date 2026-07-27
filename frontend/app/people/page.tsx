@@ -187,6 +187,7 @@ export default function PeoplePage() {
             </h2>
             <div className="mb-3 flex gap-2">
               <select
+                aria-label="Note type"
                 value={kind}
                 onChange={(e) => setKind(e.target.value as "note" | "feedback")}
                 className="rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm focus:border-thread-solid"
@@ -198,6 +199,7 @@ export default function PeoplePage() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addNote()}
+                aria-label={kind === "feedback" ? "Feedback note" : "1:1 note"}
                 placeholder={kind === "feedback" ? "great pushback in design review…" : "agenda item, observation…"}
                 className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
               />

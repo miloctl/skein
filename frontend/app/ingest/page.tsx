@@ -18,6 +18,7 @@ export default function IngestPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filed, setFiled] = useState<Record<string, string>>({});
+  const [picks, setPicks] = useState<Record<string, string>>({});
 
   // an unmatched line gets filed by re-running it through the same
   // proposals-only pipeline with the chosen prefix — never a direct write
@@ -45,6 +46,7 @@ export default function IngestPage() {
       });
       setResult(r);
       setFiled({});
+      setPicks({});
       setText("");
     } catch (e) {
       setError(String(e));
@@ -119,25 +121,36 @@ export default function IngestPage() {
                       {l}
                     </span>
                     {filed[l] ? (
-                      <span className="text-xs text-ok">✓ proposed as {filed[l]}</span>
+                      <span role="status" className="text-xs text-ok">
+                        ✓ proposed as {filed[l]}
+                      </span>
                     ) : (
-                      <select
-                        defaultValue=""
-                        aria-label={`File "${l}" as`}
-                        onChange={(e) => e.target.value && fileLine(l, e.target.value)}
-                        className="rounded border border-line-strong bg-card px-1.5 py-0.5 text-xs"
-                      >
-                        <option value="" disabled>
-                          file as…
-                        </option>
-                        <option value="todo:">task</option>
-                        <option value="q:">question</option>
-                        <option value="decision:">decision</option>
-                        <option value="promised:">promise</option>
-                        <option value="blocked on">blocker</option>
-                        <option value="req:">request</option>
-                        <option value="note:">note</option>
-                      </select>
+                      <span className="flex items-center gap-1">
+                        <select
+                          value={picks[l] ?? ""}
+                          aria-label={`File "${l}" as`}
+                          onChange={(e) => setPicks((p) => ({ ...p, [l]: e.target.value }))}
+                          className="rounded border border-line-strong bg-card px-1.5 py-0.5 text-xs"
+                        >
+                          <option value="" disabled>
+                            file as…
+                          </option>
+                          <option value="todo:">task</option>
+                          <option value="q:">question</option>
+                          <option value="decision:">decision</option>
+                          <option value="promised:">promise</option>
+                          <option value="blocked on">blocker</option>
+                          <option value="req:">request</option>
+                          <option value="note:">note</option>
+                        </select>
+                        <button
+                          disabled={!picks[l]}
+                          onClick={() => picks[l] && fileLine(l, picks[l])}
+                          className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+                        >
+                          file
+                        </button>
+                      </span>
                     )}
                   </li>
                 ))}

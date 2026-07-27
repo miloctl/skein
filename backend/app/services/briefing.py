@@ -66,7 +66,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "decide",
                 "label": f"decision #{d['id']}: {d['title']}",
                 "reason": "past its review-by date — reconfirm it or supersede it",
-                "link": "/dashboard",
+                "link": "/charter",
             }
         )
     for c in db.query(
@@ -108,7 +108,8 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
 
 
 def _ellipsize(text: str, limit: int) -> str:
-    """Cut at a word boundary with an ellipsis — never mid-word ("0 blocke")."""
+    """Cut at a word boundary with an ellipsis where one exists; a single
+    space-free run (URL, token) hard-cuts at the limit instead."""
     if len(text) <= limit:
         return text
     cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ·—-")
@@ -117,10 +118,17 @@ def _ellipsize(text: str, limit: int) -> str:
 
 def _coalesce(notifications: list[dict]) -> list[tuple[dict, int]]:
     """Stack near-duplicates ("claude ingested meeting notes: …" × 3) into one
-    entry with a count; dismissing it surfaces the next on reload."""
+    entry with a count; dismissing it surfaces the next on reload. Short
+    prefixes stay separate — "🚢 Shipped: A" and "🚢 Shipped: B" are distinct
+    events, not duplicates."""
     grouped: dict[str, list[dict]] = {}
     for n in notifications:
-        key = (n["link"] or "") + "|" + n["message"].split(":", 1)[0]
+        prefix = n["message"].split(":", 1)[0]
+        key = (
+            (n["link"] or "") + "|" + prefix
+            if ":" in n["message"] and len(prefix) >= 15
+            else f"solo|{n['id']}"
+        )
         grouped.setdefault(key, []).append(n)
     return [(g[0], len(g) - 1) for g in grouped.values()]
 
@@ -147,7 +155,10 @@ def _standup_suggestion(user: str, since: str) -> str:
 def _human_digest(rows: list[dict]) -> list[dict]:
     """The "Since yesterday" card is for teammates, not operators: drop
     chat-housekeeping rows (coalesced to one line per actor) and never show
-    raw UUIDs in a human digest."""
+    raw UUIDs in a human digest. Scans every input row (the query caps at 40)
+    so the tidy tally is honest, then caps the combined output at 20.
+    NOTE: emits synthetic rows (string id "tidy-<actor>", empty created_at) —
+    consumers must not parse ids as ints or sort by created_at."""
     out: list[dict] = []
     tidied: dict[str, int] = {}
     for r in rows:
@@ -156,8 +167,6 @@ def _human_digest(rows: list[dict]) -> list[dict]:
             continue
         detail = _UUID_RE.sub("…", str(r["detail"] or "")).strip()
         out.append({**r, "detail": detail})
-        if len(out) >= 20:
-            break
     for actor, n in tidied.items():
         out.append(
             {
@@ -168,7 +177,7 @@ def _human_digest(rows: list[dict]) -> list[dict]:
                 "created_at": "",
             }
         )
-    return out
+    return out[:20]
 
 
 def my_day(user: str) -> dict:
@@ -244,23 +253,15 @@ def my_day(user: str) -> dict:
 
 
 def attention_count(user: str) -> int:
-    """Nav badge: the action tiers (decide/unblock/commit/review). notice-tier
-    items (unread notifications) inform but must not nag from the nav.
-    Caps (MIN) mirror the display limits in _attention/my_day so the badge
-    never exceeds what the page can show."""
-    today = datetime.now(timezone.utc).date()
-    week = (today + timedelta(days=7)).isoformat()
+    """Nav badge on Inbox. Counts ONLY what actually lives there — proposals
+    awaiting a verdict and requests awaiting triage. Blockers, questions, and
+    commitments render on My Day; counting them here made the badge promise
+    things the destination doesn't show (a 3 that lands on an empty page)."""
     row = db.query_one(
         "SELECT"
-        " (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
-        " + (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
-        " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
+        " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
         " + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
         "    WHERE status IN ('submitted', 'scored'))"
-        " + (SELECT MIN(COUNT(*), 5) FROM decisions WHERE status = 'stale')"
-        " + (SELECT COUNT(*) FROM commitments WHERE status = 'open'"
-        "    AND due_date IS NOT NULL AND due_date <= ?)"
-        " AS n",
-        (user, user, week),
+        " AS n"
     )
     return row["n"] if row else 0

@@ -3,7 +3,9 @@ Format: sk-strands-<40 hex>. Only the SHA-256 hash is stored; the full key is
 shown exactly once at creation."""
 
 import hashlib
+import re
 import secrets
+import shlex
 
 from .. import db
 
@@ -24,23 +26,37 @@ def create_key(owner: str, label: str = "") -> dict:
     return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
 
 
+_SAFE_NAME = re.compile(r"[\w .\-]{1,64}")
+
+
 def request_key(user: str) -> dict:
     """Self-serve ask: a key can only be minted at the server, but requesting
     one shouldn't require finding the operator — this files a team-visible
-    nudge with the exact command. Idempotent while one is still unread."""
+    nudge with the exact command. Idempotent per requester while one is still
+    unread. The name is validated and quoted because the message is designed
+    to be copy-pasted into a root shell — the one place spoofable X-User text
+    must never smuggle shell metacharacters."""
     if not user or user == "anonymous":
         raise ValueError("pick your name first — the key is minted for it")
-    message = f"{user} requests a personal API key — mint: python -m app.bootstrap_key {user}"
-    pending = db.query_one(
-        "SELECT id FROM notifications WHERE user = 'team' AND message = ? AND read_at IS NULL",
-        (message,),
+    if not _SAFE_NAME.fullmatch(user):
+        raise ValueError("that name can't go in a mint command — letters, digits, . - _ only")
+    prefix = f"{user} requests a personal API key"
+    message = (
+        f"{prefix} (self-asserted name — confirm it's really them, deliver the key"
+        f" out-of-band) — mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
-    if pending:
-        return {"requested": True, "already_pending": True}
-    from . import notifications
+    with db.transaction():
+        pending = db.query_one(
+            "SELECT id FROM notifications WHERE user = 'team' AND message LIKE ?"
+            " AND read_at IS NULL",
+            (prefix + "%",),
+        )
+        if pending:
+            return {"requested": True, "already_pending": True}
+        from . import notifications
 
-    notifications.notify("team", message, tier="immediate", link="/settings")
-    db.log_activity(user, "request_key", "asked for a personal API key")
+        notifications.notify("team", message, tier="immediate", link="/settings")
+        db.log_activity(user, "request_key", "asked for a personal API key")
     return {"requested": True, "already_pending": False}
 
 

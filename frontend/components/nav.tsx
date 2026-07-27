@@ -55,12 +55,15 @@ function NavLink({
     >
       {label}
       {badge ? (
-        <span
-          aria-label={`${badge} items waiting on a person`}
-          className="ml-1.5 rounded-full border border-danger/25 bg-danger/10 px-1.5 py-px font-mono text-[10px] tabular-nums text-danger"
-        >
-          {badge}
-        </span>
+        <>
+          <span
+            aria-hidden
+            className="ml-1.5 rounded-full border border-danger/25 bg-danger/10 px-1.5 py-px font-mono text-[10px] tabular-nums text-danger"
+          >
+            {badge}
+          </span>
+          <span className="sr-only">, {badge} awaiting a verdict</span>
+        </>
       ) : null}
       {active && (
         <span

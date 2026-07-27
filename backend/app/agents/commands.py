@@ -80,7 +80,7 @@ async def _plan(args: str, user: str) -> AsyncIterator[Event]:
                 f"{len(created['milestones'])} milestones, "
                 f"{len(created['tasks'])} tasks, "
                 f"{len(created['events'])} calendar events. "
-                f"Check the dashboard."
+                f"See it under Work → Health."
             )
         }
     except ValueError as exc:

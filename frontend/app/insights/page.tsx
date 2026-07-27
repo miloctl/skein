@@ -241,7 +241,14 @@ export default function InsightsPage() {
                           autoFocus
                           name={ask.kind === "deferred" ? "defer-until" : "dismiss-reason"}
                           type={ask.kind === "deferred" ? "date" : "text"}
-                          placeholder="why dismiss? (false positive, known, …)"
+                          aria-label={
+                            ask.kind === "deferred" ? "Defer until date" : "Reason for dismissing"
+                          }
+                          placeholder={
+                            ask.kind === "deferred"
+                              ? undefined
+                              : "why dismiss? (false positive, known, …)"
+                          }
                           value={askValue}
                           onChange={(e) => setAskValue(e.target.value)}
                           onKeyDown={(e) => {
