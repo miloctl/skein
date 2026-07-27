@@ -72,9 +72,19 @@ export function CapturePalette() {
       }
       if (e.key === "Escape") setOpen(false);
     };
+    // the nav's ⌘K button dispatches this for touch/voice users — keyboard
+    // isn't the only door into quick capture
+    const onOpen = () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      openerRef.current = document.activeElement as HTMLElement | null;
+      setResult(null);
+      setOpen(true);
+    };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("skein-capture-open", onOpen);
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("skein-capture-open", onOpen);
       if (closeTimer.current) clearTimeout(closeTimer.current);
     };
   }, []);

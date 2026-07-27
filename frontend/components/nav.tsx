@@ -212,12 +212,19 @@ export function Nav() {
               />
             )}
           </Link>
-          <kbd
-            className="hidden rounded border border-line-strong bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-2 md:inline"
-            title="Quick capture"
+          <button
+            onClick={(e) => {
+              // Safari doesn't focus buttons on click — focus explicitly so
+              // the palette can hand focus back here when it closes
+              e.currentTarget.focus();
+              window.dispatchEvent(new Event("skein-capture-open"));
+            }}
+            aria-label="Quick capture"
+            title="Quick capture (⌘K)"
+            className="rounded border border-line-strong bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink"
           >
             ⌘K
-          </kbd>
+          </button>
         </nav>
       </div>
       <div className="selvage" id="selvage" aria-hidden />
