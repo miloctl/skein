@@ -224,8 +224,8 @@ def my_day(user: str) -> dict:
             ),
             "due_soon": db.query(
                 "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"
-                " AND due_date <= ? ORDER BY due_date",
-                (week,),
+                " AND due_date <= ? AND assignee IN (?, '') ORDER BY due_date",
+                (week, user),
             ),
             "standup_suggestion": _standup_suggestion(user, yesterday),
         },

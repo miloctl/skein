@@ -127,18 +127,6 @@ export default function Dashboard() {
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
 
-  const assignTo = async (qid: number, who: string) => {
-    try {
-      await api(`/api/questions/${qid}`, {
-        method: "PATCH",
-        body: JSON.stringify({ assigned_to: who }),
-      });
-      setAssigning(null);
-      load();
-    } catch (e) {
-      alert(String(e));
-    }
-  };
 
   // inline actions re-fetch instead of window.location.reload() — a reload
   // resets focus to the document top and strips a screen-reader user of all
@@ -178,6 +166,19 @@ export default function Dashboard() {
       .catch(() => {}); // pulse is decorative — its failure must not blank the page
   }, []);
   useEffect(load, [load]);
+
+  const assignTo = async (qid: number, who: string) => {
+    try {
+      await api(`/api/questions/${qid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assigned_to: who }),
+      });
+      setAssigning(null);
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
 
   if (error) {
     return (

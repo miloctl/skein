@@ -90,6 +90,11 @@ const Composer = () => {
         if (slug) {
           const p = list.find((x) => x.slug === slug);
           if (p) setActivePersona(p);
+          // consume the param: without this, every thread switch remounts
+          // the composer and silently resurrects a dismissed persona
+          const url = new URL(window.location.href);
+          url.searchParams.delete("as");
+          window.history.replaceState(null, "", url);
         }
       })
       .catch(() => {});
