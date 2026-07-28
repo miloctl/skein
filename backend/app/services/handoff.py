@@ -10,7 +10,7 @@ from .. import config, db
 def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
     if not eng:
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise db.NotFound(f"engagement #{engagement_id} not found")
     name = eng["name"]
 
     milestones = db.query(

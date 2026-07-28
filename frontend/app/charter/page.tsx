@@ -25,6 +25,7 @@ export default function CharterPage() {
     () => new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10),
   );
   const [superseding, setSuperseding] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false); // a held Enter must not file N entries
   const [newText, setNewText] = useState("");
 
   const load = useCallback(() => {
@@ -35,7 +36,8 @@ export default function CharterPage() {
   useEffect(load, [load]);
 
   const add = async () => {
-    if (!title.trim() || !text.trim()) return;
+    if (busy || !title.trim() || !text.trim()) return;
+    setBusy(true);
     try {
       await api("/api/decisions", {
         method: "POST",
@@ -51,6 +53,8 @@ export default function CharterPage() {
       load();
     } catch (e) {
       alert(String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -94,7 +98,7 @@ export default function CharterPage() {
         </div>
         <button
           onClick={add}
-          disabled={!title.trim() || !text.trim() || !reviewBy}
+          disabled={busy || !title.trim() || !text.trim() || !reviewBy}
           className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
         >
           Record charter entry
@@ -172,8 +176,10 @@ export default function CharterPage() {
                 />
                 <div className="flex gap-2 text-xs">
                   <button
-                    disabled={!newText.trim()}
+                    disabled={busy || !newText.trim()}
                     onClick={async () => {
+                      if (busy) return;
+                      setBusy(true);
                       try {
                         await api(`/api/decisions/${d.id}/supersede`, {
                           method: "POST",
@@ -183,6 +189,8 @@ export default function CharterPage() {
                         load();
                       } catch (e) {
                         alert(String(e));
+                      } finally {
+                        setBusy(false);
                       }
                     }}
                     className="rounded bg-thread-solid px-2 py-1 font-medium text-white hover:opacity-90 disabled:opacity-40"

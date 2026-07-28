@@ -87,14 +87,16 @@ export default function Portfolio() {
   const manage = useManageMode();
 
   const load = useCallback(() => {
-    api<Health[]>("/api/portfolio/health")
-      .then(setHealth)
-      .catch((e) => setBanner(`Load failed: ${e.message ?? e}`));
-    api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(() => {});
-    api<Flow>("/api/portfolio/flow").then(setFlow).catch(() => {});
-    api<Week>("/api/week").then(setWeek).catch(() => {});
-    api<Forecast>("/api/portfolio/forecast").then(setForecast).catch(() => {});
-    api<Commitment[]>("/api/commitments").then(setCommitments).catch(() => {});
+    // every card's failure reaches the banner — a failed fetch rendering
+    // "Nobody is over 100%" would be a confident lie, not an empty state
+    const fail = (what: string) => (e: Error) =>
+      setBanner(`Load failed (${what}): ${e.message ?? e}`);
+    api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("health"));
+    api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("conflicts"));
+    api<Flow>("/api/portfolio/flow").then(setFlow).catch(fail("flow"));
+    api<Week>("/api/week").then(setWeek).catch(fail("week"));
+    api<Forecast>("/api/portfolio/forecast").then(setForecast).catch(fail("forecast"));
+    api<Commitment[]>("/api/commitments").then(setCommitments).catch(fail("commitments"));
   }, []);
 
   useEffect(load, [load]);

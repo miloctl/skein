@@ -22,6 +22,9 @@ def raise_blocker(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
+    from .users import resolve_teammate
+
+    owner = resolve_teammate(owner, actor, "owner")
     if not title.strip():
         raise ValueError("blocker title is required")
     if impact not in IMPACTS:
@@ -57,7 +60,7 @@ def edit_blocker(
     """Correct an open blocker's wording/owner — resolution stays its own verb."""
     row = db.query_one("SELECT title, status FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
-        raise ValueError(f"blocker #{blocker_id} not found")
+        raise db.NotFound(f"blocker #{blocker_id} not found")
     if row["status"] == "resolved":
         raise ValueError(f"blocker #{blocker_id} is resolved — history stays put")
     fields = {k: v for k, v in [("title", title), ("detail", detail), ("owner", owner)] if v}
@@ -86,7 +89,7 @@ def resolve_blocker(
 ) -> dict:
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
-        raise ValueError(f"blocker #{blocker_id} not found")
+        raise db.NotFound(f"blocker #{blocker_id} not found")
     if row["status"] == "resolved":
         raise ValueError(f"blocker #{blocker_id} is already resolved")
     db.execute(
@@ -154,7 +157,7 @@ def list_blockers(status: str = "", owner: str = "") -> list[dict]:
         params.append(owner)
     sql += (
         " ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, created_at"
+        " WHEN 'medium' THEN 2 ELSE 3 END, created_at LIMIT 200"
     )
     return db.query(sql, tuple(params))
 

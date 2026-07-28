@@ -134,8 +134,9 @@ def test_search_indexes_writes(fresh_db):
 
 
 def test_capacity_overcommit_visible(fresh_db):
-    from app.services import engagements
+    from app.services import engagements, users
 
+    users.ensure_user("alice")
     a = engagements.create_engagement("Alpha")
     b = engagements.create_engagement("Beta")
     engagements.allocate("alice", a["id"], 80)

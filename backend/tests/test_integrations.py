@@ -36,8 +36,12 @@ def test_notification_tiers(fresh_db, monkeypatch):
 def test_escalation_notifies_owner(fresh_db, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
-    from app.services import blockers, notifications
+    from app.services import blockers, notifications, users
 
+    users.ensure_user("marcus")
+    from app.services import users
+
+    users.ensure_user("marcus")
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     b = blockers.raise_blocker("aging", owner="marcus", impact="critical")
     old = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(timespec="seconds")

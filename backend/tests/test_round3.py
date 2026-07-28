@@ -90,6 +90,9 @@ def test_health_green_when_clean(client):
 
 
 def test_allocation_conflicts(client):
+    from app.services import users
+
+    users.ensure_user("dana")
     e1 = client.post("/api/engagements", json={"name": "One"}).json()
     e2 = client.post("/api/engagements", json={"name": "Two"}).json()
     client.post(f"/api/engagements/{e1['id']}/allocate", json={"person": "dana", "percent": 80})
@@ -100,6 +103,10 @@ def test_allocation_conflicts(client):
 
 
 def test_what_if_projection(client):
+    from app.services import users
+
+    users.ensure_user("dana")
+    users.ensure_user("lee")
     e = client.post("/api/engagements", json={"name": "Busy"}).json()
     client.post(f"/api/engagements/{e['id']}/allocate", json={"person": "dana", "percent": 80})
     req = client.post("/api/intake", json={"title": "new ask"}).json()
@@ -110,7 +117,7 @@ def test_what_if_projection(client):
     assert dana["projected_percent"] == 130 and dana["overcommitted"]
     lee = next(p for p in out["projection"] if p["person"] == "lee")
     assert lee["projected_percent"] == 50 and not lee["overcommitted"]
-    assert client.post("/api/intake/999999/what-if", json={"people": ["x"]}).status_code == 400
+    assert client.post("/api/intake/999999/what-if", json={"people": ["x"]}).status_code == 404
 
 
 def test_slip_forecast_uses_history(client, fresh_db):

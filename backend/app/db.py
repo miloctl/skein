@@ -16,6 +16,12 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 _ambient: ContextVar[sqlite3.Connection | None] = ContextVar("strands_txn", default=None)
 
 
+class NotFound(ValueError):
+    """Entity-lookup failure. Subclasses ValueError so every existing catch
+    still works; the API layer maps it to 404 instead of 400 — one rule for
+    the whole surface instead of per-route guesswork."""
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

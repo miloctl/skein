@@ -192,9 +192,11 @@ def my_day(user: str) -> dict:
             "SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? ORDER BY id",
             (user,),
         ),
+        # LIMITed: a bulk ingest can legitimately file hundreds of proposals,
+        # and this payload rides the hottest page — the count carries the rest
         "pending_reviews": db.query(
             "SELECT id, entity, action, summary, proposed_by, created_at"
-            " FROM pending_changes WHERE status = 'pending' ORDER BY id"
+            " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
         ),
         "your_blockers": db.query(
             "SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? ORDER BY created_at",

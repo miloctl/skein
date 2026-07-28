@@ -102,7 +102,9 @@ def create_task(
 
 @mcp.tool()
 def complete_task(task_id: int) -> str:
-    """Mark a task done (queued for review unless this agent is autonomous)."""
+    """Mark a task done (queued for review unless this agent is autonomous).
+    For a task DELEGATED to you, use submit_for_acceptance instead — the
+    sponsor's verdict is the only thing that closes delegated work."""
     record_use(ACTOR, "mcp")
     return gated_write(
         "task",
@@ -112,6 +114,40 @@ def complete_task(task_id: int) -> str:
         entity_id=task_id,
         actor=ACTOR,
     )
+
+
+@mcp.tool()
+def claim_delegated_task(task_id: int) -> str:
+    """Claim a task delegated to you: todo -> in_progress, sponsor notified.
+    Start here before working a delegated task from my_inbox."""
+    record_use(ACTOR, "mcp")
+    try:
+        return json.dumps(delegation.claim_task(task_id, actor=ACTOR))
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+def report_progress(task_id: int, note: str) -> str:
+    """Append a worklog entry to your delegated task — the sponsor reads
+    this before their acceptance verdict. Report as you go."""
+    record_use(ACTOR, "mcp")
+    try:
+        return json.dumps(delegation.report_progress(task_id, note, actor=ACTOR))
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+def submit_for_acceptance(task_id: int, summary: str) -> str:
+    """Submit your delegated task for the sponsor's acceptance. ALWAYS a
+    proposal — never claim the task is done after calling this; say it
+    awaits the sponsor's verdict."""
+    record_use(ACTOR, "mcp")
+    try:
+        return json.dumps(delegation.submit_completion(task_id, summary, actor=ACTOR))
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
 
 
 @mcp.tool()

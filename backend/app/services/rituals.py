@@ -35,10 +35,19 @@ def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{day}-{slug}.md"
     path.write_text(markdown)
-    db.execute(
-        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
-        ("ritual", title, str(path), actor, db.now()),
-    )
+    # forced same-day reruns overwrite the file — upsert the row to match
+    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
+    if existing:
+        db.execute(
+            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
+            (actor, db.now(), existing["id"]),
+        )
+    else:
+        db.execute(
+            "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            ("ritual", title, str(path), actor, db.now()),
+        )
     return str(path)
 
 

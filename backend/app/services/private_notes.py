@@ -143,7 +143,7 @@ def delete_note(author: str, note_id: int) -> dict:
             "DELETE FROM private_notes WHERE id = ? AND author = ?", (note_id, author)
         )
         if not cur.rowcount:
-            raise ValueError(f"note #{note_id} not found (or not yours)")
+            raise db.NotFound(f"note #{note_id} not found (or not yours)")
         _audit(conn, author, "delete", note_id)
         conn.commit()
     return {"id": note_id, "deleted": True}

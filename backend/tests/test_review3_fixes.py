@@ -69,7 +69,7 @@ def test_supersede_with_bad_date_leaves_old_decision_intact(client, fresh_db):
     d = client.post("/api/decisions", json={"title": "T", "decision": "D"}).json()
     r = client.post(
         f"/api/decisions/{d['id']}/supersede",
-        json={"title": "N", "decision": "X", "review_by": "next quarter"},
+        json={"title": "N", "decision": "X", "review_by": "2026-13-45"},
     )
     assert r.status_code == 400
     row = fresh_db.query_one("SELECT * FROM decisions WHERE id = ?", (d["id"],))

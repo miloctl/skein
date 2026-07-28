@@ -155,10 +155,20 @@ def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
     path = artifacts_dir / f"{today}-digest.md"
     path.write_text(markdown)
 
-    db.execute(
-        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
-        ("digest", f"Daily digest {today}", str(path), actor, db.now()),
-    )
+    # same-day reruns overwrite the file, so upsert the artifact row too —
+    # N rows pointing at one file would imply history that doesn't exist
+    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
+    if existing:
+        db.execute(
+            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
+            (actor, db.now(), existing["id"]),
+        )
+    else:
+        db.execute(
+            "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            ("digest", f"Daily digest {today}", str(path), actor, db.now()),
+        )
     # archived as an artifact only — filing every digest as a note buried the
     # knowledge base within weeks and doubled every FTS hit it quoted
     db.log_activity(actor, "publish_digest", today)

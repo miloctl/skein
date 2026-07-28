@@ -87,7 +87,7 @@ def revoke_key(key_id: int, owner: str) -> dict:
         "UPDATE api_keys SET active = 0 WHERE id = ? AND owner = ?", (key_id, owner)
     )
     if not n:
-        raise ValueError(f"key #{key_id} not found (or not yours)")
+        raise db.NotFound(f"key #{key_id} not found (or not yours)")
     db.log_activity(owner, "revoke_api_key", f"#{key_id}")
     return {"id": key_id, "active": False}
 

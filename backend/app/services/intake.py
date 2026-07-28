@@ -42,7 +42,7 @@ def edit_request(
     is the reason the requester saw, so it stays put."""
     row = db.query_one("SELECT title, status FROM intake_requests WHERE id = ?", (request_id,))
     if not row:
-        raise ValueError(f"request #{request_id} not found")
+        raise db.NotFound(f"request #{request_id} not found")
     if row["status"] not in ("submitted", "scored"):
         raise ValueError(f"request #{request_id} is {row['status']} — history stays put")
     fields = {k: v for k, v in [("title", title.strip()), ("detail", detail)] if v}
@@ -89,7 +89,7 @@ def score_request(
             raise ValueError(f"{name} must be 1-5")
     current = db.query_one("SELECT id, status FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
-        raise ValueError(f"intake request #{request_id} not found")
+        raise db.NotFound(f"intake request #{request_id} not found")
     # scoring must not be a back door out of a terminal disposition — a
     # declined request re-entering triage could be accepted a second time
     if current["status"] not in ("submitted", "scored"):
@@ -154,7 +154,7 @@ def _disposition(
 ) -> dict:
     current = db.query_one("SELECT status FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
-        raise ValueError(f"intake request #{request_id} not found")
+        raise db.NotFound(f"intake request #{request_id} not found")
     if current["status"] not in ("submitted", "scored"):
         raise ValueError(f"request #{request_id} already dispositioned ({current['status']})")
     db.execute(
@@ -208,11 +208,11 @@ def _disposition(
 def list_requests(status: str = "") -> list[dict]:
     if status:
         return db.query(
-            "SELECT * FROM intake_requests WHERE status = ? ORDER BY score DESC, id DESC",
+            "SELECT * FROM intake_requests WHERE status = ? ORDER BY score DESC, id DESC LIMIT 200",
             (status,),
         )
     return db.query(
         "SELECT * FROM intake_requests"
         " ORDER BY CASE status WHEN 'submitted' THEN 0 WHEN 'scored' THEN 1 ELSE 2 END,"
-        " score DESC, id DESC"
+        " score DESC, id DESC LIMIT 200"
     )

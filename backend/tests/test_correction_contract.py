@@ -59,8 +59,9 @@ def test_cancel_event_deindexes_and_404s_on_missing(client):
 
 
 def test_capacity_and_conflicts_ignore_out_of_window_allocations(fresh_db):
-    from app.services import engagements, portfolio
+    from app.services import engagements, portfolio, users
 
+    users.ensure_user("alice")
     a = engagements.create_engagement("Alpha")
     b = engagements.create_engagement("Beta")
     yesterday = (_utc_today() - timedelta(days=1)).isoformat()
@@ -77,8 +78,10 @@ def test_capacity_and_conflicts_ignore_out_of_window_allocations(fresh_db):
 
 
 def test_deallocate_removes_row_and_missing_id_404s(client):
-    from app.services import engagements
+    from app.services import engagements, users
 
+    users.ensure_user("bo")
+    users.ensure_user("cy")
     e = engagements.create_engagement("Gamma")
     aid = engagements.allocate("bo", e["id"], 50)["id"]
     engagements.allocate("cy", e["id"], 30)
@@ -966,7 +969,7 @@ def test_dispositioned_intake_cannot_be_rescored(client, fresh_db):
 
 
 def test_dates_are_validated_and_ics_survives_bad_legacy_rows(client, fresh_db):
-    from app.services import commitments, engagements, work
+    from app.services import commitments, engagements, users, work
 
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         work.create_task(title="t", due_date="soon")
@@ -974,6 +977,7 @@ def test_dates_are_validated_and_ics_survives_bad_legacy_rows(client, fresh_db):
         work.create_milestone("m", due_date="2026-02-31")
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         commitments.add_commitment("p", due_date="07/30/2026")
+    users.ensure_user("mira")
     e = engagements.create_engagement("Dated")
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         engagements.allocate("mira", e["id"], 50, starts_on="tomorrow")
@@ -1051,12 +1055,13 @@ def test_reserved_agent_identities_minted_at_startup(client, fresh_db):
 
 
 def test_clear_sentinel_rejected_on_create_paths(fresh_db):
-    from app.services import commitments, engagements, work
+    from app.services import commitments, engagements, users, work
 
     with pytest.raises(ValueError, match="only clears"):
         work.create_task(title="t", due_date="-")
     with pytest.raises(ValueError, match="only clears"):
         commitments.add_commitment("p", due_date="-")
+    users.ensure_user("mira")
     e = engagements.create_engagement("SentinelCheck")
     with pytest.raises(ValueError, match="only clears"):
         engagements.allocate("mira", e["id"], 50, starts_on="-")
@@ -1081,6 +1086,93 @@ def test_oversized_memory_fails_on_the_agent_not_the_reviewer(fresh_db, monkeypa
     assert not fresh_db.query_one(
         "SELECT id FROM pending_changes WHERE entity = 'memory' AND status = 'pending'"
     )
+
+
+# ---- fresh-eyes audit №2, phase 2 -------------------------------------------------
+
+
+def test_event_cancel_is_always_a_proposal(client, fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import schedule, users
+    from app.tools.schedule import cancel_event as cancel_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)  # ALWAYS_REVIEW must not care
+    users.ensure_user("scout", kind="agent")
+    e = schedule.schedule_event("standup sync", "2026-08-10T10:00")
+    token = set_agent_identity("scout")
+    try:
+        out = j.loads(cancel_tool(event_id=e["id"]))
+    finally:
+        reset_agent_identity(token)
+    assert out.get("note") == "queued for human review"
+    assert fresh_db.query_one("SELECT id FROM events WHERE id = ?", (e["id"],))
+    # the reviewer sees what would be destroyed
+    diff = client.get(f"/api/review/{out['id']}/diff").json()["diff"]
+    assert diff["current"]["title"] == "standup sync"
+    r = client.post(f"/api/review/{out['id']}/approve", json={}, headers=_strong(client))
+    assert r.json()["status"] == "approved"
+    assert not fresh_db.query_one("SELECT id FROM events WHERE id = ?", (e["id"],))
+
+
+def test_agent_absence_is_always_a_proposal(fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import users
+    from app.tools.portfolio import add_absence as absence_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    users.ensure_user("scout", kind="agent")
+    token = set_agent_identity("scout")
+    try:
+        out = j.loads(absence_tool(person="mira", starts_on="2026-08-10", ends_on="2026-08-12"))
+    finally:
+        reset_agent_identity(token)
+    assert out.get("note") == "queued for human review"
+    assert not fresh_db.query_one("SELECT id FROM absences")
+
+
+def test_rename_honors_identity_walls(fresh_db):
+    from app.services import personas, users
+
+    users.ensure_user("bob")
+    users.ensure_user("scout", kind="agent")
+    with pytest.raises(ValueError, match="human/agent boundary"):
+        users.rename_user("bob", "scout", actor="mira")
+    slug = personas.list_personas()[0]["slug"]
+    with pytest.raises(ValueError, match="reserved for a bench persona"):
+        users.rename_user("bob", slug, actor="mira")
+
+
+def test_create_bodies_are_capped(client, fresh_db):
+    r = client.post("/api/notes", json={"topic": "big", "content": "x" * 50_000})
+    assert r.status_code == 422
+    r = client.post("/api/chat", json={"message": "x" * 50_000})
+    assert r.status_code == 422
+
+
+def test_empty_update_proposal_bounced_on_the_agent(fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import users, work
+    from app.tools.work import update_task as update_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scout", kind="agent")
+    t = work.create_task(title="t", actor="mira")
+    token = set_agent_identity("scout")
+    try:
+        out = j.loads(update_tool(task_id=t["id"]))
+    finally:
+        reset_agent_identity(token)
+    assert "nothing to change" in out["error"]
+    assert not fresh_db.query_one("SELECT id FROM pending_changes")
 
 
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):

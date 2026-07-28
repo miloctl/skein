@@ -824,7 +824,7 @@ def disposition_finding(
         raise ValueError("dispositions are human judgments — agents cannot make them")
     finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))
     if not finding:
-        raise ValueError(f"finding #{finding_id} not found")
+        raise db.NotFound(f"finding #{finding_id} not found")
     did = db.execute(
         "INSERT INTO finding_dispositions (finding_id, rule_id, subject, disposition,"
         " reason, deferred_until, created_by, origin, created_at)"
@@ -849,7 +849,7 @@ def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str =
     """One-click finding → work item, linked back via source_finding_id."""
     finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))
     if not finding:
-        raise ValueError(f"finding #{finding_id} not found")
+        raise db.NotFound(f"finding #{finding_id} not found")
     text = title.strip() or finding["message"]
     if kind == "task":
         from .work import create_task

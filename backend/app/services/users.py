@@ -107,6 +107,22 @@ def is_agent(name: str) -> bool:
     return bool(row and row["kind"] == "agent")
 
 
+def resolve_teammate(name: str, actor: str = "", label: str = "name") -> str:
+    """Case-insensitive roster match; empty and 'team' (the broadcast
+    target) pass through, as does self-attribution (name == actor — Slack
+    and capture route foreign usernames through as themselves).
+    Notifications match `user = ?` exactly, so a typo'd THIRD-PARTY owner
+    looks handled but notifies nobody — refuse that here, once."""
+    name = name.strip()
+    if not name or name == "team" or name == actor:
+        return name
+    known = {u["name"].lower(): u["name"] for u in list_users()}
+    match = known.get(name.lower())
+    if not match:
+        raise ValueError(f"{label} '{name}' is not an active teammate")
+    return match
+
+
 def list_users(active_only: bool = True) -> list[dict]:
     """'anonymous' is the pre-name-pick fallback identity, not a teammate —
     no listing surface (roster, People, staffing) should show it."""
@@ -157,17 +173,28 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     the old row is deleted (merge) or renamed in place. Strong identity
     required at the route; team-visible tables only (private.db is scoped
     by author name, so the author keeps access by renaming there too)."""
-    old, new = old.strip(), new.strip()
+    old, new = old.strip(), new.strip()[:64]
     if not old or not new:
         raise ValueError("both names are required")
     if old == new:
         raise ValueError("that is already their name")
     if old == "anonymous" or new == "anonymous":
         raise ValueError("anonymous is not renamable")
+    # rename must honor the same identity walls ensure_user enforces —
+    # otherwise it's the back door around the bench reservation and the
+    # human/agent boundary that trust scores and authority assume
     row = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
     if not row:
-        raise ValueError(f"no user named '{old}'")
+        raise db.NotFound(f"no user named '{old}'")
+    if _is_bench_slug(new) and row["kind"] != "agent":
+        raise ValueError(f"'{new}' is reserved for a bench persona")
     target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+    if target and target["kind"] != row["kind"]:
+        raise ValueError(
+            f"'{old}' is a {row['kind']} and '{new}' is a {target['kind']} —"
+            " merging across the human/agent boundary would fold trust and"
+            " authority history that must stay separate"
+        )
     moved: dict[str, int] = {}
     with db.transaction():
         # unique-keyed tables first: fold rather than collide
