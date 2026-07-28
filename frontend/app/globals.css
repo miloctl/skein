@@ -309,6 +309,12 @@
   border-radius: var(--r-sm, 0.25rem);
 }
 
+html {
+  /* short pages (no scrollbar) must not sit a gutter-width right of long
+     ones — reserve the space so page-to-page nav never shifts content */
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--surface-page);
   /* the warp: faint threads — texture, never pattern; packs re-weave it */

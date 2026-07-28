@@ -153,13 +153,14 @@ export default function InsightsPage() {
   const smallN = m.current.n < 8 || m.previous.n < 8;
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-6">
       <SectionTabs set="work" />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <p className="text-xs text-ink-3 md:col-span-2">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
+      <p className="mb-6 text-sm text-ink-3">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.
       </p>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Card title="Findings — click one for its evidence">
         {d.findings.length === 0 ? (
           <p className="text-sm text-ink-3">

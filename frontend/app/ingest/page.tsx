@@ -56,10 +56,10 @@ export default function IngestPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-3xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-6">
       <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
-      <p className="mb-4 text-sm text-ink-3">
+      <p className="mb-6 text-sm text-ink-3">
         Lines that start with a prefix (todo:, q:, decision:, blocked on …,
         promised:) become <b>review proposals</b> — nothing is written
         directly. <code>fb:</code> lines are skipped, never stored.

@@ -64,7 +64,7 @@ export default function CharterPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-3xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-6">
       <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Team charter & decision rights</h1>
       <p className="mb-6 text-sm text-ink-3">
