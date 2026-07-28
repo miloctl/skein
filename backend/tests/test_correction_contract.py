@@ -341,3 +341,70 @@ def test_agent_history_guard_survives_approval(client, fresh_db, monkeypatch):
         fresh_db.query_one("SELECT promise FROM commitments WHERE id = ?", (c["id"],))["promise"]
         == "shipp it"
     )
+
+
+def test_destructive_verbs_always_propose_even_with_review_off(client, fresh_db, monkeypatch):
+    """delete_note / forget_memory must NEVER hard-delete directly from the
+    agent path — ALWAYS_REVIEW holds even when the review flag is off."""
+    from app import config
+    from app.services import collab, memory
+    from app.tools.collab import delete_note as delete_note_tool
+    from app.tools.memory import forget_memory
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    n = collab.save_note(topic="keep", content="load-bearing", author="ava", actor="ava")
+    m = memory.remember("standing context", topic="ctx", actor="agent")
+    out_n = delete_note_tool(note_id=n["id"])
+    out_m = forget_memory(memory_id=m["id"])
+    assert "pending" in out_n and "pending" in out_m
+    assert fresh_db.query_one("SELECT id FROM notes WHERE id = ?", (n["id"],))
+    assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+    # and the proposals show the reviewer WHAT would be destroyed
+    pending = client.get("/api/review?status=pending").json()
+    summaries = " | ".join(p["summary"] for p in pending)
+    assert "load-bearing" in summaries and "standing context" in summaries
+
+
+def test_destructive_diff_shows_doomed_content(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import collab
+    from app.tools.collab import delete_note as delete_note_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    n = collab.save_note(
+        topic="secrets", content="the whole content body", author="ava", actor="ava"
+    )
+    delete_note_tool(note_id=n["id"])
+    pending = client.get("/api/review?status=pending").json()
+    d = client.get(f"/api/review/{pending[0]['id']}/diff").json()
+    assert d["diff"]["current"]["content"] == "the whole content body"
+
+
+def test_edit_diff_shows_current_wording(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import commitments
+    from app.tools.portfolio import edit_commitment
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    c = commitments.add_commitment("shipp the thing to ops", actor="ava")
+    edit_commitment(commitment_id=c["id"], promise="ship the thing to ops")
+    pending = client.get("/api/review?status=pending").json()
+    d = client.get(f"/api/review/{pending[0]['id']}/diff").json()
+    assert d["diff"]["current"]["promise"] == "shipp the thing to ops"
+    assert d["diff"]["proposed"]["promise"] == "ship the thing to ops"
+
+
+def test_edit_tools_refuse_empty_and_invalid_before_proposing(fresh_db, monkeypatch):
+    from app import config
+    from app.services import commitments, engagements
+    from app.tools.collab import edit_note
+    from app.tools.platform import update_engagement
+    from app.tools.portfolio import mark_commitment
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    assert "nothing to change" in edit_note(note_id=1)
+    c = commitments.add_commitment("p", actor="ava")
+    assert "kept, missed, or withdrawn" in mark_commitment(commitment_id=c["id"], status="done")
+    e = engagements.create_engagement("Doomcheck", actor="ava")
+    out = update_engagement(engagement_id=e["id"], status="closed")
+    assert "conclusion" in out and "pending" not in out

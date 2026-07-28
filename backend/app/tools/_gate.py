@@ -13,6 +13,12 @@ from ..agents.identity import agent_identity, requester_identity
 from ..services import review
 from ..services.delegation import authority_level
 
+# irreversible verbs ALWAYS go through the review inbox, even with
+# STRANDS_AGENT_REVIEW off — a prompt-injected agent must never hard-delete
+# the knowledge base or its own steering evidence without a human verdict
+# (edits stay reversible + old->new logged, so they follow the normal flag)
+ALWAYS_REVIEW = {"note_delete", "memory_forget"}
+
 
 def gated_write(
     entity: str,
@@ -32,7 +38,9 @@ def gated_write(
         return json.dumps(
             {"error": f"writes to {entity} are forbidden for '{actor}' by the authority matrix"}
         )
-    if level == "autonomous" or level == "notify" or not config.AGENT_REVIEW:
+    if entity not in ALWAYS_REVIEW and (
+        level == "autonomous" or level == "notify" or not config.AGENT_REVIEW
+    ):
         try:
             result = direct()
         except ValueError as exc:

@@ -46,11 +46,14 @@ def forget_memory(memory_id: int) -> str:
     Args:
         memory_id: ID of the memory (recall_memories shows ids).
     """
+    row = memory.get_memory(memory_id)
+    if not row:
+        return json.dumps({"error": f"no memory #{memory_id}"})
     return gated_write(
         "memory_forget",
         "update",
         {},
         lambda: memory.forget(memory_id, actor=agent_identity(), origin="agent"),
         entity_id=memory_id,
-        summary=f"forget memory #{memory_id}",
+        summary=f"forget memory #{memory_id} [{row['topic']}]: {row['content'][:80]}",
     )

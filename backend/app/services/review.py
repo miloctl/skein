@@ -49,6 +49,7 @@ def _registry() -> dict:
             "update": commitments.update_commitment,
         },
         "commitment_edit": {"update": commitments.edit_commitment},
+        "commitment_settle": {"update": commitments.update_commitment},
         "memory_forget": {"update": memory.forget},
         "delegation": {"create": delegation.delegate_task},
     }
@@ -190,9 +191,23 @@ _DIFF_TABLES = {
     "milestone": "milestones",
     "engagement": "engagements",
     "commitment": "commitments",
+    "commitment_edit": "commitments",
+    "commitment_settle": "commitments",
     "blocker": "blockers",
+    "blocker_edit": "blockers",
     "question": "questions",
     "decision": "decisions",
+    "note_edit": "notes",
+    "note_delete": "notes",
+    "intake_edit": "intake_requests",
+    "memory_forget": "memories",
+}
+
+# columns worth showing a reviewer when a proposal would DESTROY the row —
+# an empty payload must never mean an uninformed verdict
+_DESTRUCTIVE_VIEW = {
+    "note_delete": ("topic", "content"),
+    "memory_forget": ("topic", "content", "user"),
 }
 
 
@@ -210,6 +225,14 @@ def change_diff(change_id: int) -> dict:
         (change["entity_id"],),
     )
     payload = json.loads(change["payload"])
+    doomed = _DESTRUCTIVE_VIEW.get(change["entity"])
+    if doomed:
+        # deletion diff: show what would be destroyed; proposed side is empty
+        current = {k: (row.get(k) if row else None) for k in doomed}
+        return {
+            "id": change_id,
+            "diff": {"current": current, "proposed": dict.fromkeys(doomed, "")},
+        }
     current = {k: (row.get(k) if row else None) for k in payload}
     return {"id": change_id, "diff": {"current": current, "proposed": payload}}
 

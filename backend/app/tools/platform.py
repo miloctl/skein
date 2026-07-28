@@ -228,6 +228,8 @@ def edit_blocker(blocker_id: int, title: str = "", detail: str = "", owner: str 
         owner: Corrected owner ('-' to clear).
     """
     payload = {k: v for k, v in {"title": title, "detail": detail, "owner": owner}.items() if v}
+    if not payload:
+        return json.dumps({"error": "nothing to change — pass at least one field"})
     return gated_write(
         "blocker_edit",
         "update",
@@ -251,6 +253,8 @@ def edit_intake_request(request_id: int, title: str = "", detail: str = "") -> s
         detail: Corrected detail ('-' to clear).
     """
     payload = {k: v for k, v in {"title": title, "detail": detail}.items() if v}
+    if not payload:
+        return json.dumps({"error": "nothing to change — pass title and/or detail"})
     return gated_write(
         "intake_edit",
         "update",
@@ -271,10 +275,11 @@ def update_engagement(
     conclusion: str = "",
     outcome: str = "",
     timebox_end: str = "",
+    kill_criteria: str = "",
 ) -> str:
     """Update an engagement — status, rename (propagates to milestone labels),
     lead, summary, or close it. Closing requires a conclusion (achieved /
-    partial / missed / invalidated / unmeasured / stopped).
+    partial / missed / invalidated / unmeasured / stopped) in the SAME call.
 
     Args:
         engagement_id: ID of the engagement.
@@ -285,6 +290,7 @@ def update_engagement(
         conclusion: Honest outcome, required when closing.
         outcome: Outcome statement.
         timebox_end: New timebox end (YYYY-MM-DD) for experiments.
+        kill_criteria: Updated kill criteria for experiments.
     """
     payload = {
         k: v
@@ -296,9 +302,19 @@ def update_engagement(
             "conclusion": conclusion,
             "outcome": outcome,
             "timebox_end": timebox_end,
+            "kill_criteria": kill_criteria,
         }.items()
         if v
     }
+    if not payload:
+        return json.dumps({"error": "nothing to change — pass at least one field"})
+    if payload.get("status") == "closed" and not payload.get("conclusion"):
+        return json.dumps(
+            {
+                "error": "closing needs a conclusion in the same call — one of"
+                " achieved/partial/missed/invalidated/unmeasured/stopped"
+            }
+        )
     return gated_write(
         "engagement",
         "update",

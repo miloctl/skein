@@ -191,15 +191,18 @@ def edit_commitment(
 
 @tool
 def mark_commitment(commitment_id: int, status: str) -> str:
-    """Settle an open commitment: kept, missed, or withdrawn.
+    """Settle an OPEN commitment: kept, missed, or withdrawn. Already-settled
+    commitments are history and refuse changes.
 
     Args:
         commitment_id: ID of the commitment.
         status: One of kept / missed / withdrawn.
     """
+    if status not in ("kept", "missed", "withdrawn"):
+        return json.dumps({"error": "status must be kept, missed, or withdrawn"})
     payload = {"status": status}
     return gated_write(
-        "commitment",
+        "commitment_settle",
         "update",
         payload,
         lambda: commitments.update_commitment(
