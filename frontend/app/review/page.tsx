@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
+import { api, getUser } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
@@ -23,9 +23,11 @@ type Change = {
   requested_by: string | null;
   origin: string;
   created_at: string;
+  sponsor?: string; // task_completion only: whose verdict this is
 };
 
 export default function ReviewPage() {
+  const [me] = useState(getUser); // lazy: browser-only localStorage read
   const [changes, setChanges] = useState<Change[]>([]);
   const [history, setHistory] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -87,10 +89,10 @@ export default function ReviewPage() {
     }
   };
 
-  // rejecting needs a reason the proposer will read — asked inline, not via
-  // a browser prompt
-  const [rejecting, setRejecting] = useState<number | null>(null);
-  const [rejectNote, setRejectNote] = useState("");
+  // rejecting — and accepting on a sponsor's behalf — needs a reason the
+  // record will keep; asked inline, not via a browser prompt
+  const [asking, setAsking] = useState<{ id: number; verb: "approve" | "reject" } | null>(null);
+  const [askNote, setAskNote] = useState("");
 
   const act = async (id: number, verb: "approve" | "reject", note = "") => {
     try {
@@ -98,13 +100,16 @@ export default function ReviewPage() {
         method: "POST",
         body: JSON.stringify({ note }),
       });
-      setRejecting(null);
-      setRejectNote("");
+      setAsking(null);
+      setAskNote("");
       load();
     } catch (e) {
       alert(String(e));
     }
   };
+
+  // acceptance verdicts belong to the sponsor; anyone else must say why
+  const forSponsor = (c: Change) => (c.sponsor && c.sponsor !== me ? c.sponsor : "");
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
@@ -164,7 +169,8 @@ export default function ReviewPage() {
               </span>
               <span className="text-xs text-ink-3">
                 by {c.proposed_by}
-                {c.requested_by ? ` · asked by ${c.requested_by}` : ""} ·{" "}
+                {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
+                {c.sponsor ? ` · sponsor ${c.sponsor}` : ""} ·{" "}
                 <time dateTime={c.created_at} title={c.created_at}>{timeAgo(c.created_at)}</time>
               </span>
             </div>
@@ -197,31 +203,41 @@ export default function ReviewPage() {
                 {JSON.stringify(c.payload, null, 2)}
               </pre>
             )}
-            {rejecting === c.id ? (
+            {asking?.id === c.id ? (
               <div className="flex items-center gap-2">
                 <input
                   autoFocus
-                  name="reject-reason"
-                  value={rejectNote}
-                  onChange={(e) => setRejectNote(e.target.value)}
+                  name="verdict-reason"
+                  value={askNote}
+                  onChange={(e) => setAskNote(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && rejectNote.trim())
-                      act(c.id, "reject", rejectNote.trim());
-                    if (e.key === "Escape") setRejecting(null);
+                    if (e.key === "Enter" && askNote.trim())
+                      act(c.id, asking.verb, askNote.trim());
+                    if (e.key === "Escape") setAsking(null);
                   }}
-                  aria-label="Rejection reason — sent back to the proposer"
-                  placeholder="Why? — sent back to the proposer"
+                  aria-label={
+                    asking.verb === "reject"
+                      ? "Rejection reason — sent back to the proposer"
+                      : `Why are you accepting for ${c.sponsor}? — goes on the record`
+                  }
+                  placeholder={
+                    asking.verb === "reject"
+                      ? "Why? — sent back to the proposer"
+                      : `Why are you accepting for ${c.sponsor}? — goes on the record`
+                  }
                   className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
                 />
                 <button
-                  onClick={() => act(c.id, "reject", rejectNote.trim())}
-                  disabled={!rejectNote.trim()}
-                  className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+                  onClick={() => act(c.id, asking.verb, askNote.trim())}
+                  disabled={!askNote.trim()}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40 ${
+                    asking.verb === "reject" ? "bg-danger" : "bg-ok"
+                  }`}
                 >
-                  Reject
+                  {asking.verb === "reject" ? "Reject" : "Accept"}
                 </button>
                 <button
-                  onClick={() => setRejecting(null)}
+                  onClick={() => setAsking(null)}
                   className="text-sm text-ink-3 hover:text-ink"
                 >
                   cancel
@@ -229,16 +245,28 @@ export default function ReviewPage() {
               </div>
             ) : (
               <div className="flex gap-2">
-                <button
-                  onClick={() => act(c.id, "approve")}
-                  className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-                >
-                  Approve
-                </button>
+                {forSponsor(c) ? (
+                  <button
+                    onClick={() => {
+                      setAsking({ id: c.id, verb: "approve" });
+                      setAskNote("");
+                    }}
+                    className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                  >
+                    Accept for {c.sponsor}…
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => act(c.id, "approve")}
+                    className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                  >
+                    Approve
+                  </button>
+                )}
                 <button
                   onClick={() => {
-                    setRejecting(c.id);
-                    setRejectNote("");
+                    setAsking({ id: c.id, verb: "reject" });
+                    setAskNote("");
                   }}
                   className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/20"
                 >

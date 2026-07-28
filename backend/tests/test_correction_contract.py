@@ -413,10 +413,10 @@ def test_edit_tools_refuse_empty_and_invalid_before_proposing(fresh_db, monkeypa
 # ---- A1/A2/P2/C1 ------------------------------------------------------------------
 
 
-def _strong(client):
+def _strong(client, name="tester"):
     from app.services.api_keys import create_key
 
-    return {"Authorization": f"Bearer {create_key('tester', 'r')['key']}"}
+    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
 
 
 def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
@@ -438,7 +438,9 @@ def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
         "in_progress"
     )
-    r = client.post(f"/api/review/{out['proposal_id']}/approve", json={}, headers=_strong(client))
+    r = client.post(
+        f"/api/review/{out['proposal_id']}/approve", json={}, headers=_strong(client, "mira")
+    )
     assert r.json()["status"] == "approved"
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
         "done"
@@ -595,7 +597,7 @@ def test_rejection_keeps_task_open_and_feeds_trust(client, fresh_db):
     r = client.post(
         f"/api/review/{out['proposal_id']}/reject",
         json={"note": "tests are red"},
-        headers=_strong(client),
+        headers=_strong(client, "mira"),
     )
     assert r.json()["status"] == "rejected"
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (tid,))["status"] == (
@@ -697,6 +699,80 @@ def test_agent_cannot_delegate_to_itself(fresh_db):
 
     with pytest.raises(ValueError, match="itself"):
         delegation.delegate_task(t["id"], "scout", "mira", actor="scout", origin="agent")
+
+
+def test_acceptance_verdicts_bind_to_the_sponsor(client, fresh_db):
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "ready", actor="scout")["proposal_id"]
+    row = next(p for p in client.get("/api/review?status=pending").json() if p["id"] == pid)
+    assert row["sponsor"] == "mira"
+    # a non-sponsor without a reason is refused
+    bare = client.post(f"/api/review/{pid}/approve", json={}, headers=_strong(client))
+    assert bare.status_code == 400 and "sponsored by mira" in bare.json()["detail"]
+    # with a reason it lands — marked override, reason on the record
+    ok = client.post(
+        f"/api/review/{pid}/approve",
+        json={"note": "mira is on PTO and asked me to close it"},
+        headers=_strong(client),
+    )
+    assert ok.json()["status"] == "approved"
+    ch = fresh_db.query_one("SELECT reviewed_override FROM pending_changes WHERE id = ?", (pid,))
+    assert ch["reviewed_override"] == 1
+    acts = fresh_db.query("SELECT detail FROM activity WHERE action = 'approve_change'")
+    assert any("accepted for mira" in a["detail"] for a in acts)
+    # override verdicts are provenance, not trust — the streak ignores them
+    score = next(
+        s
+        for s in delegation.trust_scores()
+        if s["agent"] == "scout" and s["entity"] == "task_completion"
+    )
+    assert score["recent_streak"] == 0
+
+
+def test_sponsor_verdict_needs_no_note_and_feeds_trust(client, fresh_db):
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "ready", actor="scout")["proposal_id"]
+    r = client.post(f"/api/review/{pid}/approve", json={}, headers=_strong(client, "mira"))
+    assert r.json()["status"] == "approved"
+    ch = fresh_db.query_one(
+        "SELECT reviewed_override, reviewed_strong FROM pending_changes WHERE id = ?", (pid,)
+    )
+    assert ch["reviewed_override"] == 0 and ch["reviewed_strong"] == 1
+    score = next(
+        s
+        for s in delegation.trust_scores()
+        if s["agent"] == "scout" and s["entity"] == "task_completion"
+    )
+    assert score["recent_streak"] == 1
+
+
+def test_non_sponsor_reject_needs_a_reason_too(client, fresh_db):
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "ready", actor="scout")["proposal_id"]
+    bare = client.post(f"/api/review/{pid}/reject", json={}, headers=_strong(client))
+    assert bare.status_code == 400 and "sponsored by mira" in bare.json()["detail"]
+    ok = client.post(
+        f"/api/review/{pid}/reject",
+        json={"note": "covering for mira — the output is wrong"},
+        headers=_strong(client),
+    )
+    assert ok.json()["status"] == "rejected"
+    # an override rejection must not push the agent toward demotion
+    score = next(
+        s
+        for s in delegation.trust_scores()
+        if s["agent"] == "scout" and s["entity"] == "task_completion"
+    )
+    assert score["rejection_streak"] == 0
 
 
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):
