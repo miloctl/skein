@@ -217,7 +217,7 @@ def get_pack(*, actor: str = "system") -> dict:
         publish_pack(actor=actor)
         last = latest_pack()
         if last is None:
-            raise RuntimeError("context pack publish produced no pack")
+            raise ValueError("context pack publish produced no pack — retry")
     return {
         "version": last["version"],
         "hash": last["content_hash"],

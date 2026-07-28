@@ -24,6 +24,8 @@ Examples (the `strands` alias works everywhere `skein` does):
     skein review approve 12 -m "looks right"
     skein worklog 22          # a delegated task's progress log
     skein inbox scout         # an agent's ambient inbox
+    skein tasks delegate 12 scout   # hand a task to an agent (you sponsor it)
+    skein answer 7 "p95 at 250ms is the contract number"
     skein eval                # replay capture classifier vs feedback corpus
     skein context --write AGENTS.md
     skein install-hooks       # run inside each work repo you want trailer sync in
@@ -83,6 +85,11 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
     except urllib.error.HTTPError as exc:
         try:
             detail = json.loads(exc.read()).get("detail", str(exc))
+            if isinstance(detail, list):  # pydantic 422: readable, not a repr
+                detail = "; ".join(
+                    f"{'.'.join(str(x) for x in d.get('loc', [])[1:])}: {d.get('msg', d)}"
+                    for d in detail
+                )
         except Exception:
             detail = str(exc)
         sys.exit(f"error: {detail}")
@@ -143,6 +150,10 @@ def cmd_my_day(args):
 
 
 def cmd_tasks(args):
+    if args.action == "delegate":
+        out = api("POST", f"/api/tasks/{args.id}/delegate", {"agent": args.agent})
+        print(f"task #{args.id} delegated to {out['delegated_agent']} (sponsor {out['sponsor']})")
+        return
     if args.action == "done":
         api("PATCH", f"/api/tasks/{args.id}", {"status": "done"})
         print(f"task #{args.id} done")
@@ -269,10 +280,17 @@ def cmd_absences(args):
         print(f"absence #{out['id']}: {out['person']} {out['kind']}")
         return
     if args.action == "rm":
-        api("DELETE", f"/api/absences/{args.id}")
-        print(f"absence #{args.id} removed")
+        out = api("DELETE", f"/api/absences/{args.id}")
+        echo = (
+            f" ({out['person']}: {out['kind']} {out['starts_on']} \u2192 {out['ends_on']})"
+            if out.get("person")  # older servers return only {id, deleted}
+            else ""
+        )
+        print(f"absence #{args.id} removed{echo}")
         return
     rows = api("GET", "/api/absences")
+    if rows:
+        print("# away (current + upcoming)")
     for a in rows:
         note = f" — {a['note']}" if a["note"] else ""
         print(f"#{a['id']} {a['person']}: {a['kind']} {a['starts_on']} → {a['ends_on']}{note}")
@@ -281,9 +299,20 @@ def cmd_absences(args):
 
 
 def cmd_review(args):
+    keyless = not (load_config().get("key") or os.getenv("STRANDS_API_KEY"))
     if args.action in ("approve", "reject"):
+        if keyless and not load_config().get("user"):
+            sys.exit(
+                "error: configure who you are first (`skein config --user you`"
+                " or --key) — an anonymous verdict helps nobody"
+            )
         out = api("POST", f"/api/review/{args.id}/{args.action}", {"note": args.note})
         print(f"proposal #{args.id} {out['status']}")
+        if keyless:
+            print(
+                "note: verdict recorded, but without your API key it will"
+                " never feed promotion/demotion streaks — `skein config --key`"
+            )
         return
     rows = api("GET", "/api/review?status=pending")
     for c in rows:
@@ -292,16 +321,22 @@ def cmd_review(args):
         print(f"#{c['id']} {c['summary']} (by {c['proposed_by']}{asked}{sponsor})")
     if not rows:
         print("review queue is empty")
-    elif not (load_config().get("key") or os.getenv("STRANDS_API_KEY")):
+    elif keyless:
         print(
-            "\nnote: no API key configured — verdicts still land, but only"
-            " key-authenticated ones count toward agent trust"
+            "\nnote: no API key configured — verdicts still land (and count in"
+            " approval rates), but only key-authenticated ones feed"
+            " promotion/demotion streaks"
         )
+
+
+def cmd_answer(args):
+    api("POST", f"/api/questions/{args.id}/answer", {"answer": " ".join(args.text)})
+    print(f"question #{args.id} answered")
 
 
 def cmd_worklog(args):
     rows = api("GET", f"/api/tasks/{args.id}/worklog")
-    for w in rows:
+    for w in reversed(rows):  # service returns newest-first; read as a log
         print(f"{w['created_at'][:16]} {w['author']}: {w['note']}")
     if not rows:
         print(f"no worklog entries for task #{args.id}")
@@ -398,9 +433,10 @@ def main():
     c = sub.add_parser("my-day", help="your briefing")
     c.set_defaults(fn=cmd_my_day)
 
-    c = sub.add_parser("tasks", help="list tasks / mark done")
-    c.add_argument("action", nargs="?", choices=["list", "done"], default="list")
+    c = sub.add_parser("tasks", help="list / mark done / delegate to an agent")
+    c.add_argument("action", nargs="?", choices=["list", "done", "delegate"], default="list")
     c.add_argument("id", nargs="?", type=int)
+    c.add_argument("agent", nargs="?", help="agent name (for delegate; you become sponsor)")
     c.add_argument("--all", action="store_true", help="include done tasks")
     c.set_defaults(fn=cmd_tasks)
 
@@ -439,6 +475,11 @@ def main():
     c.add_argument("id", nargs="?", type=int)
     c.add_argument("-m", "--note", default="", help="verdict note (required for reject)")
     c.set_defaults(fn=cmd_review)
+
+    c = sub.add_parser("answer", help="answer an open question")
+    c.add_argument("id", type=int, help="question id")
+    c.add_argument("text", nargs="+", help="the answer")
+    c.set_defaults(fn=cmd_answer)
 
     c = sub.add_parser("worklog", help="a delegated task's progress log")
     c.add_argument("id", type=int, help="task id")
@@ -479,7 +520,13 @@ def main():
         p.error("blockers add requires a title")
     if args.cmd == "tasks" and args.action == "done" and not args.id:
         p.error("tasks done requires an id")
-    if args.cmd == "commitments" and args.action == "settle" and not (args.id and args.status):
+    if args.cmd == "tasks" and args.action == "delegate" and not (args.id and args.agent):
+        p.error("tasks delegate requires: id agent")
+    if (
+        args.cmd == "commitments"
+        and args.action == "settle"
+        and (args.id is None or args.status is None)
+    ):
         p.error("commitments settle requires an id and kept|missed|withdrawn")
     if args.cmd == "absences":
         if args.action == "add" and not (args.person and args.starts_on and args.ends_on):
@@ -488,7 +535,7 @@ def main():
             if not (args.person or "").isdecimal():
                 p.error("absences rm requires the absence id")
             args.id = int(args.person)
-    if args.cmd == "review" and args.action in ("approve", "reject") and not args.id:
+    if args.cmd == "review" and args.action in ("approve", "reject") and args.id is None:
         p.error(f"review {args.action} requires a proposal id")
     if args.cmd == "review" and args.action == "reject" and not args.note:
         p.error("review reject requires -m — the proposer reads the reason")

@@ -60,7 +60,16 @@ def delete_absence(absence_id: int, *, actor: str = "system") -> dict:
         "delete_absence",
         f"#{absence_id} {row['person']} {row['kind']} {row['starts_on']}..{row['ends_on']}",
     )
-    return {"id": absence_id, "deleted": True}
+    return {
+        "id": absence_id,
+        "deleted": True,
+        # echo what was destroyed — a CLI caller with a transposed digit
+        # must see whose window just vanished
+        "person": row["person"],
+        "kind": row["kind"],
+        "starts_on": row["starts_on"],
+        "ends_on": row["ends_on"],
+    }
 
 
 def list_absences(person: str = "", from_date: str = "") -> list[dict]:
