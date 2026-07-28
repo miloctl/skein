@@ -81,6 +81,7 @@ export default function Portfolio() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [readout, setReadout] = useState<string | null>(null);
+  const [ritualOut, setRitualOut] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const manage = useManageMode();
@@ -394,9 +395,10 @@ export default function Portfolio() {
                 key={r}
                 disabled={busy}
                 onClick={() => {
+                  setBanner(null);
                   setBusy(true);
                   api<{ markdown: string }>(`/api/rituals/${r}`, { method: "POST" })
-                    .then((res) => setReadout(res.markdown))
+                    .then((res) => setRitualOut(res.markdown))
                     .catch((e) => setBanner(`${e.message ?? e}`))
                     .finally(() => setBusy(false));
                 }}
@@ -406,6 +408,13 @@ export default function Portfolio() {
               </button>
             ))}
           </div>
+          <div aria-live="polite">
+            {ritualOut && (
+              <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
+                {ritualOut}
+              </pre>
+            )}
+          </div>
         </Card>
       )}
       {manage && (
@@ -413,6 +422,7 @@ export default function Portfolio() {
           <button
             disabled={busy}
             onClick={() => {
+              setBanner(null);
               setBusy(true);
               api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
                 .then((r) => setReadout(r.markdown))

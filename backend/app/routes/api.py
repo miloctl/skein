@@ -58,7 +58,10 @@ def get_tasks():
 
 @router.get("/tasks/{task_id}/worklog")
 def get_task_worklog(task_id: int):
-    return delegation.list_worklog(task_id)
+    try:
+        return delegation.list_worklog(task_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("/questions")
@@ -111,8 +114,8 @@ def patch_note(note_id: int, body: NotePatch, user: CurrentUser):
 
 @router.delete("/notes/{note_id}")
 def delete_note(note_id: int, user: CurrentUser):
+    ratelimit.check("delete", user)
     try:
-        ratelimit.check("delete", user)
         return collab.delete_note(note_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -120,8 +123,8 @@ def delete_note(note_id: int, user: CurrentUser):
 
 @router.delete("/events/{event_id}")
 def delete_event(event_id: int, user: CurrentUser):
+    ratelimit.check("delete", user)
     try:
-        ratelimit.check("delete", user)
         return schedule.cancel_event(event_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -159,8 +162,8 @@ def get_allocations(engagement_id: int = 0):
 
 @router.delete("/allocations/{allocation_id}")
 def delete_allocation(allocation_id: int, user: CurrentUser):
+    ratelimit.check("delete", user)
     try:
-        ratelimit.check("delete", user)
         return engagements.deallocate(allocation_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -181,6 +184,7 @@ def get_absences(person: str = ""):
 
 @router.post("/absences")
 def post_absence(body: AbsenceIn, user: CurrentUser):
+    ratelimit.check("absence", user)
     try:
         return absences.add_absence(
             body.person, body.starts_on, body.ends_on, body.kind, body.note, actor=user
@@ -191,8 +195,8 @@ def post_absence(body: AbsenceIn, user: CurrentUser):
 
 @router.delete("/absences/{absence_id}")
 def delete_absence(absence_id: int, user: CurrentUser):
+    ratelimit.check("delete", user)  # outside the try: a rate cap is a 400, not a 404
     try:
-        ratelimit.check("delete", user)
         return absences.delete_absence(absence_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -384,8 +388,8 @@ def get_memories(q: str = ""):
 
 @router.delete("/memories/{memory_id}")
 def delete_memory(memory_id: int, user: CurrentUser):
+    ratelimit.check("delete", user)
     try:
-        ratelimit.check("delete", user)
         return memory.forget(memory_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -554,11 +558,13 @@ def get_eval_capture():
 
 @router.post("/rituals/week-open")
 def post_week_open(user: CurrentUser):
+    ratelimit.check("ritual", user)  # each run notifies people — cap the amplifier
     return rituals.week_open(actor=user, force=True)
 
 
 @router.post("/rituals/week-close")
 def post_week_close(user: CurrentUser):
+    ratelimit.check("ritual", user)
     return rituals.week_close(actor=user, force=True)
 
 

@@ -220,6 +220,16 @@ def update_task(
     current = db.query_one("SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise ValueError(f"task #{task_id} not found")
+    # delegated work is closed by the sponsor's verdict, never by an agent
+    # marking it done — otherwise submit_for_acceptance is a paper wall
+    if status == "done" and current["delegated_agent"] and origin != "agent_verified":
+        from .users import is_agent
+
+        if is_agent(actor):
+            raise ValueError(
+                f"task #{task_id} is delegated — submit_for_acceptance gets the"
+                " sponsor's verdict; only that closes it"
+            )
     fields: dict[str, str | int | None] = {
         k: v
         for k, v in [
