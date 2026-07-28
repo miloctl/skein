@@ -87,10 +87,12 @@ function MenuItem({
 }
 
 export function ChatSidebar({
+  mobileOpen = false,
   threadId,
   onOpen,
   onNew,
 }: {
+  mobileOpen?: boolean;
   threadId: string;
   onOpen: (id: string) => void;
   onNew: () => void;
@@ -311,7 +313,7 @@ export function ChatSidebar({
 
   const groups = ["", ...folders];
 
-  if (collapsed) {
+  if (collapsed && !mobileOpen) {
     return (
       <button
         ref={expandRail}
@@ -334,7 +336,10 @@ export function ChatSidebar({
       onDrop={(e) => dropInto(e, "")}
       onDragLeave={() => setDropTarget(null)}
       className={
-        "hidden w-64 shrink-0 flex-col overflow-y-auto border-r p-3 md:flex " +
+        (mobileOpen
+          ? "fixed bottom-0 left-0 top-[6.25rem] z-30 flex w-72 bg-page shadow-float "
+          : "hidden ") +
+        "w-64 shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:w-64 md:bg-transparent md:shadow-none " +
         (dropTarget === "" ? "border-thread-solid bg-thread/5" : "border-line")
       }
     >

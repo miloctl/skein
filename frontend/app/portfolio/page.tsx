@@ -118,7 +118,7 @@ export default function Portfolio() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <div className="flex items-start justify-between">
         <SectionTabs set="work" />
         <ManageToggle />
