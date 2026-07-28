@@ -2,6 +2,8 @@
 an authority matrix per (agent, entity), a mission-control view, and trust
 scores computed from the review inbox — promotion is suggested, never automatic."""
 
+import json
+
 from .. import db
 from .users import ensure_user
 
@@ -37,7 +39,119 @@ def delegate_task(
     return {"id": task_id, "delegated_agent": agent, "sponsor": sponsor}
 
 
-def set_authority(agent: str, entity: str, level: str, *, actor: str = "system") -> dict:
+def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
+    """The agent picks up its delegated task: todo -> in_progress. Direct
+    (not review-gated) — status motion on the agent's own delegation is
+    reversible and the sponsor is told."""
+    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    if not task:
+        raise ValueError(f"task #{task_id} not found")
+    if task["delegated_agent"] != actor:
+        raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
+    if task["status"] not in ("todo", "blocked"):
+        raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
+    db.execute(
+        "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
+        (db.now(), task_id),
+    )
+    db.log_activity(actor, "claim_task", f"#{task_id} {task['title']}")
+    if task["sponsor"]:
+        from .notifications import notify
+
+        notify(
+            task["sponsor"],
+            f"{actor} started on task #{task_id} '{task['title']}'.",
+            tier="digest",
+            link="/agents",
+        )
+    return {"id": task_id, "status": "in_progress"}
+
+
+def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent") -> dict:
+    """Append a worklog entry — the agent's running account, readable by the
+    sponsor before the acceptance verdict. Additive, so direct (like standups)."""
+    if not note.strip():
+        raise ValueError("the progress note is required")
+    task = db.query_one("SELECT delegated_agent, title FROM tasks WHERE id = ?", (task_id,))
+    if not task:
+        raise ValueError(f"task #{task_id} not found")
+    wid = db.execute(
+        "INSERT INTO task_worklog (task_id, author, note, created_at) VALUES (?, ?, ?, ?)",
+        (task_id, actor, note.strip(), db.now()),
+    )
+    db.log_activity(actor, "report_progress", f"task #{task_id}: {note.strip()[:80]}")
+    return {"id": wid, "task_id": task_id}
+
+
+def list_worklog(task_id: int, limit: int = 50) -> list[dict]:
+    return db.query(
+        "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
+        (task_id, limit),
+    )
+
+
+def accept_completion(
+    task_id: int, summary: str = "", *, actor: str = "", origin: str = ""
+) -> dict:
+    """Registry apply target for task_completion proposals: the sponsor's
+    approval IS the acceptance — mark done, close the loop."""
+    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    if not task:
+        raise ValueError(f"task #{task_id} not found")
+    if task["status"] == "done":
+        raise ValueError(f"task #{task_id} is already done")
+    db.execute("UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?", (db.now(), task_id))
+    if summary:
+        db.execute(
+            "INSERT INTO task_worklog (task_id, author, note, created_at) VALUES (?, ?, ?, ?)",
+            (task_id, actor or "agent", f"[accepted] {summary}", db.now()),
+        )
+    db.log_activity(actor or "agent", "complete_task", f"#{task_id} {task['title']}")
+    return {"id": task_id, "status": "done"}
+
+
+def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: str = "") -> dict:
+    """File the acceptance proposal. ALWAYS a proposal (never direct) — the
+    sponsor's verdict is the whole point of the loop, and every verdict is a
+    labeled trust signal for this agent."""
+    if not summary.strip():
+        raise ValueError("say what was done — the sponsor reads this summary")
+    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    if not task:
+        raise ValueError(f"task #{task_id} not found")
+    if task["delegated_agent"] != actor:
+        raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
+    if task["status"] == "done":
+        raise ValueError(f"task #{task_id} is already done")
+    from .review import propose_change
+
+    p = propose_change(
+        "task_completion",
+        "update",
+        {"summary": summary.strip()},
+        summary=f"accept task #{task_id} '{task['title']}': {summary.strip()[:80]}",
+        entity_id=task_id,
+        actor=actor,
+        origin="agent",
+        notify_team=False,
+        requested_by=requested_by,
+    )
+    if task["sponsor"]:
+        from .notifications import notify
+
+        notify(
+            task["sponsor"],
+            f"{actor} submitted task #{task_id} '{task['title']}' for your"
+            f" acceptance (proposal #{p['id']}).",
+            tier="immediate",
+            link="/review",
+        )
+    return {"proposal_id": p["id"], "task_id": task_id, "status": "pending"}
+
+
+def set_authority(
+    agent: str, entity: str, level: str, *, actor: str = "system", origin: str = "human"
+) -> dict:
     agent = agent.strip()
     if not agent or agent == "anonymous":
         raise ValueError("agent name is required")
@@ -113,8 +227,14 @@ def trust_scores() -> list[dict]:
             if row["status"] != "approved":
                 break
             streak += 1
+        rejection_streak = 0
+        for row in recent:
+            if row["status"] != "rejected":
+                break
+            rejection_streak += 1
         r["approval_rate"] = round(r["approved"] / r["proposed"], 2) if r["proposed"] else 0
         r["recent_streak"] = streak
+        r["rejection_streak"] = rejection_streak
         r["current_level"] = authority_level(r["agent"], r["entity"])
         r["suggestion"] = (
             f"{streak} straight approvals — consider promoting to autonomous"
@@ -122,6 +242,62 @@ def trust_scores() -> list[dict]:
             else ""
         )
     return rows
+
+
+DEMOTION_STREAK = 3
+
+
+def review_authority(*, actor: str = "scheduler") -> dict:
+    """A2: turn earned trust into FILED PROPOSALS instead of a buried hint.
+    Promotions climb one rung (review -> notify) on a strong-verdict approval
+    streak; demotions to review fire on a strong-verdict rejection streak.
+    The system only proposes — a human approves, and agents can never
+    approve anything, so there is no self-promotion path."""
+    filed = []
+    pending = {
+        (json.loads(p["payload"]).get("agent"), json.loads(p["payload"]).get("entity"))
+        for p in db.query(
+            "SELECT payload FROM pending_changes WHERE entity = 'authority' AND status = 'pending'"
+        )
+    }
+    for r in trust_scores():
+        target = None
+        why = ""
+        if r["recent_streak"] >= TRUST_STREAK and r["current_level"] == "review":
+            target = "notify"
+            why = f"{r['recent_streak']} straight strong-verdict approvals"
+        elif r["rejection_streak"] >= DEMOTION_STREAK and r["current_level"] in (
+            "autonomous",
+            "notify",
+        ):
+            target = "review"
+            why = f"{r['rejection_streak']} straight strong-verdict rejections"
+        if not target or (r["agent"], r["entity"]) in pending:
+            continue
+        from .review import propose_change
+
+        p = propose_change(
+            "authority",
+            "create",
+            {"agent": r["agent"], "entity": r["entity"], "level": target},
+            summary=f"authority: {r['agent']}/{r['entity']}"
+            f" {r['current_level']} -> {target} ({why})",
+            actor=actor,
+            origin="agent",
+            notify_team=False,
+        )
+        filed.append({"proposal_id": p["id"], "agent": r["agent"], "entity": r["entity"]})
+    if filed:
+        from .notifications import notify
+
+        notify(
+            "team",
+            f"{len(filed)} authority change(s) proposed from review history —"
+            " promote or demote in Inbox → Approvals.",
+            tier="digest",
+            link="/review",
+        )
+    return {"filed": len(filed), "proposals": filed}
 
 
 def mission_control() -> list[dict]:

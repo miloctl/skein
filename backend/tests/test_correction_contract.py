@@ -408,3 +408,126 @@ def test_edit_tools_refuse_empty_and_invalid_before_proposing(fresh_db, monkeypa
     e = engagements.create_engagement("Doomcheck", actor="ava")
     out = update_engagement(engagement_id=e["id"], status="closed")
     assert "conclusion" in out and "pending" not in out
+
+
+# ---- A1/A2/P2/C1 ------------------------------------------------------------------
+
+
+def _strong(client):
+    from app.services.api_keys import create_key
+
+    return {"Authorization": f"Bearer {create_key('tester', 'r')['key']}"}
+
+
+def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import delegation, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)  # loop must gate regardless
+    t = work.create_task(title="build the probe", actor="mira")
+    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
+    delegation.claim_task(t["id"], actor="scout")
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
+        "in_progress"
+    )
+    delegation.report_progress(t["id"], "probe scaffolded, tests next", actor="scout")
+    assert client.get(f"/api/tasks/{t['id']}/worklog").json()[0]["note"].startswith("probe")
+    out = delegation.submit_completion(t["id"], "probe built and green", actor="scout")
+    # still not done — the sponsor's verdict is the acceptance
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
+        "in_progress"
+    )
+    r = client.post(f"/api/review/{out['proposal_id']}/approve", json={}, headers=_strong(client))
+    assert r.json()["status"] == "approved"
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
+        "done"
+    )
+    notes = [w["note"] for w in delegation.list_worklog(t["id"])]
+    assert any(n.startswith("[accepted]") for n in notes)
+
+
+def test_claim_requires_the_delegated_agent(fresh_db):
+    from app.services import delegation, work
+
+    t = work.create_task(title="x", actor="mira")
+    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
+    try:
+        delegation.claim_task(t["id"], actor="other-agent")
+        raise AssertionError("claim by a non-delegate succeeded")
+    except ValueError:
+        pass
+
+
+def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypatch):
+    from app.services import delegation, review
+
+    # 5 strong-verdict approvals for scribe on note -> promotion proposal
+    headers = _strong(client)
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    out = delegation.review_authority(actor="scheduler")
+    assert out["filed"] == 1
+    # idempotent while pending
+    assert delegation.review_authority(actor="scheduler")["filed"] == 0
+    pending = client.get("/api/review?status=pending").json()
+    auth = next(p for p in pending if p["entity"] == "authority")
+    client.post(f"/api/review/{auth['id']}/approve", json={}, headers=headers)
+    assert delegation.authority_level("scribe", "note") == "notify"
+
+
+def test_absences_shape_capacity_and_week_draft(client, fresh_db):
+    from datetime import date, timedelta
+
+    from app.services import absences, engagements, users, weekly, work
+
+    users.ensure_user("dana")
+    e = engagements.create_engagement("Staffed", actor="mira")
+    engagements.allocate("dana", e["id"], percent=80, actor="mira")
+    today = date.today()
+    absences.add_absence(
+        "dana",
+        (today - timedelta(days=1)).isoformat(),
+        (today + timedelta(days=7)).isoformat(),
+        actor="mira",
+    )
+    cap = client.get("/api/capacity").json()
+    row = next(c for c in cap if c["person"] == "dana")
+    assert row["away"] == "pto"
+    # week draft skips someone away most of the week
+    work.create_task(title="never plan me", assignee="dana", actor="mira")
+    monday = today - timedelta(days=today.weekday())
+    week = f"{monday.isocalendar().year}-W{monday.isocalendar().week:02d}"
+    draft = weekly.draft_plan(week)
+    assert all(i["assignee"] != "dana" for i in draft["items"])
+    assert any(s["person"] == "dana" for s in draft["skipped_absent"])
+
+
+def test_absence_validation_and_delete(client, fresh_db):
+    r = client.post(
+        "/api/absences",
+        json={"person": "dana", "starts_on": "2026-08-10", "ends_on": "2026-08-01"},
+    )
+    assert r.status_code == 400
+    ok = client.post(
+        "/api/absences",
+        json={"person": "dana", "starts_on": "2026-08-01", "ends_on": "2026-08-10"},
+    ).json()
+    assert client.delete(f"/api/absences/{ok['id']}").json()["deleted"] is True
+    assert client.delete(f"/api/absences/{ok['id']}").status_code == 404
+
+
+def test_week_rituals_produce_packets_and_notify(client, fresh_db):
+    from app.services import commitments, rituals, users
+
+    users.ensure_user("mira")
+    commitments.add_commitment("demo to ops", due_date="2020-01-01", actor="mira")
+    close = rituals.week_close(actor="mira", force=True)
+    assert close["items"] >= 1 and "Promises due or overdue" in close["markdown"]
+    opened = rituals.week_open(actor="mira", force=True)
+    assert opened["briefed"] >= 1 and "mira" in opened["markdown"]
+    # personal notification landed for the obligation owner
+    notes = client.get("/api/notifications", headers={"X-User": "mira"}).json()
+    assert any("Your week:" in n["message"] for n in notes)

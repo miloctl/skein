@@ -32,7 +32,11 @@ type Week = {
   tasks: { id: number; title: string; status: string; assignee: string }[];
 };
 
-type Draft = { week: string; items: { task_id: number; title: string; assignee: string }[] };
+type Draft = {
+  week: string;
+  items: { task_id: number; title: string; assignee: string }[];
+  skipped_absent?: { person: string; away_days: number }[];
+};
 
 type Forecast = {
   basis: { milestones_measured: number; avg_slip_days: number };
@@ -216,6 +220,11 @@ export default function Portfolio() {
         </div>
         {draft && (
           <ul className="mt-2 space-y-1 text-xs text-ink-3">
+            {(draft.skipped_absent ?? []).map((s) => (
+              <li key={s.person} className="text-weld">
+                {s.person} skipped — away {s.away_days} weekday(s) that week
+              </li>
+            ))}
             {draft.items.length === 0 && <li>Nothing to draft — assign some tasks first.</li>}
             {draft.items.map((i) => (
               <li key={i.task_id}>
@@ -372,6 +381,33 @@ export default function Portfolio() {
         )}
       </Card>
 
+      {manage && (
+        <Card title="Week rituals">
+          <p className="mb-2 text-xs text-ink-3">
+            Monday brief (everyone gets their own obligations) and Friday
+            close-out (what the week leaves dangling). The scheduler runs
+            these weekly; run one now to see the packet.
+          </p>
+          <div className="flex gap-2">
+            {(["week-open", "week-close"] as const).map((r) => (
+              <button
+                key={r}
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  api<{ markdown: string }>(`/api/rituals/${r}`, { method: "POST" })
+                    .then((res) => setReadout(res.markdown))
+                    .catch((e) => setBanner(`${e.message ?? e}`))
+                    .finally(() => setBusy(false));
+                }}
+                className="rounded-lg bg-raised px-3 py-1 text-xs font-medium text-ink-2 hover:bg-line disabled:opacity-50"
+              >
+                {r === "week-open" ? "Run Monday brief" : "Run Friday close-out"}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
       {manage && (
         <Card title="Exec readout">
           <button

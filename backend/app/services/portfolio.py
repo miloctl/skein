@@ -280,6 +280,13 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
         r["name"]: r["growth_interests"]
         for r in db.query("SELECT name, growth_interests FROM users WHERE growth_interests != ''")
     }
+    from .absences import list_absences
+
+    away = {
+        a["person"]: f"{a['kind']} {a['starts_on']}..{a['ends_on']}"
+        for a in list_absences()
+        if a["kind"] == "pto"
+    }
     projection = []
     for p in people:
         total = current.get(p, 0) + percent
@@ -291,6 +298,8 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
                 "overcommitted": total > 100,
                 # display-only: the human weighs growth fit, no matching logic
                 "growth_interests": interests.get(p, ""),
+                # upcoming PTO is a staffing fact, not a veto — shown, not scored
+                "upcoming_absence": away.get(p, ""),
             }
         )
     return {

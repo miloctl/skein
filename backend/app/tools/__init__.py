@@ -31,15 +31,20 @@ from .platform import (
     update_engagement,
 )
 from .portfolio import (
+    add_absence,
     add_commitment,
+    claim_delegated_task,
     delegate_task,
     edit_commitment,
     get_context_pack,
     get_flow_metrics,
     get_portfolio_health,
+    list_absences,
     list_commitments,
     mark_commitment,
     my_agent_inbox,
+    report_progress,
+    submit_for_acceptance,
     supersede_decision,
     what_if_staffing,
 )
@@ -102,4 +107,9 @@ ALL_TOOLS = [
     get_context_pack,
     my_agent_inbox,
     forget_memory,
+    claim_delegated_task,
+    report_progress,
+    submit_for_acceptance,
+    add_absence,
+    list_absences,
 ]

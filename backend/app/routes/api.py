@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from .. import ratelimit
 from ..services import (
+    absences,
     admin,
     api_keys,
     blockers,
@@ -29,6 +30,7 @@ from ..services import (
     pulse,
     readout,
     review,
+    rituals,
     schedule,
     search,
     usage,
@@ -52,6 +54,11 @@ def get_milestones(project: str = "", status: str = ""):
 @router.get("/tasks")
 def get_tasks():
     return work.list_tasks_joined()
+
+
+@router.get("/tasks/{task_id}/worklog")
+def get_task_worklog(task_id: int):
+    return delegation.list_worklog(task_id)
 
 
 @router.get("/questions")
@@ -155,6 +162,38 @@ def delete_allocation(allocation_id: int, user: CurrentUser):
     try:
         ratelimit.check("delete", user)
         return engagements.deallocate(allocation_id, actor=user)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+class AbsenceIn(BaseModel):
+    person: str = Field(max_length=64)
+    starts_on: str = Field(max_length=10)
+    ends_on: str = Field(max_length=10)
+    kind: str = Field("pto", max_length=10)
+    note: str = Field("", max_length=200)
+
+
+@router.get("/absences")
+def get_absences(person: str = ""):
+    return absences.list_absences(person)
+
+
+@router.post("/absences")
+def post_absence(body: AbsenceIn, user: CurrentUser):
+    try:
+        return absences.add_absence(
+            body.person, body.starts_on, body.ends_on, body.kind, body.note, actor=user
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/absences/{absence_id}")
+def delete_absence(absence_id: int, user: CurrentUser):
+    try:
+        ratelimit.check("delete", user)
+        return absences.delete_absence(absence_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
@@ -511,6 +550,16 @@ def get_feedback(user: CurrentUser, kind: str = ""):
 @router.get("/eval/capture")
 def get_eval_capture():
     return feedback.eval_capture()
+
+
+@router.post("/rituals/week-open")
+def post_week_open(user: CurrentUser):
+    return rituals.week_open(actor=user, force=True)
+
+
+@router.post("/rituals/week-close")
+def post_week_close(user: CurrentUser):
+    return rituals.week_close(actor=user, force=True)
 
 
 @router.get("/agents")

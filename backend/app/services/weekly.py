@@ -42,11 +42,24 @@ def draft_plan(week: str = "") -> dict:
     if not WEEK_RE.match(week):
         raise ValueError("week must look like 2026-W31")
     items = []
+    skipped: list[dict] = []
+    from datetime import date as _date
+
+    from .absences import weekday_overlap
+
+    year, wk = week.split("-W")
+    week_monday = _date.fromisocalendar(int(year), int(wk), 1)
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
         " AND name != 'anonymous' ORDER BY name"
     )
     for h in humans:
+        away_days = weekday_overlap(h["name"], week_monday)
+        if away_days >= 3:
+            # committing tasks to someone away most of the week sets the
+            # kept-% up to lie — skip them, say so
+            skipped.append({"person": h["name"], "away_days": away_days})
+            continue
         rows = db.query(
             "SELECT id, title, priority, due_date FROM tasks"
             " WHERE assignee = ? AND status IN ('todo', 'in_progress')"
@@ -57,7 +70,7 @@ def draft_plan(week: str = "") -> dict:
             (h["name"], week, MAX_PER_PERSON),
         )
         items += [{"task_id": r["id"], "title": r["title"], "assignee": h["name"]} for r in rows]
-    return {"week": week, "items": items}
+    return {"week": week, "items": items, "skipped_absent": skipped}
 
 
 def apply_plan(

@@ -9,6 +9,7 @@ from .. import db
 
 def _registry() -> dict:
     from . import (
+        absences,
         blockers,
         collab,
         commitments,
@@ -52,6 +53,9 @@ def _registry() -> dict:
         "commitment_settle": {"update": commitments.update_commitment},
         "memory_forget": {"update": memory.forget},
         "delegation": {"create": delegation.delegate_task},
+        "task_completion": {"update": delegation.accept_completion},
+        "authority": {"create": delegation.set_authority},
+        "absence": {"create": absences.add_absence},
     }
 
 

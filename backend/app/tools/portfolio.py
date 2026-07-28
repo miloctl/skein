@@ -7,7 +7,7 @@ from typing import Any
 from strands import tool
 
 from ..agents.identity import agent_identity
-from ..services import collab, commitments, context_pack, delegation, portfolio
+from ..services import absences, collab, commitments, context_pack, delegation, portfolio
 from ._gate import gated_write
 
 
@@ -211,3 +211,95 @@ def mark_commitment(commitment_id: int, status: str) -> str:
         entity_id=commitment_id,
         summary=f"mark commitment #{commitment_id} {status}",
     )
+
+
+@tool
+def claim_delegated_task(task_id: int) -> str:
+    """Pick up a task delegated to you: flips it to in_progress and tells
+    your sponsor you started. Use before doing the work.
+
+    Args:
+        task_id: ID of the task delegated to you.
+    """
+    try:
+        return json.dumps(delegation.claim_task(task_id, actor=agent_identity()))
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@tool
+def report_progress(task_id: int, note: str) -> str:
+    """Log a progress note on a delegated task — your sponsor reads the
+    worklog before accepting. Report as you go, not only at the end.
+
+    Args:
+        task_id: ID of the task.
+        note: What you did / found / decided since the last note.
+    """
+    try:
+        return json.dumps(delegation.report_progress(task_id, note, actor=agent_identity()))
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@tool
+def submit_for_acceptance(task_id: int, summary: str) -> str:
+    """Submit a delegated task as finished. This ALWAYS files a proposal —
+    your sponsor's verdict marks it done (and every verdict builds or costs
+    your trust score). Never claim the task is done after calling this;
+    say it awaits acceptance.
+
+    Args:
+        task_id: ID of the task delegated to you.
+        summary: What was delivered — the sponsor reads exactly this.
+    """
+    from ..agents.identity import requester_identity
+
+    try:
+        return json.dumps(
+            delegation.submit_completion(
+                task_id, summary, actor=agent_identity(), requested_by=requester_identity()
+            )
+        )
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@tool
+def add_absence(
+    person: str, starts_on: str, ends_on: str, kind: str = "pto", note: str = ""
+) -> str:
+    """Record time away (pto / oncall / focus) so capacity, the weekly plan,
+    and staffing what-ifs respect it.
+
+    Args:
+        person: Who is away.
+        starts_on: First day (YYYY-MM-DD).
+        ends_on: Last day (YYYY-MM-DD).
+        kind: pto (zeroes planning), oncall, or focus (advisory).
+        note: Optional context.
+    """
+    payload = {
+        "person": person,
+        "starts_on": starts_on,
+        "ends_on": ends_on,
+        "kind": kind,
+        "note": note,
+    }
+    return gated_write(
+        "absence",
+        "create",
+        payload,
+        lambda: absences.add_absence(**payload, actor=agent_identity(), origin="agent"),
+        summary=f"absence: {person} {kind} {starts_on}..{ends_on}",
+    )
+
+
+@tool
+def list_absences(person: str = "") -> str:
+    """Current and upcoming time away for the team (or one person).
+
+    Args:
+        person: Optional filter.
+    """
+    return json.dumps(absences.list_absences(person))
