@@ -44,8 +44,8 @@ key (StrongUser).
 | Agent status strip | provider (mock = "deterministic mode"), model, review-gate state in plain words on Team → Agents | `GET /api/agents/status` |
 | Derived standup "yesterday" | the My Day composer prefills yesterday from the user's own activity log — asked-for input becomes derived | `GET /api/briefing` (`your_work.standup_suggestion`) |
 | Themes | 5-pack theme gallery (Loom/Ledger/Phosphor/Atelier/High-contrast) — packs re-weave type, radii, shadows, textures, selvage, and empty-state voice, not just colors; colorway accents + custom two-hue dials (AA at every hue, checker-enforced); theme (incl. custom hues) auto-saves to the profile and follows the person to any browser; shareable theme code (copy/paste JSON under Customize & share); operator-set team default adopted by fresh browsers and anonymous visitors (StrongUser, a default never an override) | Settings · `frontend/lib/theme.ts` · `GET/POST /api/users/theme` · `POST /api/users/theme/default` |
-| Availability ledger | PTO/on-call/focus windows (absences table): capacity marks people away, the weekly draft skips anyone away 3+ weekdays (listed as skipped, never silently), what-if staffing shows upcoming PTO; manage on Work → Browse Time-away card | `GET/POST/DELETE /api/absences` · tools `add_absence`/`list_absences` (agent create is ALWAYS a proposal) |
-| Delegation work loop | claim → report_progress (worklog) → submit_for_acceptance: acceptance is ALWAYS a proposal bound to the sponsor (others need a reason on record; only key-authenticated sponsor verdicts feed trust); worklog readable pre-verdict | tools `claim_delegated_task`/`report_progress`/`submit_for_acceptance` · `GET /api/tasks/{id}/worklog` |
+| Availability ledger | PTO/on-call/focus windows (absences table): capacity marks people away, the weekly draft skips anyone away 3+ weekdays (listed as skipped, never silently), what-if staffing shows upcoming PTO; manage on Work → Browse Time-away card | `GET/POST/DELETE /api/absences` · tools `add_absence`/`list_absences` (agent create is ALWAYS a proposal) · CLI `skein absences add/list/rm` |
+| Delegation work loop | claim → report_progress (worklog) → submit_for_acceptance: acceptance is ALWAYS a proposal bound to the sponsor (others need a reason on record; only key-authenticated sponsor verdicts feed trust); worklog readable pre-verdict | tools `claim_delegated_task`/`report_progress`/`submit_for_acceptance` · `GET /api/tasks/{id}/worklog` · CLI `skein worklog`/`skein inbox` |
 | Authority review job | weekly scan turns strong-verdict streaks into FILED proposals: 5 straight key-authenticated sponsor/reviewer approvals at review → propose notify; 3 straight rejections likewise → propose demotion to review (weak-header and override verdicts never count); agents can never approve, so no self-promotion | job `authority-review` · registry entity `authority` |
 | Week rituals | Monday brief (each person's own promises, stale decisions, questions, due tasks → personal notification + artifact) and Friday close-out (due promises, stuck-closing engagements, stale proposals, open questions → team notification + artifact); scheduler-run weekly, manual buttons under manager controls on Work → Health | jobs `week-open`/`week-close` · `POST /api/rituals/week-open|week-close` |
 | Artifacts & digest | handoffs, readouts, digests archived under `data/artifacts/` | `GET /api/artifacts` · `POST /api/digest` |
@@ -64,7 +64,7 @@ key (StrongUser).
 | **Slip forecast** | avg slip from the team's own completed milestones projected onto open ones — labeled heuristic, basis shown | `GET /api/portfolio/forecast` |
 | **Flow metrics** | cycle time (created→`completed_at`), weekly throughput, WIP per person, stale-WIP list; Monday nudges to owners | `GET /api/portfolio/flow` · `/portfolio` |
 | **Exec readout** | curated markdown projection (health, ships, risks, commitments, flow), saved as an artifact | `POST /api/portfolio/readout` |
-| **Commitment ledger** | promises with `audience: external\|team` — external ones feed the exec readout and findings; `team` ones are the manager's own promises to the team, visible so they get kept; open→kept/missed/withdrawn (terminal) | `/api/commitments…` · capture `promised: …` |
+| **Commitment ledger** | promises with `audience: external\|team` — external ones feed the exec readout and findings; `team` ones are the manager's own promises to the team, visible so they get kept; open→kept/missed/withdrawn (terminal) | `/api/commitments…` · capture `promised: …` · CLI `skein commitments [settle]` |
 | Lessons | retro lessons tagged by class, surfaced at next kickoff | `/api/lessons` |
 | Handoff packages | deterministic markdown artifact of everything the incoming roster needs | `POST /api/engagements/{id}/handoff` |
 
@@ -101,7 +101,7 @@ key (StrongUser).
 
 | Feature | How |
 |---|---|
-| Approvals (review queue) | approve/reject with notes; CAS claim prevents double-review; failed applies restore to pending | `/review` page |
+| Approvals (review queue) | approve/reject with notes; CAS claim prevents double-review; failed applies restore to pending (vanished targets auto-reject) | `/review` page · CLI `skein review [approve|reject]` |
 | **Review analytics** | approve/reject/pending + avg review latency per entity and per proposer; recent rejection reasons | `GET /api/review/stats` |
 | **Eval corpus** | `POST /api/feedback` records thumbs/corrections on chat, capture, proposals | `kind=chat\|capture\|proposal`, `verdict=up\|down\|corrected` |
 | **`strands eval`** | replays the capture classifier against its labeled corpus; exit 1 on regressions — run before changing the rules (or a prompt) | CLI · `GET /api/eval/capture` |

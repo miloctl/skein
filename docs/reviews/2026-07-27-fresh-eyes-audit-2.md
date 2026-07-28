@@ -135,7 +135,7 @@ eyes hadn't hit yet.
   delegation, worklog, charter category, review_by); FEATURES omits the
   strong-verdict requirement for streaks and 3 of 14 jobs; CORRECTIONS
   rule 2 overclaims for events; README ⌘K list stale; INSIGHTS rule 16
-  reads as built; CLI has no commitments/absences/review verbs; lint.sh
+  reads as built; CLI verbs SHIPPED (commitments/absences/review/worklog/inbox); lint.sh
   comment says mypy covers CLI (it doesn't).
 
 ## Explicitly verified clean
