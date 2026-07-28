@@ -300,7 +300,7 @@ export default function Agents() {
                       ))}
                     </select>
                   ) : (
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.level]}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.level] ?? 'bg-raised text-ink-2'}`}>
                       {LEVEL_LABEL[g.level] ?? g.level}
                     </span>
                   )}

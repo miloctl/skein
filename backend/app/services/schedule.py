@@ -27,6 +27,8 @@ def schedule_event(
             dt = datetime.fromisoformat(value)
         except (TypeError, ValueError):
             raise ValueError(f"{label} must be an ISO timestamp (e.g. 2026-07-24T15:00)") from None
+        if len(value) == 10:
+            return value  # date-only stays a date: an all-day VEVENT, not midnight
         if dt.tzinfo is not None:
             from datetime import timezone
 

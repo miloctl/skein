@@ -128,6 +128,11 @@ def update_engagement(
         raise ValueError("nothing to update")
     # "-" clears any clearable field — same convention as tasks/milestones;
     # a mis-set timebox must be removable, not only movable
+    if fields.get("timebox_end") == "-" and current["kind"] == "experiment":
+        raise ValueError(
+            "experiments keep a timebox — move the date instead of clearing"
+            " it, or close the experiment with a conclusion"
+        )
     for clearable, empty in (
         ("timebox_end", None),
         ("kill_criteria", ""),

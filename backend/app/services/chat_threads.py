@@ -81,12 +81,16 @@ def _own(thread_id: str, owner: str) -> dict:
     return row
 
 
-def has_messages(thread_id: str) -> bool:
-    """Existence only (no ownership check, no content) — the chat route uses
-    this to emit a persona masthead exactly once per thread on EVERY
-    provider, including mock (which never creates a session dir)."""
+def thread_contains(thread_id: str, needle: str) -> bool:
+    """Existence-only content probe (no ownership check) — the chat route
+    uses it to emit a persona masthead once per persona per thread on EVERY
+    provider, including mock (which never creates a session dir). Transcripts
+    are logged under the BASE thread id, so this must be probed there."""
     return bool(
-        db.query_one("SELECT 1 AS x FROM chat_messages WHERE thread_id = ? LIMIT 1", (thread_id,))
+        db.query_one(
+            "SELECT 1 AS x FROM chat_messages WHERE thread_id = ? AND content LIKE ? LIMIT 1",
+            (thread_id, f"%{needle}%"),
+        )
     )
 
 
