@@ -99,13 +99,13 @@ def propose_change(
     return {"id": pid, "status": "pending"}
 
 
-def _claim(change_id: int, new_status: str, note: str, actor: str) -> None:
+def _claim(change_id: int, new_status: str, note: str, actor: str, strong: bool = False) -> None:
     """Compare-and-swap the pending -> reviewed transition so concurrent
     approve/reject calls can't both act on the same change."""
     claimed = db.execute_rowcount(
         "UPDATE pending_changes SET status = ?, reviewed_by = ?, review_note = ?,"
-        " reviewed_at = ? WHERE id = ? AND status = 'pending'",
-        (new_status, actor, note, db.now(), change_id),
+        " reviewed_at = ?, reviewed_strong = ? WHERE id = ? AND status = 'pending'",
+        (new_status, actor, note, db.now(), int(strong), change_id),
     )
     if not claimed:
         change = db.query_one("SELECT status FROM pending_changes WHERE id = ?", (change_id,))
@@ -114,7 +114,9 @@ def _claim(change_id: int, new_status: str, note: str, actor: str) -> None:
         raise ValueError(f"change #{change_id} already {change['status']}")
 
 
-def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:
+def approve_change(
+    change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
+) -> dict:
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise ValueError(f"pending change #{change_id} not found")
@@ -126,7 +128,7 @@ def approve_change(change_id: int, note: str = "", *, actor: str = "system") -> 
     except KeyError as exc:
         raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
     payload = json.loads(change["payload"])
-    _claim(change_id, "approved", note, actor)
+    _claim(change_id, "approved", note, actor, strong)
     try:
         # compound applies (playbook, weekly_plan) land atomically or not at
         # all — a failed apply rolls back, so pending is safe for EVERY entity
@@ -167,8 +169,10 @@ def _clear_review_ping(change_id: int) -> None:
     mark_read_matching(f"Review needed: #{change_id} ")
 
 
-def reject_change(change_id: int, note: str = "", *, actor: str = "system") -> dict:
-    _claim(change_id, "rejected", note, actor)
+def reject_change(
+    change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
+) -> dict:
+    _claim(change_id, "rejected", note, actor, strong)
     db.log_activity(actor, "reject_change", f"#{change_id}")
     _clear_review_ping(change_id)
     return {"id": change_id, "status": "rejected"}

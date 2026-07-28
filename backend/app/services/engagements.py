@@ -97,15 +97,9 @@ def update_engagement(
     if not current:
         raise ValueError(f"engagement #{engagement_id} not found")
     name = name.strip()
-    if name and name != current["name"]:
-        if db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
-            raise ValueError(f"engagement '{name}' already exists")
-        # the id is the real join; propagate the display name so the
-        # project label on milestones keeps matching
-        db.execute(
-            "UPDATE milestones SET project = ? WHERE engagement_id = ?",
-            (name, engagement_id),
-        )
+    renaming = bool(name and name != current["name"])
+    if renaming and db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
+        raise ValueError(f"engagement '{name}' already exists")
     freshly_closed = status == "closed" and current["status"] != "closed"
     if freshly_closed and not (conclusion or current["conclusion"]):
         raise ValueError(
@@ -116,7 +110,7 @@ def update_engagement(
         k: v
         for k, v in [
             ("status", status),
-            ("name", name if name != current["name"] else ""),
+            ("name", name if renaming else ""),
             ("summary", summary),
             ("lead", lead),
             ("conclusion", conclusion),
@@ -133,10 +127,19 @@ def update_engagement(
     if freshly_closed:
         fields["closed_at"] = db.now()  # re-closing must not re-fire ship-it
     sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(
-        f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
-        (*fields.values(), db.now(), engagement_id),
-    )
+    # rename propagation rides the same transaction AFTER all validation — a
+    # rejected PATCH must never leave milestones labeled with a name no
+    # engagement has
+    with db.transaction():
+        if renaming:
+            db.execute(
+                "UPDATE milestones SET project = ? WHERE engagement_id = ?",
+                (name, engagement_id),
+            )
+        db.execute(
+            f"UPDATE engagements SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+            (*fields.values(), db.now(), engagement_id),
+        )
     db.log_activity(actor, "update_engagement", f"#{engagement_id} {status or 'edited'}")
     if "name" in fields:
         row = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))

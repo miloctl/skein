@@ -197,6 +197,17 @@ export default function SettingsPage() {
                   }}
                   className="w-44 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
                 />
+                <button
+                  onClick={(e) => {
+                    const input = (e.currentTarget.parentElement?.querySelector(
+                      "input",
+                    ) as HTMLInputElement | null);
+                    if (input) renameUser(u.name, input.value);
+                  }}
+                  className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
+                >
+                  save
+                </button>
                 <button onClick={() => setRenaming(null)} className="text-xs text-ink-3 hover:text-ink">
                   cancel
                 </button>
@@ -205,6 +216,8 @@ export default function SettingsPage() {
               <span className="flex items-center gap-1 text-xs">
                 <span className="text-ink-3">history stays, keys revoked —</span>
                 <button
+                  autoFocus
+                  aria-label={`Deactivate ${u.name} — history stays, keys revoked`}
                   onClick={() => {
                     setDeactivating(null);
                     setActive(u.name, false);

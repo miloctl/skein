@@ -164,7 +164,8 @@ export default function ReviewPage() {
               </span>
               <span className="text-xs text-ink-3">
                 by {c.proposed_by}
-                {c.requested_by ? ` · asked by ${c.requested_by}` : ""} · {timeAgo(c.created_at)}
+                {c.requested_by ? ` · asked by ${c.requested_by}` : ""} ·{" "}
+                <time dateTime={c.created_at} title={c.created_at}>{timeAgo(c.created_at)}</time>
               </span>
             </div>
             {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}

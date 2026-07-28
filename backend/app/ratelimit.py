@@ -11,7 +11,7 @@ _hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 _lock = Lock()
 
 WINDOW_SECONDS = 60.0
-LIMITS = {"capture": 30, "ingest": 6, "keys_request": 3, "feedback": 12}
+LIMITS = {"capture": 30, "ingest": 6, "keys_request": 3, "feedback": 12, "delete": 20}
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 
 

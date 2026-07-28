@@ -225,16 +225,32 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
 
 def test_trust_scores_streak_suggestion(client, fresh_db):
     from app.services import review
+    from app.services.api_keys import create_key
 
+    # promotion streaks count only strong-identity verdicts
+    headers = {"Authorization": f"Bearer {create_key('tester', 't')['key']}"}
     for i in range(5):
         p = review.propose_change(
             "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
         )
-        client.post(f"/api/review/{p['id']}/approve", json={})
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
     trust = client.get("/api/agents/trust").json()
     row = next(r for r in trust if r["agent"] == "scribe")
     assert row["approved"] == 5 and row["recent_streak"] == 5
     assert "autonomous" in row["suggestion"]
+
+
+def test_weak_identity_verdicts_never_suggest_promotion(client, fresh_db):
+    from app.services import review
+
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"w{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={})  # X-User only
+    row = next(r for r in client.get("/api/agents/trust").json() if r["agent"] == "scribe")
+    assert row["approved"] == 5  # verdicts still count as history
+    assert row["recent_streak"] == 0 and row["suggestion"] == ""
 
 
 # ---- review analytics + eval corpus --------------------------------------------

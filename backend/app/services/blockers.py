@@ -62,12 +62,18 @@ def edit_blocker(
     fields = {k: v for k, v in [("title", title), ("detail", detail), ("owner", owner)] if v}
     if not fields:
         raise ValueError("nothing to update")
+    for clearable in ("detail", "owner"):
+        if fields.get(clearable) == "-":
+            fields[clearable] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE blockers SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), blocker_id),
     )
-    db.log_activity(actor, "edit_blocker", f"#{blocker_id} {' '.join(fields)}")
+    if title and title != row["title"]:
+        db.log_activity(actor, "edit_blocker", f"#{blocker_id}: '{row['title']}' -> '{title}'")
+    else:
+        db.log_activity(actor, "edit_blocker", f"#{blocker_id} {' '.join(fields)}")
     new = db.query_one("SELECT title, detail, owner FROM blockers WHERE id = ?", (blocker_id,))
     if new:
         index_record("blocker", blocker_id, new["title"], f"{new['detail']} {new['owner']}")

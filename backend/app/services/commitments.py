@@ -89,6 +89,10 @@ def edit_commitment(
     }
     if not fields:
         raise ValueError("nothing to update")
+    if fields.get("due_date") == "-":
+        fields["due_date"] = None  # type: ignore[assignment]
+    if fields.get("to_whom") == "-":
+        fields["to_whom"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE commitments SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded

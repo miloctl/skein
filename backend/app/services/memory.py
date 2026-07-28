@@ -29,7 +29,7 @@ def forget(memory_id: int, *, actor: str) -> dict:
     from .search import deindex_record
 
     deindex_record("memory", memory_id)
-    db.log_activity(actor, "forget", f"#{memory_id} {row['topic'] or row['content'][:60]}")
+    db.log_activity(actor, "forget", f"#{memory_id} [{row['topic']}] {row['content'][:200]}")
     return {"id": memory_id, "deleted": True}
 
 

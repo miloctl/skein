@@ -105,6 +105,8 @@ export function ChatSidebar({
   const [selChats, setSelChats] = useState<Set<string>>(new Set());
   const [selFolders, setSelFolders] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
   const expandRail = useRef<HTMLButtonElement>(null);
 
   const collapsed = useSyncExternalStore(
@@ -152,7 +154,10 @@ export function ChatSidebar({
   useEffect(() => {
     if (!menu) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!(e.target as Element | null)?.closest("[data-menu]")) setMenu(null);
+      if (!(e.target as Element | null)?.closest("[data-menu]")) {
+        setMenu(null);
+        setConfirmingDelete(null);
+      }
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
@@ -162,6 +167,7 @@ export function ChatSidebar({
     setSelectMode(false);
     setSelChats(new Set());
     setSelFolders(new Set());
+    setConfirmingBulk(false);
   };
 
   // Escape leaves select mode
@@ -179,6 +185,7 @@ export function ChatSidebar({
 
   const closeMenu = (refocus?: string) => {
     setMenu(null);
+    setConfirmingDelete(null); // dismissal must always disarm the danger step
     if (refocus) refocusTrigger(refocus);
   };
 
@@ -232,9 +239,6 @@ export function ChatSidebar({
     }
   };
 
-  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
-  const [confirmingBulk, setConfirmingBulk] = useState(false);
-
   const remove = async (t: ChatThread) => {
     closeMenu();
     setConfirmingDelete(null);
@@ -249,6 +253,7 @@ export function ChatSidebar({
 
   const enterSelect = (seedChat?: string) => {
     setMenu(null);
+    setConfirmingBulk(false);
     setSelectMode(true);
     setSelChats(new Set(seedChat ? [seedChat] : []));
     setSelFolders(new Set());
@@ -348,10 +353,13 @@ export function ChatSidebar({
           {confirmingBulk ? (
             <>
               <button
+                autoFocus
                 onClick={deleteSelected}
                 className="rounded bg-danger px-2 py-1 font-medium text-white hover:opacity-90"
               >
-                Really delete — transcripts gone
+                {selChats.size
+                  ? "Really delete — transcripts gone"
+                  : "Really delete — chats stay, unfiled"}
               </button>
               <button
                 onClick={() => setConfirmingBulk(false)}
