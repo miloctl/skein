@@ -248,3 +248,96 @@ def test_merge_backfills_profile_fields_target_never_set(fresh_db):
     row = users.list_users()
     me = next(u for u in row if u["name"] == "mira")
     assert me["growth_interests"] == "rust, distributed systems"
+
+
+# ---- agent-tool parity ------------------------------------------------------------
+
+
+def _approve_latest(client):
+    from app.services.api_keys import create_key
+
+    headers = {"Authorization": f"Bearer {create_key('tester', 'p')['key']}"}
+    pending = client.get("/api/review?status=pending").json()
+    assert pending, "expected a pending proposal"
+    r = client.post(f"/api/review/{pending[0]['id']}/approve", json={}, headers=headers)
+    assert r.json()["status"] == "approved"
+    return pending[0]
+
+
+def test_agent_note_edit_flows_through_review(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import collab
+    from app.tools.collab import edit_note
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    n = collab.save_note(topic="conv", content="original", author="ava", actor="ava")
+    out = edit_note(note_id=n["id"], content="corrected by the bench")
+    assert "pending" in out or "queued" in out  # proposal, not a direct write
+    assert (
+        fresh_db.query_one("SELECT content FROM notes WHERE id = ?", (n["id"],))["content"]
+        == "original"
+    )
+    change = _approve_latest(client)
+    assert change["entity"] == "note_edit"
+    assert (
+        fresh_db.query_one("SELECT content FROM notes WHERE id = ?", (n["id"],))["content"]
+        == "corrected by the bench"
+    )
+
+
+def test_agent_forget_memory_gated_and_applies(client, fresh_db, monkeypatch):
+    from app import config
+    from app.services import memory
+    from app.tools.memory import forget_memory
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    m = memory.remember("the cluster password rotates on Fridays", topic="ops", actor="agent")
+    out = forget_memory(memory_id=m["id"])
+    assert "pending" in out
+    assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+    _approve_latest(client)
+    assert not fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (m["id"],))
+
+
+def test_agent_edit_respects_forbidden_authority(fresh_db, monkeypatch):
+    from app import config
+    from app.services import blockers, delegation
+    from app.tools.platform import edit_blocker
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    b = blockers.raise_blocker(title="typo'd", owner="ava", actor="ava")
+    delegation.set_authority("agent", "blocker_edit", "forbidden", actor="tester")
+    out = edit_blocker(blocker_id=b["id"], title="nope")
+    assert "forbidden" in out
+    assert (
+        fresh_db.query_one("SELECT title FROM blockers WHERE id = ?", (b["id"],))["title"]
+        == "typo'd"
+    )
+
+
+def test_agent_history_guard_survives_approval(client, fresh_db, monkeypatch):
+    """Approving an edit of a since-settled record must fail the apply and
+    reset the proposal — never falsify history."""
+    from app import config
+    from app.services import commitments
+    from app.tools.portfolio import edit_commitment
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    c = commitments.add_commitment("shipp it", actor="ava")
+    out = edit_commitment(commitment_id=c["id"], promise="ship it")
+    assert "pending" in out
+    commitments.update_commitment(c["id"], "kept", actor="ava")  # settles first
+    from app.services.api_keys import create_key
+
+    headers = {"Authorization": f"Bearer {create_key('tester', 'p2')['key']}"}
+    pending = client.get("/api/review?status=pending").json()
+    resp = client.post(f"/api/review/{pending[0]['id']}/approve", json={}, headers=headers)
+    assert resp.status_code == 400  # apply failed loudly
+    row = fresh_db.query_one(
+        "SELECT status, review_note FROM pending_changes WHERE id = ?", (pending[0]["id"],)
+    )
+    assert row["status"] == "pending" and "apply failed" in row["review_note"]
+    assert (
+        fresh_db.query_one("SELECT promise FROM commitments WHERE id = ?", (c["id"],))["promise"]
+        == "shipp it"
+    )

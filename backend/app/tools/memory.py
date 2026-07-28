@@ -6,6 +6,7 @@ from strands import tool
 
 from ..agents.identity import agent_identity
 from ..services import memory
+from ._gate import gated_write
 
 
 @tool
@@ -34,3 +35,22 @@ def recall_memories(query: str = "") -> str:
         query: What to look for; empty returns the most recent memories.
     """
     return json.dumps(memory.recall(query))
+
+
+@tool
+def forget_memory(memory_id: int) -> str:
+    """Remove a wrong or outdated cross-thread memory for good. Memories
+    steer every future conversation, so removal goes through the same review
+    gate as other corrections.
+
+    Args:
+        memory_id: ID of the memory (recall_memories shows ids).
+    """
+    return gated_write(
+        "memory_forget",
+        "update",
+        {},
+        lambda: memory.forget(memory_id, actor=agent_identity(), origin="agent"),
+        entity_id=memory_id,
+        summary=f"forget memory #{memory_id}",
+    )

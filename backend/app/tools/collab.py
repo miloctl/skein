@@ -176,3 +176,42 @@ def search_notes(keyword: str = "") -> str:
         keyword: Text to search for; empty returns the most recent notes.
     """
     return json.dumps(collab.search_notes(keyword))
+
+
+@tool
+def edit_note(note_id: int, topic: str = "", content: str = "") -> str:
+    """Correct a knowledge-base note's topic or content. Only pass the fields
+    to change; the rest stay as they are.
+
+    Args:
+        note_id: ID of the note.
+        topic: New topic, if changing it.
+        content: New content (markdown), if changing it.
+    """
+    payload = {k: v for k, v in {"topic": topic, "content": content}.items() if v}
+    return gated_write(
+        "note_edit",
+        "update",
+        payload,
+        lambda: collab.update_note(note_id, **payload, actor=agent_identity(), origin="agent"),
+        entity_id=note_id,
+        summary=f"edit note #{note_id}",
+    )
+
+
+@tool
+def delete_note(note_id: int) -> str:
+    """Delete a knowledge-base note for good (it also leaves search). Prefer
+    edit_note when the note is wrong but salvageable.
+
+    Args:
+        note_id: ID of the note to delete.
+    """
+    return gated_write(
+        "note_delete",
+        "update",
+        {},
+        lambda: collab.delete_note(note_id, actor=agent_identity(), origin="agent"),
+        entity_id=note_id,
+        summary=f"delete note #{note_id}",
+    )

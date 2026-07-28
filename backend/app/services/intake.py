@@ -35,7 +35,9 @@ def submit_request(
     return {"id": rid, "status": "submitted"}
 
 
-def edit_request(request_id: int, title: str = "", detail: str = "", *, actor: str = "") -> dict:
+def edit_request(
+    request_id: int, title: str = "", detail: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
     """Fix a request's wording before triage — after a disposition the record
     is the reason the requester saw, so it stays put."""
     row = db.query_one("SELECT title, status FROM intake_requests WHERE id = ?", (request_id,))

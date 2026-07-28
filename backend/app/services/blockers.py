@@ -52,6 +52,7 @@ def edit_blocker(
     owner: str = "",
     *,
     actor: str = "system",
+    origin: str = "human",
 ) -> dict:
     """Correct an open blocker's wording/owner — resolution stays its own verb."""
     row = db.query_one("SELECT title, status FROM blockers WHERE id = ?", (blocker_id,))

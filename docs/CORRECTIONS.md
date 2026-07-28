@@ -32,35 +32,35 @@ new features are reviewed against it.
 |---|---|---|---|---|
 | Task | ✅ UI+API+tool | done state | ✅ (−1 unlinks) | |
 | Milestone | ✅ UI+API+tool | done state | ✅ | create warns on unmatched project |
-| Engagement | ✅ incl. rename | close w/ conclusion | n/a | rename propagates labels |
+| Engagement | ✅ incl. rename (API+tool+UI status) | close w/ conclusion | n/a | rename propagates labels, transactional |
 | Allocation | delete+recreate | ✅ DELETE | n/a | capacity window-aware |
-| Memory | recreate | ✅ forget (UI+API) | n/a | deindexed |
+| Memory | recreate | ✅ forget (UI+API+tool) | n/a | deindexed; agent forget is review-gated |
 | Event | recreate | ✅ DELETE (REST+tool) | n/a | deindexed |
 | Chat thread | rename/move | ✅ | folders | sessions removed too |
 | Question | assign/answer | answered state | n/a | overwrite guarded |
 | Decision | reconfirm | supersede chain (UI) | n/a | never hard-deleted by design |
-| Blocker | ✅ wording (API only) | resolved state | waiting_on | resolved refuses edits; no UI/tool yet |
-| Commitment | ✅ promise (API only) | kept/missed | n/a | old→new logged; settled refuses; no UI/tool yet |
-| Note | ✅ UI+API | ✅ DELETE (UI+API) | n/a | deindexed; KB-card inline edit + two-step delete; no tool |
+| Blocker | ✅ wording (API+tool) | resolved state | waiting_on | resolved refuses edits; no UI yet |
+| Commitment | ✅ promise (API+tool) | kept/missed (API+tool+UI) | n/a | old→new logged; settled refuses; edit has no UI yet |
+| Note | ✅ UI+API+tool | ✅ DELETE (UI+API+tool) | n/a | deindexed; KB-card inline edit + two-step delete |
 | Standup | — | — | n/a | immutable by design (a diary, not a doc) |
-| Intake request | ✅ title/detail (API only) | declined/deferred | n/a | submitted/scored only; no UI/tool yet |
+| Intake request | ✅ title/detail (API+tool) | declined/deferred | n/a | submitted/scored only; no UI yet |
 | User | rename/merge/deactivate | deactivate | n/a | merge backfills theme+interests |
 
 ## Remaining gaps (next batch)
 
-1. **Tool parity** (rule 1 says REST *and* tools): agents can create every
-   record but correct almost none — no `update_note`/`delete_note`,
-   `edit_blocker`, `edit_commitment` (nor commitment status), `edit_request`
-   (intake), `forget` (memory), or `update_engagement` tool. Only
-   task/milestone update and `cancel_event` exist on the agent write path.
-2. UI affordances for the new wording edits — blocker (My Day), commitment
+1. UI affordances for the new wording edits — blocker (My Day), commitment
    (Portfolio), intake title (Intake) — and a cancel on the dashboard
    Calendar card (event delete is REST+tool only).
-3. Rule 4 old→new on renames: `edit_commitment` logs it for promise text,
-   but blocker title, intake title, and note topic edits log field names /
-   old topic only.
-4. Housekeeping: one raw `SELECT` left in a route (agent-inbox kind check in
-   `api.py`); `update_note` takes an `origin` param it never uses.
+
+Closed 2026-07-27 (later batch): **tool parity** — agents now correct under
+the same review gate humans use: `edit_note`/`delete_note`, `edit_blocker`,
+`edit_commitment` + `mark_commitment`, `edit_intake_request`,
+`update_engagement`, and review-gated `forget_memory` (new registry entities
+note_edit/note_delete/blocker_edit/commitment_edit/intake_edit/memory_forget,
+each its own authority knob). Also closed: old→new rename logging
+(blocker/intake/note), the last raw route SELECT, delete rate caps,
+strong-verdict trust gating, EditRow clear sentinels, textarea note editing,
+transactional rename propagation.
 
 Closed by the 2026-07-27 batch: notes CRUD (last zero-path entity),
 blocker/commitment/intake wording edits at the service+REST layers with
