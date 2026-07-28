@@ -384,7 +384,7 @@ export default function Agents() {
         )}
       </Card>
 
-      <Card title="Team memory — injected into every agent conversation">
+      <Card title="Team memory — steers agent conversations (personal ones only their owner\u2019s)">
         {memories.length === 0 ? (
           <p className="text-sm text-ink-3">
             Nothing remembered yet — /remember in chat adds one.
@@ -396,10 +396,15 @@ export default function Agents() {
                 <span className="min-w-0">
                   {m.topic && <span className="mr-1.5 font-medium">[{m.topic}]</span>}
                   {m.content}
+                  {m.user && (
+                    <span className="ml-1.5 text-xs text-ink-3">({m.user} only)</span>
+                  )}
                 </span>
                 {forgetting === m.id ? (
                   <span className="flex shrink-0 items-center gap-1 text-xs">
                     <button
+                      autoFocus
+                      aria-label={`Forget for good: ${m.topic || m.content.slice(0, 40)}`}
                       onClick={async () => {
                         try {
                           await api(`/api/memories/${m.id}`, { method: "DELETE" });

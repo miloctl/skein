@@ -102,6 +102,11 @@ def get_theme(name: str) -> str:
     return row["theme"] if row else ""
 
 
+def is_agent(name: str) -> bool:
+    row = db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
+    return bool(row and row["kind"] == "agent")
+
+
 def list_users(active_only: bool = True) -> list[dict]:
     """'anonymous' is the pre-name-pick fallback identity, not a teammate —
     no listing surface (roster, People, staffing) should show it."""

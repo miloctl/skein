@@ -101,9 +101,11 @@ def trust_scores() -> list[dict]:
         " GROUP BY proposed_by, entity ORDER BY proposed DESC"
     )
     for r in rows:
+        # promotion suggestions count only strong-identity verdicts — a
+        # spoofed X-User must not be able to walk an agent to autonomous
         recent = db.query(
             "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
-            " AND status != 'pending' ORDER BY id DESC LIMIT ?",
+            " AND status != 'pending' AND reviewed_strong = 1 ORDER BY id DESC LIMIT ?",
             (r["agent"], r["entity"], TRUST_STREAK),
         )
         streak = 0

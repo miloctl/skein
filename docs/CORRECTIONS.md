@@ -39,19 +39,30 @@ new features are reviewed against it.
 | Chat thread | rename/move | ✅ | folders | sessions removed too |
 | Question | assign/answer | answered state | n/a | overwrite guarded |
 | Decision | reconfirm | supersede chain (UI) | n/a | never hard-deleted by design |
-| Blocker | resolve | resolved state | waiting_on | edit of title: gap (small) |
-| Commitment | status | kept/missed | n/a | promise-text edit: gap (small) |
-| Note | — | — | n/a | **gap**: no edit/delete anywhere |
+| Blocker | ✅ wording (API only) | resolved state | waiting_on | resolved refuses edits; no UI/tool yet |
+| Commitment | ✅ promise (API only) | kept/missed | n/a | old→new logged; settled refuses; no UI/tool yet |
+| Note | ✅ UI+API | ✅ DELETE (UI+API) | n/a | deindexed; KB-card inline edit + two-step delete; no tool |
 | Standup | — | — | n/a | immutable by design (a diary, not a doc) |
-| Intake request | terminal dispositions | declined/deferred | n/a | title edit pre-triage: gap (small) |
+| Intake request | ✅ title/detail (API only) | declined/deferred | n/a | submitted/scored only; no UI/tool yet |
 | User | rename/merge/deactivate | deactivate | n/a | merge backfills theme+interests |
 
-## Remaining gaps (next batch, all small)
+## Remaining gaps (next batch)
 
-1. Notes: PATCH + DELETE (with deindex) + inline edit on the KB card — the
-   only entity with no correction path at all.
-2. Blocker title/detail edit; commitment promise edit; intake title edit
-   while still `submitted`.
-3. prompt()/confirm() stragglers (Settings rename/deactivate, chat-sidebar
-   delete confirms) → inline panels, matching rule 1.
-4. Raw SQL in two routes (`/activity`, one other) → move behind services.
+1. **Tool parity** (rule 1 says REST *and* tools): agents can create every
+   record but correct almost none — no `update_note`/`delete_note`,
+   `edit_blocker`, `edit_commitment` (nor commitment status), `edit_request`
+   (intake), `forget` (memory), or `update_engagement` tool. Only
+   task/milestone update and `cancel_event` exist on the agent write path.
+2. UI affordances for the new wording edits — blocker (My Day), commitment
+   (Portfolio), intake title (Intake) — and a cancel on the dashboard
+   Calendar card (event delete is REST+tool only).
+3. Rule 4 old→new on renames: `edit_commitment` logs it for promise text,
+   but blocker title, intake title, and note topic edits log field names /
+   old topic only.
+4. Housekeeping: one raw `SELECT` left in a route (agent-inbox kind check in
+   `api.py`); `update_note` takes an `origin` param it never uses.
+
+Closed by the 2026-07-27 batch: notes CRUD (last zero-path entity),
+blocker/commitment/intake wording edits at the service+REST layers with
+history guards, prompt()/confirm() fully gone (two-step confirms + inline
+inputs), raw SQL out of `/tasks`, `/activity`, `/usage`.

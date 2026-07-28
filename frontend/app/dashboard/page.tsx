@@ -118,7 +118,16 @@ function EditRow({
       onKeyDown={(e) => e.key === "Escape" && onCancel()}
     >
       {Object.keys(fields).map((k, i) =>
-        k === "assignee" ? (
+        k === "content" ? (
+          <textarea
+            key={k}
+            aria-label="Note content (markdown)"
+            rows={4}
+            value={draft[k]}
+            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+            className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
+          />
+        ) : k === "assignee" ? (
           <PersonInput
             key={k}
             aria-label="Assignee"
@@ -145,7 +154,15 @@ function EditRow({
       )}
       <button
         disabled={!draft.title?.trim()}
-        onClick={() => onSave(draft)}
+        onClick={() => {
+          // clearing IS a correction: the service treats "" as "no change",
+          // so a field the user emptied must travel as the "-" sentinel
+          const out = { ...draft };
+          for (const k of ["due_date", "assignee", "description"]) {
+            if (k in out && !out[k] && fields[k]) out[k] = "-";
+          }
+          onSave(out);
+        }}
         className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
       >
         save
@@ -228,10 +245,14 @@ export default function Dashboard() {
   }, []);
   useEffect(load, [load]);
 
+  const refocusEdit = (kind: string, id: number) =>
+    setTimeout(() => document.getElementById(`edit-${kind}-${id}`)?.focus(), 0);
+
   const patchRow = async (entity: "tasks" | "milestones", id: number, fields: Record<string, string>) => {
     try {
       await api(`/api/${entity}/${id}`, { method: "PATCH", body: JSON.stringify(fields) });
       setEditing(null);
+      refocusEdit(entity === "tasks" ? "task" : "milestone", id);
       load();
     } catch (e) {
       alert(String(e));
@@ -245,6 +266,7 @@ export default function Dashboard() {
         body: JSON.stringify({ topic: f.title, content: f.content }),
       });
       setEditingNote(null);
+      refocusEdit("note", id);
       load();
     } catch (e) {
       alert(String(e));
@@ -471,7 +493,10 @@ export default function Dashboard() {
               key={m.id}
               fields={{ title: String(m.title), due_date: String(m.due_date ?? "") }}
               onSave={(f) => patchRow("milestones", Number(m.id), f)}
-              onCancel={() => setEditing(null)}
+              onCancel={() => {
+                setEditing(null);
+                refocusEdit("milestone", Number(m.id));
+              }}
             />
           ) : (
             <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
@@ -483,6 +508,8 @@ export default function Dashboard() {
               </span>
               <span className="flex items-center gap-1">
                 <button
+                  id={`edit-milestone-${m.id}`}
+                  aria-label={`Edit milestone #${m.id}: ${m.title}`}
                   onClick={() => setEditing({ kind: "milestone", id: Number(m.id) })}
                   className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
@@ -508,7 +535,10 @@ export default function Dashboard() {
                 due_date: String(t.due_date ?? ""),
               }}
               onSave={(f) => patchRow("tasks", Number(t.id), f)}
-              onCancel={() => setEditing(null)}
+              onCancel={() => {
+                setEditing(null);
+                refocusEdit("task", Number(t.id));
+              }}
             />
           ) : (
             <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
@@ -520,6 +550,8 @@ export default function Dashboard() {
               </span>
               <span className="flex items-center gap-1">
                 <button
+                  id={`edit-task-${t.id}`}
+                  aria-label={`Edit task #${t.id}: ${t.title}`}
                   onClick={() => setEditing({ kind: "task", id: Number(t.id) })}
                   className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                 >
@@ -664,7 +696,10 @@ export default function Dashboard() {
               key={n.id}
               fields={{ title: String(n.topic), content: String(n.content) }}
               onSave={(f) => patchNote(Number(n.id), f)}
-              onCancel={() => setEditingNote(null)}
+              onCancel={() => {
+                setEditingNote(null);
+                refocusEdit("note", Number(n.id));
+              }}
             />
           ) : (
             <li key={n.id} className="text-sm">
@@ -672,7 +707,12 @@ export default function Dashboard() {
                 <span className="font-medium">{n.topic}</span>
                 <span className="flex shrink-0 gap-1">
                   <button
-                    onClick={() => setEditingNote(Number(n.id))}
+                    id={`edit-note-${n.id}`}
+                    aria-label={`Edit note: ${n.topic}`}
+                    onClick={() => {
+                      setDeletingNote(null);
+                      setEditingNote(Number(n.id));
+                    }}
                     className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
                     edit…
@@ -680,6 +720,8 @@ export default function Dashboard() {
                   {deletingNote === n.id ? (
                     <>
                       <button
+                        autoFocus
+                        aria-label={`Delete note ${n.topic} for good`}
                         onClick={() => deleteNote(Number(n.id))}
                         className="rounded bg-danger px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
                       >
@@ -694,6 +736,7 @@ export default function Dashboard() {
                     </>
                   ) : (
                     <button
+                      aria-label={`Delete note: ${n.topic}`}
                       onClick={() => setDeletingNote(Number(n.id))}
                       className="rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
                     >
@@ -720,7 +763,7 @@ export default function Dashboard() {
               {a.actor}
             </span>{" "}
             {String(a.action).replace("_", " ")} {a.detail}
-            <span className="ml-1 text-ink-3">{timeAgo(String(a.created_at))}</span>
+            <time dateTime={String(a.created_at)} title={String(a.created_at)} className="ml-1 text-ink-3">{timeAgo(String(a.created_at))}</time>
           </li>
         )}
       />

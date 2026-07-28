@@ -4,7 +4,7 @@ alongside agent tools — both go through app.services)."""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import db, ratelimit
+from .. import ratelimit
 from ..services import (
     admin,
     api_keys,
@@ -105,6 +105,7 @@ def patch_note(note_id: int, body: NotePatch, user: CurrentUser):
 @router.delete("/notes/{note_id}")
 def delete_note(note_id: int, user: CurrentUser):
     try:
+        ratelimit.check("delete", user)
         return collab.delete_note(note_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -113,6 +114,7 @@ def delete_note(note_id: int, user: CurrentUser):
 @router.delete("/events/{event_id}")
 def delete_event(event_id: int, user: CurrentUser):
     try:
+        ratelimit.check("delete", user)
         return schedule.cancel_event(event_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -151,6 +153,7 @@ def get_allocations(engagement_id: int = 0):
 @router.delete("/allocations/{allocation_id}")
 def delete_allocation(allocation_id: int, user: CurrentUser):
     try:
+        ratelimit.check("delete", user)
         return engagements.deallocate(allocation_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -343,6 +346,7 @@ def get_memories(q: str = ""):
 @router.delete("/memories/{memory_id}")
 def delete_memory(memory_id: int, user: CurrentUser):
     try:
+        ratelimit.check("delete", user)
         return memory.forget(memory_id, actor=user)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
@@ -558,8 +562,7 @@ def post_agents_authority(body: AuthorityIn, user: StrongUser):
 
 @router.get("/agents/{agent}/inbox")
 def get_agent_inbox(agent: str, user: CurrentUser):
-    row = db.query_one("SELECT kind FROM users WHERE name = ?", (agent,))
-    if not row or row["kind"] != "agent":
+    if not users.is_agent(agent):
         raise HTTPException(status_code=404, detail=f"no agent named '{agent}'")
     return delegation.agent_inbox(agent)
 
@@ -905,13 +908,15 @@ class ReviewActionIn(BaseModel):
 
 
 @router.post("/review/{change_id}/approve")
-def post_approve(change_id: int, body: ReviewActionIn, user: CurrentUser):
-    return review.approve_change(change_id, body.note, actor=user)
+def post_approve(change_id: int, body: ReviewActionIn, user: CurrentUser, request: Request):
+    strong = bool(getattr(request.state, "strong_auth", False))
+    return review.approve_change(change_id, body.note, actor=user, strong=strong)
 
 
 @router.post("/review/{change_id}/reject")
-def post_reject(change_id: int, body: ReviewActionIn, user: CurrentUser):
-    return review.reject_change(change_id, body.note, actor=user)
+def post_reject(change_id: int, body: ReviewActionIn, user: CurrentUser, request: Request):
+    strong = bool(getattr(request.state, "strong_auth", False))
+    return review.reject_change(change_id, body.note, actor=user, strong=strong)
 
 
 class CaptureIn(BaseModel):
@@ -954,11 +959,12 @@ def post_review_seen(body: SeenIn, user: CurrentUser):
 
 
 @router.post("/review/approve-batch")
-def post_approve_batch(body: BatchApproveIn, user: CurrentUser):
+def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request):
+    strong = bool(getattr(request.state, "strong_auth", False))
     results = []
     for cid in body.ids[:100]:
         try:
-            r = review.approve_change(cid, actor=user)
+            r = review.approve_change(cid, actor=user, strong=strong)
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
@@ -983,7 +989,7 @@ def post_engagement(body: EngagementIn, user: CurrentUser):
 
 class EngagementPatch(BaseModel):
     status: str = ""
-    name: str = ""  # rename propagates to milestone project labels
+    name: str = Field("", max_length=120)  # rename propagates to milestone labels
     summary: str = ""
     lead: str = ""
     conclusion: str = ""

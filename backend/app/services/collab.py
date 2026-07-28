@@ -339,9 +339,7 @@ def save_note(
     return {"id": nid, "topic": topic}
 
 
-def update_note(
-    note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
-) -> dict:
+def update_note(note_id: int, topic: str = "", content: str = "", *, actor: str = "") -> dict:
     row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if not row:
         raise ValueError(f"no note #{note_id}")
@@ -353,7 +351,12 @@ def update_note(
         f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), note_id),
     )
-    db.log_activity(actor or "system", "update_note", f"#{note_id} {row['topic']}")
+    if topic and topic != row["topic"]:
+        db.log_activity(
+            actor or "system", "update_note", f"#{note_id}: '{row['topic']}' -> '{topic}'"
+        )
+    else:
+        db.log_activity(actor or "system", "update_note", f"#{note_id} {row['topic']}")
     new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if new:
         index_record("note", note_id, new["topic"], new["content"])
@@ -361,14 +364,18 @@ def update_note(
 
 
 def delete_note(note_id: int, *, actor: str = "") -> dict:
-    row = db.query_one("SELECT topic FROM notes WHERE id = ?", (note_id,))
+    row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if not row:
         raise ValueError(f"no note #{note_id}")
     db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
     from .search import deindex_record
 
     deindex_record("note", note_id)
-    db.log_activity(actor or "system", "delete_note", f"#{note_id} {row['topic']}")
+    # bounded content snapshot: a note deleted between backups must be
+    # reviewable (and partially recoverable) from the ledger
+    db.log_activity(
+        actor or "system", "delete_note", f"#{note_id} {row['topic']}: {row['content'][:300]}"
+    )
     return {"id": note_id, "deleted": True}
 
 
