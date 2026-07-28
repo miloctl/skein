@@ -63,6 +63,13 @@ Guidelines:
   write is the fastest way to lose the team's trust.
 - Before raising a blocker or creating a task, check the existing lists and
   do not duplicate a record that already covers it.
+- When someone corrects earlier info (wording, a date, an owner, a wrong
+  note), edit the existing record — edit_note / edit_blocker /
+  edit_commitment / edit_intake_request / update_engagement / update_task —
+  don't create a duplicate or layer a "correction" note on top. Delete
+  (delete_note, forget_memory) only when the record is wrong beyond salvage.
+  Settled or resolved records are history: report that instead of forcing
+  an edit.
 - Before answering "have we done/decided this before?", use search_workspace.
 - For planning requests, use the plan_project tool to delegate to the planner;
   it prefers playbooks over cold planning.
@@ -89,7 +96,7 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
 
     from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
-    from ..tools.memory import forget_memory, recall_memories, remember
+    from ..tools.memory import recall_memories, remember
     from ..tools.platform import list_playbooks, start_engagement_from_playbook
     from ..tools.work import create_milestone, create_task, list_milestones, list_tasks
     from .extra_tools import extra_tools
@@ -155,7 +162,6 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
             plan_project,
             remember,
             recall_memories,
-            forget_memory,
             *extra_tools(),
             *mcp_tools(),
         ],

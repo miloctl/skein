@@ -10,7 +10,10 @@ new features are reviewed against it.
    layer, exposed via REST *and* agent tools, and re-indexed on change. The
    UI offers the edit at the point of display (inline `edit…`, the EditRow
    idiom on Browse) — never a browser prompt().
-2. **Deletable or terminally-stateable.** Ephemeral records (chats, events,
+2. **Deletable or terminally-stateable.** Agent-side, hard deletes are
+   ALWAYS proposals (gate ALWAYS_REVIEW) even with review mode off —
+   deletes-as-proposals is the contract for destructive agent verbs.
+   Ephemeral records (chats, events,
    memories, allocations) hard-delete — and every hard delete calls
    `search.deindex_record` so search/`/ask` never cite ghosts. Records that
    carry history (decisions, engagements, blockers, questions) get terminal

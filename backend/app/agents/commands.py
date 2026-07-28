@@ -195,7 +195,7 @@ def help_text() -> str:
         for c in COMMANDS
     ]
     if config.MODEL_PROVIDER == "mock":
-        head = "**Mock agent** (no API key configured) — everything still works, deterministically:"
+        head = "**Mock agent** (no API key configured) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit affordance in the UI:"
         rows.append(
             "| *anything else* | Smart-captured as a task, question, note, decision, or blocker |"
         )

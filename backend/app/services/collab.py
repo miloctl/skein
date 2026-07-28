@@ -339,6 +339,10 @@ def save_note(
     return {"id": nid, "topic": topic}
 
 
+def get_note(note_id: int) -> dict | None:
+    return db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
+
+
 def update_note(
     note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:

@@ -189,6 +189,8 @@ def edit_note(note_id: int, topic: str = "", content: str = "") -> str:
         content: New content (markdown), if changing it.
     """
     payload = {k: v for k, v in {"topic": topic, "content": content}.items() if v}
+    if not payload:
+        return json.dumps({"error": "nothing to change — pass topic and/or content"})
     return gated_write(
         "note_edit",
         "update",
@@ -207,11 +209,15 @@ def delete_note(note_id: int) -> str:
     Args:
         note_id: ID of the note to delete.
     """
+    row = collab.get_note(note_id)
+    if not row:
+        return json.dumps({"error": f"no note #{note_id}"})
     return gated_write(
         "note_delete",
         "update",
         {},
         lambda: collab.delete_note(note_id, actor=agent_identity(), origin="agent"),
         entity_id=note_id,
-        summary=f"delete note #{note_id}",
+        # the reviewer must see what would be destroyed, right on the card
+        summary=f"delete note #{note_id} '{row['topic']}': {row['content'][:80]}",
     )
