@@ -21,6 +21,12 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
         topic: Short slug for the memory.
         about_user: Team member the memory concerns, if any.
     """
+    # bounds checked BEFORE the gate: an oversized payload must fail on the
+    # agent, not surface as an unapprovable proposal in a reviewer's queue
+    if len(content) > 2000:
+        return json.dumps({"error": "keep memories under 2000 characters"})
+    if len(topic) > 100 or len(about_user) > 60:
+        return json.dumps({"error": "topic is capped at 100 characters, about_user at 60"})
     payload = {"content": content, "topic": topic, "user": about_user}
     return gated_write(
         "memory",

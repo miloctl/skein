@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
+// identity/key changes notify via the storage event (cross-tab natively,
+// same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, setUser, subscribeUser } from "@/lib/api";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |

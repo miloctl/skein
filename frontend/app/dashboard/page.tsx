@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_URL, api } from "@/lib/api";
 import { PersonInput } from "@/components/person-input";
@@ -217,7 +217,11 @@ export default function Dashboard() {
   // inline actions re-fetch instead of window.location.reload() — a reload
   // resets focus to the document top and strips a screen-reader user of all
   // context mid-task
+  // last-request-wins: two quick mutations both refresh; the older snapshot
+  // resolving last must not overwrite fresher data or raise a stale banner
+  const generation = useRef(0);
   const load = useCallback(() => {
+    const g = ++generation.current;
     const endpoints = [
       "milestones",
       "tasks",
@@ -247,10 +251,13 @@ export default function Dashboard() {
       ),
     )
       .then((pairs) => {
+        if (g !== generation.current) return;
         setData(Object.fromEntries(pairs));
         setError(null); // a recovered refresh must clear the banner
       })
-      .catch((err) => setError(String(err)));
+      .catch((err) => {
+        if (g === generation.current) setError(String(err));
+      });
     api<Pulse>("/api/pulse")
       .then(setPulse)
       .catch(() => {}); // pulse is decorative — its failure must not blank the page
@@ -337,6 +344,9 @@ export default function Dashboard() {
     return (
       <main className="mx-auto max-w-3xl p-8 text-sm text-danger">
         Could not reach the backend at {API_URL} — is it running? ({error})
+        <button onClick={load} className="ml-2 underline">
+          retry
+        </button>
       </main>
     );
   }

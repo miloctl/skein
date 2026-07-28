@@ -1001,6 +1001,88 @@ def test_export_covers_the_newer_tables(fresh_db):
         assert table in out["tables"]
 
 
+def test_mcp_remember_routes_through_the_gate(client, fresh_db, monkeypatch):
+    import json as j
+
+    from app import config, mcp_server
+    from app.services import users
+
+    users.ensure_user("mcp-agent", kind="agent")
+    monkeypatch.setattr(mcp_server, "ACTOR", "mcp-agent")
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    out = j.loads(mcp_server.remember("the deploy window is Fridays", topic="ops"))
+    assert out.get("note") == "queued for human review"
+    pending = client.get("/api/review?status=pending").json()
+    assert any(p["entity"] == "memory" and p["proposed_by"] == "mcp-agent" for p in pending)
+    big = j.loads(mcp_server.remember("x" * 2001))
+    assert "2000" in big["error"]
+
+
+def test_memory_rate_cap_and_human_provenance(fresh_db):
+    from app.services import memory
+
+    for i in range(10):
+        memory.remember(f"fact {i}", actor="mira")
+    with pytest.raises(ValueError, match="capped at 10/minute"):
+        memory.remember("fact 11", actor="mira")
+    row = fresh_db.query_one("SELECT origin, created_by FROM memories WHERE id = 1")
+    assert row["origin"] == "human" and row["created_by"] == "mira"
+
+
+def test_agent_owned_key_is_refused_on_rest(client, fresh_db):
+    from app.services import users
+    from app.services.api_keys import create_key
+
+    users.ensure_user("scout", kind="agent")
+    key = create_key("scout", "probe")["key"]
+    r = client.get("/api/notifications", headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 403 and "gated tool surface" in r.json()["detail"]
+
+
+def test_reserved_agent_identities_minted_at_startup(client, fresh_db):
+    # the client fixture runs the lifespan — 'agent' (default chat identity)
+    # must exist as kind=agent so a weak header can never shadow it
+    row = fresh_db.query_one("SELECT kind FROM users WHERE name = 'agent'")
+    assert row and row["kind"] == "agent"
+    assert (
+        client.post("/api/tasks", json={"title": "t"}, headers={"X-User": "agent"}).status_code
+        == 403
+    )
+
+
+def test_clear_sentinel_rejected_on_create_paths(fresh_db):
+    from app.services import commitments, engagements, work
+
+    with pytest.raises(ValueError, match="only clears"):
+        work.create_task(title="t", due_date="-")
+    with pytest.raises(ValueError, match="only clears"):
+        commitments.add_commitment("p", due_date="-")
+    e = engagements.create_engagement("SentinelCheck")
+    with pytest.raises(ValueError, match="only clears"):
+        engagements.allocate("mira", e["id"], 50, starts_on="-")
+
+
+def test_oversized_memory_fails_on_the_agent_not_the_reviewer(fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import users
+    from app.tools.memory import remember as remember_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scribe", kind="agent")
+    token = set_agent_identity("scribe")
+    try:
+        out = j.loads(remember_tool(content="x" * 2001))
+    finally:
+        reset_agent_identity(token)
+    assert "2000" in out["error"]
+    assert not fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'memory' AND status = 'pending'"
+    )
+
+
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):
     from app.services import commitments, rituals, users
 

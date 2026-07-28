@@ -20,13 +20,18 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def validate_date(label: str, value: str) -> None:
+def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
     """Shared YYYY-MM-DD guard for every service that stores a date. Empty
-    and '-' (the clear sentinel) pass through — dates are compared as strings
-    and fed to the ICS feed, so a malformed one corrupts every due-soon
-    surface downstream."""
-    if not value or value == "-":
+    passes; '-' (the clear sentinel) passes only where an update path maps it
+    to NULL (allow_clear) — on creates it would be STORED and sort before
+    every real date. Dates are compared as strings and fed to the ICS feed,
+    so a malformed one corrupts every due-soon surface downstream."""
+    if not value:
         return
+    if value == "-":
+        if allow_clear:
+            return
+        raise ValueError(f"{label} must be YYYY-MM-DD ('-' only clears an existing value)")
     if len(value) != 10 or value[4] != "-" or value[7] != "-":
         raise ValueError(f"{label} must be YYYY-MM-DD")
     from datetime import date

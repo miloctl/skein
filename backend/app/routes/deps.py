@@ -25,6 +25,15 @@ def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str
         owner = verify_key(authorization[7:])
         if not owner:
             raise HTTPException(status_code=401, detail="invalid or revoked API key")
+        # two write paths, one service layer: humans use REST, agents use the
+        # gated tools/MCP. An agent-owned key on REST would reach every
+        # ungated human surface with origin=human — refuse the door entirely
+        if is_agent(owner):
+            raise HTTPException(
+                status_code=403,
+                detail=f"'{owner}' is an agent identity — agents work through"
+                " the gated tool surface (chat tools / MCP), not the REST API",
+            )
         return owner, True
     name = (x_user or "anonymous").strip()[:64] or "anonymous"
     if is_agent(name):

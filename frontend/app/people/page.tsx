@@ -135,6 +135,7 @@ export default function PeoplePage() {
             <button
               key={u.name}
               onClick={() => {
+                if (u.name === person) return; // no-op switch would blank the panel
                 // clear before switching: stale content here would be another
                 // person's PRIVATE notes under the wrong name, and an errored
                 // fetch would leave them there indefinitely

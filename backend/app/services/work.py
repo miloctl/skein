@@ -23,7 +23,7 @@ def create_milestone(
 ) -> dict:
     if not title.strip():
         raise ValueError("milestone title is required")
-    db.validate_date("due_date", due_date)
+    db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
     # resolve the engagement link at write time — the name join is display
     # only, the id is what health/forecast/handoff should trust
@@ -143,7 +143,7 @@ def create_task(
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
-    db.validate_date("due_date", due_date)
+    db.validate_date("due_date", due_date, allow_clear=False)
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if milestone_id and not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
