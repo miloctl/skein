@@ -57,6 +57,15 @@ new features are reviewed against it.
    (Portfolio), intake title (Intake) — and a cancel on the dashboard
    Calendar card (event delete is REST+tool only).
 
+Closed 2026-07-27 (sponsor-bound verdicts): task-acceptance verdicts belong
+to the task's sponsor, looked up at verdict time. Anyone else may still
+approve or reject, but only with a reason on the record — the verdict is
+marked `reviewed_override` (migration 030), logged "(accepted for X)", and
+excluded from trust streaks, so promotions and demotions are backed only by
+the people who actually sponsored the work. The Inbox shows the sponsor on
+acceptance rows and turns Approve into "Accept for X…" with an inline
+reason field for everyone else.
+
 Closed 2026-07-27 (A1/A2 hardening): the delegation loop holds under
 adversarial use — agents cannot self-complete a delegated task
 (`update_task` refuses `done` from agent identities; the sponsor's verdict

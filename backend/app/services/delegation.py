@@ -286,7 +286,7 @@ def trust_scores() -> list[dict]:
         # spoofed X-User must not be able to walk an agent to autonomous
         recent = db.query(
             "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
-            " AND status != 'pending' AND reviewed_strong = 1"
+            " AND status != 'pending' AND reviewed_strong = 1 AND reviewed_override = 0"
             " ORDER BY reviewed_at DESC, id DESC LIMIT ?",
             (r["agent"], r["entity"], TRUST_STREAK),
         )

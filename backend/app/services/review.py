@@ -120,13 +120,48 @@ def _check_reviewer(actor: str) -> None:
         raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
 
 
-def _claim(change_id: int, new_status: str, note: str, actor: str, strong: bool = False) -> None:
+def _sponsor_of(change: dict) -> str:
+    """The task's CURRENT sponsor for a task_completion proposal ('' for
+    everything else) — looked up at verdict time, so a re-delegation moves
+    the verdict to the new sponsor."""
+    if change["entity"] != "task_completion" or not change["entity_id"]:
+        return ""
+    task = db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (change["entity_id"],))
+    return (task["sponsor"] or "") if task else ""
+
+
+def _sponsor_override(change: dict, actor: str, note: str) -> str:
+    """Acceptance verdicts belong to the sponsor — they judged the work, so
+    their verdict is the trust label. Anyone else may still act, but only
+    with a reason on record (the sponsor is away, gone, or asked them to),
+    and the verdict is marked an override so it never feeds a streak.
+    Returns the sponsor's name when this verdict is an override, else ''."""
+    sponsor = _sponsor_of(change)
+    if not sponsor or actor == sponsor:
+        return ""
+    if not note.strip():
+        raise ValueError(
+            f"task #{change['entity_id']} is sponsored by {sponsor} — acting"
+            " for them needs a note saying why (it goes on the record)"
+        )
+    return sponsor
+
+
+def _claim(
+    change_id: int,
+    new_status: str,
+    note: str,
+    actor: str,
+    strong: bool = False,
+    override: bool = False,
+) -> None:
     """Compare-and-swap the pending -> reviewed transition so concurrent
     approve/reject calls can't both act on the same change."""
     claimed = db.execute_rowcount(
         "UPDATE pending_changes SET status = ?, reviewed_by = ?, review_note = ?,"
-        " reviewed_at = ?, reviewed_strong = ? WHERE id = ? AND status = 'pending'",
-        (new_status, actor, note, db.now(), int(strong), change_id),
+        " reviewed_at = ?, reviewed_strong = ?, reviewed_override = ?"
+        " WHERE id = ? AND status = 'pending'",
+        (new_status, actor, note, db.now(), int(strong), int(override), change_id),
     )
     if not claimed:
         change = db.query_one("SELECT status FROM pending_changes WHERE id = ?", (change_id,))
@@ -156,7 +191,8 @@ def approve_change(
     except KeyError as exc:
         raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
     payload = json.loads(change["payload"])
-    _claim(change_id, "approved", note, actor, strong)
+    sponsor = _sponsor_override(change, actor, note)
+    _claim(change_id, "approved", note, actor, strong, override=bool(sponsor))
     try:
         # compound applies (playbook, weekly_plan) land atomically or not at
         # all — a failed apply rolls back, so pending is safe for EVERY entity
@@ -183,7 +219,12 @@ def approve_change(
         "UPDATE pending_changes SET result_id = ? WHERE id = ?", (result.get("id"), change_id)
     )
     applied = f"#{result['id']}" if result.get("id") is not None else "applied"
-    db.log_activity(actor, "approve_change", f"#{change_id} -> {change['entity']} {applied}")
+    db.log_activity(
+        actor,
+        "approve_change",
+        f"#{change_id} -> {change['entity']} {applied}"
+        + (f" (accepted for {sponsor})" if sponsor else ""),
+    )
     _clear_review_ping(change_id)
     return {"id": change_id, "status": "approved", "result": result}
 
@@ -201,8 +242,18 @@ def reject_change(
     change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
 ) -> dict:
     _check_reviewer(actor)
-    _claim(change_id, "rejected", note, actor, strong)
-    db.log_activity(actor, "reject_change", f"#{change_id}")
+    change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
+    if not change:
+        raise ValueError(f"pending change #{change_id} not found")
+    # symmetric with approve: a non-sponsor reject feeds rejection streaks
+    # (demotion input), so it needs the same reason-on-record
+    sponsor = _sponsor_override(change, actor, note)
+    _claim(change_id, "rejected", note, actor, strong, override=bool(sponsor))
+    db.log_activity(
+        actor,
+        "reject_change",
+        f"#{change_id}" + (f" (rejected for {sponsor})" if sponsor else ""),
+    )
     _clear_review_ping(change_id)
     return {"id": change_id, "status": "rejected"}
 
@@ -330,4 +381,7 @@ def list_changes(status: str = "pending") -> list[dict]:
         rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")
     for r in rows:
         r["payload"] = json.loads(r["payload"])
+        # the UI shows whose verdict this is — acceptance belongs to the sponsor
+        if r["entity"] == "task_completion":
+            r["sponsor"] = _sponsor_of(r)
     return rows
