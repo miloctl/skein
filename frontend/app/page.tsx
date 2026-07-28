@@ -255,7 +255,10 @@ export default function MyDay() {
         Could not reach the backend — is it running? ({error})
       </main>
     );
-  if (!b) return <main className="p-8 text-sm text-ink-3">{loadingLine()}</main>;
+  if (!b)
+    return (
+      <main className="mx-auto w-full max-w-5xl p-6 text-sm text-ink-3">{loadingLine()}</main>
+    );
   if (b.user === "anonymous") return <WhoAreYou />;
 
   const attention = b.attention ?? [];
