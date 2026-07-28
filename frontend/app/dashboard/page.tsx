@@ -185,6 +185,8 @@ export default function Dashboard() {
   const [editing, setEditing] = useState<{ kind: "task" | "milestone"; id: number } | null>(
     null,
   );
+  const [editingNote, setEditingNote] = useState<number | null>(null);
+  const [deletingNote, setDeletingNote] = useState<number | null>(null);
 
 
   // inline actions re-fetch instead of window.location.reload() — a reload
@@ -230,6 +232,29 @@ export default function Dashboard() {
     try {
       await api(`/api/${entity}/${id}`, { method: "PATCH", body: JSON.stringify(fields) });
       setEditing(null);
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
+  const patchNote = async (id: number, f: Record<string, string>) => {
+    try {
+      await api(`/api/notes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ topic: f.title, content: f.content }),
+      });
+      setEditingNote(null);
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
+  const deleteNote = async (id: number) => {
+    try {
+      await api(`/api/notes/${id}`, { method: "DELETE" });
+      setDeletingNote(null);
       load();
     } catch (e) {
       alert(String(e));
@@ -633,15 +658,57 @@ export default function Dashboard() {
         title="Knowledge base"
         rows={data.notes ?? []}
         empty="No notes saved."
-        render={(n) => (
-          <li key={n.id} className="text-sm">
-            <span className="font-medium">{n.topic}</span>
-            <p className="line-clamp-2 text-xs text-ink-3">
-              {/* notes hold markdown; this is a plain-text preview */}
-              {String(n.content).replace(/[*#`]/g, "").replace(/\s+/g, " ")}
-            </p>
-          </li>
-        )}
+        render={(n) =>
+          editingNote === n.id ? (
+            <EditRow
+              key={n.id}
+              fields={{ title: String(n.topic), content: String(n.content) }}
+              onSave={(f) => patchNote(Number(n.id), f)}
+              onCancel={() => setEditingNote(null)}
+            />
+          ) : (
+            <li key={n.id} className="text-sm">
+              <span className="flex items-center justify-between gap-2">
+                <span className="font-medium">{n.topic}</span>
+                <span className="flex shrink-0 gap-1">
+                  <button
+                    onClick={() => setEditingNote(Number(n.id))}
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    edit…
+                  </button>
+                  {deletingNote === n.id ? (
+                    <>
+                      <button
+                        onClick={() => deleteNote(Number(n.id))}
+                        className="rounded bg-danger px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
+                      >
+                        delete for good
+                      </button>
+                      <button
+                        onClick={() => setDeletingNote(null)}
+                        className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
+                      >
+                        keep
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setDeletingNote(Number(n.id))}
+                      className="rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                    >
+                      delete…
+                    </button>
+                  )}
+                </span>
+              </span>
+              <p className="line-clamp-2 text-xs text-ink-3">
+                {/* notes hold markdown; this is a plain-text preview */}
+                {String(n.content).replace(/[*#`]/g, "").replace(/\s+/g, " ")}
+              </p>
+            </li>
+          )
+        }
       />
       <Section
         title="Recent activity"

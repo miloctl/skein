@@ -45,6 +45,35 @@ def raise_blocker(
     return {"id": bid, "title": title, "status": "open", "escalate_after_hours": hours}
 
 
+def edit_blocker(
+    blocker_id: int,
+    title: str = "",
+    detail: str = "",
+    owner: str = "",
+    *,
+    actor: str = "system",
+) -> dict:
+    """Correct an open blocker's wording/owner — resolution stays its own verb."""
+    row = db.query_one("SELECT title, status FROM blockers WHERE id = ?", (blocker_id,))
+    if not row:
+        raise ValueError(f"blocker #{blocker_id} not found")
+    if row["status"] == "resolved":
+        raise ValueError(f"blocker #{blocker_id} is resolved — history stays put")
+    fields = {k: v for k, v in [("title", title), ("detail", detail), ("owner", owner)] if v}
+    if not fields:
+        raise ValueError("nothing to update")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    db.execute(
+        f"UPDATE blockers SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
+        (*fields.values(), blocker_id),
+    )
+    db.log_activity(actor, "edit_blocker", f"#{blocker_id} {' '.join(fields)}")
+    new = db.query_one("SELECT title, detail, owner FROM blockers WHERE id = ?", (blocker_id,))
+    if new:
+        index_record("blocker", blocker_id, new["title"], f"{new['detail']} {new['owner']}")
+    return {"id": blocker_id, "updated": list(fields)}
+
+
 def resolve_blocker(
     blocker_id: int, resolution: str = "", *, actor: str = "system", origin: str = "human"
 ) -> dict:

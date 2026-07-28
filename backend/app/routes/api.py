@@ -31,6 +31,7 @@ from ..services import (
     review,
     schedule,
     search,
+    usage,
     users,
     weekly,
     work,
@@ -50,12 +51,7 @@ def get_milestones(project: str = "", status: str = ""):
 
 @router.get("/tasks")
 def get_tasks():
-    return db.query(
-        "SELECT t.*, m.title AS milestone_title FROM tasks t"
-        " LEFT JOIN milestones m ON m.id = t.milestone_id"
-        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.id"
-    )
+    return work.list_tasks_joined()
 
 
 @router.get("/questions")
@@ -93,6 +89,27 @@ def get_notes(q: str = ""):
     return collab.search_notes(q)
 
 
+class NotePatch(BaseModel):
+    topic: str = Field("", max_length=200)
+    content: str = Field("", max_length=20_000)
+
+
+@router.patch("/notes/{note_id}")
+def patch_note(note_id: int, body: NotePatch, user: CurrentUser):
+    try:
+        return collab.update_note(note_id, body.topic, body.content, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/notes/{note_id}")
+def delete_note(note_id: int, user: CurrentUser):
+    try:
+        return collab.delete_note(note_id, actor=user)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
 @router.delete("/events/{event_id}")
 def delete_event(event_id: int, user: CurrentUser):
     try:
@@ -103,7 +120,7 @@ def delete_event(event_id: int, user: CurrentUser):
 
 @router.get("/activity")
 def get_activity():
-    return db.query("SELECT * FROM activity ORDER BY id DESC LIMIT 50")
+    return collab.recent_activity()
 
 
 @router.get("/blockers")
@@ -413,6 +430,22 @@ class CommitmentStatusIn(BaseModel):
     status: str
 
 
+class CommitmentEditIn(BaseModel):
+    promise: str = Field("", max_length=500)
+    due_date: str = Field("", max_length=10)
+    to_whom: str = Field("", max_length=120)
+
+
+@router.patch("/commitments/{commitment_id}")
+def patch_commitment(commitment_id: int, body: CommitmentEditIn, user: CurrentUser):
+    try:
+        return commitments.edit_commitment(
+            commitment_id, body.promise, body.due_date, body.to_whom, actor=user
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.post("/commitments/{commitment_id}/status")
 def post_commitment_status(commitment_id: int, body: CommitmentStatusIn, user: CurrentUser):
     return commitments.update_commitment(commitment_id, body.status, actor=user)
@@ -617,10 +650,7 @@ def post_findings_run(user: CurrentUser):
 
 @router.get("/usage")
 def get_usage():
-    return db.query(
-        "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"
-        " SUM(output_tokens) AS output_tokens FROM usage_log GROUP BY model_id"
-    )
+    return usage.usage_summary()
 
 
 # ---- writes ----------------------------------------------------------------
@@ -788,6 +818,20 @@ class ResolveIn(BaseModel):
     resolution: str = ""
 
 
+class BlockerEditIn(BaseModel):
+    title: str = Field("", max_length=200)
+    detail: str = Field("", max_length=4000)
+    owner: str = Field("", max_length=64)
+
+
+@router.patch("/blockers/{blocker_id}")
+def patch_blocker(blocker_id: int, body: BlockerEditIn, user: CurrentUser):
+    try:
+        return blockers.edit_blocker(blocker_id, body.title, body.detail, body.owner, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.post("/blockers/{blocker_id}/resolve")
 def post_resolve_blocker(blocker_id: int, body: ResolveIn, user: CurrentUser):
     return blockers.resolve_blocker(blocker_id, body.resolution, actor=user)
@@ -811,6 +855,19 @@ class ScoreIn(BaseModel):
     impact: int
     confidence: int
     effort: int
+
+
+class IntakeEditIn(BaseModel):
+    title: str = Field("", max_length=200)
+    detail: str = Field("", max_length=4000)
+
+
+@router.patch("/intake/{request_id}")
+def patch_intake(request_id: int, body: IntakeEditIn, user: CurrentUser):
+    try:
+        return intake.edit_request(request_id, body.title, body.detail, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/intake/{request_id}/score")

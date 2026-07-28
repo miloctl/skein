@@ -232,9 +232,12 @@ export function ChatSidebar({
     }
   };
 
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
+
   const remove = async (t: ChatThread) => {
     closeMenu();
-    if (!confirm(`Delete “${t.title}”? The transcript is gone for good.`)) return;
+    setConfirmingDelete(null);
     try {
       await api(`/api/chats/${t.id}`, { method: "DELETE" });
       if (t.id === threadId) onNew();
@@ -260,11 +263,7 @@ export function ChatSidebar({
 
   const deleteSelected = async () => {
     if (selChats.size + selFolders.size === 0) return;
-    const parts = [
-      selChats.size ? `${selChats.size} chat(s) — transcripts gone for good` : "",
-      selFolders.size ? `${selFolders.size} folder(s) — their chats stay, unfiled` : "",
-    ].filter(Boolean);
-    if (!confirm(`Delete ${parts.join(" and ")}?`)) return;
+    setConfirmingBulk(false);
     const activeSelected = selChats.has(threadId);
     const doneChats = new Set<string>();
     const doneFolders = new Set<string>();
@@ -346,13 +345,30 @@ export function ChatSidebar({
               .filter(Boolean)
               .join(" · ") || "0 selected"}
           </span>
-          <button
-            onClick={deleteSelected}
-            disabled={selChats.size + selFolders.size === 0}
-            className="rounded bg-danger/15 px-2 py-1 font-medium text-danger hover:bg-danger/20 disabled:opacity-40"
-          >
-            Delete
-          </button>
+          {confirmingBulk ? (
+            <>
+              <button
+                onClick={deleteSelected}
+                className="rounded bg-danger px-2 py-1 font-medium text-white hover:opacity-90"
+              >
+                Really delete — transcripts gone
+              </button>
+              <button
+                onClick={() => setConfirmingBulk(false)}
+                className="rounded px-2 py-1 text-ink-2 hover:bg-line"
+              >
+                Keep
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmingBulk(true)}
+              disabled={selChats.size + selFolders.size === 0}
+              className="rounded bg-danger/15 px-2 py-1 font-medium text-danger hover:bg-danger/20 disabled:opacity-40"
+            >
+              Delete…
+            </button>
+          )}
           <button
             onClick={exitSelect}
             className="rounded px-2 py-1 text-ink-2 hover:bg-line"
@@ -578,12 +594,28 @@ export function ChatSidebar({
                         label="Select…"
                         onClick={() => enterSelect(t.id)}
                       />
-                      <MenuItem
-                        icon="🗑"
-                        label="Delete"
-                        danger
-                        onClick={() => remove(t)}
-                      />
+                      {confirmingDelete === t.id ? (
+                        <>
+                          <MenuItem
+                            icon="🗑"
+                            label="Delete for good — transcript too"
+                            danger
+                            onClick={() => remove(t)}
+                          />
+                          <MenuItem
+                            icon="↩"
+                            label="Keep it"
+                            onClick={() => setConfirmingDelete(null)}
+                          />
+                        </>
+                      ) : (
+                        <MenuItem
+                          icon="🗑"
+                          label="Delete…"
+                          danger
+                          onClick={() => setConfirmingDelete(t.id)}
+                        />
+                      )}
                     </MenuPanel>
                   )}
                   {menu?.kind === "rename" && menu.id === t.id && (
