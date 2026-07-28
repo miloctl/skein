@@ -139,7 +139,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "tool_usage": ("user",),
     "feedback": ("created_by",),  # pulse rows store '' and stay untouched
     "api_keys": ("owner",),
-    "memories": ("user",),
+    "memories": ("user", "created_by"),
     "agent_authority": ("agent", "updated_by"),
     "artifacts": ("created_by",),
     "context_packs": ("created_by",),

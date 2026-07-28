@@ -175,9 +175,18 @@ def save_knowledge(topic: str, content: str) -> str:
 
 @mcp.tool()
 def remember(content: str, topic: str = "") -> str:
-    """Persist a durable cross-thread memory (preferences, standing context)."""
+    """Persist a durable cross-thread memory (preferences, standing context).
+    Gated: memories steer every future conversation, so this may file a
+    proposal for human review instead of writing directly."""
     record_use(ACTOR, "mcp")
-    return json.dumps(memory.remember(content, topic, user=ACTOR, actor=ACTOR))
+    return gated_write(
+        "memory",
+        "create",
+        {"content": content, "topic": topic, "user": ACTOR},
+        lambda: memory.remember(content, topic, user=ACTOR, actor=ACTOR, origin="agent"),
+        summary=f"remember{f' [{topic}]' if topic else ''}: {content[:80]}",
+        actor=ACTOR,
+    )
 
 
 @mcp.tool()

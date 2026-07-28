@@ -23,6 +23,7 @@ def create_milestone(
 ) -> dict:
     if not title.strip():
         raise ValueError("milestone title is required")
+    db.validate_date("due_date", due_date)
     ts = db.now()
     # resolve the engagement link at write time — the name join is display
     # only, the id is what health/forecast/handoff should trust
@@ -73,6 +74,7 @@ def update_milestone(
 ) -> dict:
     if status and status not in MILESTONE_STATUSES:
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
+    db.validate_date("due_date", due_date)
     if not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
         raise ValueError(f"milestone #{milestone_id} not found")
     fields: dict[str, str | None] = {
@@ -141,6 +143,7 @@ def create_task(
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
+    db.validate_date("due_date", due_date)
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if milestone_id and not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
@@ -195,6 +198,7 @@ def update_task(
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
+    db.validate_date("due_date", due_date)
     if priority and priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
     if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):

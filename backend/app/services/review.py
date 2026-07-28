@@ -51,6 +51,7 @@ def _registry() -> dict:
         },
         "commitment_edit": {"update": commitments.edit_commitment},
         "commitment_settle": {"update": commitments.update_commitment},
+        "memory": {"create": memory.remember},
         "memory_forget": {"update": memory.forget},
         "delegation": {"create": delegation.delegate_task},
         "task_completion": {"update": delegation.accept_completion},

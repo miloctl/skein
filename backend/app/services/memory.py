@@ -6,13 +6,31 @@ from .search import index_record
 
 
 def remember(
-    content: str, topic: str = "", user: str = "", thread_id: str = "", *, actor: str = "agent"
+    content: str,
+    topic: str = "",
+    user: str = "",
+    thread_id: str = "",
+    *,
+    actor: str = "agent",
+    origin: str = "human",
 ) -> dict:
-    if not content.strip():
+    """Memories are injected into every future conversation's system prompt —
+    the highest-leverage write in the app, so it is bounded and carries full
+    provenance."""
+    content = content.strip()
+    if not content:
         raise ValueError("nothing to remember")
+    if len(content) > 2000:
+        raise ValueError("keep memories under 2000 characters — link a note for the long form")
+    if len(topic) > 100 or len(user) > 60:
+        raise ValueError("topic is capped at 100 characters, user at 60")
+    from .. import ratelimit
+
+    ratelimit.check("memory", actor)
     mid = db.execute(
-        "INSERT INTO memories (topic, content, user, thread_id, created_at) VALUES (?, ?, ?, ?, ?)",
-        (topic, content, user, thread_id, db.now()),
+        "INSERT INTO memories (topic, content, user, thread_id, origin, created_by, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (topic, content, user, thread_id, origin, actor, db.now()),
     )
     db.log_activity(actor, "remember", topic or content[:60])
     index_record("memory", mid, topic or content[:60], content)

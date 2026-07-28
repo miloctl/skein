@@ -114,10 +114,13 @@ def ics_feed() -> str:
         "SELECT id, title, due_date FROM milestones"
         " WHERE status != 'done' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
+        start = _ics_dt_lines("DTSTART", m["due_date"])
+        if not start:  # a malformed stored date must not sink the whole feed
+            continue
         lines += [
             "BEGIN:VEVENT",
             f"UID:milestone-{m['id']}@skein",
-            f"DTSTART;VALUE=DATE:{m['due_date'].replace('-', '')}",
+            *start,
             f"SUMMARY:{_ics_escape('🎯 due: ' + m['title'])}",
             "END:VEVENT",
         ]
@@ -125,10 +128,13 @@ def ics_feed() -> str:
         "SELECT id, promise, due_date FROM commitments"
         " WHERE status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
+        start = _ics_dt_lines("DTSTART", c["due_date"])
+        if not start:
+            continue
         lines += [
             "BEGIN:VEVENT",
             f"UID:commitment-{c['id']}@skein",
-            f"DTSTART;VALUE=DATE:{c['due_date'].replace('-', '')}",
+            *start,
             f"SUMMARY:{_ics_escape('🤝 promised: ' + c['promise'][:80])}",
             "END:VEVENT",
         ]

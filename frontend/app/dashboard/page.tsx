@@ -246,7 +246,10 @@ export default function Dashboard() {
           ] as const,
       ),
     )
-      .then((pairs) => setData(Object.fromEntries(pairs)))
+      .then((pairs) => {
+        setData(Object.fromEntries(pairs));
+        setError(null); // a recovered refresh must clear the banner
+      })
       .catch((err) => setError(String(err)));
     api<Pulse>("/api/pulse")
       .then(setPulse)
@@ -328,7 +331,9 @@ export default function Dashboard() {
     }
   };
 
-  if (error) {
+  // full-page error only before the first successful load — after that a
+  // failed refresh keeps the data on screen with a banner (My Day idiom)
+  if (error && Object.keys(data).length === 0) {
     return (
       <main className="mx-auto max-w-3xl p-8 text-sm text-danger">
         Could not reach the backend at {API_URL} — is it running? ({error})
@@ -342,6 +347,17 @@ export default function Dashboard() {
   return (
     <main className="mx-auto max-w-6xl p-6">
       <SectionTabs set="work" />
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+        >
+          Refresh failed ({error}) — showing the previous state.
+          <button onClick={load} className="ml-2 underline">
+            retry
+          </button>
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {pulse && (
         <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">

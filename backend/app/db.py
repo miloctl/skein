@@ -20,6 +20,23 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def validate_date(label: str, value: str) -> None:
+    """Shared YYYY-MM-DD guard for every service that stores a date. Empty
+    and '-' (the clear sentinel) pass through — dates are compared as strings
+    and fed to the ICS feed, so a malformed one corrupts every due-soon
+    surface downstream."""
+    if not value or value == "-":
+        return
+    if len(value) != 10 or value[4] != "-" or value[7] != "-":
+        raise ValueError(f"{label} must be YYYY-MM-DD")
+    from datetime import date
+
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a real date (YYYY-MM-DD)") from exc
+
+
 def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row

@@ -4,10 +4,10 @@ from fastapi import Depends, Header, HTTPException, Request
 
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_user
+from ..services.users import ensure_user, is_agent
 
 
-def _resolve(x_user: str, authorization: str) -> tuple[str, bool]:
+def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str, bool]:
     """Identity resolution → (user, strong).
 
     1. A per-teammate API key (Authorization: Bearer sk-strands-…) wins —
@@ -15,14 +15,27 @@ def _resolve(x_user: str, authorization: str) -> tuple[str, bool]:
        is invalid or revoked is a hard 401 — never a silent fallback, or
        revocation would be a no-op for callers that also send X-User.
     2. Otherwise the trusted-LAN X-User header from the frontend name picker
-       — a weak, self-asserted identity (strong=False).
+       — a weak, self-asserted identity (strong=False). A weak header may
+       never claim an agent identity: agent rows carry trust scores and gate
+       levels, and writes as them would sidestep the review gate entirely.
+       Reads don't mint roster rows — a typo'd or scripted GET must not
+       grow the roster.
     """
     if authorization.startswith("Bearer ") and authorization[7:].startswith(PREFIX):
         owner = verify_key(authorization[7:])
         if not owner:
             raise HTTPException(status_code=401, detail="invalid or revoked API key")
         return owner, True
-    return ensure_user(x_user or "anonymous")["name"], False
+    name = (x_user or "anonymous").strip()[:64] or "anonymous"
+    if is_agent(name):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{name}' is an agent identity — agents authenticate with"
+            " their API key, not the name picker",
+        )
+    if method in ("GET", "HEAD", "OPTIONS"):
+        return name, False
+    return ensure_user(name)["name"], False
 
 
 def _surface(request: Request, x_client: str) -> str:
@@ -39,7 +52,7 @@ def current_user(
 ) -> str:
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
-    user, strong = _resolve(x_user, authorization)
+    user, strong = _resolve(x_user, authorization, request.method)
     request.state.strong_auth = strong
     record_use(user, _surface(request, x_client))
     return user
@@ -59,7 +72,7 @@ def strong_user(
     OIDC session satisfies this dependency and nothing downstream changes —
     this function is the single swap point.
     """
-    user, strong = _resolve(x_user, authorization)
+    user, strong = _resolve(x_user, authorization, request.method)
     if not strong:
         raise HTTPException(
             status_code=403,

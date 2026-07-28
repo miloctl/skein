@@ -49,6 +49,11 @@ TABLES = (
     "tool_usage",
     "forecast_snapshots",
     "job_runs",
+    "job_outcomes",
+    "finding_dispositions",
+    "app_settings",
+    "absences",
+    "task_worklog",
 )
 
 
