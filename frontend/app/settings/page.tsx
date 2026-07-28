@@ -70,11 +70,18 @@ export default function SettingsPage() {
   const [keyStatus, setKeyStatus] = useState<string>("");
   const [interests, setInterests] = useState("");
   const [interestsSaved, setInterestsSaved] = useState("");
+  const [interestsLoaded, setInterestsLoaded] = useState(false);
+  const [interestsBusy, setInterestsBusy] = useState(false);
   useEffect(() => {
-    // prefill: a write-only field can neither be reviewed nor cleared
+    // prefill: a write-only field can neither be reviewed nor cleared. If
+    // the GET fails, the empty field must NOT be saveable — an empty save
+    // clears the stored value, and a blank-from-failure would erase it.
     api<{ interests: string }>("/api/users/growth-interests")
-      .then((r) => setInterests(r.interests))
-      .catch(() => {});
+      .then((r) => {
+        setInterests(r.interests);
+        setInterestsLoaded(true);
+      })
+      .catch(() => setInterestsLoaded(false));
   }, [currentUser]);
 
   const refresh = useCallback(() => {
@@ -725,6 +732,8 @@ export default function SettingsPage() {
           />
           <button
             onClick={async () => {
+              if (interestsBusy) return;
+              setInterestsBusy(true);
               try {
                 await api("/api/users/growth-interests", {
                   method: "POST",
@@ -734,8 +743,11 @@ export default function SettingsPage() {
                 setTimeout(() => setInterestsSaved(""), 3000);
               } catch (e) {
                 alert(String(e));
+              } finally {
+                setInterestsBusy(false);
               }
             }}
+            disabled={interestsBusy || (!interests.trim() && !interestsLoaded)}
             className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Save

@@ -121,7 +121,9 @@ export default function CharterPage() {
             className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
           >
             <div className="mb-1 flex items-center justify-between">
-              <span className="font-semibold">{d.title}</span>
+              <span id={`charter-entry-${d.id}`} tabIndex={-1} className="font-semibold outline-none">
+                {d.title}
+              </span>
               <span
                 className={
                   "text-xs " + (d.status === "stale" ? "text-weld" : "text-ink-3")
@@ -198,6 +200,12 @@ export default function CharterPage() {
                         });
                         setSuperseding(null);
                         load();
+                        // trigger button disappears (entry is superseded) —
+                        // land focus on the entry itself
+                        setTimeout(
+                          () => document.getElementById(`charter-entry-${d.id}`)?.focus(),
+                          0,
+                        );
                       } catch (e) {
                         alert(String(e));
                       } finally {

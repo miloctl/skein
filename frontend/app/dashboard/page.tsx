@@ -239,9 +239,13 @@ export default function Dashboard() {
     // calendar shows what's ahead — without the cutoff the card fills with
     // the 50 oldest events and never today's
     const now = new Date();
-    // LOCAL date, not UTC: west of UTC an evening visit would set the
-    // cutoff to tomorrow and hide the rest of today's events
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    // cutoff = the EARLIER of local and UTC day: event timestamps are naive
+    // UTC by convention but typed as local wall times in practice, and the
+    // cutoff must never hide the rest of "today" on either side of UTC —
+    // worst case it shows one extra stale day
+    const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const utcDay = now.toISOString().slice(0, 10);
+    const today = localDay < utcDay ? localDay : utcDay;
     Promise.all(
       endpoints.map(
         async (e) =>

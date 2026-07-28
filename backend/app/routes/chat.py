@@ -211,9 +211,10 @@ async def chat(req: ChatRequest, user: CurrentUser):
         # deterministic nameplate for EVERY provider, once per thread — who
         # answered must never depend on whether the model signs its work
         pdef = personas.get_persona(persona)
-        # provider-neutral once-per-thread check: the mock path never creates
-        # a session dir, so gate on the transcript instead
-        if not chat_threads.has_messages(thread_id):
+        # provider-neutral once-per-persona-per-thread check: transcripts are
+        # logged under the BASE thread id (the mock path never creates a
+        # session dir, and the suffixed id never appears in chat_messages)
+        if not chat_threads.thread_contains(ui_thread, f"**{pdef['name']}**"):
             vibe = f" — *{pdef['vibe']}*" if pdef["vibe"] else ""
             masthead = f"{pdef['emoji']} **{pdef['name']}**{vibe}\n"
             if pdef["disclosure"]:
