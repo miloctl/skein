@@ -114,6 +114,15 @@ export default function ReviewPage() {
   // acceptance verdicts belong to the sponsor; anyone else must say why
   const forSponsor = (c: Change) => (c.sponsor && c.sponsor !== me ? c.sponsor : "");
 
+  // dismissing the reason input hands focus back to the button that opened
+  // it — a keyboard user must not be dropped at the top of the page
+  const closeAsk = () => {
+    if (!asking) return;
+    const { id, verb } = asking;
+    setAsking(null);
+    setTimeout(() => document.getElementById(`verdict-${verb}-${id}`)?.focus(), 0);
+  };
+
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
       <SectionTabs set="inbox" />
@@ -222,7 +231,7 @@ export default function ReviewPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && askNote.trim())
                       act(c.id, asking.verb, askNote.trim());
-                    if (e.key === "Escape") setAsking(null);
+                    if (e.key === "Escape") closeAsk();
                   }}
                   aria-label={
                     asking.verb === "reject"
@@ -246,7 +255,7 @@ export default function ReviewPage() {
                   {asking.verb === "reject" ? "Reject" : "Accept"}
                 </button>
                 <button
-                  onClick={() => setAsking(null)}
+                  onClick={closeAsk}
                   className="text-sm text-ink-3 hover:text-ink"
                 >
                   cancel
@@ -256,6 +265,7 @@ export default function ReviewPage() {
               <div className="flex gap-2">
                 {forSponsor(c) ? (
                   <button
+                    id={`verdict-approve-${c.id}`}
                     onClick={() => {
                       setAsking({ id: c.id, verb: "approve" });
                       setAskNote("");
@@ -274,6 +284,7 @@ export default function ReviewPage() {
                   </button>
                 )}
                 <button
+                  id={`verdict-reject-${c.id}`}
                   onClick={() => {
                     setAsking({ id: c.id, verb: "reject" });
                     setAskNote("");
