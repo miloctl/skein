@@ -338,9 +338,11 @@ def list_allocations(engagement_id: int = 0) -> list[dict]:
 def capacity() -> list[dict]:
     """Total allocation per person across non-closed engagements; >100 =
     overcommitted. Window-aware like allocation_conflicts: rows whose date
-    window excludes today don't count (capacity and conflicts must agree)."""
+    window excludes today don't count (capacity and conflicts must agree).
+    Absence-aware: people away today carry an `away` marker so the math is
+    read with the right eyes (a PTO'd 80% is not 80%)."""
     today = db.now()[:10]
-    return db.query(
+    rows = db.query(
         "SELECT a.person, SUM(a.percent) AS total_percent,"
         " GROUP_CONCAT(e.name || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
@@ -350,6 +352,12 @@ def capacity() -> list[dict]:
         " GROUP BY a.person ORDER BY total_percent DESC",
         (today, today),
     )
+    from .absences import away_today
+
+    away = away_today()
+    for r in rows:
+        r["away"] = away.get(r["person"], "")
+    return rows
 
 
 def record_lesson(

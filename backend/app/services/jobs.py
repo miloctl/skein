@@ -85,6 +85,24 @@ def _findings():
     return run_findings(actor="scheduler")
 
 
+def _week_open():
+    from .rituals import week_open
+
+    return week_open(actor="scheduler")
+
+
+def _week_close():
+    from .rituals import week_close
+
+    return week_close(actor="scheduler")
+
+
+def _authority_review():
+    from .delegation import review_authority
+
+    return review_authority(actor="scheduler")
+
+
 def _retention_prune():
     from .retention import prune
 
@@ -108,6 +126,25 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 0},
         168,
         True,
+    ),
+    JobSpec(
+        "week-open",
+        _week_open,
+        {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 30},
+        168,
+        True,
+    ),
+    JobSpec(
+        "week-close",
+        _week_close,
+        {"trigger": "cron", "day_of_week": "fri", "hour": 15, "minute": 0},
+        168,
+    ),
+    JobSpec(
+        "authority-review",
+        _authority_review,
+        {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 45},
+        168,
     ),
     JobSpec(
         "stale-wip-nudge",

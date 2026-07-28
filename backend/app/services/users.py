@@ -146,6 +146,8 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "finding_dispositions": ("created_by",),
     "chat_threads": ("owner",),
     "chat_folders": ("owner",),
+    "absences": ("created_by", "person"),
+    "task_worklog": ("author",),
 }
 
 

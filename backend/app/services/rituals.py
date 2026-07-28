@@ -1,0 +1,183 @@
+"""C1: the manager's week, opened and closed by jobs instead of by hand.
+
+Friday close-out sweeps what the week leaves dangling; Monday open briefs
+each person on their OWN obligations. Both are pure SQL, produce a markdown
+artifact, and notify — attention lands where the ritual used to be
+assembled manually from five pages."""
+
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from .. import config, db
+
+
+def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> str:
+    day = db.now()[:10]
+    out_dir = Path(config.DATA_DIR) / "artifacts" / "rituals"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{day}-{slug}.md"
+    path.write_text(markdown)
+    db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
+        ("ritual", title, str(path), actor, db.now()),
+    )
+    return str(path)
+
+
+def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
+    """Friday sweep: what this week leaves open — due/overdue promises,
+    engagements stuck closing, proposals nobody has judged, questions still
+    waiting. One packet, one notification, zero page-hopping."""
+    today = datetime.now(timezone.utc).date()
+    week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-close"
+    if actor == "scheduler" and not force and not db.claim_job("week_close", week):
+        return {"week": week, "skipped": "already ran this week"}
+
+    horizon = (today + timedelta(days=7)).isoformat()
+    due_commitments = db.query(
+        "SELECT id, promise, to_whom, due_date FROM commitments WHERE status = 'open'"
+        " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
+        (horizon,),
+    )
+    stuck_closing = db.query(
+        "SELECT id, name, updated_at FROM engagements WHERE status = 'closing'"
+        " AND updated_at < ? ORDER BY updated_at",
+        ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds"),),
+    )
+    stale_proposals = db.query(
+        "SELECT id, summary, proposed_by, created_at FROM pending_changes"
+        " WHERE status = 'pending' AND created_at < ? ORDER BY id",
+        ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(timespec="seconds"),),
+    )
+    open_questions = db.query(
+        "SELECT id, question, assigned_to FROM questions WHERE status = 'open' ORDER BY id"
+    )
+
+    lines = [f"# Week close-out — {today.isoformat()}", ""]
+    sections = [
+        (
+            "Promises due or overdue",
+            [
+                f"- #{c['id']} {c['promise'][:80]}"
+                f" ({'to ' + c['to_whom'] + ', ' if c['to_whom'] else ''}due {c['due_date']})"
+                for c in due_commitments
+            ],
+        ),
+        (
+            "Engagements stuck in 'closing' for 7+ days",
+            [f"- #{e['id']} {e['name']} (since {e['updated_at'][:10]})" for e in stuck_closing],
+        ),
+        (
+            "Proposals pending 3+ days",
+            [f"- #{p['id']} {p['summary']} (by {p['proposed_by']})" for p in stale_proposals],
+        ),
+        (
+            "Questions still open",
+            [
+                f"- #{q['id']} {q['question'][:80]} (→ {q['assigned_to'] or 'unassigned'})"
+                for q in open_questions
+            ],
+        ),
+    ]
+    total = 0
+    for title, rows in sections:
+        if rows:
+            lines += [f"## {title}", *rows, ""]
+            total += len(rows)
+    if total == 0:
+        lines.append("Nothing dangling. Close the laptop; the week is settled.")
+
+    markdown = "\n".join(lines)
+    path = _write_artifact("week-close", f"Week close-out {today.isoformat()}", markdown, actor)
+    db.log_activity(actor, "week_close", f"{total} open item(s)")
+    if total:
+        from .notifications import notify
+
+        notify(
+            "team",
+            f"Week close-out: {total} item(s) need a decision before Monday"
+            f" — {len(due_commitments)} promise(s), {len(stuck_closing)} stuck"
+            f" engagement(s), {len(stale_proposals)} stale proposal(s),"
+            f" {len(open_questions)} open question(s).",
+            tier="digest",
+            link="/portfolio",
+        )
+    return {"week": week, "items": total, "path": path, "markdown": markdown}
+
+
+def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
+    """Monday brief: each person's OWN obligations for the week — the
+    promises they made, decisions they own past review-by, questions waiting
+    on them, tasks due. Personal notifications, team artifact."""
+    today = datetime.now(timezone.utc).date()
+    week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-open"
+    if actor == "scheduler" and not force and not db.claim_job("week_open", week):
+        return {"week": week, "skipped": "already ran this week"}
+
+    horizon = (today + timedelta(days=7)).isoformat()
+    humans = db.query(
+        "SELECT name FROM users WHERE kind = 'human' AND active = 1"
+        " AND name != 'anonymous' ORDER BY name"
+    )
+    lines = [f"# Week open — {today.isoformat()}", ""]
+    from .notifications import notify
+
+    briefed = 0
+    for h in humans:
+        name = h["name"]
+        commitments = db.query(
+            "SELECT id, promise, due_date FROM commitments WHERE status = 'open'"
+            " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
+            (name, horizon),
+        )
+        decisions = db.query(
+            "SELECT id, title FROM decisions WHERE status = 'stale' AND decided_by = ? ORDER BY id",
+            (name,),
+        )
+        questions = db.query(
+            "SELECT id, question FROM questions WHERE status = 'open' AND assigned_to = ?"
+            " ORDER BY id",
+            (name,),
+        )
+        tasks = db.query(
+            "SELECT id, title, due_date FROM tasks WHERE assignee = ? AND status != 'done'"
+            " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
+            (name, horizon),
+        )
+        n = len(commitments) + len(decisions) + len(questions) + len(tasks)
+        if n == 0:
+            continue
+        briefed += 1
+        lines.append(f"## {name} — {n} obligation(s)")
+        lines += [
+            f"- promise #{c['id']}: {c['promise'][:70]} (due {c['due_date']})" for c in commitments
+        ]
+        lines += [
+            f"- stale decision #{d['id']}: {d['title'][:70]} — reconfirm or supersede"
+            for d in decisions
+        ]
+        lines += [f"- question #{q['id']}: {q['question'][:70]}" for q in questions]
+        lines += [f"- task #{t['id']}: {t['title'][:70]} (due {t['due_date']})" for t in tasks]
+        lines.append("")
+        parts = []
+        if commitments:
+            parts.append(f"{len(commitments)} promise(s)")
+        if decisions:
+            parts.append(f"{len(decisions)} stale decision(s)")
+        if questions:
+            parts.append(f"{len(questions)} question(s)")
+        if tasks:
+            parts.append(f"{len(tasks)} task(s) due")
+        notify(
+            name,
+            f"Your week: {', '.join(parts)} carry your name. Details on My Day.",
+            tier="digest",
+            link="/",
+        )
+    if briefed == 0:
+        lines.append("No outstanding obligations — a clean slate of a Monday.")
+
+    markdown = "\n".join(lines)
+    path = _write_artifact("week-open", f"Week open {today.isoformat()}", markdown, actor)
+    db.log_activity(actor, "week_open", f"{briefed} person(s) briefed")
+    return {"week": week, "briefed": briefed, "path": path, "markdown": markdown}

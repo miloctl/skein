@@ -204,6 +204,12 @@ export default function Dashboard() {
   );
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
+  const [absDraft, setAbsDraft] = useState({
+    person: "",
+    starts_on: "",
+    ends_on: "",
+    kind: "pto",
+  });
 
 
   // inline actions re-fetch instead of window.location.reload() — a reload
@@ -222,6 +228,7 @@ export default function Dashboard() {
       "blockers",
       "engagements",
       "capacity",
+      "absences",
     ];
     // calendar shows what's ahead — without the cutoff the card fills with
     // the 50 oldest events and never today's
@@ -247,6 +254,25 @@ export default function Dashboard() {
 
   const refocusEdit = (kind: string, id: number) =>
     setTimeout(() => document.getElementById(`edit-${kind}-${id}`)?.focus(), 0);
+
+  const addAbsence = async () => {
+    try {
+      await api("/api/absences", { method: "POST", body: JSON.stringify(absDraft) });
+      setAbsDraft({ person: "", starts_on: "", ends_on: "", kind: "pto" });
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
+  const deleteAbsence = async (id: number) => {
+    try {
+      await api(`/api/absences/${id}`, { method: "DELETE" });
+      load();
+    } catch (e) {
+      alert(String(e));
+    }
+  };
 
   const patchRow = async (entity: "tasks" | "milestones", id: number, fields: Record<string, string>) => {
     try {
@@ -471,6 +497,11 @@ export default function Dashboard() {
           <li key={String(c.person)} className="flex items-center justify-between text-sm">
             <span>
               {c.person}
+              {c.away ? (
+                <span className="ml-1.5 rounded-full bg-weld/15 px-1.5 py-px font-mono text-[10px] text-weld">
+                  away · {c.away}
+                </span>
+              ) : null}
               <span className="ml-2 text-xs text-ink-3">{c.detail}</span>
             </span>
             <span
@@ -483,6 +514,79 @@ export default function Dashboard() {
           </li>
         )}
       />
+      <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+        <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+          Time away
+        </h2>
+        <p className="mb-2 text-xs text-ink-3">
+          PTO zeroes someone out of capacity and the weekly plan; on-call and
+          focus are advisory context for staffing calls.
+        </p>
+        <div className="mb-3 flex flex-wrap items-end gap-1.5 text-xs">
+          <PersonInput
+            aria-label="Who is away"
+            value={absDraft.person}
+            onChange={(e) => setAbsDraft({ ...absDraft, person: e.target.value })}
+            placeholder="who"
+            className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+          />
+          <input
+            type="date"
+            aria-label="Away from"
+            value={absDraft.starts_on}
+            onChange={(e) => setAbsDraft({ ...absDraft, starts_on: e.target.value })}
+            className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+          />
+          <input
+            type="date"
+            aria-label="Away until"
+            value={absDraft.ends_on}
+            onChange={(e) => setAbsDraft({ ...absDraft, ends_on: e.target.value })}
+            className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+          />
+          <select
+            aria-label="Kind of absence"
+            value={absDraft.kind}
+            onChange={(e) => setAbsDraft({ ...absDraft, kind: e.target.value })}
+            className="rounded-lg border border-line-strong bg-card px-1.5 py-1"
+          >
+            <option value="pto">PTO</option>
+            <option value="oncall">on-call</option>
+            <option value="focus">focus</option>
+          </select>
+          <button
+            disabled={!absDraft.person.trim() || !absDraft.starts_on || !absDraft.ends_on}
+            onClick={addAbsence}
+            className="rounded-lg bg-thread-solid px-2.5 py-1 font-medium text-white hover:opacity-90 disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+        {(data.absences ?? []).length === 0 ? (
+          <p className="text-sm text-ink-3">Nobody is scheduled away.</p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {(data.absences ?? []).map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-2">
+                <span>
+                  {a.person}
+                  <span className="ml-2 text-xs text-ink-3">
+                    {a.kind} · {a.starts_on} → {a.ends_on}
+                    {a.note ? ` · ${a.note}` : ""}
+                  </span>
+                </span>
+                <button
+                  aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on}`}
+                  onClick={() => deleteAbsence(Number(a.id))}
+                  className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <Section
         title="Milestones"
         rows={data.milestones ?? []}
