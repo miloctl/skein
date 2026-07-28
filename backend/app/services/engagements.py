@@ -281,7 +281,7 @@ def allocate(
 ) -> dict:
     from .users import resolve_teammate
 
-    person = resolve_teammate(person, actor, "person")
+    person = resolve_teammate(person, actor, "person", allow_team=False)
     if not person:
         raise ValueError("person is required")
     db.validate_date("starts_on", starts_on, allow_clear=False)

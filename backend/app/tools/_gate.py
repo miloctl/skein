@@ -8,7 +8,7 @@ approved proposals, they don't start with it."""
 
 import json
 
-from .. import config
+from .. import config, ratelimit
 from ..agents.identity import agent_identity, requester_identity
 from ..services import review
 from ..services.delegation import authority_level
@@ -38,6 +38,12 @@ def gated_write(
     # destructive ALWAYS_REVIEW verbs legitimately carry empty payloads.
     if action == "update" and not payload and entity not in ALWAYS_REVIEW:
         return json.dumps({"error": "nothing to change — pass at least one field"})
+    # same 30/min bucket the REST creates use — a looping agent must not
+    # flood the DB (direct) or the review queue (proposals) unmetered
+    try:
+        ratelimit.check("write", actor)
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
     level = authority_level(actor, entity)
     if level == "forbidden":
         return json.dumps(

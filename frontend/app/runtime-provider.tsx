@@ -44,7 +44,16 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         signal: abortSignal,
       });
       if (!res.ok || !res.body) {
-        throw new Error(`Backend error: ${res.status} ${res.statusText}`);
+        // the body carries the usable message ("slow down — chat is capped
+        // at 20/minute", length caps) — surface it, not just the code
+        let detail = "";
+        try {
+          const parsed = await res.json();
+          detail = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+        } catch {
+          /* non-JSON body: fall through to the status line */
+        }
+        throw new Error(detail || `Backend error: ${res.status} ${res.statusText}`);
       }
 
       const reader = res.body.getReader();

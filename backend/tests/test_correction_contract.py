@@ -517,6 +517,9 @@ def test_absences_shape_capacity_and_week_draft(client, fresh_db):
 
 
 def test_absence_validation_and_delete(client, fresh_db):
+    from app.services import users
+
+    users.ensure_user("dana")
     r = client.post(
         "/api/absences",
         json={"person": "dana", "starts_on": "2026-08-10", "ends_on": "2026-08-01"},
@@ -1173,6 +1176,69 @@ def test_empty_update_proposal_bounced_on_the_agent(fresh_db, monkeypatch):
         reset_agent_identity(token)
     assert "nothing to change" in out["error"]
     assert not fresh_db.query_one("SELECT id FROM pending_changes")
+
+
+def test_write_rate_cap_enforced_on_create_routes(client, fresh_db):
+    for i in range(30):
+        assert client.post("/api/tasks", json={"title": f"t{i}"}).status_code == 200
+    r = client.post("/api/tasks", json={"title": "t31"})
+    assert r.status_code == 400 and "slow down" in r.json()["detail"]
+
+
+def test_pending_reviews_limited_with_honest_total(client, fresh_db):
+    from app.services import briefing, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    for i in range(60):
+        review.propose_change(
+            "note",
+            "create",
+            {"topic": f"t{i}", "content": "c"},
+            actor="scribe",
+            notify_team=False,
+        )
+    day = briefing.my_day("tester")
+    assert len(day["needs_you"]["pending_reviews"]) == 50
+    assert day["pending_reviews_total"] == 60
+
+
+def test_allocation_and_absence_refuse_team_and_ghosts(fresh_db):
+    from app.services import absences, engagements, users
+
+    users.ensure_user("mira")
+    e = engagements.create_engagement("Ghosts")
+    with pytest.raises(ValueError, match="not an active teammate"):
+        engagements.allocate("team", e["id"], 50, actor="mira")
+    with pytest.raises(ValueError, match="not an active teammate"):
+        absences.add_absence("gohst", "2026-08-10", "2026-08-11", actor="mira")
+    absences.add_absence("MIRA", "2026-08-10", "2026-08-11", actor="tester")
+    row = fresh_db.query_one("SELECT person FROM absences")
+    assert row["person"] == "mira"  # canonicalized
+
+
+def test_doomed_event_cancel_proposal_auto_rejects(client, fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import schedule, users
+    from app.tools.schedule import cancel_event as cancel_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scout", kind="agent")
+    e = schedule.schedule_event("doomed", "2026-08-11T10:00")
+    token = set_agent_identity("scout")
+    try:
+        out = j.loads(cancel_tool(event_id=e["id"]))
+    finally:
+        reset_agent_identity(token)
+    schedule.cancel_event(e["id"], actor="mira")  # REST got there first
+    r = client.post(f"/api/review/{out['id']}/approve", json={}, headers=_strong(client))
+    assert r.status_code == 400 and "auto-rejected" in r.json()["detail"]
+    row = fresh_db.query_one(
+        "SELECT status, review_note FROM pending_changes WHERE id = ?", (out["id"],)
+    )
+    assert row["status"] == "rejected" and "target vanished" in row["review_note"]
 
 
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):

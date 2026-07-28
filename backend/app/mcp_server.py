@@ -281,6 +281,12 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
+    # reserve THIS process's identity as kind=agent before any request — the
+    # API server only reserves its own env's STRANDS_MCP_USER, and a human
+    # picking this name first would permanently shadow the agent
+    from .services.users import ensure_user
+
+    ensure_user(ACTOR, kind="agent")
     mcp.run()  # stdio transport
 
 

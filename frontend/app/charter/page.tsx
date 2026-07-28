@@ -72,12 +72,14 @@ export default function CharterPage() {
       <div className="mb-6 space-y-2 rounded-xl border border-line bg-card p-4 shadow-card">
         <input
           value={title}
+          maxLength={200}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Production incident escalation path"
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
         <textarea
           value={text}
+          maxLength={2000}
           onChange={(e) => setText(e.target.value)}
           rows={2}
           placeholder="The agreement itself…"
@@ -169,6 +171,7 @@ export default function CharterPage() {
                   name="supersede-text"
                   aria-label="The replacement agreement"
                   value={newText}
+                  maxLength={2000}
                   onChange={(e) => setNewText(e.target.value)}
                   rows={2}
                   placeholder="The replacement agreement — the old one stays in the chain"

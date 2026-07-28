@@ -21,7 +21,9 @@ def add_absence(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
-    person = person.strip()
+    from .users import resolve_teammate
+
+    person = resolve_teammate(person, actor, "person", allow_team=False)
     if not person:
         raise ValueError("person is required")
     if len(person) > 60:

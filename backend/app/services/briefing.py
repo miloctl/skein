@@ -212,10 +212,16 @@ def my_day(user: str) -> dict:
             (user,),
         ),
     }
+    pending_total = db.query_one(
+        "SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'"
+    )
     return {
         "user": user,
         "date": today,
         "needs_you": needs_you,
+        # honest total alongside the LIMITed list — the header must not read
+        # "50 things need you" while the nav badge says 300
+        "pending_reviews_total": pending_total["n"] if pending_total else 0,
         "attention": _attention(user, needs_you, today, week),
         "your_work": {
             "tasks": db.query(
