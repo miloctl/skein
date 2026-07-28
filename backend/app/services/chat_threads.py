@@ -81,6 +81,15 @@ def _own(thread_id: str, owner: str) -> dict:
     return row
 
 
+def has_messages(thread_id: str) -> bool:
+    """Existence only (no ownership check, no content) — the chat route uses
+    this to emit a persona masthead exactly once per thread on EVERY
+    provider, including mock (which never creates a session dir)."""
+    return bool(
+        db.query_one("SELECT 1 AS x FROM chat_messages WHERE thread_id = ? LIMIT 1", (thread_id,))
+    )
+
+
 def get_messages(thread_id: str, owner: str) -> list[dict]:
     _own(thread_id, owner)
     return db.query(

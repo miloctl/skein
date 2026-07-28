@@ -35,7 +35,7 @@ enough) upgrades the experience.
 | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
 | `/review` | Review inbox — approve/reject proposed changes (agent approval gate) |
 | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
-| ⌘K anywhere | Quick capture — freeform text auto-routed to task/question/note/decision/blocker/commitment |
+| ⌘K anywhere | Quick capture — freeform text auto-routed to task/question/note/decision/blocker/commitment/request (`req:`)/private feedback (`fb:`) |
 
 ## Architecture
 

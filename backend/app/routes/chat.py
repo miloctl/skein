@@ -13,7 +13,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import config, ratelimit
+from .. import ratelimit
 from ..agents import commands
 from ..agents.identity import (
     reset_agent_identity,
@@ -211,7 +211,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
         # deterministic nameplate for EVERY provider, once per thread — who
         # answered must never depend on whether the model signs its work
         pdef = personas.get_persona(persona)
-        if not (config.SESSIONS_DIR / f"session_{thread_id}").exists():
+        # provider-neutral once-per-thread check: the mock path never creates
+        # a session dir, so gate on the transcript instead
+        if not chat_threads.has_messages(thread_id):
             vibe = f" — *{pdef['vibe']}*" if pdef["vibe"] else ""
             masthead = f"{pdef['emoji']} **{pdef['name']}**{vibe}\n"
             if pdef["disclosure"]:

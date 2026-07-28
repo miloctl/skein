@@ -127,7 +127,7 @@ def test_slip_forecast_uses_history(client, fresh_db):
     ).json()
     client.patch(f"/api/milestones/{done['id']}", json={"status": "done"})
     fresh_db.execute(
-        "UPDATE milestones SET updated_at = '2026-06-08T00:00:00' WHERE id = ?", (done["id"],)
+        "UPDATE milestones SET completed_at = '2026-06-08T00:00:00' WHERE id = ?", (done["id"],)
     )
     out = client.get("/api/portfolio/forecast").json()
     assert out["basis"]["milestones_measured"] == 1

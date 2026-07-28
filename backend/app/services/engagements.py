@@ -31,6 +31,7 @@ def create_engagement(
         raise ValueError(f"kind must be one of {KINDS}")
     if kind == "experiment" and not timebox_end:
         raise ValueError("experiments need a timebox_end date (YYYY-MM-DD)")
+    db.validate_date("timebox_end", timebox_end, allow_clear=False)
     if db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
         raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
@@ -90,6 +91,7 @@ def update_engagement(
         raise ValueError(f"status must be one of {STATUSES}")
     if conclusion and conclusion not in CONCLUSIONS:
         raise ValueError(f"conclusion must be one of {CONCLUSIONS}")
+    db.validate_date("timebox_end", timebox_end)
     current = db.query_one(
         "SELECT name, status, kind, outcome, conclusion FROM engagements WHERE id = ?",
         (engagement_id,),
@@ -124,6 +126,17 @@ def update_engagement(
     }
     if not fields:
         raise ValueError("nothing to update")
+    # "-" clears any clearable field — same convention as tasks/milestones;
+    # a mis-set timebox must be removable, not only movable
+    for clearable, empty in (
+        ("timebox_end", None),
+        ("kill_criteria", ""),
+        ("summary", ""),
+        ("lead", ""),
+        ("outcome", ""),
+    ):
+        if fields.get(clearable) == "-":
+            fields[clearable] = empty  # type: ignore[assignment]
     if freshly_closed:
         fields["closed_at"] = db.now()  # re-closing must not re-fire ship-it
     sets = ", ".join(f"{k} = ?" for k in fields)
@@ -216,19 +229,22 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
         "milestones": db.query_row(
             "SELECT COUNT(*) AS n FROM milestones WHERE engagement_id = ?", (engagement_id,)
         ),
+        # BOTH link paths — direct tasks.engagement_id and via milestones —
+        # the same predicate the open-task warning above uses; an engagement
+        # worked without milestones must not recap as zero
         "tasks_done": db.query_row(
-            "SELECT COUNT(*) AS n FROM tasks t JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.engagement_id = ? AND t.status = 'done'",
-            (engagement_id,),
+            "SELECT COUNT(*) AS n FROM tasks t WHERE t.status = 'done'"
+            " AND (t.engagement_id = ? OR t.milestone_id IN"
+            " (SELECT id FROM milestones WHERE engagement_id = ?))",
+            (engagement_id, engagement_id),
         ),
         # scoped to THIS engagement's linked blockers — the recap must be honest
         # (a time-window count silently absorbed unrelated blockers)
         "blockers_survived": db.query_row(
-            "SELECT COUNT(*) AS n FROM blockers b"
-            " JOIN tasks t ON t.id = b.task_id"
-            " JOIN milestones m ON m.id = t.milestone_id"
-            " WHERE m.engagement_id = ? AND b.status = 'resolved'",
-            (engagement_id,),
+            "SELECT COUNT(*) AS n FROM blockers b JOIN tasks t ON t.id = b.task_id"
+            " WHERE b.status = 'resolved' AND (t.engagement_id = ? OR t.milestone_id IN"
+            " (SELECT id FROM milestones WHERE engagement_id = ?))",
+            (engagement_id, engagement_id),
         ),
     }
     if eng["kind"] == "experiment":

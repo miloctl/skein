@@ -45,6 +45,11 @@ def set_growth_interests(name: str, interests: str, *, actor: str = "system") ->
     return {"name": name, "growth_interests": interests.strip()}
 
 
+def get_growth_interests(name: str) -> str:
+    row = db.query_one("SELECT growth_interests FROM users WHERE name = ?", (name,))
+    return (row or {}).get("growth_interests") or ""
+
+
 def _validate_theme(theme: str) -> str:
     import json
 

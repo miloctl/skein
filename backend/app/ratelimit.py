@@ -39,7 +39,11 @@ def check(surface: str, user: str) -> None:
         for k in [k for k, w in _hits.items() if k != key and w and now - w[-1] > WINDOW_SECONDS]:
             del _hits[k]
         if key not in _hits and len(_hits) >= MAX_KEYS:
-            raise ValueError("slow down — too many distinct senders")
+            # evict the longest-idle window instead of refusing — a name
+            # flood must not lock out the next REAL teammate's first write
+            oldest = min((k for k in _hits if k != key), key=lambda k: _hits[k][-1], default=None)
+            if oldest is not None:
+                del _hits[oldest]
         window = _hits[key]
         while window and now - window[0] > WINDOW_SECONDS:
             window.popleft()

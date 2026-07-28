@@ -199,7 +199,8 @@ def publish_pack(*, actor: str = "system") -> dict:
         # concurrent publisher won the version — serve theirs
         last = latest_pack()
         if last is None:
-            raise RuntimeError("context pack vanished during concurrent publish") from None
+            # ValueError → 400 via the global handler; RuntimeError was a 500
+            raise ValueError("context pack vanished during concurrent publish — retry") from None
         return {"version": last["version"], "hash": last["content_hash"], "changed": False}
     pack_dir = Path(config.DATA_DIR) / "artifacts" / "context-pack"
     pack_dir.mkdir(parents=True, exist_ok=True)

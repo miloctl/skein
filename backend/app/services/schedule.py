@@ -18,13 +18,23 @@ def schedule_event(
 ) -> dict:
     if not title.strip():
         raise ValueError("event title is required")
-    for label, value in (("starts_at", starts_at), ("ends_at", ends_at)):
-        if not value and label == "ends_at":
-            continue
+
+    def _canon(label: str, value: str) -> str:
+        # normalize at write time: fromisoformat accepts space separators and
+        # offsets, but the ICS builder (and string comparisons) only survive
+        # the plain YYYY-MM-DDTHH:MM shape — store exactly that
         try:
-            datetime.fromisoformat(value)
+            dt = datetime.fromisoformat(value)
         except (TypeError, ValueError):
             raise ValueError(f"{label} must be an ISO timestamp (e.g. 2026-07-24T15:00)") from None
+        if dt.tzinfo is not None:
+            from datetime import timezone
+
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.strftime("%Y-%m-%dT%H:%M")
+
+    starts_at = _canon("starts_at", starts_at)
+    ends_at = _canon("ends_at", ends_at) if ends_at else ""
     eid = db.execute(
         "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
         " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

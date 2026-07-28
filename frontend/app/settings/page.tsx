@@ -69,6 +69,13 @@ export default function SettingsPage() {
   const [who, setWho] = useState<WhoAmI | null>(null);
   const [keyStatus, setKeyStatus] = useState<string>("");
   const [interests, setInterests] = useState("");
+  const [interestsSaved, setInterestsSaved] = useState("");
+  useEffect(() => {
+    // prefill: a write-only field can neither be reviewed nor cleared
+    api<{ interests: string }>("/api/users/growth-interests")
+      .then((r) => setInterests(r.interests))
+      .catch(() => {});
+  }, [currentUser]);
 
   const refresh = useCallback(() => {
     api<WhoAmI>("/api/whoami").then(setWho).catch(() => setWho(null));
@@ -723,18 +730,20 @@ export default function SettingsPage() {
                   method: "POST",
                   body: JSON.stringify({ interests }),
                 });
-                setInterests("");
-                alert("Saved.");
+                setInterestsSaved(interests.trim() ? "Saved." : "Cleared.");
+                setTimeout(() => setInterestsSaved(""), 3000);
               } catch (e) {
                 alert(String(e));
               }
             }}
-            disabled={!interests.trim()}
             className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             Save
           </button>
         </div>
+        <p role="status" aria-live="polite" className="mt-1 text-xs text-ok">
+          {interestsSaved}
+        </p>
       </Section>
 
       <Section title="4 · Connect your own AI agent (optional)">

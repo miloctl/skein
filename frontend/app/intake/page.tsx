@@ -213,7 +213,7 @@ export default function IntakePage() {
                   )
                 )}
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[r.status]}`}
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[r.status] ?? "bg-raised text-ink-2"}`}
                 >
                   {r.status}
                 </span>
