@@ -1,4 +1,6 @@
 # Skein dogfood log — simulated 3-week team arc
+
+> **Status (2026-07-27): CLOSED — every friction/bug/idea in this log has shipped (q:-assignment, review-by parsing, question reassign, pulse input, phantom-user deactivate, disposition badges, review-ping clearing, job_stale grouping+gate, task engagement_id, intake lead field, /ask OR-fallback).**
 Team: claude (lead), mira (eng), tomas (eng), scout (AI agent)
 Format: [friction|bug|idea|ok] — observation
 - [friction] `q: tomas — question` does NOT assign to tomas; digest then prints "→ unassigned" next to a question that names its assignee. fb: already parses `person —`; q: should too (only when person matches a known user).

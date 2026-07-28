@@ -3,8 +3,13 @@
 Five agent perspectives (Chief of Staff, Product Manager, AI Engineer,
 Developer Advocate, Whimsy Injector) each read FEATURES.md / ROADMAP.md /
 relevant source and proposed ranked features plus any outright fixes they
-noticed. Status: **fixes applied** in `eecc14b`; **all features below are
-NOT implemented** — pending act/defer/ignore triage.
+noticed. Status: **fixes applied** in `eecc14b`. Since then (2026-07-27): **P5
+shipped** (standup 'yesterday' derives from your activity on My Day — CLI
+--draft flag still open), **S7-style req: capture shipped**, the
+**chat-identity contextvar fix shipped** (personas run on it), the
+onboarding key step is now self-serve ("Request a key"), and A2's
+prerequisite (strong-verdict provenance, `reviewed_strong`) exists.
+Everything else below remains un-implemented, pending triage.
 
 ## Cross-agent convergences
 
