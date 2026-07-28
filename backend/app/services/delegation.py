@@ -16,8 +16,17 @@ def delegate_task(
 ) -> dict:
     if not agent.strip():
         raise ValueError("agent name is required")
-    if not sponsor.strip():
-        raise ValueError("every delegation needs a human sponsor")
+    sponsor = sponsor.strip()
+    sponsor_row = db.query_one("SELECT kind FROM users WHERE name = ? AND active = 1", (sponsor,))
+    if not sponsor_row or sponsor_row["kind"] != "human":
+        raise ValueError(
+            f"sponsor '{sponsor}' must be an active human teammate — the sponsor"
+            " receives the acceptance proposal, so a typo here means nobody does"
+        )
+    # an agent naming itself is not a delegation, it's a land-grab; the
+    # human-approved proposal path (origin agent_verified) stays open
+    if agent.strip() == actor and origin != "agent_verified":
+        raise ValueError("an agent cannot delegate a task to itself — propose it instead")
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
         raise ValueError(f"task #{task_id} not found")
@@ -39,10 +48,18 @@ def delegate_task(
     return {"id": task_id, "delegated_agent": agent, "sponsor": sponsor}
 
 
+def _check_not_forbidden(actor: str) -> None:
+    """The delegation trio bypasses gated_write by design (working your own
+    delegation is direct), but the kill switch must still hold."""
+    if authority_level(actor, "task") == "forbidden":
+        raise ValueError(f"'{actor}' is forbidden on tasks — ask a human to lift it")
+
+
 def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     """The agent picks up its delegated task: todo -> in_progress. Direct
     (not review-gated) — status motion on the agent's own delegation is
     reversible and the sponsor is told."""
+    _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
         raise ValueError(f"task #{task_id} not found")
@@ -69,21 +86,36 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
 
 def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent") -> dict:
     """Append a worklog entry — the agent's running account, readable by the
-    sponsor before the acceptance verdict. Additive, so direct (like standups)."""
-    if not note.strip():
+    sponsor before the acceptance verdict. Additive, so direct (like standups)
+    — but only for the parties in the loop: the worklog is evidence the
+    sponsor judges on, so nobody else may write into it."""
+    note = note.strip()
+    if not note:
         raise ValueError("the progress note is required")
-    task = db.query_one("SELECT delegated_agent, title FROM tasks WHERE id = ?", (task_id,))
+    if len(note) > 2000:
+        raise ValueError("keep progress notes under 2000 characters")
+    _check_not_forbidden(actor)
+    task = db.query_one(
+        "SELECT delegated_agent, sponsor, status, title FROM tasks WHERE id = ?", (task_id,)
+    )
     if not task:
         raise ValueError(f"task #{task_id} not found")
+    if actor not in (task["delegated_agent"], task["sponsor"]):
+        raise ValueError(f"task #{task_id}'s worklog is written by its delegate or sponsor only")
+    if task["status"] == "done":
+        raise ValueError(f"task #{task_id} is done — its worklog is history now")
     wid = db.execute(
-        "INSERT INTO task_worklog (task_id, author, note, created_at) VALUES (?, ?, ?, ?)",
-        (task_id, actor, note.strip(), db.now()),
+        "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (task_id, actor, note, origin, db.now()),
     )
-    db.log_activity(actor, "report_progress", f"task #{task_id}: {note.strip()[:80]}")
+    db.log_activity(actor, "report_progress", f"task #{task_id}: {note[:80]}")
     return {"id": wid, "task_id": task_id}
 
 
 def list_worklog(task_id: int, limit: int = 50) -> list[dict]:
+    if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
+        raise ValueError(f"task #{task_id} not found")
     return db.query(
         "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
         (task_id, limit),
@@ -100,11 +132,22 @@ def accept_completion(
         raise ValueError(f"task #{task_id} not found")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
+    # a reassignment between submit and verdict voids the proposal — the
+    # acceptance must be for work the proposer still owns
+    if actor and task["delegated_agent"] != actor:
+        raise ValueError(f"task #{task_id} is no longer delegated to '{actor}'")
     db.execute("UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?", (db.now(), task_id))
     if summary:
         db.execute(
-            "INSERT INTO task_worklog (task_id, author, note, created_at) VALUES (?, ?, ?, ?)",
-            (task_id, actor or "agent", f"[accepted] {summary}", db.now()),
+            "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (
+                task_id,
+                actor or "agent",
+                f"[accepted] {summary}",
+                origin or "agent_verified",
+                db.now(),
+            ),
         )
     db.log_activity(actor or "agent", "complete_task", f"#{task_id} {task['title']}")
     return {"id": task_id, "status": "done"}
@@ -116,6 +159,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     labeled trust signal for this agent."""
     if not summary.strip():
         raise ValueError("say what was done — the sponsor reads this summary")
+    _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
         raise ValueError(f"task #{task_id} not found")
@@ -123,6 +167,16 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
+    dup = db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
+        " AND entity_id = ? AND status = 'pending'",
+        (task_id,),
+    )
+    if dup:
+        raise ValueError(
+            f"task #{task_id} already awaits acceptance (proposal #{dup['id']})"
+            " — wait for the sponsor's verdict"
+        )
     from .review import propose_change
 
     p = propose_change(
@@ -150,13 +204,26 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
 
 
 def set_authority(
-    agent: str, entity: str, level: str, *, actor: str = "system", origin: str = "human"
+    agent: str,
+    entity: str,
+    level: str,
+    expected_current: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
 ) -> dict:
     agent = agent.strip()
     if not agent or agent == "anonymous":
         raise ValueError("agent name is required")
     if level not in LEVELS:
         raise ValueError(f"level must be one of {LEVELS}")
+    # streak-filed proposals pin the from-level: a stale proposal must never
+    # override what a human set in the meantime — above all the kill switch
+    if expected_current and authority_level(agent, entity) != expected_current:
+        raise ValueError(
+            f"{agent}/{entity} is now '{authority_level(agent, entity)}',"
+            f" not '{expected_current}' — this proposal is stale; re-run the review"
+        )
     # the kill switch must not be self-serviceable: an agent identity (e.g. a
     # key issued to one) can never grant or lift authority — humans only
     actor_row = db.query_one("SELECT kind FROM users WHERE name = ?", (actor,))
@@ -219,7 +286,8 @@ def trust_scores() -> list[dict]:
         # spoofed X-User must not be able to walk an agent to autonomous
         recent = db.query(
             "SELECT status FROM pending_changes WHERE proposed_by = ? AND entity = ?"
-            " AND status != 'pending' AND reviewed_strong = 1 ORDER BY id DESC LIMIT ?",
+            " AND status != 'pending' AND reviewed_strong = 1"
+            " ORDER BY reviewed_at DESC, id DESC LIMIT ?",
             (r["agent"], r["entity"], TRUST_STREAK),
         )
         streak = 0
@@ -253,14 +321,29 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     streak; demotions to review fire on a strong-verdict rejection streak.
     The system only proposes — a human approves, and agents can never
     approve anything, so there is no self-promotion path."""
+    from datetime import datetime, timedelta, timezone
+
     filed = []
-    pending = {
+    # don't refile what's pending, and don't nag weekly about what a human
+    # just declined — a rejection buys 28 days of silence for that pair
+    recent_cutoff = (datetime.now(timezone.utc) - timedelta(days=28)).isoformat(timespec="seconds")
+    seen = {
         (json.loads(p["payload"]).get("agent"), json.loads(p["payload"]).get("entity"))
         for p in db.query(
-            "SELECT payload FROM pending_changes WHERE entity = 'authority' AND status = 'pending'"
+            "SELECT payload FROM pending_changes WHERE entity = 'authority'"
+            " AND (status = 'pending' OR (status = 'rejected' AND reviewed_at > ?))",
+            (recent_cutoff,),
         )
     }
+    from .users import is_agent
+
+    # authority levels only mean something for agent identities on entities
+    # the gate consults: streaks from humans, the scheduler, or the meta
+    # entities would mint nonsense agent rows if proposed
+    skip_entities = {"authority", "task_completion"}
     for r in trust_scores():
+        if r["entity"] in skip_entities or not is_agent(r["agent"]):
+            continue
         target = None
         why = ""
         if r["recent_streak"] >= TRUST_STREAK and r["current_level"] == "review":
@@ -272,16 +355,26 @@ def review_authority(*, actor: str = "scheduler") -> dict:
         ):
             target = "review"
             why = f"{r['rejection_streak']} straight strong-verdict rejections"
-        if not target or (r["agent"], r["entity"]) in pending:
+        if not target or (r["agent"], r["entity"]) in seen:
             continue
         from .review import propose_change
 
         p = propose_change(
             "authority",
             "create",
-            {"agent": r["agent"], "entity": r["entity"], "level": target},
+            {
+                "agent": r["agent"],
+                "entity": r["entity"],
+                "level": target,
+                "expected_current": r["current_level"],
+            },
             summary=f"authority: {r['agent']}/{r['entity']}"
-            f" {r['current_level']} -> {target} ({why})",
+            f" {r['current_level']} -> {target} ({why})"
+            + (
+                " — notify means direct writes with an FYI, no pre-review"
+                if target == "notify"
+                else ""
+            ),
             actor=actor,
             origin="agent",
             notify_team=False,

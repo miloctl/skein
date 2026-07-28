@@ -24,6 +24,10 @@ def add_absence(
     person = person.strip()
     if not person:
         raise ValueError("person is required")
+    if len(person) > 60:
+        raise ValueError("person must be under 60 characters")
+    if len(note) > 200:
+        raise ValueError("keep the note under 200 characters")
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}")
     for label, value in (("starts_on", starts_on), ("ends_on", ends_on)):
@@ -32,6 +36,9 @@ def add_absence(
         date.fromisoformat(value)  # rejects 2026-02-31
     if ends_on < starts_on:
         raise ValueError("ends_on must not be before starts_on")
+    # an open-ended window would zero someone out of planning forever
+    if (date.fromisoformat(ends_on) - date.fromisoformat(starts_on)).days > 180:
+        raise ValueError("windows are capped at 180 days — enter long leave in chunks")
     aid = db.execute(
         "INSERT INTO absences (person, kind, starts_on, ends_on, note, origin,"
         " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

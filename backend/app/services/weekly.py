@@ -48,7 +48,10 @@ def draft_plan(week: str = "") -> dict:
     from .absences import weekday_overlap
 
     year, wk = week.split("-W")
-    week_monday = _date.fromisocalendar(int(year), int(wk), 1)
+    try:
+        week_monday = _date.fromisocalendar(int(year), int(wk), 1)
+    except ValueError as exc:  # W53 in a 52-week ISO year passes the regex
+        raise ValueError(f"{year} has no ISO week {wk}") from exc
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
         " AND name != 'anonymous' ORDER BY name"
@@ -115,11 +118,17 @@ def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
     from .review import propose_change
 
     names = ", ".join(f"#{i['task_id']}" for i in draft["items"][:10])
+    # the reviewer must see who was left out and why — a silent skip reads
+    # as "covered everyone"
+    skipped = ""
+    if draft["skipped_absent"]:
+        who = ", ".join(f"{s['person']} ({s['away_days']}d)" for s in draft["skipped_absent"])
+        skipped = f"; skipped for absence: {who}"
     return propose_change(
         "weekly_plan",
         "create",
         {"week": week, "task_ids": [i["task_id"] for i in draft["items"]]},
-        summary=f"Weekly commitment line {week}: {len(draft['items'])} tasks ({names})",
+        summary=f"Weekly commitment line {week}: {len(draft['items'])} tasks ({names}){skipped}",
         actor=actor,
         origin="agent",
     )

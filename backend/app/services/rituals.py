@@ -5,10 +5,28 @@ each person on their OWN obligations. Both are pure SQL, produce a markdown
 artifact, and notify — attention lands where the ritual used to be
 assembled manually from five pages."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from .. import config, db
+
+
+def _clean(text: str, width: int = 80) -> str:
+    """User text goes into markdown bullets — a newline in a promise must not
+    forge a section header in the packet."""
+    return " ".join(str(text).split())[:width]
+
+
+def _claim_week(job: str, week: str, force: bool) -> bool:
+    """Claim for EVERY actor — a manual Monday run must stop the scheduler
+    from double-briefing the team. Force reruns, but still stamps the claim."""
+    claimed = db.claim_job(job, week)
+    return claimed or force
+
+
+def _release_claim(job: str, week: str) -> None:
+    """A crash mid-ritual must not eat the week's slot."""
+    db.execute("DELETE FROM job_runs WHERE job = ? AND run_key = ?", (job, week))
 
 
 def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> str:
@@ -30,9 +48,16 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
     waiting. One packet, one notification, zero page-hopping."""
     today = datetime.now(timezone.utc).date()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-close"
-    if actor == "scheduler" and not force and not db.claim_job("week_close", week):
+    if not _claim_week("week_close", week, force):
         return {"week": week, "skipped": "already ran this week"}
+    try:
+        return _week_close_run(today, week, actor)
+    except Exception:
+        _release_claim("week_close", week)
+        raise
 
+
+def _week_close_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
     due_commitments = db.query(
         "SELECT id, promise, to_whom, due_date FROM commitments WHERE status = 'open'"
@@ -58,23 +83,31 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
         (
             "Promises due or overdue",
             [
-                f"- #{c['id']} {c['promise'][:80]}"
-                f" ({'to ' + c['to_whom'] + ', ' if c['to_whom'] else ''}due {c['due_date']})"
+                f"- #{c['id']} {_clean(c['promise'])}"
+                f" ({'to ' + _clean(c['to_whom'], 40) + ', ' if c['to_whom'] else ''}"
+                f"due {c['due_date']})"
                 for c in due_commitments
             ],
         ),
         (
             "Engagements stuck in 'closing' for 7+ days",
-            [f"- #{e['id']} {e['name']} (since {e['updated_at'][:10]})" for e in stuck_closing],
+            [
+                f"- #{e['id']} {_clean(e['name'])} (since {e['updated_at'][:10]})"
+                for e in stuck_closing
+            ],
         ),
         (
             "Proposals pending 3+ days",
-            [f"- #{p['id']} {p['summary']} (by {p['proposed_by']})" for p in stale_proposals],
+            [
+                f"- #{p['id']} {_clean(p['summary'])} (by {_clean(p['proposed_by'], 40)})"
+                for p in stale_proposals
+            ],
         ),
         (
             "Questions still open",
             [
-                f"- #{q['id']} {q['question'][:80]} (→ {q['assigned_to'] or 'unassigned'})"
+                f"- #{q['id']} {_clean(q['question'])}"
+                f" (→ {_clean(q['assigned_to'], 40) or 'unassigned'})"
                 for q in open_questions
             ],
         ),
@@ -111,9 +144,16 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
     on them, tasks due. Personal notifications, team artifact."""
     today = datetime.now(timezone.utc).date()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-open"
-    if actor == "scheduler" and not force and not db.claim_job("week_open", week):
+    if not _claim_week("week_open", week, force):
         return {"week": week, "skipped": "already ran this week"}
+    try:
+        return _week_open_run(today, week, actor)
+    except Exception:
+        _release_claim("week_open", week)
+        raise
 
+
+def _week_open_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
@@ -150,14 +190,18 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
         briefed += 1
         lines.append(f"## {name} — {n} obligation(s)")
         lines += [
-            f"- promise #{c['id']}: {c['promise'][:70]} (due {c['due_date']})" for c in commitments
+            f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
+            + (f" (due {c['due_date']})" if c["due_date"] else "")
+            for c in commitments
         ]
         lines += [
-            f"- stale decision #{d['id']}: {d['title'][:70]} — reconfirm or supersede"
+            f"- stale decision #{d['id']}: {_clean(d['title'], 70)} — reconfirm or supersede"
             for d in decisions
         ]
-        lines += [f"- question #{q['id']}: {q['question'][:70]}" for q in questions]
-        lines += [f"- task #{t['id']}: {t['title'][:70]} (due {t['due_date']})" for t in tasks]
+        lines += [f"- question #{q['id']}: {_clean(q['question'], 70)}" for q in questions]
+        lines += [
+            f"- task #{t['id']}: {_clean(t['title'], 70)} (due {t['due_date']})" for t in tasks
+        ]
         lines.append("")
         parts = []
         if commitments:
@@ -174,7 +218,24 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
             tier="digest",
             link="/",
         )
-    if briefed == 0:
+    # commitments carry only created_by (the recorder) — a promise an agent
+    # captured belongs to nobody in the loop above and must not go silent
+    agent_recorded = db.query(
+        "SELECT c.id, c.promise, c.due_date FROM commitments c"
+        " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
+        " WHERE c.status = 'open' AND (c.due_date IS NULL OR c.due_date <= ?)"
+        " ORDER BY c.due_date",
+        (horizon,),
+    )
+    if agent_recorded:
+        lines.append(f"## Recorded by agents — {len(agent_recorded)} promise(s) need an owner")
+        lines += [
+            f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
+            + (f" (due {c['due_date']})" if c["due_date"] else "")
+            for c in agent_recorded
+        ]
+        lines.append("")
+    if briefed == 0 and not agent_recorded:
         lines.append("No outstanding obligations — a clean slate of a Monday.")
 
     markdown = "\n".join(lines)

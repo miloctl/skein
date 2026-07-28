@@ -48,12 +48,27 @@ new features are reviewed against it.
 | Standup | — | — | n/a | immutable by design (a diary, not a doc) |
 | Intake request | ✅ title/detail (API+tool) | declined/deferred | n/a | submitted/scored only; no UI yet |
 | User | rename/merge/deactivate | deactivate | n/a | merge backfills theme+interests |
+| Absence | delete+recreate | ✅ DELETE (REST; UI two-step) | n/a | 180d window cap, person/note capped, rate-capped |
+| Worklog | append-only | frozen once task is done | n/a | delegate+sponsor only, 2000-char cap, origin recorded |
 
 ## Remaining gaps (next batch)
 
 1. UI affordances for the new wording edits — blocker (My Day), commitment
    (Portfolio), intake title (Intake) — and a cancel on the dashboard
    Calendar card (event delete is REST+tool only).
+
+Closed 2026-07-27 (A1/A2 hardening): the delegation loop holds under
+adversarial use — agents cannot self-complete a delegated task
+(`update_task` refuses `done` from agent identities; the sponsor's verdict
+is the only close), worklogs accept only the delegate/sponsor, completion
+submissions dedupe against pending proposals, and the `forbidden` kill
+switch reaches the whole trio. Authority verdicts are human-only AND
+strong-identity-only end to end (weak `X-User` can no longer approve a
+filed promotion), stale authority proposals refuse to apply when the level
+changed underneath them (`expected_current` pin — `forbidden` is never
+silently lifted), and streak proposals are filed only for agent-kind
+proposers on gate-consulted entities. Manual ritual runs consume the weekly
+claim so the scheduler can't double-brief.
 
 Closed 2026-07-27 (later batch): **tool parity** — agents now correct under
 the same review gate humans use: `edit_note`/`delete_note`, `edit_blocker`,

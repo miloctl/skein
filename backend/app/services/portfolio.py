@@ -282,11 +282,10 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
     }
     from .absences import list_absences
 
-    away = {
-        a["person"]: f"{a['kind']} {a['starts_on']}..{a['ends_on']}"
-        for a in list_absences()
-        if a["kind"] == "pto"
-    }
+    away: dict[str, str] = {}
+    for a in list_absences():  # ordered by starts_on — keep the NEAREST window
+        if a["kind"] == "pto":
+            away.setdefault(a["person"], f"{a['kind']} {a['starts_on']}..{a['ends_on']}")
     projection = []
     for p in people:
         total = current.get(p, 0) + percent

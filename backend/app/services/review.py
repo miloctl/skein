@@ -111,6 +111,15 @@ def propose_change(
     return {"id": pid, "status": "pending"}
 
 
+def _check_reviewer(actor: str) -> None:
+    """Verdicts are human work. No tool exposes approve/reject, but the REST
+    path resolves any X-User — an agent identity must be refused here too."""
+    from .users import is_agent
+
+    if is_agent(actor):
+        raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
+
+
 def _claim(change_id: int, new_status: str, note: str, actor: str, strong: bool = False) -> None:
     """Compare-and-swap the pending -> reviewed transition so concurrent
     approve/reject calls can't both act on the same change."""
@@ -129,9 +138,16 @@ def _claim(change_id: int, new_status: str, note: str, actor: str, strong: bool 
 def approve_change(
     change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
 ) -> dict:
+    _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise ValueError(f"pending change #{change_id} not found")
+    # the direct authority endpoint requires a personal key; the proposal
+    # path must not be the weaker door to the same lever
+    if change["entity"] == "authority" and not strong:
+        raise ValueError(
+            "authority changes need a strong identity — approve with your personal API key"
+        )
 
     # resolve the handler BEFORE claiming — a stale entity/action must not
     # leave the row marked approved with nothing applied
@@ -184,6 +200,7 @@ def _clear_review_ping(change_id: int) -> None:
 def reject_change(
     change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
 ) -> dict:
+    _check_reviewer(actor)
     _claim(change_id, "rejected", note, actor, strong)
     db.log_activity(actor, "reject_change", f"#{change_id}")
     _clear_review_ping(change_id)

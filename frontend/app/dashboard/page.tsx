@@ -204,6 +204,8 @@ export default function Dashboard() {
   );
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
+  const [deletingAbsence, setDeletingAbsence] = useState<number | null>(null);
+  const [addingAbsence, setAddingAbsence] = useState(false);
   const [absDraft, setAbsDraft] = useState({
     person: "",
     starts_on: "",
@@ -256,18 +258,22 @@ export default function Dashboard() {
     setTimeout(() => document.getElementById(`edit-${kind}-${id}`)?.focus(), 0);
 
   const addAbsence = async () => {
+    setAddingAbsence(true);
     try {
       await api("/api/absences", { method: "POST", body: JSON.stringify(absDraft) });
       setAbsDraft({ person: "", starts_on: "", ends_on: "", kind: "pto" });
       load();
     } catch (e) {
       alert(String(e));
+    } finally {
+      setAddingAbsence(false);
     }
   };
 
   const deleteAbsence = async (id: number) => {
     try {
       await api(`/api/absences/${id}`, { method: "DELETE" });
+      setDeletingAbsence(null);
       load();
     } catch (e) {
       alert(String(e));
@@ -540,6 +546,7 @@ export default function Dashboard() {
           <input
             type="date"
             aria-label="Away until"
+            min={absDraft.starts_on || undefined}
             value={absDraft.ends_on}
             onChange={(e) => setAbsDraft({ ...absDraft, ends_on: e.target.value })}
             className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
@@ -555,11 +562,17 @@ export default function Dashboard() {
             <option value="focus">focus</option>
           </select>
           <button
-            disabled={!absDraft.person.trim() || !absDraft.starts_on || !absDraft.ends_on}
+            disabled={
+              addingAbsence ||
+              !absDraft.person.trim() ||
+              !absDraft.starts_on ||
+              !absDraft.ends_on ||
+              absDraft.ends_on < absDraft.starts_on
+            }
             onClick={addAbsence}
             className="rounded-lg bg-thread-solid px-2.5 py-1 font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
-            Add
+            {addingAbsence ? "Adding…" : "Add"}
           </button>
         </div>
         {(data.absences ?? []).length === 0 ? (
@@ -575,13 +588,32 @@ export default function Dashboard() {
                     {a.note ? ` · ${a.note}` : ""}
                   </span>
                 </span>
-                <button
-                  aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on}`}
-                  onClick={() => deleteAbsence(Number(a.id))}
-                  className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                >
-                  remove
-                </button>
+                {deletingAbsence === a.id ? (
+                  <span className="flex shrink-0 gap-1.5">
+                    <button
+                      autoFocus
+                      aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on} for good`}
+                      onClick={() => deleteAbsence(Number(a.id))}
+                      className="rounded bg-danger px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
+                    >
+                      remove for good
+                    </button>
+                    <button
+                      onClick={() => setDeletingAbsence(null)}
+                      className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
+                    >
+                      keep
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on}`}
+                    onClick={() => setDeletingAbsence(Number(a.id))}
+                    className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                  >
+                    remove…
+                  </button>
+                )}
               </li>
             ))}
           </ul>
