@@ -119,7 +119,7 @@ export default function IntakePage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <div className="flex items-start justify-between">
         <SectionTabs set="inbox" />
         <ManageToggle />
@@ -130,6 +130,7 @@ export default function IntakePage() {
         scores each request and answers with a reason you can see. Accepting
         one starts an engagement.
       </p>
+      <div className="max-w-3xl">
 
       <div className="mb-8 rounded-xl border border-line bg-card p-4 shadow-card">
         <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
@@ -392,6 +393,7 @@ export default function IntakePage() {
           </li>
         ))}
       </ul>
+      </div>
     </main>
   );
 }

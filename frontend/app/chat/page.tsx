@@ -46,16 +46,42 @@ export default function ChatPage() {
     document.getElementById(`chat-${id}`)?.scrollIntoView({ block: "nearest" });
   };
 
+  const [mobileChats, setMobileChats] = useState(false);
+
   const startNew = () => {
     setActivePersona(null);
     setThreadId(newId());
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-3.5rem)] w-full max-w-6xl">
-      <ChatSidebar threadId={threadId} onOpen={open} onNew={startNew} />
+    <div className="mx-auto flex h-[calc(100vh-6.25rem)] w-full max-w-6xl md:h-[calc(100vh-3.5rem)]">
+      <ChatSidebar
+        mobileOpen={mobileChats}
+        threadId={threadId}
+        onOpen={(id) => {
+          setMobileChats(false);
+          open(id);
+        }}
+        onNew={() => {
+          setMobileChats(false);
+          startNew();
+        }}
+      />
+      {mobileChats && (
+        <button
+          aria-label="Close chat list"
+          onClick={() => setMobileChats(false)}
+          className="fixed inset-0 top-[6.25rem] z-20 bg-black/30 md:hidden"
+        />
+      )}
       <RuntimeProvider key={threadId} threadId={threadId}>
         <main className="mx-auto flex h-full w-full max-w-3xl flex-col">
+          <button
+            onClick={() => setMobileChats(true)}
+            className="mx-4 mt-2 self-start rounded-lg border border-line-strong bg-raised px-2.5 py-1 text-xs text-ink-2 hover:bg-line md:hidden"
+          >
+            ☰ Chats
+          </button>
           <Thread />
         </main>
       </RuntimeProvider>

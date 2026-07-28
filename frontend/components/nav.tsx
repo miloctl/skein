@@ -46,7 +46,7 @@ function NavLink({
       href={href}
       aria-current={active ? "page" : undefined}
       className={
-        "relative flex h-14 items-center whitespace-nowrap text-[13px] transition-colors " +
+        "relative flex h-11 items-center whitespace-nowrap text-[13px] transition-colors md:h-14 " +
         (active ? "font-medium text-ink" : "text-ink-2 hover:text-ink")
       }
     >
@@ -106,8 +106,8 @@ export function Nav() {
 
   return (
     <header className="sticky top-0 z-10 bg-page/85 backdrop-blur">
-      <div className="flex h-14 items-center justify-between gap-6 px-6">
-        <Link href="/" className="flex items-baseline gap-2 whitespace-nowrap">
+      <div className="flex flex-wrap items-center px-4 sm:px-6">
+        <Link href="/" className="flex h-14 items-center gap-2 whitespace-nowrap">
           <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
             Skein
           </span>
@@ -115,7 +115,10 @@ export function Nav() {
             many strands · one formation
           </span>
         </Link>
-        <nav className="flex items-center gap-4">
+        <nav
+          aria-label="Primary"
+          className="order-3 -mx-4 flex w-full items-center gap-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:order-none md:mx-0 md:ml-auto md:w-auto md:overflow-visible md:px-0"
+        >
           {GROUPS.map((group, gi) => (
             <div key={gi} className="flex items-center gap-3">
               {gi > 0 && <span aria-hidden className="h-4 w-px bg-line" />}
@@ -130,7 +133,9 @@ export function Nav() {
               ))}
             </div>
           ))}
-          <span aria-hidden className="h-4 w-px bg-line" />
+        </nav>
+        <div className="ml-auto flex h-14 items-center gap-3 md:ml-4">
+          <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
           {editing ? (
             <input
               autoFocus
@@ -222,7 +227,7 @@ export function Nav() {
           >
             ⌘K
           </button>
-        </nav>
+        </div>
       </div>
       <div className="selvage" id="selvage" aria-hidden />
     </header>

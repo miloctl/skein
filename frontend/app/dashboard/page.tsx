@@ -349,7 +349,7 @@ export default function Dashboard() {
   // failed refresh keeps the data on screen with a banner (My Day idiom)
   if (error && Object.keys(data).length === 0) {
     return (
-      <main className="mx-auto w-full max-w-5xl p-6 text-sm text-danger">
+      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-danger">
         Could not reach the backend at {API_URL} — is it running? ({error})
         <button onClick={load} className="ml-2 underline">
           retry
@@ -359,10 +359,10 @@ export default function Dashboard() {
   }
 
   if (Object.keys(data).length === 0)
-    return <main className="mx-auto w-full max-w-5xl p-6 text-sm text-ink-3">{loadingLine()}</main>;
+    return <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-ink-3">{loadingLine()}</main>;
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Browse</h1>
       <p className="mb-6 text-sm text-ink-3">

@@ -124,13 +124,15 @@ export default function ReviewPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
       <p className="mb-6 text-sm text-ink-3">
         Proposed changes from agents (and cautious humans). Approving applies
         the change and records that a human verified it.
       </p>
+      {/* reading column: cards cap at 3xl inside the standard page shell */}
+      <div className="max-w-3xl">
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {selected.size > 0 && (
@@ -194,7 +196,8 @@ export default function ReviewPage() {
             </div>
             {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}
             {diffs[c.id] ? (
-              <table className="mb-3 w-full rounded-lg bg-raised text-xs">
+              <div className="mb-3 overflow-x-auto">
+              <table className="w-full rounded-lg bg-raised text-xs">
                 <thead>
                   <tr className="text-left text-ink-3">
                     <th className="p-2">field</th>
@@ -216,6 +219,7 @@ export default function ReviewPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             ) : (
               <pre className="mb-3 overflow-x-auto rounded-lg bg-raised p-3 text-xs">
                 {JSON.stringify(c.payload, null, 2)}
@@ -316,6 +320,7 @@ export default function ReviewPage() {
           </ul>
         </>
       )}
+      </div>
     </main>
   );
 }
