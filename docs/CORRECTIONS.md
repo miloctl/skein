@@ -64,7 +64,11 @@ marked `reviewed_override` (migration 030), logged "(accepted for X)", and
 excluded from trust streaks, so promotions and demotions are backed only by
 the people who actually sponsored the work. The Inbox shows the sponsor on
 acceptance rows and turns Approve into "Accept for X…" with an inline
-reason field for everyone else.
+reason field for everyone else. Orphaned proposals (reassignment cleared
+the delegation) require a reason from ANY judge and never feed streaks;
+overrides neither count toward nor interrupt a streak in either direction
+(pinned by test — a buddy's override approval can't shield a demotion, at
+the cost that promotion streaks read only sponsor verdicts).
 
 Closed 2026-07-27 (A1/A2 hardening): the delegation loop holds under
 adversarial use — agents cannot self-complete a delegated task

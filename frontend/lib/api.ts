@@ -13,6 +13,12 @@ export function setUser(name: string) {
   window.localStorage.setItem(USER_KEY, name.trim() || "anonymous");
 }
 
+// notifies on cross-tab identity changes; same-tab changes reload the page
+export function subscribeUser(cb: () => void) {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+}
+
 // Personal API key (sk-strands-…): the strong identity for private surfaces
 // (People page, fb: capture). Interim until OIDC+PKCE lands at deployment.
 export function getApiKey(): string {

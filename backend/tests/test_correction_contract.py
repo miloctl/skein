@@ -775,6 +775,114 @@ def test_non_sponsor_reject_needs_a_reason_too(client, fresh_db):
     assert score["rejection_streak"] == 0
 
 
+def test_batch_approve_skips_sponsor_bound_rows_with_a_clear_error(client, fresh_db):
+    from app.services import delegation, review
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    bound = delegation.submit_completion(tid, "ready", actor="scout")["proposal_id"]
+    plain = review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="scout")[
+        "id"
+    ]
+    r = client.post(
+        "/api/review/approve-batch",
+        json={"ids": [bound, plain]},
+        headers=_strong(client),
+    ).json()
+    by_id = {x["id"]: x for x in r["results"]}
+    assert by_id[plain]["status"] == "approved"
+    assert by_id[bound]["status"] == "error" and "sponsored by mira" in by_id[bound]["detail"]
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (tid,))["status"] == (
+        "in_progress"
+    )
+    assert (
+        fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (bound,))["status"]
+        == "pending"
+    )
+
+
+def test_verdict_follows_the_sponsor_after_re_delegation(client, fresh_db):
+    from app.services import delegation, users
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "ready", actor="scout")["proposal_id"]
+    users.ensure_user("jon")
+    delegation.delegate_task(tid, "scout", "jon", actor="jon")
+    # the OLD sponsor is now an override like anyone else
+    bare = client.post(f"/api/review/{pid}/approve", json={}, headers=_strong(client, "mira"))
+    assert bare.status_code == 400 and "sponsored by jon" in bare.json()["detail"]
+    ok = client.post(
+        f"/api/review/{pid}/approve",
+        json={"note": "I commissioned this before the handover"},
+        headers=_strong(client, "mira"),
+    )
+    assert ok.json()["status"] == "approved"
+    assert (
+        fresh_db.query_one("SELECT reviewed_override FROM pending_changes WHERE id = ?", (pid,))[
+            "reviewed_override"
+        ]
+        == 1
+    )
+
+
+def test_orphaned_acceptance_requires_a_reason_and_feeds_no_streak(client, fresh_db):
+    from app.services import delegation, work
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    pid = delegation.submit_completion(tid, "ready", actor="scout")["proposal_id"]
+    # reassigning to a human clears the delegation AND the sponsor
+    work.update_task(tid, assignee="tester", actor="mira")
+    bare = client.post(f"/api/review/{pid}/reject", json={}, headers=_strong(client))
+    assert bare.status_code == 400 and "orphaned" in bare.json()["detail"]
+    ok = client.post(
+        f"/api/review/{pid}/reject",
+        json={"note": "task was reassigned — closing the stale submission"},
+        headers=_strong(client),
+    )
+    assert ok.json()["status"] == "rejected"
+    score = next(
+        s
+        for s in delegation.trust_scores()
+        if s["agent"] == "scout" and s["entity"] == "task_completion"
+    )
+    assert score["rejection_streak"] == 0
+
+
+def test_override_verdicts_are_invisible_to_streaks_by_design(client, fresh_db):
+    """Overrides are provenance, not trust: they neither count toward nor
+    interrupt a streak. A promotion needs 5 SPONSOR approvals; a non-sponsor
+    rejection in the middle doesn't reset that count (and symmetrically a
+    buddy's override approval can't shield a demotion streak)."""
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    verdicts = []
+    for i in range(3):
+        t = work.create_task(title=f"loop {i}", actor="mira")
+        delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
+        delegation.claim_task(t["id"], actor="scout")
+        verdicts.append(delegation.submit_completion(t["id"], "done", actor="scout"))
+    a, b, c = (v["proposal_id"] for v in verdicts)
+    client.post(f"/api/review/{a}/approve", json={}, headers=_strong(client, "mira"))
+    # a non-sponsor override rejection lands between two sponsor approvals
+    client.post(
+        f"/api/review/{b}/reject",
+        json={"note": "covering — looked off to me"},
+        headers=_strong(client),
+    )
+    client.post(f"/api/review/{c}/approve", json={}, headers=_strong(client, "mira"))
+    score = next(
+        s
+        for s in delegation.trust_scores()
+        if s["agent"] == "scout" and s["entity"] == "task_completion"
+    )
+    assert score["recent_streak"] == 2  # both sponsor approvals, unbroken
+    assert score["rejection_streak"] == 0
+
+
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):
     from app.services import commitments, rituals, users
 

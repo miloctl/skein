@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-import { api, getUser } from "@/lib/api";
+import { api, getUser, subscribeUser } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
@@ -24,10 +24,13 @@ type Change = {
   origin: string;
   created_at: string;
   sponsor?: string; // task_completion only: whose verdict this is
+  reviewed_by?: string | null;
+  reviewed_override?: number; // 1: judged by someone other than the sponsor
 };
 
 export default function ReviewPage() {
-  const [me] = useState(getUser); // lazy: browser-only localStorage read
+  // tracks cross-tab identity switches too, like the nav's name chip
+  const me = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   const [changes, setChanges] = useState<Change[]>([]);
   const [history, setHistory] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -161,8 +164,14 @@ export default function ReviewPage() {
                   type="checkbox"
                   checked={selected.has(c.id)}
                   onChange={() => toggle(c.id)}
+                  disabled={!!forSponsor(c)}
                   aria-label={`Select #${c.id} ${c.action} ${c.entity} for batch approval`}
-                  className="h-4 w-4"
+                  title={
+                    forSponsor(c)
+                      ? `sponsored by ${c.sponsor} — accept individually with a reason`
+                      : undefined
+                  }
+                  className="h-4 w-4 disabled:opacity-40"
                 />
                 #{c.id} · {c.action} {c.entity}
                 {c.entity_id ? ` #${c.entity_id}` : ""}
@@ -218,7 +227,7 @@ export default function ReviewPage() {
                   aria-label={
                     asking.verb === "reject"
                       ? "Rejection reason — sent back to the proposer"
-                      : `Why are you accepting for ${c.sponsor}? — goes on the record`
+                      : "Reason for accepting on the sponsor's behalf"
                   }
                   placeholder={
                     asking.verb === "reject"
@@ -251,6 +260,7 @@ export default function ReviewPage() {
                       setAsking({ id: c.id, verb: "approve" });
                       setAskNote("");
                     }}
+                    title={`You're not the sponsor — your reason goes on the record and the verdict won't count toward ${c.proposed_by}'s trust streak`}
                     className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
                     Accept for {c.sponsor}…
@@ -287,6 +297,9 @@ export default function ReviewPage() {
             {history.slice(0, 10).map((c) => (
               <li key={c.id} className="text-xs text-ink-3">
                 ✅ #{c.id} {c.summary} <span className="text-ink-3">by {c.proposed_by}</span>
+                {c.reviewed_override && c.sponsor
+                  ? ` · accepted by ${c.reviewed_by} for ${c.sponsor}`
+                  : ""}
               </li>
             ))}
           </ul>
