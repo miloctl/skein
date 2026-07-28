@@ -107,14 +107,18 @@ def is_agent(name: str) -> bool:
     return bool(row and row["kind"] == "agent")
 
 
-def resolve_teammate(name: str, actor: str = "", label: str = "name") -> str:
+def resolve_teammate(
+    name: str, actor: str = "", label: str = "name", allow_team: bool = True
+) -> str:
     """Case-insensitive roster match; empty and 'team' (the broadcast
     target) pass through, as does self-attribution (name == actor — Slack
     and capture route foreign usernames through as themselves).
     Notifications match `user = ?` exactly, so a typo'd THIRD-PARTY owner
-    looks handled but notifies nobody — refuse that here, once."""
+    looks handled but notifies nobody — refuse that here, once.
+    allow_team=False for person-shaped data (allocations, absences) where
+    'team' would be a phantom capacity row, not a broadcast."""
     name = name.strip()
-    if not name or name == "team" or name == actor:
+    if not name or (allow_team and name == "team") or name == actor:
         return name
     known = {u["name"].lower(): u["name"] for u in list_users()}
     match = known.get(name.lower())
@@ -186,7 +190,9 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     row = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
     if not row:
         raise db.NotFound(f"no user named '{old}'")
-    if _is_bench_slug(new) and row["kind"] != "agent":
+    if _is_bench_slug(new):
+        # unconditional: persona names come from files, never from rename —
+        # even agent→agent would fold foreign history into the persona
         raise ValueError(f"'{new}' is reserved for a bench persona")
     target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
     if target and target["kind"] != row["kind"]:

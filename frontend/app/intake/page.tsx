@@ -138,6 +138,7 @@ export default function IntakePage() {
         <div className="flex flex-col gap-2">
           <input
             value={form.title}
+              maxLength={200}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
             aria-label="What are you asking the team to do?"
             placeholder="What are you asking the team to do?"
@@ -145,6 +146,7 @@ export default function IntakePage() {
           />
           <textarea
             value={form.detail}
+              maxLength={4000}
             onChange={(e) => setForm({ ...form, detail: e.target.value })}
             aria-label="Context, goals, constraints"
             placeholder="Context, goals, constraints…"

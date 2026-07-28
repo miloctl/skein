@@ -353,7 +353,7 @@ def update_note(
 ) -> dict:
     row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if not row:
-        raise ValueError(f"no note #{note_id}")
+        raise db.NotFound(f"no note #{note_id}")
     fields = {k: v for k, v in [("topic", topic), ("content", content)] if v}
     if not fields:
         raise ValueError("nothing to update")
@@ -377,7 +377,7 @@ def update_note(
 def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict:
     row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if not row:
-        raise ValueError(f"no note #{note_id}")
+        raise db.NotFound(f"no note #{note_id}")
     db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
     from .search import deindex_record
 

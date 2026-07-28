@@ -29,6 +29,7 @@ type Briefing = {
     notifications: Row[];
   };
   attention: AttentionItem[];
+  pending_reviews_total?: number;
   your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };
   team: {
     recently_shipped: Row[];
@@ -258,7 +259,12 @@ export default function MyDay() {
   if (b.user === "anonymous") return <WhoAreYou />;
 
   const attention = b.attention ?? [];
-  const needsCount = attention.filter((a) => a.group !== "notice").length;
+  // review items in `attention` are LIMITed to 50; the honest total rides
+  // separately so the header never undercounts a flooded queue
+  const shownReviews = attention.filter((a) => a.group === "review").length;
+  const extraReviews = Math.max(0, (b.pending_reviews_total ?? 0) - shownReviews);
+  const needsCount =
+    attention.filter((a) => a.group !== "notice").length + extraReviews;
   const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
     decide: { title: "Decide", tone: "bg-thread-solid" },
     unblock: { title: "Unblock", tone: "bg-danger" },

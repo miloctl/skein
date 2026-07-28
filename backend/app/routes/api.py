@@ -1,6 +1,8 @@
 """REST API: reads for the dashboard, writes for humans (the second write path
 alongside agent tools — both go through app.services)."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -437,7 +439,7 @@ def post_portfolio_readout(user: CurrentUser):
 
 
 class WhatIfIn(BaseModel):
-    people: list[str] = Field(max_length=20)
+    people: list[Annotated[str, Field(max_length=64)]] = Field(max_length=20)
     percent: int = 50
 
 
@@ -1025,7 +1027,7 @@ def post_ingest(body: IngestIn, user: CurrentUser):
 
 
 class BatchApproveIn(BaseModel):
-    ids: list[int] = Field(max_length=100)
+    ids: list[int] = Field(max_length=200)  # matches the pending-list LIMIT
 
 
 @router.get("/review/{change_id}/diff")

@@ -50,6 +50,7 @@ export function StandupComposer({
         name="standup-yesterday"
         aria-label="Standup: yesterday (optional)"
         value={yesterday}
+        maxLength={2000}
         onChange={(e) => setYesterday(e.target.value)}
         placeholder={suggestion ? `yesterday — ${suggestion}` : "yesterday (optional)"}
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
@@ -58,6 +59,7 @@ export function StandupComposer({
         name="standup-today"
         aria-label="Standup: what are you on today?"
         value={today}
+        maxLength={2000}
         onChange={(e) => setToday(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && post()}
         placeholder="today — what are you on?"
@@ -68,6 +70,7 @@ export function StandupComposer({
           name="standup-blockers"
           aria-label="Standup: blockers"
           value={blockers}
+        maxLength={2000}
           onChange={(e) => setBlockers(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && post()}
           placeholder="blockers — auto-filed with an escalation clock"

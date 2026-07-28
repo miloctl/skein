@@ -227,14 +227,29 @@ def approve_change(
                 result = fn(change["entity_id"], **payload, actor=author, origin="agent_verified")
             else:
                 result = fn(**payload, actor=author, origin="agent_verified")
+    except db.NotFound as exc:
+        # the proposal's own target vanished (event cancelled via REST, row
+        # hard-deleted): re-approving can never succeed, so a pending reset
+        # would boomerang forever — settle it as rejected, on the record
+        db.execute(
+            "UPDATE pending_changes SET status = 'rejected', review_note = ? WHERE id = ?",
+            (f"auto-rejected — target vanished: {exc}", change_id),
+        )
+        db.log_activity(actor, "reject_change", f"#{change_id} (target vanished)")
+        _clear_review_ping(change_id)
+        raise ValueError(
+            f"could not apply {change['entity']}.{change['action']}: {exc}"
+            " — proposal auto-rejected (its target no longer exists)"
+        ) from exc
     except Exception as exc:
-        # ANY failure (also IntegrityError, lock timeout) resets the claim —
-        # an approved-but-never-applied proposal would vanish from the queue
+        # ANY OTHER failure (IntegrityError, lock timeout, stale state)
+        # resets the claim — an approved-but-never-applied proposal would
+        # vanish from the queue. The reviewer's note survives the reset.
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, reviewed_strong = 0, reviewed_override = 0,"
             " review_note = ? WHERE id = ?",
-            (f"apply failed: {exc}", change_id),
+            (f"apply failed: {exc}" + (f" (reviewer note: {note})" if note else ""), change_id),
         )
         raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
 
