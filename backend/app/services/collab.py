@@ -37,7 +37,7 @@ def assign_question(
 ) -> dict:
     row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
     if not row:
-        raise ValueError(f"question #{question_id} not found")
+        raise db.NotFound(f"question #{question_id} not found")
     if row["status"] != "open":
         raise ValueError(f"question #{question_id} is already {row['status']}")
     assigned_to = assigned_to.strip()
@@ -71,7 +71,7 @@ def answer_question(
 ) -> dict:
     row = db.query_one("SELECT id, answer, status FROM questions WHERE id = ?", (question_id,))
     if not row:
-        raise ValueError(f"question #{question_id} not found")
+        raise db.NotFound(f"question #{question_id} not found")
     if row["status"] == "answered" and row["answer"] and row["answer"] != answer:
         raise ValueError(
             f"question #{question_id} already has an answer — read it first;"
@@ -100,8 +100,10 @@ def answer_question(
 
 def list_questions(status: str = "") -> list[dict]:
     if status:
-        return db.query("SELECT * FROM questions WHERE status = ? ORDER BY id DESC", (status,))
-    return db.query("SELECT * FROM questions ORDER BY status = 'answered', id DESC")
+        return db.query(
+            "SELECT * FROM questions WHERE status = ? ORDER BY id DESC LIMIT 200", (status,)
+        )
+    return db.query("SELECT * FROM questions ORDER BY status = 'answered', id DESC LIMIT 200")
 
 
 DECISION_CATEGORIES = ("", "charter")  # charter: team mission/ownership/norms
@@ -120,6 +122,9 @@ def record_decision(
 ) -> dict:
     if not title.strip() or not decision.strip():
         raise ValueError("decision title and text are required")
+    from .users import resolve_teammate
+
+    decided_by = resolve_teammate(decided_by, actor, "decided_by")
     if review_by:
         from datetime import date
 
@@ -185,7 +190,7 @@ def supersede_decision(
         raise ValueError("review_by must be YYYY-MM-DD")
     old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
     if not old:
-        raise ValueError(f"decision #{decision_id} not found")
+        raise db.NotFound(f"decision #{decision_id} not found")
     # CAS-claim the old decision BEFORE creating the successor — two racing
     # supersedes must not leave two active contradicting decisions
     claimed = db.execute_rowcount(
@@ -255,7 +260,7 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
 
     row = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
     if not row:
-        raise ValueError(f"decision #{decision_id} not found")
+        raise db.NotFound(f"decision #{decision_id} not found")
     if row["status"] == "superseded":
         raise ValueError(f"decision #{decision_id} was superseded — reconfirm the successor")
     if review_by:

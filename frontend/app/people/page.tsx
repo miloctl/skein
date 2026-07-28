@@ -77,8 +77,10 @@ export default function PeoplePage() {
     if (person) load(person);
   }, [person, load]);
 
+  const [saving, setSaving] = useState(false);
   const addNote = async () => {
-    if (!draft.trim() || !person) return;
+    if (saving || !draft.trim() || !person) return;
+    setSaving(true); // a held Enter must not file N private notes
     try {
       await api("/api/private/notes", {
         method: "POST",
@@ -88,6 +90,8 @@ export default function PeoplePage() {
       load(person);
     } catch (e) {
       setError(String(e));
+    } finally {
+      setSaving(false);
     }
   };
 

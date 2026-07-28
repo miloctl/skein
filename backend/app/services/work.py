@@ -76,7 +76,7 @@ def update_milestone(
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
     db.validate_date("due_date", due_date)
     if not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
-        raise ValueError(f"milestone #{milestone_id} not found")
+        raise db.NotFound(f"milestone #{milestone_id} not found")
     fields: dict[str, str | None] = {
         k: v
         for k, v in [
@@ -223,7 +223,7 @@ def update_task(
             raise ValueError(f"{kind} #{waiting_id} not found")
     current = db.query_one("SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
     if not current:
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     # delegated work is closed by the sponsor's verdict, never by an agent
     # marking it done — otherwise submit_for_acceptance is a paper wall
     if status == "done" and current["delegated_agent"] and origin != "agent_verified":

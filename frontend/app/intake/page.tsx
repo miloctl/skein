@@ -41,14 +41,18 @@ export default function IntakePage() {
   }, []);
   useEffect(load, [load]);
 
+  const [submitting, setSubmitting] = useState(false);
   const submit = async () => {
-    if (!form.title.trim()) return;
+    if (submitting || !form.title.trim()) return;
+    setSubmitting(true); // a held Enter must not file N requests
     try {
       await api("/api/intake", { method: "POST", body: JSON.stringify(form) });
       setForm({ title: "", detail: "", project_class: "" });
       load();
     } catch (e) {
       alert(String(e));
+    } finally {
+      setSubmitting(false);
     }
   };
 

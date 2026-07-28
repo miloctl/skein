@@ -4,9 +4,10 @@ import json
 
 from strands import tool
 
+from .. import db
 from ..agents.identity import agent_identity
 from ..services import schedule
-from ._gate import blocked_when_gated, gated_write
+from ._gate import gated_write
 
 
 @tool
@@ -50,16 +51,20 @@ def list_events(from_date: str = "", limit: int = 25) -> str:
 
 @tool
 def cancel_event(event_id: int) -> str:
-    """Remove an event from the shared calendar.
+    """Remove an event from the shared calendar. A hard delete, so it is
+    ALWAYS a proposal for human review — like other destructive verbs.
 
     Args:
         event_id: ID of the event to cancel.
     """
-    from ..services import delegation
-
-    if delegation.authority_level(agent_identity(), "event") == "forbidden":
-        return json.dumps({"error": "event writes are forbidden for this agent"})
-    blocked = blocked_when_gated("cancelling an event")
-    if blocked:
-        return blocked
-    return json.dumps(schedule.cancel_event(event_id, actor=agent_identity(), origin="agent"))
+    row = db.query_one("SELECT title, starts_at FROM events WHERE id = ?", (event_id,))
+    if not row:
+        return json.dumps({"error": f"no event #{event_id}"})
+    return gated_write(
+        "event_cancel",
+        "update",
+        {},
+        lambda: schedule.cancel_event(event_id, actor=agent_identity(), origin="agent"),
+        entity_id=event_id,
+        summary=f"cancel event #{event_id} '{row['title']}' ({row['starts_at']})",
+    )

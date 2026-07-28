@@ -25,7 +25,7 @@ def test_engagement_pack_scoped(client, fresh_db):
     assert "kill criteria" in pack.lower() or "Kill criteria" in pack
     assert "build harness" in pack and "waiting on blocker" in pack
     assert "Unrelated milestone" not in pack  # scoped: other engagements stay out
-    assert client.get("/api/context-pack?engagement=999").status_code == 400
+    assert client.get("/api/context-pack?engagement=999").status_code == 404
     # the global pack still works and is versioned
     assert "version" in client.get("/api/context-pack").json()
 

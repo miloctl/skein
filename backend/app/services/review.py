@@ -34,6 +34,7 @@ def _registry() -> dict:
         "note_edit": {"update": collab.update_note},
         "note_delete": {"update": collab.delete_note},
         "event": {"create": schedule.schedule_event},
+        "event_cancel": {"update": schedule.cancel_event},
         "blocker": {"create": blockers.raise_blocker, "update": blockers.resolve_blocker},
         "blocker_edit": {"update": blockers.edit_blocker},
         "engagement": {
@@ -183,7 +184,7 @@ def _claim(
     if not claimed:
         change = db.query_one("SELECT status FROM pending_changes WHERE id = ?", (change_id,))
         if not change:
-            raise ValueError(f"pending change #{change_id} not found")
+            raise db.NotFound(f"pending change #{change_id} not found")
         raise ValueError(f"change #{change_id} already {change['status']}")
 
 
@@ -193,7 +194,7 @@ def approve_change(
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
-        raise ValueError(f"pending change #{change_id} not found")
+        raise db.NotFound(f"pending change #{change_id} not found")
     # settle the already-reviewed case before any gating, so a non-sponsor
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
@@ -266,7 +267,7 @@ def reject_change(
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
-        raise ValueError(f"pending change #{change_id} not found")
+        raise db.NotFound(f"pending change #{change_id} not found")
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
@@ -295,6 +296,7 @@ _DIFF_TABLES = {
     "decision": "decisions",
     "note_edit": "notes",
     "note_delete": "notes",
+    "event_cancel": "events",
     "intake_edit": "intake_requests",
     "memory_forget": "memories",
 }
@@ -304,6 +306,7 @@ _DIFF_TABLES = {
 _DESTRUCTIVE_VIEW = {
     "note_delete": ("topic", "content"),
     "memory_forget": ("topic", "content", "user"),
+    "event_cancel": ("title", "starts_at", "attendees"),
 }
 
 
@@ -312,7 +315,7 @@ def change_diff(change_id: int) -> dict:
     the fields the payload would change."""
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
-        raise ValueError(f"pending change #{change_id} not found")
+        raise db.NotFound(f"pending change #{change_id} not found")
     table = _DIFF_TABLES.get(change["entity"])
     if change["action"] != "update" or not table or not change["entity_id"]:
         return {"id": change_id, "diff": None}
@@ -399,7 +402,8 @@ def review_stats() -> dict:
 def list_changes(status: str = "pending") -> list[dict]:
     if status:
         rows = db.query(
-            "SELECT * FROM pending_changes WHERE status = ? ORDER BY id DESC", (status,)
+            "SELECT * FROM pending_changes WHERE status = ? ORDER BY id DESC LIMIT 200",
+            (status,),
         )
     else:
         rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")

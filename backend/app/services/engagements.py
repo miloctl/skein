@@ -95,7 +95,7 @@ def update_engagement(
         (engagement_id,),
     )
     if not current:
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise db.NotFound(f"engagement #{engagement_id} not found")
     name = name.strip()
     renaming = bool(name and name != current["name"])
     if renaming and db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
@@ -256,9 +256,11 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
 
 def list_engagements(status: str = "") -> list[dict]:
     if status:
-        rows = db.query("SELECT * FROM engagements WHERE status = ? ORDER BY id DESC", (status,))
+        rows = db.query(
+            "SELECT * FROM engagements WHERE status = ? ORDER BY id DESC LIMIT 200", (status,)
+        )
     else:
-        rows = db.query("SELECT * FROM engagements ORDER BY status = 'closed', id DESC")
+        rows = db.query("SELECT * FROM engagements ORDER BY status = 'closed', id DESC LIMIT 200")
     for r in rows:
         r["allocations"] = db.query(
             "SELECT person, percent, starts_on, ends_on FROM allocations WHERE engagement_id = ?",
@@ -277,14 +279,17 @@ def allocate(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
-    if not person.strip():
+    from .users import resolve_teammate
+
+    person = resolve_teammate(person, actor, "person")
+    if not person:
         raise ValueError("person is required")
     db.validate_date("starts_on", starts_on, allow_clear=False)
     db.validate_date("ends_on", ends_on, allow_clear=False)
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
     if not db.query_one("SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise db.NotFound(f"engagement #{engagement_id} not found")
     aid = db.execute(
         "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on,"
         " origin, created_by, created_at)"
@@ -311,7 +316,7 @@ def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
         "SELECT person, engagement_id, percent FROM allocations WHERE id = ?", (allocation_id,)
     )
     if not row:
-        raise ValueError(f"no allocation #{allocation_id}")
+        raise db.NotFound(f"no allocation #{allocation_id}")
     db.execute("DELETE FROM allocations WHERE id = ?", (allocation_id,))
     db.log_activity(
         actor,

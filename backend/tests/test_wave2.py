@@ -123,7 +123,9 @@ def test_private_note_delete_and_audit(client, fresh_db):
     note2 = client.post(
         "/api/private/notes", json={"person": "x", "body": "mine"}, headers=headers
     ).json()
-    assert client.delete(f"/api/private/notes/{note2['id']}", headers=other).status_code == 400
+    # 404, not 400: someone else's note must be indistinguishable from a
+    # missing one — no existence leak
+    assert client.delete(f"/api/private/notes/{note2['id']}", headers=other).status_code == 404
     assert client.get("/api/private/audit", headers=other).json() == []
 
 

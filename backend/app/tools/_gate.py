@@ -17,7 +17,7 @@ from ..services.delegation import authority_level
 # STRANDS_AGENT_REVIEW off — a prompt-injected agent must never hard-delete
 # the knowledge base or its own steering evidence without a human verdict
 # (edits stay reversible + old->new logged, so they follow the normal flag)
-ALWAYS_REVIEW = {"note_delete", "memory_forget"}
+ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}
 
 
 def gated_write(
@@ -33,6 +33,11 @@ def gated_write(
     per-agent authority and the review inbox see all agent traffic, so trust
     scores accrue no matter which door the agent came through."""
     actor = actor or agent_identity()
+    # an empty update proposal would sail to a reviewer and only fail at
+    # apply ("nothing to update") — bounce it on the agent instead. The
+    # destructive ALWAYS_REVIEW verbs legitimately carry empty payloads.
+    if action == "update" and not payload and entity not in ALWAYS_REVIEW:
+        return json.dumps({"error": "nothing to change — pass at least one field"})
     level = authority_level(actor, entity)
     if level == "forbidden":
         return json.dumps(
@@ -69,15 +74,3 @@ def gated_write(
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
     return json.dumps({**result, "note": "queued for human review"})
-
-
-def blocked_when_gated(what: str) -> str | None:
-    """For destructive actions that can't be represented as a proposal."""
-    if config.AGENT_REVIEW:
-        return json.dumps(
-            {
-                "error": f"{what} requires direct human action while review mode is on"
-                " — ask the user to do it from the UI",
-            }
-        )
-    return None

@@ -47,7 +47,7 @@ def forget(memory_id: int, *, actor: str, origin: str = "human") -> dict:
     must be removable, and the removal itself is on the record."""
     row = db.query_one("SELECT topic, content FROM memories WHERE id = ?", (memory_id,))
     if not row:
-        raise ValueError(f"no memory #{memory_id}")
+        raise db.NotFound(f"no memory #{memory_id}")
     db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     from .search import deindex_record
 

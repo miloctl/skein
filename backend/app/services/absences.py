@@ -51,7 +51,7 @@ def add_absence(
 def delete_absence(absence_id: int, *, actor: str = "system") -> dict:
     row = db.query_one("SELECT * FROM absences WHERE id = ?", (absence_id,))
     if not row:
-        raise ValueError(f"no absence #{absence_id}")
+        raise db.NotFound(f"no absence #{absence_id}")
     db.execute("DELETE FROM absences WHERE id = ?", (absence_id,))
     db.log_activity(
         actor,

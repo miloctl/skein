@@ -234,13 +234,13 @@ def test_api_tester_regressions(client):
     assert r.status_code == 400
 
     # 0-row updates are 400s, not silent success
-    assert client.patch("/api/tasks/999999", json={"status": "done"}).status_code == 400
-    assert client.patch("/api/milestones/999999", json={"status": "done"}).status_code == 400
+    assert client.patch("/api/tasks/999999", json={"status": "done"}).status_code == 404
+    assert client.patch("/api/milestones/999999", json={"status": "done"}).status_code == 404
     assert (
         client.post(
             "/api/intake/999999/score", json={"reach": 3, "impact": 3, "confidence": 3, "effort": 3}
         ).status_code
-        == 400
+        == 404
     )
 
     # disposition is terminal

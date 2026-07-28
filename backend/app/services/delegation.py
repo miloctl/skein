@@ -29,7 +29,7 @@ def delegate_task(
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     ensure_user(agent, kind="agent")
     db.execute(
         "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
@@ -62,7 +62,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     if task["delegated_agent"] != actor:
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] not in ("todo", "blocked"):
@@ -99,7 +99,7 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
         "SELECT delegated_agent, sponsor, status, title FROM tasks WHERE id = ?", (task_id,)
     )
     if not task:
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     if actor not in (task["delegated_agent"], task["sponsor"]):
         raise ValueError(f"task #{task_id}'s worklog is written by its delegate or sponsor only")
     if task["status"] == "done":
@@ -115,7 +115,7 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
 
 def list_worklog(task_id: int, limit: int = 50) -> list[dict]:
     if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     return db.query(
         "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
         (task_id, limit),
@@ -129,7 +129,7 @@ def accept_completion(
     approval IS the acceptance — mark done, close the loop."""
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
     # a reassignment between submit and verdict voids the proposal — the
@@ -162,7 +162,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise ValueError(f"task #{task_id} not found")
+        raise db.NotFound(f"task #{task_id} not found")
     if task["delegated_agent"] != actor:
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] == "done":
@@ -425,7 +425,7 @@ def agent_inbox(agent: str) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped."""
     if not db.query_one("SELECT id FROM users WHERE name = ?", (agent,)):
-        raise ValueError(f"no such agent '{agent}' — a typo here would read as an empty inbox")
+        raise db.NotFound(f"no such agent '{agent}' — a typo here would read as an empty inbox")
     tasks = db.query(
         "SELECT id, title, status, priority, sponsor FROM tasks"
         " WHERE delegated_agent = ? AND status != 'done'"

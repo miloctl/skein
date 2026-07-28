@@ -260,7 +260,7 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
         raise ValueError("name at least one person to staff")
     req = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
     if not req:
-        raise ValueError(f"intake request #{request_id} not found")
+        raise db.NotFound(f"intake request #{request_id} not found")
     # window-aware like allocation_conflicts — an allocation that ended last
     # quarter must not veto today's intake decision
     today = _today().isoformat()

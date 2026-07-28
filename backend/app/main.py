@@ -61,13 +61,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Skein", description="Many strands. One formation.", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 @app.middleware("http")
 async def bearer_auth(request: Request, call_next):
@@ -94,6 +87,23 @@ async def bearer_auth(request: Request, call_next):
         if not (shared_ok or key_ok):
             return JSONResponse(status_code=401, content={"detail": "invalid API token"})
     return await call_next(request)
+
+
+# added AFTER bearer_auth so CORS is the OUTERMOST layer — a 401 short-circuit
+# must still carry Access-Control-Allow-Origin, or the browser reports an
+# opaque CORS failure instead of a readable auth error
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.CORS_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(db.NotFound)
+async def not_found_handler(request: Request, exc: db.NotFound):
+    # one rule for the surface: entity-lookup failures are 404, everywhere
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
 @app.exception_handler(ValueError)

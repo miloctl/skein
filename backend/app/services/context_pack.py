@@ -97,7 +97,7 @@ def build_engagement_pack(engagement_id: int) -> str:
     on demand (unversioned; versioning is for the org-brain)."""
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
     if not eng:
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise db.NotFound(f"engagement #{engagement_id} not found")
     lines = [
         f"# Engagement context: {eng['name']}",
         "",

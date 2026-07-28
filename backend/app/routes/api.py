@@ -4,7 +4,7 @@ alongside agent tools — both go through app.services)."""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import ratelimit
+from .. import db, ratelimit
 from ..services import (
     absences,
     admin,
@@ -108,6 +108,8 @@ class NotePatch(BaseModel):
 def patch_note(note_id: int, body: NotePatch, user: CurrentUser):
     try:
         return collab.update_note(note_id, body.topic, body.content, actor=user)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -189,6 +191,8 @@ def post_absence(body: AbsenceIn, user: CurrentUser):
         return absences.add_absence(
             body.person, body.starts_on, body.ends_on, body.kind, body.note, actor=user
         )
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -230,7 +234,7 @@ def get_users(all: bool = False):
 
 
 class UserRenameIn(BaseModel):
-    new_name: str
+    new_name: str = Field(min_length=1, max_length=64)
 
 
 @router.post("/users/{name}/rename")
@@ -268,6 +272,8 @@ class ThemeIn(BaseModel):
 def post_user_theme(body: ThemeIn, user: CurrentUser):
     try:
         return users.set_theme(user, body.theme)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -281,6 +287,8 @@ def get_user_theme(user: CurrentUser):
 def post_team_theme(body: ThemeIn, user: StrongUser):
     try:
         return users.set_team_default_theme(body.theme, actor=user)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -317,6 +325,8 @@ def post_key_request(user: CurrentUser):
     try:
         ratelimit.check("keys_request", user)
         return request_key(user)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -332,7 +342,7 @@ def get_attention(user: CurrentUser):
 
 
 class KeyIn(BaseModel):
-    label: str = ""
+    label: str = Field("", max_length=100)
 
 
 # Key MUTATION requires an existing key (StrongUser): minting on X-User
@@ -422,11 +432,12 @@ def get_portfolio_forecast():
 
 @router.post("/portfolio/readout")
 def post_portfolio_readout(user: CurrentUser):
+    ratelimit.check("artifact", user)
     return readout.exec_readout(actor=user)
 
 
 class WhatIfIn(BaseModel):
-    people: list[str]
+    people: list[str] = Field(max_length=20)
     percent: int = 50
 
 
@@ -446,8 +457,8 @@ def get_week_draft(week: str = ""):
 
 
 class WeekPlanIn(BaseModel):
-    week: str = ""
-    task_ids: list[int]
+    week: str = Field("", max_length=8)
+    task_ids: list[int] = Field(max_length=200)
 
 
 @router.post("/week/plan")
@@ -461,15 +472,16 @@ def get_commitments(status: str = "", audience: str = ""):
 
 
 class CommitmentIn(BaseModel):
-    promise: str
-    to_whom: str = ""
-    due_date: str = ""
+    promise: str = Field(max_length=500)
+    to_whom: str = Field("", max_length=120)
+    due_date: str = Field("", max_length=10)
     engagement_id: int = 0
-    audience: str = "external"
+    audience: str = Field("external", max_length=20)
 
 
 @router.post("/commitments")
 def post_commitment(body: CommitmentIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return commitments.add_commitment(**body.model_dump(), actor=user)
 
 
@@ -489,6 +501,8 @@ def patch_commitment(commitment_id: int, body: CommitmentEditIn, user: CurrentUs
         return commitments.edit_commitment(
             commitment_id, body.promise, body.due_date, body.to_whom, actor=user
         )
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -499,10 +513,10 @@ def post_commitment_status(commitment_id: int, body: CommitmentStatusIn, user: C
 
 
 class SupersedeIn(BaseModel):
-    title: str
-    decision: str
-    context: str = ""
-    review_by: str = ""
+    title: str = Field(max_length=200)
+    decision: str = Field(max_length=2000)
+    context: str = Field("", max_length=4000)
+    review_by: str = Field("", max_length=10)
 
 
 @router.post("/decisions/{decision_id}/supersede")
@@ -511,7 +525,7 @@ def post_supersede(decision_id: int, body: SupersedeIn, user: CurrentUser):
 
 
 class ReconfirmIn(BaseModel):
-    review_by: str = ""
+    review_by: str = Field("", max_length=10)
 
 
 @router.post("/decisions/{decision_id}/reconfirm")
@@ -536,6 +550,8 @@ class FeedbackIn(BaseModel):
 def post_feedback(body: FeedbackIn, user: CurrentUser):
     try:
         ratelimit.check("feedback", user)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     data = body.model_dump()
@@ -604,9 +620,9 @@ def get_agents_authority(agent: str = ""):
 
 
 class AuthorityIn(BaseModel):
-    agent: str
-    entity: str
-    level: str
+    agent: str = Field(max_length=64)
+    entity: str = Field(max_length=40)
+    level: str = Field(max_length=20)
 
 
 @router.post("/agents/authority")
@@ -623,8 +639,8 @@ def get_agent_inbox(agent: str, user: CurrentUser):
 
 
 class DelegateIn(BaseModel):
-    agent: str
-    sponsor: str = ""
+    agent: str = Field(max_length=64)
+    sponsor: str = Field("", max_length=64)
 
 
 @router.post("/tasks/{task_id}/delegate")
@@ -673,9 +689,9 @@ def get_findings(weeks: int = 4):
 
 
 class FindingDispositionIn(BaseModel):
-    disposition: str
-    reason: str = ""
-    deferred_until: str = ""
+    disposition: str = Field(max_length=20)
+    reason: str = Field("", max_length=500)
+    deferred_until: str = Field("", max_length=10)
 
 
 @router.post("/findings/{finding_id}/disposition")
@@ -688,8 +704,8 @@ def post_finding_disposition(finding_id: int, body: FindingDispositionIn, user: 
 
 
 class ConvertIn(BaseModel):
-    kind: str
-    title: str = ""
+    kind: str = Field(max_length=20)
+    title: str = Field("", max_length=200)
 
 
 @router.post("/findings/{finding_id}/convert")
@@ -715,15 +731,16 @@ def get_usage():
 
 
 class MilestoneIn(BaseModel):
-    title: str
-    description: str = ""
-    project: str = "default"
-    owner: str = ""
-    due_date: str = ""
+    title: str = Field(max_length=200)
+    description: str = Field("", max_length=4000)
+    project: str = Field("default", max_length=120)
+    owner: str = Field("", max_length=64)
+    due_date: str = Field("", max_length=10)
 
 
 @router.post("/milestones")
 def post_milestone(body: MilestoneIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return work.create_milestone(**body.model_dump(), actor=user)
 
 
@@ -742,17 +759,18 @@ def patch_milestone(milestone_id: int, body: MilestonePatch, user: CurrentUser):
 
 
 class TaskIn(BaseModel):
-    title: str
-    description: str = ""
+    title: str = Field(max_length=200)
+    description: str = Field("", max_length=4000)
     milestone_id: int = 0
-    assignee: str = ""
-    priority: str = "medium"
-    due_date: str = ""
+    assignee: str = Field("", max_length=64)
+    priority: str = Field("medium", max_length=10)
+    due_date: str = Field("", max_length=10)
     engagement_id: int = 0
 
 
 @router.post("/tasks")
 def post_task(body: TaskIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return work.create_task(**body.model_dump(), actor=user)
 
 
@@ -775,19 +793,20 @@ def patch_task(task_id: int, body: TaskPatch, user: CurrentUser):
 
 
 class QuestionIn(BaseModel):
-    question: str
-    assigned_to: str = ""
+    question: str = Field(max_length=1000)
+    assigned_to: str = Field("", max_length=64)
 
 
 @router.post("/questions")
 def post_question(body: QuestionIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return collab.ask_question(
         body.question, asked_by=user, assigned_to=body.assigned_to, actor=user
     )
 
 
 class QuestionPatch(BaseModel):
-    assigned_to: str
+    assigned_to: str = Field(max_length=64)
 
 
 @router.patch("/questions/{question_id}")
@@ -796,7 +815,7 @@ def patch_question(question_id: int, body: QuestionPatch, user: CurrentUser):
 
 
 class AnswerIn(BaseModel):
-    answer: str
+    answer: str = Field(max_length=4000)
 
 
 @router.post("/questions/{question_id}/answer")
@@ -805,15 +824,16 @@ def post_answer(question_id: int, body: AnswerIn, user: CurrentUser):
 
 
 class DecisionIn(BaseModel):
-    title: str
-    decision: str
-    context: str = ""
-    review_by: str = ""
-    category: str = ""
+    title: str = Field(max_length=200)
+    decision: str = Field(max_length=2000)
+    context: str = Field("", max_length=4000)
+    review_by: str = Field("", max_length=10)
+    category: str = Field("", max_length=40)
 
 
 @router.post("/decisions")
 def post_decision(body: DecisionIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return collab.record_decision(
         body.title,
         body.decision,
@@ -826,54 +846,58 @@ def post_decision(body: DecisionIn, user: CurrentUser):
 
 
 class StandupIn(BaseModel):
-    yesterday: str = ""
-    today: str = ""
-    blockers: str = ""
+    yesterday: str = Field("", max_length=2000)
+    today: str = Field("", max_length=2000)
+    blockers: str = Field("", max_length=2000)
 
 
 @router.post("/standups")
 def post_standup(body: StandupIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return collab.post_standup(user, body.yesterday, body.today, body.blockers, actor=user)
 
 
 class NoteIn(BaseModel):
-    topic: str
-    content: str
+    topic: str = Field(max_length=200)
+    content: str = Field(max_length=20_000)
 
 
 @router.post("/notes")
 def post_note(body: NoteIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return collab.save_note(body.topic, body.content, author=user, actor=user)
 
 
 class EventIn(BaseModel):
-    title: str
-    starts_at: str
-    ends_at: str = ""
-    description: str = ""
-    attendees: str = ""
+    title: str = Field(max_length=200)
+    starts_at: str = Field(max_length=25)
+    ends_at: str = Field("", max_length=25)
+    description: str = Field("", max_length=4000)
+    attendees: str = Field("", max_length=500)
 
 
 @router.post("/events")
 def post_event(body: EventIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return schedule.schedule_event(**body.model_dump(), actor=user)
 
 
 class BlockerIn(BaseModel):
-    title: str
-    detail: str = ""
-    owner: str = ""
-    impact: str = "medium"
+    title: str = Field(max_length=200)
+    detail: str = Field("", max_length=4000)
+    owner: str = Field("", max_length=64)
+    impact: str = Field("medium", max_length=10)
     task_id: int = 0
 
 
 @router.post("/blockers")
 def post_blocker(body: BlockerIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return blockers.raise_blocker(**body.model_dump(), actor=user)
 
 
 class ResolveIn(BaseModel):
-    resolution: str = ""
+    resolution: str = Field("", max_length=2000)
 
 
 class BlockerEditIn(BaseModel):
@@ -886,6 +910,8 @@ class BlockerEditIn(BaseModel):
 def patch_blocker(blocker_id: int, body: BlockerEditIn, user: CurrentUser):
     try:
         return blockers.edit_blocker(blocker_id, body.title, body.detail, body.owner, actor=user)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -896,13 +922,14 @@ def post_resolve_blocker(blocker_id: int, body: ResolveIn, user: CurrentUser):
 
 
 class IntakeIn(BaseModel):
-    title: str
-    detail: str = ""
-    project_class: str = ""
+    title: str = Field(max_length=200)
+    detail: str = Field("", max_length=4000)
+    project_class: str = Field("", max_length=40)
 
 
 @router.post("/intake")
 def post_intake(body: IntakeIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return intake.submit_request(
         body.title, body.detail, requester=user, project_class=body.project_class, actor=user
     )
@@ -924,6 +951,8 @@ class IntakeEditIn(BaseModel):
 def patch_intake(request_id: int, body: IntakeEditIn, user: CurrentUser):
     try:
         return intake.edit_request(request_id, body.title, body.detail, actor=user)
+    except db.NotFound:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -934,13 +963,13 @@ def post_intake_score(request_id: int, body: ScoreIn, user: CurrentUser):
 
 
 class DispositionIn(BaseModel):
-    disposition: str
-    reason: str
-    kind: str = "delivery"
-    timebox_end: str = ""
-    outcome: str = ""
-    lead: str = ""
-    kill_criteria: str = ""
+    disposition: str = Field(max_length=20)
+    reason: str = Field(max_length=2000)
+    kind: str = Field("delivery", max_length=20)
+    timebox_end: str = Field("", max_length=10)
+    outcome: str = Field("", max_length=2000)
+    lead: str = Field("", max_length=64)
+    kill_criteria: str = Field("", max_length=500)
 
 
 @router.post("/intake/{request_id}/disposition")
@@ -959,7 +988,7 @@ def post_intake_disposition(request_id: int, body: DispositionIn, user: CurrentU
 
 
 class ReviewActionIn(BaseModel):
-    note: str = ""
+    note: str = Field("", max_length=1000)
 
 
 @router.post("/review/{change_id}/approve")
@@ -1027,18 +1056,19 @@ def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request
 
 
 class EngagementIn(BaseModel):
-    name: str
-    project_class: str = "general"
-    summary: str = ""
-    lead: str = ""
-    kind: str = "delivery"
-    timebox_end: str = ""
-    kill_criteria: str = ""
-    outcome: str = ""
+    name: str = Field(max_length=120)
+    project_class: str = Field("general", max_length=40)
+    summary: str = Field("", max_length=4000)
+    lead: str = Field("", max_length=64)
+    kind: str = Field("delivery", max_length=20)
+    timebox_end: str = Field("", max_length=10)
+    kill_criteria: str = Field("", max_length=500)
+    outcome: str = Field("", max_length=2000)
 
 
 @router.post("/engagements")
 def post_engagement(body: EngagementIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return engagements.create_engagement(**body.model_dump(), actor=user)
 
 
@@ -1073,14 +1103,15 @@ def post_allocate(engagement_id: int, body: AllocationIn, user: CurrentUser):
 
 
 class LessonIn(BaseModel):
-    lesson: str
-    recommendation: str = ""
+    lesson: str = Field(max_length=2000)
+    recommendation: str = Field("", max_length=2000)
     engagement_id: int = 0
-    project_class: str = "general"
+    project_class: str = Field("general", max_length=40)
 
 
 @router.post("/lessons")
 def post_lesson(body: LessonIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return engagements.record_lesson(**body.model_dump(), actor=user)
 
 
@@ -1100,11 +1131,13 @@ def post_instantiate(body: InstantiateIn, user: CurrentUser):
 
 @router.post("/engagements/{engagement_id}/handoff")
 def post_handoff(engagement_id: int, user: CurrentUser):
+    ratelimit.check("artifact", user)
     return handoff.generate_handoff(engagement_id, actor=user)
 
 
 @router.post("/digest")
 def post_digest(user: CurrentUser):
+    ratelimit.check("artifact", user)
     return digest.publish_digest(actor=user)
 
 

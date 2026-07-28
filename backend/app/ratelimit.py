@@ -20,6 +20,9 @@ LIMITS = {
     "absence": 10,
     "ritual": 4,
     "memory": 10,
+    "chat": 20,
+    "write": 30,  # generic create-endpoint cap — content rows per person
+    "artifact": 4,  # digest/readout/handoff each write a file per call
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 

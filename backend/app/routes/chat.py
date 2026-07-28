@@ -11,9 +11,9 @@ import re
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from .. import config
+from .. import config, ratelimit
 from ..agents import commands
 from ..agents.identity import (
     reset_agent_identity,
@@ -31,8 +31,10 @@ router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    thread_id: str = "default"
-    message: str
+    thread_id: str = Field("default", max_length=100)
+    # the biggest sink gets the same bounds as its siblings: the message
+    # fans out to transcripts, session files, and (non-mock) model spend
+    message: str = Field(max_length=20_000)
 
 
 @router.get("/api/chat/commands")
@@ -110,6 +112,7 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, user: CurrentUser):
+    ratelimit.check("chat", user)
     # /as <persona> <message>: resolve the bench persona BEFORE any model —
     # unknown slugs get a deterministic error, valid ones swap the agent's
     # head and identity (writes are attributed and gated per persona)
