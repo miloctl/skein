@@ -19,7 +19,7 @@ def remember(
     return {"id": mid, "topic": topic}
 
 
-def forget(memory_id: int, *, actor: str) -> dict:
+def forget(memory_id: int, *, actor: str, origin: str = "human") -> dict:
     """Memories steer every future conversation — a wrong or injected one
     must be removable, and the removal itself is on the record."""
     row = db.query_one("SELECT topic, content FROM memories WHERE id = ?", (memory_id,))

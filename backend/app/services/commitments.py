@@ -76,6 +76,7 @@ def edit_commitment(
     to_whom: str = "",
     *,
     actor: str = "system",
+    origin: str = "human",
 ) -> dict:
     """Correct the wording/date of an OPEN promise — old→new logged; settled
     commitments stay as history."""

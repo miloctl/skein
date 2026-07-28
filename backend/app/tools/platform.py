@@ -213,3 +213,99 @@ def search_workspace(query: str) -> str:
         query: What to look for.
     """
     return json.dumps(search.search(query))
+
+
+@tool
+def edit_blocker(blocker_id: int, title: str = "", detail: str = "", owner: str = "") -> str:
+    """Correct an open blocker's wording or owner ('-' clears detail/owner).
+    Resolved blockers are history and refuse edits — resolve_blocker is the
+    verb for closing one.
+
+    Args:
+        blocker_id: ID of the blocker.
+        title: Corrected title.
+        detail: Corrected detail ('-' to clear).
+        owner: Corrected owner ('-' to clear).
+    """
+    payload = {k: v for k, v in {"title": title, "detail": detail, "owner": owner}.items() if v}
+    return gated_write(
+        "blocker_edit",
+        "update",
+        payload,
+        lambda: blockers.edit_blocker(
+            blocker_id, **payload, actor=agent_identity(), origin="agent"
+        ),
+        entity_id=blocker_id,
+        summary=f"edit blocker #{blocker_id}",
+    )
+
+
+@tool
+def edit_intake_request(request_id: int, title: str = "", detail: str = "") -> str:
+    """Fix an intake request's wording while it is still un-triaged
+    (submitted/scored). Dispositioned requests are history and refuse edits.
+
+    Args:
+        request_id: ID of the request.
+        title: Corrected title.
+        detail: Corrected detail ('-' to clear).
+    """
+    payload = {k: v for k, v in {"title": title, "detail": detail}.items() if v}
+    return gated_write(
+        "intake_edit",
+        "update",
+        payload,
+        lambda: intake.edit_request(request_id, **payload, actor=agent_identity(), origin="agent"),
+        entity_id=request_id,
+        summary=f"edit intake #{request_id}",
+    )
+
+
+@tool
+def update_engagement(
+    engagement_id: int,
+    status: str = "",
+    name: str = "",
+    summary: str = "",
+    lead: str = "",
+    conclusion: str = "",
+    outcome: str = "",
+    timebox_end: str = "",
+) -> str:
+    """Update an engagement — status, rename (propagates to milestone labels),
+    lead, summary, or close it. Closing requires a conclusion (achieved /
+    partial / missed / invalidated / unmeasured / stopped).
+
+    Args:
+        engagement_id: ID of the engagement.
+        status: New status (proposed/active/closing/closed).
+        name: New name — must be unique.
+        summary: Updated summary.
+        lead: New lead.
+        conclusion: Honest outcome, required when closing.
+        outcome: Outcome statement.
+        timebox_end: New timebox end (YYYY-MM-DD) for experiments.
+    """
+    payload = {
+        k: v
+        for k, v in {
+            "status": status,
+            "name": name,
+            "summary": summary,
+            "lead": lead,
+            "conclusion": conclusion,
+            "outcome": outcome,
+            "timebox_end": timebox_end,
+        }.items()
+        if v
+    }
+    return gated_write(
+        "engagement",
+        "update",
+        payload,
+        lambda: engagements.update_engagement(
+            engagement_id, **payload, actor=agent_identity(), origin="agent"
+        ),
+        entity_id=engagement_id,
+        summary=f"update engagement #{engagement_id}",
+    )

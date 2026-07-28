@@ -158,3 +158,53 @@ def my_agent_inbox(agent: str = "") -> str:
         return json.dumps(delegation.agent_inbox(agent or agent_identity()))
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
+
+
+@tool
+def edit_commitment(
+    commitment_id: int, promise: str = "", due_date: str = "", to_whom: str = ""
+) -> str:
+    """Correct the wording, due date, or recipient of an OPEN promise
+    ('-' clears due_date/to_whom). Settled commitments are history and
+    refuse edits.
+
+    Args:
+        commitment_id: ID of the commitment.
+        promise: Corrected promise text.
+        due_date: Corrected due date (YYYY-MM-DD, '-' to clear).
+        to_whom: Corrected recipient ('-' to clear).
+    """
+    payload = {
+        k: v for k, v in {"promise": promise, "due_date": due_date, "to_whom": to_whom}.items() if v
+    }
+    return gated_write(
+        "commitment_edit",
+        "update",
+        payload,
+        lambda: commitments.edit_commitment(
+            commitment_id, **payload, actor=agent_identity(), origin="agent"
+        ),
+        entity_id=commitment_id,
+        summary=f"edit commitment #{commitment_id}",
+    )
+
+
+@tool
+def mark_commitment(commitment_id: int, status: str) -> str:
+    """Settle an open commitment: kept, missed, or withdrawn.
+
+    Args:
+        commitment_id: ID of the commitment.
+        status: One of kept / missed / withdrawn.
+    """
+    payload = {"status": status}
+    return gated_write(
+        "commitment",
+        "update",
+        payload,
+        lambda: commitments.update_commitment(
+            commitment_id, **payload, actor=agent_identity(), origin="agent"
+        ),
+        entity_id=commitment_id,
+        summary=f"mark commitment #{commitment_id} {status}",
+    )

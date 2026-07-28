@@ -339,7 +339,9 @@ def save_note(
     return {"id": nid, "topic": topic}
 
 
-def update_note(note_id: int, topic: str = "", content: str = "", *, actor: str = "") -> dict:
+def update_note(
+    note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
     row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if not row:
         raise ValueError(f"no note #{note_id}")
@@ -363,7 +365,7 @@ def update_note(note_id: int, topic: str = "", content: str = "", *, actor: str 
     return {"id": note_id, "updated": list(fields)}
 
 
-def delete_note(note_id: int, *, actor: str = "") -> dict:
+def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict:
     row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if not row:
         raise ValueError(f"no note #{note_id}")
