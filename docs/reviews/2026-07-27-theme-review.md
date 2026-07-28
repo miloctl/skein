@@ -1,5 +1,7 @@
 # Theme system — 5-agent review (2026-07-27)
 
+> **Status (2026-07-27): PARTIALLY CLOSED — TD1/TD2/TD6 and TP5/TP6/TP3 shipped. Still open by choice: TD3-TD5, TD7-TD10 (texture/density garnish), Vellum pack concept, TP1 named presets (revisit only if the custom editor grows).**
+
 Fixed same-day (verified findings): adopt-fetch race (TC1), defaults-stored-
 as-absence letting the profile hijack a deliberate reset (TC2/TB5), merge
 dropping the source user's theme + growth interests (TC3/TB2, test-pinned),

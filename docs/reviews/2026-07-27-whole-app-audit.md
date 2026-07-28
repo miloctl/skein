@@ -1,5 +1,7 @@
 # Whole-app fresh-eyes audit — 2026-07-27
 
+> **Status (2026-07-27): CLOSED — W1-W12 and the smaller items all shipped in the audit batches + correction-contract work (see docs/CORRECTIONS.md for the standing rules).**
+
 Post-review of the toast/PersonInput commit (1 bug, fixed same-day: mouse-picked
 datalist suggestions now commit) plus a full audit. Live sweep: 12 routes 200,
 zero console errors, profile toast verified <150ms.
