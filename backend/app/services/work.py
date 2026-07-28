@@ -101,6 +101,11 @@ def update_milestone(
     for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
         if fields.get(clearable) == "-":
             fields[clearable] = empty
+    current = db.query_one("SELECT status FROM milestones WHERE id = ?", (milestone_id,))
+    if status == "done" and current and current["status"] != "done":
+        fields["completed_at"] = db.now()  # slip forecast reads this, not updated_at
+    elif status and status != "done" and current and current["status"] == "done":
+        fields["completed_at"] = None
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded

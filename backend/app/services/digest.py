@@ -146,9 +146,11 @@ def _narrate(markdown: str) -> str:
 
 def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
     today = _utc_today().isoformat()
+    # build BEFORE claiming: a narration/build failure must not burn the
+    # day's claim and silently cancel the digest until tomorrow
+    markdown = _narrate(build_digest())
     if actor == "scheduler" and not force and not db.claim_job("digest", today):
         return {"date": today, "skipped": "already published today"}
-    markdown = _narrate(build_digest())
 
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / "digests"
     artifacts_dir.mkdir(parents=True, exist_ok=True)

@@ -156,7 +156,7 @@ export default function MyDay() {
     },
     () => {
       try {
-        return window.localStorage.getItem("skein-pulse-voted") === pulseWeek;
+        return window.localStorage.getItem(`skein-pulse-voted:${getUser()}`) === pulseWeek;
       } catch {
         return false;
       }
@@ -535,7 +535,7 @@ export default function MyDay() {
                             }),
                           });
                           try {
-                            window.localStorage.setItem("skein-pulse-voted", pulseWeek);
+                            window.localStorage.setItem(`skein-pulse-voted:${getUser()}`, pulseWeek);
                           } catch {}
                           window.dispatchEvent(new Event("storage"));
                         } catch (e) {

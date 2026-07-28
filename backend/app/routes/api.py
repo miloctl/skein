@@ -266,6 +266,12 @@ def post_growth_interests(body: GrowthIn, user: CurrentUser):
     return users.set_growth_interests(user, body.interests, actor=user)
 
 
+@router.get("/users/growth-interests")
+def get_growth_interests(user: CurrentUser):
+    # write-only fields can't be reviewed or cleared — prefill needs this
+    return {"interests": users.get_growth_interests(user)}
+
+
 class ThemeIn(BaseModel):
     theme: str = Field(max_length=400)
 
@@ -613,7 +619,10 @@ def get_agents_trust():
 def get_agent_entities():
     from ..services.review import _registry
 
-    return sorted(_registry())
+    # internal flows file these; no agent tool passes them to the gate, so
+    # an authority knob for them would be a placebo
+    internal = {"authority", "task_completion", "weekly_plan"}
+    return sorted(e for e in _registry() if e not in internal)
 
 
 @router.get("/agents/authority")

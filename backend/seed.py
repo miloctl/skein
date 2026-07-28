@@ -117,9 +117,48 @@ def main() -> None:
         actor="seed",
     )
 
+    # ---- the newer surfaces: the demo must show the flagship flows --------
+    from app.services import absences, commitments, delegation
+
+    commitments.add_commitment(
+        "Send Acme the diligence summary",
+        to_whom="Acme PM",
+        due_date=(date.today() + timedelta(days=3)).isoformat(),
+        actor="mario",
+    )
+    absences.add_absence(
+        "ava",
+        (date.today() + timedelta(days=7)).isoformat(),
+        (date.today() + timedelta(days=11)).isoformat(),
+        kind="pto",
+        note="offsite week",
+        actor="ava",
+    )
+    collab.record_decision(
+        "Weekly plan is approved, never imposed",
+        "The Monday draft ships as a proposal; a human approves the commitment line.",
+        decided_by="mario",
+        review_by=(date.today() + timedelta(days=60)).isoformat(),
+        category="charter",
+        actor="mario",
+    )
+    # a delegation mid-loop: claimed, one worklog entry, awaiting acceptance
+    dt = work.create_task(
+        title="Summarize competitor pricing pages", assignee="research-agent", actor="mario"
+    )
+    delegation.delegate_task(dt["id"], "research-agent", "mario", actor="mario")
+    delegation.claim_task(dt["id"], actor="research-agent")
+    delegation.report_progress(
+        dt["id"], "pulled 4 of 6 pricing pages; two need JS rendering", actor="research-agent"
+    )
+    delegation.submit_completion(
+        dt["id"], "summary drafted for all 6 competitors", actor="research-agent"
+    )
+
     print(
         "Seeded: 1 engagement (playbook), tasks, standups, blockers,"
-        " intake queue, pending review, calendar, lessons."
+        " intake queue, pending reviews, calendar, lessons, a commitment,"
+        " an absence, a charter entry, and a delegation awaiting acceptance."
     )
 
 

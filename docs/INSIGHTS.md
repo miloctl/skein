@@ -71,7 +71,7 @@ within a week even on severity change.
 14. **Experiment overdue** — an open experiment engagement past its `timebox_end` with no recorded conclusion; conclude it or extend the timebox on purpose (`PATCH /api/engagements/{id}` accepts `timebox_end`). Subject = engagement id; n=1 fires.
 15. **Authority stale** — an `autonomous`/`notify` grant past its `review_by` (set to grant+90d; NULL falls back to `updated_at`+90d). The half-life as a nudge, not a demotion state machine: reconfirm by re-granting, or demote. `forbidden`/`review` never expire — the kill switch is forever. Subject = agent+entity; n=1 fires.
 
-(16. Forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
+(16. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as

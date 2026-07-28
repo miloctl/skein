@@ -25,6 +25,11 @@ export default function CharterPage() {
     () => new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10),
   );
   const [superseding, setSuperseding] = useState<number | null>(null);
+  // dismissing the editor hands focus back to its trigger (review closeAsk idiom)
+  const closeSupersede = (id: number) => {
+    setSuperseding(null);
+    setTimeout(() => document.getElementById(`supersede-${id}`)?.focus(), 0);
+  };
   const [busy, setBusy] = useState(false); // a held Enter must not file N entries
   const [newText, setNewText] = useState("");
 
@@ -73,6 +78,7 @@ export default function CharterPage() {
         <input
           value={title}
           maxLength={200}
+          aria-label="Charter entry title"
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Production incident escalation path"
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
@@ -80,6 +86,7 @@ export default function CharterPage() {
         <textarea
           value={text}
           maxLength={2000}
+          aria-label="The agreement itself"
           onChange={(e) => setText(e.target.value)}
           rows={2}
           placeholder="The agreement itself…"
@@ -150,6 +157,7 @@ export default function CharterPage() {
                 )}
                 {superseding === d.id ? null : (
                   <button
+                    id={`supersede-${d.id}`}
                     onClick={() => {
                       setSuperseding(Number(d.id));
                       setNewText("");
@@ -164,7 +172,7 @@ export default function CharterPage() {
             {superseding === d.id && (
               <div
                 className="mt-2 space-y-1.5"
-                onKeyDown={(e) => e.key === "Escape" && setSuperseding(null)}
+                onKeyDown={(e) => e.key === "Escape" && closeSupersede(d.id)}
               >
                 <textarea
                   autoFocus
@@ -201,7 +209,7 @@ export default function CharterPage() {
                     Replace it
                   </button>
                   <button
-                    onClick={() => setSuperseding(null)}
+                    onClick={() => closeSupersede(d.id)}
                     className="text-ink-3 hover:text-ink"
                   >
                     cancel

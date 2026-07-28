@@ -250,7 +250,7 @@ export default function Agents() {
                       <span
                         key={au.entity}
                         title={`${au.entity}: ${au.level}`}
-                        className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level]}`}
+                        className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level] ?? 'bg-raised text-ink-2'}`}
                       >
                         {au.entity}: {LEVEL_LABEL[au.level] ?? au.level}
                       </span>
@@ -384,7 +384,7 @@ export default function Agents() {
         )}
       </Card>
 
-      <Card title="Team memory — steers agent conversations (personal ones only their owner\u2019s)">
+      <Card title="Team memory — steers agent conversations (personal ones only their owner's)">
         {memories.length === 0 ? (
           <p className="text-sm text-ink-3">
             Nothing remembered yet — /remember in chat adds one.

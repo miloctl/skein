@@ -212,8 +212,11 @@ def nudge_stale_wip() -> dict:
 def slip_forecast() -> dict:
     """Forecast open milestone dates from the team's own slip history.
     Labeled heuristic: avg days late across done milestones that had a due date."""
+    # completed_at, not updated_at: post-done corrections (relinks, title
+    # fixes) bump updated_at and would inflate every forecast
     history = db.query(
-        "SELECT ROUND(julianday(date(updated_at)) - julianday(due_date), 1) AS slip"
+        "SELECT ROUND(julianday(date(COALESCE(completed_at, updated_at)))"
+        " - julianday(due_date), 1) AS slip"
         " FROM milestones WHERE status = 'done' AND due_date IS NOT NULL"
     )
     slips = [r["slip"] for r in history]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every lint gate CI runs: ruff + mypy (backend + CLI), eslint (frontend).
+# Run every lint gate CI runs: ruff (backend + CLI), mypy (backend), eslint (frontend).
 set -euo pipefail
 cd "$(dirname "$0")"
 

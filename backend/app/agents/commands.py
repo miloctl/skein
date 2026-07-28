@@ -126,7 +126,15 @@ async def _remember(args: str, user: str) -> AsyncIterator[Event]:
     yield _tool_event("remember")
     try:
         m = memory.remember(args, user=user, actor=user)
-        yield {"data": f"Remembered (#{m['id']}). It will surface in future threads."}
+        from .. import config
+
+        surfaced = (
+            "It will surface in future threads."
+            if config.MODEL_PROVIDER != "mock"
+            else "Visible via /api/memories; it surfaces in chat once a model"
+            " provider is configured (mock has no system prompt)."
+        )
+        yield {"data": f"Remembered (#{m['id']}). {surfaced}"}
     except ValueError as exc:
         yield {"data": f"⚠️ {exc}"}
 
