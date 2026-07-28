@@ -279,8 +279,8 @@ def allocate(
 ) -> dict:
     if not person.strip():
         raise ValueError("person is required")
-    db.validate_date("starts_on", starts_on)
-    db.validate_date("ends_on", ends_on)
+    db.validate_date("starts_on", starts_on, allow_clear=False)
+    db.validate_date("ends_on", ends_on, allow_clear=False)
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
     if not db.query_one("SELECT id FROM engagements WHERE id = ?", (engagement_id,)):

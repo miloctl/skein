@@ -179,6 +179,8 @@ def remember(content: str, topic: str = "") -> str:
     Gated: memories steer every future conversation, so this may file a
     proposal for human review instead of writing directly."""
     record_use(ACTOR, "mcp")
+    if len(content) > 2000 or len(topic) > 100:
+        return json.dumps({"error": "keep memories under 2000 characters (topic 100)"})
     return gated_write(
         "memory",
         "create",

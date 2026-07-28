@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -33,6 +34,13 @@ def _start_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()  # a failed migration SHOULD abort startup — everything else must not
+    # reserve the built-in agent identities as kind=agent BEFORE any request
+    # can claim them: a weak X-User minting "agent" as a human row would
+    # permanently shadow the chat identity's writes
+    from .services.users import ensure_user
+
+    ensure_user("agent", kind="agent")
+    ensure_user(os.getenv("STRANDS_MCP_USER", "mcp-agent"), kind="agent")
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises
     for spec in JOBS:

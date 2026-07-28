@@ -24,9 +24,10 @@ def remember(
         raise ValueError("keep memories under 2000 characters — link a note for the long form")
     if len(topic) > 100 or len(user) > 60:
         raise ValueError("topic is capped at 100 characters, user at 60")
-    from .. import ratelimit
+    if origin != "agent_verified":  # an approval must not trip the proposer's cap
+        from .. import ratelimit
 
-    ratelimit.check("memory", actor)
+        ratelimit.check("memory", actor)
     mid = db.execute(
         "INSERT INTO memories (topic, content, user, thread_id, origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?)",

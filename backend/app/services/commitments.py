@@ -21,7 +21,7 @@ def add_commitment(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
-    db.validate_date("due_date", due_date)
+    db.validate_date("due_date", due_date, allow_clear=False)
     if not promise.strip():
         raise ValueError("the promise text is required")
     if audience not in AUDIENCES:

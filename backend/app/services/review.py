@@ -79,6 +79,10 @@ def propose_change(
         raise ValueError(f"unsupported action '{action}' for {entity}")
     if action == "update" and not entity_id:
         raise ValueError("entity_id required for updates")
+    # a proposal a reviewer must read is bounded like any other write —
+    # oversized payloads would also fail at apply and wedge in the queue
+    if len(json.dumps(payload)) > 20_000:
+        raise ValueError("proposal payload too large — keep it under 20k characters")
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by)"
