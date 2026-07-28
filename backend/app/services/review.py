@@ -135,10 +135,22 @@ def _sponsor_override(change: dict, actor: str, note: str) -> str:
     their verdict is the trust label. Anyone else may still act, but only
     with a reason on record (the sponsor is away, gone, or asked them to),
     and the verdict is marked an override so it never feeds a streak.
-    Returns the sponsor's name when this verdict is an override, else ''."""
-    sponsor = _sponsor_of(change)
-    if not sponsor or actor == sponsor:
+    Returns a label for the activity log when this verdict is an override,
+    else ''."""
+    if change["entity"] != "task_completion":
         return ""
+    sponsor = _sponsor_of(change)
+    if sponsor and actor == sponsor:
+        return ""
+    if not sponsor:
+        # reassignment cleared the delegation: nobody sponsors this proposal
+        # anymore, so NO verdict on it is a trust signal — reason required
+        if not note.strip():
+            raise ValueError(
+                f"task #{change['entity_id']}'s delegation was cleared —"
+                " judging this orphaned acceptance needs a note saying why"
+            )
+        return "orphaned delegation"
     if not note.strip():
         raise ValueError(
             f"task #{change['entity_id']} is sponsored by {sponsor} — acting"
@@ -177,6 +189,10 @@ def approve_change(
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise ValueError(f"pending change #{change_id} not found")
+    # settle the already-reviewed case before any gating, so a non-sponsor
+    # isn't told to fetch a note for a verdict that already happened
+    if change["status"] != "pending":
+        raise ValueError(f"change #{change_id} already {change['status']}")
     # the direct authority endpoint requires a personal key; the proposal
     # path must not be the weaker door to the same lever
     if change["entity"] == "authority" and not strong:
@@ -210,7 +226,8 @@ def approve_change(
         # an approved-but-never-applied proposal would vanish from the queue
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
-            " reviewed_at = NULL, review_note = ? WHERE id = ?",
+            " reviewed_at = NULL, reviewed_strong = 0, reviewed_override = 0,"
+            " review_note = ? WHERE id = ?",
             (f"apply failed: {exc}", change_id),
         )
         raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
@@ -245,6 +262,8 @@ def reject_change(
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise ValueError(f"pending change #{change_id} not found")
+    if change["status"] != "pending":
+        raise ValueError(f"change #{change_id} already {change['status']}")
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)

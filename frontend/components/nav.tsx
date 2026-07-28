@@ -4,13 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { api, getApiKey, getUser, setUser } from "@/lib/api";
-
-// notifies on cross-tab changes; same-tab changes reload the page
-function subscribeUser(cb: () => void) {
-  window.addEventListener("storage", cb);
-  return () => window.removeEventListener("storage", cb);
-}
+import { api, getApiKey, getUser, setUser, subscribeUser } from "@/lib/api";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |
 // people & rules. Former top-level pages live on as tabs inside Work
