@@ -146,8 +146,17 @@ export default function InsightsPage() {
   };
 
   if (error)
-    return <main className="p-8 text-sm text-danger">Backend unreachable: {error}</main>;
-  if (!d) return <main className="p-8 text-sm text-ink-3">Reading the tea leaves…</main>;
+    return (
+      <main className="mx-auto w-full max-w-5xl p-6 text-sm text-danger">
+        Backend unreachable: {error}
+      </main>
+    );
+  if (!d)
+    return (
+      <main className="mx-auto w-full max-w-5xl p-6 text-sm text-ink-3">
+        Reading the tea leaves…
+      </main>
+    );
 
   const m = d.mttr;
   const smallN = m.current.n < 8 || m.previous.n < 8;
