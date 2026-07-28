@@ -625,8 +625,10 @@ def test_authority_verdicts_need_strong_human_identity(client, fresh_db):
     )
     weak = client.post(f"/api/review/{p['id']}/approve", json={})
     assert weak.status_code == 400 and "strong identity" in weak.json()["detail"]
+    # the dep now refuses the weak agent header outright (403) — the service
+    # guard behind it ("judged by humans") stays as defense in depth
     as_agent = client.post(f"/api/review/{p['id']}/approve", json={}, headers={"X-User": "scribe"})
-    assert as_agent.status_code == 400 and "judged by humans" in as_agent.json()["detail"]
+    assert as_agent.status_code == 403 and "agent identity" in as_agent.json()["detail"]
     ok = client.post(f"/api/review/{p['id']}/approve", json={}, headers=_strong(client))
     assert ok.json()["status"] == "approved"
 
@@ -881,6 +883,122 @@ def test_override_verdicts_are_invisible_to_streaks_by_design(client, fresh_db):
     )
     assert score["recent_streak"] == 2  # both sponsor approvals, unbroken
     assert score["rejection_streak"] == 0
+
+
+# ---- fresh-eyes audit №2, phase 1 -------------------------------------------------
+
+
+def test_agent_remember_is_gated_and_carries_provenance(client, fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import users
+    from app.tools.memory import remember as remember_tool
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("scribe", kind="agent")
+    token = set_agent_identity("scribe")
+    try:
+        out = j.loads(remember_tool(content="the deploy window is Fridays", topic="ops"))
+        assert out.get("note") == "queued for human review"
+        pid = out["id"]
+    finally:
+        reset_agent_identity(token)
+    r = client.post(f"/api/review/{pid}/approve", json={}, headers=_strong(client))
+    row = fresh_db.query_one(
+        "SELECT origin, created_by FROM memories WHERE id = ?", (r.json()["result"]["id"],)
+    )
+    assert row["origin"] == "agent_verified" and row["created_by"] == "scribe"
+
+
+def test_agent_remember_respects_forbidden_and_caps(fresh_db):
+    import json as j
+
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.services import delegation, memory, users
+    from app.tools.memory import remember as remember_tool
+
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("mira")
+    delegation.set_authority("scribe", "memory", "forbidden", actor="mira")
+    token = set_agent_identity("scribe")
+    try:
+        out = j.loads(remember_tool(content="steering text"))
+        assert "forbidden" in out["error"]
+    finally:
+        reset_agent_identity(token)
+    with pytest.raises(ValueError, match="2000"):
+        memory.remember("x" * 2001, actor="mira")
+
+
+def test_weak_header_cannot_claim_agent_identity(client, fresh_db):
+    from app.services import users
+
+    users.ensure_user("scout", kind="agent")
+    # /notifications carries CurrentUser on GET; /tasks GET is identity-free
+    r = client.get("/api/notifications", headers={"X-User": "scout"})
+    assert r.status_code == 403 and "agent identity" in r.json()["detail"]
+    w = client.post("/api/tasks", json={"title": "as scout"}, headers={"X-User": "scout"})
+    assert w.status_code == 403
+
+
+def test_reads_do_not_mint_roster_rows(client, fresh_db):
+    client.get("/api/notifications", headers={"X-User": "drive-by-reader"})
+    assert not fresh_db.query_one("SELECT id FROM users WHERE name = ?", ("drive-by-reader",))
+    client.post("/api/tasks", json={"title": "t"}, headers={"X-User": "drive-by-writer"})
+    assert fresh_db.query_one("SELECT id FROM users WHERE name = ?", ("drive-by-writer",))
+
+
+def test_dispositioned_intake_cannot_be_rescored(client, fresh_db):
+    from app.services import intake
+
+    req = intake.submit_request("old idea", requester="mira", actor="mira")
+    intake.score_request(req["id"], 2, 2, 2, 2, actor="mira")
+    intake.disposition_request(req["id"], "declined", "not now", actor="mira")
+    r = client.post(
+        f"/api/intake/{req['id']}/score",
+        json={"reach": 5, "impact": 5, "confidence": 5, "effort": 1},
+    )
+    assert r.status_code == 400 and "stay put" in r.json()["detail"]
+    row = fresh_db.query_one("SELECT status FROM intake_requests WHERE id = ?", (req["id"],))
+    assert row["status"] == "declined"
+
+
+def test_dates_are_validated_and_ics_survives_bad_legacy_rows(client, fresh_db):
+    from app.services import commitments, engagements, work
+
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        work.create_task(title="t", due_date="soon")
+    with pytest.raises(ValueError, match="real date"):
+        work.create_milestone("m", due_date="2026-02-31")
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        commitments.add_commitment("p", due_date="07/30/2026")
+    e = engagements.create_engagement("Dated")
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        engagements.allocate("mira", e["id"], 50, starts_on="tomorrow")
+    # clear sentinel still passes
+    t = work.create_task(title="ok", due_date="2026-08-01")
+    work.update_task(t["id"], due_date="-", actor="mira")
+    # a bad date already in the DB (pre-validation rows) must not sink the feed
+    fresh_db.execute(
+        "INSERT INTO commitments (promise, due_date, status, audience, created_by,"
+        " created_at, updated_at) VALUES ('legacy', 'soon', 'open', 'external', 'mira', ?, ?)",
+        (fresh_db.now(), fresh_db.now()),
+    )
+    feed = client.get("/api/calendar.ics").text
+    assert "soon" not in feed and feed.rstrip().endswith("END:VCALENDAR")
+
+
+def test_export_covers_the_newer_tables(fresh_db):
+    from app.services import absences, admin, users
+
+    users.ensure_user("mira")
+    absences.add_absence("mira", "2026-08-03", "2026-08-04", actor="mira")
+    out = admin.export()
+    assert out["tables"]["absences"] == 1
+    for table in ("task_worklog", "finding_dispositions", "app_settings", "job_outcomes"):
+        assert table in out["tables"]
 
 
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):

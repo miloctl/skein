@@ -21,10 +21,16 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
         topic: Short slug for the memory.
         about_user: Team member the memory concerns, if any.
     """
-    try:
-        return json.dumps(memory.remember(content, topic, user=about_user, actor=agent_identity()))
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+    payload = {"content": content, "topic": topic, "user": about_user}
+    return gated_write(
+        "memory",
+        "create",
+        payload,
+        lambda: memory.remember(
+            content, topic, user=about_user, actor=agent_identity(), origin="agent"
+        ),
+        summary=f"remember{f' [{topic}]' if topic else ''}: {content[:80]}",
+    )
 
 
 @tool

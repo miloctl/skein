@@ -19,6 +19,7 @@ LIMITS = {
     "delete": 20,
     "absence": 10,
     "ritual": 4,
+    "memory": 10,
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 

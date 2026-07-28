@@ -30,6 +30,9 @@ export function setApiKey(key: string) {
   const k = key.trim();
   if (k) window.localStorage.setItem(API_KEY_KEY, k);
   else window.localStorage.removeItem(API_KEY_KEY);
+  // storage events don't fire in the writing tab — nudge same-tab
+  // subscribers (nav dot, Settings key status) like every other writer
+  window.dispatchEvent(new Event("storage"));
 }
 
 export async function api<T = unknown>(

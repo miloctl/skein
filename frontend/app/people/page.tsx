@@ -134,7 +134,14 @@ export default function PeoplePage() {
           .map((u) => (
             <button
               key={u.name}
-              onClick={() => setPerson(u.name)}
+              onClick={() => {
+                // clear before switching: stale content here would be another
+                // person's PRIVATE notes under the wrong name, and an errored
+                // fetch would leave them there indefinitely
+                setNotes([]);
+                setBrief(null);
+                setPerson(u.name);
+              }}
               className={
                 "rounded-full px-3 py-1 text-sm " +
                 (person === u.name

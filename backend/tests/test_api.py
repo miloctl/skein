@@ -140,8 +140,11 @@ def test_search_api(client):
     assert hits and hits[0]["entity"] == "note"
 
 
-def test_users_autoregister(client):
+def test_users_autoregister_on_first_write_not_read(client):
     client.get("/api/briefing", headers={"X-User": "newperson"})
+    names = {u["name"] for u in client.get("/api/users").json()}
+    assert "newperson" not in names  # reads never mint roster rows
+    client.post("/api/standups", json={"today": "here"}, headers={"X-User": "newperson"})
     names = {u["name"] for u in client.get("/api/users").json()}
     assert "newperson" in names
 

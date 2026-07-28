@@ -21,6 +21,7 @@ def add_commitment(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
+    db.validate_date("due_date", due_date)
     if not promise.strip():
         raise ValueError("the promise text is required")
     if audience not in AUDIENCES:
@@ -80,6 +81,7 @@ def edit_commitment(
 ) -> dict:
     """Correct the wording/date of an OPEN promise — old→new logged; settled
     commitments stay as history."""
+    db.validate_date("due_date", due_date)
     row = db.query_one("SELECT promise, status FROM commitments WHERE id = ?", (commitment_id,))
     if not row:
         raise ValueError(f"commitment #{commitment_id} not found")

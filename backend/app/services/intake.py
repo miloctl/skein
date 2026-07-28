@@ -87,8 +87,16 @@ def score_request(
     ):
         if not 1 <= v <= 5:
             raise ValueError(f"{name} must be 1-5")
-    if not db.query_one("SELECT id FROM intake_requests WHERE id = ?", (request_id,)):
+    current = db.query_one("SELECT id, status FROM intake_requests WHERE id = ?", (request_id,))
+    if not current:
         raise ValueError(f"intake request #{request_id} not found")
+    # scoring must not be a back door out of a terminal disposition — a
+    # declined request re-entering triage could be accepted a second time
+    if current["status"] not in ("submitted", "scored"):
+        raise ValueError(
+            f"request #{request_id} is {current['status']} — dispositioned"
+            " requests stay put; submit a new request instead"
+        )
     score = _score(reach, impact, confidence, effort)
     db.execute(
         "UPDATE intake_requests SET reach = ?, impact = ?, confidence = ?, effort = ?,"
