@@ -1,6 +1,10 @@
 # Fresh-eyes audit №2 — 2026-07-27
 
-> STATUS: OPEN — findings for triage, none fixed yet.
+> STATUS: CLOSED 2026-07-28 — all P1/P2 items and the recommended P3 scope
+> fixed across commits 94cc339..4b80c4d (three phases, each two-agent
+> reviewed); CLI verbs shipped in 4b80c4d. Consciously skipped: ratelimit
+> MAX_KEYS got oldest-idle eviction (not the full rework); context-pack
+> GET keeps its bootstrap publish (RuntimeError now a 400).
 
 Five parallel auditors (backend services, REST surface, frontend, agent
 layer, docs-vs-reality) over the whole app at HEAD `aaf7690`, plus a live
