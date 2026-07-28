@@ -18,6 +18,12 @@ Examples (the `strands` alias works everywhere `skein` does):
     skein blockers add "staging db down" --impact high
     skein search cutover
     skein week draft          # weekly commitment line
+    skein commitments         # open promises; settle: skein commitments settle 3 kept
+    skein absences add mira 2026-08-10 2026-08-14   # PTO by default
+    skein review              # pending proposals; approve/reject by id
+    skein review approve 12 -m "looks right"
+    skein worklog 22          # a delegated task's progress log
+    skein inbox scout         # an agent's ambient inbox
     skein eval                # replay capture classifier vs feedback corpus
     skein context --write AGENTS.md
     skein install-hooks       # run inside each work repo you want trailer sync in
@@ -233,6 +239,92 @@ def cmd_week(args):
         print(f"  [{mark}] #{t['id']} {t['title']} (@{t['assignee'] or 'unassigned'})")
 
 
+def cmd_commitments(args):
+    if args.action == "settle":
+        api("POST", f"/api/commitments/{args.id}/status", {"status": args.status})
+        print(f"commitment #{args.id} {args.status}")
+        return
+    rows = api("GET", "/api/commitments" + ("" if args.all else "?status=open"))
+    for c in rows:
+        due = f" due {c['due_date']}" if c["due_date"] else ""
+        who = f" → {c['to_whom']}" if c["to_whom"] else ""
+        print(f"[{c['status']}] #{c['id']} {c['promise']}{who}{due} ({c['audience']})")
+    if not rows:
+        print('no open promises — capture one with `skein capture "promised: ..."`')
+
+
+def cmd_absences(args):
+    if args.action == "add":
+        out = api(
+            "POST",
+            "/api/absences",
+            {
+                "person": args.person,
+                "starts_on": args.starts_on,
+                "ends_on": args.ends_on,
+                "kind": args.kind,
+                "note": args.note,
+            },
+        )
+        print(f"absence #{out['id']}: {out['person']} {out['kind']}")
+        return
+    if args.action == "rm":
+        api("DELETE", f"/api/absences/{args.id}")
+        print(f"absence #{args.id} removed")
+        return
+    rows = api("GET", "/api/absences")
+    for a in rows:
+        note = f" — {a['note']}" if a["note"] else ""
+        print(f"#{a['id']} {a['person']}: {a['kind']} {a['starts_on']} → {a['ends_on']}{note}")
+    if not rows:
+        print("nobody is scheduled away")
+
+
+def cmd_review(args):
+    if args.action in ("approve", "reject"):
+        out = api("POST", f"/api/review/{args.id}/{args.action}", {"note": args.note})
+        print(f"proposal #{args.id} {out['status']}")
+        return
+    rows = api("GET", "/api/review?status=pending")
+    for c in rows:
+        sponsor = f" · sponsor {c['sponsor']}" if c.get("sponsor") else ""
+        asked = f" · asked by {c['requested_by']}" if c.get("requested_by") else ""
+        print(f"#{c['id']} {c['summary']} (by {c['proposed_by']}{asked}{sponsor})")
+    if not rows:
+        print("review queue is empty")
+    elif not (load_config().get("key") or os.getenv("STRANDS_API_KEY")):
+        print(
+            "\nnote: no API key configured — verdicts still land, but only"
+            " key-authenticated ones count toward agent trust"
+        )
+
+
+def cmd_worklog(args):
+    rows = api("GET", f"/api/tasks/{args.id}/worklog")
+    for w in rows:
+        print(f"{w['created_at'][:16]} {w['author']}: {w['note']}")
+    if not rows:
+        print(f"no worklog entries for task #{args.id}")
+
+
+def cmd_inbox(args):
+    box = api("GET", f"/api/agents/{urllib.parse.quote(args.agent)}/inbox")
+    print(f"# {box['agent']}'s inbox")
+    for t in box["delegated_tasks"]:
+        sponsor = f" (sponsor {t['sponsor']})" if t["sponsor"] else ""
+        print(f"  🧵 [{t['priority']}/{t['status']}] #{t['id']} {t['title']}{sponsor}")
+    for q in box["open_questions"]:
+        print(f"  ? #{q['id']} {q['question']} (from {q['asked_by']})")
+    for r in box["rejected_proposals"]:
+        print(f"  ✗ proposal #{r['id']} {r['summary']} — {r['review_note'] or 'no note'}")
+    for n in box["notifications"]:
+        print(f"  🔔 {n['message']}")
+    if not any(
+        box[k] for k in ("delegated_tasks", "open_questions", "rejected_proposals", "notifications")
+    ):
+        print("  (empty)")
+
+
 HOOK = """#!/bin/sh
 # strands git hook: close tasks referenced by Closes-Task: #N trailers
 strands sync-commit || true
@@ -324,6 +416,38 @@ def main():
     c.add_argument("query", nargs="+")
     c.set_defaults(fn=cmd_search)
 
+    c = sub.add_parser("commitments", help="open promises / settle one")
+    c.add_argument("action", nargs="?", choices=["list", "settle"], default="list")
+    c.add_argument("id", nargs="?", type=int, help="commitment id (for settle)")
+    c.add_argument(
+        "status", nargs="?", choices=["kept", "missed", "withdrawn"], help="verdict (for settle)"
+    )
+    c.add_argument("--all", action="store_true", help="include settled promises")
+    c.set_defaults(fn=cmd_commitments)
+
+    c = sub.add_parser("absences", help="time away: list / add / rm")
+    c.add_argument("action", nargs="?", choices=["list", "add", "rm"], default="list")
+    c.add_argument("person", nargs="?", help="teammate (for add) or id (for rm)")
+    c.add_argument("starts_on", nargs="?", help="YYYY-MM-DD")
+    c.add_argument("ends_on", nargs="?", help="YYYY-MM-DD")
+    c.add_argument("--kind", default="pto", choices=["pto", "oncall", "focus"])
+    c.add_argument("--note", default="")
+    c.set_defaults(fn=cmd_absences)
+
+    c = sub.add_parser("review", help="pending proposals: list / approve / reject")
+    c.add_argument("action", nargs="?", choices=["list", "approve", "reject"], default="list")
+    c.add_argument("id", nargs="?", type=int)
+    c.add_argument("-m", "--note", default="", help="verdict note (required for reject)")
+    c.set_defaults(fn=cmd_review)
+
+    c = sub.add_parser("worklog", help="a delegated task's progress log")
+    c.add_argument("id", type=int, help="task id")
+    c.set_defaults(fn=cmd_worklog)
+
+    c = sub.add_parser("inbox", help="an agent's ambient inbox")
+    c.add_argument("agent", help="agent name (e.g. scout)")
+    c.set_defaults(fn=cmd_inbox)
+
     c = sub.add_parser(
         "eval",
         help="replay the capture classifier against its"
@@ -355,6 +479,19 @@ def main():
         p.error("blockers add requires a title")
     if args.cmd == "tasks" and args.action == "done" and not args.id:
         p.error("tasks done requires an id")
+    if args.cmd == "commitments" and args.action == "settle" and not (args.id and args.status):
+        p.error("commitments settle requires an id and kept|missed|withdrawn")
+    if args.cmd == "absences":
+        if args.action == "add" and not (args.person and args.starts_on and args.ends_on):
+            p.error("absences add requires: person starts_on ends_on")
+        if args.action == "rm":
+            if not (args.person or "").isdecimal():
+                p.error("absences rm requires the absence id")
+            args.id = int(args.person)
+    if args.cmd == "review" and args.action in ("approve", "reject") and not args.id:
+        p.error(f"review {args.action} requires a proposal id")
+    if args.cmd == "review" and args.action == "reject" and not args.note:
+        p.error("review reject requires -m — the proposer reads the reason")
     args.fn(args)
 
 
