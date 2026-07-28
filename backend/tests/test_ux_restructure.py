@@ -312,3 +312,52 @@ def test_theme_survives_rename_but_merge_keeps_target(fresh_db):
     assert out["merged"] is True
     assert users.get_theme("mira") == '{"pack":"ledger"}'  # atelier is gone (documented loss)
     assert users.get_theme("Mira K") == ""
+
+
+# ---- correction contract ----------------------------------------------------------
+
+
+def test_note_edit_delete_and_deindex(client):
+    n = client.post("/api/notes", json={"topic": "conv", "content": "old text zebra"}).json()
+    client.patch(f"/api/notes/{n['id']}", json={"content": "new text giraffe"})
+    assert client.get("/api/search", params={"q": "giraffe"}).json()
+    client.delete(f"/api/notes/{n['id']}")
+    assert client.get("/api/search", params={"q": "giraffe"}).json() == []
+    assert client.delete(f"/api/notes/{n['id']}").status_code == 404
+
+
+def test_blocker_and_commitment_edits_guard_history(client):
+    from app.services import blockers, commitments
+
+    b = blockers.raise_blocker(title="typo'd", owner="ava", actor="ava")
+    assert blockers.edit_blocker(b["id"], title="fixed title", actor="ava")["updated"] == ["title"]
+    blockers.resolve_blocker(b["id"], actor="ava")
+    try:
+        blockers.edit_blocker(b["id"], title="nope", actor="ava")
+        raise AssertionError("resolved blocker was editable")
+    except ValueError:
+        pass
+
+    c = commitments.add_commitment("shipp the thing", actor="ava")
+    commitments.edit_commitment(c["id"], promise="ship the thing", actor="ava")
+    commitments.update_commitment(c["id"], "kept", actor="ava")
+    try:
+        commitments.edit_commitment(c["id"], promise="rewrite history", actor="ava")
+        raise AssertionError("settled commitment was editable")
+    except ValueError:
+        pass
+
+
+def test_intake_edit_only_before_disposition(client):
+    from app.services import intake
+
+    r = intake.submit_request("typo titel", actor="ava")
+    assert intake.edit_request(r["id"], title="typo title fixed", actor="ava")
+    intake.score_request(r["id"], 3, 3, 3, 3, actor="ava")
+    intake.edit_request(r["id"], detail="still editable while scored", actor="ava")
+    intake.disposition_request(r["id"], "declined", reason="no", actor="ava")
+    try:
+        intake.edit_request(r["id"], title="after the fact", actor="ava")
+        raise AssertionError("dispositioned request was editable")
+    except ValueError:
+        pass

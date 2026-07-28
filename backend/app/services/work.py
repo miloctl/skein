@@ -280,6 +280,16 @@ def update_task(
     return {"id": task_id, "updated": list(fields)}
 
 
+def list_tasks_joined() -> list[dict]:
+    """Browse listing: tasks with their milestone title, priority-ordered."""
+    return db.query(
+        "SELECT t.*, m.title AS milestone_title FROM tasks t"
+        " LEFT JOIN milestones m ON m.id = t.milestone_id"
+        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT 500"
+    )
+
+
 def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> list[dict]:
     sql = "SELECT * FROM tasks WHERE 1=1"
     params: list[str | int] = []

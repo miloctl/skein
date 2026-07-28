@@ -96,14 +96,17 @@ export default function SettingsPage() {
     }
   };
 
-  const renameUser = async (from: string) => {
-    const to = prompt(`Rename ${from} to (merges history if the name exists):`);
-    if (!to?.trim()) return;
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [deactivating, setDeactivating] = useState<string | null>(null);
+
+  const renameUser = async (from: string, to: string) => {
+    if (!to.trim()) return;
     try {
       await api(`/api/users/${encodeURIComponent(from)}/rename`, {
         method: "POST",
         body: JSON.stringify({ new_name: to.trim() }),
       });
+      setRenaming(null);
       loadRoster();
     } catch (e) {
       alert(String(e));
@@ -179,34 +182,65 @@ export default function SettingsPage() {
           )}
         </span>
         {strong && u.name !== who?.user && (
-          <span className="flex gap-1.5">
-            <button
-              onClick={() => renameUser(u.name)}
-              className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-            >
-              rename…
-            </button>
-            {u.active ? (
-              <button
-                onClick={() => {
-                  if (
-                    confirm(
-                      `Deactivate ${u.name}? History stays; the name leaves the roster and their API keys are revoked.`,
-                    )
-                  )
+          <span className="flex items-center gap-1.5">
+            {renaming === u.name ? (
+              <span className="flex items-center gap-1">
+                <input
+                  autoFocus
+                  name="rename-user"
+                  aria-label={`Rename ${u.name} to`}
+                  placeholder="new name — merges if it exists"
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setRenaming(null);
+                    if (e.key === "Enter")
+                      renameUser(u.name, (e.target as HTMLInputElement).value);
+                  }}
+                  className="w-44 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-xs outline-none focus:border-thread-solid"
+                />
+                <button onClick={() => setRenaming(null)} className="text-xs text-ink-3 hover:text-ink">
+                  cancel
+                </button>
+              </span>
+            ) : deactivating === u.name ? (
+              <span className="flex items-center gap-1 text-xs">
+                <span className="text-ink-3">history stays, keys revoked —</span>
+                <button
+                  onClick={() => {
+                    setDeactivating(null);
                     setActive(u.name, false);
-                }}
-                className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-              >
-                deactivate
-              </button>
+                  }}
+                  className="rounded bg-danger px-2 py-0.5 font-medium text-white hover:opacity-90"
+                >
+                  deactivate
+                </button>
+                <button onClick={() => setDeactivating(null)} className="text-ink-3 hover:text-ink">
+                  keep
+                </button>
+              </span>
             ) : (
-              <button
-                onClick={() => setActive(u.name, true)}
-                className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-              >
-                reactivate
-              </button>
+              <>
+                <button
+                  onClick={() => setRenaming(u.name)}
+                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                >
+                  rename…
+                </button>
+                {u.active ? (
+                  <button
+                    onClick={() => setDeactivating(u.name)}
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    deactivate…
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setActive(u.name, true)}
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    reactivate
+                  </button>
+                )}
+              </>
             )}
           </span>
         )}

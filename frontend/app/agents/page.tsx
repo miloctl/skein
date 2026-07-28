@@ -88,6 +88,7 @@ export default function Agents() {
   const [memories, setMemories] = useState<
     { id: number; topic: string; content: string; user: string }[]
   >([]);
+  const [forgetting, setForgetting] = useState<number | null>(null);
   const [status, setStatus] = useState<{
     provider: string;
     model: string;
@@ -396,21 +397,35 @@ export default function Agents() {
                   {m.topic && <span className="mr-1.5 font-medium">[{m.topic}]</span>}
                   {m.content}
                 </span>
-                <button
-                  onClick={async () => {
-                    if (!confirm(`Forget this? Agents stop seeing it immediately.`)) return;
-                    try {
-                      await api(`/api/memories/${m.id}`, { method: "DELETE" });
-                      setMemories((ms) => ms.filter((x) => x.id !== m.id));
-                    } catch (e) {
-                      setBanner(String(e));
-                    }
-                  }}
-                  aria-label={`Forget memory: ${m.topic || m.content.slice(0, 40)}`}
-                  className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                >
-                  forget
-                </button>
+                {forgetting === m.id ? (
+                  <span className="flex shrink-0 items-center gap-1 text-xs">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api(`/api/memories/${m.id}`, { method: "DELETE" });
+                          setMemories((ms) => ms.filter((x) => x.id !== m.id));
+                        } catch (e) {
+                          setBanner(String(e));
+                        }
+                        setForgetting(null);
+                      }}
+                      className="rounded bg-danger px-2 py-0.5 font-medium text-white hover:opacity-90"
+                    >
+                      forget for good
+                    </button>
+                    <button onClick={() => setForgetting(null)} className="text-ink-3 hover:text-ink">
+                      keep
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setForgetting(m.id)}
+                    aria-label={`Forget memory: ${m.topic || m.content.slice(0, 40)}`}
+                    className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    forget…
+                  </button>
+                )}
               </li>
             ))}
           </ul>

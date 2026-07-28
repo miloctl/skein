@@ -35,6 +35,29 @@ def submit_request(
     return {"id": rid, "status": "submitted"}
 
 
+def edit_request(request_id: int, title: str = "", detail: str = "", *, actor: str = "") -> dict:
+    """Fix a request's wording before triage — after a disposition the record
+    is the reason the requester saw, so it stays put."""
+    row = db.query_one("SELECT title, status FROM intake_requests WHERE id = ?", (request_id,))
+    if not row:
+        raise ValueError(f"request #{request_id} not found")
+    if row["status"] not in ("submitted", "scored"):
+        raise ValueError(f"request #{request_id} is {row['status']} — history stays put")
+    fields = {k: v for k, v in [("title", title.strip()), ("detail", detail)] if v}
+    if not fields:
+        raise ValueError("nothing to update")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    db.execute(
+        f"UPDATE intake_requests SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608
+        (*fields.values(), db.now(), request_id),
+    )
+    db.log_activity(actor or "system", "edit_intake", f"#{request_id} {' '.join(fields)}")
+    new = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
+    if new:
+        index_record("intake", request_id, new["title"], f"{new['detail']} {new['requester']}")
+    return {"id": request_id, "updated": list(fields)}
+
+
 def score_request(
     request_id: int,
     reach: int,

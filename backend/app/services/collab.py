@@ -339,6 +339,43 @@ def save_note(
     return {"id": nid, "topic": topic}
 
 
+def update_note(
+    note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
+    row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+    if not row:
+        raise ValueError(f"no note #{note_id}")
+    fields = {k: v for k, v in [("topic", topic), ("content", content)] if v}
+    if not fields:
+        raise ValueError("nothing to update")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    db.execute(
+        f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
+        (*fields.values(), note_id),
+    )
+    db.log_activity(actor or "system", "update_note", f"#{note_id} {row['topic']}")
+    new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+    if new:
+        index_record("note", note_id, new["topic"], new["content"])
+    return {"id": note_id, "updated": list(fields)}
+
+
+def delete_note(note_id: int, *, actor: str = "") -> dict:
+    row = db.query_one("SELECT topic FROM notes WHERE id = ?", (note_id,))
+    if not row:
+        raise ValueError(f"no note #{note_id}")
+    db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    from .search import deindex_record
+
+    deindex_record("note", note_id)
+    db.log_activity(actor or "system", "delete_note", f"#{note_id} {row['topic']}")
+    return {"id": note_id, "deleted": True}
+
+
+def recent_activity(limit: int = 50) -> list[dict]:
+    return db.query("SELECT * FROM activity ORDER BY id DESC LIMIT ?", (limit,))
+
+
 def search_notes(keyword: str = "") -> list[dict]:
     if keyword:
         like = f"%{keyword}%"

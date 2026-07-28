@@ -28,3 +28,12 @@ def record_chat_usage(
             db.now(),
         ),
     )
+
+
+def usage_summary() -> list[dict]:
+    from .. import db
+
+    return db.query(
+        "SELECT model_id, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,"
+        " SUM(output_tokens) AS output_tokens FROM usage_log GROUP BY model_id"
+    )

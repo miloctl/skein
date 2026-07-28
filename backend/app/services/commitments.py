@@ -69,6 +69,40 @@ def update_commitment(
     return {"id": commitment_id, "status": status}
 
 
+def edit_commitment(
+    commitment_id: int,
+    promise: str = "",
+    due_date: str = "",
+    to_whom: str = "",
+    *,
+    actor: str = "system",
+) -> dict:
+    """Correct the wording/date of an OPEN promise — old→new logged; settled
+    commitments stay as history."""
+    row = db.query_one("SELECT promise, status FROM commitments WHERE id = ?", (commitment_id,))
+    if not row:
+        raise ValueError(f"commitment #{commitment_id} not found")
+    if row["status"] != "open":
+        raise ValueError(f"commitment #{commitment_id} is {row['status']} — history stays put")
+    fields = {
+        k: v for k, v in [("promise", promise), ("due_date", due_date), ("to_whom", to_whom)] if v
+    }
+    if not fields:
+        raise ValueError("nothing to update")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    db.execute(
+        f"UPDATE commitments SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+        (*fields.values(), db.now(), commitment_id),
+    )
+    if promise and promise != row["promise"]:
+        db.log_activity(
+            actor, "edit_commitment", f"#{commitment_id}: '{row['promise']}' -> '{promise}'"
+        )
+    else:
+        db.log_activity(actor, "edit_commitment", f"#{commitment_id} {' '.join(fields)}")
+    return {"id": commitment_id, "updated": list(fields)}
+
+
 def list_commitments(status: str = "", audience: str = "") -> list[dict]:
     where, params = [], []
     if status:
