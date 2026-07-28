@@ -147,11 +147,16 @@ export default function Agents() {
   };
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-6">
       <div className="flex items-start justify-between">
         <SectionTabs set="team" />
         <ManageToggle />
       </div>
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Agents</h1>
+      <p className="mb-6 text-sm text-ink-3">
+        The bench, mission control, authority, and trust — agents earn
+        autonomy through review verdicts; humans hold every switch.
+      </p>
       {status && (
         <p className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-line bg-card px-4 py-2.5 text-xs text-ink-2 shadow-card">
           <span>

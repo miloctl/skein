@@ -251,7 +251,7 @@ export default function MyDay() {
 
   if (error && !b)
     return (
-      <main className="mx-auto max-w-3xl p-8 text-sm text-danger">
+      <main className="mx-auto w-full max-w-5xl p-6 text-sm text-danger">
         Could not reach the backend — is it running? ({error})
       </main>
     );

@@ -118,11 +118,16 @@ export default function Portfolio() {
   );
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
+    <main className="mx-auto w-full max-w-5xl p-6">
       <div className="flex items-start justify-between">
         <SectionTabs set="work" />
         <ManageToggle />
       </div>
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Health</h1>
+      <p className="mb-6 text-sm text-ink-3">
+        Engagement health, this week&apos;s plan, flow, and forecasts — a receipt
+        behind every verdict.
+      </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {banner && (
         <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
