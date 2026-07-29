@@ -88,11 +88,13 @@ function MenuItem({
 
 export function ChatSidebar({
   mobileOpen = false,
+  onMobileClose,
   threadId,
   onOpen,
   onNew,
 }: {
   mobileOpen?: boolean;
+  onMobileClose?: () => void;
   threadId: string;
   onOpen: (id: string) => void;
   onNew: () => void;
@@ -410,9 +412,9 @@ export function ChatSidebar({
               ⋯
             </button>
             <button
-              onClick={toggleCollapsed}
-              title="Collapse sidebar"
-              aria-label="Collapse sidebar"
+              onClick={() => (mobileOpen ? onMobileClose?.() : toggleCollapsed())}
+              title={mobileOpen ? "Close chat list" : "Collapse sidebar"}
+              aria-label={mobileOpen ? "Close chat list" : "Collapse sidebar"}
               className="rounded-lg border border-line-strong px-2 py-1.5 text-sm text-ink-2 hover:bg-raised"
             >
               «

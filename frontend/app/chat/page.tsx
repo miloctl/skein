@@ -65,6 +65,7 @@ export default function ChatPage() {
     <div className="mx-auto flex h-[calc(100dvh-6.25rem-var(--selvage-h,2px))] w-full max-w-6xl md:h-[calc(100dvh-3.5rem-var(--selvage-h,2px))]">
       <ChatSidebar
         mobileOpen={mobileChats}
+        onMobileClose={() => setMobileChats(false)}
         threadId={threadId}
         onOpen={(id) => {
           setMobileChats(false);
