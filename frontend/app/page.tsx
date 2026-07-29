@@ -251,13 +251,13 @@ export default function MyDay() {
 
   if (error && !b)
     return (
-      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-danger">
+      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
         Could not reach the backend — is it running? ({error})
       </main>
     );
   if (!b)
     return (
-      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-ink-3">{loadingLine()}</main>
+      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-ink-3">{loadingLine()}</main>
     );
   if (b.user === "anonymous") return <WhoAreYou />;
 
@@ -277,7 +277,7 @@ export default function MyDay() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       {error && (
         <p className="mb-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
           Last refresh failed ({error}) — showing the previous state.
@@ -507,7 +507,9 @@ export default function MyDay() {
             ))}
             {b.your_work.tasks.length === 0 && (
               <li className="text-ink-3">
-                No tasks assigned to you — press ⌘K and type &lsquo;todo: …&rsquo;.
+                No tasks assigned to you — use quick capture
+                <span className="[@media(hover:none)]:hidden"> (⌘K)</span> and
+                type &lsquo;todo: …&rsquo;.
               </li>
             )}
             {b.your_work.due_soon.length > 0 && (

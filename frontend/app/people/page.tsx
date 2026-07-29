@@ -96,7 +96,7 @@ export default function PeoplePage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">1:1s</h1>
       <p className="mb-6 text-sm text-ink-3">
@@ -248,7 +248,7 @@ export default function PeoplePage() {
               {notes.length === 0 && (
                 <li className="rounded-xl border border-dashed border-line-strong p-6 text-center text-sm text-ink-3">
                   No notes for {person} yet. <code>fb: {person} — …</code> in
-                  ⌘K capture works too.
+                  quick capture works too.
                 </li>
               )}
             </ul>

@@ -349,7 +349,7 @@ export default function Dashboard() {
   // failed refresh keeps the data on screen with a banner (My Day idiom)
   if (error && Object.keys(data).length === 0) {
     return (
-      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-danger">
+      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
         Could not reach the backend at {API_URL} — is it running? ({error})
         <button onClick={load} className="ml-2 underline">
           retry
@@ -360,7 +360,7 @@ export default function Dashboard() {
 
   if (Object.keys(data).length === 0)
     return (
-      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Browse
@@ -370,7 +370,7 @@ export default function Dashboard() {
     );
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Browse</h1>
       <p className="mb-6 text-sm text-ink-3">
@@ -585,21 +585,29 @@ export default function Dashboard() {
             placeholder="who"
             className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
           />
-          <input
-            type="date"
-            aria-label="Away from"
-            value={absDraft.starts_on}
-            onChange={(e) => setAbsDraft({ ...absDraft, starts_on: e.target.value })}
-            className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
-          />
-          <input
-            type="date"
-            aria-label="Away until"
-            min={absDraft.starts_on || undefined}
-            value={absDraft.ends_on}
-            onChange={(e) => setAbsDraft({ ...absDraft, ends_on: e.target.value })}
-            className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
-          />
+          {/* visible captions: once the row wraps, two bare date inputs are
+              indistinguishable — aria-labels don't help a sighted phone user */}
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] uppercase tracking-wide text-ink-3">from</span>
+            <input
+              type="date"
+              aria-label="Away from"
+              value={absDraft.starts_on}
+              onChange={(e) => setAbsDraft({ ...absDraft, starts_on: e.target.value })}
+              className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+            />
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] uppercase tracking-wide text-ink-3">until</span>
+            <input
+              type="date"
+              aria-label="Away until"
+              min={absDraft.starts_on || undefined}
+              value={absDraft.ends_on}
+              onChange={(e) => setAbsDraft({ ...absDraft, ends_on: e.target.value })}
+              className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+            />
+          </label>
           <select
             aria-label="Kind of absence"
             value={absDraft.kind}

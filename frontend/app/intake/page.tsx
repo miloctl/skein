@@ -119,7 +119,7 @@ export default function IntakePage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <div className="flex items-start justify-between">
         <SectionTabs set="inbox" />
         <ManageToggle />
