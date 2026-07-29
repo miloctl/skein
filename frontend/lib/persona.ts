@@ -12,7 +12,21 @@ export type Persona = {
   vibe?: string;
 };
 
-let current: Persona | null = null;
+// persona is per-conversation state, and the thread id survives reloads
+// (sessionStorage) — so the persona must too, or a refresh silently drops
+// you back to the Chief of Staff mid-conversation with no notice
+const STICKY_KEY = "skein-chat-persona";
+
+function restore(): Persona | null {
+  try {
+    const raw = sessionStorage.getItem(STICKY_KEY);
+    return raw ? (JSON.parse(raw) as Persona) : null;
+  } catch {
+    return null;
+  }
+}
+
+let current: Persona | null = typeof window === "undefined" ? null : restore();
 let bench: Persona[] = [];
 const listeners = new Set<() => void>();
 
@@ -33,6 +47,12 @@ export function getActivePersona(): Persona | null {
 
 export function setActivePersona(p: Persona | null) {
   current = p;
+  try {
+    if (p) sessionStorage.setItem(STICKY_KEY, JSON.stringify(p));
+    else sessionStorage.removeItem(STICKY_KEY);
+  } catch {
+    /* private mode: sticky-in-memory is still better than nothing */
+  }
   emit();
 }
 
