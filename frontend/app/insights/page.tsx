@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 
 type Finding = {
@@ -73,16 +74,6 @@ const SEV = {
   positive: "🟢",
 };
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 function Bar({ share }: { share: number }) {
   return (
@@ -147,18 +138,23 @@ export default function InsightsPage() {
 
   if (error)
     return (
-      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
-        Backend unreachable: {error}
+      <main
+        id="content"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
+      >
+        <SectionTabs set="work" />
+        <p className="text-sm text-danger">Backend unreachable: {error}</p>
       </main>
     );
   if (!d)
     return (
-      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Insights
         </h1>
-        <p className="text-sm text-ink-3">Reading the tea leaves…</p>
+        <p className="mb-6 text-sm text-ink-3">Reading the tea leaves…</p>
       </main>
     );
 
@@ -166,7 +162,7 @@ export default function InsightsPage() {
   const smallN = m.current.n < 8 || m.previous.n < 8;
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
       <p className="mb-6 text-sm text-ink-3">

@@ -97,7 +97,7 @@ export function CapturePalette() {
   const trapTab = (e: React.KeyboardEvent) => {
     if (e.key !== "Tab" || !dialogRef.current) return;
     const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
-      "button, textarea, [tabindex]",
+      "button:not([disabled]), textarea, [tabindex]",
     );
     if (focusables.length === 0) return;
     const first = focusables[0];
@@ -140,7 +140,10 @@ export function CapturePalette() {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-16 sm:pt-32"
-      onClick={() => setOpen(false)}
+      onClick={() => {
+        // most of a phone screen is backdrop — never discard typed text
+        if (!text.trim()) setOpen(false);
+      }}
     >
       <div
         ref={dialogRef}
@@ -194,10 +197,10 @@ export function CapturePalette() {
                   ? kind
                   : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
                 : [
-                    <span key="kbd" className="[@media(hover:none)]:hidden">
+                    <span key="kbd" className="[@media(any-pointer:coarse)]:hidden">
                       Enter to save · Esc to close
                     </span>,
-                    <span key="touch" className="[@media(hover:hover)]:hidden">
+                    <span key="touch" className="[@media(any-pointer:fine)]:hidden">
                       Capture to save · tap outside to close
                     </span>,
                   ])}

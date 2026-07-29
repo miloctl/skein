@@ -48,7 +48,12 @@ function MenuPanel({
     <div
       ref={ref}
       data-menu
+      role="group"
       aria-label={label}
+      onBlur={(e) => {
+        // Tab-out closes: pointerdown/Escape alone left it floating
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) onClose();
+      }}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -314,6 +319,11 @@ export function ChatSidebar({
   };
 
   const groups = ["", ...folders];
+  const asideRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    // a panel over the page must take focus, or Tab walks the page behind it
+    if (mobileOpen) asideRef.current?.querySelector("button")?.focus();
+  }, [mobileOpen]);
 
   if (collapsed && !mobileOpen) {
     return (
@@ -331,6 +341,14 @@ export function ChatSidebar({
 
   return (
     <aside
+      id="chat-list"
+      {...(mobileOpen
+        ? { role: "dialog" as const, "aria-modal": true, "aria-label": "Chats" }
+        : {})}
+      ref={asideRef}
+      onKeyDown={(e) => {
+        if (mobileOpen && e.key === "Escape") onMobileClose?.();
+      }}
       onDragOver={(e) => {
         e.preventDefault();
         setDropTarget("");
@@ -339,7 +357,7 @@ export function ChatSidebar({
       onDragLeave={() => setDropTarget(null)}
       className={
         (mobileOpen
-          ? "fixed bottom-0 left-0 top-[calc(6.25rem+var(--selvage-h,2px))] z-30 flex w-72 bg-page shadow-float "
+          ? "fixed bottom-0 left-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-30 flex w-72 bg-page shadow-float "
           : "hidden ") +
         "shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:w-64 md:bg-transparent md:shadow-none " +
         (dropTarget === "" ? "border-thread-solid bg-thread/5" : "border-line")
@@ -495,7 +513,7 @@ export function ChatSidebar({
                   checked={selFolders.has(folder)}
                   onChange={() => setSelFolders(toggleSet(selFolders, folder))}
                   aria-label={`Select folder ${folder}`}
-                  className="h-3 w-3 p-1.5"
+                  className="h-4 w-4 p-1"
                 />
               )}
               <span
@@ -573,12 +591,12 @@ export function ChatSidebar({
                       aria-label={`More actions for ${t.title}`}
                       aria-expanded={menu?.kind === "thread" && menu.id === t.id}
                       className={
-                        "absolute right-1 top-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-sm text-ink-3 hover:bg-line group-focus-within:block group-hover:block " +
+                        "absolute right-1 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-sm text-ink-3 hover:bg-line group-focus-within:block group-hover:block " +
                         ((menu?.kind !== "sidebar" &&
                           menu?.id === t.id) ||
                         t.id === threadId
                           ? "block"
-                          : "hidden [@media(hover:none)]:block")
+                          : "hidden [@media(any-pointer:coarse)]:block")
                       }
                     >
                       ⋯

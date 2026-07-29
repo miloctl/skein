@@ -37,7 +37,7 @@ export function ManageToggle() {
         "rounded-full px-3 py-1 text-[13px] transition-colors " +
         (on
           ? "bg-weld/15 font-medium text-weld"
-          : "bg-raised text-ink-3 hover:bg-line hover:text-ink-2")
+          : "bg-raised text-ink-2 hover:bg-line hover:text-ink-2")
       }
     >
       {on ? "manager controls on" : "manager controls"}

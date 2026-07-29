@@ -349,28 +349,35 @@ export default function Dashboard() {
   // failed refresh keeps the data on screen with a banner (My Day idiom)
   if (error && Object.keys(data).length === 0) {
     return (
-      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
+      <main
+        id="content"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
+      >
+        <SectionTabs set="work" />
+        <p className="text-sm text-danger">
         Could not reach the backend at {API_URL} — is it running? ({error})
         <button onClick={load} className="ml-2 underline">
           retry
         </button>
+        </p>
       </main>
     );
   }
 
   if (Object.keys(data).length === 0)
     return (
-      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Browse
         </h1>
-        <p className="text-sm text-ink-3">{loadingLine()}</p>
+        <p className="mb-6 text-sm text-ink-3">{loadingLine()}</p>
       </main>
     );
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Browse</h1>
       <p className="mb-6 text-sm text-ink-3">
@@ -494,7 +501,7 @@ export default function Dashboard() {
                 onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
               >
                 <span className="text-ink-3">How did it end?</span>
-                <span className="w-full text-[11px] text-ink-3 [@media(hover:hover)]:hidden">
+                <span className="w-full text-[11px] text-ink-3">
                   invalidated = disproved on time (a win) · unmeasured = closed
                   without measuring
                 </span>

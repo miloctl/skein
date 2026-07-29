@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from . import config, db
@@ -89,6 +90,10 @@ async def bearer_auth(request: Request, call_next):
     return await call_next(request)
 
 
+# JSON payloads compress ~77%; added before CORS so CORS stays outermost
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
 # added AFTER bearer_auth so CORS is the OUTERMOST layer — a 401 short-circuit
 # must still carry Access-Control-Allow-Origin, or the browser reports an
 # opaque CORS failure instead of a readable auth error
@@ -97,6 +102,9 @@ app.add_middleware(
     allow_origins=config.CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+    # X-User/X-Client make every call non-simple, so each one preflights;
+    # a 10-minute cache meant a phone re-preflighted constantly
+    max_age=7200,
 )
 
 
