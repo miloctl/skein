@@ -1,11 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { RuntimeProvider } from "../runtime-provider";
 import { ChatSidebar } from "@/components/chat-sidebar";
+import { ThreadTitle } from "@/components/thread-title";
 import { Thread } from "@/components/thread";
 import { setActivePersona } from "@/lib/persona";
+import {
+  getSidebarCollapsed,
+  serverSidebarCollapsed,
+  subscribeChatLayout,
+  toggleSidebar,
+} from "@/lib/chat-layout";
 
 const LAST_KEY = "skein-last-chat";
 
@@ -46,6 +53,11 @@ export default function ChatPage() {
     document.getElementById(`chat-${id}`)?.scrollIntoView({ block: "nearest" });
   };
 
+  const collapsed = useSyncExternalStore(
+    subscribeChatLayout,
+    getSidebarCollapsed,
+    serverSidebarCollapsed,
+  );
   const [mobileChats, setMobileChats] = useState(false);
   const chatsBtnRef = useRef<HTMLButtonElement>(null);
   const closeChats = useCallback(() => {
@@ -67,20 +79,21 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-var(--nav-h)-var(--selvage-h,2px))] w-full max-w-6xl">
+    <div className="flex h-[calc(100dvh-var(--nav-h)-var(--selvage-h,2px))] w-full">
       <ChatSidebar
-        mobileOpen={mobileChats}
-        onMobileClose={closeChats}
-        threadId={threadId}
-        onOpen={(id) => {
-          setMobileChats(false);
-          open(id);
-        }}
-        onNew={() => {
-          setMobileChats(false);
-          startNew();
-        }}
-      />
+          collapsed={collapsed}
+          mobileOpen={mobileChats}
+          onMobileClose={closeChats}
+          threadId={threadId}
+          onOpen={(id) => {
+            setMobileChats(false);
+            open(id);
+          }}
+          onNew={() => {
+            setMobileChats(false);
+            startNew();
+          }}
+        />
       {mobileChats && (
         <button
           aria-label="Close chat list"
@@ -88,17 +101,34 @@ export default function ChatPage() {
           className="fixed inset-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-20 bg-black/30 md:hidden"
         />
       )}
-      <main id="content" tabIndex={-1} className="mx-auto flex h-full w-full max-w-3xl flex-col">
-        <h1 className="sr-only">Chat</h1>
-        <button
-          ref={chatsBtnRef}
-          onClick={() => setMobileChats(true)}
-          aria-expanded={mobileChats}
-          aria-controls="chat-list"
-          className="mx-4 mt-2 self-start rounded-lg border border-line-strong bg-raised px-2.5 py-1.5 text-xs text-ink-2 hover:bg-line md:hidden"
-        >
-          <span aria-hidden>☰</span> Chats
-        </button>
+      <main
+        id="content"
+        tabIndex={-1}
+        className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      >
+        {/* one header bar, one control per breakpoint — the toggle lives
+            OUTSIDE the sidebar, so it never has to teleport when it hides */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2 sm:px-4">
+          <button
+            ref={chatsBtnRef}
+            onClick={() => setMobileChats(true)}
+            aria-expanded={mobileChats}
+            aria-controls="chat-list"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-raised px-2.5 py-1.5 text-xs text-ink-2 hover:bg-line hover:text-ink md:hidden"
+          >
+            <span aria-hidden>☰</span> Chats
+          </button>
+          <button
+            onClick={toggleSidebar}
+            aria-expanded={!collapsed}
+            aria-controls="chat-list"
+            title={collapsed ? "Show chat list" : "Hide chat list"}
+            className="hidden min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-raised px-2.5 py-1.5 text-xs text-ink-2 hover:bg-line hover:text-ink md:flex"
+          >
+            <span aria-hidden>☰</span> Chats
+          </button>
+          <ThreadTitle threadId={threadId} />
+        </div>
         <RuntimeProvider key={threadId} threadId={threadId}>
           <Thread />
         </RuntimeProvider>

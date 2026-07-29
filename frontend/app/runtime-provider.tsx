@@ -71,6 +71,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         }
         if (event.type === "text") acc += event.text;
         else if (event.type === "tool") acc += `\n\n*🔧 ${event.name}…*\n\n`;
+        else if (event.type === "receipt") acc += receiptLine(event);
         else if (event.type === "error") acc += `\n\n> ⚠️ ${event.message}\n`;
         else return null;
         return acc;
@@ -141,6 +142,29 @@ function ThreadHydrator({
   if (!ready)
     return <p className="p-8 text-sm text-ink-3">Unrolling the transcript…</p>;
   return <>{children}</>;
+}
+
+/** A write receipt states what actually happened to your data — the gate
+ *  reports it, so it is a fact rather than something the model claimed. */
+function receiptLine(e: {
+  kind: string;
+  entity: string;
+  detail: string;
+  ref: number;
+}): string {
+  const ref = e.ref ? ` #${e.ref}` : "";
+  const head =
+    e.kind === "queued"
+      ? `🕓 **Queued for review** — ${e.entity}${ref} needs a human verdict`
+      : e.kind === "wrote"
+        ? `✅ **Wrote ${e.entity}${ref}**`
+        : e.kind === "refused"
+          ? `⛔ **Refused** — ${e.entity} is forbidden for this agent`
+          : `⚠️ **Not written** — ${e.entity}`;
+  const tail = e.detail ? `: ${e.detail}` : "";
+  const link =
+    e.kind === "queued" && e.ref ? ` · [open in Inbox](/review)` : "";
+  return `\n\n> ${head}${tail}${link}\n\n`;
 }
 
 export function RuntimeProvider({
