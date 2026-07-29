@@ -248,8 +248,8 @@ const Composer = () => {
 
 export function Thread() {
   return (
-    <ThreadPrimitive.Root className="flex h-full flex-col">
-      <ThreadPrimitive.Viewport className="flex flex-1 flex-col overflow-y-auto px-4 pt-4">
+    <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
+      <ThreadPrimitive.Viewport className="flex flex-1 flex-col overflow-y-auto px-4 pt-4 lg:px-8">
         <ThreadPrimitive.Empty>
           <div className="mx-auto flex max-w-lg flex-1 flex-col items-center justify-center pb-24 text-center">
             <div className="loom-idle mb-6 w-40" aria-hidden />
@@ -282,11 +282,18 @@ export function Thread() {
             </p>
           </div>
         </ThreadPrimitive.Empty>
-        <ThreadPrimitive.Messages
-          components={{ UserMessage, AssistantMessage }}
-        />
+        {/* the reading column lives INSIDE the scroller: the scrollbar and the
+            composer gradient stay at the pane edge, and toggling the sidebar
+            can't slide the conversation sideways */}
+        <div className="mx-auto w-full max-w-3xl">
+          <ThreadPrimitive.Messages
+            components={{ UserMessage, AssistantMessage }}
+          />
+        </div>
         <ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto bg-gradient-to-t from-page via-page to-transparent pb-4 pt-2">
-          <Composer />
+          <div className="mx-auto w-full max-w-3xl">
+            <Composer />
+          </div>
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>

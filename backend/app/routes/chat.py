@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import ratelimit
-from ..agents import commands
+from ..agents import commands, receipts
 from ..agents.identity import (
     reset_agent_identity,
     reset_requester_identity,
@@ -85,6 +85,19 @@ def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
 @router.delete("/api/chats/{thread_id}")
 def delete_chat(thread_id: str, user: CurrentUser):
     return chat_threads.delete_thread(thread_id, user)
+
+
+def _receipt_line(r: dict) -> str:
+    """How a receipt reads in the stored transcript (the live stream renders
+    its own chip, but history must say the same thing)."""
+    ref = f" #{r['ref']}" if r.get("ref") else ""
+    label = {
+        "queued": f"queued for review: {r['entity']}{ref}",
+        "wrote": f"wrote {r['entity']}{ref}",
+        "refused": f"refused: {r['entity']}",
+        "failed": f"not written: {r['entity']}",
+    }.get(r["kind"], r["kind"])
+    return f"\n\n> **{label}** — {r['detail']}\n\n"
 
 
 def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
@@ -183,6 +196,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
             # user turn first, assistant turn in finally: a cancelled stream
             # (stop button, tab close, thread switch) must not lose history
             _log_turn(ui_thread, user, "user", message)
+            receipts.start()
             parts: list[str] = []
             try:
                 async for event in command_events:
@@ -193,6 +207,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         name = event["current_tool_use"].get("name", "")
                         parts.append(f"\n\n*🔧 {name}…*\n\n")
                         yield _sse({"type": "tool", "name": name})
+                    for r in receipts.drain():
+                        parts.append(_receipt_line(r))
+                        yield _sse({"type": "receipt", **r})
             except Exception as exc:
                 logging.getLogger("strands.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
@@ -245,6 +262,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         req_token = set_requester_identity(user if persona else "")
         if masthead:
             yield _sse({"type": "text", "text": masthead})
+        receipts.start()
         try:
             async for event in agent.stream_async(message):
                 if "data" in event:
@@ -258,6 +276,15 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         name = tool_use.get("name", "")
                         transcript.append(f"\n\n*🔧 {name}…*\n\n")
                         yield _sse({"type": "tool", "name": name})
+                # a write's outcome is a FACT the UI states, not a claim the
+                # model makes — drained as it happens, so it lands with the
+                # tool call that caused it
+                for r in receipts.drain():
+                    transcript.append(_receipt_line(r))
+                    yield _sse({"type": "receipt", **r})
+            for r in receipts.drain():
+                transcript.append(_receipt_line(r))
+                yield _sse({"type": "receipt", **r})
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("strands.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user

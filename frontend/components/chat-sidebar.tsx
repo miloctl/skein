@@ -5,7 +5,6 @@ import {
   useEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -26,8 +25,6 @@ type Menu =
   | { kind: "sidebar" }
   | { kind: "thread" | "move" | "rename"; id: string }
   | null;
-
-const COLLAPSE_KEY = "skein-chat-sidebar-collapsed";
 
 /** Floating disclosure panel: focuses its first control, closes on Escape.
  *  Deliberately NOT role="menu" — plain buttons with Tab-through. */
@@ -92,12 +89,14 @@ function MenuItem({
 }
 
 export function ChatSidebar({
+  collapsed = false,
   mobileOpen = false,
   onMobileClose,
   threadId,
   onOpen,
   onNew,
 }: {
+  collapsed?: boolean;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
   threadId: string;
@@ -116,31 +115,6 @@ export function ChatSidebar({
   const [loadError, setLoadError] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [confirmingBulk, setConfirmingBulk] = useState(false);
-  const expandRail = useRef<HTMLButtonElement>(null);
-
-  const collapsed = useSyncExternalStore(
-    (cb) => {
-      window.addEventListener("storage", cb);
-      return () => window.removeEventListener("storage", cb);
-    },
-    () => {
-      try {
-        return localStorage.getItem(COLLAPSE_KEY) === "1";
-      } catch {
-        return false;
-      }
-    },
-    () => false,
-  );
-
-  const toggleCollapsed = () => {
-    try {
-      if (collapsed) localStorage.removeItem(COLLAPSE_KEY);
-      else localStorage.setItem(COLLAPSE_KEY, "1");
-    } catch {}
-    window.dispatchEvent(new Event("storage"));
-    if (!collapsed) setTimeout(() => expandRail.current?.focus(), 0);
-  };
 
   const load = useCallback(() => {
     api<ChatThread[]>("/api/chats")
@@ -325,20 +299,6 @@ export function ChatSidebar({
     if (mobileOpen) asideRef.current?.querySelector("button")?.focus();
   }, [mobileOpen]);
 
-  if (collapsed && !mobileOpen) {
-    return (
-      <button
-        ref={expandRail}
-        onClick={toggleCollapsed}
-        title="Show chats"
-        aria-label="Show chat sidebar"
-        className="hidden h-full w-6 shrink-0 border-r border-line text-xs text-ink-3 hover:bg-raised hover:text-ink md:block"
-      >
-        »
-      </button>
-    );
-  }
-
   return (
     <aside
       id="chat-list"
@@ -359,7 +319,11 @@ export function ChatSidebar({
         (mobileOpen
           ? "fixed bottom-0 left-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-30 flex w-72 bg-page shadow-float "
           : "hidden ") +
-        "shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:w-64 md:bg-transparent md:shadow-none " +
+        "shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:bg-transparent md:shadow-none " +
+        "transition-[width,padding] duration-200 motion-reduce:transition-none " +
+        (collapsed && !mobileOpen
+          ? "md:invisible md:w-0 md:border-r-0 md:p-0 "
+          : "md:visible md:w-64 ") +
         (dropTarget === "" ? "border-thread-solid bg-thread/5" : "border-line")
       }
     >
@@ -428,14 +392,6 @@ export function ChatSidebar({
               className="rounded-lg border border-line-strong px-2.5 py-1.5 text-sm text-ink-2 hover:bg-raised"
             >
               ⋯
-            </button>
-            <button
-              onClick={() => (mobileOpen ? onMobileClose?.() : toggleCollapsed())}
-              title={mobileOpen ? "Close chat list" : "Collapse sidebar"}
-              aria-label={mobileOpen ? "Close chat list" : "Collapse sidebar"}
-              className="rounded-lg border border-line-strong px-2 py-1.5 text-sm text-ink-2 hover:bg-raised"
-            >
-              «
             </button>
           </div>
           {menu?.kind === "sidebar" && (

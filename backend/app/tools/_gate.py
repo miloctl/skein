@@ -9,6 +9,7 @@ approved proposals, they don't start with it."""
 import json
 
 from .. import config, ratelimit
+from ..agents import receipts
 from ..agents.identity import agent_identity, requester_identity
 from ..services import review
 from ..services.delegation import authority_level
@@ -46,6 +47,7 @@ def gated_write(
         return json.dumps({"error": str(exc)})
     level = authority_level(actor, entity)
     if level == "forbidden":
+        receipts.record("refused", entity, f"{actor} is forbidden on {entity}")
         return json.dumps(
             {"error": f"writes to {entity} are forbidden for '{actor}' by the authority matrix"}
         )
@@ -55,7 +57,11 @@ def gated_write(
         try:
             result = direct()
         except ValueError as exc:
+            receipts.record("failed", entity, str(exc))
             return json.dumps({"error": str(exc)})
+        receipts.record(
+            "wrote", entity, summary or f"{action} {entity}", int(result.get("id") or 0)
+        )
         if level == "notify":
             from ..services.notifications import notify
 
@@ -78,5 +84,7 @@ def gated_write(
             requested_by=requester_identity(),
         )
     except ValueError as exc:
+        receipts.record("failed", entity, str(exc))
         return json.dumps({"error": str(exc)})
+    receipts.record("queued", entity, summary or f"{action} {entity}", int(result.get("id") or 0))
     return json.dumps({**result, "note": "queued for human review"})

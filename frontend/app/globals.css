@@ -322,6 +322,15 @@
   }
 }
 
+/* the collapse preference is stamped pre-paint (layout.tsx) so a collapsed
+   sidebar never flashes open before React hydrates */
+html[data-chat-sidebar="collapsed"] #chat-list:not([role="dialog"]) {
+  visibility: hidden;
+  width: 0;
+  padding: 0;
+  border-right-width: 0;
+}
+
 html {
   /* short pages (no scrollbar) must not sit a gutter-width right of long
      ones — reserve the space so page-to-page nav never shifts content */
