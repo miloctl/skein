@@ -309,6 +309,19 @@
   border-radius: var(--r-sm, 0.25rem);
 }
 
+:root {
+  /* the sticky header's height, published once: chat sizing and the mobile
+     drawer offset both derive from it, and nav.tsx pins the rows to it so a
+     long display name can't silently wrap into a third row */
+  --nav-h: 6.25rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --nav-h: 3.5rem;
+  }
+}
+
 html {
   /* short pages (no scrollbar) must not sit a gutter-width right of long
      ones — reserve the space so page-to-page nav never shifts content */
@@ -320,8 +333,10 @@ html {
 @media (pointer: coarse) {
   input,
   textarea,
-  select {
-    font-size: 16px;
+  select,
+  [contenteditable] {
+    /* a floor, not a clamp: deliberate larger sizes still win */
+    font-size: max(16px, 1em);
   }
 }
 

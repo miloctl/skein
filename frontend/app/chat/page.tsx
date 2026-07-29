@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { RuntimeProvider } from "../runtime-provider";
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -47,6 +47,11 @@ export default function ChatPage() {
   };
 
   const [mobileChats, setMobileChats] = useState(false);
+  const chatsBtnRef = useRef<HTMLButtonElement>(null);
+  const closeChats = useCallback(() => {
+    setMobileChats(false);
+    setTimeout(() => chatsBtnRef.current?.focus(), 0);
+  }, []);
   useEffect(() => {
     // crossing to >=md must drop the drawer state — it would force-open a
     // deliberately-collapsed desktop sidebar (and re-present on rotate back)
@@ -62,10 +67,10 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-6.25rem-var(--selvage-h,2px))] w-full max-w-6xl md:h-[calc(100dvh-3.5rem-var(--selvage-h,2px))]">
+    <div className="mx-auto flex h-[calc(100dvh-var(--nav-h)-var(--selvage-h,2px))] w-full max-w-6xl">
       <ChatSidebar
         mobileOpen={mobileChats}
-        onMobileClose={() => setMobileChats(false)}
+        onMobileClose={closeChats}
         threadId={threadId}
         onOpen={(id) => {
           setMobileChats(false);
@@ -79,16 +84,20 @@ export default function ChatPage() {
       {mobileChats && (
         <button
           aria-label="Close chat list"
-          onClick={() => setMobileChats(false)}
-          className="fixed inset-0 top-[calc(6.25rem+var(--selvage-h,2px))] z-20 bg-black/30 md:hidden"
+          onClick={closeChats}
+          className="fixed inset-0 top-[calc(var(--nav-h)+var(--selvage-h,2px))] z-20 bg-black/30 md:hidden"
         />
       )}
-      <main className="mx-auto flex h-full w-full max-w-3xl flex-col">
+      <main id="content" tabIndex={-1} className="mx-auto flex h-full w-full max-w-3xl flex-col">
+        <h1 className="sr-only">Chat</h1>
         <button
+          ref={chatsBtnRef}
           onClick={() => setMobileChats(true)}
+          aria-expanded={mobileChats}
+          aria-controls="chat-list"
           className="mx-4 mt-2 self-start rounded-lg border border-line-strong bg-raised px-2.5 py-1.5 text-xs text-ink-2 hover:bg-line md:hidden"
         >
-          ☰ Chats
+          <span aria-hidden>☰</span> Chats
         </button>
         <RuntimeProvider key={threadId} threadId={threadId}>
           <Thread />

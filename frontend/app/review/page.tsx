@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { api, getUser, subscribeUser } from "@/lib/api";
+import { EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
@@ -124,15 +125,15 @@ export default function ReviewPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="inbox" />
+      <div className="max-w-3xl">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
       <p className="mb-6 text-sm text-ink-3">
         Proposed changes from agents (and cautious humans). Approving applies
         the change and records that a human verified it.
       </p>
       {/* reading column: cards cap at 3xl inside the standard page shell */}
-      <div className="max-w-3xl">
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {selected.size > 0 && (
@@ -154,13 +155,13 @@ export default function ReviewPage() {
       )}
 
       {changes.length === 0 && !error && (
-        <p className="rounded-xl border border-dashed border-line-strong p-8 text-center text-sm text-ink-3">
+        <EmptyState>
           {emptyState("review")}
           <span className="mt-1 block text-xs">
             When agents (or careful humans) propose changes, they wait here
             for a person to approve them.
           </span>
-        </p>
+        </EmptyState>
       )}
 
       <ul className="space-y-4">

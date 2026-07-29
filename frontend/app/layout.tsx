@@ -67,6 +67,13 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeSync />
+        {/* 9 header stops precede every page — a keyboard user needs a bypass */}
+        <a
+          href="#content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:border focus:border-line-strong focus:bg-card focus:px-3 focus:py-2 focus:text-sm"
+        >
+          Skip to content
+        </a>
         <Nav />
         <CapturePalette />
         {children}

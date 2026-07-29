@@ -119,18 +119,18 @@ export default function IntakePage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <div className="flex items-start justify-between">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <SectionTabs set="inbox" />
         <ManageToggle />
       </div>
+      <div className="max-w-3xl">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Requests</h1>
       <p className="mb-6 text-sm text-ink-3">
         The team&apos;s front door: ask here instead of a DM. Whoever triages
         scores each request and answers with a reason you can see. Accepting
         one starts an engagement.
       </p>
-      <div className="max-w-3xl">
 
       <div className="mb-8 rounded-xl border border-line bg-card p-4 shadow-card">
         <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">

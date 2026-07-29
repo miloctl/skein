@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
+import { Card as Section } from "@/components/card";
 import {
   APPEARANCES,
   applyThemeCode,
@@ -28,16 +29,6 @@ function subscribeStorage(cb: () => void) {
 
 type WhoAmI = { user: string; strong: boolean; keys_minted: number };
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 function CopyLine({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -307,8 +298,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:p-6">
-      <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Settings</h1>
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-3xl p-4 sm:p-6">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Settings</h1>
       <p className="text-sm text-ink-3">
         Everything you need to set up lives here — nothing requires reading
         the docs first.

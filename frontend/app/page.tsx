@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api, getUser, setUser } from "@/lib/api";
 import { StandupComposer } from "@/components/standup-card";
 import { emptyState, loadingLine } from "@/lib/whimsy";
+import { Card } from "@/components/card";
 
 type Row = Record<string, string | number | null>;
 
@@ -39,16 +40,6 @@ type Briefing = {
   };
 };
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 type Onboarding = {
   steps: {
@@ -77,8 +68,8 @@ function WhoAreYou() {
     window.location.reload();
   };
   return (
-    <main className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col justify-center p-6">
-      <h1 className="mb-1 font-display text-[28px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+    <main id="content" tabIndex={-1} className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col justify-center p-6">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Who are you?
       </h1>
       <p className="mb-5 text-sm text-ink-3">
@@ -251,13 +242,22 @@ export default function MyDay() {
 
   if (error && !b)
     return (
-      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
+      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
         Could not reach the backend — is it running? ({error})
       </main>
     );
   if (!b)
     return (
-      <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-ink-3">{loadingLine()}</main>
+      <main
+        id="content"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
+      >
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          My Day
+        </h1>
+        <p className="mb-6 text-sm text-ink-3">{loadingLine()}</p>
+      </main>
     );
   if (b.user === "anonymous") return <WhoAreYou />;
 
@@ -277,13 +277,17 @@ export default function MyDay() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto flex w-full max-w-5xl flex-col p-4 sm:p-6 xl:max-w-6xl"
+    >
       {error && (
         <p className="mb-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
           Last refresh failed ({error}) — showing the previous state.
         </p>
       )}
-      <h1 className="mb-1 font-display text-[28px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
         Good day, {b.user === "anonymous" ? "there" : b.user}{" "}
         <span className={waveOnce ? "wave-once" : ""}>👋</span>
       </h1>
@@ -295,7 +299,7 @@ export default function MyDay() {
       </p>
 
       {onboarding && !onboarding.complete && (
-        <div className="mb-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card">
+        <div className="order-last mb-4 mt-4 rounded-xl border border-thread-solid/25 bg-card p-4 text-sm shadow-card md:order-none md:mt-0">
           {(() => {
             // personal steps drive the checklist; team facts are a separate
             // strip — a new teammate is never handed team-level workflows
@@ -393,7 +397,7 @@ export default function MyDay() {
       )}
 
       {b.team.recently_shipped.length > 0 && (
-        <div className="mb-4 rounded-xl border border-ok/30 bg-ok/10 p-4 text-sm font-medium text-ok">
+        <div className="order-last mb-4 mt-4 rounded-xl border border-ok/30 bg-ok/10 p-4 text-sm font-medium text-ok md:order-none md:mt-0">
           🚢 Shipped:{" "}
           {b.team.recently_shipped.map((e) => e.name).join(" · ")} — recap in
           the knowledge base. Nice work, team.
@@ -508,7 +512,7 @@ export default function MyDay() {
             {b.your_work.tasks.length === 0 && (
               <li className="text-ink-3">
                 No tasks assigned to you — use quick capture
-                <span className="[@media(hover:none)]:hidden"> (⌘K)</span> and
+                <span className="[@media(any-pointer:coarse)]:hidden"> (⌘K)</span> and
                 type &lsquo;todo: …&rsquo;.
               </li>
             )}

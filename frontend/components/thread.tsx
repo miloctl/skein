@@ -169,6 +169,7 @@ const Composer = () => {
     <div className="relative" onKeyDownCapture={onKeyDownCapture}>
       {open && (
         <div
+          id="cmd-list"
           role="listbox"
           aria-label="Commands"
           className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-float"
@@ -179,6 +180,7 @@ const Composer = () => {
           {matches.map((c, i) => (
             <button
               key={c.name}
+              id={`cmd-${i}`}
               role="option"
               aria-selected={i === sel}
               onMouseEnter={() => setSel(i)}
@@ -210,7 +212,7 @@ const Composer = () => {
             <button
               onClick={() => setActivePersona(null)}
               aria-label={`Leave ${activePersona.name} mode`}
-              className="rounded-full px-1 leading-none hover:bg-thread/20"
+              className="flex min-h-6 min-w-6 items-center justify-center rounded-full leading-none hover:bg-thread/20"
             >
               ×
             </button>
@@ -223,6 +225,10 @@ const Composer = () => {
       )}
       <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
         <ComposerPrimitive.Input
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="cmd-list"
+          aria-activedescendant={open ? `cmd-${sel}` : undefined}
           autoFocus
           placeholder={
             activePersona

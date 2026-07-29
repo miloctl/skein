@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
 
@@ -63,16 +64,6 @@ const LEVEL_COLOR: Record<string, string> = {
   forbidden: "bg-danger/15 text-danger",
 };
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 export default function Agents() {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
@@ -147,8 +138,8 @@ export default function Agents() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <div className="flex items-start justify-between">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <SectionTabs set="team" />
         <ManageToggle />
       </div>
@@ -322,6 +313,7 @@ export default function Agents() {
               onChange={(e) => setTargetAgent(e.target.value)}
               list="agent-names"
               name="authority-agent"
+              aria-label="Agent name"
               className="w-28 rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
               placeholder="agent name"
             />
@@ -333,6 +325,7 @@ export default function Agents() {
             </datalist>
             <select
               value={entity}
+              aria-label="Entity"
               onChange={(e) => setEntity(e.target.value)}
               className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
             >
@@ -342,6 +335,7 @@ export default function Agents() {
             </select>
             <select
               value={level}
+              aria-label="Authority level"
               onChange={(e) => setLevel(e.target.value)}
               className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
             >

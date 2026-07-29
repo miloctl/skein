@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 
 import { api, getApiKey } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
+import { Card, EmptyState } from "@/components/card";
 
 type Note = {
   id: number;
@@ -96,7 +97,7 @@ export default function PeoplePage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">1:1s</h1>
       <p className="mb-6 text-sm text-ink-3">
@@ -162,11 +163,8 @@ export default function PeoplePage() {
       {error && <p className="mb-4 text-sm text-danger">{error}</p>}
 
       {person && (
-        <div className="grid gap-6 md:grid-cols-2">
-          <section>
-            <h2 className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-              Since last time
-            </h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Card title="Since last time">
             {brief === null ? (
               <p className="text-sm text-ink-3">no brief available</p>
             ) : (
@@ -202,12 +200,9 @@ export default function PeoplePage() {
                 />
               </div>
             )}
-          </section>
+          </Card>
 
-          <section>
-            <h2 className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-              Your private notes
-            </h2>
+          <Card title="Your private notes">
             <div className="mb-3 flex gap-2">
               <select
                 aria-label="Note type"
@@ -237,7 +232,7 @@ export default function PeoplePage() {
               {notes.map((n) => (
                 <li
                   key={n.id}
-                  className="rounded-xl border border-line bg-card p-3 text-sm shadow-card"
+                  className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
                 >
                   <span className="mr-2 text-xs text-ink-3">
                     {n.kind === "feedback" ? "💬" : "📝"} {n.created_at.slice(0, 10)}
@@ -246,13 +241,13 @@ export default function PeoplePage() {
                 </li>
               ))}
               {notes.length === 0 && (
-                <li className="rounded-xl border border-dashed border-line-strong p-6 text-center text-sm text-ink-3">
+                <li><EmptyState>
                   No notes for {person} yet. <code>fb: {person} — …</code> in
                   quick capture works too.
-                </li>
+                </EmptyState></li>
               )}
             </ul>
-          </section>
+          </Card>
         </div>
       )}
     </main>

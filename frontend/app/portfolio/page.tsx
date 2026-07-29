@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 
 type Health = {
@@ -61,16 +62,6 @@ type Commitment = {
 
 const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 export default function Portfolio() {
   const [health, setHealth] = useState<Health[] | null>(null);
@@ -118,8 +109,8 @@ export default function Portfolio() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
-      <div className="flex items-start justify-between">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <SectionTabs set="work" />
         <ManageToggle />
       </div>
@@ -262,7 +253,11 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Flow — cycle time from real task history">
-        {flow && (
+        {flow === null ? (
+        <Card title="Flow — cycle time from real task history">
+          <p className="text-sm text-ink-3">Loading…</p>
+        </Card>
+      ) : (
           <div className="space-y-2 text-sm">
             <p>
               {flow.cycle_time.tasks_done} tasks done in 8 weeks
@@ -295,7 +290,11 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Slip forecast">
-        {forecast && (
+        {forecast === null ? (
+        <Card title="Slip forecast">
+          <p className="text-sm text-ink-3">Loading…</p>
+        </Card>
+      ) : (
           <>
             <p className="mb-2 text-xs text-ink-3">
               Based on {forecast.basis.milestones_measured} completed milestone(s), avg slip{" "}

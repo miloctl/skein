@@ -56,8 +56,9 @@ export default function IngestPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="inbox" />
+      <div className="max-w-3xl">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
       <p className="mb-6 text-sm text-ink-3">
         Lines that start with a prefix (todo:, q:, decision:, blocked on …,
@@ -159,6 +160,7 @@ export default function IngestPage() {
           )}
         </div>
       )}
+      </div>
     </main>
   );
 }
