@@ -127,9 +127,8 @@ export default function ReviewPage() {
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="inbox" />
-      <div className="max-w-3xl">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Proposed changes from agents (and cautious humans). Approving applies
         the change and records that a human verified it.
       </p>
@@ -323,7 +322,6 @@ export default function ReviewPage() {
           </ul>
         </>
       )}
-      </div>
     </main>
   );
 }

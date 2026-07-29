@@ -298,7 +298,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-3xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Settings</h1>
       <p className="text-sm text-ink-3">
         Everything you need to set up lives here — nothing requires reading

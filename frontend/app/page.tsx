@@ -256,7 +256,7 @@ export default function MyDay() {
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           My Day
         </h1>
-        <p className="mb-6 text-sm text-ink-3">{loadingLine()}</p>
+        <p className="mb-6 max-w-3xl text-sm text-ink-3">{loadingLine()}</p>
       </main>
     );
   if (b.user === "anonymous") return <WhoAreYou />;
@@ -291,7 +291,7 @@ export default function MyDay() {
         Good day, {b.user === "anonymous" ? "there" : b.user}{" "}
         <span className={waveOnce ? "wave-once" : ""}>👋</span>
       </h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         {b.date} ·{" "}
         {needsCount === 0
           ? "nothing is waiting on you"

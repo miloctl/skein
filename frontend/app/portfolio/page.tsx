@@ -115,7 +115,7 @@ export default function Portfolio() {
         <ManageToggle />
       </div>
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Health</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Engagement health, this week&apos;s plan, flow, and forecasts — a receipt
         behind every verdict.
       </p>
