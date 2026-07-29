@@ -56,7 +56,7 @@ export default function IngestPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
       <p className="mb-6 text-sm text-ink-3">
@@ -93,8 +93,8 @@ export default function IngestPage() {
             </Link>
             {result.skipped_private > 0 && (
               <span className="ml-2 text-weld">
-                · {result.skipped_private} fb: line(s) skipped (private — use ⌘K
-                with your key)
+                · {result.skipped_private} fb: line(s) skipped (private — use
+                quick capture with your key)
               </span>
             )}
           </p>
