@@ -124,9 +124,8 @@ export default function IntakePage() {
         <SectionTabs set="inbox" />
         <ManageToggle />
       </div>
-      <div className="max-w-3xl">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Requests</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         The team&apos;s front door: ask here instead of a DM. Whoever triages
         scores each request and answers with a reason you can see. Accepting
         one starts an engagement.
@@ -393,7 +392,6 @@ export default function IntakePage() {
           </li>
         ))}
       </ul>
-      </div>
     </main>
   );
 }

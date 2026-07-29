@@ -372,7 +372,7 @@ export default function Dashboard() {
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Browse
         </h1>
-        <p className="mb-6 text-sm text-ink-3">{loadingLine()}</p>
+        <p className="mb-6 max-w-3xl text-sm text-ink-3">{loadingLine()}</p>
       </main>
     );
 
@@ -380,7 +380,7 @@ export default function Dashboard() {
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Browse</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything the team tracks — edit inline wherever you see it.
       </p>
       {error && (

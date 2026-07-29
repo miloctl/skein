@@ -100,7 +100,7 @@ export default function PeoplePage() {
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">1:1s</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Private 1:1 prep and feedback journal. Only you can read what you
         write here — it lives outside search, digests, packs, exports, and
         every agent surface.

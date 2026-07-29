@@ -154,7 +154,7 @@ export default function InsightsPage() {
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Insights
         </h1>
-        <p className="mb-6 text-sm text-ink-3">Reading the tea leaves…</p>
+        <p className="mb-6 max-w-3xl text-sm text-ink-3">Reading the tea leaves…</p>
       </main>
     );
 
@@ -165,7 +165,7 @@ export default function InsightsPage() {
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="work" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Insights</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything on this page measures the system — rules, jobs, funnels —
         never individual people.
       </p>

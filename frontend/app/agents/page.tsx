@@ -144,7 +144,7 @@ export default function Agents() {
         <ManageToggle />
       </div>
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Agents</h1>
-      <p className="mb-6 text-sm text-ink-3">
+      <p className="mb-6 max-w-3xl text-sm text-ink-3">
         The bench, mission control, authority, and trust — agents earn
         autonomy through review verdicts; humans hold every switch.
       </p>
