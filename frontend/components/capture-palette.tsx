@@ -139,7 +139,7 @@ export function CapturePalette() {
   const kind = text.trim() ? previewKind(text) : "";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-32"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-16 sm:pt-32"
       onClick={() => setOpen(false)}
     >
       <div
@@ -160,7 +160,7 @@ export function CapturePalette() {
               key={c.prefix}
               onClick={() => applyChip(c.prefix)}
               title={`Start with “${c.prefix}”`}
-              className="rounded-full bg-raised px-2 py-0.5 text-[11px] text-ink-2 hover:bg-line hover:text-ink"
+              className="rounded-full bg-raised px-2.5 py-1.5 text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-2 md:py-0.5"
             >
               {c.label}
             </button>
@@ -193,7 +193,15 @@ export function CapturePalette() {
                 ? kind.startsWith("⚠")
                   ? kind
                   : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
-                : "Enter to save · Esc to close")}
+                : [
+                    <span key="kbd" className="[@media(hover:none)]:hidden">
+                      Enter to save · Esc to close
+                    </span>,
+                    <span key="touch" className="[@media(hover:hover)]:hidden">
+                      Capture to save · tap outside to close
+                    </span>,
+                  ])}
+
           </span>
           <button
             onClick={submit}

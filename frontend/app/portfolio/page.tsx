@@ -358,7 +358,7 @@ export default function Portfolio() {
                               }),
                             )
                           }
-                          className="rounded bg-raised px-2 py-0.5 text-xs hover:bg-line disabled:opacity-50"
+                          className="rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs hover:bg-line disabled:opacity-50"
                         >
                           mark {s}
                         </button>

@@ -437,7 +437,7 @@ export default function MyDay() {
                             {a.kind === "blocker" && (
                               <button
                                 onClick={() => resolveBlocker(a.ref_id)}
-                                className="shrink-0 rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                                className="shrink-0 rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                               >
                                 resolve
                               </button>
@@ -455,7 +455,7 @@ export default function MyDay() {
                                   }
                                   load();
                                 }}
-                                className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                                className="shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
                               >
                                 dismiss
                               </button>
@@ -489,7 +489,7 @@ export default function MyDay() {
                   {t.status === "todo" && (
                     <button
                       onClick={() => patchTask(Number(t.id), "in_progress")}
-                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                      className="rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
                     >
                       start
                     </button>
@@ -497,7 +497,7 @@ export default function MyDay() {
                   {t.status !== "done" && (
                     <button
                       onClick={() => patchTask(Number(t.id), "done")}
-                      className="rounded bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                      className="rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
                     >
                       done
                     </button>

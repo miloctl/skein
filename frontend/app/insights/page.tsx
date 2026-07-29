@@ -153,8 +153,12 @@ export default function InsightsPage() {
     );
   if (!d)
     return (
-      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-ink-3">
-        Reading the tea leaves…
+      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <SectionTabs set="work" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Insights
+        </h1>
+        <p className="text-sm text-ink-3">Reading the tea leaves…</p>
       </main>
     );
 

@@ -190,7 +190,9 @@ export default function ReviewPage() {
               <span className="text-xs text-ink-3">
                 by {c.proposed_by}
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
-                {c.sponsor ? ` · sponsor ${c.sponsor}` : ""} ·{" "}
+                {c.sponsor
+                  ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually)" : ""}`
+                  : ""} ·{" "}
                 <time dateTime={c.created_at} title={c.created_at}>{timeAgo(c.created_at)}</time>
               </span>
             </div>
