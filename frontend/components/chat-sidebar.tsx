@@ -337,9 +337,9 @@ export function ChatSidebar({
       onDragLeave={() => setDropTarget(null)}
       className={
         (mobileOpen
-          ? "fixed bottom-0 left-0 top-[6.25rem] z-30 flex w-72 bg-page shadow-float "
+          ? "fixed bottom-0 left-0 top-[calc(6.25rem+var(--selvage-h,2px))] z-30 flex w-72 bg-page shadow-float "
           : "hidden ") +
-        "w-64 shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:w-64 md:bg-transparent md:shadow-none " +
+        "shrink-0 flex-col overflow-y-auto border-r p-3 md:static md:flex md:w-64 md:bg-transparent md:shadow-none " +
         (dropTarget === "" ? "border-thread-solid bg-thread/5" : "border-line")
       }
     >
@@ -576,7 +576,7 @@ export function ChatSidebar({
                           menu?.id === t.id) ||
                         t.id === threadId
                           ? "block"
-                          : "hidden")
+                          : "hidden [@media(hover:none)]:block")
                       }
                     >
                       ⋯

@@ -46,7 +46,7 @@ function NavLink({
       href={href}
       aria-current={active ? "page" : undefined}
       className={
-        "relative flex h-11 items-center whitespace-nowrap text-[13px] transition-colors md:h-14 " +
+        "relative flex h-10 items-center whitespace-nowrap text-[13px] transition-colors md:h-14 " +
         (active ? "font-medium text-ink" : "text-ink-2 hover:text-ink")
       }
     >
@@ -117,7 +117,7 @@ export function Nav() {
         </Link>
         <nav
           aria-label="Primary"
-          className="order-3 -mx-4 flex w-full items-center gap-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:order-none md:mx-0 md:ml-auto md:w-auto md:overflow-visible md:px-0"
+          className="order-3 -mx-4 flex w-full items-center gap-4 overflow-x-auto px-4 py-0.5 sm:-mx-6 sm:px-6 md:order-none md:mx-0 md:ml-auto md:w-auto md:overflow-visible md:px-0 md:py-0"
         >
           {GROUPS.map((group, gi) => (
             <div key={gi} className="flex items-center gap-3">
@@ -178,12 +178,16 @@ export function Nav() {
               >
                 {anonymous ? "?" : user[0]}
               </span>
-              {anonymous ? <span className="text-ink-3">anonymous</span> : user}
+              {anonymous ? (
+                <span className="text-ink-3">anonymous</span>
+              ) : (
+                <span className="max-w-[9rem] truncate">{user}</span>
+              )}
             </button>
           )}
           <Link
             href="/settings"
-            className="relative text-ink-3 hover:text-ink"
+            className="relative flex h-11 w-8 items-center justify-center text-ink-3 hover:text-ink md:h-auto md:w-auto"
             aria-label={
               hasKey ? "Settings — strong identity active" : "Settings"
             }
@@ -223,9 +227,10 @@ export function Nav() {
             }}
             aria-label="Quick capture"
             title="Quick capture (⌘K)"
-            className="rounded border border-line-strong bg-raised px-1.5 py-0.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink"
+            className="rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
           >
-            ⌘K
+            <span className="md:hidden">+ Capture</span>
+            <span className="hidden md:inline">⌘K</span>
           </button>
         </div>
       </div>

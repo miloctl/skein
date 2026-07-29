@@ -359,7 +359,15 @@ export default function Dashboard() {
   }
 
   if (Object.keys(data).length === 0)
-    return <main className="mx-auto w-full max-w-5xl p-4 sm:p-6 text-sm text-ink-3">{loadingLine()}</main>;
+    return (
+      <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <SectionTabs set="work" />
+        <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+          Browse
+        </h1>
+        <p className="text-sm text-ink-3">{loadingLine()}</p>
+      </main>
+    );
 
   return (
     <main className="mx-auto w-full max-w-5xl p-4 sm:p-6">
@@ -486,6 +494,10 @@ export default function Dashboard() {
                 onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
               >
                 <span className="text-ink-3">How did it end?</span>
+                <span className="w-full text-[11px] text-ink-3 [@media(hover:hover)]:hidden">
+                  invalidated = disproved on time (a win) · unmeasured = closed
+                  without measuring
+                </span>
                 {CONCLUSIONS.map((c, ci) => (
                   <button
                     key={c}
@@ -626,12 +638,12 @@ export default function Dashboard() {
                   </span>
                 </span>
                 {deletingAbsence === a.id ? (
-                  <span className="flex shrink-0 gap-1.5">
+                  <span className="flex shrink-0 gap-3 md:gap-1.5">
                     <button
                       autoFocus
                       aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on} for good`}
                       onClick={() => deleteAbsence(Number(a.id))}
-                      className="rounded bg-danger px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
+                      className="rounded bg-danger px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
                     >
                       remove for good
                     </button>
@@ -896,7 +908,7 @@ export default function Dashboard() {
                         autoFocus
                         aria-label={`Delete note ${n.topic} for good`}
                         onClick={() => deleteNote(Number(n.id))}
-                        className="rounded bg-danger px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
+                        className="rounded bg-danger px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
                       >
                         delete for good
                       </button>

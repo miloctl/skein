@@ -47,6 +47,14 @@ export default function ChatPage() {
   };
 
   const [mobileChats, setMobileChats] = useState(false);
+  useEffect(() => {
+    // crossing to >=md must drop the drawer state — it would force-open a
+    // deliberately-collapsed desktop sidebar (and re-present on rotate back)
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => mq.matches && setMobileChats(false);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const startNew = () => {
     setActivePersona(null);
@@ -54,7 +62,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-6.25rem)] w-full max-w-6xl md:h-[calc(100vh-3.5rem)]">
+    <div className="mx-auto flex h-[calc(100dvh-6.25rem-var(--selvage-h,2px))] w-full max-w-6xl md:h-[calc(100dvh-3.5rem-var(--selvage-h,2px))]">
       <ChatSidebar
         mobileOpen={mobileChats}
         threadId={threadId}
@@ -71,20 +79,20 @@ export default function ChatPage() {
         <button
           aria-label="Close chat list"
           onClick={() => setMobileChats(false)}
-          className="fixed inset-0 top-[6.25rem] z-20 bg-black/30 md:hidden"
+          className="fixed inset-0 top-[calc(6.25rem+var(--selvage-h,2px))] z-20 bg-black/30 md:hidden"
         />
       )}
-      <RuntimeProvider key={threadId} threadId={threadId}>
-        <main className="mx-auto flex h-full w-full max-w-3xl flex-col">
-          <button
-            onClick={() => setMobileChats(true)}
-            className="mx-4 mt-2 self-start rounded-lg border border-line-strong bg-raised px-2.5 py-1 text-xs text-ink-2 hover:bg-line md:hidden"
-          >
-            ☰ Chats
-          </button>
+      <main className="mx-auto flex h-full w-full max-w-3xl flex-col">
+        <button
+          onClick={() => setMobileChats(true)}
+          className="mx-4 mt-2 self-start rounded-lg border border-line-strong bg-raised px-2.5 py-1.5 text-xs text-ink-2 hover:bg-line md:hidden"
+        >
+          ☰ Chats
+        </button>
+        <RuntimeProvider key={threadId} threadId={threadId}>
           <Thread />
-        </main>
-      </RuntimeProvider>
+        </RuntimeProvider>
+      </main>
     </div>
   );
 }
