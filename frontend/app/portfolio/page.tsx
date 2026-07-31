@@ -260,7 +260,7 @@ export default function Portfolio() {
       ) : (
           <div className="space-y-2 text-sm">
             <p>
-              {flow.cycle_time.tasks_done} tasks done in 8 weeks
+              {flow.cycle_time.tasks_done} task{flow.cycle_time.tasks_done === 1 ? "" : "s"} done in 8 weeks
               {flow.cycle_time.tasks_done > 0 && (
                 <span className="text-xs text-ink-3">
                   {" "}

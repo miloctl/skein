@@ -305,6 +305,239 @@ export default function SettingsPage() {
         the docs first.
       </p>
 
+
+      <Section title="1 · Identity">
+        <p className="mb-2 text-sm text-ink-3">
+          Your name attributes everything you create (tasks, standups,
+          captures). It works on the honor system inside the team network —
+          fine for team-visible work, not enough for the private 1:1s page
+          or admin export (step 2 covers those).
+        </p>
+        <p className="mb-2 text-sm">
+          Current:{" "}
+          <span className="font-medium">
+            {currentUser === "anonymous" ? "not set" : currentUser}
+          </span>
+        </p>
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && saveName()}
+            aria-label="Your name"
+            placeholder={currentUser === "anonymous" ? "your name" : "change name"}
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+          />
+          <button
+            onClick={saveName}
+            disabled={!name.trim()}
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+      </Section>
+
+      <Section title="2 · Personal API key (private surfaces + CLI)">
+        <p className="mb-2 text-sm text-ink-3">
+          The 1:1s page (private prep, feedback journal) and admin export need a
+          key — a spoofable name isn&apos;t enough for private data. The key
+          also powers the CLI and git hooks.
+        </p>
+        <p className="mb-3 text-sm">
+          Status:{" "}
+          {strong ? (
+            <span className="font-medium text-ok">
+              ● strong identity active as {who?.user}
+            </span>
+          ) : hasBrowserKey ? (
+            <span className="font-medium text-danger">
+              A key is stored in this browser but it is not working — paste
+              a fresh one below
+            </span>
+          ) : (
+            <span className="font-medium text-weld">
+              no key in this browser yet
+            </span>
+          )}
+        </p>
+        {!strong && (
+          <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
+            {currentUser === "anonymous" ? (
+              <p>
+                Pick your name in <b>step 1</b> first — your key is minted for
+                that name.
+              </p>
+            ) : who === null || who.keys_minted === 0 ? (
+              <>
+                <p className="mb-2">
+                  {who === null
+                    ? "Can't verify your key status right now (the stored key may be revoked). Ask whoever runs the server for a fresh one."
+                    : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
+                </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const r = await api<{ already_pending: boolean }>("/api/keys/request", {
+                        method: "POST",
+                      });
+                      setKeyStatus(
+                        r.already_pending
+                          ? "Already asked — the request is still on the team's My Day."
+                          : "Asked — the request (with the exact command) is now on the team's My Day.",
+                      );
+                    } catch (e) {
+                      setKeyStatus(`❌ ${String(e)}`);
+                    }
+                  }}
+                  className="mb-2 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Request a key
+                </button>
+                <details>
+                  <summary className="cursor-pointer text-xs text-ink-3 hover:text-ink-2">
+                    I run the server — show me the command
+                  </summary>
+                  <div className="mt-2">
+                    <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
+                    <p className="mt-2 text-xs text-ink-3">
+                      Docker:{" "}
+                      <code>
+                        docker compose exec backend python -m app.bootstrap_key {currentUser}
+                      </code>{" "}
+                      — the key prints once.
+                    </p>
+                  </div>
+                </details>
+              </>
+            ) : (
+              <p>
+                A key exists for {who.user} — paste it below. Lost it? Keys are
+                shown only once; ask for a new one to be minted (same command),
+                or revoke old ones from the CLI.
+              </p>
+            )}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && testAndSaveKey()}
+            aria-label="Personal API key"
+            placeholder="sk-strands-…"
+            type="password"
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 font-mono text-sm outline-none focus:border-thread-solid"
+          />
+          <button
+            onClick={testAndSaveKey}
+            disabled={!keyDraft.trim()}
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+          >
+            Test & save
+          </button>
+          {hasBrowserKey && (
+            <button
+              onClick={clearKey}
+              className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        {keyStatus && (
+          <p role="status" aria-live="polite" className="mt-2 text-sm">
+            {keyStatus}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-ink-3">
+          Stored only in this browser (localStorage). OIDC sign-in replaces
+          this flow at deployment.
+        </p>
+      </Section>
+
+      <Section title="3 · Growth interests (optional)">
+        <p className="mb-2 text-sm text-ink-3">
+          Self-declared; shown in staffing what-ifs so interesting work finds
+          you. Display-only — never scored, never matched automatically.
+        </p>
+        <div className="flex gap-2">
+          <input
+            value={interests}
+            onChange={(e) => setInterests(e.target.value)}
+            aria-label="Growth interests"
+            placeholder="e.g. RAG evaluation, incident command, design reviews"
+            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+          />
+          <button
+            onClick={async () => {
+              if (interestsBusy) return;
+              setInterestsBusy(true);
+              try {
+                await api("/api/users/growth-interests", {
+                  method: "POST",
+                  body: JSON.stringify({ interests }),
+                });
+                setInterestsSaved(interests.trim() ? "Saved." : "Cleared.");
+                setTimeout(() => setInterestsSaved(""), 3000);
+              } catch (e) {
+                alert(String(e));
+              } finally {
+                setInterestsBusy(false);
+              }
+            }}
+            disabled={interestsBusy || (!interests.trim() && !interestsLoaded)}
+            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+        <p role="status" aria-live="polite" className="mt-1 text-xs text-ok">
+          {interestsSaved}
+        </p>
+      </Section>
+
+      <Section title="4 · Connect your own AI agent (optional)">
+        <p className="mb-2 text-sm text-ink-3">
+          Skein is an MCP server — Claude Code or any MCP client can read and
+          write the platform natively. New agents start at{" "}
+          <b>needs-approval</b> authority: every write becomes a proposal in{" "}
+          <a href="/review" className="underline">
+            Inbox → Approvals
+          </a>{" "}
+          until a human grants more (see{" "}
+          <a href="/agents" className="underline">
+            /agents
+          </a>
+          ).
+        </p>
+        <p className="mb-1 text-xs font-medium text-ink-3">Claude Code registration:</p>
+        <CopyLine
+          text={`claude mcp add skein -- env STRANDS_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
+        />
+        <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
+          Team context pack (org-brain for any agent — also an MCP resource):
+        </p>
+        <CopyLine text={`${API_URL}/api/context-pack`} />
+        <p className="mt-2 text-xs text-ink-3">
+          Scoped per-engagement packs: append ?engagement=&lt;id&gt;. The CLI
+          can also emit it: <code>skein context --write AGENTS.md</code>.
+        </p>
+      </Section>
+
+      <Section title="5 · Calendar feed (optional)">
+        <p className="mb-2 text-sm text-ink-3">
+          Subscribe your calendar app to team events + milestone/commitment
+          due dates. Use a local calendar client — hosted ones (Google) would
+          mirror titles off-LAN.
+        </p>
+        <CopyLine text={`${API_URL}/api/calendar.ics`} />
+        <p className="mt-2 text-xs text-ink-3">
+          If the API is token-locked, the operator sets STRANDS_ICS_TOKEN and
+          the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
+        </p>
+      </Section>
+
       <Section title="Appearance">
         <p className="mb-3 text-sm text-ink-3">
           {currentUser === "anonymous"
@@ -556,238 +789,6 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
-      </Section>
-
-      <Section title="1 · Identity">
-        <p className="mb-2 text-sm text-ink-3">
-          Your name attributes everything you create (tasks, standups,
-          captures). It works on the honor system inside the team network —
-          fine for team-visible work, not enough for the private 1:1s page
-          or admin export (step 2 covers those).
-        </p>
-        <p className="mb-2 text-sm">
-          Current:{" "}
-          <span className="font-medium">
-            {currentUser === "anonymous" ? "not set" : currentUser}
-          </span>
-        </p>
-        <div className="flex gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && saveName()}
-            aria-label="Your name"
-            placeholder={currentUser === "anonymous" ? "your name" : "change name"}
-            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
-          />
-          <button
-            onClick={saveName}
-            disabled={!name.trim()}
-            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-          >
-            Save
-          </button>
-        </div>
-      </Section>
-
-      <Section title="2 · Personal API key (private surfaces + CLI)">
-        <p className="mb-2 text-sm text-ink-3">
-          The 1:1s page (private prep, feedback journal) and admin export need a
-          key — a spoofable name isn&apos;t enough for private data. The key
-          also powers the CLI and git hooks.
-        </p>
-        <p className="mb-3 text-sm">
-          Status:{" "}
-          {strong ? (
-            <span className="font-medium text-ok">
-              ● strong identity active as {who?.user}
-            </span>
-          ) : hasBrowserKey ? (
-            <span className="font-medium text-danger">
-              A key is stored in this browser but it is not working — paste
-              a fresh one below
-            </span>
-          ) : (
-            <span className="font-medium text-weld">
-              no key in this browser yet
-            </span>
-          )}
-        </p>
-        {!strong && (
-          <div className="mb-3 rounded-lg bg-raised p-3 text-sm">
-            {currentUser === "anonymous" ? (
-              <p>
-                Pick your name in <b>step 1</b> first — your key is minted for
-                that name.
-              </p>
-            ) : who === null || who.keys_minted === 0 ? (
-              <>
-                <p className="mb-2">
-                  {who === null
-                    ? "Can't verify your key status right now (the stored key may be revoked). Ask whoever runs the server for a fresh one."
-                    : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
-                </p>
-                <button
-                  onClick={async () => {
-                    try {
-                      const r = await api<{ already_pending: boolean }>("/api/keys/request", {
-                        method: "POST",
-                      });
-                      setKeyStatus(
-                        r.already_pending
-                          ? "Already asked — the request is still on the team's My Day."
-                          : "Asked — the request (with the exact command) is now on the team's My Day.",
-                      );
-                    } catch (e) {
-                      setKeyStatus(`❌ ${String(e)}`);
-                    }
-                  }}
-                  className="mb-2 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-                >
-                  Request a key
-                </button>
-                <details>
-                  <summary className="cursor-pointer text-xs text-ink-3 hover:text-ink-2">
-                    I run the server — show me the command
-                  </summary>
-                  <div className="mt-2">
-                    <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
-                    <p className="mt-2 text-xs text-ink-3">
-                      Docker:{" "}
-                      <code>
-                        docker compose exec backend python -m app.bootstrap_key {currentUser}
-                      </code>{" "}
-                      — the key prints once.
-                    </p>
-                  </div>
-                </details>
-              </>
-            ) : (
-              <p>
-                A key exists for {who.user} — paste it below. Lost it? Keys are
-                shown only once; ask for a new one to be minted (same command),
-                or revoke old ones from the CLI.
-              </p>
-            )}
-          </div>
-        )}
-        <div className="flex gap-2">
-          <input
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && testAndSaveKey()}
-            aria-label="Personal API key"
-            placeholder="sk-strands-…"
-            type="password"
-            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 font-mono text-sm outline-none focus:border-thread-solid"
-          />
-          <button
-            onClick={testAndSaveKey}
-            disabled={!keyDraft.trim()}
-            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-          >
-            Test & save
-          </button>
-          {hasBrowserKey && (
-            <button
-              onClick={clearKey}
-              className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
-            >
-              Remove
-            </button>
-          )}
-        </div>
-        {keyStatus && (
-          <p role="status" aria-live="polite" className="mt-2 text-sm">
-            {keyStatus}
-          </p>
-        )}
-        <p className="mt-2 text-xs text-ink-3">
-          Stored only in this browser (localStorage). OIDC sign-in replaces
-          this flow at deployment.
-        </p>
-      </Section>
-
-      <Section title="3 · Growth interests (optional)">
-        <p className="mb-2 text-sm text-ink-3">
-          Self-declared; shown in staffing what-ifs so interesting work finds
-          you. Display-only — never scored, never matched automatically.
-        </p>
-        <div className="flex gap-2">
-          <input
-            value={interests}
-            onChange={(e) => setInterests(e.target.value)}
-            aria-label="Growth interests"
-            placeholder="e.g. RAG evaluation, incident command, design reviews"
-            className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
-          />
-          <button
-            onClick={async () => {
-              if (interestsBusy) return;
-              setInterestsBusy(true);
-              try {
-                await api("/api/users/growth-interests", {
-                  method: "POST",
-                  body: JSON.stringify({ interests }),
-                });
-                setInterestsSaved(interests.trim() ? "Saved." : "Cleared.");
-                setTimeout(() => setInterestsSaved(""), 3000);
-              } catch (e) {
-                alert(String(e));
-              } finally {
-                setInterestsBusy(false);
-              }
-            }}
-            disabled={interestsBusy || (!interests.trim() && !interestsLoaded)}
-            className="rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-          >
-            Save
-          </button>
-        </div>
-        <p role="status" aria-live="polite" className="mt-1 text-xs text-ok">
-          {interestsSaved}
-        </p>
-      </Section>
-
-      <Section title="4 · Connect your own AI agent (optional)">
-        <p className="mb-2 text-sm text-ink-3">
-          Skein is an MCP server — Claude Code or any MCP client can read and
-          write the platform natively. New agents start at{" "}
-          <b>needs-approval</b> authority: every write becomes a proposal in{" "}
-          <a href="/review" className="underline">
-            Inbox → Approvals
-          </a>{" "}
-          until a human grants more (see{" "}
-          <a href="/agents" className="underline">
-            /agents
-          </a>
-          ).
-        </p>
-        <p className="mb-1 text-xs font-medium text-ink-3">Claude Code registration:</p>
-        <CopyLine
-          text={`claude mcp add skein -- env STRANDS_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
-        />
-        <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
-          Team context pack (org-brain for any agent — also an MCP resource):
-        </p>
-        <CopyLine text={`${API_URL}/api/context-pack`} />
-        <p className="mt-2 text-xs text-ink-3">
-          Scoped per-engagement packs: append ?engagement=&lt;id&gt;. The CLI
-          can also emit it: <code>skein context --write AGENTS.md</code>.
-        </p>
-      </Section>
-
-      <Section title="5 · Calendar feed (optional)">
-        <p className="mb-2 text-sm text-ink-3">
-          Subscribe your calendar app to team events + milestone/commitment
-          due dates. Use a local calendar client — hosted ones (Google) would
-          mirror titles off-LAN.
-        </p>
-        <CopyLine text={`${API_URL}/api/calendar.ics`} />
-        <p className="mt-2 text-xs text-ink-3">
-          If the API is token-locked, the operator sets STRANDS_ICS_TOKEN and
-          the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
-        </p>
       </Section>
 
       <Section title="Team roster">
