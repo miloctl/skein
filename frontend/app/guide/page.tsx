@@ -54,7 +54,10 @@ export default function GuidePage() {
     const g = ++generation.current;
     api<Guide>("/api/field-guide")
       .then((res) => {
-        if (g === generation.current) setGuide(res);
+        if (g === generation.current) {
+          setGuide(res);
+          setError(null); // a recovered refetch must not keep the danger line
+        }
       })
       .catch((e) => {
         if (g === generation.current) setError(String(e));

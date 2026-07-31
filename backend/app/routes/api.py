@@ -332,6 +332,9 @@ class DismissKnot(BaseModel):
 
 @router.post("/field-guide/dismiss")
 def post_field_guide_dismiss(body: DismissKnot, user: CurrentUser):
+    # the only write on this surface — cap it like every other write, or a
+    # spoofed-name loop mints users + unlock rows without bound
+    ratelimit.check("write", user)
     try:
         return fieldguide.dismiss(user, body.knot)
     except ValueError as e:

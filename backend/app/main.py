@@ -35,6 +35,11 @@ def _start_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()  # a failed migration SHOULD abort startup — everything else must not
+    # same rule for the field-guide registry: malformed knots.yaml aborts boot
+    # here, instead of 500ing the first /field-guide request at 3pm
+    from .services import fieldguide
+
+    fieldguide.registry()
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes

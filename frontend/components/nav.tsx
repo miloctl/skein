@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
-import { api, getApiKey, getUser, setUser, subscribeUser } from "@/lib/api";
+import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |
 // people & rules. Former top-level pages live on as tabs inside Work
@@ -76,7 +76,18 @@ export function Nav() {
   const pathname = usePathname();
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   const [attention, setAttention] = useState(0);
-  const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // fetched lazily on first menu open — the nav must not add a request to
+  // every page load for a number that only matters inside the menu
+  const [guideMeta, setGuideMeta] = useState<{ tied_count: number; total: number } | null>(null);
+  const idBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // focus the first item once per open — not via a ref callback, which would
+  // steal focus back on every re-render (e.g. when the guide count arrives)
+  useEffect(() => {
+    if (menuOpen)
+      menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+  }, [menuOpen]);
   // localStorage is client-only; same-tab changes reload the page (setApiKey callers)
   const hasKey = useSyncExternalStore(
     subscribeUser,
@@ -122,36 +133,21 @@ export function Nav() {
         </Link>
         <div className="ml-auto flex h-14 items-center gap-3 md:order-2 md:ml-4">
           <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
-          {editing ? (
-            <input
-              autoFocus
-              defaultValue={anonymous ? "" : user}
-              placeholder="your name"
-              aria-label="Your name"
-              className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 text-sm outline-none focus:border-thread-solid"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const name = (e.target as HTMLInputElement).value;
-                  setUser(name);
-                  setEditing(false);
-                  window.location.reload();
-                }
-                if (e.key === "Escape") setEditing(false);
-              }}
-              onBlur={(e) => {
-                // commit on blur so a typed name isn't silently discarded, but
-                // NEVER reload from a focus change (WCAG 3.2.2) — the header
-                // and every subscriber already track identity live
-                const name = e.target.value.trim();
-                if (name && name !== user) setUser(name);
-                setEditing(false);
-              }}
-            />
-          ) : (
+          <div className="relative">
             <button
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
-              title="Click to change who you are"
+              ref={idBtnRef}
+              onClick={() => {
+                const opening = !menuOpen;
+                setMenuOpen(opening);
+                if (opening && !guideMeta && !anonymous)
+                  api<{ tied_count: number; total: number }>("/api/field-guide/hint")
+                    .then((h) => setGuideMeta({ tied_count: h.tied_count, total: h.total }))
+                    .catch(() => {});
+              }}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title={anonymous ? "Who are you?" : `You — ${user}`}
+              className="relative flex min-h-11 items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink md:min-h-0"
             >
               <span
                 className={
@@ -168,41 +164,80 @@ export function Nav() {
               ) : (
                 <span className="max-w-[9rem] truncate">{user}</span>
               )}
+              {hasKey && (
+                <span
+                  aria-hidden
+                  title="Strong identity active"
+                  className="absolute left-4 top-1 size-1.5 rounded-full bg-ok"
+                />
+              )}
             </button>
-          )}
-          <Link
-            href="/settings"
-            className="relative flex h-11 w-8 items-center justify-center text-ink-3 hover:text-ink md:h-auto md:w-auto"
-            aria-label={
-              hasKey ? "Settings — strong identity active" : "Settings"
-            }
-            title={
-              hasKey
-                ? "Settings — strong identity active"
-                : "Settings — identity, API key, calendar"
-            }
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            {hasKey && (
-              <span
-                aria-hidden
-                className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-ok"
-              />
+            {menuOpen && (
+              <div
+                ref={menuRef}
+                role="menu"
+                aria-label="You"
+                onBlur={(e) => {
+                  // Tab-out closes; Escape below returns focus to the button
+                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                    setMenuOpen(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setMenuOpen(false);
+                    idBtnRef.current?.focus();
+                  }
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const items = [
+                      ...(menuRef.current?.querySelectorAll<HTMLElement>(
+                        "[role=menuitem]",
+                      ) ?? []),
+                    ];
+                    const i = items.indexOf(document.activeElement as HTMLElement);
+                    const next =
+                      e.key === "ArrowDown"
+                        ? items[(i + 1) % items.length]
+                        : items[(i - 1 + items.length) % items.length];
+                    next?.focus();
+                  }
+                }}
+                className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-line bg-card p-1 shadow-float"
+              >
+                <Link
+                  href="/settings"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
+                >
+                  <span aria-hidden>⚙ </span>
+                  {anonymous ? "Pick your name…" : "Settings"}
+                </Link>
+                <Link
+                  href="/guide"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex w-full items-baseline justify-between rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
+                >
+                  <span>
+                    <span aria-hidden>🧶 </span>Field guide
+                  </span>
+                  {guideMeta && (
+                    <span className="font-mono text-[10px] tabular-nums text-ink-3">
+                      {guideMeta.tied_count}/{guideMeta.total}
+                    </span>
+                  )}
+                </Link>
+                <p className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3">
+                  {anonymous
+                    ? "No name picked — writes won't be yours"
+                    : hasKey
+                      ? "Strong identity active"
+                      : "Weak identity — no API key"}
+                </p>
+              </div>
             )}
-          </Link>
+          </div>
           <button
             onClick={(e) => {
               // Safari doesn't focus buttons on click — focus explicitly so

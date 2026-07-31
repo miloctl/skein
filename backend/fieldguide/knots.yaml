@@ -12,6 +12,11 @@
 # Voice rules: dry, terse, no exclamation marks, no praise adjectives.
 # Never add counters, streaks, or tiers. Shipping a user-facing feature?
 # Add its card in the same PR — a new locked card IS the release note.
+#
+# When adding a card: `since` is TODAY's date, not a copy-paste — a copied
+# old date ships with the feature_unadopted grace window already expired and
+# fires a finding in week one. The registry is cached at startup and only
+# re-read on restart (uvicorn --reload watches *.py, not *.yaml).
 
 knots:
   # ---- Loops — the solo basics ----------------------------------------

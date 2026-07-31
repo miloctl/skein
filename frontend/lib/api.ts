@@ -11,9 +11,13 @@ export function getUser(): string {
 
 export function setUser(name: string) {
   window.localStorage.setItem(USER_KEY, name.trim() || "anonymous");
+  // storage events don't fire in the writing tab — nudge same-tab
+  // subscribers (nav chip, guide page) like setApiKey does
+  window.dispatchEvent(new Event("storage"));
 }
 
-// notifies on cross-tab identity changes; same-tab changes reload the page
+// notifies on identity changes (cross-tab natively, same-tab via the
+// synthetic event the writers dispatch)
 export function subscribeUser(cb: () => void) {
   window.addEventListener("storage", cb);
   return () => window.removeEventListener("storage", cb);

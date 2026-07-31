@@ -14,7 +14,7 @@ STEPS = (
         "pick_name",
         "Pick your name so work is attributed to you",
         "/settings",
-        "Settings → Identity, or click the 👤 button in the top bar.",
+        "Settings → Identity — the 👤 menu in the top bar takes you there.",
         "you",
     ),
     (

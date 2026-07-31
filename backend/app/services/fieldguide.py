@@ -125,11 +125,17 @@ def registry() -> list[dict]:
         if not str(k["link"]).startswith("/"):
             raise ValueError(f"knot '{kid}' link must be an in-app path")
         db.validate_date("since", str(k["since"]), allow_clear=False)
+        # suggestion exclusion keys on role, grouping keys on set — a card
+        # with one but not the other would be pushed as a weekly suggestion
+        # despite sitting behind the manager toggle
+        if (k["set"] == "manager") != (k.get("role") == "manager"):
+            raise ValueError(f"knot '{kid}': set 'manager' and role 'manager' must travel together")
     orphans = set(PREDICATES) - seen
     if orphans:
         raise ValueError(f"predicates without a card in knots.yaml: {sorted(orphans)}")
     _registry_cache = knots
-    return knots
+    # a copy per caller — the cache must not be poisonable by a mutating one
+    return list(knots)
 
 
 def _is_active_human(person: str) -> bool:
@@ -184,7 +190,11 @@ def mark(person: str, knot: str) -> None:
     """Direct tie for read-only features (search, /ask) — fire-and-forget,
     must never break the request it rides on."""
     with contextlib.suppress(Exception):
-        if knot not in PREDICATES or not _is_active_human(person):
+        if knot not in PREDICATES:
+            # a typo'd knot id in a route would otherwise no-op forever
+            log.debug("mark() called with unknown knot %r", knot)
+            return
+        if not _is_active_human(person):
             return
         seeding = not _has(
             "SELECT 1 FROM feature_unlocks WHERE person = ? AND kind = 'tied'", (person,)
@@ -211,8 +221,24 @@ def dismiss(person: str, knot: str) -> dict:
     return {"dismissed": knot}
 
 
+def _state(person: str) -> tuple[dict[str, dict], set[str]]:
+    """detect + tied rows + dismissed set — the choreography hint() and
+    guide() share. Caller must have verified _is_active_human."""
+    detect(person)
+    tied = _tied(person)
+    dismissed = {
+        r["knot"]
+        for r in db.query(
+            "SELECT knot FROM feature_unlocks WHERE person = ? AND kind = 'dismissed'",
+            (person,),
+        )
+    }
+    return tied, dismissed
+
+
 def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict | None:
-    """One untied card, rotating weekly (deterministic — same pick all week).
+    """One untied card, rotating weekly (deterministic within a week for a
+    given untied set — tying or dismissing mid-week may reshuffle the pick).
     Manager-tagged cards are never pushed; they wait on the page."""
     candidates = [
         k
@@ -227,40 +253,28 @@ def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict 
 
 
 def hint(person: str) -> dict:
-    """The My Day one-liner: suggestion only, NO side effects on seen state —
-    landing on My Day must never consume the guide page's 'newly tied' strip."""
+    """The lightweight read (My Day one-liner, nav menu count): suggestion +
+    counts, NO side effects on seen state — landing on My Day must never
+    consume the guide page's 'newly tied' strip."""
+    cards = registry()
     if not _is_active_human(person):
-        return {"suggestion": None}
-    detect(person)
-    tied = set(_tied(person))
-    dismissed = {
-        r["knot"]
-        for r in db.query(
-            "SELECT knot FROM feature_unlocks WHERE person = ? AND kind = 'dismissed'",
-            (person,),
-        )
+        return {"suggestion": None, "tied_count": 0, "total": len(cards)}
+    tied, dismissed = _state(person)
+    ids = {k["id"] for k in cards}
+    return {
+        "suggestion": _suggestion(cards, set(tied), dismissed),
+        # intersect with the registry — a retired card must not leave a
+        # veteran at "27 of 26 tied"
+        "tied_count": len(set(tied) & ids),
+        "total": len(cards),
     }
-    return {"suggestion": _suggestion(registry(), tied, dismissed)}
 
 
 def guide(person: str) -> dict:
     """The person's own guide — and ONLY their own; there is deliberately no
     way to read anyone else's (docs/FIELD-GUIDE.md, self-scoped forever)."""
     named = _is_active_human(person)
-    if named:
-        detect(person)
-    tied = _tied(person) if named else {}
-    dismissed = (
-        {
-            r["knot"]
-            for r in db.query(
-                "SELECT knot FROM feature_unlocks WHERE person = ? AND kind = 'dismissed'",
-                (person,),
-            )
-        }
-        if named
-        else set()
-    )
+    tied, dismissed = _state(person) if named else ({}, set())
     cards = []
     newly = []
     for k in registry():
@@ -291,7 +305,8 @@ def guide(person: str) -> dict:
         "cards": cards,
         "newly_tied": newly,
         "suggestion": _suggestion(registry(), set(tied), dismissed) if named else None,
-        "tied_count": len(tied),
+        # registry intersection — a retired card must not yield "27 of 26"
+        "tied_count": len(set(tied) & {c["id"] for c in cards}),
         "total": len(cards),
         # false = the roster hasn't met this name yet (or it's anonymous/agent)
         # — the UI can explain the all-untied page instead of implying deficit
