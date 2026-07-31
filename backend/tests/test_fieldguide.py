@@ -211,3 +211,39 @@ def test_dismiss_route_rejects_unknown_knot(client, fresh_db):
     assert r.status_code == 400
     ok = client.post("/api/field-guide/dismiss", json={"knot": "growth"})
     assert ok.status_code == 200
+
+
+def test_dismiss_is_rate_capped(client, fresh_db):
+    from app import ratelimit
+
+    _mint(fresh_db, "tester")
+    ratelimit.reset()
+    for _ in range(30):
+        client.post("/api/field-guide/dismiss", json={"knot": "growth"})
+    r = client.post("/api/field-guide/dismiss", json={"knot": "growth"})
+    assert r.status_code == 400 and "slow down" in r.json()["detail"]
+    ratelimit.reset()
+
+
+def test_registry_rejects_manager_set_without_role(fresh_db, tmp_path, monkeypatch):
+    import pytest
+
+    from app.services import fieldguide
+
+    bad = tmp_path / "knots.yaml"
+    bad.write_text(
+        "knots:\n"
+        "  - id: capture\n"
+        "    feature: X\n"
+        "    knot: K\n"
+        "    set: manager\n"  # no role: manager — would be pushed as a suggestion
+        "    pitch: p\n"
+        "    how: h\n"
+        "    link: /x\n"
+        "    since: 2026-07-31\n"
+    )
+    monkeypatch.setattr(fieldguide, "KNOTS_FILE", bad)
+    monkeypatch.setattr(fieldguide, "_registry_cache", None)
+    with pytest.raises(ValueError, match="travel together"):
+        fieldguide.registry()
+    monkeypatch.setattr(fieldguide, "_registry_cache", None)

@@ -665,15 +665,15 @@ def _r_job_stale() -> list[dict]:
 
 
 def _r_feature_unadopted() -> list[dict]:
-    from .fieldguide import unadopted
+    from .fieldguide import UNADOPTED_GRACE_DAYS, unadopted
 
     return [
         _finding(
             "feature_unadopted",
             "low",
-            f"'{k['feature']}' has zero team-wide first-uses 30+ days after entering"
-            f" the field guide ({k['since']}) — broken entry point, or a feature"
-            " nobody wants? The how-to card is on /guide.",
+            f"'{k['feature']}' has zero team-wide first-uses {UNADOPTED_GRACE_DAYS}+"
+            f" days after entering the field guide ({k['since']}) — broken entry"
+            " point, or a feature nobody wants? The how-to card is on /guide.",
             {"knot": k["id"], "link": k["link"], "since": k["since"]},
             subject=k["id"],
             window="since ship",
