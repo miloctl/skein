@@ -162,6 +162,12 @@ export default function PeoplePage() {
 
       {error && <p className="mb-4 text-sm text-danger">{error}</p>}
 
+      {!person && (
+        <EmptyState>
+          Pick a teammate above to see their brief and your private notes.
+        </EmptyState>
+      )}
+
       {person && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card title="Since last time">

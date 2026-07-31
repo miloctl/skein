@@ -132,7 +132,6 @@ export default function ReviewPage() {
         Proposed changes from agents (and cautious humans). Approving applies
         the change and records that a human verified it.
       </p>
-      {/* reading column: cards cap at 3xl inside the standard page shell */}
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {selected.size > 0 && (
@@ -223,9 +222,25 @@ export default function ReviewPage() {
               </table>
               </div>
             ) : (
-              <pre className="mb-3 overflow-x-auto rounded-lg bg-raised p-3 text-xs">
-                {JSON.stringify(c.payload, null, 2)}
-              </pre>
+              /* a create proposal's payload IS the change — render it as
+                 fields, not as a JSON dump a phone user has to parse */
+              <div className="mb-3 overflow-x-auto rounded-lg bg-raised p-3">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {Object.entries(c.payload).map(([k, v]) => (
+                      <tr key={k} className="align-top">
+                        <td className="w-32 py-0.5 pr-3 font-medium text-ink-3">
+                          {k.replace(/_/g, " ")}
+                        </td>
+                        <td className="py-0.5 text-ink-2">{cell(v)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {Object.keys(c.payload).length === 0 && (
+                  <p className="text-xs text-ink-3">No fields — see the summary above.</p>
+                )}
+              </div>
             )}
             {asking?.id === c.id ? (
               <div className="flex items-center gap-2">

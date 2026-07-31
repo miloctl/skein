@@ -512,8 +512,10 @@ export default function MyDay() {
             {b.your_work.tasks.length === 0 && (
               <li className="text-ink-3">
                 No tasks assigned to you — use quick capture
-                <span className="[@media(any-pointer:coarse)]:hidden"> (⌘K)</span> and
-                type &lsquo;todo: …&rsquo;.
+                <span className="[@media(any-pointer:coarse)]:hidden">
+                  {" (⌘K)"}
+                </span>{" "}
+                and type &lsquo;todo: …&rsquo;.
               </li>
             )}
             {b.your_work.due_soon.length > 0 && (
