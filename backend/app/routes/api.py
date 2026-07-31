@@ -21,6 +21,7 @@ from ..services import (
     digest,
     engagements,
     feedback,
+    fieldguide,
     handoff,
     ingest,
     intake,
@@ -302,13 +303,39 @@ def post_team_theme(body: ThemeIn, user: StrongUser):
 
 
 @router.get("/search")
-def get_search(q: str):
+def get_search(q: str, user: CurrentUser):
+    fieldguide.mark(user, "search")
     return search.search(q)
 
 
 @router.get("/ask")
-def get_ask(q: str):
+def get_ask(q: str, user: CurrentUser):
+    fieldguide.mark(user, "search")
     return search.ask(q)
+
+
+@router.get("/field-guide")
+def get_field_guide(user: CurrentUser):
+    """Self-scoped by construction: the only person parameter is the caller.
+    There is deliberately no way to read another person's guide."""
+    return fieldguide.guide(user)
+
+
+@router.get("/field-guide/hint")
+def get_field_guide_hint(user: CurrentUser):
+    return fieldguide.hint(user)
+
+
+class DismissKnot(BaseModel):
+    knot: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/field-guide/dismiss")
+def post_field_guide_dismiss(body: DismissKnot, user: CurrentUser):
+    try:
+        return fieldguide.dismiss(user, body.knot)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/whoami")

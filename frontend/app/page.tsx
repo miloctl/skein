@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 
 import { api, getUser, setUser } from "@/lib/api";
 import { StandupComposer } from "@/components/standup-card";
+import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
 
@@ -618,6 +619,8 @@ export default function MyDay() {
           </ul>
         </Card>
       </div>
+
+      <GuideHint />
     </main>
   );
 }
