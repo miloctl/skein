@@ -664,6 +664,24 @@ def _r_job_stale() -> list[dict]:
     ]
 
 
+def _r_feature_unadopted() -> list[dict]:
+    from .fieldguide import unadopted
+
+    return [
+        _finding(
+            "feature_unadopted",
+            "low",
+            f"'{k['feature']}' has zero team-wide first-uses 30+ days after entering"
+            f" the field guide ({k['since']}) — broken entry point, or a feature"
+            " nobody wants? The how-to card is on /guide.",
+            {"knot": k["id"], "link": k["link"], "since": k["since"]},
+            subject=k["id"],
+            window="since ship",
+        )
+        for k in unadopted()
+    ]
+
+
 RULES = (
     _r_mttr,
     _r_escalation_spike,
@@ -679,6 +697,7 @@ RULES = (
     _r_job_stale,
     _r_experiment_overdue,
     _r_authority_stale,
+    _r_feature_unadopted,
 )
 
 

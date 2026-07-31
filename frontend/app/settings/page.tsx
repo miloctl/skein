@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
@@ -855,6 +856,17 @@ export default function SettingsPage() {
             Work → Browse
           </a>{" "}
           until acted on.
+        </p>
+      </Section>
+
+      <Section title="Field guide">
+        <p className="text-sm text-ink-2">
+          Every Skein feature as a card — tied once you&apos;ve used it, with
+          the how-to on the ones you haven&apos;t. Only you can see your
+          guide.{" "}
+          <Link href="/guide" className="font-medium underline">
+            Open the field guide
+          </Link>
         </p>
       </Section>
     </main>

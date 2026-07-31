@@ -1,0 +1,257 @@
+# Field-guide registry. Presentation + metadata ONLY — predicates live in
+# app/services/fieldguide.py keyed by id (SQL belongs in the service layer).
+# The loader fails loudly if a card has no predicate or a predicate no card.
+#
+# Fields: id (predicate key) · feature (primary label) · knot (flavor
+# subtitle) · set (loops|hitches|bends|stoppers|manager) · pitch (one line,
+# why it exists) · how (terse how-to, craft-manual voice) · link (in-app
+# deep link, must start with /) · since (YYYY-MM-DD the card entered the
+# guide — feeds the feature_unadopted grace window) · role (optional:
+# "manager" marks cards for the manager toggle so IC completionists know).
+#
+# Voice rules: dry, terse, no exclamation marks, no praise adjectives.
+# Never add counters, streaks, or tiers. Shipping a user-facing feature?
+# Add its card in the same PR — a new locked card IS the release note.
+
+knots:
+  # ---- Loops — the solo basics ----------------------------------------
+  - id: capture
+    feature: Quick capture
+    knot: Overhand
+    set: loops
+    pitch: One box that files todos, questions, blockers, decisions, and promises.
+    how: "Press ⌘K anywhere. Try `todo: …`, `q: …`, or `blocked on …` — the preview shows what it will file as."
+    link: /
+    since: 2026-07-31
+
+  - id: standup
+    feature: Standups
+    knot: Slip Knot
+    set: loops
+    pitch: Yesterday prefills itself from your own activity; blockers auto-file.
+    how: Post one from My Day — the composer already knows what you did yesterday.
+    link: /
+    since: 2026-07-31
+
+  - id: task_done
+    feature: Finish a task
+    knot: Figure Eight
+    set: loops
+    pitch: Done tasks feed cycle time, throughput, and the slip forecast.
+    how: Mark any task of yours done on Work → Browse.
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: decision
+    feature: Decisions with a half-life
+    knot: Bowline
+    set: loops
+    pitch: Decisions expire to stale unless reconfirmed — nothing is trusted forever.
+    how: "`decision: …` in ⌘K, then set a review-by date; the daily sweep does the rest."
+    link: /charter
+    since: 2026-07-31
+
+  - id: question_asked
+    feature: Ask a question
+    knot: Clove Hitch
+    set: loops
+    pitch: Assigned questions notify the assignee and wait visibly.
+    how: "`q: who owns the staging cert?` in ⌘K, or assign one on Work → Browse."
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: question_answered
+    feature: Answer a question
+    knot: Cow Hitch
+    set: loops
+    pitch: The other half of Clove Hitch — someone is waiting on you.
+    how: Open questions assigned to you sit on My Day under Unblock.
+    link: /
+    since: 2026-07-31
+
+  - id: convention
+    feature: Convention notes
+    knot: Lark's Head
+    set: loops
+    pitch: "`convention:` topics feed the context pack every agent reads."
+    how: "Save a note whose topic starts with `convention` — e.g. how the team names branches."
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: search
+    feature: Search & /ask
+    knot: Thief Knot
+    set: loops
+    pitch: Full-text over every entity; /ask answers with receipts, keyless.
+    how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask."
+    link: /chat
+    since: 2026-07-31
+
+  - id: timeaway
+    feature: Time away
+    knot: Cleat Hitch
+    set: loops
+    pitch: PTO and focus windows the weekly draft and staffing projections respect.
+    how: Log it on Work → Browse, in the Time-away card.
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: intake
+    feature: Intake requests
+    knot: Buntline
+    set: loops
+    pitch: Work enters through a scored queue, not a hallway conversation.
+    how: "`req: …` in ⌘K or Inbox → Requests; RICE-lite scores it for triage."
+    link: /intake
+    since: 2026-07-31
+
+  - id: promise
+    feature: Commitments
+    knot: Anchor Bend
+    set: loops
+    pitch: Promises with an audience and a due date, ledgered until settled.
+    how: "`promised: demo to client by Friday` in ⌘K."
+    link: /portfolio
+    since: 2026-07-31
+
+  - id: growth
+    feature: Growth interests
+    knot: Monkey's Fist
+    set: loops
+    pitch: What you want to grow into, visible when staffing decisions happen.
+    how: Declare yours in Settings — they show up in what-if staffing.
+    link: /settings
+    since: 2026-07-31
+
+  - id: chat
+    feature: Chat & the bench
+    knot: Cat's Paw
+    set: loops
+    pitch: The Chief of Staff, ten specialist personas, and slash commands that run without a model.
+    how: "Open Chat; try `/help`, or `/as growth-mentor …` to call the bench."
+    link: /chat
+    since: 2026-07-31
+
+  - id: offweb
+    feature: CLI & MCP
+    knot: Marlinspike
+    set: loops
+    pitch: The whole platform without a browser — same DB, same provenance.
+    how: "`pipx install ./cli`, then `skein my-day`. Settings shows the key setup."
+    link: /settings
+    since: 2026-07-31
+
+  - id: ingest
+    feature: Meeting-notes ingestion
+    knot: Alpine Butterfly
+    set: loops
+    pitch: Paste raw notes; structure gets pulled out of the middle of the mess as proposals.
+    how: Inbox → Paste notes. Every hit waits in Approvals — nothing writes directly.
+    link: /ingest
+    since: 2026-07-31
+
+  # ---- Hitches — attaching work to an agent ---------------------------
+  - id: delegate
+    feature: Delegate to an agent
+    knot: Rolling Hitch
+    set: hitches
+    pitch: A task handed to an agent, with a human sponsor on record.
+    how: Pick a task on Work → Browse and delegate it; you become the sponsor.
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: sponsor_verdict
+    feature: Close the delegation loop
+    knot: Round Turn & Two Half-Hitches
+    set: hitches
+    pitch: The agent worked; the worklog shows it; your verdict finishes the job.
+    how: When your delegated task lands in Approvals, read the worklog and rule on it — accept or reject both count.
+    link: /review
+    since: 2026-07-31
+
+  # ---- Bends — where two systems join ---------------------------------
+  - id: standup_blocker
+    feature: Standup → blocker
+    knot: Sheet Bend
+    set: bends
+    pitch: A blocker mentioned in a standup files itself, escalation clock running.
+    how: Write the blocker line in your standup instead of a separate report — one entry, two systems.
+    link: /
+    since: 2026-07-31
+
+  - id: finding_converted
+    feature: Finding → work
+    knot: Zeppelin Bend
+    set: bends
+    pitch: The findings engine noticed something; you turned it into a tracked task.
+    how: On Work → Insights, convert a finding instead of nodding at it.
+    link: /insights
+    since: 2026-07-31
+
+  # ---- Stoppers — the art of finishing --------------------------------
+  - id: settle
+    feature: Settle a commitment
+    knot: Ashley Stopper
+    set: stoppers
+    pitch: Open promises are noise until settled — kept, missed, or withdrawn all count.
+    how: Work → Health, commitment ledger. Honest beats pretty.
+    link: /portfolio
+    since: 2026-07-31
+
+  - id: resolve_blocker
+    feature: Resolve a blocker
+    knot: Wall Knot
+    set: stoppers
+    pitch: Stops the escalation clock; three-day-old blockers get a funeral.
+    how: Resolve one you own on Work → Browse.
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: close_engagement
+    feature: Close an engagement honestly
+    knot: Back Splice
+    set: stoppers
+    pitch: Closing requires a conclusion — invalidated-on-time is a success, not a slip.
+    how: Work → Browse, close… on the engagement. Pick the conclusion that's true.
+    link: /dashboard
+    since: 2026-07-31
+
+  - id: review
+    feature: Review a proposal
+    knot: Turk's Head
+    set: stoppers
+    pitch: Someone proposed; a human verified. Approve and reject both count.
+    how: Inbox → Approvals; rejections carry a note back to the proposer.
+    link: /review
+    since: 2026-07-31
+
+  # ---- For managers ---------------------------------------------------
+  - id: ritual
+    feature: Week rituals
+    knot: Chain Sinnet
+    set: manager
+    role: manager
+    pitch: Monday brief and Friday close-out — the week gets opened and settled on purpose.
+    how: Run one yourself from manager controls on Work → Health — scheduler runs don't count as yours.
+    link: /portfolio
+    since: 2026-07-31
+
+  - id: readout
+    feature: Exec readout
+    knot: Flemish Flake
+    set: manager
+    role: manager
+    pitch: The portfolio coiled for showing — health, ships, risks, commitments.
+    how: Work → Health, under manager controls; lands as an artifact.
+    link: /portfolio
+    since: 2026-07-31
+
+  - id: handoff
+    feature: Handoff package
+    knot: Bowline on a Bight
+    set: manager
+    role: manager
+    pitch: Everything the incoming roster needs, generated deterministically.
+    how: Generate one from an engagement on Work → Browse.
+    link: /dashboard
+    since: 2026-07-31

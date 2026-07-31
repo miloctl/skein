@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (16 rule IDs across 15 entries)
+## The findings rules (17 rule IDs across 16 entries)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -71,7 +71,9 @@ within a week even on severity change.
 14. **Experiment overdue** — an open experiment engagement past its `timebox_end` with no recorded conclusion; conclude it or extend the timebox on purpose (`PATCH /api/engagements/{id}` accepts `timebox_end`). Subject = engagement id; n=1 fires.
 15. **Authority stale** — an `autonomous`/`notify` grant past its `review_by` (set to grant+90d; NULL falls back to `updated_at`+90d). The half-life as a nudge, not a demotion state machine: reconfirm by re-granting, or demote. `forbidden`/`review` never expire — the kill switch is forever. Subject = agent+entity; n=1 fires.
 
-(16. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
+16. **Feature unadopted** — a field-guide card (`backend/fieldguide/knots.yaml`) 30+ days past its `since` date that NOBODY on the team has tied — broken entry point or unwanted feature. Zero-adoption only, feature-keyed, nameless: when the count is zero no individual is singled out, which is what keeps this rule on the right side of the anti-surveillance principle (partial adoption never fires and never names). Sweeps unlock detection for all active humans first, so it doesn't fire on stale lazy state. Severity low; subject = knot id.
+
+(17. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as

@@ -1,0 +1,327 @@
+"""Field guide: first-use feature discovery ("knots"). Predicates DETECT use
+from data the platform already has; feature_unlocks HOLDS the state (activity
+gets pruned, unlocks survive). A person's unlock rows are self-visible only —
+the anti-surveillance rule outranks the provenance convention here, so like
+tool_usage these writes never touch the team-visible activity feed. Spec and
+the non-negotiables: docs/FIELD-GUIDE.md."""
+
+import contextlib
+import logging
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import yaml
+
+from .. import db
+
+KNOTS_FILE = Path(__file__).resolve().parent.parent.parent / "fieldguide" / "knots.yaml"
+SETS = ("loops", "hitches", "bends", "stoppers", "manager")
+UNADOPTED_GRACE_DAYS = 30
+
+log = logging.getLogger("skein.fieldguide")
+
+
+def _has(sql: str, params: tuple) -> bool:
+    return db.query_one(sql + " LIMIT 1", params) is not None
+
+
+def _act(user: str, action: str, like: str = "") -> bool:
+    sql = "SELECT 1 FROM activity WHERE actor = ? AND action = ?"
+    params: tuple = (user, action)
+    if like:
+        sql += " AND detail LIKE ?"
+        params = (user, action, like)
+    return _has(sql, params)
+
+
+# id -> first-use test. None = tied only via mark() (read-only features write
+# nothing to detect against). Detail-string predicates are pinned by tests in
+# test_fieldguide.py — if a service changes its activity wording, the test
+# breaks loudly instead of the knot silently going untieable.
+PREDICATES: dict[str, Callable[[str], bool] | None] = {
+    "capture": lambda u: _act(u, "capture"),
+    "standup": lambda u: _has("SELECT 1 FROM standups WHERE author = ?", (u,)),
+    "task_done": lambda u: _act(u, "complete_task") or _act(u, "update_task", "#% done"),
+    "decision": lambda u: _has(
+        "SELECT 1 FROM decisions WHERE decided_by = ? AND review_by IS NOT NULL"
+        " AND review_by != ''",
+        (u,),
+    ),
+    "question_asked": lambda u: _has("SELECT 1 FROM questions WHERE asked_by = ?", (u,)),
+    "question_answered": lambda u: _act(u, "answer_question"),
+    "convention": lambda u: _has(
+        "SELECT 1 FROM notes WHERE (author = ? OR created_by = ?) AND topic LIKE 'convention%'",
+        (u, u),
+    ),
+    "search": None,
+    "timeaway": lambda u: _act(u, "add_absence"),
+    "intake": lambda u: _has(
+        "SELECT 1 FROM intake_requests WHERE requester = ? OR created_by = ?", (u, u)
+    ),
+    "promise": lambda u: _has("SELECT 1 FROM commitments WHERE created_by = ?", (u,)),
+    "growth": lambda u: _act(u, "set_growth_interests"),
+    # a chat_threads row means a message or slash command actually landed —
+    # tool_usage's 'chat' surface would tie on merely opening the page
+    "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
+    "offweb": lambda u: _has(
+        "SELECT 1 FROM tool_usage WHERE user = ? AND surface IN ('cli', 'mcp')", (u,)
+    ),
+    "ingest": lambda u: _act(u, "ingest_notes"),
+    "delegate": lambda u: _act(u, "delegate_task"),
+    # reviewed_override=0 on a task_completion verdict means the reviewer WAS
+    # the sponsor at verdict time — the loop closed the designed way
+    "sponsor_verdict": lambda u: _has(
+        "SELECT 1 FROM pending_changes WHERE entity = 'task_completion' AND reviewed_by = ?"
+        " AND status IN ('approved', 'rejected') AND reviewed_override = 0",
+        (u,),
+    ),
+    "standup_blocker": lambda u: _has(
+        "SELECT 1 FROM standups WHERE author = ? AND TRIM(blockers) != ''", (u,)
+    ),
+    "finding_converted": lambda u: _act(u, "disposition_finding", "% converted"),
+    # terminal statuses only — update_commitment also logs an open→open no-op
+    "settle": lambda u: any(
+        _act(u, "update_commitment", f"#% {s}") for s in ("kept", "missed", "withdrawn")
+    ),
+    "resolve_blocker": lambda u: _act(u, "resolve_blocker"),
+    "close_engagement": lambda u: _act(u, "update_engagement", "#% closed"),
+    "review": lambda u: _has(
+        "SELECT 1 FROM pending_changes WHERE reviewed_by = ?"
+        " AND status IN ('approved', 'rejected')",
+        (u,),
+    ),
+    "ritual": lambda u: _act(u, "week_open") or _act(u, "week_close"),
+    "readout": lambda u: _act(u, "exec_readout"),
+    "handoff": lambda u: _act(u, "generate_handoff"),
+}
+
+_registry_cache: list[dict] | None = None
+
+
+def registry() -> list[dict]:
+    """Load + validate knots.yaml once. Fails loudly on a card without a
+    predicate or a predicate without a card — both are shipping mistakes."""
+    global _registry_cache
+    if _registry_cache is not None:
+        return _registry_cache
+    data = yaml.safe_load(KNOTS_FILE.read_text())
+    knots = data.get("knots") if isinstance(data, dict) else None
+    if not isinstance(knots, list) or not knots:
+        raise ValueError("knots.yaml is malformed (expected a 'knots' list)")
+    seen: set[str] = set()
+    for k in knots:
+        kid = k.get("id", "")
+        if not kid or kid in seen:
+            raise ValueError(f"knots.yaml: missing or duplicate id '{kid}'")
+        seen.add(kid)
+        if kid not in PREDICATES:
+            raise ValueError(f"knot '{kid}' has no predicate in fieldguide.PREDICATES")
+        if k.get("set") not in SETS:
+            raise ValueError(f"knot '{kid}' has invalid set '{k.get('set')}'")
+        for field in ("feature", "knot", "pitch", "how", "link", "since"):
+            if not k.get(field):
+                raise ValueError(f"knot '{kid}' is missing '{field}'")
+        if not str(k["link"]).startswith("/"):
+            raise ValueError(f"knot '{kid}' link must be an in-app path")
+        db.validate_date("since", str(k["since"]), allow_clear=False)
+    orphans = set(PREDICATES) - seen
+    if orphans:
+        raise ValueError(f"predicates without a card in knots.yaml: {sorted(orphans)}")
+    _registry_cache = knots
+    return knots
+
+
+def _is_active_human(person: str) -> bool:
+    row = db.query_one(
+        "SELECT 1 FROM users WHERE name = ? AND kind = 'human' AND active = 1"
+        " AND name != 'anonymous'",
+        (person,),
+    )
+    return row is not None
+
+
+def _tied(person: str) -> dict[str, dict]:
+    return {
+        r["knot"]: r
+        for r in db.query(
+            "SELECT knot, seen, first_at FROM feature_unlocks WHERE person = ? AND kind = 'tied'",
+            (person,),
+        )
+    }
+
+
+def detect(person: str) -> int:
+    """Evaluate untied predicates and materialize unlocks. A person's very
+    first detection seeds silently (seen=1): a veteran's history renders as
+    already-tied with zero ceremony, never as a wall of 'newly tied'."""
+    if not _is_active_human(person):
+        return 0
+    tied = _tied(person)
+    seeding = not tied
+    n = 0
+    for k in registry():
+        pred = PREDICATES[k["id"]]
+        if k["id"] in tied or pred is None:
+            continue
+        try:
+            hit = pred(person)
+        except Exception:
+            # a predicate broken by schema drift must be loud in logs but
+            # must not take the guide (or the findings run) down with it
+            log.exception("field-guide predicate %s crashed", k["id"])
+            continue
+        if hit:
+            n += db.execute_rowcount(
+                "INSERT OR IGNORE INTO feature_unlocks (person, knot, kind, seen, first_at)"
+                " VALUES (?, ?, 'tied', ?, ?)",
+                (person, k["id"], 1 if seeding else 0, db.now()),
+            )
+    return n
+
+
+def mark(person: str, knot: str) -> None:
+    """Direct tie for read-only features (search, /ask) — fire-and-forget,
+    must never break the request it rides on."""
+    with contextlib.suppress(Exception):
+        if knot not in PREDICATES or not _is_active_human(person):
+            return
+        seeding = not _has(
+            "SELECT 1 FROM feature_unlocks WHERE person = ? AND kind = 'tied'", (person,)
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO feature_unlocks (person, knot, kind, seen, first_at)"
+            " VALUES (?, ?, 'tied', ?, ?)",
+            (person, knot, 1 if seeding else 0, db.now()),
+        )
+
+
+def dismiss(person: str, knot: str) -> dict:
+    """Permanently drop a knot from this person's suggestions. The card stays
+    on their guide page; only the unprompted nudge goes quiet."""
+    if knot not in PREDICATES:
+        raise ValueError(f"unknown knot '{knot}'")
+    if not _is_active_human(person):
+        raise ValueError("pick a name first — the guide is per-person")
+    db.execute(
+        "INSERT OR IGNORE INTO feature_unlocks (person, knot, kind, seen, first_at)"
+        " VALUES (?, ?, 'dismissed', 1, ?)",
+        (person, knot, db.now()),
+    )
+    return {"dismissed": knot}
+
+
+def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict | None:
+    """One untied card, rotating weekly (deterministic — same pick all week).
+    Manager-tagged cards are never pushed; they wait on the page."""
+    candidates = [
+        k
+        for k in cards
+        if k["id"] not in tied and k["id"] not in dismissed and k.get("role") != "manager"
+    ]
+    if not candidates:
+        return None
+    week = datetime.now(timezone.utc).date().isocalendar().week
+    k = candidates[week % len(candidates)]
+    return {"id": k["id"], "feature": k["feature"], "pitch": k["pitch"], "link": k["link"]}
+
+
+def hint(person: str) -> dict:
+    """The My Day one-liner: suggestion only, NO side effects on seen state —
+    landing on My Day must never consume the guide page's 'newly tied' strip."""
+    if not _is_active_human(person):
+        return {"suggestion": None}
+    detect(person)
+    tied = set(_tied(person))
+    dismissed = {
+        r["knot"]
+        for r in db.query(
+            "SELECT knot FROM feature_unlocks WHERE person = ? AND kind = 'dismissed'",
+            (person,),
+        )
+    }
+    return {"suggestion": _suggestion(registry(), tied, dismissed)}
+
+
+def guide(person: str) -> dict:
+    """The person's own guide — and ONLY their own; there is deliberately no
+    way to read anyone else's (docs/FIELD-GUIDE.md, self-scoped forever)."""
+    named = _is_active_human(person)
+    if named:
+        detect(person)
+    tied = _tied(person) if named else {}
+    dismissed = (
+        {
+            r["knot"]
+            for r in db.query(
+                "SELECT knot FROM feature_unlocks WHERE person = ? AND kind = 'dismissed'",
+                (person,),
+            )
+        }
+        if named
+        else set()
+    )
+    cards = []
+    newly = []
+    for k in registry():
+        t = tied.get(k["id"])
+        card = {
+            "id": k["id"],
+            "feature": k["feature"],
+            "knot": k["knot"],
+            "set": k["set"],
+            "pitch": k["pitch"],
+            "how": k["how"],
+            "link": k["link"],
+            "role": k.get("role", ""),
+            "tied": t is not None,
+            "tied_on": t["first_at"][:10] if t else "",
+        }
+        cards.append(card)
+        if t and not t["seen"]:
+            newly.append({"id": k["id"], "feature": k["feature"], "knot": k["knot"]})
+    # scoped to the rows just shown — an unlock landing mid-request (a
+    # concurrent mark() or the findings sweep) must not be swallowed unseen
+    for n in newly:
+        db.execute(
+            "UPDATE feature_unlocks SET seen = 1 WHERE person = ? AND kind = 'tied' AND knot = ?",
+            (person, n["id"]),
+        )
+    return {
+        "cards": cards,
+        "newly_tied": newly,
+        "suggestion": _suggestion(registry(), set(tied), dismissed) if named else None,
+        "tied_count": len(tied),
+        "total": len(cards),
+        # false = the roster hasn't met this name yet (or it's anonymous/agent)
+        # — the UI can explain the all-untied page instead of implying deficit
+        "known": named,
+    }
+
+
+def unadopted(grace_days: int = UNADOPTED_GRACE_DAYS) -> list[dict]:
+    """Feature-keyed, nameless: cards past their grace window that NOBODY has
+    tied. Sweeps detection for all active humans first so the findings rule
+    never fires on stale lazy state. Zero-adoption only — when the count is
+    zero no individual can be singled out, which is what keeps this on the
+    right side of the anti-surveillance rule."""
+    humans = db.query(
+        "SELECT name FROM users WHERE kind = 'human' AND active = 1 AND name != 'anonymous'"
+    )
+    for h in humans:
+        detect(h["name"])
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=grace_days)).isoformat()
+    out = []
+    for k in registry():
+        if str(k["since"]) > cutoff:
+            continue
+        if not _has("SELECT 1 FROM feature_unlocks WHERE knot = ? AND kind = 'tied'", (k["id"],)):
+            out.append(
+                {
+                    "id": k["id"],
+                    "feature": k["feature"],
+                    "link": k["link"],
+                    "since": str(k["since"]),
+                }
+            )
+    return out
