@@ -3,7 +3,7 @@
 Five agent perspectives (Chief of Staff, Product Manager, AI Engineer,
 Developer Advocate, Whimsy Injector) each read FEATURES.md / ROADMAP.md /
 relevant source and proposed ranked features plus any outright fixes they
-noticed. Status: **fixes applied** in `eecc14b`. Since then (2026-07-27): **P5
+noticed. Status: **fixes applied** in `6534e96`. Since then (2026-07-27): **P5
 shipped** (standup 'yesterday' derives from your activity on My Day — CLI
 --draft flag still open), **S7-style req: capture shipped**, the
 **chat-identity contextvar fix shipped** (personas run on it), the
@@ -37,7 +37,7 @@ Everything else below remains un-implemented, pending triage.
 | C4 | **Stakeholder open-threads brief** | Read-only union over commitments.to_whom / intake.requester / questions.asked_by / events.attendees for non-team names; morning rule attaches it to external-attendee meetings | S |
 | C5 | **Decision→engagement links + cascade** | `decision_links` table; populated at record time + by scanning refs; consumed by scoped context packs, supersede/stale notifications to leads, handoffs | M |
 
-CoS fixes (1-4): **applied** in `eecc14b` (answer/resolve/disposition/close
+CoS fixes (1-4): **applied** in `6534e96` (answer/resolve/disposition/close
 notification loops).
 
 ## Product Manager — ranked for a 5-person team's first 90 days
@@ -70,7 +70,7 @@ at bootstrap; could be clearer).
 | A5 | **Proposal bundles** | bundle_id/seq on pending_changes; symbolic refs ($1.id) resolved at apply; per-bundle approval with per-step untick; atomic apply | M/L |
 
 Agent-layer fixes: #2 (phantom agents), #3 (cancel_event authority), #4
-(capture rate limit) **applied** in `eecc14b`. NOT applied (design): #1 chat
+(capture rate limit) **applied** in `6534e96`. NOT applied (design): #1 chat
 identity hardcoded `actor="agent"` — matrix/trust collapse to one identity
 for the whole chat surface (needs a contextvar; prerequisite for personas);
 #5 rejected proposals nag agent inboxes forever (acked_at column); #6 trust
@@ -105,7 +105,7 @@ normalization), F7 (`context --engagement`), F8 (`skein ask`).
 
 Whimsy fixes: 1 (hourly loading seed), 2 (selvage snap-back), 3 (dead chat
 pool), 5 (funeral coda), 6 (confetti key), 7 (UTC joke rollover), 8 (stray
-emoji) **applied** in `eecc14b`. Not applied: 4 (wave hydration — verified
+emoji) **applied** in `6534e96`. Not applied: 4 (wave hydration — verified
 current memoized design is sound; left as-is).
 
 ---
