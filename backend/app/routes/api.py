@@ -652,6 +652,12 @@ def get_agents_status(user: CurrentUser):
         "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "review_gate": config.AGENT_REVIEW,
+        # empty on mock: no Strands agent is built, so no strategy applies and
+        # claiming one would describe machinery that is not running
+        "context_strategy": (
+            config.CONTEXT_STRATEGY if config.EFFECTIVE_PROVIDER != "mock" else ""
+        ),
+        "context_error": config.CONTEXT_STRATEGY_ERROR,
     }
 
 

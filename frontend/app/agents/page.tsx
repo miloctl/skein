@@ -85,6 +85,8 @@ export default function Agents() {
     model: string;
     provider_error: string;
     review_gate: boolean;
+    context_strategy: string;
+    context_error: string;
   } | null>(null);
   const manage = useManageMode();
   const inboxGeneration = useRef(0);
@@ -96,9 +98,14 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
     api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
     api<Persona[]>("/api/personas").then(setBench).catch(() => {});
-    api<{ provider: string; model: string; provider_error: string; review_gate: boolean }>(
-      "/api/agents/status",
-    )
+    api<{
+      provider: string;
+      model: string;
+      provider_error: string;
+      review_gate: boolean;
+      context_strategy: string;
+      context_error: string;
+    }>("/api/agents/status")
       .then(setStatus)
       .catch(() => {});
     api<{ id: number; topic: string; content: string; user: string }[]>("/api/memories")
@@ -176,6 +183,15 @@ export default function Agents() {
               ? "Review gate on — every agent write waits in Inbox → Approvals"
               : "Review gate off — agent writes apply directly (authority rules still hold)"}
           </span>
+          {(status.context_strategy || status.context_error) && (
+            <span>
+              {status.context_error
+                ? `Long-chat memory misconfigured — ${status.context_error}`
+                : status.context_strategy === "summarize"
+                  ? "Long chats: older messages are summarized (costs one extra model call each time)"
+                  : "Long chats: oldest messages are dropped"}
+            </span>
+          )}
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
