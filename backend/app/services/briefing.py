@@ -252,7 +252,8 @@ def my_day(user: str) -> dict:
             ),
             "recent_activity": _human_digest(
                 db.query(
-                    "SELECT * FROM activity WHERE created_at >= ? ORDER BY id DESC LIMIT 40",
+                    "SELECT * FROM activity WHERE created_at >= ?"
+                    " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT 40",
                     (yesterday,),
                 )
             ),

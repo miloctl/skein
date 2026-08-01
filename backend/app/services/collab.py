@@ -391,7 +391,13 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
 
 
 def recent_activity(limit: int = 50) -> list[dict]:
-    return db.query("SELECT * FROM activity ORDER BY id DESC LIMIT ?", (limit,))
+    """Ordered by seq, not id. `id` is the rowid and is NOT covered by the
+    chain digest, so ordering the provenance feed by it would let the visible
+    timeline be resequenced while verification still reports intact. Legacy
+    unchained rows (seq NULL) sort to the bottom on their id."""
+    return db.query(
+        "SELECT * FROM activity ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT ?", (limit,)
+    )
 
 
 def search_notes(keyword: str = "") -> list[dict]:

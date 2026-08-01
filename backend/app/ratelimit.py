@@ -23,6 +23,7 @@ LIMITS = {
     "chat": 20,
     "write": 30,  # generic create-endpoint cap — content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call
+    "verify": 2,  # full-chain walk over an unpruned table — the priciest read
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 

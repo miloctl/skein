@@ -142,10 +142,15 @@ def get_activity():
 
 
 @router.get("/activity/verify")
-def get_activity_verify(tail: int = 0):
+def get_activity_verify(user: CurrentUser, tail: int = 0):
     """Recompute the provenance chain. The default walks every chained row,
     because a partial answer to "is the ledger intact" is not an answer.
-    tail=1 resumes from the last verified anchor for a cheap freshness check."""
+    tail=1 resumes from the last verified anchor for a cheap freshness check.
+
+    Rate-capped: activity is never pruned, so the full walk is the most
+    expensive read in the app and it grows for the life of the deployment. The
+    daily findings rule runs it unprompted, so nobody needs it on a loop."""
+    ratelimit.check("verify", user)
     return activity.verify_tail() if tail else activity.verify_chain()
 
 

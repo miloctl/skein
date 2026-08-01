@@ -4,6 +4,7 @@ shared connection instead. Schema lives in ../migrations/*.sql."""
 
 import contextlib
 import hashlib
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -14,6 +15,8 @@ from pathlib import Path
 from .config import DB_PATH
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+
+log = logging.getLogger("skein")
 
 _ambient: ContextVar[sqlite3.Connection | None] = ContextVar("skein_txn", default=None)
 
@@ -268,31 +271,35 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
     """Append to the provenance ledger, chained to the row before it.
 
     Inside an ambient transaction the enclosing BEGIN IMMEDIATE already
-    serializes the read-tail-then-insert, and a failure rolls back the
-    caller's whole write — correct, and loud. Standalone the append takes its
-    own immediate transaction and retries; if it still cannot link, the row is
-    recorded UNCHAINED rather than raising into a caller's write. A busy
-    database must not fail a write because bookkeeping could not keep up —
-    verify_chain() reports the gap for what it is.
+    serializes the read-tail-then-insert, and a failure rolls back the caller's
+    whole write — correct, and loud. Standalone the append takes its own
+    immediate transaction; if that fails, the row is recorded UNCHAINED rather
+    than raising into a caller's write.
+
+    ONE attempt, not several. BEGIN IMMEDIATE already waits out busy_timeout,
+    so every extra retry adds another full timeout to a request that is already
+    stuck — a retry budget here buys nothing and multiplies the worst-case
+    hang. The fallback is logged: an unchained row is a hole in the ledger, and
+    a hole nobody was told about is the version that matters.
     """
     created_at = now()
     ambient = _ambient.get()
     if ambient is not None:
         _append_activity(ambient, actor, action, detail, created_at)
         return
-    for _ in range(3):
-        conn = connect()
-        conn.isolation_level = None
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            _append_activity(conn, actor, action, detail, created_at)
-            conn.execute("COMMIT")
-            return
-        except sqlite3.DatabaseError:
-            with contextlib.suppress(sqlite3.DatabaseError):
-                conn.execute("ROLLBACK")
-        finally:
-            conn.close()
+    conn = connect()
+    conn.isolation_level = None
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _append_activity(conn, actor, action, detail, created_at)
+        conn.execute("COMMIT")
+        return
+    except sqlite3.DatabaseError as exc:
+        with contextlib.suppress(sqlite3.DatabaseError):
+            conn.execute("ROLLBACK")
+        log.warning("activity chain append failed (%s: %s) — recording unchained", action, exc)
+    finally:
+        conn.close()
     execute(
         "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
         (actor, action, detail, created_at),

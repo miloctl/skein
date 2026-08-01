@@ -33,7 +33,9 @@ ideation and engineering backlog.
   (`human|agent|agent_verified`) and `created_by`, and log to `activity`.
 - **Migrations are append-only.** Schema changes go in a new numbered file in
   `backend/migrations/`; never edit an applied migration or `db.py` schema
-  inline.
+  inline. A migration must never UPDATE or DELETE an `activity` row that
+  carries a `seq` — those rows are hash-chained, and a bulk rewrite breaks
+  verification permanently at the earliest row it touches.
 
 ## Commands
 

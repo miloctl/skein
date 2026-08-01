@@ -691,25 +691,32 @@ def _r_feature_unadopted() -> list[dict]:
 
 
 def _r_activity_chain() -> list[dict]:
-    """The provenance ledger disagrees with its own digests. This walks the
-    WHOLE chain, not the tail: the nightly incremental run can only vouch for
-    rows it has not yet passed, and an old row edited last week is exactly the
-    case worth catching."""
+    """The provenance ledger disagrees with itself. This walks the WHOLE chain,
+    not the nightly tail: an anchor is a claim about the past, so the
+    incremental run can only vouch for rows it has not yet passed, and an old
+    row edited last week is exactly the case worth catching. The full walk also
+    cross-checks the stored anchor and the high-water mark, so it is strictly
+    stronger than the tail run rather than a different view of it.
+
+    Reports the FIRST break only — verification stops there, because every
+    later link is computed from a value already known to be wrong."""
     from .activity import verify_chain
 
     result = verify_chain()
     if result["ok"]:
         return []
+    at = result["broken_at"]
+    where = f" at entry {at}" if at else ""
     return [
         _finding(
             "activity_chain_broken",
             "high",
-            f"The activity chain does not verify at entry {result['broken_at']}"
-            f" ({result['reason']}). A row was changed or removed after it was"
-            " written. Compare platform.db against the most recent backup in"
-            " data/backups.",
-            {"broken_at": result["broken_at"], "reason": result["reason"]},
-            subject=f"seq:{result['broken_at']}",
+            f"The activity chain does not verify{where}: {result['reason']}."
+            " A row was changed, removed, or added outside the chain after it"
+            " was written. Compare platform.db against the most recent backup"
+            " in data/backups.",
+            {"broken_at": at, "reason": result["reason"]},
+            subject=f"seq:{at}" if at else "unchained",
             window="point-in-time",
         )
     ]
