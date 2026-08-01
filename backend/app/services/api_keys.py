@@ -39,11 +39,12 @@ def request_key(user: str) -> dict:
     if not user or user == "anonymous":
         raise ValueError("pick your name first — the key is minted for it")
     if not _SAFE_NAME.fullmatch(user):
-        raise ValueError("that name can't go in a mint command — letters, digits, . - _ only")
+        raise ValueError("that name cannot go in a mint command — letters, digits, . - _ only")
     prefix = f"{user} requests a personal API key"
     message = (
-        f"{prefix} (self-asserted name — confirm it's really them, deliver the key"
-        f" out-of-band) — mint: python -m app.bootstrap_key {shlex.quote(user)}"
+        f"{prefix} (self-asserted name — check that the request really comes from"
+        f" them, then deliver the key out-of-band)"
+        f" — mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
     with db.transaction():
         pending = db.query_one(

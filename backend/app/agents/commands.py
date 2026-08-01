@@ -62,7 +62,8 @@ async def _search(args: str, user: str) -> AsyncIterator[Event]:
             )
             for h in hits[:10]
         )
-        yield {"data": f"Found {len(hits)} match(es) for “{args}”:\n\n{body}"}
+        word = "match" if len(hits) == 1 else "matches"
+        yield {"data": f"Found {len(hits)} {word} for “{args}”:\n\n{body}"}
 
 
 async def _plan(args: str, user: str) -> AsyncIterator[Event]:
@@ -131,7 +132,7 @@ async def _remember(args: str, user: str) -> AsyncIterator[Event]:
         surfaced = (
             "It will surface in future threads."
             if config.EFFECTIVE_PROVIDER != "mock"
-            else "Visible via /api/memories; it surfaces in chat once a model"
+            else "Visible via /api/memories. It surfaces in chat once a model"
             " provider is configured (mock has no system prompt)."
         )
         yield {"data": f"Remembered (#{m['id']}). {surfaced}"}
@@ -203,7 +204,7 @@ def help_text() -> str:
         for c in COMMANDS
     ]
     if config.EFFECTIVE_PROVIDER == "mock":
-        head = "**Mock agent** (no API key configured) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit affordance in the UI:"
+        head = "**Mock agent** (no API key configured) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit control in the UI:"
         rows.append(
             "| *anything else* | Smart-captured as a task, question, note, decision, or blocker |"
         )
@@ -212,7 +213,7 @@ def help_text() -> str:
             "`decision: we're using SQLite`, `blocked on vendor contract`.\n\n"
             "Set `SKEIN_MODEL_PROVIDER` in backend/.env for the full conversational "
             f"agent — one of: {', '.join(sorted(p for p in config.PROVIDERS if p != 'mock'))}. "
-            "`ollama` needs no key (free with a signed-in daemon); `openai_compatible` "
+            "`ollama` needs no key (free with a signed-in daemon). `openai_compatible` "
             "points at any OpenAI-shaped endpoint via `SKEIN_MODEL_BASE_URL`."
         )
     else:
@@ -225,7 +226,7 @@ def help_text() -> str:
 async def _unknown(name: str) -> AsyncIterator[Event]:
     close = get_close_matches(name, [c["name"] for c in COMMANDS], n=1, cutoff=0.5)
     hint = f" Did you mean `/{close[0]}`?" if close else ""
-    yield {"data": f"`/{name}` isn't a command.{hint} Type `/help` to see them all."}
+    yield {"data": f"`/{name}` is not a command.{hint} Type `/help` to see them all."}
 
 
 def dispatch(text: str, user: str) -> AsyncIterator[Event] | None:

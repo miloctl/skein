@@ -50,7 +50,7 @@ STEPS = (
         "invite_team",
         "Get a teammate in",
         "/settings",
-        "Send them the URL; they pick a name in Settings. The platform is a team sport.",
+        "Send them the URL. They pick a name in Settings. The platform is a team sport.",
         "team",
     ),
 )

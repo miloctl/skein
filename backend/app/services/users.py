@@ -24,7 +24,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
         raise ValueError(
             f"'{name}' already exists as a {existing['kind']} — bench persona"
-            " slugs can't be shared across kinds"
+            " slugs cannot be shared across kinds"
         )
     # INSERT OR IGNORE + SELECT: safe under concurrent first requests
     db.execute(

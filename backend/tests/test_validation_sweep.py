@@ -79,4 +79,4 @@ def test_close_with_open_tasks_is_loud(fresh_db):
         eng["id"], status="closed", conclusion="achieved", actor="claude"
     )
     assert out["open_tasks"] == 1
-    assert _unread_for(fresh_db, "team", "%open task(s)%")
+    assert _unread_for(fresh_db, "team", "%open task%")

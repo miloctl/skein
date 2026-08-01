@@ -201,7 +201,8 @@ def nudge_stale_wip() -> dict:
         titles = "; ".join(f"#{t['id']} {t['title']}" for t in ts[:3])
         notify(
             person,
-            f"{len(ts)} task(s) sitting in progress >{STALE_WIP_DAYS} days: {titles}."
+            f"{len(ts)} task{'' if len(ts) == 1 else 's'} in progress more than"
+            f" {STALE_WIP_DAYS} days: {titles}."
             " Still real? Split it, unblock it, or put it back in the pool.",
             tier="digest",
             link="/",

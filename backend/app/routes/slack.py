@@ -62,5 +62,5 @@ async def slack_command(request: Request):
             if "data" in event:
                 chunks.append(event["data"])
     except Exception as exc:  # a Slack-visible message beats a 500 + retry loop
-        chunks.append(f"⚠️ that didn't land: {exc}")
+        chunks.append(f"⚠️ that did not land: {exc}")
     return {"response_type": "ephemeral", "text": "\n".join(chunks) or "(no output)"}

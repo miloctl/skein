@@ -186,8 +186,8 @@ const CONCLUSIONS = [
 const CONCLUSION_HINTS: Record<string, string> = {
   achieved: "the outcome landed",
   partial: "some of it landed",
-  missed: "the outcome didn't land",
-  invalidated: "the experiment disproved the idea — on time, that's a win",
+  missed: "the outcome did not land",
+  invalidated: "the experiment disproved the idea — on time, that is a win",
   unmeasured: "closed without measuring the outcome",
   stopped: "halted early on purpose",
 };
@@ -356,7 +356,7 @@ export default function Dashboard() {
       >
         <SectionTabs set="work" />
         <p className="text-sm text-danger">
-        Could not reach the backend at {API_URL} — is it running? ({error})
+        Cannot reach the backend at {API_URL} — make sure that it runs, then refresh. ({error})
         <button onClick={load} className="ml-2 underline">
           retry
         </button>
@@ -581,7 +581,7 @@ export default function Dashboard() {
           Time away
         </h2>
         <p className="mb-2 text-xs text-ink-3">
-          PTO zeroes someone out of capacity and the weekly plan; on-call and
+          PTO zeroes someone out of capacity and the weekly plan. On-call and
           focus are advisory context for staffing calls.
         </p>
         <div className="mb-3 flex flex-wrap items-end gap-1.5 text-xs">
@@ -656,11 +656,11 @@ export default function Dashboard() {
                   <span className="flex shrink-0 gap-3 md:gap-1.5">
                     <button
                       autoFocus
-                      aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on} for good`}
+                      aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on} for good`}
                       onClick={() => deleteAbsence(Number(a.id))}
                       className="rounded bg-danger px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
                     >
-                      remove for good
+                      delete for good
                     </button>
                     <button
                       onClick={() => setDeletingAbsence(null)}
@@ -671,11 +671,11 @@ export default function Dashboard() {
                   </span>
                 ) : (
                   <button
-                    aria-label={`Remove ${a.person}'s ${a.kind} ${a.starts_on}`}
+                    aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on}`}
                     onClick={() => setDeletingAbsence(Number(a.id))}
                     className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
                   >
-                    remove…
+                    delete…
                   </button>
                 )}
               </li>

@@ -91,7 +91,7 @@ def capture(
         if len(text.splitlines()) > 1:
             raise ValueError(
                 "fb: lines must be captured alone — they are private and the"
-                " rest of this text would be team-visible. Use /ingest for"
+                " rest of a capture is team-visible. Use /ingest for"
                 " multi-line notes (fb: lines are skipped there)."
             )
         if origin != "human":

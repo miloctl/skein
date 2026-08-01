@@ -110,7 +110,7 @@ def test_bench_slugs_are_reserved_names(client, fresh_db):
         "INSERT INTO users (name, kind, created_at) VALUES ('growth-mentor', 'human', '2026-01-01')"
     )
     out = _read_chat(client, "/as growth-mentor hello there")
-    assert "can't be shared across kinds" in out
+    assert "cannot be shared across kinds" in out
 
 
 def test_persona_session_suffix_survives_long_thread_ids(client):

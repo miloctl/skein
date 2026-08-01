@@ -11,6 +11,10 @@ from pathlib import Path
 from .. import config, db
 
 
+def _n(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
 def _clean(text: str, width: int = 80) -> str:
     """User text goes into markdown bullets — a newline in a promise must not
     forge a section header in the packet."""
@@ -127,20 +131,21 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
             lines += [f"## {title}", *rows, ""]
             total += len(rows)
     if total == 0:
-        lines.append("Nothing dangling. Close the laptop; the week is settled.")
+        lines.append("Nothing dangling. Close the laptop — the week is settled.")
 
     markdown = "\n".join(lines)
     path = _write_artifact("week-close", f"Week close-out {today.isoformat()}", markdown, actor)
-    db.log_activity(actor, "week_close", f"{total} open item(s)")
+    db.log_activity(actor, "week_close", _n(total, "open item"))
     if total:
         from .notifications import notify
 
         notify(
             "team",
-            f"Week close-out: {total} item(s) need a decision before Monday"
-            f" — {len(due_commitments)} promise(s), {len(stuck_closing)} stuck"
-            f" engagement(s), {len(stale_proposals)} stale proposal(s),"
-            f" {len(open_questions)} open question(s).",
+            f"Week close-out: {_n(total, 'item')} need{'s' if total == 1 else ''}"
+            f" a decision before Monday — {_n(len(due_commitments), 'promise')},"
+            f" {_n(len(stuck_closing), 'stuck engagement')},"
+            f" {_n(len(stale_proposals), 'stale proposal')},"
+            f" {_n(len(open_questions), 'open question')}.",
             tier="digest",
             link="/portfolio",
         )
@@ -197,7 +202,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         if n == 0:
             continue
         briefed += 1
-        lines.append(f"## {name} — {n} obligation(s)")
+        lines.append(f"## {name} — {_n(n, 'obligation')}")
         lines += [
             f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
@@ -214,16 +219,17 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         lines.append("")
         parts = []
         if commitments:
-            parts.append(f"{len(commitments)} promise(s)")
+            parts.append(_n(len(commitments), "promise"))
         if decisions:
-            parts.append(f"{len(decisions)} stale decision(s)")
+            parts.append(_n(len(decisions), "stale decision"))
         if questions:
-            parts.append(f"{len(questions)} question(s)")
+            parts.append(_n(len(questions), "question"))
         if tasks:
-            parts.append(f"{len(tasks)} task(s) due")
+            parts.append(f"{_n(len(tasks), 'task')} due")
         notify(
             name,
-            f"Your week: {', '.join(parts)} carry your name. Details on My Day.",
+            f"Your week: {', '.join(parts)} carr{'ies' if n == 1 else 'y'}"
+            " your name. Details on My Day.",
             tier="digest",
             link="/",
         )
@@ -237,7 +243,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         (horizon,),
     )
     if agent_recorded:
-        lines.append(f"## Recorded by agents — {len(agent_recorded)} promise(s) need an owner")
+        lines.append(
+            f"## Recorded by agents — {_n(len(agent_recorded), 'promise')}"
+            f" need{'s' if len(agent_recorded) == 1 else ''} an owner"
+        )
         lines += [
             f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
@@ -249,5 +258,5 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
 
     markdown = "\n".join(lines)
     path = _write_artifact("week-open", f"Week open {today.isoformat()}", markdown, actor)
-    db.log_activity(actor, "week_open", f"{briefed} person(s) briefed")
+    db.log_activity(actor, "week_open", f"{_n(briefed, 'person')} briefed")
     return {"week": week, "briefed": briefed, "path": path, "markdown": markdown}

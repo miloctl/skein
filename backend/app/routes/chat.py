@@ -183,8 +183,8 @@ async def chat(req: ChatRequest, user: CurrentUser):
             yield _sse(
                 {
                     "type": "text",
-                    "text": "Feedback notes are private — chat would send them"
-                    " to the model and session log. Use ⌘K capture or the"
+                    "text": "Feedback notes are private — chat sends messages"
+                    " to the model and the session log. Use ⌘K capture or the"
                     " People page instead.",
                 }
             )

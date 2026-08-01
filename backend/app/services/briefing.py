@@ -32,7 +32,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "ref_id": b["id"],
                 "group": "unblock",
                 "label": f"blocker #{b['id']}: {b['title']}",
-                "reason": f"you own it; impact {b['impact']} — it escalates on a clock",
+                "reason": f"you own it (impact {b['impact']}) — it escalates on a clock",
                 "link": "/dashboard",
             }
         )

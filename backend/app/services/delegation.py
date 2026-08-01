@@ -222,7 +222,7 @@ def set_authority(
     if expected_current and authority_level(agent, entity) != expected_current:
         raise ValueError(
             f"{agent}/{entity} is now '{authority_level(agent, entity)}',"
-            f" not '{expected_current}' — this proposal is stale; re-run the review"
+            f" not '{expected_current}' — this proposal is stale. Re-run the review"
         )
     # the kill switch must not be self-serviceable: an agent identity (e.g. a
     # key issued to one) can never grant or lift authority — humans only
@@ -385,7 +385,8 @@ def review_authority(*, actor: str = "scheduler") -> dict:
 
         notify(
             "team",
-            f"{len(filed)} authority change(s) proposed from review history —"
+            f"{len(filed)} authority change{'' if len(filed) == 1 else 's'}"
+            " proposed from review history —"
             " promote or demote in Inbox → Approvals.",
             tier="digest",
             link="/review",

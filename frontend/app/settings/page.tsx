@@ -128,7 +128,7 @@ export default function SettingsPage() {
     const candidate = keyDraft.trim();
     if (!candidate) return;
     if (!candidate.startsWith("sk-skein-")) {
-      setKeyStatus("❌ that doesn't look like a Skein key — they start with sk-skein-");
+      setKeyStatus("❌ that is not a Skein key — keys start with sk-skein-");
       return;
     }
     setKeyStatus("testing…");
@@ -310,9 +310,9 @@ export default function SettingsPage() {
       <Section title="1 · Identity">
         <p className="mb-2 text-sm text-ink-3">
           Your name attributes everything you create (tasks, standups,
-          captures). It works on the honor system inside the team network —
-          fine for team-visible work, not enough for the private 1:1s page
-          or admin export (step 2 covers those).
+          captures). It works on the honor system inside the team network.
+          That is fine for team-visible work, but not enough for the private
+          1:1s page or admin export (step 2 covers those).
         </p>
         <p className="mb-2 text-sm">
           Current:{" "}
@@ -342,7 +342,7 @@ export default function SettingsPage() {
       <Section title="2 · Personal API key (private surfaces + CLI)">
         <p className="mb-2 text-sm text-ink-3">
           The 1:1s page (private prep, feedback journal) and admin export need a
-          key — a spoofable name isn&apos;t enough for private data. The key
+          key — a spoofable name is not enough for private data. The key
           also powers the CLI and git hooks.
         </p>
         <p className="mb-3 text-sm">
@@ -373,7 +373,7 @@ export default function SettingsPage() {
               <>
                 <p className="mb-2">
                   {who === null
-                    ? "Can't verify your key status right now (the stored key may be revoked). Ask whoever runs the server for a fresh one."
+                    ? "Cannot check the key status right now — the stored key is possibly revoked. Ask whoever runs the server for a fresh one."
                     : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
                 </p>
                 <button
@@ -413,9 +413,9 @@ export default function SettingsPage() {
               </>
             ) : (
               <p>
-                A key exists for {who.user} — paste it below. Lost it? Keys are
-                shown only once; ask for a new one to be minted (same command),
-                or revoke old ones from the CLI.
+                A key exists for {who.user} — paste it below. Lost it? Keys
+                show only once. Ask whoever runs the server to mint a new one
+                (same command), or revoke old ones from the CLI.
               </p>
             )}
           </div>
@@ -459,15 +459,16 @@ export default function SettingsPage() {
 
       <Section title="3 · Growth interests (optional)">
         <p className="mb-2 text-sm text-ink-3">
-          Self-declared; shown in staffing what-ifs so interesting work finds
-          you. Display-only — never scored, never matched automatically.
+          You declare these yourself. They appear in staffing what-ifs so
+          interesting work finds you. Display-only — never scored, never
+          matched automatically.
         </p>
         <div className="flex gap-2">
           <input
             value={interests}
             onChange={(e) => setInterests(e.target.value)}
             aria-label="Growth interests"
-            placeholder="e.g. RAG evaluation, incident command, design reviews"
+            placeholder="for example: RAG evaluation, incident command, design reviews"
             className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
           />
           <button
@@ -529,7 +530,7 @@ export default function SettingsPage() {
       <Section title="5 · Calendar feed (optional)">
         <p className="mb-2 text-sm text-ink-3">
           Subscribe your calendar app to team events + milestone/commitment
-          due dates. Use a local calendar client — hosted ones (Google) would
+          due dates. Use a local calendar client — hosted clients (Google)
           mirror titles off-LAN.
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
@@ -747,7 +748,7 @@ export default function SettingsPage() {
                   onClick={() => {
                     const ok = applyThemeCode(codeDraft.trim());
                     setCodeStatus(
-                      ok ? "Applied." : "That doesn't look like a theme code — check the paste.",
+                      ok ? "Applied." : "That is not a valid theme code — check the paste.",
                     );
                     if (ok) setCodeDraft("");
                   }}
@@ -794,10 +795,10 @@ export default function SettingsPage() {
 
       <Section title="Team roster">
         <p className="mb-2 text-sm text-ink-3">
-          Everyone who has picked a name here. Deactivating removes a typo or
-          departed teammate from the roster and counts, and revokes their API
-          keys — history stays attributed. Requires a working API key (step
-          2).
+          Everyone who has picked a name here. Deactivate a name to remove a
+          typo or a departed teammate from the roster and the counts. This
+          also revokes their API keys — history stays attributed. Requires a
+          working API key (step 2).
         </p>
         <h3 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Teammates
@@ -815,9 +816,9 @@ export default function SettingsPage() {
             <p className="mb-2 text-xs text-ink-3">
               Created automatically the first time an agent writes — the
               Chief-of-Staff and any bench persona someone has called with{" "}
-              <code>/as</code>. Not teammates; they exist so every write stays
-              attributed. Deactivating one retires the name but keeps its
-              history.
+              <code>/as</code>. Not teammates — they exist so every write stays
+              attributed. Deactivate one to retire the name — its history
+              stays.
             </p>
             <ul className="space-y-1">{rosterRows(roster.filter((u) => u.kind === "agent"))}</ul>
           </>
@@ -861,9 +862,8 @@ export default function SettingsPage() {
 
       <Section title="Field guide">
         <p className="text-sm text-ink-2">
-          Every Skein feature as a card — tied once you&apos;ve used it, with
-          the how-to on the ones you haven&apos;t. Only you can see your
-          guide.{" "}
+          Every Skein feature as a card — tied once you use it, with the
+          how-to on the rest. Only you can see your guide.{" "}
           <Link href="/guide" className="font-medium underline">
             Open the field guide
           </Link>

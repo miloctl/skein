@@ -27,7 +27,7 @@ def test_dispatch_non_command_slash_falls_through():
 
 def test_unknown_command_gets_suggestion(client):
     out = _read_chat(client, "/hlp")
-    assert "isn't a command" in out
+    assert "is not a command" in out
     assert "/help" in out
 
 

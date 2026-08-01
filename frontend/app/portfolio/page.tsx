@@ -81,7 +81,7 @@ export default function Portfolio() {
     // every card's failure reaches the banner — a failed fetch rendering
     // "Nobody is over 100%" would be a confident lie, not an empty state
     const fail = (what: string) => (e: Error) =>
-      setBanner(`Load failed (${what}): ${e.message ?? e}`);
+      setBanner(`Cannot load ${what}: ${e.message ?? e}`);
     api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("health"));
     api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("conflicts"));
     api<Flow>("/api/portfolio/flow").then(setFlow).catch(fail("flow"));
@@ -213,7 +213,9 @@ export default function Portfolio() {
               }
               className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              {busy ? "Planning…" : `Add ${draft.items.length} task(s) to the plan`}
+              {busy
+                ? "Planning…"
+                : `Add ${draft.items.length} task${draft.items.length === 1 ? "" : "s"} to the plan`}
             </button>
           )}
         </div>
@@ -297,7 +299,8 @@ export default function Portfolio() {
       ) : (
           <>
             <p className="mb-2 text-xs text-ink-3">
-              Based on {forecast.basis.milestones_measured} completed milestone(s), avg slip{" "}
+              Based on {forecast.basis.milestones_measured} completed milestone
+              {forecast.basis.milestones_measured === 1 ? "" : "s"}, avg slip{" "}
               {forecast.basis.avg_slip_days}d.
             </p>
             {forecast.forecasts.length === 0 ? (
@@ -393,7 +396,7 @@ export default function Portfolio() {
           <p className="mb-2 text-xs text-ink-3">
             Monday brief (everyone gets their own obligations) and Friday
             close-out (what the week leaves dangling). The scheduler runs
-            these weekly; run one now to see the packet.
+            these weekly. Run one now to see the packet.
           </p>
           <div className="flex gap-2">
             {(["week-open", "week-close"] as const).map((r) => (

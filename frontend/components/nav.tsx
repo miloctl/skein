@@ -236,7 +236,7 @@ export function Nav() {
                 </Link>
                 <p className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3">
                   {anonymous
-                    ? "No name picked — writes won't be yours"
+                    ? "No name picked — writes will not be yours"
                     : hasKey
                       ? "Strong identity active"
                       : "Weak identity — no API key"}

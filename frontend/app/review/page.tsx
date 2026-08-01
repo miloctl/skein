@@ -129,8 +129,8 @@ export default function ReviewPage() {
       <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Proposed changes from agents (and cautious humans). Approving applies
-        the change and records that a human verified it.
+        Proposed changes from agents (and cautious humans). When you approve,
+        Skein applies the change and records that a human verified it.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
 
@@ -291,7 +291,7 @@ export default function ReviewPage() {
                       setAsking({ id: c.id, verb: "approve" });
                       setAskNote("");
                     }}
-                    title={`You're not the sponsor — your reason goes on the record and the verdict won't count toward ${c.proposed_by}'s trust streak`}
+                    title={`You are not the sponsor — your reason goes on the record and the verdict will not count toward ${c.proposed_by}'s trust streak`}
                     className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
                     Accept for {c.sponsor}…

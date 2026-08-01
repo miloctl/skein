@@ -69,9 +69,9 @@ export default function CharterPage() {
       <SectionTabs set="team" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Team charter & decision rights</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Mission, ownership, escalation rules, working agreements — recorded as
-        decisions with review dates, so they get reconfirmed or superseded
-        instead of silently rotting.
+        Mission, ownership, escalation rules, and working agreements live
+        here as decisions with review dates. Each one gets reconfirmed or
+        superseded instead of silently rotting.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
 
@@ -81,7 +81,7 @@ export default function CharterPage() {
           maxLength={200}
           aria-label="Charter entry title"
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Production incident escalation path"
+          placeholder="for example: Production incident escalation path"
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
         <textarea
