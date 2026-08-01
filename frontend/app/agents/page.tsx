@@ -83,6 +83,7 @@ export default function Agents() {
   const [status, setStatus] = useState<{
     provider: string;
     model: string;
+    provider_error: string;
     review_gate: boolean;
   } | null>(null);
   const manage = useManageMode();
@@ -95,7 +96,9 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
     api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
     api<Persona[]>("/api/personas").then(setBench).catch(() => {});
-    api<{ provider: string; model: string; review_gate: boolean }>("/api/agents/status")
+    api<{ provider: string; model: string; provider_error: string; review_gate: boolean }>(
+      "/api/agents/status",
+    )
       .then(setStatus)
       .catch(() => {});
     api<{ id: number; topic: string; content: string; user: string }[]>("/api/memories")
@@ -155,12 +158,18 @@ export default function Agents() {
               aria-hidden
               className={
                 "mr-1.5 inline-block size-2 rounded-full " +
-                (status.provider === "mock" ? "bg-line-strong" : "bg-ok")
+                (status.provider_error
+                  ? "bg-danger"
+                  : status.provider === "mock"
+                    ? "bg-line-strong"
+                    : "bg-ok")
               }
             />
-            {status.provider === "mock"
-              ? "Deterministic mode — no AI model connected; chat commands and smart capture still work"
-              : `Model: ${status.model} (${status.provider})`}
+            {status.provider_error
+              ? `Model misconfigured — ${status.provider_error}. Running deterministic until it is fixed.`
+              : status.provider === "mock"
+                ? "Deterministic mode — no AI model connected; chat commands and smart capture still work"
+                : `Model: ${status.model} (${status.provider})`}
           </span>
           <span>
             {status.review_gate

@@ -22,5 +22,5 @@ def narrate(markdown: str) -> str:
 
 
 def register_narrator() -> None:
-    if config.MODEL_PROVIDER != "mock":
+    if config.EFFECTIVE_PROVIDER != "mock":
         digest.set_narrator(narrate)

@@ -1,31 +1,82 @@
 """The Chief-of-Staff orchestrator, its planner specialist, and the keyless
 mock fallback. All three speak the same stream_async protocol to the chat route."""
 
+import os
 from datetime import datetime, timezone
+from typing import Any
 
 from .. import config
 
 
 def _model():
-    """Build the configured model provider (anthropic | openai | ollama)."""
-    if config.MODEL_PROVIDER == "openai":
+    """Build the configured model provider. THE only place in the codebase
+    that branches on a provider name — everything else reads a capability off
+    config.PROVIDERS or asks config.EFFECTIVE_PROVIDER.
+
+    Raises on a bad provider rather than falling through to a default. The
+    caller (routes/chat.py) turns that into an SSE error frame the operator
+    reads in the chat pane, while every deterministic surface stays up.
+    """
+    provider = config.EFFECTIVE_PROVIDER
+    if config.MODEL_PROVIDER_ERROR:
+        raise ValueError(config.MODEL_PROVIDER_ERROR)
+
+    if provider in ("openai", "openai_compatible"):
         from strands.models.openai import OpenAIModel
 
-        return OpenAIModel(model_id=config.MODEL_ID)
-    if config.MODEL_PROVIDER == "ollama":
-        from strands.models.ollama import OllamaModel
+        client_args: dict[str, Any] = {}
+        if config.MODEL_BASE_URL:
+            client_args["base_url"] = config.MODEL_BASE_URL
+        if key := (config.MODEL_API_KEY or os.getenv("OPENAI_API_KEY", "")):
+            client_args["api_key"] = key
+        elif provider == "openai_compatible":
+            # most local servers ignore it, but the openai client demands one
+            client_args["api_key"] = "not-needed"
+        # No max_tokens here on purpose: the SDK splats params straight into
+        # chat.completions.create, and reasoning models (gpt-5 included)
+        # reject max_tokens in favour of max_completion_tokens. Injecting it
+        # would turn a working provider into a hard 400, so an output cap is
+        # opt-in through SKEIN_MODEL_PARAMS.
+        return OpenAIModel(client_args=client_args, model_id=config.MODEL_ID, **_params())
 
+    if provider == "ollama":
         client_args = {}
         if config.OLLAMA_API_KEY:
             client_args["headers"] = {"Authorization": f"Bearer {config.OLLAMA_API_KEY}"}
+        from strands.models.ollama import OllamaModel
+
         return OllamaModel(
             host=config.OLLAMA_HOST,
             ollama_client_args=client_args,
             model_id=config.MODEL_ID,
+            max_tokens=config.MAX_TOKENS,
+            **config.MODEL_PARAMS,
         )
-    from strands.models.anthropic import AnthropicModel
 
-    return AnthropicModel(model_id=config.MODEL_ID, max_tokens=config.MAX_TOKENS)
+    if provider == "bedrock":
+        from strands.models.bedrock import BedrockModel
+
+        return BedrockModel(
+            model_id=config.MODEL_ID, max_tokens=config.MAX_TOKENS, **config.MODEL_PARAMS
+        )
+
+    if provider == "anthropic":
+        from strands.models.anthropic import AnthropicModel
+
+        client_args = {"api_key": config.MODEL_API_KEY} if config.MODEL_API_KEY else {}
+        return AnthropicModel(
+            client_args=client_args,
+            model_id=config.MODEL_ID,
+            max_tokens=config.MAX_TOKENS,
+            **_params(),
+        )
+
+    raise ValueError(f"no model builder for provider {provider!r}")
+
+
+def _params() -> dict:
+    """params= for the providers that take a passthrough dict."""
+    return {"params": config.MODEL_PARAMS} if config.MODEL_PARAMS else {}
 
 
 PLANNER_PROMPT = """You are the planning specialist for an AI team platform.
@@ -93,7 +144,13 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations via FileSessionManager.
     A persona swaps the head (system prompt + identity), never the tools."""
-    if config.MODEL_PROVIDER == "mock":
+    # A misconfigured provider must NOT quietly become the mock agent — that
+    # is the failure where the UI looks healthy and answers are fabricated.
+    # Raise; routes/chat.py renders it as an error in the chat pane.
+    if config.MODEL_PROVIDER_ERROR:
+        raise ValueError(config.MODEL_PROVIDER_ERROR)
+
+    if config.EFFECTIVE_PROVIDER == "mock":
         from .mock_agent import MockAgent
 
         return MockAgent(thread_id, user, persona=persona)

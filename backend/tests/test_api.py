@@ -89,7 +89,7 @@ def test_team_default_theme(client):
 
 def test_agents_status_shape(client):
     s = client.get("/api/agents/status").json()
-    assert set(s) == {"provider", "model", "review_gate"}
+    assert set(s) == {"provider", "model", "provider_error", "review_gate"}
     assert s["provider"] == "mock" and s["model"] == ""
 
 

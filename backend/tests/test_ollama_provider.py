@@ -6,6 +6,9 @@ def _build(monkeypatch, host, key):
     from app.agents import team_agent
 
     monkeypatch.setattr(config, "MODEL_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "MODEL_PARAMS", {})
     monkeypatch.setattr(config, "MODEL_ID", "gpt-oss:120b-cloud")
     monkeypatch.setattr(config, "OLLAMA_HOST", host)
     monkeypatch.setattr(config, "OLLAMA_API_KEY", key)
@@ -27,6 +30,6 @@ def test_ollama_cloud_direct_with_key(monkeypatch):
 
 
 def test_ollama_default_model_id():
-    from app.config import _DEFAULT_MODELS
+    from app.config import PROVIDERS
 
-    assert _DEFAULT_MODELS["ollama"] == "gpt-oss:120b-cloud"
+    assert PROVIDERS["ollama"]["default_model"] == "gpt-oss:120b-cloud"

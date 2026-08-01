@@ -635,7 +635,8 @@ def get_agents_status(user: CurrentUser):
 
     return {
         "provider": config.MODEL_PROVIDER,
-        "model": config.MODEL_ID if config.MODEL_PROVIDER != "mock" else "",
+        "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
+        "provider_error": config.MODEL_PROVIDER_ERROR,
         "review_gate": config.AGENT_REVIEW,
     }
 
