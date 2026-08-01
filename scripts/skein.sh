@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Skein lifecycle: start/stop/restart/status/logs detached, or dev in the
-# foreground. State lives in .run/ (gitignored): one pidfile and one log per
-# service.
+# Skein lifecycle. State lives in .run/ (gitignored): one pidfile and one log
+# per service.
 #
-#   ./skein.sh start          # detached; survives closing the terminal
-#   ./skein.sh stop
-#   ./skein.sh restart
-#   ./skein.sh status
-#   ./skein.sh logs [backend|frontend]
-#   ./skein.sh dev            # both in the foreground, Ctrl-C stops them
+#   ./scripts/skein.sh start          # detached; survives closing the terminal
+#   ./scripts/skein.sh stop
+#   ./scripts/skein.sh restart
+#   ./scripts/skein.sh status
+#   ./scripts/skein.sh logs [backend|frontend]
+#   ./scripts/skein.sh dev            # both in the foreground, Ctrl-C stops them
 #
-# Ports follow the same env vars docker-compose uses.
+# Ports: SKEIN_BACKEND_PORT (default 8000), SKEIN_FRONTEND_PORT (default 3000).
+# Note SKEIN_BACKEND_PORT is local to this script — docker-compose hardcodes
+# 8000:8000 and only honours SKEIN_FRONTEND_PORT.
+#
+# Linux/WSL2 only: needs setsid for process groups and /proc for the pid-reuse
+# guard. On macOS use `docker compose up` instead.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
@@ -24,40 +28,109 @@ c_ok=$'\033[32m'; c_bad=$'\033[31m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
 
 die() { printf '%serror:%s %s\n' "$c_bad" "$c_off" "$*" >&2; exit 1; }
 
+usage() {
+  cat <<'EOF'
+skein — run the app for local dev
+
+  ./scripts/skein.sh start          detached; survives closing the terminal
+  ./scripts/skein.sh stop
+  ./scripts/skein.sh restart
+  ./scripts/skein.sh status
+  ./scripts/skein.sh logs [backend|frontend]
+  ./scripts/skein.sh dev            foreground; Ctrl-C stops both
+
+Ports: SKEIN_BACKEND_PORT (8000), SKEIN_FRONTEND_PORT (3000)
+EOF
+}
+
 port_of() { [ "$1" = backend ] && echo "$BACKEND_PORT" || echo "$FRONTEND_PORT"; }
+pidfile() { echo "$RUN/$1.pid"; }
+logfile() { echo "$RUN/$1.log"; }
 
 # Is anything LISTENing on this port? Deliberately not bash's /dev/tcp: under
 # WSL2 a connect to a closed loopback port hangs instead of returning
-# ECONNREFUSED, which wedges the whole script. ss reads the socket table and
-# cannot block; the /dev/tcp fallback is timeout-guarded for the same reason.
+# ECONNREFUSED, which wedges the script. ss reads the socket table and cannot
+# block.
 port_busy() {
   if command -v ss >/dev/null 2>&1; then
     ss -ltnH "sport = :$1" 2>/dev/null | grep -q .
   else
-    timeout 1 bash -c "(exec 3<>/dev/tcp/127.0.0.1/$1)" 2>/dev/null
+    lsof -iTCP:"$1" -sTCP:LISTEN -t >/dev/null 2>&1
   fi
 }
 
-pidfile() { echo "$RUN/$1.pid"; }
-logfile() { echo "$RUN/$1.log"; }
+# Field 22 of /proc/PID/stat: process start time in clock ticks since boot.
+# Unique per pid *instance*, so it distinguishes our service from whatever
+# inherited the number after a reboot. The sub() is load-bearing — comm can
+# contain spaces ("npm run dev --p"), which breaks naive field indexing.
+starttime() { awk '{ sub(/^[0-9]+ \(.*\) /, ""); print $20 }' "/proc/$1/stat" 2>/dev/null; }
 
+raw_pid() {
+  local f; f=$(pidfile "$1")
+  [ -f "$f" ] || return 1
+  local p rest
+  read -r p rest <"$f" 2>/dev/null || return 1
+  [ -n "${p:-}" ] || return 1
+  echo "$p"
+}
+
+# The recorded pid, only if it is still the same process instance we started.
 read_pid() {
   local f; f=$(pidfile "$1")
   [ -f "$f" ] || return 1
-  local p; p=$(cat "$f" 2>/dev/null) || return 1
-  [ -n "$p" ] && kill -0 "$p" 2>/dev/null && echo "$p"
+  local p recorded current
+  read -r p recorded <"$f" 2>/dev/null || return 1
+  [ -n "${p:-}" ] || return 1
+  current=$(starttime "$p") || return 1
+  [ -n "$current" ] || return 1
+  # no recorded starttime = pidfile from an older version; refuse to trust it
+  [ -n "${recorded:-}" ] && [ "$current" = "$recorded" ] || return 1
+  echo "$p"
+}
+
+group_alive() { kill -0 -"$1" 2>/dev/null; }
+
+# Pidfiles written before the reuse guard hold a bare pid with no start time.
+# Adopt them once — if the pid is alive and its group still looks like ours —
+# rather than reporting a running service as orphaned.
+adopt_legacy() {
+  local name=$1 f p rest
+  f=$(pidfile "$name")
+  [ -f "$f" ] || return 0
+  read -r p rest <"$f" 2>/dev/null || return 0
+  [ -n "${p:-}" ] && [ -z "${rest:-}" ] || return 0
+  if kill -0 "$p" 2>/dev/null && group_is_ours "$p"; then
+    printf '%s %s\n' "$p" "$(starttime "$p")" >"$f"
+  fi
+}
+
+# Does this process group still look like one of ours? Used only when the
+# leader has died and the children outlived it, where starttime can no longer
+# vouch for identity — without this the orphan path could group-kill a
+# recycled pid.
+group_is_ours() {
+  pgrep -g "$1" -f 'uvicorn|next-server|next dev|npm run dev' >/dev/null 2>&1
 }
 
 preflight() {
-  [ -x backend/.venv/bin/uvicorn ] || die "backend venv missing — cd backend && uv venv .venv && uv pip install -e '.[dev]' --python .venv/bin/python"
+  [ -d /proc ] || die "needs /proc (Linux/WSL2). On macOS use: docker compose up --build"
+  command -v setsid >/dev/null 2>&1 || die "needs setsid (util-linux). On macOS use: docker compose up --build"
+  command -v ss >/dev/null 2>&1 || command -v lsof >/dev/null 2>&1 ||
+    die "needs ss or lsof to check ports"
+  [ -x backend/.venv/bin/uvicorn ] ||
+    die "backend venv missing — cd backend && uv venv .venv && uv pip install -e '.[dev]' --python .venv/bin/python"
   [ -d frontend/node_modules ] || die "frontend deps missing — cd frontend && npm ci"
+  for p in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+    case $p in ''|*[!0-9]*) die "port must be numeric, got '$p'" ;; esac
+  done
 }
 
 start_one() {
   local name=$1 port cmd
   port=$(port_of "$name")
-  if read_pid "$name" >/dev/null; then
-    printf '  %s already running (pid %s)\n' "$name" "$(read_pid "$name")"
+  local existing
+  if existing=$(read_pid "$name"); then
+    printf '  %s already running (pid %s)\n' "$name" "$existing"
     return 0
   fi
   # a stale pidfile is fine, but something else on the port is not — starting
@@ -67,32 +140,53 @@ start_one() {
   fi
   rm -f "$(pidfile "$name")"
   case $name in
-    backend)  cmd="exec .venv/bin/uvicorn app.main:app --port $BACKEND_PORT --reload" ;;
-    frontend) cmd="exec npm run dev -- --port $FRONTEND_PORT" ;;
+    backend)  cmd=(.venv/bin/uvicorn app.main:app --port "$port" --reload) ;;
+    frontend) cmd=(npm run dev -- --port "$port") ;;
+    *) die "unknown service '$name'" ;;
   esac
+  # keep one previous session's log rather than appending forever
+  mv -f "$(logfile "$name")" "$(logfile "$name").1" 2>/dev/null || true
   # setsid so the service leads its own process group: uvicorn --reload and
-  # next dev both fork children, and killing the group is the only way to
-  # reliably take the whole tree down later.
-  setsid bash -c "cd '$ROOT/$name' && $cmd" >>"$(logfile "$name")" 2>&1 </dev/null &
-  echo $! >"$(pidfile "$name")"
-  printf '  %s starting (pid %s, port %s)\n' "$name" "$!" "$port"
+  # next dev both fork children, and killing the group is the only way to take
+  # the whole tree down later. Args are passed positionally so a repo path
+  # containing a quote or space cannot break out of the shell string.
+  setsid bash -c 'cd "$1" && shift && exec "$@"' _ "$ROOT/$name" "${cmd[@]}" \
+    >>"$(logfile "$name")" 2>&1 </dev/null &
+  local pid=$!
+  printf '%s %s\n' "$pid" "$(starttime "$pid")" >"$(pidfile "$name")"
+  printf '  %s starting (pid %s, port %s)\n' "$name" "$pid" "$port"
 }
 
 stop_one() {
-  local name=$1 pid
-  if ! pid=$(read_pid "$name"); then
+  local name=$1 pid="" mode=""
+  if pid=$(read_pid "$name"); then
+    mode=ours
+  elif pid=$(raw_pid "$name") && group_alive "$pid" && group_is_ours "$pid"; then
+    # leader died (OOM, stray kill) but its children still hold the port
+    mode=orphaned
+  else
+    local stale; stale=$(raw_pid "$name" 2>/dev/null || true)
     rm -f "$(pidfile "$name")"
-    printf '  %s not running\n' "$name"
+    if [ -n "$stale" ]; then
+      printf '  %s not running (pid %s is not ours — stale pidfile cleared)\n' "$name" "$stale"
+    else
+      printf '  %s not running\n' "$name"
+    fi
     return 0
   fi
-  kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-  for _ in $(seq 1 40); do
-    kill -0 "$pid" 2>/dev/null || break
+
+  [ "$mode" = orphaned ] && printf '  %s leader gone, killing orphaned group %s\n' "$name" "$pid"
+  kill -TERM -"$pid" 2>/dev/null || true
+  # wait on the GROUP, not the leader: uvicorn's parent can exit on TERM while
+  # a worker keeps the port, and watching only the leader would skip the KILL
+  local waited=0
+  while [ "$waited" -lt 40 ] && group_alive "$pid"; do
     sleep 0.25
+    waited=$((waited + 1))
   done
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-    printf '  %s killed (pid %s did not exit on TERM)\n' "$name" "$pid"
+  if group_alive "$pid"; then
+    kill -KILL -"$pid" 2>/dev/null || true
+    printf '  %s killed (group %s did not exit on TERM)\n' "$name" "$pid"
   else
     printf '  %s stopped\n' "$name"
   fi
@@ -108,16 +202,18 @@ wait_healthy() {
       printf '\n'
       return 0
     fi
-    # if a service died on startup, stop waiting and say so
     for s in "${SERVICES[@]}"; do
-      read_pid "$s" >/dev/null || { printf '\n'; die "$s exited during startup — ./skein.sh logs $s"; }
+      read_pid "$s" >/dev/null || {
+        printf '\n'
+        die "$s exited during startup (other services left running) — ./scripts/skein.sh logs $s"
+      }
     done
     printf '.'
     sleep 1
     waited=$((waited + 1))
   done
   printf '\n'
-  die "not healthy after ${waited}s — ./skein.sh logs"
+  die "not healthy after ${waited}s (services left running) — ./scripts/skein.sh logs"
 }
 
 cmd_start() {
@@ -126,32 +222,41 @@ cmd_start() {
   printf 'starting skein\n'
   for s in "${SERVICES[@]}"; do start_one "$s"; done
   wait_healthy
-  cmd_status
+  cmd_status || true
 }
 
 cmd_stop() {
   printf 'stopping skein\n'
+  for s in "${SERVICES[@]}"; do adopt_legacy "$s"; done
   for s in "${SERVICES[@]}"; do stop_one "$s"; done
 }
 
+# exit 0 only when every service is up, so `status && ...` means what it looks like
 cmd_status() {
-  local any=1
+  local down=0 pid port
+  for s in "${SERVICES[@]}"; do adopt_legacy "$s"; done
   for s in "${SERVICES[@]}"; do
-    local port pid; port=$(port_of "$s")
+    port=$(port_of "$s")
     if pid=$(read_pid "$s"); then
-      any=0
       printf '  %sup%s    %-9s pid %-8s http://localhost:%s\n' "$c_ok" "$c_off" "$s" "$pid" "$port"
+    elif pid=$(raw_pid "$s" 2>/dev/null) && group_alive "$pid" && group_is_ours "$pid"; then
+      down=1
+      printf '  %s??%s    %-9s leader gone, orphaned group %s still up — run stop\n' \
+        "$c_bad" "$c_off" "$s" "$pid"
     elif port_busy "$port"; then
+      down=1
       printf '  %s??%s    %-9s port %s busy, but not ours\n' "$c_bad" "$c_off" "$s" "$port"
     else
+      down=1
       printf '  %sdown%s  %-9s\n' "$c_bad" "$c_off" "$s"
     fi
   done
-  local health
+  local health parsed
   if health=$(curl -fsS --max-time 2 "http://localhost:$BACKEND_PORT/health" 2>/dev/null); then
-    printf '  %s%s%s\n' "$c_dim" "$(sed -n 's/.*"provider":"\([^"]*\)".*"model":"\([^"]*\)".*/provider \1 · model \2/p' <<<"$health")" "$c_off"
+    parsed=$(sed -n 's/.*"provider":"\([^"]*\)".*"model":"\([^"]*\)".*/provider \1 · model \2/p' <<<"$health")
+    [ -n "$parsed" ] && printf '  %s%s%s\n' "$c_dim" "$parsed" "$c_off"
   fi
-  return $any
+  return "$down"
 }
 
 cmd_logs() {
@@ -168,6 +273,10 @@ cmd_logs() {
 
 cmd_dev() {
   preflight
+  for s in "${SERVICES[@]}"; do
+    port_busy "$(port_of "$s")" &&
+      die "port $(port_of "$s") is in use (already started? ./scripts/skein.sh stop)"
+  done
   trap 'kill 0' EXIT
   (cd backend && .venv/bin/uvicorn app.main:app --port "$BACKEND_PORT" --reload) &
   (cd frontend && npm run dev -- --port "$FRONTEND_PORT") &
@@ -181,8 +290,5 @@ case "${1:-}" in
   status)  cmd_status ;;
   logs)    shift; cmd_logs "${1:-}" ;;
   dev)     cmd_dev ;;
-  *)
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
-    exit 1
-    ;;
+  *)       usage; exit 1 ;;
 esac
