@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { adoptServerTheme, applyPrefs } from "@/lib/theme";
+import { adoptServerTheme, applyPrefs, syncThemeColor } from "@/lib/theme";
 
 // A theme change in another tab fires a real storage event here — repaint
 // this tab too, not just the Settings buttons. On mount, a browser with no
@@ -14,6 +14,9 @@ export function ThemeSync() {
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // the pre-paint script already set the data attributes; only the
+    // address-bar colour still needs deriving from them
+    syncThemeColor();
     adoptServerTheme().then((adopted) => {
       if (!alive || adopted !== "profile") return;
       setNote("Applied the theme saved on your profile.");

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Bricolage_Grotesque,
   Fraunces,
@@ -41,8 +41,33 @@ const sourceSerif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
+  // metadataBase silences the build warning about resolving OG URLs against
+  // localhost. It follows the same env-var path NEXT_PUBLIC_API_URL already
+  // takes from SKEIN_HOST, so the two can't drift.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "Skein",
+  applicationName: "Skein",
   description: "Many strands. One formation. — team platform for humans + AI agents",
+  openGraph: {
+    title: "Skein",
+    description: "Many strands. One formation. — team platform for humans + AI agents",
+    siteName: "Skein",
+    type: "website",
+  },
+  // No `icons` field: app/favicon.ico, app/icon.svg and app/apple-icon.png are
+  // file conventions Next already emits links for. Declaring them here too
+  // produces duplicate, conflicting <link rel="icon"> tags.
+};
+
+// The address bar on mobile takes its colour from this. A static pair would be
+// wrong for four of the five packs (loom #faf9f6, phosphor #f2f5ef, contrast
+// #ffffff, ...), so lib/theme.ts overwrites the tag from the resolved page
+// colour after applying prefs; this is only the pre-hydration fallback.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#faf9f6" },
+    { media: "(prefers-color-scheme: dark)", color: "#141311" },
+  ],
 };
 
 export default function RootLayout({

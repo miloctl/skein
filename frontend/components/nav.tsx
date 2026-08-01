@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { SkeinMark } from "@/components/mark";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
@@ -65,7 +66,7 @@ function NavLink({
       {active && (
         <span
           aria-hidden
-          className="absolute inset-x-0 bottom-0 h-0.5 bg-thread-solid"
+          className="absolute inset-x-0 bottom-0 h-0.5 bg-thread"
         />
       )}
     </Link>
@@ -124,6 +125,11 @@ export function Nav() {
     <header className="sticky top-0 z-10 bg-page/85 backdrop-blur">
       <div className="flex min-h-[var(--nav-h)] flex-wrap items-center px-4 sm:px-6 md:min-h-0">
         <Link href="/" className="flex h-14 items-center gap-2 whitespace-nowrap">
+          {/* the mark carries the fixed identity; the wordmark stays live text
+              so it keeps being re-cut per pack (Fraunces under ledger/atelier,
+              glowing mono under phosphor) — freezing it would make it the one
+              non-parametric piece of type on screen */}
+          <SkeinMark size={17} className="text-thread" />
           <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
             Skein
           </span>

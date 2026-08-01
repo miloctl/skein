@@ -129,6 +129,29 @@ export function applyPrefs() {
   const p = getPack();
   if (p === "loom") delete root.dataset.pack;
   else root.dataset.pack = p;
+  syncThemeColor();
+}
+
+// The mobile address bar reads <meta name="theme-color">, but the page colour
+// is a function of the pack as well as the appearance — #faf9f6 under loom,
+// #f2f5ef under phosphor, #ffffff under contrast. The static pair in
+// layout.tsx's viewport export would be visibly wrong for most packs on the
+// one device where the bar is actually visible, so read the resolved colour
+// back out of the DOM after applying prefs.
+// Exported because applyPrefs does NOT run on a normal page load — the
+// pre-paint script in layout.tsx sets the data attributes and applyPrefs only
+// fires on cross-tab storage events and profile adoption. ThemeSync calls this
+// on mount to cover the ordinary case.
+export function syncThemeColor() {
+  const resolved = getComputedStyle(document.body).backgroundColor;
+  if (!resolved) return;
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]:not([media])');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.appendChild(meta);
+  }
+  meta.content = resolved;
 }
 
 const ADOPTED_KEY = "skein-adopted";
