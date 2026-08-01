@@ -64,6 +64,14 @@ export default function SettingsPage() {
   const [interestsSaved, setInterestsSaved] = useState("");
   const [interestsLoaded, setInterestsLoaded] = useState(false);
   const [interestsBusy, setInterestsBusy] = useState(false);
+  const [ctx, setCtx] = useState<{
+    strategy: string;
+    override: string;
+    default: string;
+    choices: string[];
+    applies: boolean;
+  } | null>(null);
+  const [ctxStatus, setCtxStatus] = useState("");
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
     // the GET fails, the empty field must NOT be saveable — an empty save
@@ -75,6 +83,19 @@ export default function SettingsPage() {
       })
       .catch(() => setInterestsLoaded(false));
   }, [currentUser]);
+
+  const loadCtx = useCallback(() => {
+    api<{
+      strategy: string;
+      override: string;
+      default: string;
+      choices: string[];
+      applies: boolean;
+    }>("/api/settings/context-strategy")
+      .then(setCtx)
+      .catch(() => setCtx(null));
+  }, []);
+  useEffect(loadCtx, [loadCtx]);
 
   const refresh = useCallback(() => {
     api<WhoAmI>("/api/whoami").then(setWho).catch(() => setWho(null));
@@ -789,6 +810,100 @@ export default function SettingsPage() {
                   </p>
                 </div>
             </div>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Long chats (team)">
+        <p className="mb-3 text-sm text-ink-3">
+          A model holds only so much of a conversation. When a chat outgrows
+          that, Skein either drops the oldest messages or summarizes them.
+          This applies to everyone, so it needs a working API key (step 2).
+          {ctx && !ctx.applies && (
+            <>
+              {" "}
+              No AI model is connected, so nothing here is in use yet.
+            </>
+          )}
+        </p>
+        {ctx && (
+          <div className="space-y-2">
+            {[
+              {
+                id: "sliding",
+                title: "Drop the oldest messages",
+                note: "Free and instant. What falls out of the window is gone.",
+              },
+              {
+                id: "summarize",
+                title: "Summarize the oldest messages",
+                note: "Keeps the gist of a long chat. Costs one extra model call each time it runs.",
+              },
+            ]
+              .filter((o) => ctx.choices.includes(o.id))
+              .map((o) => (
+                <label
+                  key={o.id}
+                  className={
+                    "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 " +
+                    (ctx.strategy === o.id
+                      ? "border-thread-solid bg-thread-solid/5"
+                      : "border-line hover:border-line-strong")
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="context-strategy"
+                    className="mt-1"
+                    disabled={!strong}
+                    checked={ctx.strategy === o.id}
+                    onChange={async () => {
+                      try {
+                        await api("/api/settings/context-strategy", {
+                          method: "POST",
+                          body: JSON.stringify({ strategy: o.id }),
+                        });
+                        setCtxStatus("Saved. New chat turns use it right away.");
+                        loadCtx();
+                      } catch (e) {
+                        setCtxStatus(String(e));
+                      }
+                    }}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-ink-1">
+                      {o.title}
+                    </span>
+                    <span className="block text-xs text-ink-3">{o.note}</span>
+                  </span>
+                </label>
+              ))}
+            {ctx.override && (
+              <button
+                disabled={!strong}
+                onClick={async () => {
+                  try {
+                    await api("/api/settings/context-strategy", {
+                      method: "POST",
+                      body: JSON.stringify({ strategy: "" }),
+                    });
+                    setCtxStatus(
+                      `Cleared. Back to the deployment default (${ctx.default}).`,
+                    );
+                    loadCtx();
+                  } catch (e) {
+                    setCtxStatus(String(e));
+                  }
+                }}
+                className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
+              >
+                Use the deployment default ({ctx.default})
+              </button>
+            )}
+            <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
+              {ctxStatus ||
+                (strong ? "" : "Needs your API key — step 2 above.")}
+            </p>
           </div>
         )}
       </Section>

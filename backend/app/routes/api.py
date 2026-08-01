@@ -37,6 +37,7 @@ from ..services import (
     rituals,
     schedule,
     search,
+    settings,
     usage,
     users,
     weekly,
@@ -655,10 +656,39 @@ def get_agents_status(user: CurrentUser):
         # empty on mock: no Strands agent is built, so no strategy applies and
         # claiming one would describe machinery that is not running
         "context_strategy": (
-            config.CONTEXT_STRATEGY if config.EFFECTIVE_PROVIDER != "mock" else ""
+            settings.effective_context_strategy() if config.EFFECTIVE_PROVIDER != "mock" else ""
         ),
         "context_error": config.CONTEXT_STRATEGY_ERROR,
     }
+
+
+class ContextStrategyIn(BaseModel):
+    strategy: str = ""
+
+
+@router.get("/settings/context-strategy")
+def get_context_strategy(user: CurrentUser):
+    """Reads for everyone (the agent strip already shows it); writing is
+    operator-only. `default` is what an empty override falls back to."""
+    from .. import config
+
+    return {
+        "strategy": settings.effective_context_strategy(),
+        "override": settings.context_strategy_override(),
+        "default": config.CONTEXT_STRATEGY,
+        "choices": list(config.CONTEXT_STRATEGIES),
+        "applies": config.EFFECTIVE_PROVIDER != "mock",
+    }
+
+
+@router.post("/settings/context-strategy")
+def post_context_strategy(body: ContextStrategyIn, user: StrongUser):
+    """StrongUser: this changes what every chat costs, so it needs a personal
+    key rather than a name typed into a header."""
+    try:
+        return settings.set_context_strategy(body.strategy, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/agents/trust")
