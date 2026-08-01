@@ -147,6 +147,39 @@ Guidelines:
   clarifying question rather than guessing."""
 
 
+def _conversation_manager():
+    """How a long chat is kept inside the context window.
+
+    Branches on the STRATEGY, never on the provider name — the provider branch
+    lives in _model() and stays the only one. Reached only for real providers,
+    since the mock returns before any Strands Agent is built.
+
+    pin_first protects the opening messages under both strategies. It is why
+    Skein does not re-inject context after a compaction: pinning keeps the
+    important turns in place, where re-injection would add tokens back right
+    after a trim and can retrigger the trim it just answered.
+    """
+    from strands.agent.conversation_manager import (
+        SlidingWindowConversationManager,
+        SummarizingConversationManager,
+    )
+
+    pin = config.CONTEXT_PIN_FIRST or None
+    proactive = config.CONTEXT_PROACTIVE or None
+    if config.CONTEXT_STRATEGY == "summarize":
+        return SummarizingConversationManager(
+            summary_ratio=config.CONTEXT_SUMMARY_RATIO,
+            preserve_recent_messages=config.CONTEXT_PRESERVE_RECENT,
+            pin_first=pin,
+            proactive_compression=proactive,
+        )
+    return SlidingWindowConversationManager(
+        window_size=config.CONTEXT_WINDOW,
+        pin_first=pin,
+        proactive_compression=proactive,
+    )
+
+
 def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations via FileSessionManager.
@@ -227,6 +260,7 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
 
     return Agent(
         model=_model(),
+        conversation_manager=_conversation_manager(),
         system_prompt=system,
         tools=[
             *ALL_TOOLS,
