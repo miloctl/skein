@@ -164,9 +164,11 @@ def _conversation_manager():
         SummarizingConversationManager,
     )
 
+    from ..services.settings import effective_context_strategy
+
     pin = config.CONTEXT_PIN_FIRST or None
     proactive = config.CONTEXT_PROACTIVE or None
-    if config.CONTEXT_STRATEGY == "summarize":
+    if effective_context_strategy() == "summarize":
         return SummarizingConversationManager(
             summary_ratio=config.CONTEXT_SUMMARY_RATIO,
             preserve_recent_messages=config.CONTEXT_PRESERVE_RECENT,
