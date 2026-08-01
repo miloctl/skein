@@ -228,6 +228,12 @@ def provider_key() -> str:
 # proposals that a human approves in the review inbox (approval-gate mode).
 AGENT_REVIEW = os.getenv("SKEIN_AGENT_REVIEW", "0") == "1"
 
+# With SKEIN_TURN_GUARD=1, a chat turn that wrote nothing in answer to a
+# capture-prefixed message costs ONE extra model round trip to give the agent a
+# chance to file it. Off by default: the guard's honest note is free and needs
+# no provider, the re-prompt is neither.
+TURN_GUARD = os.getenv("SKEIN_TURN_GUARD", "0") == "1"
+
 CORS_ORIGINS = [
     o.strip()
     for o in os.getenv("SKEIN_CORS_ORIGINS", "http://localhost:3000").split(",")

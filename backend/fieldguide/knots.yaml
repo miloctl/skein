@@ -137,6 +137,15 @@ knots:
     link: /chat
     since: 2026-07-31
 
+  - id: chat_capture
+    feature: File it from chat
+    knot: Bowline
+    set: loops
+    pitch: The ⌘K grammar works in chat too — and a turn that files nothing says so.
+    how: "In Chat, start a message with `todo:`, `q:`, `decision:`, or `promised:`. If nothing gets filed, the reply says that outright."
+    link: /chat
+    since: 2026-08-01
+
   - id: offweb
     feature: CLI & MCP
     knot: Marlinspike

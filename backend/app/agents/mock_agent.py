@@ -5,7 +5,7 @@ smart-captured — no model, no keys, fully testable."""
 
 from .. import ratelimit
 from ..services import capture
-from . import commands
+from . import commands, receipts
 
 
 class MockAgent:
@@ -60,8 +60,15 @@ class MockAgent:
                 result["kind"], ("Captured as {kind} #{id}.".replace("{kind}", result["kind"]),)
             )
             line = pool[sum(ord(c) for c in text) % len(pool)].format(id=result["id"])
+            # the mock writes straight through capture.capture rather than the
+            # tool gate, so nothing else would report this write. Without a
+            # receipt the keyless path is the one path where the UI cannot
+            # state what happened to your data — and the turn guard would call
+            # a successful capture "nothing was filed".
+            receipts.record("wrote", result["kind"], text[:160], int(result["id"] or 0))
             yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
         except ValueError as exc:
+            receipts.record("failed", capture.classify(text), str(exc))
             yield {"data": f"⚠️ {exc}"}
 
     def __call__(self, message: str) -> str:

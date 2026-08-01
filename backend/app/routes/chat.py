@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import config, ratelimit
-from ..agents import commands, receipts, session_log
+from ..agents import commands, receipts, session_log, turn_guard
 from ..agents.identity import (
     reset_agent_identity,
     reset_requester_identity,
@@ -23,7 +23,7 @@ from ..agents.identity import (
     set_requester_identity,
 )
 from ..agents.team_agent import build_agent
-from ..services import chat_threads, personas
+from ..services import capture, chat_threads, fieldguide, personas
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
 from .deps import CurrentUser
@@ -103,6 +103,7 @@ def _receipt_line(r: dict) -> str:
         "wrote": f"wrote {r['entity']}{ref}",
         "refused": f"refused: {r['entity']}",
         "failed": f"not written: {r['entity']}",
+        "nothing": "nothing was filed",
     }.get(r["kind"], r["kind"])
     return f"\n\n> **{label}** — {r['detail']}\n\n"
 
@@ -280,6 +281,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
     async def stream():
         seen_tools: set[str] = set()
         transcript: list[str] = [masthead] if masthead else []
+        wrote = False
         # user turn first, assistant turn in finally: a cancelled stream
         # (stop button, tab close, thread switch) keeps the partial exchange
         _log_turn(ui_thread, user, "user", message)
@@ -291,8 +293,12 @@ async def chat(req: ChatRequest, user: CurrentUser):
             yield _sse({"type": "text", "text": masthead})
         receipts.start()
         _inflight[thread_id] += 1
-        try:
-            async for event in agent.stream_async(message):
+
+        async def pump(prompt: str):
+            """One model exchange, rendered. Factored out so the turn guard can
+            run a second one without duplicating the event handling."""
+            nonlocal wrote
+            async for event in agent.stream_async(prompt):
                 if "data" in event:
                     transcript.append(event["data"])
                     yield _sse({"type": "text", "text": event["data"]})
@@ -308,11 +314,29 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 # model makes — drained as it happens, so it lands with the
                 # tool call that caused it
                 for r in receipts.drain():
+                    wrote = True
                     transcript.append(_receipt_line(r))
                     yield _sse({"type": "receipt", **r})
             for r in receipts.drain():
+                wrote = True
                 transcript.append(_receipt_line(r))
                 yield _sse({"type": "receipt", **r})
+
+        try:
+            async for chunk in pump(message):
+                yield chunk
+            # the turn is closing: a filing request that wrote nothing must say
+            # so, because silence reads as success
+            note = turn_guard.unfiled(message, wrote)
+            if note and turn_guard.reprompt_enabled():
+                async for chunk in pump(turn_guard.OBJECTION):
+                    yield chunk
+                note = turn_guard.unfiled(message, wrote)  # budget: one, always
+            if note:
+                transcript.append(_receipt_line(note))
+                yield _sse({"type": "receipt", **note})
+            elif wrote and capture.PREFIX.match(message):
+                fieldguide.mark(user, "chat_capture")
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user

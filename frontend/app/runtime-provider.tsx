@@ -160,7 +160,9 @@ function receiptLine(e: {
         ? `✅ **Wrote ${e.entity}${ref}**`
         : e.kind === "refused"
           ? `⛔ **Refused** — ${e.entity} is forbidden for this agent`
-          : `⚠️ **Not written** — ${e.entity}`;
+          : e.kind === "nothing"
+            ? `📭 **Nothing was filed**`
+            : `⚠️ **Not written** — ${e.entity}`;
   const tail = e.detail ? `: ${e.detail}` : "";
   const link =
     e.kind === "queued" && e.ref ? ` · [open in Inbox](/review)` : "";

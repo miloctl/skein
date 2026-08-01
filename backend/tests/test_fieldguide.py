@@ -15,7 +15,7 @@ def test_registry_is_valid_and_complete(fresh_db):
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 26
+    assert len(cards) == 27
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
