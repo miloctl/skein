@@ -104,6 +104,18 @@ if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
     )
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
 
+# Optional semantic search. Still OpenAI-specific: unlike the chat layer it
+# has no provider registry yet. Record the mismatch rather than no-op'ing
+# in silence — a flag that reports success and does nothing is exactly the
+# failure the provider work above went out of its way to remove.
+EMBEDDINGS_ENABLED = os.getenv("SKEIN_EMBEDDINGS", "0") == "1"
+EMBEDDINGS_ERROR = (
+    "SKEIN_EMBEDDINGS=1 but OPENAI_API_KEY is unset — semantic search is off."
+    " Embeddings do not follow SKEIN_MODEL_PROVIDER yet; they need an OpenAI key."
+    if EMBEDDINGS_ENABLED and not os.getenv("OPENAI_API_KEY")
+    else ""
+)
+
 # Ollama: the default host is the local daemon, which proxies *-cloud models
 # to Ollama Cloud when `ollama signin` has been run on the box. To skip the
 # daemon and talk to Ollama Cloud directly, set SKEIN_OLLAMA_HOST to

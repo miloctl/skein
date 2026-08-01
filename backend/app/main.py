@@ -144,5 +144,6 @@ def health():
         "provider": config.MODEL_PROVIDER,
         "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
         "provider_error": config.MODEL_PROVIDER_ERROR,
+        "embeddings_error": config.EMBEDDINGS_ERROR,
         "jobs": job_health(),
     }
