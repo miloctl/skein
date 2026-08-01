@@ -50,8 +50,14 @@
   }
 
   * { box-sizing: border-box; }
+  html { overflow-x: clip; }
   body {
     margin: 0;
+    /* the full-bleed hero band is 100vw, which counts the scrollbar the
+       viewport does not have room for — clip the 8px rather than let the
+       page scroll sideways. clip, not hidden: hidden would make body a
+       scroll container. */
+    overflow-x: clip;
     background: var(--paper);
     color: var(--ink);
     font-family: var(--sans);
@@ -91,6 +97,33 @@
   .vee span:nth-child(3) { top: 56px; left: 0;  transform: rotate(24deg); opacity: 0.5; }
   .hero .sub {
     font-size: 1.2rem; max-width: 56ch; color: var(--ink-soft); margin-top: 0.6em;
+  }
+  /* Full-bleed atmosphere band. The art ships on its own flat ground
+     (#faf9f6 / #141311) which is NOT this page's paper — in dark it is warm
+     black against a blue black and the seam shows. Rather than chase the
+     values, blend the ground out: multiply drops near-white, screen drops
+     near-black, so only the strands survive and they sit on whatever paper
+     the page is actually using. */
+  .hero-art {
+    margin: 26px calc(50% - 50vw) -18px;
+    width: 100vw;
+    height: clamp(230px, 36vw, 470px);
+    /* the art is 16:9 and this band is far wider than tall, so cover
+       crops hard; bias the slice above centre to keep the dense end of
+       the sweep rather than the empty lower left */
+    background: url("img/hero-light.png") center 38% / cover no-repeat;
+    mix-blend-mode: multiply;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12% 82%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 12% 82%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    .hero-art { background-image: url("img/hero-dark.png"); mix-blend-mode: screen; }
+  }
+  :root[data-theme="light"] .hero-art {
+    background-image: url("img/hero-light.png"); mix-blend-mode: multiply;
+  }
+  :root[data-theme="dark"] .hero-art {
+    background-image: url("img/hero-dark.png"); mix-blend-mode: screen;
   }
   .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
   .chip {
@@ -208,6 +241,7 @@
       <div class="chip"><b>40+</b> agent tools, <b>1</b> write path — agents use the same services humans do</div>
       <div class="chip">receipts on every verdict — row IDs and numbers behind each claim</div>
     </div>
+    <div class="hero-art" role="presentation"></div>
   </section>
 
   <section>
