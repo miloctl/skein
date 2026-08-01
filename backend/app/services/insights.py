@@ -690,6 +690,31 @@ def _r_feature_unadopted() -> list[dict]:
     ]
 
 
+def _r_activity_chain() -> list[dict]:
+    """The provenance ledger disagrees with its own digests. This walks the
+    WHOLE chain, not the tail: the nightly incremental run can only vouch for
+    rows it has not yet passed, and an old row edited last week is exactly the
+    case worth catching."""
+    from .activity import verify_chain
+
+    result = verify_chain()
+    if result["ok"]:
+        return []
+    return [
+        _finding(
+            "activity_chain_broken",
+            "high",
+            f"The activity chain does not verify at entry {result['broken_at']}"
+            f" ({result['reason']}). A row was changed or removed after it was"
+            " written. Compare platform.db against the most recent backup in"
+            " data/backups.",
+            {"broken_at": result["broken_at"], "reason": result["reason"]},
+            subject=f"seq:{result['broken_at']}",
+            window="point-in-time",
+        )
+    ]
+
+
 RULES = (
     _r_mttr,
     _r_escalation_spike,
@@ -706,6 +731,7 @@ RULES = (
     _r_experiment_overdue,
     _r_authority_stale,
     _r_feature_unadopted,
+    _r_activity_chain,
 )
 
 

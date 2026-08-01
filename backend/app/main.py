@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from . import config, db
 from .routes import api, chat, private, slack, webhooks
+from .services.activity import chain_health
 from .services.jobs import JOBS, job_health, run_job
 from .telemetry import setup_telemetry
 
@@ -146,4 +147,5 @@ def health():
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "embeddings_error": config.EMBEDDINGS_ERROR,
         "jobs": job_health(),
+        "activity_chain": chain_health(),
     }

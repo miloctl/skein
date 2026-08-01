@@ -2,6 +2,8 @@
 under uvicorn without a pool; db.transaction() gives compound writes one
 shared connection instead. Schema lives in ../migrations/*.sql."""
 
+import contextlib
+import hashlib
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -206,8 +208,92 @@ def claim_job(job: str, run_key: str) -> bool:
     )
 
 
+ACTIVITY_DOMAIN = b"skein-activity/v1"
+GENESIS_PREV = "0" * 64
+
+
+def activity_hash(
+    seq: int, created_at: str, actor: str, action: str, detail: str, prev_hex: str
+) -> str:
+    """SHA-256 over one ledger row and its predecessor's digest.
+
+    Field ORDER IS FIXED — changing it, or the domain string, invalidates
+    every chain already written. Each part is length-prefixed rather than
+    separated, so no field's content can imitate a boundary.
+
+    created_at is hashed exactly as stored. now() emits second precision. A
+    "harmless" bump to microseconds would hash one preimage and verify
+    another, breaking every chain from that deploy onward.
+    """
+    h = hashlib.sha256()
+    for part in (
+        ACTIVITY_DOMAIN,
+        str(seq).encode(),
+        created_at.encode(),
+        actor.encode(),
+        action.encode(),
+        detail.encode(),
+        prev_hex.encode(),
+    ):
+        h.update(len(part).to_bytes(4, "big"))
+        h.update(part)
+    return h.hexdigest()
+
+
+def _append_activity(
+    conn: sqlite3.Connection, actor: str, action: str, detail: str, created_at: str
+) -> None:
+    """Read the chain tail, link to it, insert. Caller holds the write lock."""
+    tail = conn.execute(
+        "SELECT seq, hash FROM activity WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    seq = (tail["seq"] if tail else 0) + 1
+    prev = tail["hash"] if tail else None
+    conn.execute(
+        "INSERT INTO activity (actor, action, detail, created_at, seq, hash, prev_hash)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            actor,
+            action,
+            detail,
+            created_at,
+            seq,
+            activity_hash(seq, created_at, actor, action, detail, prev or GENESIS_PREV),
+            prev,
+        ),
+    )
+
+
 def log_activity(actor: str, action: str, detail: str = "") -> None:
+    """Append to the provenance ledger, chained to the row before it.
+
+    Inside an ambient transaction the enclosing BEGIN IMMEDIATE already
+    serializes the read-tail-then-insert, and a failure rolls back the
+    caller's whole write — correct, and loud. Standalone the append takes its
+    own immediate transaction and retries; if it still cannot link, the row is
+    recorded UNCHAINED rather than raising into a caller's write. A busy
+    database must not fail a write because bookkeeping could not keep up —
+    verify_chain() reports the gap for what it is.
+    """
+    created_at = now()
+    ambient = _ambient.get()
+    if ambient is not None:
+        _append_activity(ambient, actor, action, detail, created_at)
+        return
+    for _ in range(3):
+        conn = connect()
+        conn.isolation_level = None
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            _append_activity(conn, actor, action, detail, created_at)
+            conn.execute("COMMIT")
+            return
+        except sqlite3.DatabaseError:
+            with contextlib.suppress(sqlite3.DatabaseError):
+                conn.execute("ROLLBACK")
+        finally:
+            conn.close()
     execute(
         "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (actor, action, detail, now()),
+        (actor, action, detail, created_at),
     )
