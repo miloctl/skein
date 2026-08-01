@@ -3,6 +3,7 @@ ollama, same leak rules as chat, and vectors tagged with their model so a
 model switch invalidates instead of poisoning. No network, no keys."""
 
 import importlib
+import sys
 
 import pytest
 
@@ -283,3 +284,52 @@ def test_ollama_refuses_an_embed_base_url(monkeypatch, restore_config):
     )
     assert cfg.EMBED_READY is False
     assert "does not accept SKEIN_EMBED_BASE_URL" in cfg.EMBEDDINGS_ERROR
+
+
+def test_backfill_embeds_only_missing_rows(monkeypatch, fresh_db, capsys):
+    from app import backfill_embeddings
+
+    calls: list[dict] = []
+    monkeypatch.setattr("openai.OpenAI", _fake_openai(calls))
+    _embed_ready(monkeypatch, model="model-A")
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
+    monkeypatch.setattr(config, "EMBEDDINGS_ERROR", "")
+    monkeypatch.setattr(sys, "argv", ["backfill_embeddings"])
+
+    # one covered row, one stale-model row, one bare row
+    search.index_record("note", 90010, "already covered", "body")  # embeds as model-A
+    db.execute(
+        "INSERT INTO search_index (entity, entity_id, title, body) VALUES (?, ?, ?, ?)",
+        ("note", 90011, "bare", "no vector"),
+    )
+    db.execute(
+        "INSERT INTO search_index (entity, entity_id, title, body) VALUES (?, ?, ?, ?)",
+        ("note", 90012, "stale", "old model"),
+    )
+    db.execute(
+        "INSERT OR REPLACE INTO embeddings (entity, entity_id, model, vector) VALUES (?, ?, ?, ?)",
+        ("note", 90012, "model-OLD", "[1,0,0]"),
+    )
+
+    embed_calls_before = len([c for c in calls if "input" in c])
+    backfill_embeddings.main()
+    out = capsys.readouterr().out
+    assert "2 to embed" in out and "embedded 2, failed 0" in out
+    # exactly two new embed calls — the covered row was not re-embedded
+    assert len([c for c in calls if "input" in c]) == embed_calls_before + 2
+    for eid in (90010, 90011, 90012):
+        row = db.query_one(
+            "SELECT 1 AS x FROM embeddings WHERE entity_id = ? AND model = 'model-A'", (eid,)
+        )
+        assert row, f"{eid} missing a current-model vector"
+
+
+def test_backfill_refuses_when_misconfigured(monkeypatch):
+    from app import backfill_embeddings
+
+    monkeypatch.setattr(sys, "argv", ["backfill_embeddings"])
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
+    monkeypatch.setattr(config, "EMBEDDINGS_ERROR", "broken on purpose")
+    with pytest.raises(SystemExit) as e:
+        backfill_embeddings.main()
+    assert e.value.code == 2
