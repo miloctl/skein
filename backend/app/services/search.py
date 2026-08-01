@@ -1,13 +1,13 @@
-"""Programmatic search: FTS5 today, optional embeddings when an API key exists.
+"""Programmatic search: FTS5 always, optional embeddings when configured.
 
 `index_record` is called by every service on write, so the index is always
-current. Embeddings are a pluggable enhancement: with OPENAI_API_KEY set and
-SKEIN_EMBEDDINGS=1, vectors are stored alongside and blended into results;
-without it, hybrid search degrades cleanly to FTS-only.
+current. Embeddings are a pluggable enhancement gated on config.EMBED_READY
+(SKEIN_EMBEDDINGS=1 plus a valid SKEIN_EMBED_PROVIDER setup — openai,
+openai_compatible, or ollama): vectors are stored alongside and blended into
+results; otherwise hybrid search degrades cleanly to FTS-only.
 """
 
 import json
-import os
 
 from .. import config, db
 
@@ -105,25 +105,22 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
     return hits
 
 
-# --- optional embedding layer (activates when keys are connected) -----------
-
-EMBEDDINGS_ENABLED = config.EMBEDDINGS_ENABLED
-_EMBED_MODEL = os.getenv("SKEIN_EMBED_MODEL", "text-embedding-3-small")
+# --- optional embedding layer (activates when configured) -------------------
+# Provider-aware via config.EMBED_*: openai, openai_compatible, or ollama —
+# all speak the OpenAI /v1/embeddings shape, so one client covers them.
+# Gates read config at CALL time, not import: an import-time value copy is the
+# stale-binding bug chat.py had, and it breaks config reloads in tests.
 
 
 def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
-    if not EMBEDDINGS_ENABLED or not os.getenv("OPENAI_API_KEY"):
+    if not config.EMBED_READY:
         return
     try:
         vec = _embed(text)
         db.execute(
-            "CREATE TABLE IF NOT EXISTS embeddings"
-            " (entity TEXT, entity_id INTEGER, vector TEXT,"
-            " PRIMARY KEY (entity, entity_id))"
-        )
-        db.execute(
-            "INSERT OR REPLACE INTO embeddings (entity, entity_id, vector) VALUES (?, ?, ?)",
-            (entity, entity_id, json.dumps(vec)),
+            "INSERT OR REPLACE INTO embeddings (entity, entity_id, model, vector)"
+            " VALUES (?, ?, ?, ?)",
+            (entity, entity_id, config.EMBED_MODEL, json.dumps(vec)),
         )
     except Exception:
         pass  # embeddings are best-effort; FTS remains authoritative
@@ -132,18 +129,28 @@ def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
 def _embed(text: str) -> list[float]:
     from openai import OpenAI
 
-    client = OpenAI()
-    resp = client.embeddings.create(model=_EMBED_MODEL, input=text[:8000])
+    client = OpenAI(
+        base_url=config.EMBED_BASE_URL or None,
+        # local servers ignore it, but the client demands something
+        api_key=config.embed_key() or "not-needed",
+    )
+    resp = client.embeddings.create(model=config.EMBED_MODEL, input=text[:8000])
     return resp.data[0].embedding
 
 
 def semantic_search(q: str, limit: int = 10) -> list[dict]:
-    """Cosine-similarity search over stored vectors; empty without embeddings."""
-    if not EMBEDDINGS_ENABLED or not os.getenv("OPENAI_API_KEY"):
+    """Cosine-similarity search over stored vectors; empty without embeddings.
+    Only vectors from the CURRENT model are compared — similarity across two
+    embedding spaces is noise, so a model change invalidates rather than
+    poisons (stale rows are re-embedded on the record's next write)."""
+    if not config.EMBED_READY:
         return []
     try:
         qv = _embed(q)
-        rows = db.query("SELECT entity, entity_id, vector FROM embeddings")
+        rows = db.query(
+            "SELECT entity, entity_id, vector FROM embeddings WHERE model = ?",
+            (config.EMBED_MODEL,),
+        )
     except Exception:
         return []
 
