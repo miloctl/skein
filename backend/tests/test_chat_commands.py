@@ -60,3 +60,37 @@ def test_help_lists_every_command(client):
     out = _read_chat(client, "/help")
     for c in commands.COMMANDS:
         assert f"/{c['name']}" in out
+
+
+def test_command_stream_bridges_exchange(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.agents.session_log.log_exchange", lambda t, u, a: calls.append((t, u, a))
+    )
+    _read_chat(client, "/briefing")
+    assert len(calls) == 1
+    thread, user_text, assistant_text = calls[0]
+    assert (thread, user_text) == ("t", "/briefing")
+    # the model copy carries the content but not the 🔧 chip markup
+    assert "My Day" in assistant_text and "🔧" not in assistant_text
+
+
+def test_command_wrapped_fb_refused_before_bridge(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr("app.agents.session_log.log_exchange", lambda *a: calls.append(a))
+    out = _read_chat(client, "/remember fb: dana — struggling with the client")
+    assert "private" in out
+    assert calls == []
+
+
+def test_bridge_skipped_while_agent_turn_in_flight(client, monkeypatch):
+    from app.routes import chat as chat_route
+
+    calls = []
+    monkeypatch.setattr("app.agents.session_log.log_exchange", lambda *a: calls.append(a))
+    chat_route._inflight["t"] += 1
+    try:
+        _read_chat(client, "/help")
+    finally:
+        del chat_route._inflight["t"]
+    assert calls == []
