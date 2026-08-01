@@ -48,6 +48,16 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
     blockers: ["No blockers. The studio is quiet.", "Nothing in the way of the work.", "Every piece has room to breathe."],
     allclear: ["Nothing needs you. Step back and admire the work.", "The studio is swept. Make something.", "A blank canvas kind of day."],
   },
+  claw: {
+    review: ["Approvals: clear. The deck is quiet.", "Nothing staged for sign-off.", "Zero pending. All hands free."],
+    blockers: ["No blockers on the board.", "Nothing jammed. Systems green.", "Blocker count: zero. Hold course."],
+    allclear: ["Deck clear. Take the helm elsewhere.", "Nothing needs you. The console rests.", "All quiet across the deck."],
+  },
+  hermes: {
+    review: ["Telemetry clean — nothing awaits approval.", "Approval queue empty. Instruments steady.", "No signals pending sign-off."],
+    blockers: ["No blockers on the wire.", "All channels open. Nothing is stuck.", "Obstruction scan returned nothing."],
+    allclear: ["Instruments read nominal. Go make contact.", "Mission board clear. Nothing needs you.", "Quiet skies. Enjoy the glide."],
+  },
 };
 
 // SSR and the hydration pass must render the same text: the pack voice only

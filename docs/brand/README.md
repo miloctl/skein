@@ -71,9 +71,10 @@ alpha (iOS home screen, Android maskable, Windows taskbar) ignores it anyway.
 `nav.tsx` renders "Skein" as text in `.font-display`, which `globals.css`
 re-cuts per pack — Bricolage under loom/contrast, Fraunces `SOFT 0 WONK 0`
 under ledger, `SOFT 80 WONK 1` under atelier, Geist Mono uppercase with a glow
-under phosphor. A frozen SVG wordmark would be the one non-parametric piece of
-type on screen and would look broken in three of five packs. The **mark**
-carries the fixed identity; the wordmark wears the fabric.
+under phosphor, Geist tight-tracked under claw, Pixelify Sans uppercase under
+hermes. A frozen SVG wordmark would be the one non-parametric piece of type on
+screen and would look broken in five of seven packs. The **mark** carries the
+fixed identity; the wordmark wears the fabric.
 
 ## Restraint is the brand
 
