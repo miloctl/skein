@@ -17,6 +17,8 @@ export const PACKS = [
   { id: "ledger", label: "Ledger", subtitle: "Broadsheet — ruled, square, serif", accent: "madder" },
   { id: "phosphor", label: "Phosphor", subtitle: "Terminal — mono, scanlines, glow", accent: "verdigris" },
   { id: "atelier", label: "Atelier", subtitle: "Editorial — serif, soft, gallery", accent: "madder" },
+  { id: "claw", label: "Claw", subtitle: "Command deck — charcoal, coral", accent: "coral" },
+  { id: "hermes", label: "Hermes", subtitle: "Mission console — cream on teal", accent: "bone" },
   { id: "contrast", label: "High contrast", subtitle: "Maximum legibility", accent: "graphite" },
 ] as const;
 
@@ -25,6 +27,8 @@ export const COLORWAYS = [
   { id: "madder", label: "Madder & woad", thread: "#a92c40", weld: "#48628f" },
   { id: "verdigris", label: "Verdigris & copper", thread: "#1c6e66", weld: "#9d4f28" },
   { id: "graphite", label: "Graphite & brass", thread: "#45413a", weld: "#8a5e14" },
+  { id: "coral", label: "Coral & teal", thread: "#a83c29", weld: "#0f766e" },
+  { id: "bone", label: "Bone & jade", thread: "#74581f", weld: "#047857" },
 ] as const;
 
 export const APPEARANCES = [
