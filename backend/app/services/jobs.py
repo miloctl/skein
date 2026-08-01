@@ -49,6 +49,12 @@ def _daily_backup():
     return backup_if_stale()
 
 
+def _activity_verify():
+    from .activity import verify_tail
+
+    return verify_tail()
+
+
 def _weekly_plan():
     from .weekly import propose_weekly_plan
 
@@ -112,6 +118,13 @@ def _retention_prune():
 JOBS: tuple[JobSpec, ...] = (
     JobSpec("blocker-sweep", _blocker_sweep, {"trigger": "interval", "hours": 1}, 1, True),
     JobSpec("daily-backup", _daily_backup, {"trigger": "cron", "hour": 3, "minute": 0}, 24, True),
+    JobSpec(
+        "activity-verify",
+        _activity_verify,
+        {"trigger": "cron", "hour": 3, "minute": 30},
+        24,
+        True,
+    ),
     JobSpec("context-pack", _context_pack, {"trigger": "cron", "hour": 5, "minute": 0}, 24),
     JobSpec(
         "forecast-snapshot",

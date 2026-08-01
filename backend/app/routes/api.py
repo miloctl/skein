@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from .. import db, ratelimit
 from ..services import (
     absences,
+    activity,
     admin,
     api_keys,
     blockers,
@@ -138,6 +139,14 @@ def delete_event(event_id: int, user: CurrentUser):
 @router.get("/activity")
 def get_activity():
     return collab.recent_activity()
+
+
+@router.get("/activity/verify")
+def get_activity_verify(tail: int = 0):
+    """Recompute the provenance chain. The default walks every chained row,
+    because a partial answer to "is the ledger intact" is not an answer.
+    tail=1 resumes from the last verified anchor for a cheap freshness check."""
+    return activity.verify_tail() if tail else activity.verify_chain()
 
 
 @router.get("/blockers")
