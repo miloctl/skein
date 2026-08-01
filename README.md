@@ -233,7 +233,7 @@ Model provider in `backend/.env`:
 |---|---|---|
 | `SKEIN_MODEL_PROVIDER` | `mock` \| `ollama` \| `openai` \| `openai_compatible` \| `anthropic` \| `bedrock` | `mock` (no keys needed) |
 | `SKEIN_MODEL_ID` | any model ID, never allowlisted | per provider (below) |
-| `SKEIN_MODEL_BASE_URL` | endpoint for `openai_compatible`; also an alias for the Ollama host | — |
+| `SKEIN_MODEL_BASE_URL` | endpoint for `openai_compatible`; refused on every other provider | — |
 | `SKEIN_MODEL_API_KEY` | explicit key, overriding the provider-native one | — |
 | `SKEIN_MAX_TOKENS` | output cap — reaches anthropic/ollama/bedrock, **not** the OpenAI family | `4096` |
 | `SKEIN_MODEL_PARAMS` | JSON merged into the provider's params (`temperature`, `max_completion_tokens`, …) | — |

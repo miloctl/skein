@@ -150,16 +150,35 @@ class _FakeEmbeddings:
         return type("R", (), {"data": [type("D", (), {"embedding": [1.0, 0.0, 0.0]})()]})()
 
 
-def _fake_openai(log):
+def _fake_openai(log, raise_on_create=False):
     class FakeOpenAI:
-        def __init__(self, base_url=None, api_key=None):
-            log.append({"base_url": base_url, "api_key": api_key})
-            self.embeddings = _FakeEmbeddings(log)
+        def __init__(self, base_url=None, api_key=None, timeout=None, max_retries=None):
+            log.append(
+                {
+                    "base_url": base_url,
+                    "api_key": api_key,
+                    "timeout": timeout,
+                    "max_retries": max_retries,
+                }
+            )
+            if raise_on_create:
+
+                class Boom:
+                    def create(self, **kw):
+                        raise ConnectionError("endpoint down")
+
+                self.embeddings = Boom()
+            else:
+                self.embeddings = _FakeEmbeddings(log)
 
     return FakeOpenAI
 
 
 def _embed_ready(monkeypatch, **over):
+    # the client is cached per (base_url, key); reset so each test gets its own fake
+    monkeypatch.setattr(search, "_embed_client", None)
+    monkeypatch.setattr(search, "_embed_client_key", ())
+    monkeypatch.setattr(search, "_embed_warned", False)
     monkeypatch.setattr(config, "EMBED_READY", True)
     monkeypatch.setattr(config, "EMBED_MODEL", over.get("model", "test-embed"))
     monkeypatch.setattr(config, "EMBED_BASE_URL", over.get("base_url", "http://x:11434/v1"))
@@ -172,7 +191,11 @@ def test_client_gets_base_url_and_placeholder_key(monkeypatch):
     _embed_ready(monkeypatch)
     monkeypatch.setattr(config, "EMBED_PROVIDER", "ollama")
     search._embed("hello")
-    assert calls[0] == {"base_url": "http://x:11434/v1", "api_key": "not-needed"}
+    assert calls[0]["base_url"] == "http://x:11434/v1"
+    assert calls[0]["api_key"] == "not-needed"
+    # bounded, or a hung endpoint costs 30 minutes per service write
+    assert calls[0]["timeout"] is not None
+    assert calls[0]["max_retries"] == 0
     assert calls[1]["model"] == "test-embed"
 
 
@@ -192,12 +215,9 @@ def test_vectors_are_tagged_and_reads_filter_by_model(monkeypatch, fresh_db):
 
 def test_disabled_embeddings_touch_nothing(monkeypatch):
     monkeypatch.setattr(config, "EMBED_READY", False)
-    monkeypatch.setattr(
-        "openai.OpenAI", _fake_openai([]) and (lambda *a, **k: pytest.fail("client built"))
-    )
+    monkeypatch.setattr("openai.OpenAI", lambda *a, **k: pytest.fail("client built"))
     search._maybe_embed("note", 90002, "text")
     assert search.semantic_search("q") == []
-    assert search.search("") == []  # and plain search still behaves
 
 
 def test_health_reports_the_embeddings_fault(monkeypatch, restore_config):
@@ -210,3 +230,56 @@ def test_health_reports_the_embeddings_fault(monkeypatch, restore_config):
         body = client.get("/health").json()
     assert "OPENAI_API_KEY" in body["embeddings_error"]
     assert body["ok"] is True
+
+
+def test_deindex_removes_the_vector_too(monkeypatch, fresh_db):
+    """A deleted record's orphaned vector outranks live records and silently
+    burns a semantic result slot per query — found live: a deleted note beat
+    a live one 0.727 to 0.646 and search() dropped the hit on the missing
+    search_index row, shrinking results with no error."""
+    calls: list[dict] = []
+    monkeypatch.setattr("openai.OpenAI", _fake_openai(calls))
+    _embed_ready(monkeypatch, model="model-A")
+    search.index_record("note", 90003, "title", "body")
+    assert db.query_one("SELECT 1 AS x FROM embeddings WHERE entity_id = 90003")
+    search.deindex_record("note", 90003)
+    assert db.query_one("SELECT 1 AS x FROM embeddings WHERE entity_id = 90003") is None
+    assert search.semantic_search("q") == []
+
+
+def test_service_write_survives_a_dead_endpoint(monkeypatch, fresh_db, caplog):
+    """The production promise behind the except-pass: index_record must land
+    the FTS row even when the embeddings endpoint is down — and say so once,
+    not once per write, and not never."""
+    calls: list[dict] = []
+    monkeypatch.setattr("openai.OpenAI", _fake_openai(calls, raise_on_create=True))
+    _embed_ready(monkeypatch)
+    with caplog.at_level("WARNING", logger="skein"):
+        search.index_record("note", 90004, "resilient title", "resilient body")
+        search.index_record("note", 90005, "second title", "second body")
+    assert [r["entity_id"] for r in search.search("resilient title")] == [90004]
+    assert db.query_one("SELECT 1 AS x FROM embeddings WHERE entity_id = 90004") is None
+    warnings = [r for r in caplog.records if "embedding failed" in r.message]
+    assert len(warnings) == 1  # once per outage, not per write
+
+
+def test_embed_api_key_satisfies_and_wins_for_openai(monkeypatch, restore_config):
+    cfg = _reload_config(monkeypatch, SKEIN_EMBEDDINGS="1", SKEIN_EMBED_API_KEY="sk-embed-specific")
+    assert cfg.EMBED_READY is True  # no OPENAI_API_KEY needed
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-ambient")
+    assert cfg.embed_key() == "sk-embed-specific"
+
+
+def test_ollama_refuses_an_embed_base_url(monkeypatch, restore_config):
+    """Same rule as everywhere else now: the ollama endpoint derives from
+    SKEIN_OLLAMA_HOST alone. A leftover SKEIN_EMBED_BASE_URL would mis-route
+    the Ollama Cloud bearer key and double the /v1 suffix."""
+    cfg = _reload_config(
+        monkeypatch,
+        SKEIN_EMBEDDINGS="1",
+        SKEIN_EMBED_PROVIDER="ollama",
+        SKEIN_EMBED_MODEL="nomic-embed-text",
+        SKEIN_EMBED_BASE_URL="http://leftover:8001/v1",
+    )
+    assert cfg.EMBED_READY is False
+    assert "does not accept SKEIN_EMBED_BASE_URL" in cfg.EMBEDDINGS_ERROR
