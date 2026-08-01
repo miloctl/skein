@@ -159,11 +159,15 @@ the agent's prompt) work keyless, in-app.
 
 ## The developer loop
 
-- **Per-teammate API keys** — create yours with
-  `curl -X POST $URL/api/keys -H 'X-User: you' -H 'Content-Type: application/json' -d '{"label":"cli"}'`
-  (store the `sk-skein-…` once — it is never shown again); keys authenticate
-  and *attribute* automation, and satisfy the shared token gate. If
-  `SKEIN_API_TOKEN` is set, pass it as the bearer when minting your first key.
+- **Per-teammate API keys** — your FIRST key is minted out-of-band, on the
+  box: `python -m app.bootstrap_key <you>` (or
+  `docker compose exec backend python -m app.bootstrap_key <you>`). Minting
+  via the API requires an *existing* key, deliberately — on X-User identity
+  alone any LAN caller could become anyone. Once you hold one, later keys
+  come from `curl -X POST $URL/api/keys -H 'Authorization: Bearer sk-skein-…'
+  -H 'Content-Type: application/json' -d '{"label":"cli"}'`. Store the
+  `sk-skein-…` once — it is never shown again; keys authenticate and
+  *attribute* automation, and satisfy the shared token gate.
 - **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
   `skein config --url … --key …` and
   `skein capture|standup|my-day|tasks|blockers|search|week|eval|context`.
@@ -210,7 +214,7 @@ cp .env.example .env                       # defaults to the keyless mock provid
 
 # frontend
 cd frontend
-npm install && cp .env.local.example .env.local
+npm install                                # backend URL defaults to :8000
 npm run dev                                # http://localhost:3000
 
 # or both: ./dev.sh   ·   tests: cd backend && .venv/bin/pytest
