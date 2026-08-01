@@ -138,10 +138,18 @@ OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or "http://localhost:11434"
 # never no-op in silence.
 EMBED_PROVIDERS: dict[str, dict] = {
     # default_model None = operator must say (the server decides what it serves)
-    "openai": {"default_model": "text-embedding-3-small", "key_env": "OPENAI_API_KEY"},
+    # base_url forbidden/required mirrors the chat registry — forbidden on
+    # ollama too: its endpoint derives from SKEIN_OLLAMA_HOST alone, and a
+    # leftover SKEIN_EMBED_BASE_URL would both mis-route the Ollama Cloud
+    # bearer key and double the /v1 suffix into a silently-404ing URL.
+    "openai": {
+        "default_model": "text-embedding-3-small",
+        "base_url": "forbidden",
+        "key_env": "OPENAI_API_KEY",
+    },
     # never falls back to OPENAI_API_KEY — same leak rule as the chat provider
-    "openai_compatible": {"default_model": None, "key_env": ""},
-    "ollama": {"default_model": None, "key_env": "OLLAMA_API_KEY"},
+    "openai_compatible": {"default_model": None, "base_url": "required", "key_env": ""},
+    "ollama": {"default_model": None, "base_url": "forbidden", "key_env": "OLLAMA_API_KEY"},
 }
 
 EMBEDDINGS_ENABLED = os.getenv("SKEIN_EMBEDDINGS", "0") == "1"
@@ -160,12 +168,14 @@ if EMBEDDINGS_ENABLED:
         )
     else:
         EMBED_MODEL = EMBED_MODEL or EMBED_PROVIDERS[EMBED_PROVIDER]["default_model"] or ""
-        if EMBED_PROVIDER == "openai" and _embed_base:
+        _embed_rule = EMBED_PROVIDERS[EMBED_PROVIDER]["base_url"]
+        if _embed_rule == "forbidden" and _embed_base:
             EMBEDDINGS_ERROR = (
-                "SKEIN_EMBED_PROVIDER=openai does not accept SKEIN_EMBED_BASE_URL —"
+                f"SKEIN_EMBED_PROVIDER={EMBED_PROVIDER} does not accept SKEIN_EMBED_BASE_URL —"
                 " use openai_compatible to point at a custom endpoint"
+                " (the ollama endpoint derives from SKEIN_OLLAMA_HOST)"
             )
-        elif EMBED_PROVIDER == "openai_compatible" and not _embed_base:
+        elif _embed_rule == "required" and not _embed_base:
             EMBEDDINGS_ERROR = (
                 "SKEIN_EMBED_PROVIDER=openai_compatible requires SKEIN_EMBED_BASE_URL"
             )
@@ -182,7 +192,7 @@ if EMBEDDINGS_ENABLED:
             )
         if not EMBEDDINGS_ERROR:
             if EMBED_PROVIDER == "ollama":
-                EMBED_BASE_URL = (_embed_base or OLLAMA_HOST).rstrip("/") + "/v1"
+                EMBED_BASE_URL = OLLAMA_HOST.rstrip("/") + "/v1"
             else:
                 EMBED_BASE_URL = _embed_base
 

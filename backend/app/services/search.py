@@ -8,6 +8,7 @@ results; otherwise hybrid search degrades cleanly to FTS-only.
 """
 
 import json
+import logging
 
 from .. import config, db
 
@@ -30,9 +31,16 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
 
 def deindex_record(entity: str, entity_id: int) -> None:
     """Hard-deleted rows must leave the index too — search and /ask must
-    never cite a record that no longer exists."""
+    never cite a record that no longer exists. The vector goes with it: an
+    orphaned embedding can't leak content (snippets come from search_index),
+    but it outranks live records and silently burns a semantic result slot
+    per query, forever."""
     db.execute(
         "DELETE FROM search_index WHERE entity = ? AND entity_id = ?",
+        (entity, entity_id),
+    )
+    db.execute(
+        "DELETE FROM embeddings WHERE entity = ? AND entity_id = ?",
         (entity, entity_id),
     )
 
@@ -112,7 +120,13 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
 # stale-binding bug chat.py had, and it breaks config reloads in tests.
 
 
+_embed_client = None
+_embed_client_key: tuple = ()
+_embed_warned = False
+
+
 def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
+    global _embed_warned
     if not config.EMBED_READY:
         return
     try:
@@ -122,19 +136,45 @@ def _maybe_embed(entity: str, entity_id: int, text: str) -> None:
             " VALUES (?, ?, ?, ?)",
             (entity, entity_id, config.EMBED_MODEL, json.dumps(vec)),
         )
-    except Exception:
-        pass  # embeddings are best-effort; FTS remains authoritative
+        _embed_warned = False
+    except Exception as exc:
+        # best-effort by design — FTS remains authoritative — but not silent:
+        # a dead endpoint with valid config is otherwise invisible (/health
+        # only reports CONFIG faults). Once per outage, not per write.
+        if not _embed_warned:
+            _embed_warned = True
+            logging.getLogger("skein").warning(
+                "embedding failed for %s#%s (further failures muted until one succeeds): %s",
+                entity,
+                entity_id,
+                exc,
+            )
 
 
 def _embed(text: str) -> list[float]:
+    """One cached client, rebuilt when the endpoint or key changes.
+
+    timeout/max_retries are the load-bearing part: index_record runs
+    synchronously inside EVERY service write, and the openai default is
+    connect=5s read=600s with 2 retries — a hung endpoint would cost ~30
+    MINUTES per write and a firewalled one ~17s. Bounded here, the worst
+    case is ~5s once, and connection-refused fails in milliseconds.
+    """
+    global _embed_client, _embed_client_key
+    import httpx
     from openai import OpenAI
 
-    client = OpenAI(
-        base_url=config.EMBED_BASE_URL or None,
-        # local servers ignore it, but the client demands something
-        api_key=config.embed_key() or "not-needed",
-    )
-    resp = client.embeddings.create(model=config.EMBED_MODEL, input=text[:8000])
+    key = (config.EMBED_BASE_URL, config.embed_key())
+    if _embed_client is None or key != _embed_client_key:
+        _embed_client = OpenAI(
+            base_url=config.EMBED_BASE_URL or None,
+            # local servers ignore it, but the client demands something
+            api_key=config.embed_key() or "not-needed",
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            max_retries=0,
+        )
+        _embed_client_key = key
+    resp = _embed_client.embeddings.create(model=config.EMBED_MODEL, input=text[:8000])
     return resp.data[0].embedding
 
 
