@@ -128,7 +128,100 @@ Same prompt with three substitutions:
 
 ---
 
-# 2. README banner — generate 1920x640
+# 2. README banner — v2
+
+**Why v1 was replaced.** The first version asked for ~30 hairlines "at a
+consistent 24-degree angle" that "converge and run together." The model read
+the whole description as one-point perspective and drew a vanishing-point fan
+— technically clean, but it says *telecom*, not *formation*. The strands never
+plied, and at high density the lines frayed and wandered (and the dark variant
+produced solid filled wedges where lines should be).
+
+Three fixes below: perspective is banned by name, the strand count drops to
+~12 so each one is individually followable, and the crossings are specified as
+**over-under position swaps** rather than "convergence" — which is the word
+that caused the problem.
+
+Generate `1920x640`, scale to 1280 wide, crop to `1280x400`.
+
+## 2-LIGHT-v2
+
+```
+A very wide banner illustration in a restrained technical print style — flat
+printed ink on paper, drawn with a pen and a ruler, mechanically precise.
+
+Background: one flat, completely even field of warm off-white paper (#faf9f6)
+edge to edge. No vignette, no gradient, no texture, no soft or faded edges.
+
+The image is a FLAT DIAGRAM seen straight on. There is no perspective, no
+depth, no recession, and no vanishing point. The lines do not radiate from a
+point and do not fan out. They run as a parallel band across the frame.
+
+Draw exactly twelve long straight strands. All twelve run left to right across
+the full width of the frame, rising very gently at about 12 degrees. They are
+evenly spaced, roughly equal in weight, and stay parallel to one another for
+most of their length — the band keeps a constant thickness from left edge to
+right edge. It does not widen, narrow, or bunch.
+
+At four evenly spaced points along the band, one adjacent PAIR of strands
+crosses over each other and swaps places — the upper strand passes down and
+under, the lower strand passes up and over, they trade positions, and then both
+continue on parallel as before. Each crossing is a small, tidy, deliberate X
+about as wide as the gap between two strands. At every crossing the strand
+passing behind has a clean visible break in it, so you can always tell which is
+in front. Only one pair crosses at a time; the other ten strands run straight
+through, undisturbed.
+
+Every strand is deep indigo blue (#3b4dbf), of even hairline-to-two-pixel
+weight, perfectly straight between crossings, with no wobble, no waver, no
+fraying, and no bunching. Except the topmost strand, which is dark burnt umber
+(#935a1c) — a deep muted brown-ochre, not orange, not gold, not yellow — and
+which runs slightly ahead of and above the other eleven.
+
+All twelve strands sit inside the middle 55 percent of the frame height. The
+top band and the bottom band are completely empty flat paper, because this
+image will be cropped to a wide letterbox strip.
+
+Flat printed ink. No gradients, no glow, no blur, no drop shadow, no 3D, no
+noise, no depth of field.
+
+Do not include: a vanishing point, perspective, radiating rays, a starburst, a
+fan, or any suggestion of depth or distance; any letters, numbers, words,
+wordmark, logo, caption, watermark, or signature; birds, geese, feathers,
+wings, or any animal; yarn balls, spools, knitting needles, or fabric;
+swooshes or curves; people or hands; UI panels, screenshots, dashboards, or
+charts; a border or frame; any knot, tangle, spaghetti loop, or impossible
+over-under topology.
+```
+
+**Going for:** a flat band of strands that stays a band, with four legible
+places where two strands trade position. That swap is the whole brand idea —
+the lead rotates, and the formation holds.
+
+**Failure mode:** it reintroduces perspective anyway. Check first that the band
+is the same thickness at both edges; if it tapers, discard. Second check: count
+the crossings and confirm the behind-strand actually breaks. A crossing drawn
+as a merge or a shaded overlap is a reject — that is the v1 failure returning.
+
+**If the crossings will not come:** generate the band clean with no crossings
+at all, then use the **edit endpoint** with a mask over one crossing site and
+the instruction "make these two adjacent lines cross over each other and swap
+places, with a clean break in the line that passes behind." Masked edits hold
+this far better than a fresh prompt.
+
+## 2-DARK-v2
+
+Same prompt, three substitutions. Note the background is a **warm** near-black
+— v1 came back at a cooler, darker `#0e0e0e`, which would not sit flush with
+the site's dark paper:
+
+- Background → `one flat, completely even field of warm near-black (#141311) — a soft warm charcoal, not pure black and not a cool grey`
+- Strand colour → `soft periwinkle (#a7b5f2)`
+- Lead strand → `warm sand (#d9a15e)`
+
+---
+
+# 2-OLD. README banner — v1 (superseded)
 
 Scale to 1280 wide, crop to `1280x400`. Gitea renders README images against
 both light and dark page backgrounds, so give the banner an **opaque ground**
