@@ -82,3 +82,27 @@ that hasn't passed it will fail on push-to-main.
 - Tools return JSON strings; services return dicts/lists.
 - Keep frontend components small and Tailwind-styled; no extra UI libraries.
 - Python: no comments narrating what code does; match existing terse style.
+
+### User-visible wording
+
+Functional text — errors, helper copy, instructions, refusals, notifications,
+command replies — follows ASD-STE100 Simplified Technical English (the
+`simple-english` skill, pragmatic mode). Brand voice is exempt and stays as
+written: `lib/whimsy.ts` pools, digest openers, mock-agent replies, theme pack
+names, the field guide's warmth. Code, identifiers, commands, and quoted
+errors are never rewritten.
+
+- Errors state what happened, then the fix as an imperative. No rhetorical
+  questions ("is it running?"), no apologies, no "Please".
+- No contractions, no semicolons, no `e.g.`/`i.e.`, no `should`/`would`/`may`
+  (write `must` or `can`, or restructure). Conditions come first: "If the
+  build fails, read the log."
+- One word per concept: **check** for the user action (`verify` is reserved
+  for provenance, `reconfirm` for charter and decisions), **delete** for
+  destruction (`forget` only for memories), **whoever runs the server**.
+- One condition, one wording. The backend-unreachable error reads identically
+  on every surface; a new surface copies that string rather than inventing one.
+- Sentence-form text computes its plurals and verb agreement ("1 promise
+  carries", "2 promises carry"). A bare `(s)` is fine in stat rows and labels.
+- A rewrite must not change what a sentence claims. A refusal describes what
+  the system prevented, never what already happened.
