@@ -218,6 +218,10 @@ def one_on_one_brief(person: str, days: int = 14) -> dict:
 # a bare '-' only separates when whitespace-surrounded, so hyphenated names
 # (mary-jane) never get split into person="mary", body="jane — …"
 FB_LINE = re.compile(r"^\s*fb:", re.I)
+# FB_LINE plus the command-wrapped shape ("/remember fb: …"): surfaces that
+# sink to disk or a model provider must refuse both, or a slash prefix
+# becomes a private-data smuggling route (chat gate, session bridge)
+FB_GUARD = re.compile(r"^\s*(?:/[a-z]+\s+)?fb:", re.I)
 _FB = re.compile(r"^\s*fb:\s*(?P<person>.+?)\s*(?:—|:|\s-\s)\s*(?P<body>.+)$", re.I | re.S)
 
 

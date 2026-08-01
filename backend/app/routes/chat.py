@@ -8,13 +8,14 @@ Works identically for every provider in config.PROVIDERS.
 import json
 import logging
 import re
+from collections import Counter
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import config, ratelimit
-from ..agents import commands, receipts
+from ..agents import commands, receipts, session_log
 from ..agents.identity import (
     reset_agent_identity,
     reset_requester_identity,
@@ -23,10 +24,17 @@ from ..agents.identity import (
 )
 from ..agents.team_agent import build_agent
 from ..services import chat_threads, personas
+from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
 from .deps import CurrentUser
 
 router = APIRouter()
+
+# agent streams in flight, keyed by their session id. The command bridge
+# (session_log) computes message indices from disk while a live agent caches
+# its own — interleaved writes on the same session silently clobber files,
+# so the bridge stands down while an agent turn owns the session.
+_inflight: Counter[str] = Counter()
 
 
 class ChatRequest(BaseModel):
@@ -166,8 +174,10 @@ async def chat(req: ChatRequest, user: CurrentUser):
 
     # fb: is private and chat is a sink (session files on disk, the model
     # provider, OTEL traces) — reject BEFORE the message reaches the agent.
-    # Checked AFTER /as extraction so "/as x fb: ..." can't smuggle it past.
-    if any(re.match(r"^\s*fb:", ln, re.I) for ln in message.splitlines()):
+    # Checked AFTER /as extraction so "/as x fb: ..." can't smuggle it past;
+    # FB_GUARD also catches the command-wrapped shape ("/remember fb: ..."),
+    # which would otherwise transit the transcript and the session bridge.
+    if any(FB_GUARD.match(ln) for ln in message.splitlines()):
 
         async def fb_stream():
             yield _sse(
@@ -183,7 +193,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
         return StreamingResponse(fb_stream(), media_type="text/event-stream")
 
     # slash commands are deterministic for EVERY provider: no agent, no
-    # session write, no tokens — same engine the mock agent and Slack use
+    # tokens — same engine the mock agent and Slack use. The exchange is
+    # still bridged into the model session afterwards (session_log) so a
+    # follow-up question to the agent has the context.
     # the UI transcript is keyed by the BASE thread id (persona sessions
     # share one visible conversation); sanitize once, up front
     ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
@@ -197,23 +209,39 @@ async def chat(req: ChatRequest, user: CurrentUser):
             _log_turn(ui_thread, user, "user", message)
             receipts.start()
             parts: list[str] = []
+            # the model's copy of the exchange: everything the user read
+            # except the 🔧 chip markup, which is UI chrome, not content
+            model_parts: list[str] = []
             try:
                 async for event in command_events:
                     if "data" in event:
                         parts.append(event["data"])
+                        model_parts.append(event["data"])
                         yield _sse({"type": "text", "text": event["data"]})
                     elif "current_tool_use" in event:
                         name = event["current_tool_use"].get("name", "")
                         parts.append(f"\n\n*🔧 {name}…*\n\n")
                         yield _sse({"type": "tool", "name": name})
                     for r in receipts.drain():
-                        parts.append(_receipt_line(r))
+                        line = _receipt_line(r)
+                        parts.append(line)
+                        model_parts.append(line)
                         yield _sse({"type": "receipt", **r})
             except Exception as exc:
                 logging.getLogger("skein.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
             finally:
                 _log_turn(ui_thread, user, "assistant", "".join(parts))
+                # a follow-up question about this output goes to the agent —
+                # replay the exchange into its session so it has the context
+                # (unless an agent turn holds the session right now: bridged
+                # indices would race the SDK's cache and clobber files)
+                if ui_thread in _inflight:
+                    logging.getLogger("skein.chat").info(
+                        "session bridge skipped, agent turn in flight (thread=%s)", ui_thread
+                    )
+                else:
+                    session_log.log_exchange(ui_thread, message, "".join(model_parts))
             yield _sse({"type": "done"})
 
         return StreamingResponse(command_stream(), media_type="text/event-stream")
@@ -262,6 +290,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         if masthead:
             yield _sse({"type": "text", "text": masthead})
         receipts.start()
+        _inflight[thread_id] += 1
         try:
             async for event in agent.stream_async(message):
                 if "data" in event:
@@ -291,6 +320,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
             transcript.append(f"\n\n> ⚠️ {str(exc)[:300]}\n")
             yield _sse({"type": "error", "message": str(exc)})
         finally:
+            _inflight[thread_id] -= 1
+            if _inflight[thread_id] <= 0:
+                del _inflight[thread_id]
             # an abandoned stream may be finalized in a foreign context,
             # where reset raises — identity is per-task, so it can't leak
             try:

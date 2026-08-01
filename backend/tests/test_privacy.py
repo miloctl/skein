@@ -95,6 +95,15 @@ def _spray_canary(client, headers):
     assert "private" in chat_out and CANARY not in json.dumps(
         [r["title"] for r in client.get("/api/tasks").json()]
     )
+    # a slash prefix must not smuggle fb: past the gate — the transcript and
+    # the session bridge are both downstream of it
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={"thread_id": "t", "message": f"/remember fb: dana — {CANARY} wrapped"},
+    ) as resp:
+        wrapped_out = resp.read().decode()
+    assert "private" in wrapped_out
 
 
 def test_canary_absent_from_every_platform_table(client, fresh_db):
