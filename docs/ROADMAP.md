@@ -173,9 +173,9 @@ run after Phases 0–2 + integrations shipped. Everything below is deterministic
 
 ## Synthesized picks
 
-1. **`strands` CLI + per-teammate API keys** — capture/standup/blockers from
+1. **`skein` CLI + per-teammate API keys** — capture/standup/blockers from
    the terminal; the substrate for git hooks and CI. *(DX #1, #3)*
-2. **Strands MCP server** — expose the platform's own API as MCP tools so the
+2. **Skein MCP server** — expose the platform's own API as MCP tools so the
    team's Claude Code sessions and other agents read/write tasks natively.
    The killer feature for an AI-enabled team. *(DX #2)*
 3. **Ship It moment + Blocker Funeral** — confetti + recap card on shipped
@@ -240,17 +240,17 @@ standups, later blockers, citation-less playbook spikes = being gamed).
 
 ## Developer Advocate — 8 developer-loop features (ranked)
 
-1. **`strands` CLI** — Typer over the existing REST API; pipx/brew.
-2. **Strands MCP Server** — FastMCP wrapping the REST routes (`get_my_day`,
-   `create_task`, `log_decision`, `search_knowledge`); `claude mcp add strands`.
+1. **`skein` CLI** — Typer over the existing REST API; pipx/brew.
+2. **Skein MCP Server** — FastMCP wrapping the REST routes (`get_my_day`,
+   `create_task`, `log_decision`, `search_knowledge`); `claude mcp add skein`.
 3. **Per-teammate API keys** — hashed keys + scopes table; prerequisite for
    1, 2, 4, 5; keeps attribution honest.
 4. **Git commit trailers** — `Closes-Task: #12` via hook or CI merge parse;
    links SHAs into task timelines.
 5. **CI webhook → blockers** — failed default-branch run opens a blocker
    (deduped by repo+branch), green resolves it.
-6. **Editor touchpoints** — VS Code capture command + `TODO(strands):`
-   promotion via `strands scan-todos`.
+6. **Editor touchpoints** — VS Code capture command + `TODO(skein):`
+   promotion via `skein scan-todos`.
 7. **Public-quality /docs** — polish the free OpenAPI: examples, quickstart,
    embedded Scalar viewer.
 8. **Weekly changelog auto-post** — rides digest + Slack infra.
@@ -278,7 +278,7 @@ append-only audit trail. *(Trend #1/#4, CoS #4, Sprint #6)*
 **2. The review inbox becomes a flywheel.** Every approve/reject/edit is
 already a labeled example: rejection-reason analytics auto-tune which
 proposal types need gating; thumbs on chat responses build an eval corpus;
-`strands eval` replays it before any model/prompt change; capture corrections
+`skein eval` replays it before any model/prompt change; capture corrections
 refine the classifier rules — every self-tune shipped as a gated proposal.
 Nobody mainstream has closed this loop; our labeling cost is already sunk.
 *(Feedback #1/#2/#3, Trend #5)*
@@ -306,11 +306,11 @@ meeting preemption (agenda-or-async). *(Sprint #1-5, CoS #3/#5/#6, Feedback #4/#
 2. Weekly commitment line + auto-drafted plan (reuses review inbox)
 3. Flow metrics rollup (baseline before behavior change)
 4. Agent delegation + delegation charter + agent identities
-5. Review-inbox analytics → trust scores, eval corpus, `strands eval`
+5. Review-inbox analytics → trust scores, eval corpus, `skein eval`
 6. Decision half-life; 7. Commitment ledger + exec readout;
 8. What-if intake + slip forecasting; 9. Ambient agent inbox
 (notify/question/review); 10. Team context pack (versioned org-brain as an
-MCP resource + AGENTS.md emitter — the differentiated bet: Strands becomes
+MCP resource + AGENTS.md emitter — the differentiated bet: Skein becomes
 the context supplier to every other agent the team uses).
 
 *(Full per-agent output retained in the panel transcripts; key trend sources:

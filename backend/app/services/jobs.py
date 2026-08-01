@@ -13,7 +13,7 @@ from typing import Any
 
 from .. import db
 
-log = logging.getLogger("strands")
+log = logging.getLogger("skein")
 
 
 @dataclass(frozen=True)

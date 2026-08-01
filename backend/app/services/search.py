@@ -2,7 +2,7 @@
 
 `index_record` is called by every service on write, so the index is always
 current. Embeddings are a pluggable enhancement: with OPENAI_API_KEY set and
-STRANDS_EMBEDDINGS=1, vectors are stored alongside and blended into results;
+SKEIN_EMBEDDINGS=1, vectors are stored alongside and blended into results;
 without it, hybrid search degrades cleanly to FTS-only.
 """
 
@@ -107,8 +107,8 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
 
 # --- optional embedding layer (activates when keys are connected) -----------
 
-EMBEDDINGS_ENABLED = os.getenv("STRANDS_EMBEDDINGS", "0") == "1"
-_EMBED_MODEL = os.getenv("STRANDS_EMBED_MODEL", "text-embedding-3-small")
+EMBEDDINGS_ENABLED = os.getenv("SKEIN_EMBEDDINGS", "0") == "1"
+_EMBED_MODEL = os.getenv("SKEIN_EMBED_MODEL", "text-embedding-3-small")
 
 
 def _maybe_embed(entity: str, entity_id: int, text: str) -> None:

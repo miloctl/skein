@@ -72,7 +72,7 @@ def test_backup_mirror_guarded_to_production_data_dir(fresh_db, tmp_path, monkey
     from app.services import admin
 
     mirror = tmp_path / "offbox"
-    monkeypatch.setenv("STRANDS_BACKUP_MIRROR", str(mirror))
+    monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(mirror))
 
     # non-default data dir (tests, sandboxes): mirror must be skipped —
     # a throwaway instance overwrote the real NAS mirror before this guard
@@ -88,5 +88,5 @@ def test_backup_mirror_guarded_to_production_data_dir(fresh_db, tmp_path, monkey
     assert out["mirrored"] and os.path.exists(out["mirrored"])
     assert Path(out["mirrored"]).parent == mirror
 
-    monkeypatch.delenv("STRANDS_BACKUP_MIRROR")
+    monkeypatch.delenv("SKEIN_BACKUP_MIRROR")
     assert admin.backup()["mirrored"] is None

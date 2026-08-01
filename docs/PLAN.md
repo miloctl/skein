@@ -27,7 +27,7 @@ ONE change so no private row ever exists before the machinery does.
 
 **Storage** — new `services/private_notes.py`:
 - Separate SQLite file `data/private.db` (path from `config.PRIVATE_DB_PATH`,
-  env `STRANDS_PRIVATE_DB`). Own `connect()`; NEVER uses `app.db.connect`.
+  env `SKEIN_PRIVATE_DB`). Own `connect()`; NEVER uses `app.db.connect`.
 - Schema (created via `CREATE TABLE IF NOT EXISTS` on first use — single
   consumer, no shared migration chain):
   - `private_notes(id, author TEXT, person TEXT, kind TEXT CHECK(kind IN
@@ -42,14 +42,14 @@ ONE change so no private row ever exists before the machinery does.
 **Auth** — `routes/deps.py` gains `StrongUser`: identity accepted ONLY from
 a strong credential; X-User-resolved identity → 403 with a message pointing
 at `POST /api/keys`. All `/api/private/*` routes use it. Today "strong"
-means a personal `sk-strands-` API key; the deployed target is **OIDC +
+means a personal `sk-skein-` API key; the deployed target is **OIDC +
 PKCE** (ported from the user's other project), so `StrongUser` is the single
 swap point — when OIDC lands, a validated ID-token session satisfies it and
 nothing else changes. Also: gate `GET /api/admin/export` behind `StrongUser`
 (it is unguarded today).
 
 **Frontend key support** — `lib/api.ts`: optional API key stored in
-localStorage (`strands-key`), sent as `Authorization: Bearer` when present;
+localStorage (`skein-key`), sent as `Authorization: Bearer` when present;
 settings field next to the name picker. Required for the People page.
 
 **Endpoints**:
@@ -182,7 +182,7 @@ Per-rule counts (fired / dispositioned / converted) added to `insights()`.
 
 - **ICS feed**: `GET /api/calendar.ics` — stdlib string building over events
   + milestone/commitment due dates (all team-visible). LAN-only; if
-  `STRANDS_API_TOKEN` is set, require `?token=`. Document that hosted
+  `SKEIN_API_TOKEN` is set, require `?token=`. Document that hosted
   calendar clients would mirror titles off-LAN — recommend local clients.
 - **Review diff view**: for update-type proposals, render current row vs
   payload two-column. Needs a read-fn map per registry entity — scope to
@@ -203,7 +203,7 @@ deviations from the spec above:
   defeats the entire private-record boundary.
 - The canary test is EXHAUSTIVE (every platform table via sqlite_master +
   every file under DATA_DIR), not an enumerated surface list.
-- ICS uses a dedicated `STRANDS_ICS_TOKEN`, never the API token; fail-closed
+- ICS uses a dedicated `SKEIN_ICS_TOKEN`, never the API token; fail-closed
   when the API is token-locked. Multi-line captures containing `fb:` are
   refused whole; chat refuses `fb:` before the agent/session/model sees it.
 - Portfolio shows commitments as one list with team/external markers rather

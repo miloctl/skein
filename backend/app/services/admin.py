@@ -2,7 +2,7 @@
 mid-write; exports are JSON snapshots for portability.
 
 Ops note: backups default to the same volume as the live DB. Copy them off-box
-(host cron: `docker cp` / rsync of /data/backups) or set STRANDS_BACKUP_DIR to
+(host cron: `docker cp` / rsync of /data/backups) or set SKEIN_BACKUP_DIR to
 a bind mount — losing the volume otherwise loses DB and backups together.
 """
 
@@ -58,7 +58,7 @@ TABLES = (
 
 
 def _backups_dir() -> Path:
-    d = Path(os.getenv("STRANDS_BACKUP_DIR", "") or Path(config.DATA_DIR) / "backups")
+    d = Path(os.getenv("SKEIN_BACKUP_DIR", "") or Path(config.DATA_DIR) / "backups")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -92,14 +92,14 @@ def backup(*, keep: int = 14) -> dict:
 
 
 def _mirror(dest: Path) -> str | None:
-    """Copy the fresh backup to STRANDS_BACKUP_MIRROR (a mounted NAS/remote
+    """Copy the fresh backup to SKEIN_BACKUP_MIRROR (a mounted NAS/remote
     path). Off-box durability without extra tooling; rclone/rsync in a host
     cron remains the alternative for true remote targets."""
-    mirror = os.getenv("STRANDS_BACKUP_MIRROR", "")
+    mirror = os.getenv("SKEIN_BACKUP_MIRROR", "")
     if not mirror:
         return None
     # only a production instance may touch the mirror: a test/dev run with a
-    # sandboxed STRANDS_DATA_DIR must never overwrite the off-box copy.
+    # sandboxed SKEIN_DATA_DIR must never overwrite the off-box copy.
     # Production shapes: the repo default (backend/data) or the container
     # canonical /data (set by the Dockerfile).
     data_dir = Path(config.DATA_DIR).resolve()

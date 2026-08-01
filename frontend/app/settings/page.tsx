@@ -127,8 +127,8 @@ export default function SettingsPage() {
   const testAndSaveKey = async () => {
     const candidate = keyDraft.trim();
     if (!candidate) return;
-    if (!candidate.startsWith("sk-strands-")) {
-      setKeyStatus("❌ that doesn't look like a Skein key — they start with sk-strands-");
+    if (!candidate.startsWith("sk-skein-")) {
+      setKeyStatus("❌ that doesn't look like a Skein key — they start with sk-skein-");
       return;
     }
     setKeyStatus("testing…");
@@ -426,7 +426,7 @@ export default function SettingsPage() {
             onChange={(e) => setKeyDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && testAndSaveKey()}
             aria-label="Personal API key"
-            placeholder="sk-strands-…"
+            placeholder="sk-skein-…"
             type="password"
             className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 font-mono text-sm outline-none focus:border-thread-solid"
           />
@@ -514,7 +514,7 @@ export default function SettingsPage() {
         </p>
         <p className="mb-1 text-xs font-medium text-ink-3">Claude Code registration:</p>
         <CopyLine
-          text={`claude mcp add skein -- env STRANDS_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
+          text={`claude mcp add skein -- env SKEIN_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
         />
         <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
           Team context pack (org-brain for any agent — also an MCP resource):
@@ -534,7 +534,7 @@ export default function SettingsPage() {
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
         <p className="mt-2 text-xs text-ink-3">
-          If the API is token-locked, the operator sets STRANDS_ICS_TOKEN and
+          If the API is token-locked, the operator sets SKEIN_ICS_TOKEN and
           the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
         </p>
       </Section>

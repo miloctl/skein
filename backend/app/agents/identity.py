@@ -5,7 +5,7 @@ into one identity — the per-agent authority matrix and trust scores could
 not tell a persona from the default Chief of Staff. The chat route sets the
 acting identity here per request; contextvars propagate through the async
 call chain, so concurrent chats with different personas do not cross-
-attribute. The MCP server keeps its own identity mechanism (STRANDS_MCP_USER).
+attribute. The MCP server keeps its own identity mechanism (SKEIN_MCP_USER).
 """
 
 from contextvars import ContextVar, Token

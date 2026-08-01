@@ -84,7 +84,7 @@ def build_pack() -> str:
 
     lines.append("## How to plug in")
     lines += [
-        "- REST API at /api (X-User header or a personal sk-strands- key)",
+        "- REST API at /api (X-User header or a personal sk-skein- key)",
         "- MCP server: `python -m app.mcp_server` (tools + this pack as a resource)",
         "- CLI: `skein capture|my-day|tasks|context`",
     ]

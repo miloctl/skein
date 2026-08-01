@@ -1,6 +1,6 @@
-"""MCP server wiring for the real agent. Configure via STRANDS_MCP_SERVERS:
+"""MCP server wiring for the real agent. Configure via SKEIN_MCP_SERVERS:
 
-    STRANDS_MCP_SERVERS='[{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "ghp_..."}]'
+    SKEIN_MCP_SERVERS='[{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "ghp_..."}]'
 
 Unconfigured (the default) this returns [] and costs nothing. Clients are
 opened once per process and kept alive so tools stay usable across requests.
@@ -36,7 +36,7 @@ def _load_tools() -> list:
     try:
         servers = json.loads(config.MCP_SERVERS)
     except ValueError:
-        log.warning("STRANDS_MCP_SERVERS is not valid JSON — MCP disabled")
+        log.warning("SKEIN_MCP_SERVERS is not valid JSON — MCP disabled")
         return _tools
 
     for server in servers:

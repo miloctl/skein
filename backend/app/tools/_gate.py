@@ -2,7 +2,7 @@
 
 Per (agent, entity) the authority matrix grants: autonomous (direct write),
 notify (direct write + team notification), review (proposal when
-STRANDS_AGENT_REVIEW=1, direct otherwise — the pre-matrix behavior), or
+SKEIN_AGENT_REVIEW=1, direct otherwise — the pre-matrix behavior), or
 forbidden (always refused). Default is review — agents earn autonomy through
 approved proposals, they don't start with it."""
 
@@ -15,7 +15,7 @@ from ..services import review
 from ..services.delegation import authority_level
 
 # irreversible verbs ALWAYS go through the review inbox, even with
-# STRANDS_AGENT_REVIEW off — a prompt-injected agent must never hard-delete
+# SKEIN_AGENT_REVIEW off — a prompt-injected agent must never hard-delete
 # the knowledge base or its own steering evidence without a human verdict
 # (edits stay reversible + old->new logged, so they follow the normal flag)
 ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}

@@ -16,7 +16,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-log = logging.getLogger("strands")
+log = logging.getLogger("skein")
 
 
 def _start_scheduler():
@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     from .services.users import ensure_user
 
     ensure_user("agent", kind="agent")
-    ensure_user(os.getenv("STRANDS_MCP_USER", "mcp-agent"), kind="agent")
+    ensure_user(os.getenv("SKEIN_MCP_USER", "mcp-agent"), kind="agent")
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises
     for spec in JOBS:
@@ -70,7 +70,7 @@ app = FastAPI(title="Skein", description="Many strands. One formation.", lifespa
 
 @app.middleware("http")
 async def bearer_auth(request: Request, call_next):
-    """Optional shared-token auth: enforced only when STRANDS_API_TOKEN is set.
+    """Optional shared-token auth: enforced only when SKEIN_API_TOKEN is set.
     /health stays open for container checks; Slack verifies its own signature."""
     # calendar.ics: calendar clients can't send headers — the route checks
     # ?token= itself when a shared token is configured

@@ -1,5 +1,5 @@
 """Per-teammate API keys for the CLI, MCP server, git hooks, and scripts.
-Format: sk-strands-<40 hex>. Only the SHA-256 hash is stored; the full key is
+Format: sk-skein-<40 hex>. Only the SHA-256 hash is stored; the full key is
 shown exactly once at creation."""
 
 import hashlib
@@ -9,7 +9,7 @@ import shlex
 
 from .. import db
 
-PREFIX = "sk-strands-"
+PREFIX = "sk-skein-"
 
 
 def _hash(key: str) -> str:

@@ -1,6 +1,6 @@
 """Milestone/task tools — thin wrappers over app.services.work.
 
-Mutations respect the review gate: with STRANDS_AGENT_REVIEW=1 the agent's
+Mutations respect the review gate: with SKEIN_AGENT_REVIEW=1 the agent's
 writes become pending_changes proposals a human approves in the review inbox.
 """
 

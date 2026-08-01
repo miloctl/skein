@@ -10,7 +10,7 @@ from ..services.users import ensure_user, is_agent
 def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str, bool]:
     """Identity resolution → (user, strong).
 
-    1. A per-teammate API key (Authorization: Bearer sk-strands-…) wins —
+    1. A per-teammate API key (Authorization: Bearer sk-skein-…) wins —
        attributed automation (CLI, MCP, hooks, scripts). A PRESENTED key that
        is invalid or revoked is a hard 401 — never a silent fallback, or
        revocation would be a no-op for callers that also send X-User.
@@ -88,7 +88,7 @@ def strong_user(
             detail="this surface requires a personal API key. Get your first"
             " one from whoever runs the box (python -m app.bootstrap_key"
             " <you>), then set it via the 🔑 button or send"
-            " Authorization: Bearer sk-strands-...",
+            " Authorization: Bearer sk-skein-...",
         )
     request.state.strong_auth = True
     record_use(user, _surface(request, x_client))

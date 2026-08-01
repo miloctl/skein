@@ -5,12 +5,11 @@ description = "Skein — the team platform from your terminal (stdlib only)"
 requires-python = ">=3.10"
 
 [project.scripts]
-skein = "strands_cli:main"
-strands = "strands_cli:main"  # legacy alias; muscle memory matters
+skein = "skein_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["strands_cli"]
+py-modules = ["skein_cli"]
