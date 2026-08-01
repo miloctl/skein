@@ -11,7 +11,9 @@ def _build(monkeypatch, host, key):
     monkeypatch.setattr(config, "MODEL_PARAMS", {})
     monkeypatch.setattr(config, "MODEL_ID", "gpt-oss:120b-cloud")
     monkeypatch.setattr(config, "OLLAMA_HOST", host)
-    monkeypatch.setattr(config, "OLLAMA_API_KEY", key)
+    monkeypatch.setenv("OLLAMA_API_KEY", key) if key else monkeypatch.delenv(
+        "OLLAMA_API_KEY", raising=False
+    )
     return team_agent._model()
 
 

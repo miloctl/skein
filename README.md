@@ -242,10 +242,15 @@ Model provider in `backend/.env`:
 | `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
 
 Default model per provider: `gpt-oss:120b-cloud` (ollama) · `gpt-5` (openai) ·
-`claude-opus-4-8` (anthropic) · `anthropic.claude-sonnet-4-20250514-v1:0`
-(bedrock). **`openai_compatible` has no default** — the server decides what it
-serves, so `SKEIN_MODEL_ID` is required. `bedrock` needs no key; it uses the
-ambient AWS credential chain.
+`claude-opus-4-8` (anthropic). **`openai_compatible` and `bedrock` have no
+default** and require `SKEIN_MODEL_ID` — the OpenAI-shaped server decides what
+it serves, and Bedrock's Claude ids need a region-dependent inference-profile
+prefix. `bedrock` needs no key; it uses the ambient AWS credential chain.
+
+`SKEIN_MODEL_BASE_URL` is **refused** on any provider but `openai_compatible`,
+and `openai_compatible` never falls back to `OPENAI_API_KEY` — set
+`SKEIN_MODEL_API_KEY` explicitly. Both rules exist so a leftover endpoint can
+never redirect a paid provider's key to a third-party host.
 
 **`openai_compatible` covers anything speaking the OpenAI wire format** — vLLM,
 LM Studio, llama.cpp, OpenRouter, Together, Groq, Azure OpenAI, or a LiteLLM

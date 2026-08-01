@@ -13,7 +13,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import ratelimit
+from .. import config, ratelimit
 from ..agents import commands, receipts
 from ..agents.identity import (
     reset_agent_identity,
@@ -22,7 +22,6 @@ from ..agents.identity import (
     set_requester_identity,
 )
 from ..agents.team_agent import build_agent
-from ..config import MODEL_ID
 from ..services import chat_threads, personas
 from ..services.usage import record_chat_usage
 from .deps import CurrentUser
@@ -113,7 +112,7 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
         record_chat_usage(
             thread_id=thread_id,
             agent_name=agent_name,
-            model_id=MODEL_ID,
+            model_id=config.MODEL_ID,
             input_tokens=input_t,
             output_tokens=output_t,
             cycles=int(getattr(metrics, "cycle_count", 0)),
