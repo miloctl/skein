@@ -222,7 +222,8 @@ cd frontend
 npm install                                # backend URL defaults to :8000
 npm run dev                                # http://localhost:3000
 
-# or both: ./dev.sh   ·   tests: cd backend && .venv/bin/pytest
+# or both: ./scripts/skein.sh dev      (detached: ./scripts/skein.sh start)
+# tests:   cd backend && .venv/bin/pytest
 ```
 
 Model provider in `backend/.env`:

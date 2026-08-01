@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run every lint gate CI runs: ruff (backend + CLI), mypy (backend), eslint (frontend).
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 echo "== ruff =="
 backend/.venv/bin/ruff check backend/app backend/tests backend/seed.py cli/skein_cli.py
