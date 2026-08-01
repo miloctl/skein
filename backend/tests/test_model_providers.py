@@ -219,3 +219,83 @@ def test_ollama_config_on_this_box_is_unchanged(monkeypatch, restore_config):
     assert cfg.EFFECTIVE_PROVIDER == "ollama"
     assert cfg.MODEL_ID == "glm-5.2:cloud"  # free-form, never allowlisted
     assert cfg.OLLAMA_HOST == "http://localhost:11434"
+
+
+# ---- regressions for the bugs found reviewing the first cut ----
+
+
+def test_openai_key_never_leaks_to_a_third_party_endpoint(monkeypatch, restore_config):
+    """The whole reason openai_compatible is a separate provider. A paid
+    OPENAI_API_KEY must not be posted to whatever host the operator named —
+    and it IS set on any box using semantic search."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-REAL-PAID-KEY")
+    _reload_config(
+        monkeypatch,
+        SKEIN_MODEL_PROVIDER="openai_compatible",
+        SKEIN_MODEL_BASE_URL="https://someone-elses-host.example/v1",
+        SKEIN_MODEL_ID="whatever",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-REAL-PAID-KEY")
+    args = team_agent._model().client_args
+    assert args["base_url"] == "https://someone-elses-host.example/v1"
+    assert args["api_key"] == "not-needed"
+    assert "sk-REAL-PAID-KEY" not in str(args)
+
+
+def test_base_url_is_refused_where_it_does_not_belong(monkeypatch, restore_config):
+    """A leftover SKEIN_MODEL_BASE_URL must not silently redirect a paid
+    provider on the next switch back to openai."""
+    cfg = _reload_config(
+        monkeypatch,
+        SKEIN_MODEL_PROVIDER="openai",
+        SKEIN_MODEL_BASE_URL="https://leftover-shim.example/v1",
+    )
+    assert "does not accept SKEIN_MODEL_BASE_URL" in cfg.MODEL_PROVIDER_ERROR
+    assert cfg.EFFECTIVE_PROVIDER == "mock"
+
+
+@pytest.mark.parametrize("bad", ["4k", "", "  ", "4096.5"])
+def test_bad_max_tokens_does_not_break_import(monkeypatch, restore_config, bad):
+    """int() on operator input is the same import-time-raise trap the provider
+    validation exists to avoid. .env.example ships this key uncommented."""
+    cfg = _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER="anthropic", SKEIN_MAX_TOKENS=bad)
+    assert cfg.MAX_TOKENS == 4096
+    if bad.strip():
+        assert "SKEIN_MAX_TOKENS" in cfg.MODEL_PROVIDER_ERROR
+
+
+@pytest.mark.parametrize("provider", ["ollama", "bedrock"])
+def test_model_params_max_tokens_does_not_crash(monkeypatch, provider):
+    """`f(max_tokens=x, **{"max_tokens": y})` is a TypeError, and max_tokens is
+    the most obvious thing to put in SKEIN_MODEL_PARAMS."""
+    _configure(monkeypatch, provider, max_tokens=4096, params={"max_tokens": 2048})
+    assert team_agent._model().config["max_tokens"] == 2048  # operator wins
+
+
+@pytest.mark.parametrize("provider", ["ollama", "bedrock"])
+def test_model_params_cannot_collide_on_model_id(monkeypatch, provider):
+    _configure(monkeypatch, provider, params={"model_id": "override"})
+    assert team_agent._model().config["model_id"] == "override"
+
+
+def test_ollama_honours_the_generic_api_key(monkeypatch):
+    """.env.example advertises SKEIN_MODEL_API_KEY as the override for the
+    provider-native key; it must not be silently ignored here."""
+    _configure(monkeypatch, "ollama", api_key="sk-generic")
+    model = team_agent._model()
+    assert model.client_args["headers"]["Authorization"] == "Bearer sk-generic"
+
+
+def test_providers_without_a_key_env_read_no_ambient_key(monkeypatch, restore_config):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
+    _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER="bedrock", SKEIN_MODEL_ID="some.model")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
+    assert config.provider_key() == ""
+
+
+def test_bedrock_demands_an_explicit_model_id(monkeypatch, restore_config):
+    """Claude ids on Bedrock need a region-dependent inference-profile prefix,
+    so any hardcoded default would 400 for someone."""
+    cfg = _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER="bedrock")
+    assert "SKEIN_MODEL_ID" in cfg.MODEL_PROVIDER_ERROR
+    assert cfg.PROVIDERS["bedrock"]["default_model"] is None

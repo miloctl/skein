@@ -25,44 +25,47 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 # nothing outside agents/team_agent.py may branch on a provider name.
 #   default_model    — used when SKEIN_MODEL_ID is unset. None = operator must
 #                      say, because the server decides what it serves.
-#   needs_base_url   — SKEIN_MODEL_BASE_URL is required.
-#   key_env          — provider-native credential the SDK reads for itself.
-#                      Absent = no key needed (mock, ollama, bedrock's AWS chain).
+#   base_url         — "required" | "forbidden". Forbidden matters: without it
+#                      a leftover SKEIN_MODEL_BASE_URL from an experiment would
+#                      silently redirect a paid provider's traffic.
+#   key_env          — provider-native credential to fall back on. Empty means
+#                      NO ambient key is ever read: either none is needed
+#                      (mock, bedrock's AWS chain) or sending one would be a
+#                      leak (openai_compatible — see below).
 PROVIDERS: dict[str, dict] = {
-    "mock": {"default_model": "mock", "needs_base_url": False, "key_env": ""},
+    "mock": {"default_model": "mock", "base_url": "forbidden", "key_env": ""},
     "anthropic": {
         "default_model": "claude-opus-4-8",
-        "needs_base_url": False,
+        "base_url": "forbidden",
         "key_env": "ANTHROPIC_API_KEY",
     },
-    "openai": {"default_model": "gpt-5", "needs_base_url": False, "key_env": "OPENAI_API_KEY"},
+    "openai": {"default_model": "gpt-5", "base_url": "forbidden", "key_env": "OPENAI_API_KEY"},
     # Anything speaking the OpenAI wire format: vLLM, LM Studio, llama.cpp,
-    # OpenRouter, Together, Groq, Azure OpenAI, LiteLLM Proxy. A distinct
-    # provider rather than a base-url flag on "openai" so /health reports the
-    # truth, and so a typo'd URL can't silently redirect a paid OpenAI key.
-    "openai_compatible": {
-        "default_model": None,
-        "needs_base_url": True,
-        "key_env": "OPENAI_API_KEY",
-    },
+    # OpenRouter, Together, Groq, Azure OpenAI, LiteLLM Proxy.
+    #
+    # key_env is deliberately EMPTY. Falling back to OPENAI_API_KEY here would
+    # hand a paid OpenAI credential to whatever third-party host the operator
+    # named — and OPENAI_API_KEY is already set on any box using semantic
+    # search. Credentials for a non-OpenAI endpoint must be stated explicitly
+    # in SKEIN_MODEL_API_KEY.
+    "openai_compatible": {"default_model": None, "base_url": "required", "key_env": ""},
     "ollama": {
         "default_model": "gpt-oss:120b-cloud",
-        "needs_base_url": False,
+        "base_url": "forbidden",
         "key_env": "OLLAMA_API_KEY",
     },
     # boto3 is already a strands core dep; credentials come from the ambient
     # AWS chain (instance role, AWS_PROFILE), so there is no key to set.
-    "bedrock": {
-        "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
-        "needs_base_url": False,
-        "key_env": "",
-    },
+    # No default model on purpose: Claude-family ids on Bedrock need a
+    # geo-prefixed inference profile (us./eu./apac./global.) that depends on
+    # the deployment's region, and a bare foundation id is not invocable
+    # on-demand. Better to demand SKEIN_MODEL_ID than to ship one that 400s.
+    "bedrock": {"default_model": None, "base_url": "forbidden", "key_env": ""},
 }
 
 MODEL_PROVIDER = os.getenv("SKEIN_MODEL_PROVIDER", "mock").lower()
 MODEL_BASE_URL = os.getenv("SKEIN_MODEL_BASE_URL", "")
 MODEL_API_KEY = os.getenv("SKEIN_MODEL_API_KEY", "")
-MAX_TOKENS = int(os.getenv("SKEIN_MAX_TOKENS", "4096"))
 
 # Free-form per-provider knobs (temperature, top_p, max_completion_tokens...),
 # merged last so an operator can always reach something we did not model.
@@ -75,13 +78,28 @@ MODEL_PARAMS: dict = {}
 # where routes/chat.py already turns it into an SSE error the operator reads.
 MODEL_PROVIDER_ERROR = ""
 
+# int() on operator input is exactly the "raises at import" trap the paragraph
+# above forbids — SKEIN_MAX_TOKENS= (empty) and =4k both throw.
+try:
+    MAX_TOKENS = int(os.getenv("SKEIN_MAX_TOKENS", "").strip() or 4096)
+except ValueError:
+    MAX_TOKENS = 4096
+    MODEL_PROVIDER_ERROR = "SKEIN_MAX_TOKENS is not an integer — falling back to 4096"
+
 if MODEL_PROVIDER not in PROVIDERS:
     MODEL_PROVIDER_ERROR = (
         f"unknown SKEIN_MODEL_PROVIDER {MODEL_PROVIDER!r} —"
         f" expected one of: {', '.join(sorted(PROVIDERS))}"
     )
-elif PROVIDERS[MODEL_PROVIDER]["needs_base_url"] and not MODEL_BASE_URL:
+elif PROVIDERS[MODEL_PROVIDER]["base_url"] == "required" and not MODEL_BASE_URL:
     MODEL_PROVIDER_ERROR = f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} requires SKEIN_MODEL_BASE_URL"
+elif PROVIDERS[MODEL_PROVIDER]["base_url"] == "forbidden" and MODEL_BASE_URL:
+    # refusing this is what actually stops a stale base url from redirecting a
+    # paid provider's traffic (and its key) to a host the operator forgot about
+    MODEL_PROVIDER_ERROR = (
+        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} does not accept SKEIN_MODEL_BASE_URL —"
+        " use openai_compatible to point at a custom endpoint"
+    )
 
 if not MODEL_PROVIDER_ERROR and (_raw := os.getenv("SKEIN_MODEL_PARAMS", "").strip()):
     try:
@@ -120,8 +138,22 @@ EMBEDDINGS_ERROR = (
 # to Ollama Cloud when `ollama signin` has been run on the box. To skip the
 # daemon and talk to Ollama Cloud directly, set SKEIN_OLLAMA_HOST to
 # https://ollama.com and OLLAMA_API_KEY to a key from ollama.com settings.
-OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or MODEL_BASE_URL or "http://localhost:11434"
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or "http://localhost:11434"
+
+
+def provider_key() -> str:
+    """Credential for the configured provider.
+
+    SKEIN_MODEL_API_KEY always wins; otherwise the provider's own env var, but
+    ONLY where the registry names one. A provider with an empty key_env never
+    picks up an ambient key — that is what keeps OPENAI_API_KEY from being
+    posted to a third-party openai_compatible endpoint.
+    """
+    if MODEL_API_KEY:
+        return MODEL_API_KEY
+    env = PROVIDERS.get(EFFECTIVE_PROVIDER, {}).get("key_env", "")
+    return os.getenv(env, "") if env else ""
+
 
 # With SKEIN_AGENT_REVIEW=1, mutating agent writes become pending_changes
 # proposals that a human approves in the review inbox (approval-gate mode).

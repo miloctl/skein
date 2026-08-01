@@ -88,7 +88,11 @@ read_pid() {
   echo "$p"
 }
 
-group_alive() { kill -0 -"$1" 2>/dev/null; }
+# `kill -0 -1` is the POSIX broadcast to every process the user owns, not a
+# lookup of group 1 — so it always succeeds and would make a pid-1 pidfile look
+# like a live group. start_one never writes a pid that low, but the guard costs
+# one line and the alternative is a `kill -TERM -1`.
+group_alive() { [ "$1" -gt 1 ] 2>/dev/null && kill -0 -"$1" 2>/dev/null; }
 
 # Pidfiles written before the reuse guard hold a bare pid with no start time.
 # Adopt them once — if the pid is alive and its group still looks like ours —

@@ -1,7 +1,6 @@
 """The Chief-of-Staff orchestrator, its planner specialist, and the keyless
 mock fallback. All three speak the same stream_async protocol to the chat route."""
 
-import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,62 +20,70 @@ def _model():
     if config.MODEL_PROVIDER_ERROR:
         raise ValueError(config.MODEL_PROVIDER_ERROR)
 
+    key = config.provider_key()
+
     if provider in ("openai", "openai_compatible"):
         from strands.models.openai import OpenAIModel
 
         client_args: dict[str, Any] = {}
         if config.MODEL_BASE_URL:
             client_args["base_url"] = config.MODEL_BASE_URL
-        if key := (config.MODEL_API_KEY or os.getenv("OPENAI_API_KEY", "")):
+        if key:
             client_args["api_key"] = key
         elif provider == "openai_compatible":
-            # most local servers ignore it, but the openai client demands one
+            # local servers ignore it, but the openai client demands one
             client_args["api_key"] = "not-needed"
         # No max_tokens here on purpose: the SDK splats params straight into
         # chat.completions.create, and reasoning models (gpt-5 included)
         # reject max_tokens in favour of max_completion_tokens. Injecting it
         # would turn a working provider into a hard 400, so an output cap is
         # opt-in through SKEIN_MODEL_PARAMS.
-        return OpenAIModel(client_args=client_args, model_id=config.MODEL_ID, **_params())
+        return OpenAIModel(client_args=client_args, model_id=config.MODEL_ID, **_request_params())
 
     if provider == "ollama":
-        client_args = {}
-        if config.OLLAMA_API_KEY:
-            client_args["headers"] = {"Authorization": f"Bearer {config.OLLAMA_API_KEY}"}
         from strands.models.ollama import OllamaModel
 
+        client_args = {"headers": {"Authorization": f"Bearer {key}"}} if key else {}
         return OllamaModel(
             host=config.OLLAMA_HOST,
             ollama_client_args=client_args,
-            model_id=config.MODEL_ID,
-            max_tokens=config.MAX_TOKENS,
-            **config.MODEL_PARAMS,
+            **_model_config(max_tokens=config.MAX_TOKENS),
         )
 
     if provider == "bedrock":
         from strands.models.bedrock import BedrockModel
 
-        return BedrockModel(
-            model_id=config.MODEL_ID, max_tokens=config.MAX_TOKENS, **config.MODEL_PARAMS
-        )
+        return BedrockModel(**_model_config(max_tokens=config.MAX_TOKENS))
 
     if provider == "anthropic":
         from strands.models.anthropic import AnthropicModel
 
-        client_args = {"api_key": config.MODEL_API_KEY} if config.MODEL_API_KEY else {}
         return AnthropicModel(
-            client_args=client_args,
+            client_args={"api_key": key} if key else {},
             model_id=config.MODEL_ID,
             max_tokens=config.MAX_TOKENS,
-            **_params(),
+            **_request_params(),
         )
 
     raise ValueError(f"no model builder for provider {provider!r}")
 
 
-def _params() -> dict:
-    """params= for the providers that take a passthrough dict."""
+def _request_params() -> dict:
+    """SKEIN_MODEL_PARAMS as a nested `params=` dict, for the providers that
+    forward it to the request body (openai family, anthropic)."""
     return {"params": config.MODEL_PARAMS} if config.MODEL_PARAMS else {}
+
+
+def _model_config(**base) -> dict:
+    """SKEIN_MODEL_PARAMS merged as top-level model config, for providers whose
+    knobs are constructor kwargs (ollama, bedrock).
+
+    Merged rather than splatted alongside explicit kwargs: `f(max_tokens=x,
+    **{"max_tokens": y})` is a TypeError, and `{"max_tokens": ...}` is the most
+    obvious thing an operator puts in SKEIN_MODEL_PARAMS. Operator values win,
+    matching how anthropic's SDK already lets params override max_tokens.
+    """
+    return {"model_id": config.MODEL_ID, **base, **config.MODEL_PARAMS}
 
 
 PLANNER_PROMPT = """You are the planning specialist for an AI team platform.
