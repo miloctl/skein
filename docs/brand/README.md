@@ -98,6 +98,9 @@ asset may become load-bearing. Nothing waits on an image to render.
 | `frontend/public/icon-maskable-512.png` | Android adaptive, glyph at 72% |
 | `frontend/app/manifest.ts` | install metadata |
 | `docs/brand/image-prompts.md` | gpt-image-2 prompts for atmosphere art |
+| `docs/brand/gen_banner.py` | authors the README banner (SVG + PNG) |
+| `docs/site/img/banner-{light,dark}.{svg,png}` | README banner |
+| `docs/site/img/hero-{light,dark}.png` | landing hero (generated) |
 
 Icons are rasterized from the same polygon as `icon.svg`. If the path changes,
 re-render all of them — there is no build step tying them together.
@@ -106,6 +109,31 @@ Metadata uses **Next file conventions only**. Do not add an `icons` field to
 `metadata`: Next already emits the links, and declaring them twice produces
 duplicate conflicting `<link rel="icon">` tags.
 
+## The banner is authored, not generated
+
+`docs/brand/gen_banner.py` — twelve strands, one lead, four crossings where
+an adjacent pair swaps places.
+
+Three rounds of prompting could not produce an over-under. The model drew
+flat X's every time: two lines meeting and continuing, no break in the one
+passing behind. That break is the entire point — it is the only thing
+separating *strand* from *line*, and without it the image reads as a wiring
+diagram. Diffusion models do not reason about topology.
+
+Everything else about the banner is exact and trivially specifiable: strand
+count, spacing, band thickness, colour, crop safety. That combination —
+exact geometry plus required topology — is the same call as the mark.
+Author it.
+
+The depth falloff is not decoration: the site's `.vee` already sets the
+house style for a formation (gold lead at 4px, trailing bars at opacity
+0.75 and 0.5). The banner continues that over twelve. Opacity is tied to
+the strand rather than its slot so it does not flicker across a swap.
+
+Re-run after any edit; SVG is the source of truth and the PNG is what the
+README references, since git hosts are inconsistent about rendering SVG
+through `<img>`.
+
 ## Still open
 
 - `opengraph-image.png` (1200×630) — needs the generated art. Ship it static;
@@ -113,7 +141,9 @@ duplicate conflicting `<link rel="icon">` tags.
   and its font path does not exist in the container (`frontend/Dockerfile`
   copies only `.next/standalone`, `.next/static`, `public`).
   Note the app is LAN-only, so external crawlers cannot fetch it regardless.
-- README banner and landing hero — see `image-prompts.md`.
+- Landing hero — see `image-prompts.md`. Generated, and correctly so:
+  atmospheric, organic, thousands of subtle lines, nothing that has to be
+  *correct*. That is what the medium is good at.
 - Field-guide set glyphs. `app/guide/page.tsx` defines five sets (loops,
   hitches, bends, stoppers, manager) with taglines and no glyphs, and the page
   is already built to receive them. Five correctly-drawn knots, hand-verified
