@@ -122,23 +122,82 @@ if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
     )
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
 
-# Optional semantic search. Still OpenAI-specific: unlike the chat layer it
-# has no provider registry yet. Record the mismatch rather than no-op'ing
-# in silence — a flag that reports success and does nothing is exactly the
-# failure the provider work above went out of its way to remove.
-EMBEDDINGS_ENABLED = os.getenv("SKEIN_EMBEDDINGS", "0") == "1"
-EMBEDDINGS_ERROR = (
-    "SKEIN_EMBEDDINGS=1 but OPENAI_API_KEY is unset — semantic search is off."
-    " Embeddings do not follow SKEIN_MODEL_PROVIDER yet; they need an OpenAI key."
-    if EMBEDDINGS_ENABLED and not os.getenv("OPENAI_API_KEY")
-    else ""
-)
-
 # Ollama: the default host is the local daemon, which proxies *-cloud models
 # to Ollama Cloud when `ollama signin` has been run on the box. To skip the
 # daemon and talk to Ollama Cloud directly, set SKEIN_OLLAMA_HOST to
 # https://ollama.com and OLLAMA_API_KEY to a key from ollama.com settings.
 OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or "http://localhost:11434"
+
+# ---- optional semantic search --------------------------------------------
+# Deliberately its OWN provider setting, not SKEIN_MODEL_PROVIDER: anthropic
+# and bedrock have no embeddings endpoint, and vectors PERSIST — following the
+# chat provider would mean a chat switch silently invalidates every stored
+# vector (cosine across two embedding spaces is noise). All three options
+# speak the OpenAI wire shape (/v1/embeddings), so one client covers them.
+# Same fault discipline as the chat layer: record the error, never raise, and
+# never no-op in silence.
+EMBED_PROVIDERS: dict[str, dict] = {
+    # default_model None = operator must say (the server decides what it serves)
+    "openai": {"default_model": "text-embedding-3-small", "key_env": "OPENAI_API_KEY"},
+    # never falls back to OPENAI_API_KEY — same leak rule as the chat provider
+    "openai_compatible": {"default_model": None, "key_env": ""},
+    "ollama": {"default_model": None, "key_env": "OLLAMA_API_KEY"},
+}
+
+EMBEDDINGS_ENABLED = os.getenv("SKEIN_EMBEDDINGS", "0") == "1"
+EMBED_PROVIDER = os.getenv("SKEIN_EMBED_PROVIDER", "openai").lower()
+EMBED_MODEL = os.getenv("SKEIN_EMBED_MODEL", "")
+EMBED_API_KEY = os.getenv("SKEIN_EMBED_API_KEY", "")
+_embed_base = os.getenv("SKEIN_EMBED_BASE_URL", "")
+
+EMBEDDINGS_ERROR = ""
+EMBED_BASE_URL = ""
+if EMBEDDINGS_ENABLED:
+    if EMBED_PROVIDER not in EMBED_PROVIDERS:
+        EMBEDDINGS_ERROR = (
+            f"unknown SKEIN_EMBED_PROVIDER {EMBED_PROVIDER!r} —"
+            f" expected one of: {', '.join(sorted(EMBED_PROVIDERS))}"
+        )
+    else:
+        EMBED_MODEL = EMBED_MODEL or EMBED_PROVIDERS[EMBED_PROVIDER]["default_model"] or ""
+        if EMBED_PROVIDER == "openai" and _embed_base:
+            EMBEDDINGS_ERROR = (
+                "SKEIN_EMBED_PROVIDER=openai does not accept SKEIN_EMBED_BASE_URL —"
+                " use openai_compatible to point at a custom endpoint"
+            )
+        elif EMBED_PROVIDER == "openai_compatible" and not _embed_base:
+            EMBEDDINGS_ERROR = (
+                "SKEIN_EMBED_PROVIDER=openai_compatible requires SKEIN_EMBED_BASE_URL"
+            )
+        elif not EMBED_MODEL:
+            EMBEDDINGS_ERROR = (
+                f"SKEIN_EMBED_PROVIDER={EMBED_PROVIDER} has no default model —"
+                " set SKEIN_EMBED_MODEL to what the endpoint serves"
+            )
+        elif EMBED_PROVIDER == "openai" and not (EMBED_API_KEY or os.getenv("OPENAI_API_KEY")):
+            EMBEDDINGS_ERROR = (
+                "SKEIN_EMBEDDINGS=1 with SKEIN_EMBED_PROVIDER=openai needs OPENAI_API_KEY"
+                " (or SKEIN_EMBED_API_KEY) — semantic search is off. Keyless option:"
+                " SKEIN_EMBED_PROVIDER=ollama with a pulled embedding model."
+            )
+        if not EMBEDDINGS_ERROR:
+            if EMBED_PROVIDER == "ollama":
+                EMBED_BASE_URL = (_embed_base or OLLAMA_HOST).rstrip("/") + "/v1"
+            else:
+                EMBED_BASE_URL = _embed_base
+
+# Ready = enabled and correctly configured. The single gate search.py reads.
+EMBED_READY = EMBEDDINGS_ENABLED and not EMBEDDINGS_ERROR
+
+
+def embed_key() -> str:
+    """Credential for the embeddings endpoint. Same rules as provider_key():
+    the explicit override wins, ambient keys only where the registry names
+    one, and openai_compatible never inherits a paid OpenAI key."""
+    if EMBED_API_KEY:
+        return EMBED_API_KEY
+    env = EMBED_PROVIDERS.get(EMBED_PROVIDER, {}).get("key_env", "")
+    return os.getenv(env, "") if env else ""
 
 
 def provider_key() -> str:

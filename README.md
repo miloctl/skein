@@ -72,7 +72,8 @@ Key mechanics:
   promotions. Tasks delegate to agents with a required human sponsor.
 - **LLM layer (connect keys later)** — conversational Chief of Staff, planner
   that adapts playbooks, digest narration, optional semantic search
-  (`SKEIN_EMBEDDINGS=1`), token usage accounting per thread/model.
+  (`SKEIN_EMBEDDINGS=1` — keyless via `SKEIN_EMBED_PROVIDER=ollama`, or
+  openai/openai_compatible), token usage accounting per thread/model.
 
 ## Run with Docker (recommended for the team)
 
@@ -154,7 +155,7 @@ an agent is refused).
 | Slack commands | `SLACK_SIGNING_SECRET` | `/skein …` slash command (capture, briefing, search, plan) with signature verification |
 | MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
 | Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
-| Semantic search | `SKEIN_EMBEDDINGS=1` + OpenAI key | Embeddings alongside FTS5 |
+| Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
 | API auth | `SKEIN_API_TOKEN` | Shared bearer token on every endpoint |
 
