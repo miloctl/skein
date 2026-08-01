@@ -126,9 +126,9 @@ export default function IntakePage() {
       </div>
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Requests</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        The team&apos;s front door: ask here instead of a DM. Whoever triages
-        scores each request and answers with a reason you can see. Accepting
-        one starts an engagement.
+        The team&apos;s front door: ask here instead of a DM. The person who
+        triages scores each request and answers it with a reason that you can
+        see. An accepted request starts an engagement.
       </p>
 
       <div className="mb-8 rounded-xl border border-line bg-card p-4 shadow-card">
@@ -180,8 +180,11 @@ export default function IntakePage() {
       {!manage && reqs.some((r) => r.status === "submitted" || r.status === "scored") && (
         <p className="mb-3 rounded-lg bg-raised px-3 py-2 text-xs text-ink-2">
           {reqs.filter((r) => r.status === "submitted" || r.status === "scored").length}{" "}
-          request(s) await triage — turn on{" "}
-          <b>manager controls</b> (top right) to score and decide.
+          request
+          {reqs.filter((r) => r.status === "submitted" || r.status === "scored").length === 1
+            ? " awaits"
+            : "s await"}{" "}
+          triage — turn on <b>manager controls</b> (top right) to score and decide.
         </p>
       )}
       <ul className="space-y-3">
@@ -359,7 +362,7 @@ export default function IntakePage() {
                           name="outcome"
                           value={verdict.outcome}
                           onChange={(e) => setVerdict({ ...verdict, outcome: e.target.value })}
-                          placeholder="what result would success show?"
+                          placeholder="what result shows success?"
                           className="mt-0.5 block w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
                         />
                       </label>

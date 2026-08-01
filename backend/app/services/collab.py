@@ -74,8 +74,8 @@ def answer_question(
         raise db.NotFound(f"question #{question_id} not found")
     if row["status"] == "answered" and row["answer"] and row["answer"] != answer:
         raise ValueError(
-            f"question #{question_id} already has an answer — read it first;"
-            " ask a follow-up question instead of overwriting"
+            f"question #{question_id} already has an answer — read it first,"
+            " then ask a follow-up question. Do not overwrite it"
         )
     db.execute(
         "UPDATE questions SET answer = ?, status = 'answered', answered_at = ? WHERE id = ?",

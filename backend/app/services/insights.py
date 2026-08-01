@@ -15,6 +15,10 @@ from .slas import AGING_WIP_DAYS
 WINDOW_DAYS = 28
 
 
+def _n(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
 def _today() -> date:
     return datetime.now(timezone.utc).date()
 
@@ -385,7 +389,7 @@ def _r_commitments_external() -> list[dict]:
                 )
                 + f": “{c['promise']}” (to {c['to_whom'] or 'unspecified'})."
                 + (
-                    " Keep it, renegotiate it, or mark it missed — don't let it drift."
+                    " Keep it, renegotiate it, or mark it missed — do not let it drift."
                     if overdue
                     else ""
                 ),
@@ -426,7 +430,7 @@ def _r_review_stall() -> list[dict]:
             _finding(
                 "review_stall",
                 "high",
-                f"The review queue is stalling: {len(old)} proposal(s)"
+                f"The review queue is stalled: {_n(len(old), 'proposal')}"
                 f" older than 72h, oldest {oldest_days} days."
                 " A stalled queue quietly kills agent delegation.",
                 {"pending": pending[:10]},
@@ -512,7 +516,9 @@ def _r_intake_stall() -> list[dict]:
             _finding(
                 "intake_stall",
                 "medium",
-                f"{len(old)} intake request(s) have waited over two weeks without a disposition.",
+                f"{_n(len(old), 'intake request')}"
+                f" {'is' if len(old) == 1 else 'are'} more than two weeks old"
+                " without a disposition.",
                 {"requests": old},
                 n=len(old),
                 window="point-in-time",
@@ -553,8 +559,10 @@ def _r_decision_decay() -> list[dict]:
             _finding(
                 "decision_decay",
                 "low",
-                f"{len(stale)} standing decision(s) are past their review-by"
-                " date — reconfirm or supersede them before someone cites one.",
+                f"{_n(len(stale), 'standing decision')}"
+                f" {'is' if len(stale) == 1 else 'are'} past the review-by"
+                f" date — reconfirm or supersede"
+                f" {'it' if len(stale) == 1 else 'them'} before someone cites one.",
                 {"decisions": stale},
                 n=len(stale),
                 window="point-in-time",

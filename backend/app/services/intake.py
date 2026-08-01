@@ -95,7 +95,7 @@ def score_request(
     if current["status"] not in ("submitted", "scored"):
         raise ValueError(
             f"request #{request_id} is {current['status']} — dispositioned"
-            " requests stay put; submit a new request instead"
+            " requests stay put. Submit a new request instead"
         )
     score = _score(reach, impact, confidence, effort)
     db.execute(

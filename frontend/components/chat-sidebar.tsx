@@ -210,7 +210,7 @@ export function ChatSidebar({
         msgs
           .map((m) => `**${m.role === "user" ? me : "Skein"}:**\n\n${m.content}`)
           .join("\n\n---\n\n");
-      if (!(await copyText(md))) throw new Error("couldn't copy — select and copy manually");
+      if (!(await copyText(md))) throw new Error("cannot copy here — select the text and copy manually");
       setCopied(t.id);
       setTimeout(() => {
         // identity-guarded: never clobber a newer menu/toast (review fix)
@@ -424,7 +424,7 @@ export function ChatSidebar({
       )}
       {loadError && (
         <p className="px-1 text-xs text-danger">
-          Couldn’t load your chats — is the backend running?
+          Cannot load your chats — make sure that the backend runs, then refresh.
         </p>
       )}
       {!selectMode && !threads.some((t) => t.id === threadId) && (

@@ -70,7 +70,7 @@ export default function GuidePage() {
         Field guide
       </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Every card is a Skein feature. Tied means you&apos;ve used it — untied
+        Every card is a Skein feature. Tied means you used it — untied
         cards show how. Only you can see your guide.
         {guide && (
           <span className="ml-2 font-mono text-[11px]">
@@ -93,7 +93,7 @@ export default function GuidePage() {
 
       {guide && !guide.known && me !== "anonymous" && (
         <p className="mb-4 rounded-xl border border-line bg-raised p-4 text-sm text-ink-2">
-          Skein hasn&apos;t seen you write anything yet — the guide starts
+          Skein has not seen you write anything yet — the guide starts
           tying itself after your first capture. Untied is where everyone
           starts.
         </p>

@@ -183,7 +183,8 @@ def update_engagement(
             notify(
                 "team",
                 f"Engagement #{engagement_id} closed with {open_tasks['n']}"
-                " open task(s) — rehome or close them.",
+                f" open task{'' if open_tasks['n'] == 1 else 's'} — rehome or close"
+                f" {'it' if open_tasks['n'] == 1 else 'them'}.",
                 tier="digest",
                 link="/dashboard",
             )

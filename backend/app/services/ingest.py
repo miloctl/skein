@@ -94,13 +94,18 @@ def ingest_notes(text: str, *, actor: str) -> dict:
         )
         proposals.append({"id": p["id"], "kind": kind, "line": line[:80]})
 
-    db.log_activity(actor, "ingest_notes", f"{len(proposals)} proposal(s) from pasted notes")
+    db.log_activity(
+        actor,
+        "ingest_notes",
+        f"{len(proposals)} proposal{'' if len(proposals) == 1 else 's'} from pasted notes",
+    )
     if proposals:
         from .notifications import notify
 
         notify(
             "team",
-            f"{actor} ingested meeting notes: {len(proposals)} proposal(s) awaiting review",
+            f"{actor} ingested meeting notes: {len(proposals)}"
+            f" proposal{'' if len(proposals) == 1 else 's'} awaiting review",
             tier="digest",
             link="/review",
         )

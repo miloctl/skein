@@ -51,7 +51,7 @@ def create_milestone(
         notify(
             "team",
             f"Milestone #{mid} '{title}' names project '{project}' but no engagement"
-            " matches — it won't count in health/forecast until relinked.",
+            " matches — it will not count in health/forecast until you relink it.",
             tier="digest",
             link="/dashboard",
         )

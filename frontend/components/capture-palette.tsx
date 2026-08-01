@@ -31,7 +31,7 @@ function previewKind(text: string): string {
   // say so, not claim "task" and then 400
   if (lines.some((l) => /^\s*fb:/i.test(l))) {
     return lines.filter((l) => l.trim()).length > 1
-      ? "⚠ won't file — fb: must be captured alone"
+      ? "⚠ will not file — fb: must be captured alone"
       : "private feedback";
   }
   for (const [kind, re] of RULES) if (re.test(text)) return kind;

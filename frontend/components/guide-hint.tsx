@@ -30,7 +30,7 @@ export function GuideHint() {
     <p className="order-last mt-6 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-3">
       <span>
         <span aria-hidden>🧶 </span>
-        Something you haven&apos;t tried:{" "}
+        Something you have not tried yet:{" "}
         <span className="font-medium text-ink-2">{s.feature}</span> — {s.pitch}
       </span>
       <Link href={s.link} className="underline hover:text-ink-2">
