@@ -15,6 +15,13 @@ ideation and engineering backlog.
 
 ## Hard constraints
 
+- **Provider-agnostic.** `backend/app/config.py::PROVIDERS` is the list of
+  model providers; `agents/team_agent.py::_model()` is the ONLY place that
+  may branch on a provider name. Everywhere else reads
+  `config.EFFECTIVE_PROVIDER` (never `MODEL_PROVIDER`, which keeps the raw
+  value for honest reporting) or a capability off the registry. A bad
+  provider must degrade to mock and surface `MODEL_PROVIDER_ERROR`, never
+  take down the REST API.
 - **Keyless-first.** No API keys are assumed. Every feature needs a
   deterministic core (DB + REST + UI). Prefer programmatic solutions (SQL,
   rules, heuristics) over LLM calls; the agent layer is an optional shell.

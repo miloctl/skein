@@ -2,7 +2,7 @@
 
 Commands never reach a model: the chat route dispatches here before building
 an agent, so `/briefing` behaves identically (and costs zero tokens) whether
-the provider is mock, ollama, or anthropic. The same registry feeds
+the provider is mock or a live model. The same registry feeds
 GET /api/chat/commands, which drives the composer autocomplete — the UI can
 never drift from what the backend actually accepts.
 """
@@ -130,7 +130,7 @@ async def _remember(args: str, user: str) -> AsyncIterator[Event]:
 
         surfaced = (
             "It will surface in future threads."
-            if config.MODEL_PROVIDER != "mock"
+            if config.EFFECTIVE_PROVIDER != "mock"
             else "Visible via /api/memories; it surfaces in chat once a model"
             " provider is configured (mock has no system prompt)."
         )
@@ -202,7 +202,7 @@ def help_text() -> str:
         f"| `/{c['name']}{' ' + c['args'] if c['args'] else ''}` | {c['description']} |"
         for c in COMMANDS
     ]
-    if config.MODEL_PROVIDER == "mock":
+    if config.EFFECTIVE_PROVIDER == "mock":
         head = "**Mock agent** (no API key configured) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit affordance in the UI:"
         rows.append(
             "| *anything else* | Smart-captured as a task, question, note, decision, or blocker |"
@@ -210,9 +210,10 @@ def help_text() -> str:
         tail = (
             "Freeform examples: `todo: ship the API`, `why is staging down?`, "
             "`decision: we're using SQLite`, `blocked on vendor contract`.\n\n"
-            "Set `SKEIN_MODEL_PROVIDER=ollama` (free with a signed-in Ollama daemon), "
-            "or `anthropic`/`openai` (+ API key) in backend/.env for the full "
-            "conversational agent."
+            "Set `SKEIN_MODEL_PROVIDER` in backend/.env for the full conversational "
+            f"agent — one of: {', '.join(sorted(p for p in config.PROVIDERS if p != 'mock'))}. "
+            "`ollama` needs no key (free with a signed-in daemon); `openai_compatible` "
+            "points at any OpenAI-shaped endpoint via `SKEIN_MODEL_BASE_URL`."
         )
     else:
         head = "**Commands** run instantly — no model call, same answer every time:"
