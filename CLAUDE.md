@@ -47,11 +47,13 @@ uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 npm run dev     # dev server on :3000
 npm run build   # verify compile (run before committing frontend changes)
 
-./dev.sh        # both at once (repo root)
-./lint.sh       # all lint gates CI runs: ruff + mypy + vulture + eslint + knip
+# app lifecycle (repo root)
+./scripts/skein.sh start|stop|restart|status|logs   # detached; survives the terminal
+./scripts/skein.sh dev                              # both in the foreground, Ctrl-C stops
+./scripts/lint.sh   # all lint gates CI runs: ruff + mypy + vulture + eslint + knip
 ```
 
-Run `./lint.sh` before every commit — it is the exact gate CI runs; a commit
+Run `./scripts/lint.sh` before every commit — it is the exact gate CI runs; a commit
 that hasn't passed it will fail on push-to-main.
 
 ## Architecture map
