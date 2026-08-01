@@ -1,5 +1,5 @@
 """Opt-in prebuilt tools from the strands-agents-tools package, loaded via
-STRANDS_EXTRA_TOOLS (comma-separated names).
+SKEIN_EXTRA_TOOLS (comma-separated names).
 
 Only allowlisted tools can load, and the allowlist is deliberately small.
 Excluded on security review, not oversight:

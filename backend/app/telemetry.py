@@ -1,5 +1,5 @@
 """Optional OpenTelemetry export of Strands agent traces. Activates only when
-STRANDS_OTEL_ENDPOINT is set (e.g. http://jaeger:4318); otherwise a no-op."""
+SKEIN_OTEL_ENDPOINT is set (e.g. http://jaeger:4318); otherwise a no-op."""
 
 import logging
 import os
@@ -14,7 +14,7 @@ def setup_telemetry() -> bool:
         return False
     try:
         os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", config.OTEL_ENDPOINT)
-        os.environ.setdefault("OTEL_SERVICE_NAME", "strands-team-platform")
+        os.environ.setdefault("OTEL_SERVICE_NAME", "skein")
         from strands.telemetry import StrandsTelemetry
 
         StrandsTelemetry().setup_otlp_exporter()

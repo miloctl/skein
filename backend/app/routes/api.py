@@ -1186,7 +1186,7 @@ def post_digest(user: CurrentUser):
 def get_calendar_ics(token: str = ""):
     """iCalendar feed of events + due dates (team-visible data only).
     LAN-only. Calendar clients can't send headers, so auth is a DEDICATED
-    feed secret (?token=STRANDS_ICS_TOKEN) — never the API token, which
+    feed secret (?token=SKEIN_ICS_TOKEN) — never the API token, which
     would end up in calendar configs and access logs. Fully-open mode only
     when the whole API is open (no API_TOKEN); otherwise fail closed."""
     import hmac
@@ -1203,7 +1203,7 @@ def get_calendar_ics(token: str = ""):
     elif config.API_TOKEN:
         raise HTTPException(
             status_code=403,
-            detail="calendar feed disabled — set STRANDS_ICS_TOKEN to enable it",
+            detail="calendar feed disabled — set SKEIN_ICS_TOKEN to enable it",
         )
     return Response(
         schedule.ics_feed(),

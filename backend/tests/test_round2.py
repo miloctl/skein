@@ -18,7 +18,7 @@ def test_api_key_lifecycle_and_attribution(client):
         headers={"Authorization": f"Bearer {boot['key']}"},
     ).json()
     key = created["key"]
-    assert key.startswith("sk-strands-")
+    assert key.startswith("sk-skein-")
 
     # key authenticates and attributes as its owner, ignoring X-User
     out = client.post(
@@ -203,7 +203,7 @@ def test_cli_trailer_regex():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "strands_cli", Path(__file__).parents[2] / "cli" / "strands_cli.py"
+        "skein_cli", Path(__file__).parents[2] / "cli" / "skein_cli.py"
     )
     cli = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cli)

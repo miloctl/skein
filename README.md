@@ -19,10 +19,6 @@ Built on the [Strands Agents SDK](https://github.com/strands-agents/sdk-python)
 deterministic core; connecting a model provider (a signed-in Ollama daemon is
 enough) upgrades the experience.
 
-> Formerly "Strands Team Platform" — renamed so the product stops colliding
-> with its framework. Internal identifiers (`STRANDS_*` env vars, key prefixes,
-> data paths) are unchanged; the CLI installs as both `skein` and `strands`.
-
 ## Surfaces
 
 | Route | What it is |
@@ -57,7 +53,7 @@ Key mechanics:
 - **Provenance everywhere** — every record carries `origin`
   (`human | agent | agent_verified`) and `created_by`; every mutation lands in
   the activity log.
-- **Approval gate** — with `STRANDS_AGENT_REVIEW=1`, agent writes become
+- **Approval gate** — with `SKEIN_AGENT_REVIEW=1`, agent writes become
   `pending_changes` proposals that humans approve in `/review`.
 - **Programmatic automation** (no LLM): blocker auto-extraction from standups,
   hourly escalation sweep, RICE-lite intake scoring, rule-based quick capture,
@@ -71,7 +67,7 @@ Key mechanics:
   promotions. Tasks delegate to agents with a required human sponsor.
 - **LLM layer (connect keys later)** — conversational Chief of Staff, planner
   that adapts playbooks, digest narration, optional semantic search
-  (`STRANDS_EMBEDDINGS=1`), token usage accounting per thread/model.
+  (`SKEIN_EMBEDDINGS=1`), token usage accounting per thread/model.
 
 ## Run with Docker (recommended for the team)
 
@@ -88,17 +84,17 @@ If something already uses port 3000 on the host (true on this box — a
 `serve.js` app owns it), pick another frontend port:
 
 ```bash
-STRANDS_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
+SKEIN_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
 ```
 
 The SQLite database, chat sessions, artifacts, and daily backups live in the
-`strands-data` volume. Configure via `backend/.env` (picked up automatically;
+`skein-data` volume. Configure via `backend/.env` (picked up automatically;
 rebuild not needed for backend env changes — `docker compose up -d` again is
-enough. `STRANDS_HOST`/`STRANDS_API_TOKEN` are baked into the frontend bundle
+enough. `SKEIN_HOST`/`SKEIN_API_TOKEN` are baked into the frontend bundle
 and DO need `--build`).
 
 **Ollama in Docker:** a container's `localhost` is not the host, so compose
-overrides `STRANDS_OLLAMA_HOST` to `http://host.docker.internal:11434`
+overrides `SKEIN_OLLAMA_HOST` to `http://host.docker.internal:11434`
 (mapped to the host gateway) — the host's signed-in Ollama daemon, including
 `*-cloud` models, works from inside the container. **But default Ollama
 installs bind 127.0.0.1 only**, which the gateway can't reach. Either fix the
@@ -110,8 +106,8 @@ systemd service on this box already: `ollama-bridge`) and point at port 11435.
 bridged on 11435):
 
 ```bash
-STRANDS_FRONTEND_PORT=3200 \
-STRANDS_OLLAMA_HOST=http://host.docker.internal:11435 \
+SKEIN_FRONTEND_PORT=3200 \
+SKEIN_OLLAMA_HOST=http://host.docker.internal:11435 \
 docker compose up --build -d
 # UI: http://localhost:3200 · API: http://localhost:8000
 ```
@@ -125,14 +121,14 @@ handles this write volume easily, and one backend container means exactly one
 scheduler.
 
 **Security model, stated plainly:** identity is a trusted name picker
-(`X-User`) — teammates, not strangers. `STRANDS_API_TOKEN` adds a shared
+(`X-User`) — teammates, not strangers. `SKEIN_API_TOKEN` adds a shared
 bearer token, but it is baked into the frontend's public JS bundle, so anyone
 who can load the UI can read it — it keeps out network scanners, not people
-who can reach port 3000; treat per-user `sk-strands-` keys and a reverse
+who can reach port 3000; treat per-user `sk-skein-` keys and a reverse
 proxy as the real credentials. To actually expose this beyond a trusted
 network, put both services behind an authenticating reverse proxy (Tailscale,
 Caddy + SSO, etc.). Copy `data/backups/` off the box on a schedule (or set
-`STRANDS_BACKUP_MIRROR`) — backups otherwise live on the same volume as the
+`SKEIN_BACKUP_MIRROR`) — backups otherwise live on the same volume as the
 database.
 
 Known-and-accepted within that model (documented so nobody rediscovers them
@@ -150,12 +146,12 @@ an agent is refused).
 | Integration | Turns on when | What you get |
 |---|---|---|
 | Slack outbound | `SLACK_WEBHOOK_URL` | Immediate pings + twice-daily notification digests |
-| Slack commands | `SLACK_SIGNING_SECRET` | `/strands …` slash command (capture, briefing, search, plan) with signature verification |
-| MCP tools | `STRANDS_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
-| Prebuilt tools | `STRANDS_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
-| Semantic search | `STRANDS_EMBEDDINGS=1` + OpenAI key | Embeddings alongside FTS5 |
-| OpenTelemetry | `STRANDS_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
-| API auth | `STRANDS_API_TOKEN` | Shared bearer token on every endpoint |
+| Slack commands | `SLACK_SIGNING_SECRET` | `/skein …` slash command (capture, briefing, search, plan) with signature verification |
+| MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
+| Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
+| Semantic search | `SKEIN_EMBEDDINGS=1` + OpenAI key | Embeddings alongside FTS5 |
+| OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
+| API auth | `SKEIN_API_TOKEN` | Shared bearer token on every endpoint |
 
 Notification tiers (immediate / digest / passive) and cross-thread agent
 memory (`/remember`, `remember`/`recall_memories` tools, auto-injected into
@@ -165,26 +161,26 @@ the agent's prompt) work keyless, in-app.
 
 - **Per-teammate API keys** — create yours with
   `curl -X POST $URL/api/keys -H 'X-User: you' -H 'Content-Type: application/json' -d '{"label":"cli"}'`
-  (store the `sk-strands-…` once — it is never shown again); keys authenticate
+  (store the `sk-skein-…` once — it is never shown again); keys authenticate
   and *attribute* automation, and satisfy the shared token gate. If
-  `STRANDS_API_TOKEN` is set, pass it as the bearer when minting your first key.
-- **`strands` CLI** (stdlib-only): `pipx install ./cli`, then
-  `strands config --url … --key …` and
-  `strands capture|standup|my-day|tasks|blockers|search|week|eval|context`.
-- **`strands eval`** — replays the capture classifier against its labeled
+  `SKEIN_API_TOKEN` is set, pass it as the bearer when minting your first key.
+- **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
+  `skein config --url … --key …` and
+  `skein capture|standup|my-day|tasks|blockers|search|week|eval|context`.
+- **`skein eval`** — replays the capture classifier against its labeled
   feedback corpus (`POST /api/feedback`); exits 1 on regressions.
-- **`strands context --write AGENTS.md`** — emits the versioned team context
+- **`skein context --write AGENTS.md`** — emits the versioned team context
   pack (decisions, health, lessons, conventions) for any agent to load; also
-  an MCP resource (`strands://context-pack`).
-- **Git trailers** — `strands install-hooks`; commits with `Closes-Task: #12`
+  an MCP resource (`skein://context-pack`).
+- **Git trailers** — `skein install-hooks`; commits with `Closes-Task: #12`
   auto-close the task and log the SHA.
 - **CI webhook** — point GitHub Actions (or POST `{repo, branch, status, run_url}`)
   at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
   blocker; green auto-resolves it.
 - **MCP server** — your *other* AI agents join the platform:
-  `claude mcp add strands -- env STRANDS_MCP_USER=you /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
+  `claude mcp add skein -- env SKEIN_MCP_USER=you /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
   (needs the local backend install — Docker-only deployments should `uv venv`
-  the backend once on the host for MCP use; run `strands install-hooks` inside
+  the backend once on the host for MCP use; run `skein install-hooks` inside
   each work repo you want git-trailer sync in)
   exposes `get_my_day`, `capture`, `create_task`, `log_decision`,
   `search_workspace`, `add_blocker`, `remember`, `my_inbox`,
@@ -224,12 +220,12 @@ Model provider in `backend/.env`:
 
 | Variable | Values | Default |
 |---|---|---|
-| `STRANDS_MODEL_PROVIDER` | `mock` \| `anthropic` \| `openai` \| `ollama` | `mock` (no keys needed) |
-| `STRANDS_MODEL_ID` | any model ID | `claude-opus-4-8` / `gpt-5` / `gpt-oss:120b-cloud` |
+| `SKEIN_MODEL_PROVIDER` | `mock` \| `anthropic` \| `openai` \| `ollama` | `mock` (no keys needed) |
+| `SKEIN_MODEL_ID` | any model ID | `claude-opus-4-8` / `gpt-5` / `gpt-oss:120b-cloud` |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
-| `STRANDS_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
+| `SKEIN_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
-| `STRANDS_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
+| `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
 
 **Free real-model tier:** `ollama` needs no API key at all when the box has a
 signed-in Ollama daemon (`ollama signin`) — `*-cloud` model IDs are proxied to

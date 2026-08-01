@@ -90,7 +90,7 @@ Guidelines:
 
 
 def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
-    """One agent per chat thread. Mock provider needs no keys and no strands
+    """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations via FileSessionManager.
     A persona swaps the head (system prompt + identity), never the tools."""
     if config.MODEL_PROVIDER == "mock":

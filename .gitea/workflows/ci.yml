@@ -26,15 +26,15 @@ jobs:
       - name: Lint
         working-directory: backend
         run: |
-          ruff check app tests seed.py ../cli/strands_cli.py
-          ruff format --check app tests seed.py ../cli/strands_cli.py
+          ruff check app tests seed.py ../cli/skein_cli.py
+          ruff format --check app tests seed.py ../cli/skein_cli.py
           mypy
           vulture
       - name: Test
         working-directory: backend
         env:
-          STRANDS_MODEL_PROVIDER: mock
-          STRANDS_SCHEDULER: "0"
+          SKEIN_MODEL_PROVIDER: mock
+          SKEIN_SCHEDULER: "0"
         run: pytest -q
 
   frontend:

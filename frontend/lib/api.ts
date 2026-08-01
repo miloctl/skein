@@ -1,8 +1,8 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const USER_KEY = "strands-user";
-const API_KEY_KEY = "strands-key";
+const USER_KEY = "skein-user";
+const API_KEY_KEY = "skein-key";
 
 export function getUser(): string {
   if (typeof window === "undefined") return "anonymous";
@@ -23,7 +23,7 @@ export function subscribeUser(cb: () => void) {
   return () => window.removeEventListener("storage", cb);
 }
 
-// Personal API key (sk-strands-…): the strong identity for private surfaces
+// Personal API key (sk-skein-…): the strong identity for private surfaces
 // (People page, fb: capture). Interim until OIDC+PKCE lands at deployment.
 export function getApiKey(): string {
   if (typeof window === "undefined") return "";

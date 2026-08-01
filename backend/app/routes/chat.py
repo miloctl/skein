@@ -211,7 +211,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         parts.append(_receipt_line(r))
                         yield _sse({"type": "receipt", **r})
             except Exception as exc:
-                logging.getLogger("strands.chat").exception("command failed (user=%s)", user)
+                logging.getLogger("skein.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
             finally:
                 _log_turn(ui_thread, user, "assistant", "".join(parts))
@@ -286,7 +286,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 transcript.append(_receipt_line(r))
                 yield _sse({"type": "receipt", **r})
         except Exception as exc:  # surface model/config errors to the UI
-            logging.getLogger("strands.chat").exception(
+            logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
             transcript.append(f"\n\n> ⚠️ {str(exc)[:300]}\n")
@@ -311,7 +311,7 @@ def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:
     try:
         chat_threads.log_message(thread_id, owner, role, text)
     except Exception:
-        logging.getLogger("strands.chat").exception("transcript log failed")
+        logging.getLogger("skein.chat").exception("transcript log failed")
 
 
 def _sse(payload: dict) -> str:

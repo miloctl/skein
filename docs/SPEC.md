@@ -1,4 +1,4 @@
-# Implementation Spec — Skein (formerly Strands Team Platform)
+# Implementation Spec — Skein
 
 > **Status (2026-07):** all phases 0–4 are BUILT and superseded by reality —
 > this document is the original build plan, kept for its rationale, data
@@ -30,7 +30,7 @@ LLM call.
 
 ## Keyless dev strategy
 
-- **`STRANDS_MODEL_PROVIDER=mock`** — a third provider: a scripted model that
+- **`SKEIN_MODEL_PROVIDER=mock`** — a third provider: a scripted model that
   needs no network. It pattern-matches simple intents ("plan…", "standup…") to
   tool calls and otherwise echoes. Lets us exercise the full chat → tool →
   stream → UI pipeline in dev and tests with zero credentials.

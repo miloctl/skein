@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """skein — the team platform from your terminal. Stdlib only.
-(Installed as both `skein` and the legacy `strands` alias.)
 
 Setup:
-    skein config --url http://localhost:8000 --key sk-strands-... [--user you]
+    skein config --url http://localhost:8000 --key sk-skein-... [--user you]
     (first key: whoever runs the box mints it with
        `python -m app.bootstrap_key <you>`; later keys via Settings)
-    Env fallbacks: STRANDS_URL / STRANDS_API_URL, STRANDS_API_KEY
+    Env fallbacks: SKEIN_URL / SKEIN_API_URL, SKEIN_API_KEY
     (config file wins).
 
-Examples (the `strands` alias works everywhere `skein` does):
+Examples:
     skein capture "todo: ship the API"
     skein standup --today "auth flow" --blockers "waiting on vendor"
     skein my-day
@@ -42,7 +41,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CONFIG_PATH = Path(os.path.expanduser("~/.config/strands/config.json"))
+CONFIG_PATH = Path(os.path.expanduser("~/.config/skein/config.json"))
 
 
 def load_config() -> dict:
@@ -63,12 +62,12 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
     cfg = load_config()
     url = (
         cfg.get("url")
-        or os.getenv("STRANDS_URL")
-        or os.getenv("STRANDS_API_URL")
+        or os.getenv("SKEIN_URL")
+        or os.getenv("SKEIN_API_URL")
         or "http://localhost:8000"
     ).rstrip("/")
     headers = {"Content-Type": "application/json", "X-Client": "cli"}
-    key = cfg.get("key") or os.getenv("STRANDS_API_KEY")
+    key = cfg.get("key") or os.getenv("SKEIN_API_KEY")
     if key:
         headers["Authorization"] = f"Bearer {key}"
     if cfg.get("user"):
@@ -94,7 +93,7 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
             detail = str(exc)
         sys.exit(f"error: {detail}")
     except urllib.error.URLError as exc:
-        sys.exit(f"error: cannot reach {url} ({exc.reason}) — run `strands config --url ...`")
+        sys.exit(f"error: cannot reach {url} ({exc.reason}) — run `skein config --url ...`")
 
 
 def cmd_config(args):
@@ -102,7 +101,7 @@ def cmd_config(args):
     if args.key == "-":  # prompt: keeps the key out of argv/shell history
         import getpass
 
-        args.key = getpass.getpass("API key (sk-strands-…): ").strip()
+        args.key = getpass.getpass("API key (sk-skein-…): ").strip()
     for field in ("url", "key", "user"):
         value = getattr(args, field)
         if value:
@@ -299,7 +298,7 @@ def cmd_absences(args):
 
 
 def cmd_review(args):
-    keyless = not (load_config().get("key") or os.getenv("STRANDS_API_KEY"))
+    keyless = not (load_config().get("key") or os.getenv("SKEIN_API_KEY"))
     if args.action in ("approve", "reject"):
         if keyless and not load_config().get("user"):
             sys.exit(
@@ -361,8 +360,8 @@ def cmd_inbox(args):
 
 
 HOOK = """#!/bin/sh
-# strands git hook: close tasks referenced by Closes-Task: #N trailers
-strands sync-commit || true
+# skein git hook: close tasks referenced by Closes-Task: #N trailers
+skein sync-commit || true
 """
 
 
@@ -392,7 +391,7 @@ def cmd_sync_commit(args):
     for verb, task_id in matches:
         if verb.lower() == "closes":
             api("PATCH", f"/api/tasks/{task_id}", {"status": "done"})
-            print(f"strands: task #{task_id} closed by commit {sha}")
+            print(f"skein: task #{task_id} closed by commit {sha}")
         api(
             "POST",
             "/api/notes",

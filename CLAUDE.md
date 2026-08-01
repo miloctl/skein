@@ -1,9 +1,12 @@
-# Skein (formerly Strands Team Platform)
+# Skein
 
 Internal coordination harness for an AI-enabled strike team (humans + AI
 agents). FastAPI + Strands Agents SDK + SQLite backend; Next.js 16 +
-assistant-ui frontend. Brand: "Skein — many strands, one formation"; display
-surfaces say Skein, internal identifiers keep the `strands`/`STRANDS_*` names.
+assistant-ui frontend. Brand: "Skein — many strands, one formation". The
+product is Skein everywhere — `SKEIN_*` env vars, `sk-skein-` key prefix,
+`skein://` MCP URIs, the `skein` CLI. The bare name `strands` belongs to the
+SDK alone (`from strands import tool`, `strands-agents*` deps) — never use it
+for anything of ours.
 
 `docs/FEATURES.md` is the reference for what is already built (surfaces,
 endpoints, jobs) — read it first. `docs/SPEC.md` is the original phase plan,
@@ -15,7 +18,7 @@ ideation and engineering backlog.
 - **Keyless-first.** No API keys are assumed. Every feature needs a
   deterministic core (DB + REST + UI). Prefer programmatic solutions (SQL,
   rules, heuristics) over LLM calls; the agent layer is an optional shell.
-  `STRANDS_MODEL_PROVIDER=mock` must always work end-to-end.
+  `SKEIN_MODEL_PROVIDER=mock` must always work end-to-end.
 - **Two write paths, one service layer.** Humans mutate via REST, agents via
   Strands tools. Both MUST call the shared functions in `backend/app/services/`
   — never write SQL in a route or tool.
@@ -31,8 +34,8 @@ ideation and engineering backlog.
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest                                        # tests
-.venv/bin/ruff check app tests seed.py ../cli/strands_cli.py   # lint
-.venv/bin/ruff format app tests seed.py ../cli/strands_cli.py  # format
+.venv/bin/ruff check app tests seed.py ../cli/skein_cli.py   # lint
+.venv/bin/ruff format app tests seed.py ../cli/skein_cli.py  # format
 .venv/bin/mypy                                          # type check
 .venv/bin/vulture                                       # dead code
 .venv/bin/uvicorn app.main:app --port 8000 --reload     # run

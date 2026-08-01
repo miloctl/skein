@@ -1,11 +1,11 @@
 import os
 import tempfile
 
-os.environ["STRANDS_DATA_DIR"] = tempfile.mkdtemp(prefix="strands-test-")
-os.environ["STRANDS_SCHEDULER"] = "0"
-os.environ["STRANDS_MODEL_PROVIDER"] = "mock"
-os.environ["STRANDS_AGENT_REVIEW"] = "0"
-os.environ["STRANDS_EMBEDDINGS"] = "0"
+os.environ["SKEIN_DATA_DIR"] = tempfile.mkdtemp(prefix="skein-test-")
+os.environ["SKEIN_SCHEDULER"] = "0"
+os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
+os.environ["SKEIN_AGENT_REVIEW"] = "0"
+os.environ["SKEIN_EMBEDDINGS"] = "0"
 
 import pytest
 

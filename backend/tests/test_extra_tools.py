@@ -24,7 +24,7 @@ def test_allowlisted_tools_load(monkeypatch):
 
 
 def test_legacy_tool_spec_style_loads_as_module(monkeypatch):
-    # batch is TOOL_SPEC-style: the strands registry needs the module, not the
+    # batch is TOOL_SPEC-style: the Strands registry needs the module, not the
     # bare function ("unrecognized tool specification" otherwise)
     tools = _load(monkeypatch, ["batch"])
     assert len(tools) == 1

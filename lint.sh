@@ -4,8 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "== ruff =="
-backend/.venv/bin/ruff check backend/app backend/tests backend/seed.py cli/strands_cli.py
-backend/.venv/bin/ruff format --check backend/app backend/tests backend/seed.py cli/strands_cli.py
+backend/.venv/bin/ruff check backend/app backend/tests backend/seed.py cli/skein_cli.py
+backend/.venv/bin/ruff format --check backend/app backend/tests backend/seed.py cli/skein_cli.py
 
 echo "== mypy =="
 (cd backend && .venv/bin/mypy)

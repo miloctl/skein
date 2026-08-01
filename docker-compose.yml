@@ -1,8 +1,8 @@
-# One knob for team access: set STRANDS_HOST to the VM's hostname/IP so
+# One knob for team access: set SKEIN_HOST to the VM's hostname/IP so
 # teammates' browsers can reach both services, e.g.
-#   STRANDS_HOST=my-vm.internal docker compose up --build
-# NEXT_PUBLIC_* values are BAKED AT BUILD TIME — changing STRANDS_HOST or
-# STRANDS_API_TOKEN requires `up --build`, not just a restart.
+#   SKEIN_HOST=my-vm.internal docker compose up --build
+# NEXT_PUBLIC_* values are BAKED AT BUILD TIME — changing SKEIN_HOST or
+# SKEIN_API_TOKEN requires `up --build`, not just a restart.
 services:
   backend:
     build: ./backend
@@ -10,22 +10,22 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - strands-data:/data
+      - skein-data:/data
       # Off-box backup mirror: uncomment (with your mount) to enable in docker.
       # - /mnt/nas-backups/skein:/backup-mirror
     env_file:
       - path: ./backend/.env
         required: false
     environment:
-      STRANDS_CORS_ORIGINS: "http://${STRANDS_HOST:-localhost}:${STRANDS_FRONTEND_PORT:-3000}"
+      SKEIN_CORS_ORIGINS: "http://${SKEIN_HOST:-localhost}:${SKEIN_FRONTEND_PORT:-3000}"
       # Same shell var feeds backend enforcement AND the frontend build arg,
       # so the two can't drift. (backend/.env can still override the rest.)
-      STRANDS_API_TOKEN: ${STRANDS_API_TOKEN:-}
+      SKEIN_API_TOKEN: ${SKEIN_API_TOKEN:-}
       # Inside a container, "localhost" is the container — reach the host's
       # Ollama daemon via the host gateway (overrides backend/.env's value).
-      STRANDS_OLLAMA_HOST: ${STRANDS_OLLAMA_HOST:-http://host.docker.internal:11434}
+      SKEIN_OLLAMA_HOST: ${SKEIN_OLLAMA_HOST:-http://host.docker.internal:11434}
       # Mirror target inside the container; pairs with the volume above.
-      # STRANDS_BACKUP_MIRROR: /backup-mirror
+      # SKEIN_BACKUP_MIRROR: /backup-mirror
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -35,16 +35,16 @@ services:
       context: ./frontend
       args:
         # The URL the BROWSER uses to reach the backend.
-        NEXT_PUBLIC_API_URL: "http://${STRANDS_HOST:-localhost}:8000"
-        NEXT_PUBLIC_API_TOKEN: ${STRANDS_API_TOKEN:-}
+        NEXT_PUBLIC_API_URL: "http://${SKEIN_HOST:-localhost}:8000"
+        NEXT_PUBLIC_API_TOKEN: ${SKEIN_API_TOKEN:-}
     init: true
     ports:
       # Host port is a knob — this box already runs another app on :3000,
-      # so use e.g. STRANDS_FRONTEND_PORT=3100 docker compose up --build -d
-      - "${STRANDS_FRONTEND_PORT:-3000}:3000"
+      # so use e.g. SKEIN_FRONTEND_PORT=3100 docker compose up --build -d
+      - "${SKEIN_FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
-  strands-data:
+  skein-data:

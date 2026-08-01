@@ -13,7 +13,7 @@ from .config import DB_PATH
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
-_ambient: ContextVar[sqlite3.Connection | None] = ContextVar("strands_txn", default=None)
+_ambient: ContextVar[sqlite3.Connection | None] = ContextVar("skein_txn", default=None)
 
 
 class NotFound(ValueError):

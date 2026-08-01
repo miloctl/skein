@@ -1,16 +1,16 @@
-"""Strands platform as an MCP server — so the team's OTHER AI agents (Claude
+"""Skein as an MCP server — so the team's OTHER AI agents (Claude
 Code sessions, custom agents) can read/write the platform natively.
 
 Runs in-process against the same database (no HTTP hop):
 
-    cd backend && STRANDS_MCP_USER=mario .venv/bin/python -m app.mcp_server
+    cd backend && SKEIN_MCP_USER=mario .venv/bin/python -m app.mcp_server
 
 Claude Code registration:
 
-    claude mcp add strands -- env STRANDS_MCP_USER=you \
+    claude mcp add skein -- env SKEIN_MCP_USER=you \
         /path/to/backend/.venv/bin/python -m app.mcp_server
 
-Writes are attributed to STRANDS_MCP_USER (shown with origin=agent).
+Writes are attributed to SKEIN_MCP_USER (shown with origin=agent).
 Gating: create_task, complete_task, log_decision, add_blocker, and
 save_knowledge go through the same authority gate as chat-agent tools — with
 review mode on they queue in /review and build trust scores. capture and
@@ -32,7 +32,7 @@ from .services import collab, context_pack, delegation, memory, portfolio, searc
 from .services.adoption import record_use
 from .tools._gate import gated_write
 
-ACTOR = os.getenv("STRANDS_MCP_USER", "mcp-agent")
+ACTOR = os.getenv("SKEIN_MCP_USER", "mcp-agent")
 
 mcp = FastMCP("skein")
 
@@ -262,7 +262,7 @@ def portfolio_health() -> str:
     return json.dumps(portfolio.engagement_health())
 
 
-@mcp.resource("strands://context-pack")
+@mcp.resource("skein://context-pack")
 def context_pack_resource() -> str:
     """Versioned team context pack as markdown — mountable org-brain."""
     return context_pack.get_pack(actor=ACTOR)["content"]
@@ -282,7 +282,7 @@ def main() -> None:
         )
         raise SystemExit(1)
     # reserve THIS process's identity as kind=agent before any request — the
-    # API server only reserves its own env's STRANDS_MCP_USER, and a human
+    # API server only reserves its own env's SKEIN_MCP_USER, and a human
     # picking this name first would permanently shadow the agent
     from .services.users import ensure_user
 

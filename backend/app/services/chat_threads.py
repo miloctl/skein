@@ -3,7 +3,7 @@
 The transcript (chat_messages) is the provider-agnostic history the chat
 sidebar rehydrates from — written by the chat route for mock and real
 providers alike, so history is keyless-first. It is the UI's copy; the
-strands session files remain the model's own conversation memory.
+Strands session files remain the model's own conversation memory.
 
 Threads are owner-scoped by the trusted-LAN identity (X-User) — a
 convenience boundary, not privacy: anything you'd mark fb: belongs in
