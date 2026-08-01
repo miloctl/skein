@@ -9,7 +9,7 @@ without it, hybrid search degrades cleanly to FTS-only.
 import json
 import os
 
-from .. import db
+from .. import config, db
 
 
 def _fts_quote(q: str) -> str:
@@ -107,7 +107,7 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
 
 # --- optional embedding layer (activates when keys are connected) -----------
 
-EMBEDDINGS_ENABLED = os.getenv("SKEIN_EMBEDDINGS", "0") == "1"
+EMBEDDINGS_ENABLED = config.EMBEDDINGS_ENABLED
 _EMBED_MODEL = os.getenv("SKEIN_EMBED_MODEL", "text-embedding-3-small")
 
 

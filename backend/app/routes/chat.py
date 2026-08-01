@@ -2,7 +2,7 @@
 
 The frontend's ChatModelAdapter POSTs {thread_id, message} and reads an SSE
 stream of {"type": "text" | "tool" | "error" | "done", ...} JSON lines.
-Works identically for mock, anthropic, openai, and ollama providers.
+Works identically for every provider in config.PROVIDERS.
 """
 
 import json

@@ -230,12 +230,42 @@ Model provider in `backend/.env`:
 
 | Variable | Values | Default |
 |---|---|---|
-| `SKEIN_MODEL_PROVIDER` | `mock` \| `anthropic` \| `openai` \| `ollama` | `mock` (no keys needed) |
-| `SKEIN_MODEL_ID` | any model ID | `claude-opus-4-8` / `gpt-5` / `gpt-oss:120b-cloud` |
+| `SKEIN_MODEL_PROVIDER` | `mock` \| `ollama` \| `openai` \| `openai_compatible` \| `anthropic` \| `bedrock` | `mock` (no keys needed) |
+| `SKEIN_MODEL_ID` | any model ID, never allowlisted | per provider (below) |
+| `SKEIN_MODEL_BASE_URL` | endpoint for `openai_compatible`; also an alias for the Ollama host | — |
+| `SKEIN_MODEL_API_KEY` | explicit key, overriding the provider-native one | — |
+| `SKEIN_MAX_TOKENS` | output cap — reaches anthropic/ollama/bedrock, **not** the OpenAI family | `4096` |
+| `SKEIN_MODEL_PARAMS` | JSON merged into the provider's params (`temperature`, `max_completion_tokens`, …) | — |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | credential for the chosen provider | — |
 | `SKEIN_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
 | `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
+
+Default model per provider: `gpt-oss:120b-cloud` (ollama) · `gpt-5` (openai) ·
+`claude-opus-4-8` (anthropic) · `anthropic.claude-sonnet-4-20250514-v1:0`
+(bedrock). **`openai_compatible` has no default** — the server decides what it
+serves, so `SKEIN_MODEL_ID` is required. `bedrock` needs no key; it uses the
+ambient AWS credential chain.
+
+**`openai_compatible` covers anything speaking the OpenAI wire format** — vLLM,
+LM Studio, llama.cpp, OpenRouter, Together, Groq, Azure OpenAI, or a LiteLLM
+Proxy in front of everything else:
+
+```bash
+SKEIN_MODEL_PROVIDER=openai_compatible
+SKEIN_MODEL_BASE_URL=http://localhost:8001/v1
+SKEIN_MODEL_ID=whatever-the-server-serves
+```
+
+**Why `SKEIN_MAX_TOKENS` skips OpenAI:** the SDK passes params straight into
+`chat.completions.create`, and reasoning models (including the `gpt-5` default)
+reject `max_tokens` in favour of `max_completion_tokens`. Sending it would turn
+a working provider into a hard 400, so cap OpenAI output through
+`SKEIN_MODEL_PARAMS={"max_completion_tokens": 2000}` instead.
+
+A misconfigured provider never takes the app down: it degrades to the
+deterministic core, `/health` reports `provider_error`, and Team → Agents shows
+a red dot with the reason.
 
 **Free real-model tier:** `ollama` needs no API key at all when the box has a
 signed-in Ollama daemon (`ollama signin`) — `*-cloud` model IDs are proxied to
