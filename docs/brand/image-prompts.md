@@ -128,7 +128,16 @@ Same prompt with three substitutions:
 
 ---
 
-# 2. README banner — v2
+# 2. README banner — SUPERSEDED, the banner is now authored
+
+> Kept as a record of why. v2 fixed what v1 broke — the band came back a
+> constant 175px thick with even 23-26px gaps and no fraying — but three
+> rounds could not produce a single over-under crossing. The model drew
+> flat X's: two strands meeting and carrying on, no break in the one
+> behind. See `docs/brand/gen_banner.py` and the rationale in
+> `docs/brand/README.md`.
+
+# 2-OLD. README banner — v2
 
 **Why v1 was replaced.** The first version asked for ~30 hairlines "at a
 consistent 24-degree angle" that "converge and run together." The model read

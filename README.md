@@ -1,4 +1,9 @@
-# 🧵 Skein
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/site/img/banner-dark.png">
+  <img src="docs/site/img/banner-light.png" alt="Twelve strands running as one formation, one leading, trading places as they go">
+</picture>
+
+# Skein
 
 **Many strands. One formation.**
 
