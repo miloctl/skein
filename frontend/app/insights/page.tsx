@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { api, backendUnreachable } from "@/lib/api";
+import { api, loadError } from "@/lib/api";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 
@@ -92,7 +92,7 @@ export default function InsightsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = () =>
-    api<Insights>("/api/insights").then(setD).catch((e) => setError(String(e)));
+    api<Insights>("/api/insights").then(setD).catch((e) => setError(loadError(e)));
   useEffect(() => {
     load();
   }, []);
@@ -145,7 +145,7 @@ export default function InsightsPage() {
       >
         <SectionTabs set="work" />
         <p className="text-sm text-danger">
-          {backendUnreachable(error)}
+          {error}
         </p>
       </main>
     );

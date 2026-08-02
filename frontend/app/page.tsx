@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, backendUnreachable, getUser, setUser } from "@/lib/api";
+import { api, getUser, loadError, setUser } from "@/lib/api";
 import { StandupComposer } from "@/components/standup-card";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
@@ -168,7 +168,7 @@ export default function MyDay() {
         }
       })
       .catch((e) => {
-        if (g === generation.current) setError(String(e));
+        if (g === generation.current) setError(loadError(e));
       });
     // onboarding progress is per-user — key the dismissal that way too
     const onboardKey = `skein-onboarded:${getUser()}`;
@@ -244,7 +244,7 @@ export default function MyDay() {
   if (error && !b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
-        {backendUnreachable(error)}
+        {error}
       </main>
     );
   if (!b)

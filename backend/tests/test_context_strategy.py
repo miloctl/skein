@@ -447,3 +447,67 @@ def test_the_toggle_is_rate_capped(client, fresh_db):
     ]
     assert codes[0] == 200
     assert 400 in codes
+
+
+def _seed_messages(thread_id: str, roles: list[str]) -> None:
+    from strands.session import FileSessionManager
+    from strands.types.session import SessionMessage
+
+    repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+    for i, role in enumerate(roles):
+        repo.create_message(
+            thread_id,
+            "default",
+            SessionMessage.from_message({"role": role, "content": [{"text": f"m{i}"}]}, i),
+        )
+
+
+def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, monkeypatch):
+    """Under summarize the prepended summary is a user message and is what
+    keeps the restored list legal. Dropping it while carrying the offset can
+    start the history on an assistant turn, which anthropic and bedrock reject
+    outright — the thread then fails every turn until it outgrows the window."""
+    from strands.session import FileSessionManager
+
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    _seed_session("t-roles", "SummarizingConversationManager")
+    # offset 3 lands on an assistant turn
+    _seed_messages("t-roles", ["user", "assistant", "user", "assistant", "user", "assistant"])
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
+
+    team_agent._reconcile_session_strategy("t-roles", team_agent._conversation_manager())
+    offset = _stored_state("t-roles")["removed_message_count"]
+
+    repo = FileSessionManager(session_id="t-roles", storage_dir=str(config.SESSIONS_DIR))
+    restored = repo.list_messages("t-roles", "default", offset=offset)
+    assert restored[0].to_message()["role"] == "user"
+    assert offset == 2  # walked BACK, so nothing on disk was dropped
+
+
+def test_an_already_aligned_offset_is_left_alone(fresh_db, monkeypatch):
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    _seed_session("t-aligned", "SummarizingConversationManager")
+    _seed_messages("t-aligned", ["user", "assistant", "user", "assistant"])
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
+
+    team_agent._reconcile_session_strategy("t-aligned", team_agent._conversation_manager())
+    assert _stored_state("t-aligned")["removed_message_count"] == 2
+
+
+def test_several_faults_read_as_sentences(monkeypatch):
+    """Each fault terminates itself, so the join must not add punctuation.
+    The agent strip renders this string straight into a sentence."""
+    cfg = _reload(
+        monkeypatch,
+        SKEIN_CONTEXT_STRATEGY="magic",
+        SKEIN_CONTEXT_WINDOW="lots",
+        SKEIN_CONTEXT_PIN_FIRST="5000",
+    )
+    err = cfg.CONTEXT_STRATEGY_ERROR
+    assert ";" not in err  # user-visible functional text carries no semicolons
+    assert ".;" not in err
+    assert err.endswith(".")
