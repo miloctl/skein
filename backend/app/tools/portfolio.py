@@ -275,7 +275,7 @@ def submit_for_acceptance(task_id: int, summary: str) -> str:
             "queued",
             "task_completion",
             f"task #{task_id} awaits the sponsor's acceptance",
-            int(result.get("id") or 0),
+            int(result.get("proposal_id") or 0),
         )
         return json.dumps(result)
     except ValueError as exc:
