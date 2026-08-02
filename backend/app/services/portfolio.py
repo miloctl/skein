@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from .. import db
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS
+from .stats import median as _median
 
 
 def _today() -> date:
@@ -149,12 +150,20 @@ def flow_metrics(weeks: int = 8) -> dict:
         " FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ?",
         (cutoff,),
     )
-    cycle_days = sorted(r["days"] for r in done)
+    # a NULL cycle time (an unparseable created_at from a restore or import)
+    # would blow up sorted()/sum() on None — a 500 on /portfolio and in the
+    # exec readout for one bad row
+    cycle_days = sorted(r["days"] for r in done if r["days"] is not None)
     n = len(cycle_days)
     cycle = {
         "tasks_done": n,
         "avg_days": round(sum(cycle_days) / n, 1) if n else None,
-        "median_days": cycle_days[n // 2] if n else None,
+        # stats.median, not cycle_days[n // 2]: the latter takes the UPPER
+        # of the two middle values, so [1, 9] read as 9.0 instead of 5.0 — a
+        # systematically inflated cycle time on every even-n window, on the
+        # headline number of /portfolio and the exec readout. One median
+        # implementation, per the "one service layer" principle.
+        "median_days": _median(cycle_days),
     }
     throughput: dict[str, int] = {}
     for r in done:
@@ -220,8 +229,13 @@ def slip_forecast() -> dict:
         " - julianday(due_date), 1) AS slip"
         " FROM milestones WHERE status = 'done' AND due_date IS NOT NULL"
     )
-    slips = [r["slip"] for r in history]
-    avg_slip = round(sum(slips) / len(slips), 1) if slips else 0.0
+    slips = [r["slip"] for r in history if r["slip"] is not None]
+    # MEDIAN, not mean: docs/INSIGHTS.md says "medians over means everywhere",
+    # and a mean let one pathological milestone rewrite the whole portfolio —
+    # nine delivered on time plus one 200 days late pushed EVERY open
+    # milestone 20 days. The median of that history is 0.
+    med = _median(slips)
+    avg_slip = round(med, 1) if med is not None else 0.0
     applied = max(0.0, avg_slip)
     forecasts = []
     for m in db.query(
