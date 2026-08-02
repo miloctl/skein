@@ -349,7 +349,7 @@ def test_build_agent_reconciles_a_mismatched_session(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
     monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
-    monkeypatch.setattr(team_agent, "_model", lambda: _FakeModel())
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
     _seed_session("t-brick", "SlidingWindowConversationManager")
 
     agent = team_agent.build_agent("t-brick")
@@ -387,7 +387,7 @@ def test_build_agent_actually_attaches_the_manager(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
     monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
-    monkeypatch.setattr(team_agent, "_model", lambda: _FakeModel())
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
 
     agent = team_agent.build_agent("t-wired")
     assert type(agent.conversation_manager).__name__ == "SummarizingConversationManager"

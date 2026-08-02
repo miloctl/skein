@@ -4,14 +4,31 @@ A persona file is frontmatter (name/description/emoji/vibe) plus a system-
 prompt body. Files are edited like code (the playbooks precedent) — adapted
 from ~/external/agency-agents, vendored so there is no runtime dependency.
 Slugs double as agent identities in the authority matrix and trust scores,
-hence the strict charset."""
+hence the strict charset.
 
+BEHAVIOR fields (model / temperature / tools) tune how a persona runs on a
+real provider: a model id override, a sampling temperature, and a tool
+allowlist. `tools` is deny-by-omission ONCE DECLARED: a persona that lists
+tools gets exactly those and nothing else — enforced at Agent construction,
+so the model never sees an undeclared tool. A persona with no `tools` line
+keeps the full registry, so existing personas are unaffected. Pack-wide
+defaults live in personas/pack.json (`{"defaults": {...}}`); persona
+frontmatter wins field-by-field.
+
+Runtime parsing stays lenient (a malformed file drops off the bench rather
+than 500ing chat); validate_all() is the strict pass, wired into lint.sh so
+the same malformed file fails CI instead of silently vanishing.
+"""
+
+import json
 import re
 from pathlib import Path
 
 PERSONAS_DIR = Path(__file__).resolve().parent.parent.parent / "personas"
+PACK_FILE = PERSONAS_DIR / "pack.json"
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
-_FIELDS = ("name", "description", "emoji", "vibe", "disclosure")
+_FIELDS = ("name", "description", "emoji", "vibe", "disclosure", "model", "temperature", "tools")
+BEHAVIOR_FIELDS = ("model", "temperature", "tools")
 
 
 def _parse(path: Path) -> dict | None:
@@ -39,8 +56,115 @@ def _parse(path: Path) -> dict | None:
         "emoji": meta.get("emoji", "🎭"),
         "vibe": meta.get("vibe", ""),
         "disclosure": meta.get("disclosure", ""),
+        "model": meta.get("model", ""),
+        "temperature": meta.get("temperature", ""),
+        "tools": meta.get("tools", ""),
         "body": body.strip(),
     }
+
+
+def _pack_defaults() -> dict:
+    """Behavioral defaults from personas/pack.json, or {} when absent/bad.
+    Lenient at runtime for the same reason _parse is; validate_all is strict."""
+    if not PACK_FILE.is_file():
+        return {}
+    try:
+        data = json.loads(PACK_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    defaults = data.get("defaults") if isinstance(data, dict) else None
+    if not isinstance(defaults, dict):
+        return {}
+    return {k: str(v) for k, v in defaults.items() if k in BEHAVIOR_FIELDS}
+
+
+def _merge_behavior(persona: dict, defaults: dict) -> dict:
+    """Persona frontmatter wins field-by-field over the pack defaults.
+    Separate so the precedence is testable in isolation."""
+    return {k: persona.get(k) or defaults.get(k, "") for k in BEHAVIOR_FIELDS}
+
+
+def behavior(slug: str) -> dict:
+    """The resolved runtime behavior for a persona: model id override (str,
+    empty = deployment model), temperature (float or None), and tool
+    allowlist (list of names, or None = unrestricted).
+
+    Degrades rather than raises: a bad temperature is dropped, an unknown
+    tool name is kept (denying it is exactly what the allowlist means).
+    validate_all() is where either becomes a loud error.
+    """
+    merged = _merge_behavior(get_persona(slug), _pack_defaults())
+    temperature: float | None = None
+    raw = merged["temperature"].strip()
+    if raw:
+        try:
+            temperature = float(raw)
+        except ValueError:
+            temperature = None
+        else:
+            if not 0.0 <= temperature <= 2.0:
+                temperature = None
+    tools = [t.strip() for t in merged["tools"].split(",") if t.strip()] or None
+    return {"model": merged["model"].strip(), "temperature": temperature, "tools": tools}
+
+
+def _known_tool_names() -> set[str]:
+    """Names a persona allowlist may reference: the registry plus the chat
+    planner. Extra tools (SKEIN_EXTRA_TOOLS) and MCP tools are env-dependent
+    and deliberately NOT valid allowlist entries — validating against an env
+    that CI does not share would make lint results depend on deployment."""
+    from ..tools import ALL_TOOLS
+
+    names = set()
+    for t in ALL_TOOLS:
+        name = getattr(t, "tool_name", "") or getattr(t, "__name__", "")
+        if name:
+            names.add(str(name))
+    names.add("plan_project")
+    return names
+
+
+def validate_all() -> list[str]:
+    """Every check _parse forgives, as loud errors — run by lint.sh so a
+    malformed persona fails CI instead of silently vanishing from the bench."""
+    errors: list[str] = []
+    known = _known_tool_names()
+    if PACK_FILE.is_file():
+        try:
+            data = json.loads(PACK_FILE.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("defaults", {}), dict):
+                errors.append("pack.json: expected an object with an optional 'defaults' object")
+            else:
+                unknown = set(data.get("defaults", {})) - set(BEHAVIOR_FIELDS)
+                if unknown:
+                    errors.append(f"pack.json: unknown default field(s): {sorted(unknown)}")
+        except json.JSONDecodeError as exc:
+            errors.append(f"pack.json: not valid JSON ({exc})")
+    for path in sorted(PERSONAS_DIR.glob("*.md")):
+        label = path.name
+        if not _SLUG.match(path.stem):
+            errors.append(f"{label}: slug must match {_SLUG.pattern}")
+            continue
+        p = _parse(path)
+        if p is None:
+            errors.append(f"{label}: missing frontmatter, or name/description empty")
+            continue
+        raw = p["temperature"].strip()
+        if raw:
+            try:
+                t = float(raw)
+            except ValueError:
+                errors.append(f"{label}: temperature {raw!r} is not a number")
+            else:
+                if not 0.0 <= t <= 2.0:
+                    errors.append(f"{label}: temperature {t} is outside 0.0 to 2.0")
+        for name in (t.strip() for t in p["tools"].split(",") if t.strip()):
+            if name not in known:
+                errors.append(
+                    f"{label}: tools names unknown tool {name!r} — the allowlist"
+                    " denies by omission, so a typo silently strips the tool"
+                )
+    return errors
 
 
 def list_personas() -> list[dict]:
@@ -68,3 +192,12 @@ def get_persona(slug: str) -> dict:
                 return p
     roster = ", ".join(p["slug"] for p in list_personas()) or "none installed"
     raise ValueError(f"no persona '{slug}' on the bench — available: {roster}")
+
+
+if __name__ == "__main__":  # the lint.sh gate: exit 1 with every error listed
+    import sys
+
+    problems = validate_all()
+    for problem in problems:
+        print(f"persona: {problem}")
+    sys.exit(1 if problems else 0)
