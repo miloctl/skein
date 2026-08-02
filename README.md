@@ -26,17 +26,26 @@ enough) upgrades the experience.
 
 ## Surfaces
 
-| Route | What it is |
-|---|---|
-| `/` | **My Day** — what changed and what needs *you*, in under 30 seconds |
-| `/chat` | Chief-of-Staff agent (streaming; mock provider works keyless) |
-| `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes · activity |
-| `/insights` | Findings feed with click-through receipts + team-rolled trends (MTTR, automation ratio, adoption, token spend) |
-| `/portfolio` | Portfolio layer — engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
-| `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
-| `/review` | Review inbox — approve/reject proposed changes (agent approval gate) |
-| `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
-| ⌘K anywhere | Quick capture — freeform text auto-routed to task/question/note/decision/blocker/commitment/request (`req:`)/private feedback (`fb:`) |
+The nav has five destinations. Each one groups the routes under it, and every
+URL is directly linkable.
+
+| Nav | Routes | What it is |
+|---|---|---|
+| **My Day** | `/` | What changed and what needs *you*, in under 30 seconds |
+| **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) |
+| **Work** | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
+| | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
+| | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
+| **Inbox** | `/review` | Approve or reject proposed changes. This is the agent approval gate |
+| | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
+| | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |
+| **Team** | `/agents` | Agents as teammates — mission control, authority matrix, trust scores, agent inboxes |
+| | `/people` | Manager layer — 1:1 briefs and the private feedback journal. Needs a personal key, and the records never leave `private.db` |
+| | `/charter` | Decisions filtered to the charter category, each with a `review_by` date |
+| | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
+| — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
+| — | `/settings` | Name, theme, API key, growth interests, team roster |
+| ⌘K anywhere | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, commitment, request (`req:`) or private feedback (`fb:`) |
 
 ## Architecture
 
@@ -44,7 +53,7 @@ enough) upgrades the experience.
 backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
-  ├─ app/tools/      40+ Strands @tool wrappers over the same services
+  ├─ app/tools/      55 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
@@ -58,6 +67,12 @@ Key mechanics:
 - **Provenance everywhere** — every record carries `origin`
   (`human | agent | agent_verified`) and `created_by`; every mutation lands in
   the activity log.
+- **A tamper-evident ledger** — each activity row commits to its own content
+  and to the row before it (SHA-256, migration 036). A nightly job verifies the
+  whole chain and appends the verified tip to an anchor log that is mirrored
+  off-box, so a later rewrite has to contradict a record made on an earlier
+  day. Detection, never prevention — the limits are stated plainly in
+  [docs/FEATURES.md](docs/FEATURES.md).
 - **Approval gate** — with `SKEIN_AGENT_REVIEW=1`, agent writes become
   `pending_changes` proposals that humans approve in `/review`.
 - **Programmatic automation** (no LLM): blocker auto-extraction from standups,
@@ -290,11 +305,25 @@ end-to-end: streaming chat, tool calls, and usage accounting.
 
 ## Status & roadmap
 
-Phases 0–2 of [docs/SPEC.md](docs/SPEC.md) plus the synthesized picks from
-three ideation rounds are **built**: the keyless operating system, integrations (Slack, MCP both ways,
-CI, keys, CLI), delight & pulse, and the round-3 operating-system layer
-(portfolio health, weekly commitment line, flow metrics, agent delegation +
-authority matrix, review analytics + eval corpus, decision half-life,
-commitment ledger, context pack). The full feature reference is
-[docs/FEATURES.md](docs/FEATURES.md); remaining ideas live in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+Every phase of [docs/SPEC.md](docs/SPEC.md), plus the synthesized picks from
+four ideation rounds, is **built**: the keyless operating system, the
+integrations (Slack, MCP both ways, CI, keys, CLI), delight and pulse, the
+round-3 operating-system layer (portfolio health, weekly commitment line, flow
+metrics, agent delegation and the authority matrix, review analytics and the
+eval corpus, decision half-life, commitment ledger, context pack), the manager
+layer (private 1:1 notes, meeting ingestion, experiments, finding
+dispositions), and the round-4 buzz layer (tamper-evident ledger, activity
+feed, turn guard, persona bench, per-turn cost and a budget rule).
+
+| Doc | What it is for |
+|---|---|
+| [docs/FEATURES.md](docs/FEATURES.md) | What exists. The reference — read this first |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What is next. The only backlog |
+| [TODO.md](TODO.md) | Debts taken on purpose, each with the condition that repays it |
+| [docs/CORRECTIONS.md](docs/CORRECTIONS.md) | The correction contract every entity must meet |
+| [docs/INSIGHTS.md](docs/INSIGHTS.md) | The findings rules and the small-n discipline behind them |
+| [docs/FIELD-GUIDE.md](docs/FIELD-GUIDE.md) | The field guide ("knots") and its design constraints |
+| [docs/PERSONAS.md](docs/PERSONAS.md) | The Bench — the persona spec |
+| [docs/SPEC.md](docs/SPEC.md) | The original phase plan. Superseded, kept for the data model |
+| [docs/PLAN.md](docs/PLAN.md) | The 2026-07-24 wave plan, executed. Kept for the recorded deviations |
+| [docs/reviews/](docs/reviews/) | Design rationale — the alternatives that lost, and why |

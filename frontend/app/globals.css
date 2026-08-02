@@ -54,8 +54,8 @@
   --weld: light-dark(#48628f, #a3b8dc);
 }
 :root[data-theme="verdigris"] {
-  --thread: light-dark(#1c6e66, #82d0c4);
-  --thread-solid: light-dark(#1c6e66, #20776e);
+  --thread: light-dark(#1b6a63, #82d0c4);
+  --thread-solid: light-dark(#1b6a63, #20776e);
   --weld: light-dark(#9d4f28, #dba175);
 }
 :root[data-theme="graphite"] {
@@ -64,8 +64,8 @@
   --weld: light-dark(#8a5e14, #cfa963);
 }
 :root[data-theme="coral"] {
-  --thread: light-dark(#a83c29, #ff7070);
-  --thread-solid: light-dark(#a83c29, #d13c3c);
+  --thread: light-dark(#a63b29, #ff7070);
+  --thread-solid: light-dark(#a63b29, #d13c3c);
   --weld: light-dark(#0f766e, #14b8a6);
 }
 :root[data-theme="bone"] {

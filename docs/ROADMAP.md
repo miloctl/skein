@@ -8,8 +8,10 @@
 > Round 3's suggested build order — all shipped.
 > **Round 4 (2026-08, the buzz design-study): all seven items shipped** —
 > see "Residuals from the buzz adoption" at the bottom for what was
-> deliberately not built and why. Current reference: `docs/FEATURES.md`;
-> deferred engineering work: the backlog at the bottom.
+> deliberately not built and why. Current reference: `docs/FEATURES.md`.
+> **All un-shipped work lives in "Open backlog (consolidated 2026-08-02)" at
+> the bottom of this file.** Before that date it was spread across this file,
+> `docs/PLAN.md` and two review transcripts.
 
 Ideation produced by a 4-agent panel (Product Manager, Workflow Architect,
 AI Engineer, UX Researcher), each reviewing the current platform from their
@@ -393,3 +395,161 @@ a tombstone would meet it; 3's premise does not apply.
 6. **If HMAC is ever added to the activity chain** — changing the preimage
    invalidates every existing chain AND contradicts the append-only anchor
    log. Plan it as a logged genesis reset, never a migration.
+
+# Open backlog (consolidated 2026-08-02)
+
+This is the only home for un-shipped work. Before this date the backlog was in
+four places: this file, `docs/PLAN.md`, and two review transcripts. Every item
+below was checked against the code on 2026-08-02. The items that turned out to
+be built were dropped, not carried forward.
+
+The ID tags are kept because source comments cite them. `TD1` and `TP5` and
+their neighbours are named in `frontend/app/globals.css`, `frontend/lib/theme.ts`,
+and `frontend/lib/whimsy.ts`.
+
+## Self-serve UX (from the 2026-07-24 fresh-user review)
+
+Sized S or M by that review. Items 6 and 8 of the original list are gone: the
+engagement-close conclusion select shipped (`app/dashboard/page.tsx`), and the
+portfolio commitments card now names its two audiences in the card title.
+
+1. [M] Global search box in the nav. `GET /api/search` exists and is invisible.
+2. [M] What-if staffing button on scored intake rows. This closes the dangling
+   "shown in staffing what-ifs" reference in Settings.
+3. [S] Delegate-task affordance. The Agents empty state advertises it and no UI
+   does it.
+4. [M] Generate-handoff button on closing engagements and closed engagements.
+5. [S] Allocation inline form on the Capacity card, or an honest empty state.
+6. [S] `?` tooltips: ISO week format on the commitment card, season definition
+   on the pulse banner, origin glossary beside Review.
+
+## Manager and workflow (from the 2026-07-25 ideation run)
+
+C1 (week rituals), P2 (absences) and P5 (standup auto-draft) shipped. These did
+not:
+
+- **C2 received-promise chaser** — `commitments.direction ('given'|'received')`
+  plus `last_nudged_at` in a migration. Capture grammar
+  `awaiting: <who> — <what> by <date>`. An hourly rule nudges the creator and
+  escalates to the manager after 2 silent cycles. `waiting_on: commitment:N`
+  already works.
+- **C3 meeting outcome loop** — `events` gains agenda, engagement_id and
+  outcome_status. A post-meeting attention item deep-links to `/ingest`. A
+  weekly finding names a recurring meeting with no captured outcome for 3 weeks
+  and gives the hours-burned receipt.
+- **C4 stakeholder open-threads brief** — a read-only union over
+  `commitments.to_whom`, `intake.requester`, `questions.asked_by` and
+  `events.attendees` for names outside the team.
+- **C5 decision links and cascade** — a `decision_links` table, populated at
+  record time and by scanning references. Consumed by scoped context packs,
+  supersede notifications, and handoffs.
+- **P1 weekly planning cockpit** — `GET /api/planning` and one page in meeting
+  order: kept-% and carryover, then capacity against the draft with conflicts
+  inline, then the intake queue, then stale decisions, then one-click commit.
+  Pure composition of endpoints that exist.
+- **P3 shared 1:1 loop** — a pairwise-visible agenda scope and a `1:1:` capture
+  prefix. Deferred until reports ask for it. The visibility tier gets designed
+  then, not before.
+- **P4 interrupt ledger** — derived, with no user action: a task created after
+  the week line locked and finished in the same week counts as unplanned. The
+  team-level ratio goes in flow metrics and the readout, with a findings rule.
+
+## Agent layer (2026-07-25)
+
+A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
+
+- **A3 gated agent morning sweep** — a new `nudge` registry entity where apply
+  means notify. Daily rules over existing reads file 5 proposals per day at
+  most, deduped weekly the way findings are. The cheapest authority on-ramp.
+- **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
+  immutable. The hop is itself a proposal the sponsor approves.
+- **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
+  symbolic references (`$1.id`) resolved at apply time, per-bundle approval
+  with a per-step untick, and an atomic apply. Deferred until the simpler
+  pieces prove out.
+- Rejected proposals nag agent inboxes forever. An `acked_at` column ends it.
+- Notify-tier writes link to an empty `/review`.
+
+## Developer loop (2026-07-25)
+
+D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped.
+
+- **D2 attention count in the shell prompt** — `skein attention --porcelain`
+  reads a 60-second cache at mode 0600, never blocks and never errors.
+  `skein install-prompt` writes the starship or PS1 snippet, on the
+  `install-hooks` precedent.
+- **D3 branch-aware git flow** — `skein task start 42` makes the branch
+  `task/42-slug` and sets in_progress. A prepare-commit-msg hook injects the
+  trailer from the branch name. `skein pr-body` composes task, engagement pack
+  and commits for `gh pr create`.
+- **D4 MCP mid-task parity** — `claim`, `report` and `submit` landed.
+  `update_task`, `answer_question` and `resolve_blocker` did not. Review
+  approval over MCP stays deliberately absent, because an agent must not
+  launder its own proposal.
+- **D5 offline capture outbox** — a JSONL outbox with an idempotency key that
+  auto-flushes on any successful command, plus `my-day --cached`.
+- **F6** CLI argument grammar normalization. **F7** `skein context --engagement`.
+  **F8** `skein ask`.
+
+## Delight (2026-07-25)
+
+- **W1 the Skein takes flight** — one goose per ship this season forms a V on
+  Team Pulse. A flock of geese in flight is called a skein. Count-based,
+  team-level, and it resets each season.
+- **W2 onboarding goose takeoff** — the completion moment is a silent no-op
+  today. Show the card once more with the goose lifting off.
+- **W3 dye-lot season names** — deterministic natural-dye names per season
+  index, and a season-close ritual line.
+- **W4 `honk`** — a ⌘K easter egg. One goose glides across the viewport,
+  nothing is persisted, and reduced-motion is respected.
+- **W5 the Bolt** — the selvage permanently gains one repeat per ship.
+- **W6 epitaph pool** for blocker funerals, seeded by blocker id.
+- **W7 loose threads** — woven 404 and error pages. There is no
+  `not-found.tsx` at all today.
+
+## Decisions needed, not builds (2026-07-25)
+
+These are not features. Each one needs a call.
+
+- **Time zone.** Every human rhythm is hardcoded to UTC. A team outside UTC
+  gets a digest at the wrong hour. A `SKEIN_TZ` setting has zero hits today.
+- **The OIDC and API-key identity bridge is undefined.** `TODO.md` carries two
+  accepted debts that both repay when this lands.
+- **`docs/FEATURES.md` claims person-level data never judges the past, and
+  `services/portfolio.py` still returns `wip_by_person`.** Narrow the claim or
+  aggregate the display. Leaving both is the only wrong answer.
+- **`promised:` audience is ambiguous at capture time.**
+- **The Slack `fb:` refusal is documented but not stated in the Slack copy.**
+  The code fails closed, so this is a documentation gap only.
+
+## Theme system (from the 2026-07-27 review)
+
+TD1, TD2, TD6, TP5, TP6 and TP3 shipped. Open by choice:
+
+- **TD3** density dial through `--spacing` (ledger dense, atelier airy).
+  **TD4** loom weft, real cloth with warp and weft. **TD5** phosphor dark-mode
+  bloom and heading glow.
+- **TD7** ledger masthead rule with 20px text-aligned ruling. **TD8** atelier
+  laid-paper texture, light mode only. **TD9** high-contrast plain heading face
+  with a 3px focus ring. **TD10** phosphor light mode as paper teletype.
+- **Vellum pack concept** (drafting grid, blueprint night). Run
+  `scripts/check_theme_contrast.py` before shipping it.
+- **TP1 named presets.** Revisit only if the custom editor grows.
+- TP2 per-appearance packs, TP4 seasonal, TP7 OS accent and TP8 scheduled dark
+  are all skipped. TP7 is not buildable.
+
+## Cut, with re-entry triggers (from the 2026-07-24 synthesis)
+
+These are deliberate refusals. Each names the condition that reopens it.
+
+| Cut | Trigger to revisit |
+|---|---|
+| Shadow authority level | Proposal volume overwhelms the review queue. The review queue *is* shadow mode today. |
+| `entity_links` table, registry, thread view | A 4th typed relationship with a named consumer. |
+| Attention budget, ack states, dedupe keys | Real duplicate-notification pain. Findings already dedupe weekly. |
+| Trust profile partitions by model version | A model swap causes a problem that review stats did not catch. |
+| Auto-quiet findings rules | The rule count grows beyond hand-tending. The maintainer retires rules at season end today. |
+| Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |
+| Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
+| Playbooks 2.0, delegation contracts, evidence pack, outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
+| Employee private-prep sections | Refused until the journal separate-store pattern is proven. |

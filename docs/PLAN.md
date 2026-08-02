@@ -275,19 +275,9 @@ on My Day tasks, capture-palette prefix cheatsheet (incl. fb: caveat), chat
 + context-pack URL + authority default), ingest placeholder covers promised:/
 note:, entry-path empty states.
 
-Remaining, in priority order (each S/M as sized by the review):
-
-1. [M] Global search box in the nav (`GET /api/search` exists, invisible).
-2. [M] What-if staffing button on scored intake rows (closes the dangling
-   "shown in staffing what-ifs" reference from Settings).
-3. [S] Delegate-task affordance (Agents empty state advertises it; no UI).
-4. [M] Generate-handoff button on closing/closed engagements.
-5. [S] Allocation inline form (or honest empty state) on the Capacity card.
-6. [M] Engagement-close conclusion select with one-phrase glosses (replace
-   the prompt(); the vocabulary currently lives inside a browser prompt).
-7. [S] ?-tooltips: ISO week format on the commitment card, season definition
-   on the pulse banner, origin glossary beside Review.
-8. [S] Portfolio "promised:" hint explains team vs external audience.
+The remaining items moved to `docs/ROADMAP.md` on 2026-08-02, under "Open
+backlog". Two of the original eight were already built and were dropped rather
+than carried over.
 
 ## Dogfood backlog (from the 2026-07-25 simulated 3-week run)
 
@@ -297,7 +287,8 @@ review-resolution clears its notification, findings feed shows dispositions,
 pulse feedback without input_text, user deactivation (strong-identity) +
 Settings roster, intake accept carries lead/kill_criteria, digest collapses
 job_stale noise, eval corpus separates free-text corrections from
-machine-checkable labels. Full log: the session's dogfood-log.md.
+machine-checkable labels. The raw log was deleted 2026-08-02: every entry in
+it had shipped, and this section is the record of what came out of it.
 
 All four follow-ups shipped 2026-07-25 (same day):
 
@@ -316,10 +307,10 @@ All four follow-ups shipped 2026-07-25 (same day):
 
 ## Deferred with explicit re-entry triggers
 
-See the cut table in `docs/reviews/2026-07-24-synthesis.md`. Notables:
-shadow mode (trigger: review-queue overload), `entity_links` (trigger: 4th
-relationship), stakeholder pages (trigger: demand + OIDC landed; then
-push-static or behind OIDC, never header-auth exposure).
+The cut table moved to `docs/ROADMAP.md` on 2026-08-02, under "Open backlog".
+Notables: shadow mode (trigger: review-queue overload), `entity_links`
+(trigger: 4th relationship), stakeholder pages (trigger: demand + OIDC landed;
+then push-static or behind OIDC, never header-auth exposure).
 
 **OIDC + PKCE is the planned deployment auth** (ported from the user's other
 project, not rebuilt here). Until it lands: the app stays LAN-only and

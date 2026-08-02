@@ -36,6 +36,15 @@ ideation and engineering backlog.
   inline. A migration must never UPDATE or DELETE an `activity` row that
   carries a `seq` — those rows are hash-chained, and a bulk rewrite breaks
   verification permanently at the earliest row it touches.
+- **A filename names the behavior, not the session that made it.** This is
+  what `app/services/` already does: 43 files, each named for its subject.
+  Name a test for what it pins (`test_delegation.py`), never for the wave,
+  round, audit or review that produced it. Name a doc for its function.
+  Dates belong in `docs/reviews/`, which holds closed transcripts only.
+  Migrations are the one exception: `db.py` records applied migrations by
+  filename in `schema_version`, so renaming one re-runs it on every existing
+  database. To rename a migration, add a new migration that UPDATEs
+  `schema_version` in the same change.
 
 ## Commands
 
@@ -43,8 +52,8 @@ ideation and engineering backlog.
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest                                        # tests
-.venv/bin/ruff check app tests seed.py ../cli/skein_cli.py   # lint
-.venv/bin/ruff format app tests seed.py ../cli/skein_cli.py  # format
+.venv/bin/ruff check app tests seed.py ../cli/skein_cli.py ../scripts   # lint
+.venv/bin/ruff format app tests seed.py ../cli/skein_cli.py ../scripts # format
 .venv/bin/mypy                                          # type check
 .venv/bin/vulture                                       # dead code
 .venv/bin/uvicorn app.main:app --port 8000 --reload     # run

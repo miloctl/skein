@@ -25,9 +25,9 @@ export const PACKS = [
 export const COLORWAYS = [
   { id: "indigo", label: "Indigo & ochre", thread: "#3b4dbf", weld: "#935a1c" },
   { id: "madder", label: "Madder & woad", thread: "#a92c40", weld: "#48628f" },
-  { id: "verdigris", label: "Verdigris & copper", thread: "#1c6e66", weld: "#9d4f28" },
+  { id: "verdigris", label: "Verdigris & copper", thread: "#1b6a63", weld: "#9d4f28" },
   { id: "graphite", label: "Graphite & brass", thread: "#45413a", weld: "#8a5e14" },
-  { id: "coral", label: "Coral & teal", thread: "#a83c29", weld: "#0f766e" },
+  { id: "coral", label: "Coral & teal", thread: "#a63b29", weld: "#0f766e" },
   { id: "bone", label: "Bone & jade", thread: "#74581f", weld: "#047857" },
 ] as const;
 

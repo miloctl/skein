@@ -1,6 +1,15 @@
 # Theme system — 5-agent review (2026-07-27)
 
-> **Status (2026-07-27): PARTIALLY CLOSED — TD1/TD2/TD6 and TP5/TP6/TP3 shipped. Still open by choice: TD3-TD5, TD7-TD10 (texture/density garnish), Vellum pack concept, TP1 named presets (revisit only if the custom editor grows).**
+> **Status (2026-08-02): CLOSED — TD1/TD2/TD6 and TP5/TP6/TP3 shipped. The
+> open items (TD3-TD5, TD7-TD10, the Vellum pack concept, TP1) moved to
+> `docs/ROADMAP.md` under "Open backlog". This file stays because
+> `globals.css`, `theme.ts` and `whimsy.ts` cite these IDs in source comments,
+> so it is the definition site for TD1, TD2, TD6, TP3, TP5 and TP6.**
+>
+> The `pack-contrast-check` scripts this review referenced are gone. They were
+> replaced on 2026-08-02 by `scripts/check_theme_contrast.py`, which reads the
+> packs out of `globals.css` and runs in `lint.sh`. The originals hardcoded
+> their pack tokens, so Atelier was never checked.
 
 Fixed same-day (verified findings): adopt-fetch race (TC1), defaults-stored-
 as-absence letting the profile hijack a deliberate reset (TC2/TB5), merge
@@ -29,7 +38,8 @@ Design (CSS-var level, AA checker stays the gate) — priority TD1, TD2, TD6:
 - TD9 high-contrast commits: plain heading face + 3px focus ring
 - TD10 phosphor light mode = paper teletype (dot-matrix texture)
 - New pack concept: **Vellum** (drafting grid / blueprint night) — full token
-  sketch in the review transcript; run pack-contrast-check before shipping.
+  sketch in the review transcript; run `scripts/check_theme_contrast.py`
+  before shipping.
 
 Product — recommended order TP5 → TP6 → TP3, then stop:
 - TP5 shareable theme code (copy/paste JSON or ?theme= link) — S, DO
