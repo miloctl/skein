@@ -62,12 +62,19 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
 
 // SSR and the hydration pass must render the same text: the pack voice only
 // speaks after hydration (callers re-render when their data loads, which is
-// when empty states actually matter)
+// when empty states actually matter).
+//
+// The flag flips in a post-hydration EFFECT, never a microtask. A microtask
+// fires when the module finishes evaluating — long before React hydrates — so
+// the pack voice raced into the hydration render itself. That mismatch made
+// React regenerate the tree from the root, which recreates <html> and throws
+// away the data-pack/data-theme/data-appearance the pre-paint script set:
+// picking a non-default pack silently reverted your theme on any page that
+// rendered an empty state. See ThemeSync, which calls markHydrated().
 let hydrated = false;
-if (typeof window !== "undefined") {
-  queueMicrotask(() => {
-    hydrated = true;
-  });
+
+export function markHydrated(): void {
+  hydrated = true;
 }
 
 function currentPack(): string {

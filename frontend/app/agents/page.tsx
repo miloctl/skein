@@ -175,7 +175,7 @@ export default function Agents() {
             {status.provider_error
               ? `Model misconfigured — ${status.provider_error}. Running deterministic until it is fixed.`
               : status.provider === "mock"
-                ? "Deterministic mode — no AI model connected; chat commands and smart capture still work"
+                ? "Deterministic mode — no AI model connected. Chat commands and smart capture still work"
                 : `Model: ${status.model} (${status.provider})`}
           </span>
           <span>

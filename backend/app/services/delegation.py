@@ -426,7 +426,9 @@ def agent_inbox(agent: str) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped."""
     if not db.query_one("SELECT id FROM users WHERE name = ?", (agent,)):
-        raise db.NotFound(f"no such agent '{agent}' — a typo here would read as an empty inbox")
+        raise db.NotFound(
+            f"no such agent '{agent}'. Check the name: a typo reads as an empty inbox."
+        )
     tasks = db.query(
         "SELECT id, title, status, priority, sponsor FROM tasks"
         " WHERE delegated_agent = ? AND status != 'done'"

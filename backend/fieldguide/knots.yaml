@@ -52,7 +52,7 @@ knots:
     knot: Bowline
     set: loops
     pitch: Decisions expire to stale unless reconfirmed — nothing is trusted forever.
-    how: "`decision: …` in ⌘K, then set a review-by date; the daily sweep does the rest."
+    how: "`decision: …` in ⌘K, then set a review-by date. The daily sweep does the rest."
     link: /charter
     since: 2026-07-31
 
@@ -106,7 +106,7 @@ knots:
     knot: Buntline
     set: loops
     pitch: Work enters through a scored queue, not a hallway conversation.
-    how: "`req: …` in ⌘K or Inbox → Requests; RICE-lite scores it for triage."
+    how: "`req: …` in ⌘K or Inbox → Requests. RICE-lite scores it for triage."
     link: /intake
     since: 2026-07-31
 
@@ -133,7 +133,7 @@ knots:
     knot: Cat's Paw
     set: loops
     pitch: The Chief of Staff, ten specialist personas, and slash commands that run without a model.
-    how: "Open Chat; try `/help`, or `/as growth-mentor …` to call the bench."
+    how: "Open Chat. Try `/help`, or `/as growth-mentor …` to call the bench."
     link: /chat
     since: 2026-07-31
 
@@ -170,7 +170,7 @@ knots:
     knot: Rolling Hitch
     set: hitches
     pitch: A task handed to an agent, with a human sponsor on record.
-    how: Pick a task on Work → Browse and delegate it; you become the sponsor.
+    how: Pick a task on Work → Browse and delegate it. You become the sponsor.
     link: /dashboard
     since: 2026-07-31
 
@@ -179,7 +179,7 @@ knots:
     knot: Snubbing Hitch
     set: hitches
     pitch: What the agents did, one sentence per action, next to your own.
-    how: "Team → Activity. Loud rows are the destructive ones; the raw toggle shows the ledger rows themselves."
+    how: "Team → Activity. Loud rows are the destructive ones. The raw toggle shows the ledger rows themselves."
     link: /activity
     since: 2026-08-02
 
@@ -253,7 +253,7 @@ knots:
     knot: Turk's Head
     set: stoppers
     pitch: Someone proposed; a human verified. Approve and reject both count.
-    how: Inbox → Approvals; rejections carry a note back to the proposer.
+    how: Inbox → Approvals. A rejection carries a note back to the proposer.
     link: /review
     since: 2026-07-31
 
@@ -274,7 +274,7 @@ knots:
     set: manager
     role: manager
     pitch: The portfolio coiled for showing — health, ships, risks, commitments.
-    how: Work → Health, under manager controls; lands as an artifact.
+    how: Work → Health, under manager controls. It lands as an artifact.
     link: /portfolio
     since: 2026-07-31
 
