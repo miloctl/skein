@@ -5,8 +5,11 @@
 > whimsy pack, team pulse, digest voice; not built: editor touchpoints,
 > weekly changelog, public-quality /docs, knowledge-flywheel meter, NPC
 > levels, clean-handoff streaks, inbox-zero runs, RICE calibration.
-> Round 3's suggested build order — all shipped. Current reference:
-> `docs/FEATURES.md`; deferred engineering work: the backlog at the bottom.
+> Round 3's suggested build order — all shipped.
+> **Round 4 (2026-08, the buzz design-study): all seven items shipped** —
+> see "Residuals from the buzz adoption" at the bottom for what was
+> deliberately not built and why. Current reference: `docs/FEATURES.md`;
+> deferred engineering work: the backlog at the bottom.
 
 Ideation produced by a 4-agent panel (Product Manager, Workflow Architect,
 AI Engineer, UX Researcher), each reviewing the current platform from their
