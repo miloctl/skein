@@ -220,9 +220,33 @@ def test_prices_refuse_values_the_operator_never_wrote(monkeypatch, raw):
     assert "SKEIN_MODEL_PRICES" in cfg.MODEL_PRICES_ERROR
 
 
+def test_engagement_costs_since_overrides_the_trailing_window(fresh_db, monkeypatch):
+    """The discriminating case the first version of this test missed: a turn
+    INSIDE the trailing 30 days but BEFORE the bound must be excluded. (The
+    first version seeded 40 days back — outside both windows — so it passed
+    against the unfixed code and pinned nothing.)"""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import chat_threads as ct
+
+    monkeypatch.setattr(config, "MODEL_PRICES", {"m": (1.0, 1.0)})
+    engagements.create_engagement("recent but out of bounds", actor="ava")
+    ct.log_message("old", "ava", "user", "x")
+    ct.update_thread("old", "ava", engagement_id=1)
+    usage.record_chat_usage("old", "a", "m", 90_000_000, 0)
+    ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds")
+    db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (ten_days_ago,))
+
+    assert usage.engagement_costs()  # trailing window sees it
+    five_days_ago = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(timespec="seconds")
+    assert usage.engagement_costs(since=five_days_ago) == []  # the bound wins
+
+
 def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     """A finding that says THIS month is over budget must not name last
-    month's biggest spender as its evidence."""
+    month's biggest spender as its evidence. Seeds the prior month at one hour
+    before the month start — inside the trailing-30d window on most calendar
+    days, so the buggy trailing-window receipt would include it."""
     from datetime import datetime, timedelta, timezone
 
     from app.services import chat_threads as ct
@@ -238,8 +262,11 @@ def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     ct.update_thread("new", "ava", engagement_id=2)
 
     usage.record_chat_usage("old", "a", "m", 90_000_000, 0)  # $90, last month
-    last_month = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(timespec="seconds")
-    db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (last_month,))
+    month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    just_before = (month_start - timedelta(hours=1)).isoformat(timespec="seconds")
+    db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (just_before,))
     usage.record_chat_usage("new", "a", "m", 1_000_000, 0)  # $1, this month
 
     fired = insights._r_budget()

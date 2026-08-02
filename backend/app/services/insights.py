@@ -772,8 +772,13 @@ def _r_budget() -> list[dict]:
         ]
     if month["cost_usd"] is None or month["cost_usd"] < config.MONTHLY_BUDGET_USD:
         return []
+    # bounded to the CALENDAR month, same bound month_to_date uses — a finding
+    # that says August is over budget must not name July's biggest spender as
+    # its evidence, and timedelta arithmetic drifts at month edges
+    month_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
     top = [
-        {"engagement": e["engagement"], "cost_usd": e["cost_usd"]} for e in engagement_costs()[:3]
+        {"engagement": e["engagement"], "cost_usd": e["cost_usd"]}
+        for e in engagement_costs(since=month_start)[:3]
     ]
     unpriced = (
         f" {month['unpriced_calls']} call(s) are unpriced and not counted."
