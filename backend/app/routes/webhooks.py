@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..services import ci
 from .deps import CurrentUser
@@ -8,10 +8,12 @@ router = APIRouter()
 
 
 class CIEventIn(BaseModel):
-    repo: str = ""
-    branch: str = ""
-    status: str = ""
-    run_url: str = ""
+    # repo and run_url are concatenated into a blocker title/detail, whose
+    # create models cap at 200/4000
+    repo: str = Field("", max_length=200)
+    branch: str = Field("", max_length=200)
+    status: str = Field("", max_length=20)
+    run_url: str = Field("", max_length=4000)
     # raw GitHub Actions payloads are accepted too
     workflow_run: dict | None = None
     repository: dict | None = None

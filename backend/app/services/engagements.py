@@ -425,9 +425,10 @@ def record_lesson(
     return {"id": lid, "project_class": project_class}
 
 
-def list_lessons(project_class: str = "") -> list[dict]:
+def list_lessons(project_class: str = "", limit: int = 100) -> list[dict]:
     if project_class:
         return db.query(
-            "SELECT * FROM lessons WHERE project_class = ? ORDER BY id DESC", (project_class,)
+            "SELECT * FROM lessons WHERE project_class = ? ORDER BY id DESC LIMIT ?",
+            (project_class, limit),
         )
-    return db.query("SELECT * FROM lessons ORDER BY id DESC LIMIT 100")
+    return db.query("SELECT * FROM lessons ORDER BY id DESC LIMIT ?", (limit,))

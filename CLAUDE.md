@@ -31,6 +31,11 @@ ideation and engineering backlog.
   — never write SQL in a route or tool.
 - **Provenance on every write.** Services record `origin`
   (`human|agent|agent_verified`) and `created_by`, and log to `activity`.
+- **Input errors are 4xx, by classification.** If a request can produce an
+  exception, `app/main.py` maps it to a 4xx. If only our own state can produce
+  it, it stays a 500. Add an exception handler when a 500 traces back to
+  something a caller sent, not when a new exception class appears. An error
+  response is always JSON, and it never echoes the rejected value back.
 - **Migrations are append-only.** Schema changes go in a new numbered file in
   `backend/migrations/`; never edit an applied migration or `db.py` schema
   inline. A migration must never UPDATE or DELETE an `activity` row that
@@ -100,8 +105,10 @@ Functional text — errors, helper copy, instructions, refusals, notifications,
 command replies — follows ASD-STE100 Simplified Technical English (the
 `simple-english` skill, pragmatic mode). Brand voice is exempt and stays as
 written: `lib/whimsy.ts` pools, digest openers, mock-agent replies, theme pack
-names, the field guide's warmth. Code, identifiers, commands, and quoted
-errors are never rewritten.
+names, and the field guide's `pitch:` lines. In `fieldguide/knots.yaml` the
+split is by key, not by feel: `pitch:` says why a knot exists and stays warm,
+`how:` tells the reader what to do and follows STE. Code, identifiers,
+commands, and quoted errors are never rewritten.
 
 - Errors state what happened, then the fix as an imperative. No rhetorical
   questions ("is it running?"), no apologies, no "Please".

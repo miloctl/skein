@@ -547,7 +547,7 @@ def post_commitment(body: CommitmentIn, user: CurrentUser):
 
 
 class CommitmentStatusIn(BaseModel):
-    status: str
+    status: str = Field(max_length=20)
 
 
 class CommitmentEditIn(BaseModel):
@@ -1195,9 +1195,9 @@ class EngagementPatch(BaseModel):
     summary: str = Field("", max_length=4000)
     lead: str = Field("", max_length=64)
     conclusion: str = Field("", max_length=40)
-    outcome: str = Field("", max_length=4000)
+    outcome: str = Field("", max_length=2000)
     timebox_end: str = Field("", max_length=10)
-    kill_criteria: str = Field("", max_length=2000)
+    kill_criteria: str = Field("", max_length=500)
 
 
 @router.patch("/engagements/{engagement_id}")
@@ -1234,10 +1234,12 @@ def post_lesson(body: LessonIn, user: CurrentUser):
 
 
 class InstantiateIn(BaseModel):
-    playbook: str
-    engagement_name: str
-    lead: str = ""
-    start_date: str = ""
+    # caps match EngagementIn — instantiate reaches create_engagement, so an
+    # uncapped name here writes past the create cap into the search index
+    playbook: str = Field(max_length=40)
+    engagement_name: str = Field(max_length=120)
+    lead: str = Field("", max_length=64)
+    start_date: str = Field("", max_length=10)
 
 
 @router.post("/playbooks/instantiate")

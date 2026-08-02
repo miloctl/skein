@@ -26,12 +26,13 @@ Three hard invariants and one advisory note:
     The formulas here MUST match theme.ts customCss and the layout.tsx
     bootstrap inline script - update all three together.
 
-(note) Surface brightness. The originals made this a hard gate: a light surface
-    must not be dimmer than Loom's dimmest, and a dark surface not lighter than
-    Loom's brightest. That rule is a proxy. It lets an accent verified once
-    against Loom be assumed safe on every other pack. Invariants (b) and (c)
-    now check every pack directly, so a pack outside the bounds is reported and
-    does not fail the run. A real contrast gap fails on (a), (b) or (c) instead.
+(d) Surface brightness. A light surface is not dimmer than Loom's dimmest, and
+    a dark surface is not lighter than Loom's brightest. This one is a proxy:
+    it is what let a single sweep against Loom stand for every pack. Invariants
+    (b) and (c) now verify each pack directly, so a surface outside the bounds
+    is survivable — but only by an entry in SURFACE_BOUND_EXCEPTIONS that says
+    which surface and why. An unlisted surface outside the bounds fails, and a
+    listed surface back inside them fails as a stale entry.
 
 Exit status is 0 when every pack passes and 1 when one fails.
 """
@@ -51,6 +52,18 @@ THREAD_MIN = 5.5
 WELD_MIN = 4.5
 TEXT_MIN = 4.5
 CUSTOM_MIN = 4.5
+
+# Surfaces knowingly outside the Loom brightness bounds: (pack, mode, surface)
+# -> why it is accepted. Keyed to the exact surface the exception was granted
+# for, so a repaint stops matching and the pack fails until someone re-grants
+# it. A permanent unactionable NOTE trains readers to skip NOTE lines, which
+# is exactly when the next real one gets missed.
+SURFACE_BOUND_EXCEPTIONS = {
+    ("atelier", "light", "surface-raised"): (
+        "paper warmth #f4eee2 (luminance 0.8587 vs the Loom floor 0.8802); accents on it are "
+        "proved directly by (b) and (c) — the custom-hue floor of 5.56:1 sits on this surface"
+    ),
+}
 
 # Mirror of theme.ts customCss (and the layout.tsx bootstrap script):
 # token -> (light (L, C), dark (L, C)); the hue is the swept variable.
@@ -140,11 +153,12 @@ def parse(css: str) -> tuple[dict, dict]:
     return packs, ways
 
 
-def check(packs: dict, ways: dict) -> tuple[list[str], list[str]]:
-    """Return (failures, notes)."""
+def check(packs: dict, ways: dict) -> tuple[list[str], list[str], list[str]]:
+    """Return (failures, notes, floors)."""
     base = packs[BASE_PACK]
     failures: list[str] = []
     notes: list[str] = []
+    floors: list[str] = []
 
     # (a) needs the set of combinations the baseline itself passes.
     passes_baseline = {
@@ -210,37 +224,59 @@ def check(packs: dict, ways: dict) -> tuple[list[str], list[str]]:
                                 f"--{surface} {packs[pname][mode][surface]}: "
                                 f"{ratio:.2f}:1 is below {CUSTOM_MIN}:1"
                             )
-    notes.append(f"custom-hue sweep floor: {floor_ratio:.2f}:1 at {floor_at}")
+    floors.append(f"custom-hue sweep floor: {floor_ratio:.2f}:1 at {floor_at}")
 
-    # (note) surfaces outside the Loom bounds: accent safety is no longer
-    # inherited there, so (b) and (c) above are what prove it.
+    # (d) surfaces outside the Loom bounds: a hard gate with a named-exception
+    # list, so a NEW violation never hides behind an accepted one.
     floor = _luminance(base["light"]["surface-raised"])
     ceiling = _luminance(base["dark"]["surface-raised"])
+    triggered = set()
     for name in sorted(packs):
         if name == BASE_PACK:
             continue
         for surface in SURFACES:
-            light = _luminance(packs[name]["light"][surface])
-            dark = _luminance(packs[name]["dark"][surface])
-            if light < floor - 1e-9:
-                notes.append(
-                    f"{name} light --{surface} {packs[name]['light'][surface]} "
-                    f"luminance {light:.4f} is below the Loom floor {floor:.4f}"
-                )
-            if dark > ceiling + 1e-9:
-                notes.append(
-                    f"{name} dark --{surface} {packs[name]['dark'][surface]} "
-                    f"luminance {dark:.4f} is above the Loom ceiling {ceiling:.4f}"
-                )
-    return failures, notes
+            for mode, value, bound, word in (
+                ("light", _luminance(packs[name]["light"][surface]), floor, "below the Loom floor"),
+                (
+                    "dark",
+                    _luminance(packs[name]["dark"][surface]),
+                    ceiling,
+                    "above the Loom ceiling",
+                ),
+            ):
+                out_of_bounds = value < bound - 1e-9 if mode == "light" else value > bound + 1e-9
+                if not out_of_bounds:
+                    continue
+                key = (name, mode, surface)
+                triggered.add(key)
+                shown = packs[name][mode][surface]
+                if key in SURFACE_BOUND_EXCEPTIONS:
+                    notes.append(
+                        f"accepted exception: {name} {mode} --{surface} — "
+                        f"{SURFACE_BOUND_EXCEPTIONS[key]}"
+                    )
+                else:
+                    failures.append(
+                        f"{name} {mode} --{surface} {shown}: luminance {value:.4f} is "
+                        f"{word} {bound:.4f}. Repaint it, or add it to "
+                        f"SURFACE_BOUND_EXCEPTIONS with the reason."
+                    )
+    for key in sorted(set(SURFACE_BOUND_EXCEPTIONS) - triggered):
+        failures.append(
+            f"stale exception: {key[0]} {key[1]} --{key[2]} is back inside the Loom "
+            "bounds. Delete it from SURFACE_BOUND_EXCEPTIONS."
+        )
+    return failures, notes, floors
 
 
 def main() -> int:
     packs, ways = parse(CSS.read_text(encoding="utf-8"))
-    failures, notes = check(packs, ways)
+    failures, notes, floors = check(packs, ways)
     checked = sorted(n for n in packs if n != BASE_PACK)
     print(f"packs: {', '.join(checked)} (baseline {BASE_PACK})")
     print(f"colorways: {', '.join(sorted(ways))} (+ the default on {BASE_PACK})")
+    for line in floors:  # a measurement, not a violation — never shares NOTE
+        print(f"FLOOR {line}")
     for line in notes:
         print(f"NOTE {line}")
     for line in failures:

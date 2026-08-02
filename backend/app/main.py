@@ -116,9 +116,17 @@ app.add_middleware(
 )
 
 
+# Malformed input is the caller's error. The rule is the classification, not
+# this list of handlers: if a request body, path, or query can produce the
+# exception, it maps to a 4xx here. If only our own state can produce it, it
+# stays a 500. Add a handler when a 500 traces back to something a caller
+# sent. Add it for that reason, never because an exception class looked
+# familiar. A handler never echoes the rejected value back. The caller already
+# has it, and rendering it turned a 50 MB body into a 50 MB response.
 @app.exception_handler(db.NotFound)
 async def not_found_handler(request: Request, exc: db.NotFound):
     # one rule for the surface: entity-lookup failures are 404, everywhere
+    # an owner-scoped miss is a 404 too, because any other status confirms the row exists
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
@@ -135,10 +143,7 @@ async def overflow_error_handler(request: Request, exc: OverflowError):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    """Same rule as the handlers above: malformed input is the caller's error,
-    so it must be a 422, never a 500.
-
-    FastAPI's default handler renders the rejected value back into the body
+    """FastAPI's default handler renders the rejected value back into the body
     with jsonable_encoder. That recurses on a deeply nested body (2000 nested
     arrays hit RecursionError and returned a plain-text 500 to an unauthorized
     caller), and it echoed a 50 MB string back verbatim, turning every write
