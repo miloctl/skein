@@ -134,7 +134,7 @@ def record_decision(
             raise ValueError(f"review_by is not a real date: {review_by}") from exc
     if review_by and not DATE_RE.match(review_by):
         raise ValueError(
-            "review_by must be YYYY-MM-DD — anything else would never trigger the stale sweep"
+            "review_by must be YYYY-MM-DD. The stale sweep does not read any other format."
         )
     if category not in DECISION_CATEGORIES:
         raise ValueError(f"category must be one of {DECISION_CATEGORIES}")

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { adoptServerTheme, applyPrefs, syncThemeColor } from "@/lib/theme";
+import { markHydrated } from "@/lib/whimsy";
 
 // A theme change in another tab fires a real storage event here — repaint
 // this tab too, not just the Settings buttons. On mount, a browser with no
@@ -17,6 +18,9 @@ export function ThemeSync() {
     // the pre-paint script already set the data attributes; only the
     // address-bar colour still needs deriving from them
     syncThemeColor();
+    // hydration has committed by the time an effect runs — only now may the
+    // pack-aware empty-state voice differ from what the server rendered
+    markHydrated();
     adoptServerTheme().then((adopted) => {
       if (!alive || adopted !== "profile") return;
       setNote("Applied the theme saved on your profile.");

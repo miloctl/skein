@@ -330,7 +330,8 @@ export default function InsightsPage() {
       <Card title="Weekly check-in — team tally">
         {(d.pulse_tally ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">
-            No votes yet. The Monday digest asks; 👍/👎 lives on My Day.
+            No votes yet. The Monday digest asks the question. The 👍/👎 buttons
+            are on My Day.
           </p>
         ) : (
           <ul className="space-y-1 text-sm">
