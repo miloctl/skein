@@ -24,13 +24,15 @@ who read this module and rewrites app_settings too.
 The ANCHOR LOG covers that case. Each successful nightly verification appends
 the verified tip (seq + digest) to a file beside the backups AND,
 independently, to the same file on SKEIN_BACKUP_MIRROR. The daily findings
-rule replays every line ever anchored against the ledger as it exists now, so
-a re-forge or a truncation has to contradict a record made on an earlier day.
-Honest limits, in order of sharpness: rows newer than the last nightly line
-are covered only by the in-DB marks until tonight; an attacker who rewrites
-the LOCAL anchor log too is only caught by comparing it against the mirror
-copy, which is a human step after a finding fires; an attacker who can also
-write the mirror is not caught at all. Detection, never prevention.
+rule replays every line ever anchored — from BOTH files — against the ledger
+as it exists now, so a re-forge or a truncation has to contradict a record
+made on an earlier day, and deleting or rewriting the local log is caught by
+the mirror's copy of the same lines. Honest limits, in order of sharpness:
+rows newer than the last nightly line are covered only by the in-DB marks
+until tonight; without a configured mirror, the local log is the only record
+and deleting it silences the check; an attacker who can write the mirror too
+is not caught at all; an unmounted mirror is skipped for that run, not
+failed. Detection, never prevention.
 """
 
 import logging
@@ -260,13 +262,28 @@ def record_anchor() -> dict:
     written = []
     for path in _anchor_log_paths():
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            # no mkdir here, deliberately. _backups_dir() already creates the
+            # local dir, and manufacturing the MIRROR directory would build the
+            # mount point on the local disk when the NAS is unmounted — the
+            # append would then succeed onto the wrong disk and be shadowed
+            # when the real mount returns, a silent hole in the history whose
+            # continuity is the whole point. Let a missing mount raise.
+            prefix = ""
+            if path.exists() and path.stat().st_size:
+                with path.open("rb") as fh:
+                    fh.seek(-1, 2)
+                    if fh.read(1) != b"\n":
+                        # a crash mid-append left a torn line with no newline;
+                        # gluing tonight's line onto it would lose BOTH
+                        prefix = "\n"
             with path.open("a", encoding="utf-8") as fh:
-                fh.write(line)
+                fh.write(prefix + line)
             written.append(str(path))
         except OSError:
             log.warning("could not append the chain anchor to %s", path, exc_info=True)
-    return {"anchored": seq, "files": written}
+    # anchored reports what actually landed — a night where every append
+    # failed must not read as a success in the job outcome
+    return {"anchored": seq if written else 0, "files": written}
 
 
 def nightly_verify() -> dict:
@@ -289,28 +306,34 @@ def check_anchor_log() -> dict:
     digest changed with the rewrite — content or lineage — so it no longer
     matches what was recorded on the night it was verified.
 
-    Reads the LOCAL file only. If the local file was rewritten along with the
-    ledger, this passes and the mirror copy is the remaining evidence — that
-    comparison is a human step, not this function. Lines that do not parse are
-    skipped, not failed: a crash mid-append tears a line, and a false tamper
-    alarm teaches the operator to ignore the true one.
+    Reads the local file AND the mirror copy when one is configured and
+    mounted. Reading both is what makes deleting or rewriting the local log
+    detectable: the deleted case falls back to the mirror's lines, and the
+    rewritten-consistent-with-the-forgery case conflicts with the mirror's
+    honest lines for the same seq. Without a mirror the local file is the only
+    record, and losing it loses the check — the module docstring says so.
+    Lines that do not parse are skipped, not failed: a crash mid-append tears
+    a line, and a false tamper alarm teaches the operator to ignore the true
+    one.
     """
     out: dict = {"ok": True, "checked": 0, "seq": None, "reason": ""}
-    path = _anchor_log_paths()[0]
-    if not path.exists():
-        return out
     recorded: dict[int, str] = {}
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        m = _ANCHOR_LINE.match(raw.strip())
-        if not m:
+    for path in _anchor_log_paths():
+        if not path.exists():
             continue
-        seq, digest = int(m.group(1)), m.group(2)
-        if recorded.get(seq, digest) != digest:
-            out.update(
-                ok=False, seq=seq, reason="the anchor log disagrees with itself about this entry"
-            )
-            return out
-        recorded[seq] = digest
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            m = _ANCHOR_LINE.match(raw.strip())
+            if not m:
+                continue
+            seq, digest = int(m.group(1)), m.group(2)
+            if recorded.get(seq, digest) != digest:
+                out.update(
+                    ok=False,
+                    seq=seq,
+                    reason="the anchor logs disagree about this entry",
+                )
+                return out
+            recorded[seq] = digest
     out["checked"] = len(recorded)
     for seq in sorted(recorded):
         row = db.query_one(
