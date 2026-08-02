@@ -91,25 +91,32 @@ def backup(*, keep: int = 14) -> dict:
     return {"path": str(dest), "kept": min(len(existing), keep), "mirrored": mirrored}
 
 
-def _mirror(dest: Path) -> str | None:
-    """Copy the fresh backup to SKEIN_BACKUP_MIRROR (a mounted NAS/remote
-    path). Off-box durability without extra tooling; rclone/rsync in a host
-    cron remains the alternative for true remote targets."""
+def mirror_dir() -> Path | None:
+    """SKEIN_BACKUP_MIRROR as a Path — or None when unset, or when this is not
+    a production data dir. Only a production instance may touch the mirror: a
+    test/dev run with a sandboxed SKEIN_DATA_DIR must never overwrite the
+    off-box copy. Production shapes: the repo default (backend/data) or the
+    container canonical /data (set by the Dockerfile)."""
     mirror = os.getenv("SKEIN_BACKUP_MIRROR", "")
     if not mirror:
         return None
-    # only a production instance may touch the mirror: a test/dev run with a
-    # sandboxed SKEIN_DATA_DIR must never overwrite the off-box copy.
-    # Production shapes: the repo default (backend/data) or the container
-    # canonical /data (set by the Dockerfile).
     data_dir = Path(config.DATA_DIR).resolve()
     if data_dir not in ((Path(config.BASE_DIR) / "data").resolve(), Path("/data")):
         log.info("backup mirror skipped: non-default data dir (%s)", config.DATA_DIR)
         return None
+    return Path(mirror)
+
+
+def _mirror(dest: Path) -> str | None:
+    """Copy the fresh backup to SKEIN_BACKUP_MIRROR (a mounted NAS/remote
+    path). Off-box durability without extra tooling; rclone/rsync in a host
+    cron remains the alternative for true remote targets."""
+    mdir = mirror_dir()
+    if mdir is None:
+        return None
     try:
         import shutil
 
-        mdir = Path(mirror)
         mdir.mkdir(parents=True, exist_ok=True)
         tmp = mdir / (dest.name + ".tmp")
         shutil.copy2(dest, tmp)
@@ -118,7 +125,7 @@ def _mirror(dest: Path) -> str | None:
             old.unlink()
         return str(mdir / dest.name)
     except Exception as exc:
-        log.warning("backup mirror to %s failed: %s", mirror, exc)
+        log.warning("backup mirror to %s failed: %s", mdir, exc)
         return None
 
 

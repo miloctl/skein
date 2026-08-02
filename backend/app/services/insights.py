@@ -699,24 +699,46 @@ def _r_activity_chain() -> list[dict]:
     stronger than the tail run rather than a different view of it.
 
     Reports the FIRST break only — verification stops there, because every
-    later link is computed from a value already known to be wrong."""
-    from .activity import verify_chain
+    later link is computed from a value already known to be wrong.
+
+    When the walk passes, the anchor log is replayed too. That is the check
+    the in-DB marks cannot make: a whole-chain re-forge that also rewrites
+    app_settings walks clean, but every anchored row's digest changed with
+    the rewrite, so it no longer matches the line recorded the night it was
+    verified."""
+    from .activity import check_anchor_log, verify_chain
 
     result = verify_chain()
-    if result["ok"]:
+    if not result["ok"]:
+        at = result["broken_at"]
+        where = f" at entry {at}" if at else ""
+        return [
+            _finding(
+                "activity_chain_broken",
+                "high",
+                f"The activity chain does not verify{where}: {result['reason']}."
+                " A row was changed, removed, or added outside the chain after"
+                " it was written. Compare platform.db against the most recent"
+                " backup in data/backups.",
+                {"broken_at": at, "reason": result["reason"]},
+                subject=f"seq:{at}" if at else "unchained",
+                window="point-in-time",
+            )
+        ]
+    anchors = check_anchor_log()
+    if anchors["ok"]:
         return []
-    at = result["broken_at"]
-    where = f" at entry {at}" if at else ""
     return [
         _finding(
             "activity_chain_broken",
             "high",
-            f"The activity chain does not verify{where}: {result['reason']}."
-            " A row was changed, removed, or added outside the chain after it"
-            " was written. Compare platform.db against the most recent backup"
-            " in data/backups.",
-            {"broken_at": at, "reason": result["reason"]},
-            subject=f"seq:{at}" if at else "unchained",
+            f"The activity ledger does not match its anchor log at entry"
+            f" {anchors['seq']}: {anchors['reason']}. The chain itself"
+            " verifies, so the ledger and its marks were rewritten together"
+            " after that entry was anchored. Compare the anchor log and"
+            " platform.db against the copies on the backup mirror.",
+            {"anchored_seq": anchors["seq"], "reason": anchors["reason"]},
+            subject=f"anchor:{anchors['seq']}",
             window="point-in-time",
         )
     ]

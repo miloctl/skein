@@ -313,3 +313,184 @@ def test_findings_rule_fires_on_a_break(fresh_db):
     assert fired[0]["rule_id"] == "activity_chain_broken"
     assert fired[0]["severity"] == "high"
     assert fired[0]["receipt"]["broken_at"] == 2
+
+
+# ---- the anchor log (the off-box half) --------------------------------------
+
+
+def _reforge_everything(edit_seq: int, new_actor: str) -> None:
+    """What an attacker who read services/activity.py does: edit a row,
+    recompute the whole chain, and rewrite every in-DB mark to match."""
+    from app.services import activity
+
+    rows = db.query("SELECT * FROM activity WHERE seq IS NOT NULL ORDER BY seq")
+    prev = db.GENESIS_PREV
+    for row in rows:
+        actor = new_actor if row["seq"] == edit_seq else row["actor"]
+        digest = db.activity_hash(
+            row["seq"], row["created_at"], actor, row["action"], row["detail"], prev
+        )
+        db.execute(
+            "UPDATE activity SET actor = ?, hash = ?, prev_hash = ? WHERE seq = ?",
+            (actor, digest, None if prev == db.GENESIS_PREV else prev, row["seq"]),
+        )
+        prev = digest
+    activity._set_anchor(rows[-1]["seq"], prev)
+
+
+def test_nightly_verify_appends_one_anchor_line_per_run(fresh_db):
+    from app.services import activity
+
+    _log(3)
+    result = activity.nightly_verify()
+    assert result["ok"]
+    assert result["anchor"]["anchored"] == 3
+    _log(2)
+    activity.nightly_verify()
+    path = activity._anchor_log_paths()[0]
+    lines = path.read_text().splitlines()
+    assert len(lines) == 2
+    tip = db.query_row("SELECT hash FROM activity WHERE seq = 3")["hash"]
+    assert lines[0].endswith(f"hash={tip}")
+    assert "seq=5" in lines[1]
+
+
+def test_a_break_is_never_anchored(fresh_db):
+    """Appending after a failed verification would anchor a digest the
+    verification just refused to bless."""
+    from app.services import activity
+
+    _log(3)
+    activity.nightly_verify()
+    _log(2)
+    # tamper a row the tail run WILL see — one written since the last anchor.
+    # (a row behind the anchor is the documented limit of the tail run and is
+    # caught by the findings rule's full walk, not here)
+    db.execute("UPDATE activity SET detail = 'tampered' WHERE seq = 4")
+    result = activity.nightly_verify()
+    assert not result["ok"]
+    assert "anchor" not in result
+    assert len(activity._anchor_log_paths()[0].read_text().splitlines()) == 1
+
+
+def test_a_full_reforge_with_every_mark_rewritten_is_caught_by_the_anchor_log(fresh_db):
+    """THE case B1 could not catch. The chain, the anchor, the high-water mark
+    and the baseline all live in platform.db; rewrite them together and the
+    full walk passes. The anchor log line was written on an earlier day, and
+    the re-forge changed every anchored row's digest — content or lineage."""
+    from app.services import activity
+
+    _log(6)
+    activity.nightly_verify()
+    _reforge_everything(edit_seq=2, new_actor="someone-else")
+
+    assert activity.verify_chain()["ok"]  # the in-DB checks are fully defeated
+    result = activity.check_anchor_log()
+    assert not result["ok"]
+    assert result["seq"] == 6
+    assert "no longer matches the record" in result["reason"]
+
+
+def test_truncation_with_every_mark_rewritten_is_caught_by_the_anchor_log(fresh_db):
+    from app.services import activity
+
+    _log(6)
+    activity.nightly_verify()
+    db.execute("DELETE FROM activity WHERE seq >= 5")
+    tail = db.query_row("SELECT seq, hash FROM activity WHERE seq = 4")
+    activity._set_anchor(tail["seq"], tail["hash"])
+    activity._put({activity.HIGH_SEQ: "4"})
+
+    assert activity.verify_chain()["ok"]
+    result = activity.check_anchor_log()
+    assert not result["ok"]
+    assert result["seq"] == 6
+    assert result["reason"] == "an anchored entry is no longer in the ledger"
+
+
+def test_the_findings_rule_reaches_the_anchor_check(fresh_db):
+    from app.services import activity, insights
+
+    _log(4)
+    activity.nightly_verify()
+    assert insights._r_activity_chain() == []
+    _reforge_everything(edit_seq=1, new_actor="ghost")
+    fired = insights._r_activity_chain()
+    assert len(fired) == 1
+    assert fired[0]["subject"] == "anchor:4"
+    assert "backup mirror" in fired[0]["message"]
+
+
+def test_no_anchor_log_is_not_an_error(fresh_db):
+    """A deployment that has never completed a nightly run has nothing to
+    check — reporting that as tampering would alarm every fresh install."""
+    from app.services import activity
+
+    _log(2)
+    result = activity.check_anchor_log()
+    assert result["ok"]
+    assert result["checked"] == 0
+
+
+def test_torn_and_conflicting_lines(fresh_db):
+    from app.services import activity
+
+    _log(3)
+    activity.nightly_verify()
+    path = activity._anchor_log_paths()[0]
+    with path.open("a") as fh:
+        fh.write("2026-08-02T03:30:00+00:00 seq=torn")  # crash mid-append
+    assert activity.check_anchor_log()["ok"]  # torn lines are skipped, not failed
+
+    with path.open("a") as fh:
+        fh.write(f"\n2026-08-03T03:30:00+00:00 seq=3 hash={'0' * 64}\n")
+    result = activity.check_anchor_log()
+    assert not result["ok"]
+    assert result["reason"] == "the anchor log disagrees with itself about this entry"
+
+
+def test_the_mirror_gets_its_own_append_never_a_copy(fresh_db, tmp_path, monkeypatch):
+    """Appending to each file independently means truncating the local file
+    can never shorten the mirror's history."""
+    from app.services import activity, admin
+
+    mirror = tmp_path / "mirror"
+    monkeypatch.setattr(admin, "mirror_dir", lambda: mirror)
+    _log(2)
+    activity.nightly_verify()
+    _log(1)
+    activity.nightly_verify()
+
+    local, mirrored = activity._anchor_log_paths()
+    assert str(mirrored).startswith(str(mirror))
+    assert local.read_text() == (mirror / activity.ANCHOR_LOG).read_text()
+
+    local.write_text("")  # local truncated — the mirror keeps both lines
+    assert len((mirror / activity.ANCHOR_LOG).read_text().splitlines()) == 2
+
+
+def test_a_sandboxed_data_dir_never_touches_the_mirror(fresh_db, tmp_path, monkeypatch):
+    """The same guard the backup mirror has: a test or dev run must not write
+    the off-box record."""
+    from app.services import activity
+
+    mirror = tmp_path / "mirror"
+    monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(mirror))
+    _log(2)
+    activity.nightly_verify()
+    assert not mirror.exists()  # DATA_DIR is a tmp path, so mirror_dir refuses
+
+
+def test_an_unwritable_mirror_does_not_fail_the_job(fresh_db, tmp_path, monkeypatch):
+    """The mirror is a mounted path that is allowed to be absent — an
+    unmounted NAS at 03:30 must not cost the night's local anchor."""
+    from app.services import activity, admin
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("")  # a FILE where a directory is needed -> OSError
+    monkeypatch.setattr(admin, "mirror_dir", lambda: blocker / "sub")
+    _log(2)
+    result = activity.nightly_verify()
+    assert result["ok"]
+    assert result["anchor"]["anchored"] == 2
+    assert len(result["anchor"]["files"]) == 1  # local only
