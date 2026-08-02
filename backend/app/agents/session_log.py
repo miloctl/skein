@@ -28,10 +28,11 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
     if any(FB_GUARD.match(ln) for ln in user_text.splitlines()):
         return
     try:
-        from strands.agent.conversation_manager import SlidingWindowConversationManager
         from strands.session import FileSessionManager
         from strands.types.content import Message
         from strands.types.session import SessionAgent, SessionMessage
+
+        from .team_agent import _conversation_manager
 
         # constructing the manager creates the session when it is missing;
         # a command-first thread must not lose its opening exchange
@@ -43,9 +44,12 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
                 SessionAgent(
                     agent_id=_AGENT_ID,
                     state={},
-                    # a live manager's own state, not a hand-rolled dict —
-                    # restore_from_session validates it on the next turn
-                    conversation_manager_state=SlidingWindowConversationManager().get_state(),
+                    # the CONFIGURED manager's own state, not a hand-rolled
+                    # dict and not a hardcoded class: restore_from_session
+                    # validates the class name on the next turn, so seeding
+                    # sliding state on a summarize deployment would kill a
+                    # command-first thread the moment the agent first replies
+                    conversation_manager_state=_conversation_manager().get_state(),
                 ),
             )
         else:

@@ -684,7 +684,9 @@ def get_context_strategy(user: CurrentUser):
 @router.post("/settings/context-strategy")
 def post_context_strategy(body: ContextStrategyIn, user: StrongUser):
     """StrongUser: this changes what every chat costs, so it needs a personal
-    key rather than a name typed into a header."""
+    key rather than a name typed into a header. Rate-capped because each call
+    appends to the activity ledger, which is never pruned."""
+    ratelimit.check("write", user)
     try:
         return settings.set_context_strategy(body.strategy, actor=user)
     except ValueError as e:
