@@ -352,8 +352,11 @@ def test_nightly_verify_appends_one_anchor_line_per_run(fresh_db):
     lines = path.read_text().splitlines()
     assert len(lines) == 2
     tip = db.query_row("SELECT hash FROM activity WHERE seq = 3")["hash"]
-    assert lines[0].endswith(f"hash={tip}")
+    assert f"hash={tip}" in lines[0]
     assert "seq=5" in lines[1]
+    # every line also carries the unchained BASELINE, so a later reset of it
+    # contradicts a dated, mirrored record instead of passing silently
+    assert all("unchained=" in ln for ln in lines)
 
 
 def test_a_break_is_never_anchored(fresh_db):
@@ -635,3 +638,51 @@ def test_a_mirror_that_missed_a_night_still_catches_up(fresh_db, tmp_path, monke
     local = activity._anchor_log_paths()[0]
     assert local.read_text() != ""
     assert "seq=2" in (mirror / activity.ANCHOR_LOG).read_text()
+
+
+def test_a_reset_baseline_contradicts_the_anchor_log(fresh_db):
+    """The in-DB baseline is re-derived whenever its app_settings row is
+    absent, so deleting that ONE row re-baselines to whatever is present now
+    and launders a smuggled row. The in-DB marks cannot see it; the anchor log
+    can, because it recorded the baseline on a night that already passed."""
+    from app.services import activity
+
+    _log(3)
+    assert activity.nightly_verify()["ok"]
+    assert activity.check_anchor_log()["ok"]
+
+    # smuggle a row in outside the chain, then reset the baseline
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at)"
+        " VALUES ('mallory', 'approve_change', 'proposal 7 approved', ?)",
+        (db.now(),),
+    )
+    assert activity.verify_chain()["ok"] is False  # caught, before the reset
+    db.execute("DELETE FROM app_settings WHERE key = 'activity_chain_legacy'")
+    assert activity.verify_chain()["ok"] is True  # the in-DB check is laundered
+
+    out = activity.check_anchor_log()
+    assert out["ok"] is False
+    assert "baseline" in out["reason"]
+
+
+def test_a_legitimate_unchained_row_reports_the_same_way(fresh_db):
+    """Honest about what it cannot tell apart: a real fallback append raises
+    the baseline too, and TODO.md records why no re-baseline operation exists
+    to distinguish them. The check reports the fact and its date, never a
+    verdict about intent."""
+    from app.services import activity
+
+    _log(2)
+    activity.nightly_verify()
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at)"
+        " VALUES ('scheduler', 'run findings', 'fallback', ?)",
+        (db.now(),),
+    )
+    db.execute("DELETE FROM app_settings WHERE key = 'activity_chain_legacy'")
+    activity.verify_chain()  # re-baselines
+
+    out = activity.check_anchor_log()
+    assert out["ok"] is False
+    assert "or the baseline was reset" in out["reason"]

@@ -31,3 +31,9 @@ this file is only for accepted trade-offs that must eventually be repaid.
   speculatively. Repay when the first real fallback fires in production:
   add a logged, StrongUser re-baseline that records the reason in the
   ledger itself.
+
+  Narrowed 2026-08-02: the baseline now rides on every anchor-log line, so
+  the hand-edit is no longer SILENT — `check_anchor_log` reports a baseline
+  above the highest ever anchored, and says plainly that a smuggled row and
+  a legitimate fallback append look the same from there. The debt that
+  remains is only the missing operation to tell those two apart.
