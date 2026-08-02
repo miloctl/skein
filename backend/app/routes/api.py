@@ -142,6 +142,14 @@ def get_activity():
     return collab.recent_activity()
 
 
+@router.get("/activity/feed")
+def get_activity_feed(user: CurrentUser, before: int = 0, limit: int = 50):
+    """The rendered feed: agent and system actions plus your own. The scope is
+    enforced in the service — there is no parameter for another person."""
+    fieldguide.mark(user, "activity_feed")
+    return activity.feed(user, limit=limit, before=before)
+
+
 @router.get("/activity/verify")
 def get_activity_verify(user: CurrentUser, tail: int = 0):
     """Recompute the provenance chain. The default walks every chained row,

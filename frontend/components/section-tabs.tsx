@@ -18,6 +18,7 @@ const SETS = {
   ],
   team: [
     { href: "/agents", label: "Agents" },
+    { href: "/activity", label: "Activity" },
     { href: "/people", label: "1:1s" },
     { href: "/charter", label: "Charter" },
   ],
