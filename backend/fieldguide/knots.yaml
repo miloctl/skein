@@ -198,7 +198,7 @@ knots:
     knot: Carrick Bend
     set: bends
     pitch: Model spend in a linked chat counts toward that engagement's costs.
-    how: "In the chat sidebar, open a thread's menu and pick Link to engagement. The costs land on /api/usage per engagement."
+    how: "In the chat sidebar, open a thread's menu and pick Link to engagement — pick one, or type a name to create it on the spot. The costs land on /api/usage per engagement."
     link: /chat
     since: 2026-08-02
 

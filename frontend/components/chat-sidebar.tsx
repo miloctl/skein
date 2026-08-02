@@ -198,6 +198,25 @@ export function ChatSidebar({
     load();
   };
 
+  const createAndLink = async (id: string, name: string) => {
+    // snap to an existing open engagement first — the backend refuses
+    // duplicate names, and retyping one should link, not error
+    const existing = (engagements ?? []).find(
+      (e) => e.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing) return setEngagement(id, existing.id);
+    try {
+      const made = await api<EngagementRow>("/api/engagements", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setEngagements((cur) => (cur ? [...cur, made] : [made]));
+      await setEngagement(id, made.id);
+    } catch (e) {
+      alert(String(e));
+    }
+  };
+
   const setFolder = async (id: string, folder: string) => {
     closeMenu(id);
     await api(`/api/chats/${id}`, {
@@ -678,12 +697,18 @@ export function ChatSidebar({
                             🧵 {e.name}
                           </button>
                         ))}
-                      {engagements !== null && engagements.length === 0 && (
-                        <p className="px-1 py-1 text-xs text-ink-3">
-                          No open engagements. Create one on Work → Browse
-                          first.
-                        </p>
-                      )}
+                      <input
+                        autoFocus={(engagements ?? []).length === 0}
+                        name="link-new-engagement"
+                        placeholder="New engagement — ↵ to create & link"
+                        aria-label="Create an engagement and link this chat to it"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && e.currentTarget.value.trim())
+                            createAndLink(t.id, e.currentTarget.value.trim());
+                          if (e.key === "Escape") closeMenu(t.id);
+                        }}
+                        className="mt-1 w-full rounded border border-line-strong bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-3"
+                      />
                       {engagements === null && (
                         <p className="px-1 py-1 text-xs text-ink-3">
                           Cannot load the engagement list. Check that the
