@@ -20,6 +20,33 @@ from ..services.delegation import authority_level
 # (edits stay reversible + old->new logged, so they follow the normal flag)
 ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}
 
+# The matrix is keyed on the literal entity a tool passes, and the registry
+# splits families (note / note_edit / note_delete). Forbidding the base entity
+# therefore left every mutator open: an agent forbidden on `note` still
+# rewrote an existing note's content, which is strictly worse than the
+# creation the operator blocked. A grant may still be fine-grained; a
+# FORBIDDEN is absolute, so authority resolves over the family and the
+# strictest level wins.
+_FAMILY = {
+    "note_edit": "note",
+    "note_delete": "note",
+    "blocker_edit": "blocker",
+    "commitment_edit": "commitment",
+    "commitment_settle": "commitment",
+    "intake_edit": "intake",
+    "memory_forget": "memory",
+}
+_STRICTNESS = {"autonomous": 0, "notify": 1, "review": 2, "forbidden": 3}
+
+
+def effective_level(actor: str, entity: str) -> str:
+    """The strictest level across the entity and its family root."""
+    levels = [authority_level(actor, entity)]
+    root = _FAMILY.get(entity)
+    if root:
+        levels.append(authority_level(actor, root))
+    return max(levels, key=lambda lvl: _STRICTNESS.get(lvl, 2))
+
 
 def gated_write(
     entity: str,
@@ -45,7 +72,7 @@ def gated_write(
         ratelimit.check("write", actor)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
-    level = authority_level(actor, entity)
+    level = effective_level(actor, entity)
     if level == "forbidden":
         receipts.record("refused", entity, f"{actor} is forbidden on {entity}")
         return json.dumps(
