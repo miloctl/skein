@@ -187,3 +187,63 @@ def test_usage_endpoint_shape(client, fresh_db):
     body = client.get("/api/usage").json()
     assert set(body) == {"models", "engagements", "month", "prices_error"}
     assert body["month"]["budget_usd"] is None  # off by default
+
+
+def test_the_thread_list_carries_the_link(client, fresh_db):
+    """The sidebar drives three behaviors off engagement_id — the update path
+    returned it while the LIST path silently dropped it, so the link was
+    invisible and unclearable from the UI."""
+    from app.services import engagements as eng
+
+    eng.create_engagement("probe", actor="tester")
+    client.post("/api/chat", json={"thread_id": "t-list", "message": "todo: seed"})
+    client.patch("/api/chats/t-list", json={"engagement_id": 1})
+    rows = client.get("/api/chats").json()
+    row = next(r for r in rows if r["id"] == "t-list")
+    assert row["engagement_id"] == 1
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"m": [Infinity, 1]}',  # json.loads parses the bare Infinity token
+        '{"m": [true, 5]}',  # bool is an int in Python
+        '{"m": [1e999, 1]}',  # parses as inf
+    ],
+)
+def test_prices_refuse_values_the_operator_never_wrote(monkeypatch, raw):
+    """inf would 500 /api/usage at render (JSONResponse forbids NaN/inf), and
+    true would price a model at $1.00 — both silently, both wrong."""
+    monkeypatch.setenv("SKEIN_MODEL_PRICES", raw)
+    cfg = importlib.reload(config)
+    assert cfg.MODEL_PRICES == {}
+    assert "SKEIN_MODEL_PRICES" in cfg.MODEL_PRICES_ERROR
+
+
+def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
+    """A finding that says THIS month is over budget must not name last
+    month's biggest spender as its evidence."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import chat_threads as ct
+    from app.services import insights
+
+    monkeypatch.setattr(config, "MODEL_PRICES", {"m": (1.0, 1.0)})
+    monkeypatch.setattr(config, "MONTHLY_BUDGET_USD", 0.5)
+    engagements.create_engagement("last month", actor="ava")
+    engagements.create_engagement("this month", actor="ava")
+    ct.log_message("old", "ava", "user", "x")
+    ct.log_message("new", "ava", "user", "x")
+    ct.update_thread("old", "ava", engagement_id=1)
+    ct.update_thread("new", "ava", engagement_id=2)
+
+    usage.record_chat_usage("old", "a", "m", 90_000_000, 0)  # $90, last month
+    last_month = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(timespec="seconds")
+    db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (last_month,))
+    usage.record_chat_usage("new", "a", "m", 1_000_000, 0)  # $1, this month
+
+    fired = insights._r_budget()
+    assert len(fired) == 1
+    tops = [t["engagement"] for t in fired[0]["receipt"]["top_engagements"]]
+    assert "this month" in tops
+    assert "last month" not in tops

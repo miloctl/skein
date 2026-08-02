@@ -108,7 +108,7 @@ export function ChatSidebar({
 }) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
-  const [engagements, setEngagements] = useState<EngagementRow[]>([]);
+  const [engagements, setEngagements] = useState<EngagementRow[] | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [menu, setMenu] = useState<Menu>(null);
@@ -130,7 +130,7 @@ export function ChatSidebar({
     api<string[]>("/api/chats/folders").then(setFolders).catch(() => {});
     api<EngagementRow[]>("/api/engagements")
       .then((rows) => setEngagements(rows.filter((e) => e.status !== "closed")))
-      .catch(() => {});
+      .catch(() => setEngagements(null));
   }, []);
 
   useEffect(() => {
@@ -667,7 +667,7 @@ export function ChatSidebar({
                           ⊘ No engagement
                         </button>
                       )}
-                      {engagements
+                      {(engagements ?? [])
                         .filter((e) => e.id !== t.engagement_id)
                         .map((e) => (
                           <button
@@ -678,10 +678,16 @@ export function ChatSidebar({
                             🧵 {e.name}
                           </button>
                         ))}
-                      {engagements.length === 0 && (
+                      {engagements !== null && engagements.length === 0 && (
                         <p className="px-1 py-1 text-xs text-ink-3">
                           No open engagements. Create one on Work → Browse
                           first.
+                        </p>
+                      )}
+                      {engagements === null && (
+                        <p className="px-1 py-1 text-xs text-ink-3">
+                          Cannot load the engagement list. Check that the
+                          server is running, then reopen this menu.
                         </p>
                       )}
                     </MenuPanel>
