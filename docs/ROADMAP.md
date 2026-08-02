@@ -372,9 +372,16 @@ see docs/FEATURES.md for each). What remains, deliberately unbuilt:
 2. **Honest tombstones for deleted tasks/chats** — a removed item leaves a
    marker with a sanitized reason, never a silent hole. Skein does this for
    private 1:1 notes and decision supersession only.
-3. **Presence as a lease, not a flag** — the agent status strip reads
-   `last_seen`, which decays into a lie rather than expiring. A renewal
-   lease bounds staleness to a known window. Cheap, low value.
+3. **Presence as a lease, not a flag** — applies only if Skein ever grows a
+   boolean liveness indicator. Today the agents page shows a `last seen`
+   timestamp, which is honest forever; buzz's lease idea fixes a live-dot
+   outliving a dead process, and no such dot exists here. No action unless
+   one is added.
+
+Assessment 2026-08-02: items 1–3 need no work now. 1 waits for a real
+long-chat complaint (summarize + the context-pack tool already cover it);
+2 is met more strongly by the hash-chained ledger and the loud feed row than
+a tombstone would meet it; 3's premise does not apply.
 4. **Per-rule `enabled` flag for findings** — silence a noisy rule by config
    rather than a deploy.
 5. **A UI surface for `/api/usage`** — the budget finding points people at a
