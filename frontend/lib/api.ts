@@ -13,6 +13,14 @@ export const backendUnreachable = (error?: unknown) =>
  *  that "unreachable" tells the reader to go check a server that is running. */
 export const isUnreachable = (error: unknown) => error instanceof TypeError;
 
+/** What a failed page load says. A refusal the server actually answered is not
+ *  an unreachable backend, and reporting it as one sends the reader to check a
+ *  server that is running and replying. */
+export const loadError = (error: unknown) =>
+  isUnreachable(error)
+    ? backendUnreachable(error)
+    : `Could not load this page. ${String(error)}`;
+
 const USER_KEY = "skein-user";
 const API_KEY_KEY = "skein-key";
 

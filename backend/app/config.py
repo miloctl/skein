@@ -304,7 +304,9 @@ CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000
 # compress at 70% of the window instead of waiting for an overflow error
 CONTEXT_PROACTIVE = os.getenv("SKEIN_CONTEXT_PROACTIVE", "0") == "1"
 
-CONTEXT_STRATEGY_ERROR = "; ".join(_CONTEXT_FAULTS)
+# joined with a space, not a semicolon: every fault terminates itself, and
+# user-visible functional text carries no semicolons (CLAUDE.md wording rules)
+CONTEXT_STRATEGY_ERROR = " ".join(_CONTEXT_FAULTS)
 
 CORS_ORIGINS = [
     o.strip()
