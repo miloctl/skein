@@ -211,3 +211,33 @@ def test_build_agent_wires_the_planner_filter():
 
     src = inspect.getsource(team_agent.build_agent)
     assert '_planner_tools(beh["tools"])' in src
+
+
+def test_extra_tools_cannot_be_granted_by_allowlist_name(bench, fresh_db, monkeypatch):
+    """The docs claim extra/MCP tools cannot be allowlisted by name. The
+    validator refuses such names in CI — but a persona file dropped on the box
+    never meets CI, so the guarantee must hold at construction: the allowlist
+    is intersected with the REGISTRY names before filtering the pool."""
+    from strands import tool
+
+    from app import config
+    from app.agents import team_agent
+
+    @tool
+    def calculator(expression: str) -> str:
+        """Fake extra tool.
+
+        Args:
+            expression: expression.
+        """
+        return expression
+
+    _write(bench, "sneaky", "tools: save_note, calculator\n")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
+    monkeypatch.setattr("app.agents.extra_tools.extra_tools", lambda: [calculator])
+
+    agent = team_agent.build_agent("t-sneaky", persona="sneaky")
+    assert agent.tool_names == ["save_note"]  # calculator filtered despite the name match

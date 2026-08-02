@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { api, getUser } from "@/lib/api";
+import { api, getUser, loadError as describeLoadError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 
 export type ChatThread = {
@@ -109,6 +109,7 @@ export function ChatSidebar({
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
   const [engagements, setEngagements] = useState<EngagementRow[] | null>(null);
+  const [engagementsError, setEngagementsError] = useState("");
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [menu, setMenu] = useState<Menu>(null);
@@ -129,8 +130,16 @@ export function ChatSidebar({
       .catch(() => setLoadError(true));
     api<string[]>("/api/chats/folders").then(setFolders).catch(() => {});
     api<EngagementRow[]>("/api/engagements")
-      .then((rows) => setEngagements(rows.filter((e) => e.status !== "closed")))
-      .catch(() => setEngagements(null));
+      .then((rows) => {
+        setEngagements(rows.filter((e) => e.status !== "closed"));
+        setEngagementsError("");
+      })
+      .catch((e) => {
+        // a served 4xx/5xx is not an unreachable backend — loadError says
+        // which, instead of sending the reader to check a running server
+        setEngagements(null);
+        setEngagementsError(describeLoadError(e));
+      });
   }, []);
 
   useEffect(() => {
@@ -214,6 +223,7 @@ export function ChatSidebar({
       await setEngagement(id, made.id);
     } catch (e) {
       alert(String(e));
+      throw e; // the caller restores the typed name on failure
     }
   };
 
@@ -697,28 +707,32 @@ export function ChatSidebar({
                             🧵 {e.name}
                           </button>
                         ))}
-                      <input
-                        autoFocus={(engagements ?? []).length === 0}
-                        name="link-new-engagement"
-                        placeholder="New engagement — ↵ to create & link"
-                        aria-label="Create an engagement and link this chat to it"
-                        maxLength={120}
-                        onKeyDown={(e) => {
-                          const name = e.currentTarget.value.trim();
-                          if (e.key === "Enter" && name) {
-                            // clear synchronously: a second Enter during the
-                            // POST round-trip would re-submit the same name
-                            e.currentTarget.value = "";
-                            createAndLink(t.id, name);
-                          }
-                          if (e.key === "Escape") closeMenu(t.id);
-                        }}
-                        className="mt-1 w-full rounded border border-line-strong bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-3"
-                      />
+                      {engagements !== null && (
+                        <input
+                          autoFocus={engagements.length === 0}
+                          name="link-new-engagement"
+                          placeholder="New engagement — ↵ to create & link"
+                          aria-label="Create an engagement and link this chat to it"
+                          maxLength={120}
+                          onKeyDown={(e) => {
+                            const name = e.currentTarget.value.trim();
+                            if (e.key === "Enter" && name) {
+                              // clear synchronously: a second Enter during the
+                              // POST round-trip would re-submit the same name
+                              const box = e.currentTarget;
+                              box.value = "";
+                              createAndLink(t.id, name).catch(() => {
+                                box.value = name; // a failed create must not eat the typed name
+                              });
+                            }
+                            if (e.key === "Escape") closeMenu(t.id);
+                          }}
+                          className="mt-1 w-full rounded border border-line-strong bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-3"
+                        />
+                      )}
                       {engagements === null && (
                         <p className="px-1 py-1 text-xs text-ink-3">
-                          Cannot load the engagement list. Check that the
-                          server is running, then reopen this menu.
+                          {engagementsError}
                         </p>
                       )}
                     </MenuPanel>

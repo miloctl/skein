@@ -434,11 +434,14 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     tools = [*ALL_TOOLS, plan_project, *extra_tools(), *mcp_tools()]
     if beh["tools"] is not None:
         # deny-by-omission once declared: the persona gets exactly the named
-        # tools and nothing else — including no extra/MCP tools, which cannot
-        # be allowlisted by name (env-dependent; see personas.validate_all).
-        # Filtering at construction means the model never sees the tool, which
-        # beats refusing calls after the fact.
-        allowed = set(beh["tools"])
+        # tools and nothing else. Filtering at construction means the model
+        # never sees the tool, which beats refusing calls after the fact.
+        # The allowlist is INTERSECTED with the registry names first, so an
+        # extra/MCP tool cannot be granted by name even when its name matches
+        # a loaded one — the validator refuses such names in CI, and this
+        # keeps the guarantee structural for a persona file that never met CI.
+        known = {_tool_name(t) for t in (*ALL_TOOLS, plan_project)}
+        allowed = set(beh["tools"]) & known
         tools = [t for t in tools if _tool_name(t) in allowed]
 
     manager = _conversation_manager()

@@ -104,7 +104,13 @@ def update_engagement(
         raise db.NotFound(f"engagement #{engagement_id} not found")
     name = name.strip()
     renaming = bool(name and name != current["name"])
-    if renaming and db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
+    # NOCASE and id-excluded, matching create: the case-variant fork the
+    # create check closes must not reopen through rename. The id exclusion
+    # keeps re-casing an engagement's OWN name ("alpha" -> "Alpha") legal.
+    if renaming and db.query_one(
+        "SELECT id FROM engagements WHERE name = ? COLLATE NOCASE AND id != ?",
+        (name, engagement_id),
+    ):
         raise ValueError(f"engagement '{name}' already exists")
     freshly_closed = status == "closed" and current["status"] != "closed"
     if freshly_closed and not (conclusion or current["conclusion"]):

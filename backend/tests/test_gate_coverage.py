@@ -215,28 +215,50 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         " either they bypassed the gate or a gate exit forgot to record:\n"
         + "\n".join(silent_writers)
     )
-    # the harness itself must be alive: if instrumentation or arg generation
-    # quietly broke, zero covered writers would report a hollow green
-    assert len(covered) >= 20, f"only {len(covered)} tools produced an observed write: {covered}"
-    # tools that MUST be in the observed set — a future ARGS or ordering
-    # change that degrades any of them to an error path must not pass as
-    # merely uncovered; that silent degradation is how the edit_blocker
-    # bypass survived a round
-    must_write = (
-        "claim_delegated_task",
-        "report_progress",
-        "submit_for_acceptance",
-        "edit_note",
-        "edit_blocker",
-        "edit_intake_request",
-        "edit_commitment",
-        "remember",
+    # the FULL snapshot of writers, not a floor: a floor of 20 would let 14
+    # tools silently degrade to error paths before anything went loud. One
+    # line of maintenance per new writing tool, which is the point — a new
+    # tool declares itself here or fails the suite.
+    expected_writers = {
+        "add_absence",
+        "add_commitment",
+        "answer_question",
+        "ask_question",
         "assign_question",
+        "cancel_event",
+        "claim_delegated_task",
+        "create_milestone",
+        "create_task",
         "delegate_task",
+        "delete_note",
+        "edit_blocker",
+        "edit_commitment",
+        "edit_intake_request",
+        "edit_note",
+        "forget_memory",
+        "generate_handoff",
+        "mark_commitment",
+        "post_standup",
+        "raise_blocker",
+        "record_decision",
+        "record_lesson",
+        "remember",
+        "report_progress",
+        "resolve_blocker",
+        "save_note",
         "schedule_event",
+        "start_engagement_from_playbook",
+        "submit_for_acceptance",
+        "submit_intake_request",
+        "supersede_decision",
+        "update_engagement",
+        "update_milestone",
+        "update_task",
+    }
+    assert covered == expected_writers, (
+        f"degraded to error paths: {sorted(expected_writers - covered)};"
+        f" new unlisted writers: {sorted(covered - expected_writers)}"
     )
-    for name in must_write:
-        assert name in covered, f"{name} never reached its write path"
 
 
 def test_the_registry_is_the_only_inclusion_source():

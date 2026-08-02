@@ -5,6 +5,7 @@ stream of {"type": "text" | "tool" | "error" | "done", ...} JSON lines.
 Works identically for every provider in config.PROVIDERS.
 """
 
+import contextlib
 import json
 import logging
 import re
@@ -123,10 +124,16 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
         output_t = int(usage.get("outputTokens", 0))
         if not (input_t or output_t):
             return
+        # the AGENT's model, not the deployment default: a persona override
+        # runs a different model, and pricing its turns at the deployment
+        # model's rate misattributes and miscosts every overridden turn
+        model_id = config.MODEL_ID
+        with contextlib.suppress(Exception):
+            model_id = agent.model.get_config().get("model_id") or model_id
         record_chat_usage(
             thread_id=thread_id,
             agent_name=agent_name,
-            model_id=config.MODEL_ID,
+            model_id=model_id,
             input_tokens=input_t,
             output_tokens=output_t,
             cycles=int(getattr(metrics, "cycle_count", 0)),
@@ -233,6 +240,13 @@ async def chat(req: ChatRequest, user: CurrentUser):
                         parts.append(line)
                         model_parts.append(line)
                         yield _sse({"type": "receipt", **r})
+                # mirror pump(): a receipt recorded after the generator's last
+                # yield must not vanish from stream, transcript, and bridge
+                for r in receipts.drain():
+                    line = _receipt_line(r)
+                    parts.append(line)
+                    model_parts.append(line)
+                    yield _sse({"type": "receipt", **r})
             except Exception as exc:
                 logging.getLogger("skein.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
@@ -286,7 +300,8 @@ async def chat(req: ChatRequest, user: CurrentUser):
     async def stream():
         seen_tools: set[str] = set()
         transcript: list[str] = [masthead] if masthead else []
-        wrote = False
+        wrote = False  # ANY receipt — silences the guard (it told the truth)
+        filed = False  # wrote/queued only — a failed write must not tie a knot
         # user turn first, assistant turn in finally: a cancelled stream
         # (stop button, tab close, thread switch) keeps the partial exchange
         _log_turn(ui_thread, user, "user", message)
@@ -302,7 +317,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         async def pump(prompt: str):
             """One model exchange, rendered. Factored out so the turn guard can
             run a second one without duplicating the event handling."""
-            nonlocal wrote
+            nonlocal wrote, filed
             async for event in agent.stream_async(prompt):
                 if "data" in event:
                     transcript.append(event["data"])
@@ -320,10 +335,12 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 # tool call that caused it
                 for r in receipts.drain():
                     wrote = True
+                    filed = filed or r["kind"] in ("wrote", "queued")
                     transcript.append(_receipt_line(r))
                     yield _sse({"type": "receipt", **r})
             for r in receipts.drain():
                 wrote = True
+                filed = filed or r["kind"] in ("wrote", "queued")
                 transcript.append(_receipt_line(r))
                 yield _sse({"type": "receipt", **r})
 
@@ -340,7 +357,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
             if note:
                 transcript.append(_receipt_line(note))
                 yield _sse({"type": "receipt", **note})
-            elif wrote and capture.PREFIX.match(message):
+            elif filed and capture.PREFIX.match(message):
                 fieldguide.mark(user, "chat_capture")
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
