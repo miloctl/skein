@@ -241,3 +241,31 @@ def test_extra_tools_cannot_be_granted_by_allowlist_name(bench, fresh_db, monkey
 
     agent = team_agent.build_agent("t-sneaky", persona="sneaky")
     assert agent.tool_names == ["save_note"]  # calculator filtered despite the name match
+
+
+def test_overlay_pack_json_replaces_the_stock_pack(bench, tmp_path, monkeypatch):
+    from app import config
+
+    _write(bench, "probe")
+    (bench / "pack.json").write_text('{"defaults": {"temperature": 0.9}}')
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "pack.json").write_text('{"defaults": {"model": "overlay-model"}}')
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    b = personas.behavior("probe")
+    assert b.get("model") == "overlay-model"
+    assert b.get("temperature") is None  # wholesale replacement, never a field merge
+
+
+def test_validator_covers_overlay_files(bench, tmp_path, monkeypatch):
+    from app import config
+
+    _write(bench, "probe")
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "broken.md").write_text(
+        "---\nname: Broken\ndescription: bad\ntemperature: hot\n---\nx"
+    )
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    problems = personas.validate_all()
+    assert any("broken.md (overlay)" in p and "temperature" in p for p in problems)

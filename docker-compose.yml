@@ -13,6 +13,10 @@ services:
       - skein-data:/data
       # Off-box backup mirror: uncomment (with your mount) to enable in docker.
       # - /mnt/nas-backups/skein:/backup-mirror
+      # Deployment overlays: mount your own playbooks/personas, then set the
+      # matching env vars below.
+      # - ./deploy/playbooks:/overlay/playbooks:ro
+      # - ./deploy/personas:/overlay/personas:ro
     env_file:
       - path: ./backend/.env
         required: false
@@ -26,6 +30,9 @@ services:
       SKEIN_OLLAMA_HOST: ${SKEIN_OLLAMA_HOST:-http://host.docker.internal:11434}
       # Mirror target inside the container; pairs with the volume above.
       # SKEIN_BACKUP_MIRROR: /backup-mirror
+      # Overlay dirs inside the container; pair with the volumes above.
+      # SKEIN_PLAYBOOKS_DIR: /overlay/playbooks
+      # SKEIN_PERSONAS_DIR: /overlay/personas
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

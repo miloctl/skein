@@ -6,6 +6,8 @@ os.environ["SKEIN_SCHEDULER"] = "0"
 os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
 os.environ["SKEIN_AGENT_REVIEW"] = "0"
 os.environ["SKEIN_EMBEDDINGS"] = "0"
+os.environ.pop("SKEIN_PLAYBOOKS_DIR", None)
+os.environ.pop("SKEIN_PERSONAS_DIR", None)
 
 import pytest
 

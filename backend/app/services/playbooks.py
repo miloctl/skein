@@ -9,20 +9,35 @@ from typing import Any
 
 import yaml
 
-from .. import db
+from .. import config, db
 from . import collab, engagements, schedule, work
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent.parent.parent / "playbooks"
 
 
+def _playbook_files() -> dict[str, Path]:
+    """slug -> path across the stock dir and the SKEIN_PLAYBOOKS_DIR overlay.
+    The overlay wins a slug collision, so a deployment can tailor a stock
+    playbook without editing the repo."""
+    files: dict[str, Path] = {}
+    dirs = [PLAYBOOKS_DIR]
+    overlay = config.PLAYBOOKS_OVERLAY
+    if overlay and overlay.is_dir():
+        dirs.append(overlay)
+    for d in dirs:
+        for path in sorted(d.glob("*.yaml")):
+            files[path.stem] = path
+    return files
+
+
 def list_playbooks() -> list[dict]:
     out = []
-    for path in sorted(PLAYBOOKS_DIR.glob("*.yaml")):
+    for slug, path in sorted(_playbook_files().items()):
         data = yaml.safe_load(path.read_text())
         out.append(
             {
-                "slug": path.stem,
-                "name": data.get("name", path.stem),
+                "slug": slug,
+                "name": data.get("name", slug),
                 "description": data.get("description", ""),
                 "milestones": len(data.get("milestones", [])),
             }
@@ -36,8 +51,8 @@ _SLUG = re.compile(r"^[a-z0-9_-]+$")
 def get_playbook(slug: str) -> dict:
     if not _SLUG.match(slug):  # path traversal guard — slug becomes a filename
         raise ValueError(f"invalid playbook slug '{slug}'")
-    path = PLAYBOOKS_DIR / f"{slug}.yaml"
-    if not path.exists():
+    path = _playbook_files().get(slug)
+    if path is None or not path.exists():
         raise ValueError(
             f"no playbook '{slug}'; available: {[p['slug'] for p in list_playbooks()]}"
         )

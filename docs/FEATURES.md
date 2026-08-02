@@ -57,7 +57,7 @@ key (StrongUser).
 | Feature | How | Surface |
 |---|---|---|
 | Engagements | the strike-team unit of work; classes (prototype/incident/migration/…); `kind: delivery\|experiment` — experiments carry a timebox + kill criteria, skip the slip forecast, and auto-draft a lesson at close; closing ANY engagement requires an honest conclusion (achieved/partial/missed/invalidated/unmeasured/stopped) — invalidated-on-time is a success, not a slip | `/api/engagements` · dashboard (close… button) · intake "accept as experiment" |
-| Playbooks | YAML templates → engagement + milestones + tasks + rituals, lessons from the same class surfaced at kickoff | `backend/playbooks/*.yaml` · `POST /api/playbooks/instantiate` · chat `/plan` |
+| Playbooks | YAML templates → engagement + milestones + tasks + rituals, lessons from the same class surfaced at kickoff. `SKEIN_PLAYBOOKS_DIR` overlays a deployment's own playbooks alongside the stock ones — an overlay file with the same slug wins, so a deployment tailors `incident.yaml` without a fork | `backend/playbooks/*.yaml` · `POST /api/playbooks/instantiate` · chat `/plan` |
 | Intake triage | submit → RICE-lite score (`reach*impact*confidence/effort`) → accept/defer/decline with a reason; accept creates the engagement; dispositions are terminal | `/intake` page · `/api/intake…` |
 | **What-if staffing** | project capacity if a request is accepted ("puts Dana at 130%") | `POST /api/intake/{id}/what-if` · tool `what_if_staffing` |
 | Allocations & capacity | percent per person; >100% flagged | `POST /api/engagements/{id}/allocate` · `GET /api/capacity` |
@@ -175,6 +175,7 @@ See `backend/.env.example`. Highlights: `SKEIN_MODEL_PROVIDER`
 `SKEIN_SCHEDULER`, `SKEIN_EMBEDDINGS`, `SKEIN_API_TOKEN`,
 `SLACK_WEBHOOK_URL`, `SLACK_SIGNING_SECRET`, `SKEIN_MCP_SERVERS`,
 `SKEIN_OTEL_ENDPOINT`, `SKEIN_BACKUP_DIR`, `SKEIN_MCP_USER`,
+`SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`,
 `SKEIN_TURN_GUARD`, `SKEIN_CONTEXT_STRATEGY` (+ `_WINDOW`,
 `_SUMMARY_RATIO`, `_PRESERVE_RECENT`, `_PIN_FIRST`, `_PROACTIVE`),
 `SKEIN_MODEL_PRICES`, `SKEIN_MONTHLY_BUDGET_USD`.
