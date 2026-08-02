@@ -22,9 +22,17 @@ export default function CharterPage() {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
-  const [reviewBy, setReviewBy] = useState(
-    () => new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10),
-  );
+  // computed in an effect, not a lazy initializer: a prerendered page bakes
+  // the BUILD day's date into the served HTML, which is both wrong for the
+  // reader and a hydration mismatch against the client's recomputed value
+  const [reviewBy, setReviewBy] = useState("");
+  useEffect(() => {
+    // one-shot client init, not a cascading render: a lazy initializer would
+    // bake the BUILD day's date into the prerendered HTML — wrong for the
+    // reader, and a hydration mismatch against the client's recomputed value
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReviewBy(new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10));
+  }, []);
   const [superseding, setSuperseding] = useState<number | null>(null);
   // dismissing the editor hands focus back to its trigger (review closeAsk idiom)
   const closeSupersede = (id: number) => {
