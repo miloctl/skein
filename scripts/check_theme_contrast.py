@@ -7,7 +7,7 @@ shipped that way and fell outside the surface bounds unnoticed, and no colorway
 older than 2026-08-01 was ever held to the 5.5:1 thread rule. This reads the
 packs out of globals.css, so a new pack is covered on the day it ships.
 
-Two hard invariants and one advisory note:
+Three hard invariants and one advisory note:
 
 (a) Text and status tokens hold >= 4.5:1 on every surface combination that the
     Loom baseline itself passes. Combinations Loom already fails are excluded,
@@ -18,12 +18,20 @@ Two hard invariants and one advisory note:
     figure for --thread across every named theme, so this checks that claim
     where it is made rather than inferring it.
 
+(c) The custom colorway holds WCAG AA (4.5:1) at every hue. theme.ts pins
+    lightness and chroma and exposes only the hue dial (thread
+    oklch(0.44 0.13 h) light / oklch(0.8 0.09 h) dark, weld
+    oklch(0.47 0.09 h) light / oklch(0.78 0.09 h) dark). This sweeps all 360
+    integer hues of both formulas against every pack surface in both modes.
+    The formulas here MUST match theme.ts customCss and the layout.tsx
+    bootstrap inline script - update all three together.
+
 (note) Surface brightness. The originals made this a hard gate: a light surface
     must not be dimmer than Loom's dimmest, and a dark surface not lighter than
     Loom's brightest. That rule is a proxy. It lets an accent verified once
-    against Loom be assumed safe on every other pack. Invariant (b) now checks
-    every pack directly, so a pack outside the bounds is reported and does not
-    fail the run. A real contrast gap fails on (a) or (b) instead.
+    against Loom be assumed safe on every other pack. Invariants (b) and (c)
+    now check every pack directly, so a pack outside the bounds is reported and
+    does not fail the run. A real contrast gap fails on (a), (b) or (c) instead.
 
 Exit status is 0 when every pack passes and 1 when one fails.
 """
@@ -42,6 +50,14 @@ STATUSES = ("ok", "warn", "danger")
 THREAD_MIN = 5.5
 WELD_MIN = 4.5
 TEXT_MIN = 4.5
+CUSTOM_MIN = 4.5
+
+# Mirror of theme.ts customCss (and the layout.tsx bootstrap script):
+# token -> (light (L, C), dark (L, C)); the hue is the swept variable.
+CUSTOM_FORMULAS = {
+    "thread": ((0.44, 0.13), (0.8, 0.09)),
+    "weld": ((0.47, 0.09), (0.78, 0.09)),
+}
 
 _BLOCK = re.compile(r"([^{}]*)\{([^{}]*)\}", re.S)
 _LIGHT_DARK = re.compile(
@@ -62,12 +78,38 @@ def _contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+def _oklch_luminance(lightness: float, chroma: float, hue_deg: float) -> float:
+    """WCAG relative luminance of an oklch color (Bjorn Ottosson's OKLab
+    matrices, sRGB clipped to gamut the way browsers render these values)."""
+    import math
+
+    h = math.radians(hue_deg)
+    a, b = chroma * math.cos(h), chroma * math.sin(h)
+    l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
+    m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
+    s_ = lightness - 0.0894841775 * a - 1.2914855480 * b
+    lc, mc, sc = l_**3, m_**3, s_**3
+    linear = (
+        +4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc,
+        -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc,
+        -0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc,
+    )
+    r, g, bl = (min(1.0, max(0.0, c)) for c in linear)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl
+
+
+def _ratio(lum_a: float, lum_b: float) -> float:
+    hi, lo = max(lum_a, lum_b), min(lum_a, lum_b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def parse(css: str) -> tuple[dict, dict]:
     """Return ({pack: {mode: {token: hex}}}, {colorway: {mode: {token: hex}}}).
 
     A pack inherits every token it does not set from Loom, which is how the
     cascade resolves it in the browser.
     """
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     packs: dict[str, dict[str, dict[str, str]]] = {}
     ways: dict[str, dict[str, dict[str, str]]] = {}
     for selector, body in _BLOCK.findall(css):
@@ -147,8 +189,31 @@ def check(packs: dict, ways: dict) -> tuple[list[str], list[str]]:
                                 f"{ratio:.2f}:1 is below {need}:1"
                             )
 
+    # (c) the custom colorway: sweep all 360 integer hues of both accent
+    # formulas against every pack surface in both modes. Report the floor so
+    # the numbers documented in theme.ts and docs/brand stay auditable.
+    floor_ratio, floor_at = 999.0, ""
+    for token, (light_lc, dark_lc) in CUSTOM_FORMULAS.items():
+        for mode, (lightness, chroma) in (("light", light_lc), ("dark", dark_lc)):
+            for hue in range(360):
+                accent_lum = _oklch_luminance(lightness, chroma, hue)
+                for pname in sorted(packs):
+                    for surface in SURFACES:
+                        surf_lum = _luminance(packs[pname][mode][surface])
+                        ratio = _ratio(accent_lum, surf_lum)
+                        if ratio < floor_ratio:
+                            floor_ratio = ratio
+                            floor_at = f"--{token} {mode} hue {hue} on {pname} --{surface}"
+                        if ratio < CUSTOM_MIN:
+                            failures.append(
+                                f"custom --{token} {mode} hue {hue} on pack {pname} "
+                                f"--{surface} {packs[pname][mode][surface]}: "
+                                f"{ratio:.2f}:1 is below {CUSTOM_MIN}:1"
+                            )
+    notes.append(f"custom-hue sweep floor: {floor_ratio:.2f}:1 at {floor_at}")
+
     # (note) surfaces outside the Loom bounds: accent safety is no longer
-    # inherited there, so (b) above is what proves it.
+    # inherited there, so (b) and (c) above are what prove it.
     floor = _luminance(base["light"]["surface-raised"])
     ceiling = _luminance(base["dark"]["surface-raised"])
     for name in sorted(packs):

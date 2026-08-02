@@ -38,9 +38,11 @@ export const APPEARANCES = [
 ] as const;
 
 // Custom colorway: the user dyes the two accent threads by hue; lightness
-// and chroma are fixed at values sweep-verified to pass WCAG AA against
-// every surface at EVERY hue (scratchpad hue_sweep.py, worst case 5.27:1),
-// so no dial position can make the UI unreadable.
+// and chroma are fixed at values that pass WCAG AA against every pack
+// surface at EVERY hue, so no dial position can make the UI unreadable.
+// scripts/check_theme_contrast.py sweeps all 360 hues of both formulas on
+// every lint run and prints the floor (5.56:1 today). Changing these L/C
+// values means changing the mirrored formulas there and in layout.tsx.
 export const CUSTOM_DEFAULT = { thread: 264, weld: 65 };
 
 function customCss(threadHue: number, weldHue: number) {
