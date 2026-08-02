@@ -2,8 +2,11 @@
 name = "skein"
 version = "0.1.0"
 description = "Skein — team coordination platform for humans + AI agents, built on the Strands Agents SDK"
+# LICENSE/NOTICE are copies of the repo-root originals: PEP 639 forbids
+# parent-directory paths in license-files, and setuptools silently drops
+# them from the built wheel. lint.sh asserts the copies match.
 license = "Apache-2.0"
-license-files = ["../LICENSE", "../NOTICE"]
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.10"
 dependencies = [
     "strands-agents[anthropic,openai,ollama]>=1.0",
@@ -23,7 +26,7 @@ dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.8", "mypy>=1.13", "types-PyYAML", "v
 packages = { find = { include = ["app*"] } }
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.vulture]

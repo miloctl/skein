@@ -2,16 +2,11 @@
 
 from .. import db
 
-_bench_slugs: set[str] | None = None
-
 
 def _is_bench_slug(name: str) -> bool:
-    global _bench_slugs
-    if _bench_slugs is None:
-        from . import personas
+    from . import personas
 
-        _bench_slugs = {p["slug"] for p in personas.list_personas()}
-    return name in _bench_slugs
+    return name in personas.bench_slugs()
 
 
 def ensure_user(name: str, kind: str = "human") -> dict:

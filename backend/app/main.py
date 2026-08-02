@@ -147,6 +147,7 @@ def health():
         "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "embeddings_error": config.EMBEDDINGS_ERROR,
+        "overlay_errors": config.overlay_errors(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,
         # and two surfaces disagreeing about one fact is the bug this avoids
         "context_strategy": effective_context_strategy(),

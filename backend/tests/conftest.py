@@ -6,8 +6,11 @@ os.environ["SKEIN_SCHEDULER"] = "0"
 os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
 os.environ["SKEIN_AGENT_REVIEW"] = "0"
 os.environ["SKEIN_EMBEDDINGS"] = "0"
-os.environ.pop("SKEIN_PLAYBOOKS_DIR", None)
-os.environ.pop("SKEIN_PERSONAS_DIR", None)
+# "" and not pop: config's load_dotenv() re-fills an ABSENT var from
+# backend/.env, so popping is exactly what would let a dev box's overlay
+# leak into the suite. Empty survives load_dotenv and means "no overlay".
+os.environ["SKEIN_PLAYBOOKS_DIR"] = ""
+os.environ["SKEIN_PERSONAS_DIR"] = ""
 
 import pytest
 
