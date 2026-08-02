@@ -226,7 +226,9 @@ def verify_tail() -> dict:
 
 
 ANCHOR_LOG = "activity-anchors.log"
-_ANCHOR_LINE = re.compile(r"^\S+ seq=(\d+) hash=([0-9a-f]{64})$")
+# `unchained=` is optional: lines written before it existed still parse, and
+# an old reader still parses new lines up to the hash.
+_ANCHOR_LINE = re.compile(r"^\S+ seq=(\d+) hash=([0-9a-f]{64})(?: unchained=(\d+))?$")
 
 
 def _anchor_log_paths() -> list:
@@ -278,7 +280,14 @@ def record_anchor() -> dict:
     seq, digest = _anchor()
     if not seq or not digest:
         return {"anchored": 0, "files": []}
-    line = f"{db.now()} seq={seq} hash={digest}\n"
+    # The unchained BASELINE rides along. The in-DB baseline self-heals: it is
+    # re-derived whenever the app_settings key is absent, so deleting one row
+    # re-baselines to whatever is present now and launders any row smuggled in
+    # outside the chain. Anchoring it makes that a dated, mirrored
+    # contradiction instead of a silent reset — the same property the anchor
+    # log already gives the chain itself.
+    baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
+    line = f"{db.now()} seq={seq} hash={digest} unchained={baseline}\n"
     written = []
     current = []
     for path in _anchor_log_paths():
@@ -342,6 +351,7 @@ def check_anchor_log() -> dict:
     """
     out: dict = {"ok": True, "checked": 0, "seq": None, "reason": ""}
     recorded: dict[int, str] = {}
+    anchored_baseline: int | None = None
     for path in _anchor_log_paths():
         if not path.exists():
             continue
@@ -358,7 +368,29 @@ def check_anchor_log() -> dict:
                 )
                 return out
             recorded[seq] = digest
+            if m.group(3) is not None:
+                anchored_baseline = max(anchored_baseline or 0, int(m.group(3)))
     out["checked"] = len(recorded)
+    # The in-DB baseline is re-derived whenever its app_settings row is
+    # absent, so deleting that one row re-baselines to whatever is present
+    # now — laundering any row smuggled in outside the chain, and leaving no
+    # trace the in-DB marks can see. A baseline ABOVE the highest ever
+    # anchored is that reset, or a legitimate fallback append. The two are
+    # genuinely indistinguishable from here (TODO.md records why no
+    # re-baseline operation exists to tell them apart), so this reports the
+    # fact and its date rather than pretending to a verdict.
+    current_baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
+    if anchored_baseline is not None and current_baseline > anchored_baseline:
+        out.update(
+            ok=False,
+            reason=(
+                f"the unchained baseline is {current_baseline} but no anchored night"
+                f" recorded more than {anchored_baseline}. Either a row was written"
+                " outside the chain, or the baseline was reset. Compare"
+                " backups/activity-anchors.log against the off-box mirror."
+            ),
+        )
+        return out
     for seq in sorted(recorded):
         row = db.query_one(
             "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"

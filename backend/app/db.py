@@ -300,7 +300,16 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
         log.warning("activity chain append failed (%s: %s) — recording unchained", action, exc)
     finally:
         conn.close()
-    execute(
-        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (actor, action, detail, created_at),
-    )
+    # The fallback opens a NEW connection with the same busy timeout, so a
+    # lock held past it raises here too — straight into a caller that had
+    # already committed its business write, losing the ledger row AND
+    # 500ing a write that actually happened. The docstring promised this
+    # path never raises; now it does not. A lost row still shows up: the
+    # unchained count and the chain marks are what report it.
+    try:
+        execute(
+            "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+            (actor, action, detail, created_at),
+        )
+    except sqlite3.DatabaseError as exc:
+        log.error("activity row LOST (%s: %s) — the write it describes did commit", action, exc)
