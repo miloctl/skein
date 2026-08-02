@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (18 rule IDs across 17 entries)
+## The findings rules (19 rule IDs across 18 entries)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -77,7 +77,9 @@ within a week even on severity change.
 
     A consequence worth knowing before writing a migration: **no migration may UPDATE or DELETE `activity` rows that carry a seq.** Migration 020 (`pulse_anonymize`) rewrote `activity.actor` in bulk; the same migration written today would break the chain permanently at its earliest touched row, with no re-baseline path other than dispositioning the finding into silence.
 
-(18. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
+18. **Budget** — off until `SKEIN_MONTHLY_BUDGET_USD` is set. High when month-to-date estimated spend (from `SKEIN_MODEL_PRICES`, computed at write time) crosses the ceiling, with the top engagements in the receipt via the thread→engagement link. Medium "budget cannot be measured" when the budget is set but no call this month has a priced model — silence there would read as under budget while nothing was being counted. Unpriced calls are named in the message, never folded into the sum. Subject = `month:<YYYY-MM>` (or `unmeasured:<YYYY-MM>`).
+
+(19. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as

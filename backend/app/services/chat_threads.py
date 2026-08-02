@@ -148,9 +148,30 @@ def _snap_folder(owner: str, wanted: str) -> str:
 
 
 def update_thread(
-    thread_id: str, owner: str, *, title: str = "", folder: str | None = None
+    thread_id: str,
+    owner: str,
+    *,
+    title: str = "",
+    folder: str | None = None,
+    engagement_id: int | None = None,
 ) -> dict:
     _own(thread_id, owner)
+    if engagement_id is not None:
+        # 0 clears; anything else must be a real engagement, because the link
+        # feeds cost attribution and a dangling id would silently bucket the
+        # thread's spend under an engagement that never existed
+        if engagement_id == 0:
+            db.execute(
+                "UPDATE chat_threads SET engagement_id = NULL, updated_at = ? WHERE id = ?",
+                (db.now(), thread_id),
+            )
+        else:
+            if not db.query_one("SELECT 1 FROM engagements WHERE id = ?", (engagement_id,)):
+                raise db.NotFound(f"engagement #{engagement_id} not found")
+            db.execute(
+                "UPDATE chat_threads SET engagement_id = ?, updated_at = ? WHERE id = ?",
+                (engagement_id, db.now(), thread_id),
+            )
     if title:
         db.execute(
             "UPDATE chat_threads SET title = ?, updated_at = ? WHERE id = ?",

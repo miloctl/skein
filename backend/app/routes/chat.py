@@ -12,7 +12,7 @@ from collections import Counter
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, ratelimit
 from ..agents import commands, receipts, session_log, turn_guard
@@ -51,8 +51,11 @@ def chat_commands() -> list[dict]:
 
 
 class ChatPatch(BaseModel):
+    # extra=forbid: a mistyped field name must 422, not silently no-op
+    model_config = ConfigDict(extra="forbid")
     title: str = ""
     folder: str | None = None
+    engagement_id: int | None = None  # 0 clears the link
 
 
 @router.get("/api/chats")
@@ -86,7 +89,9 @@ def get_chat_messages(thread_id: str, user: CurrentUser):
 
 @router.patch("/api/chats/{thread_id}")
 def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
-    return chat_threads.update_thread(thread_id, user, title=body.title, folder=body.folder)
+    return chat_threads.update_thread(
+        thread_id, user, title=body.title, folder=body.folder, engagement_id=body.engagement_id
+    )
 
 
 @router.delete("/api/chats/{thread_id}")
@@ -354,7 +359,10 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 reset_requester_identity(req_token)
             except ValueError:
                 pass
-            _log_usage(agent, thread_id, agent_name=persona or "chief-of-staff")
+            # ui_thread, not the session id: persona sessions append --<slug>,
+            # which would break the join that lands spend on an engagement.
+            # agent_name already records which head spent it.
+            _log_usage(agent, ui_thread, agent_name=persona or "chief-of-staff")
             _log_turn(ui_thread, user, "assistant", "".join(transcript))
         yield _sse({"type": "done"})
 

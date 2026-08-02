@@ -139,7 +139,7 @@ knots:
 
   - id: chat_capture
     feature: File it from chat
-    knot: Bowline
+    knot: Highwayman's Hitch
     set: loops
     pitch: The ⌘K grammar works in chat too — and a turn that files nothing says so.
     how: "In Chat, start a message with `todo:`, `q:`, `decision:`, or `promised:`. If nothing gets filed, the reply says that outright."
@@ -192,6 +192,15 @@ knots:
     how: Write the blocker line in your standup instead of a separate report — one entry, two systems.
     link: /
     since: 2026-07-31
+
+  - id: chat_engagement
+    feature: Bill a chat to its engagement
+    knot: Carrick Bend
+    set: bends
+    pitch: Model spend in a linked chat counts toward that engagement's costs.
+    how: "In the chat sidebar, open a thread's menu and pick Link to engagement. The costs land on /api/usage per engagement."
+    link: /chat
+    since: 2026-08-02
 
   - id: finding_converted
     feature: Finding → work

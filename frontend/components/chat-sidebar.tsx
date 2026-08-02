@@ -15,15 +15,18 @@ export type ChatThread = {
   id: string;
   title: string;
   folder: string;
+  engagement_id: number | null;
   updated_at: string;
 };
+
+type EngagementRow = { id: number; name: string; status: string };
 
 type StoredMessage = { role: "user" | "assistant"; content: string };
 
 // one open panel at a time — dual menus are impossible by construction
 type Menu =
   | { kind: "sidebar" }
-  | { kind: "thread" | "move" | "rename"; id: string }
+  | { kind: "thread" | "move" | "rename" | "link"; id: string }
   | null;
 
 /** Floating disclosure panel: focuses its first control, closes on Escape.
@@ -105,6 +108,7 @@ export function ChatSidebar({
 }) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
+  const [engagements, setEngagements] = useState<EngagementRow[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [menu, setMenu] = useState<Menu>(null);
@@ -124,6 +128,9 @@ export function ChatSidebar({
       })
       .catch(() => setLoadError(true));
     api<string[]>("/api/chats/folders").then(setFolders).catch(() => {});
+    api<EngagementRow[]>("/api/engagements")
+      .then((rows) => setEngagements(rows.filter((e) => e.status !== "closed")))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -178,6 +185,15 @@ export function ChatSidebar({
     await api("/api/chats/folders", {
       method: "POST",
       body: JSON.stringify({ name: name.trim() }),
+    }).catch((e) => alert(String(e)));
+    load();
+  };
+
+  const setEngagement = async (id: string, engagementId: number) => {
+    closeMenu(id);
+    await api(`/api/chats/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ engagement_id: engagementId }),
     }).catch((e) => alert(String(e)));
     load();
   };
@@ -574,6 +590,15 @@ export function ChatSidebar({
                         onClick={() => setMenu({ kind: "move", id: t.id })}
                       />
                       <MenuItem
+                        icon="🧵"
+                        label={
+                          t.engagement_id
+                            ? "Change engagement…"
+                            : "Link to engagement…"
+                        }
+                        onClick={() => setMenu({ kind: "link", id: t.id })}
+                      />
+                      <MenuItem
                         icon={copied === t.id ? "✓" : "📋"}
                         label={copied === t.id ? "Copied" : "Copy as Markdown"}
                         onClick={() => copyTranscript(t)}
@@ -624,6 +649,41 @@ export function ChatSidebar({
                         }}
                         className="w-full rounded border border-thread-solid bg-transparent px-2 py-1 text-xs outline-none"
                       />
+                    </MenuPanel>
+                  )}
+                  {menu?.kind === "link" && menu.id === t.id && !selectMode && (
+                    <MenuPanel
+                      label={`Link ${t.title} to an engagement`}
+                      onClose={() => closeMenu(t.id)}
+                    >
+                      <p className="mb-1 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                        Model spend in this chat counts toward
+                      </p>
+                      {t.engagement_id != null && (
+                        <button
+                          onClick={() => setEngagement(t.id, 0)}
+                          className="block w-full rounded px-2 py-1 text-left text-xs text-ink-2 hover:bg-raised"
+                        >
+                          ⊘ No engagement
+                        </button>
+                      )}
+                      {engagements
+                        .filter((e) => e.id !== t.engagement_id)
+                        .map((e) => (
+                          <button
+                            key={e.id}
+                            onClick={() => setEngagement(t.id, e.id)}
+                            className="block w-full truncate rounded px-2 py-1 text-left text-xs text-ink-2 hover:bg-raised"
+                          >
+                            🧵 {e.name}
+                          </button>
+                        ))}
+                      {engagements.length === 0 && (
+                        <p className="px-1 py-1 text-xs text-ink-3">
+                          No open engagements. Create one on Work → Browse
+                          first.
+                        </p>
+                      )}
                     </MenuPanel>
                   )}
                   {menu?.kind === "move" && menu.id === t.id && !selectMode && (
