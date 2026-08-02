@@ -46,7 +46,10 @@ ARGS: dict[str, dict] = {
     # non-empty payloads, or the empty-update bounce fires BEFORE the gate and
     # a bypass inside these tools passes the harness without ever writing
     "edit_note": {"note_id": 1, "content": "coverage probe edit"},
-    "edit_blocker": {"blocker_id": 1, "title": "coverage probe edit"},
+    # blocker 2, not 1: resolve_blocker runs EARLIER in registry order and
+    # resolves blocker 1, and editing a resolved blocker refuses before the
+    # gate — the same ordering disturbance the trio's dedicated task avoids
+    "edit_blocker": {"blocker_id": 2, "title": "coverage probe edit"},
     "edit_intake_request": {"request_id": 1, "title": "coverage probe edit"},
     "edit_commitment": {"commitment_id": 1, "promise": "coverage probe edit"},
     # the delegation trio uses its own task so no earlier tool can disturb it
@@ -124,6 +127,7 @@ def _seed(fresh_db):
     collab.save_note("probe", "probe note", author="tester")
     schedule.schedule_event("probe event", "2026-08-20T10:00:00", actor="tester")
     blockers.raise_blocker("probe blocker", actor="tester")
+    blockers.raise_blocker("probe blocker for editing", actor="tester")  # id 2
     commitments.add_commitment("probe commitment", actor="tester")
     memory.remember("probe memory", "probe", actor="tester")
     intake.submit_request("probe request", requester="tester", actor="tester")
@@ -203,9 +207,21 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     # the harness itself must be alive: if instrumentation or arg generation
     # quietly broke, zero covered writers would report a hollow green
     assert len(covered) >= 20, f"only {len(covered)} tools produced an observed write: {covered}"
-    # the ungated writers must be IN the observed set — a future ARGS change
-    # that degrades them to error paths must not pass as merely uncovered
-    for name in ("claim_delegated_task", "report_progress", "submit_for_acceptance"):
+    # tools that MUST be in the observed set — a future ARGS or ordering
+    # change that degrades any of them to an error path must not pass as
+    # merely uncovered; that silent degradation is how the edit_blocker
+    # bypass survived a round
+    must_write = (
+        "claim_delegated_task",
+        "report_progress",
+        "submit_for_acceptance",
+        "edit_note",
+        "edit_blocker",
+        "edit_intake_request",
+        "edit_commitment",
+        "remember",
+    )
+    for name in must_write:
         assert name in covered, f"{name} never reached its write path"
 
 
