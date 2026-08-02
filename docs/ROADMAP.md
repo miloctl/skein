@@ -352,3 +352,34 @@ Still open:
 9. Runner isolation: move CI to an ephemeral sandboxed host before ever
    re-adding a pull_request trigger; consider rootless docker for the runner.
    (Ops work on the runner host, not a repo change.)
+
+# Residuals from the buzz adoption (2026-08-02)
+
+All seven planned items from the block/buzz design-study shipped (tamper-
+evident ledger + off-box anchor, turn guard, activity feed, gate coverage
+assertion, persona manifest, turn cost + budget rule, doc honesty patterns —
+see docs/FEATURES.md for each). What remains, deliberately unbuilt:
+
+1. **Post-compaction context re-injection — open.** Two earlier rationales
+   for dropping it were both wrong (there IS a hook seam:
+   `ConversationManager.reduce_context()`; and `pin_first` does NOT survive a
+   turn boundary on file-backed sessions — session restore replays from
+   `offset=removed_message_count`, which skips exactly the pinned messages).
+   Nothing currently keeps the top of a long chat alive across turns. If
+   built: subclass the conversation manager, re-inject the scoped
+   per-engagement context pack (the thread→engagement link now exists), once
+   per session with a token ceiling to avoid a trim/re-inject loop.
+2. **Honest tombstones for deleted tasks/chats** — a removed item leaves a
+   marker with a sanitized reason, never a silent hole. Skein does this for
+   private 1:1 notes and decision supersession only.
+3. **Presence as a lease, not a flag** — the agent status strip reads
+   `last_seen`, which decays into a lie rather than expiring. A renewal
+   lease bounds staleness to a known window. Cheap, low value.
+4. **Per-rule `enabled` flag for findings** — silence a noisy rule by config
+   rather than a deploy.
+5. **A UI surface for `/api/usage`** — the budget finding points people at a
+   raw JSON endpoint; engagement costs belong next to engagement health on
+   /portfolio.
+6. **If HMAC is ever added to the activity chain** — changing the preimage
+   invalidates every existing chain AND contradicts the append-only anchor
+   log. Plan it as a logged genesis reset, never a migration.
