@@ -32,7 +32,11 @@ def create_engagement(
     if kind == "experiment" and not timebox_end:
         raise ValueError("experiments need a timebox_end date (YYYY-MM-DD)")
     db.validate_date("timebox_end", timebox_end, allow_clear=False)
-    if db.query_one("SELECT id FROM engagements WHERE name = ?", (name,)):
+    # NOCASE, and across ALL statuses including closed: the chat panel snaps
+    # case-insensitively against the OPEN list, so a case-variant of a closed
+    # engagement's name would otherwise slip past both checks and fork usage
+    # rollups across two near-identical engagements
+    if db.query_one("SELECT id FROM engagements WHERE name = ? COLLATE NOCASE", (name,)):
         raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
     eid = db.execute(
