@@ -3,8 +3,8 @@
 > **Status (2026-08-02): CLOSED — TD1/TD2/TD6 and TP5/TP6/TP3 shipped. The
 > open items (TD3-TD5, TD7-TD10, the Vellum pack concept, TP1) moved to
 > `docs/ROADMAP.md` under "Open backlog". This file stays because
-> `globals.css`, `theme.ts` and `whimsy.ts` cite these IDs in source comments,
-> so it is the definition site for TD1, TD2, TD6, TP3, TP5 and TP6.**
+> `globals.css`, `theme.ts` and `whimsy.ts` cite these IDs in source comments.
+> It is the definition site for TD1, TD2, TD6, TP3, TP5 and TP6.**
 >
 > The `pack-contrast-check` scripts this review referenced are gone. They were
 > replaced on 2026-08-02 by `scripts/check_theme_contrast.py`, which reads the
