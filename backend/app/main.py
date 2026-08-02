@@ -3,6 +3,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -130,6 +131,28 @@ async def value_error_handler(request: Request, exc: ValueError):
 async def overflow_error_handler(request: Request, exc: OverflowError):
     # absurd ints (ids > 2^63, weeks=1e18) must be a 400, never a 500
     return JSONResponse(status_code=400, content={"detail": "value out of range"})
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """Same rule as the handlers above: malformed input is the caller's error,
+    so it must be a 422, never a 500.
+
+    FastAPI's default handler renders the rejected value back into the body
+    with jsonable_encoder. That recurses on a deeply nested body (2000 nested
+    arrays hit RecursionError and returned a plain-text 500 to an unauthorized
+    caller), and it echoed a 50 MB string back verbatim, turning every write
+    endpoint into a 1:1 bandwidth amplifier. The value the caller already sent
+    is worth nothing back to them, so this drops it and keeps the part that
+    helps: where the error is and what was wrong.
+    """
+    errors = []
+    for err in exc.errors()[:20]:
+        loc = ".".join(str(p) for p in err.get("loc", ()))
+        errors.append({"loc": loc, "msg": str(err.get("msg", ""))[:300], "type": err.get("type")})
+    first = errors[0] if errors else {}
+    detail = f"{first.get('loc', 'request body')}: {first.get('msg', 'is not valid')}"
+    return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
 app.include_router(api.router)

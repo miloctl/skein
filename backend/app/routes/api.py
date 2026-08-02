@@ -858,11 +858,12 @@ def post_milestone(body: MilestoneIn, user: CurrentUser):
 
 
 class MilestonePatch(BaseModel):
-    status: str = ""
-    title: str = ""
-    description: str = ""
-    owner: str = ""
-    due_date: str = ""
+    # caps match MilestoneIn — see the note on TaskPatch
+    status: str = Field("", max_length=20)
+    title: str = Field("", max_length=200)
+    description: str = Field("", max_length=4000)
+    owner: str = Field("", max_length=64)
+    due_date: str = Field("", max_length=10)
     engagement_id: int = 0  # relink (-1 unlinks)
 
 
@@ -888,14 +889,17 @@ def post_task(body: TaskIn, user: CurrentUser):
 
 
 class TaskPatch(BaseModel):
-    status: str = ""
-    assignee: str = ""
-    priority: str = ""
-    due_date: str = ""
-    description: str = ""
-    title: str = ""
-    committed_week: str = ""
-    waiting_on: str = ""  # "blocker:12" | "task:3" | "commitment:7" | "-"
+    # every cap here MUST match TaskIn above: a create-time bound that a PATCH
+    # can step around is not a bound, and the oversized value lands in the
+    # list API, the search index and the team-visible ledger just the same
+    status: str = Field("", max_length=20)
+    assignee: str = Field("", max_length=64)
+    priority: str = Field("", max_length=10)
+    due_date: str = Field("", max_length=10)
+    description: str = Field("", max_length=4000)
+    title: str = Field("", max_length=200)
+    committed_week: str = Field("", max_length=10)
+    waiting_on: str = Field("", max_length=32)  # "blocker:12" | "task:3" | "-"
     milestone_id: int = 0  # relink (-1 unlinks)
     engagement_id: int = 0  # relink (-1 unlinks)
 
@@ -1186,14 +1190,14 @@ def post_engagement(body: EngagementIn, user: CurrentUser):
 
 
 class EngagementPatch(BaseModel):
-    status: str = ""
+    status: str = Field("", max_length=20)
     name: str = Field("", max_length=120)  # rename propagates to milestone labels
-    summary: str = ""
-    lead: str = ""
-    conclusion: str = ""
-    outcome: str = ""
-    timebox_end: str = ""
-    kill_criteria: str = ""
+    summary: str = Field("", max_length=4000)
+    lead: str = Field("", max_length=64)
+    conclusion: str = Field("", max_length=40)
+    outcome: str = Field("", max_length=4000)
+    timebox_end: str = Field("", max_length=10)
+    kill_criteria: str = Field("", max_length=2000)
 
 
 @router.patch("/engagements/{engagement_id}")
@@ -1202,14 +1206,15 @@ def patch_engagement(engagement_id: int, body: EngagementPatch, user: CurrentUse
 
 
 class AllocationIn(BaseModel):
-    person: str
+    person: str = Field(max_length=64)
     percent: int = 100
-    starts_on: str = ""
-    ends_on: str = ""
+    starts_on: str = Field("", max_length=10)
+    ends_on: str = Field("", max_length=10)
 
 
 @router.post("/engagements/{engagement_id}/allocate")
 def post_allocate(engagement_id: int, body: AllocationIn, user: CurrentUser):
+    ratelimit.check("write", user)
     return engagements.allocate(
         body.person, engagement_id, body.percent, body.starts_on, body.ends_on, actor=user
     )
