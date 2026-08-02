@@ -397,3 +397,148 @@ def chain_health() -> dict:
         "unchained_rows": unchained,
         "unchained_baseline": _int_setting(marks, LEGACY_UNCHAINED),
     }
+
+
+# ---- the feed (docs: verb-object-outcome, one sentence per row) --------------
+
+# action -> (past-tense verb phrase, salience). Salience tracks consequence:
+# destructive and security-relevant actions are loud, ordinary writes are
+# normal, system bookkeeping is quiet. An action missing here renders as an
+# honest generic row — never a fabricated sentence — so a new log_activity
+# call degrades instead of breaking, and the registry lives next to the
+# ledger it names.
+VERBS: dict[str, tuple[str, str]] = {
+    "capture": ("captured", "normal"),
+    "save_note": ("saved a note", "normal"),
+    "update_note": ("edited a note", "normal"),
+    "delete_note": ("deleted a note", "loud"),
+    "ask_question": ("asked a question", "normal"),
+    "answer_question": ("answered a question", "normal"),
+    "assign_question": ("assigned a question", "normal"),
+    "record_decision": ("recorded a decision", "normal"),
+    "reconfirm_decision": ("reconfirmed a decision", "normal"),
+    "stale_decision": ("marked a decision stale", "quiet"),
+    "post_standup": ("posted a standup", "normal"),
+    "create_task": ("created a task", "normal"),
+    "update_task": ("updated a task", "normal"),
+    "complete_task": ("completed a task", "normal"),
+    "create_milestone": ("created a milestone", "normal"),
+    "update_milestone": ("updated a milestone", "normal"),
+    "create_engagement": ("created an engagement", "normal"),
+    "update_engagement": ("updated an engagement", "normal"),
+    "raise_blocker": ("raised a blocker", "normal"),
+    "resolve_blocker": ("resolved a blocker", "normal"),
+    "edit_blocker": ("edited a blocker", "normal"),
+    "submit_intake": ("submitted an intake request", "normal"),
+    "score_intake": ("scored an intake request", "normal"),
+    "disposition_intake": ("dispositioned an intake request", "normal"),
+    "edit_intake": ("edited an intake request", "normal"),
+    "accept_without_engagement": ("accepted a request without an engagement", "normal"),
+    "delegate_task": ("delegated a task", "normal"),
+    "claim_task": ("claimed a delegated task", "normal"),
+    "report_progress": ("logged progress on a task", "normal"),
+    "add_absence": ("recorded time away", "normal"),
+    "delete_absence": ("deleted a time-away entry", "loud"),
+    "add_commitment": ("made a commitment", "normal"),
+    "update_commitment": ("settled a commitment", "normal"),
+    "edit_commitment": ("edited a commitment", "normal"),
+    "remember": ("saved a memory", "normal"),
+    "forget": ("deleted a memory", "loud"),
+    "propose_change": ("filed a proposal", "normal"),
+    "approve_change": ("approved a proposal", "normal"),
+    "reject_change": ("rejected a proposal", "loud"),
+    "set_authority": ("changed an agent's authority", "loud"),
+    "create_api_key": ("minted an API key", "loud"),
+    "revoke_api_key": ("revoked an API key", "loud"),
+    "revoke_all_api_keys": ("revoked every API key", "loud"),
+    "revoke_api_keys_for": ("revoked a person's API keys", "loud"),
+    "request_key": ("requested an API key", "normal"),
+    "rename_user": ("renamed a teammate", "loud"),
+    "set_context_strategy": ("changed the long-chat strategy", "loud"),
+    "set_team_theme": ("set the team default theme", "quiet"),
+    "set_growth_interests": ("updated growth interests", "quiet"),
+    "record_lesson": ("recorded a lesson", "normal"),
+    "record_feedback": ("recorded feedback", "quiet"),
+    "ingest_notes": ("ingested meeting notes", "normal"),
+    "instantiate_playbook": ("started an engagement from a playbook", "normal"),
+    "generate_handoff": ("generated a handoff package", "normal"),
+    "exec_readout": ("published an exec readout", "normal"),
+    "schedule_event": ("scheduled an event", "normal"),
+    "cancel_event": ("cancelled an event", "loud"),
+    "allocate": ("allocated a person to an engagement", "normal"),
+    "disposition_finding": ("dispositioned a finding", "normal"),
+    "publish_context_pack": ("published the context pack", "quiet"),
+    "publish_digest": ("published the daily digest", "quiet"),
+    "run_findings": ("ran the findings sweep", "quiet"),
+    "retention_prune": ("pruned old records", "quiet"),
+    "week_open": ("opened the week", "quiet"),
+    "week_close": ("closed the week", "quiet"),
+    "notify_passive": ("filed a passive notification", "quiet"),
+}
+
+
+def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
+    """The activity feed: one sentence per ledger row, newest first.
+
+    SCOPE IS THE POINT, and it is enforced here in the service, not in a
+    route: the feed shows agent and system actors plus the viewer's OWN rows.
+    Another human's rows never appear — person-level data is for planning the
+    future, not for watching colleagues (the anti-surveillance rule). There
+    is deliberately no way to pass a different person.
+
+    Covers chained rows only (seq is the cursor — monotonic and gap-free by
+    construction, where rowid can be resequenced without breaking the chain).
+    Pre-036 rows have no seq and stay reachable through the raw endpoint.
+    """
+    limit = max(1, min(int(limit), 200))
+    humans = [
+        r["name"]
+        for r in db.query("SELECT name FROM users WHERE kind = 'human' AND name != ?", (viewer,))
+    ]
+    agents = {r["name"] for r in db.query("SELECT name FROM users WHERE kind = 'agent'")}
+    where = "seq IS NOT NULL"
+    params: list = []
+    if before:
+        where += " AND seq < ?"
+        params.append(before)
+    if humans:
+        marks = ", ".join("?" for _ in humans)
+        where += f" AND (actor = ? OR actor NOT IN ({marks}))"
+        params.append(viewer)
+        params += humans
+    rows = db.query(
+        f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 — placeholders built above
+        f" WHERE {where} ORDER BY seq DESC LIMIT ?",
+        (*params, limit + 1),
+    )
+    has_more = len(rows) > limit
+    entries = []
+    for row in rows[:limit]:
+        verb = VERBS.get(row["action"])
+        if row["actor"] == viewer:
+            who = "you"
+        elif row["actor"] in agents:
+            who = "agent"
+        else:
+            who = "system"
+        entries.append(
+            {
+                "seq": row["seq"],
+                "actor": row["actor"],
+                "who": who,
+                # honesty over guessing: an unregistered action renders as the
+                # raw action name, clearly generic, never a fabricated verb
+                "sentence": (
+                    f"{row['actor']} {verb[0]}" if verb else f"{row['actor']}: {row['action']}"
+                ),
+                "salience": verb[1] if verb else "normal",
+                "registered": verb is not None,
+                "action": row["action"],
+                "detail": row["detail"] or "",
+                "created_at": row["created_at"],
+            }
+        )
+    return {
+        "entries": entries,
+        "next_before": entries[-1]["seq"] if has_more and entries else None,
+    }

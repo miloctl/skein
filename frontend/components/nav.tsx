@@ -27,7 +27,7 @@ const GROUPS: { href: string; label: string; paths: string[] }[][] = [
     { href: "/review", label: "Inbox", paths: ["/review", "/intake", "/ingest"] },
   ],
   [
-    { href: "/agents", label: "Team", paths: ["/agents", "/people", "/charter"] },
+    { href: "/agents", label: "Team", paths: ["/agents", "/people", "/charter", "/activity"] },
   ],
 ];
 
