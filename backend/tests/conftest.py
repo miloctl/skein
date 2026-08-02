@@ -38,3 +38,32 @@ def client(fresh_db):
 
     with TestClient(app, headers={"X-User": "tester"}) as c:
         yield c
+
+
+def _strong(client=None, name="tester"):
+    from app.services.api_keys import create_key
+
+    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
+
+
+def _unread_for(fresh_db, user, like):
+    return fresh_db.query_one(
+        "SELECT * FROM notifications WHERE user = ? AND message LIKE ? AND read_at IS NULL",
+        (user, like),
+    )
+
+
+def _delegated_task(fresh_db, title="probe"):
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    t = work.create_task(title=title, actor="mira")
+    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
+    return t["id"]
+
+
+def _ago(days: float) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")

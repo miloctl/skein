@@ -1,18 +1,7 @@
 """The authority matrix and trust scores: the gate, half-life, promotion and demotion, and the walls that keep agents out of their own levels."""
 
 import pytest
-
-
-def _strong(client, name="tester"):
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
-
-
-def _strong_headers():
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key('tester', 'test')['key']}"}
+from conftest import _strong
 
 
 def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypatch):
@@ -108,7 +97,7 @@ def test_set_authority_rejects_blank_agent(client, fresh_db):
     assert (
         client.post(
             "/api/agents/authority",
-            headers=_strong_headers(),
+            headers=_strong(),
             json={"agent": "", "entity": "task", "level": "notify"},
         ).status_code
         == 400
@@ -116,7 +105,7 @@ def test_set_authority_rejects_blank_agent(client, fresh_db):
     assert (
         client.post(
             "/api/agents/authority",
-            headers=_strong_headers(),
+            headers=_strong(),
             json={"agent": "   ", "entity": "task", "level": "notify"},
         ).status_code
         == 400
@@ -162,7 +151,7 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     # autonomous → direct write even with review mode on
     client.post(
         "/api/agents/authority",
-        headers=_strong_headers(),
+        headers=_strong(),
         json={"agent": "agent", "entity": "commitment", "level": "autonomous"},
     )
     out = j.loads(add_commitment(promise="p2"))
@@ -171,7 +160,7 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     # forbidden → refused
     client.post(
         "/api/agents/authority",
-        headers=_strong_headers(),
+        headers=_strong(),
         json={"agent": "agent", "entity": "commitment", "level": "forbidden"},
     )
     out = j.loads(add_commitment(promise="p3"))

@@ -1,4 +1,5 @@
-"""Quick capture: prefix precedence over content heuristics, and the grammar each prefix parses."""
+"""Quick capture: prefix precedence over content heuristics, the grammar each
+prefix parses, and the mock agent's capture acknowledgement."""
 
 import pytest
 

@@ -2,9 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-
-def _ago(days: float) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+from conftest import _ago
 
 
 def _mk_blocker(db, title, created_days_ago, resolved_days_ago, escalated=False):

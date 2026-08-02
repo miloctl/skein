@@ -1,22 +1,7 @@
 """The delegation work loop: claim, worklog, submit for acceptance, and the walls that stop an agent closing its own task."""
 
 import pytest
-
-
-def _strong(client, name="tester"):
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
-
-
-def _delegated_task(fresh_db, title="probe"):
-    from app.services import delegation, users, work
-
-    users.ensure_user("mira")
-    users.ensure_user("scout", kind="agent")
-    t = work.create_task(title=title, actor="mira")
-    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
-    return t["id"]
+from conftest import _delegated_task, _strong
 
 
 def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):

@@ -1,5 +1,7 @@
 """REST error shapes: overflow integers, blank required strings, and the clear sentinels."""
 
+import pytest
+
 
 def test_overflow_ints_are_400(client):
     huge = 99999999999999999999999
@@ -78,3 +80,16 @@ def test_api_tester_regressions(client):
     b = client.post("/api/blockers", json={"title": "once-only"}).json()
     client.post(f"/api/blockers/{b['id']}/resolve", json={})
     assert client.post(f"/api/blockers/{b['id']}/resolve", json={}).status_code == 400
+
+
+def test_clear_sentinel_rejected_on_create_paths(fresh_db):
+    from app.services import commitments, engagements, users, work
+
+    with pytest.raises(ValueError, match="only clears"):
+        work.create_task(title="t", due_date="-")
+    with pytest.raises(ValueError, match="only clears"):
+        commitments.add_commitment("p", due_date="-")
+    users.ensure_user("mira")
+    e = engagements.create_engagement("SentinelCheck")
+    with pytest.raises(ValueError, match="only clears"):
+        engagements.allocate("mira", e["id"], 50, starts_on="-")

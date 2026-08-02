@@ -1,13 +1,7 @@
 """Engagements: orphan-milestone adoption, rename propagation, the task and milestone links, and closing with work still open."""
 
 import pytest
-
-
-def _unread_for(fresh_db, user, like):
-    return fresh_db.query_one(
-        "SELECT * FROM notifications WHERE user = ? AND message LIKE ? AND read_at IS NULL",
-        (user, like),
-    )
+from conftest import _unread_for
 
 
 def test_create_engagement_adopts_orphan_milestones(fresh_db):

@@ -1,12 +1,7 @@
 """The weekly rhythm: draft, plan through the review inbox, week validation, rituals, and the claim that stops a double run."""
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
-
-
-def _ago(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+from conftest import _ago
 
 
 def test_week_rituals_produce_packets_and_notify(client, fresh_db):

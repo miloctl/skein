@@ -88,7 +88,9 @@ def test_key_request_rejects_anonymous(client):
 
 
 def test_key_request_refiles_after_notification_read(client):
-    assert client.post("/api/keys/request").json()["already_pending"] is False
+    assert client.post("/api/keys/request").json() == {"requested": True, "already_pending": False}
     assert client.post("/api/keys/request").json()["already_pending"] is True
+    notes = client.get("/api/notifications").json()
+    assert any("requests a personal API key" in n["message"] for n in notes)
     client.post("/api/notifications/read", json={"notification_id": 0})  # dismiss all
     assert client.post("/api/keys/request").json()["already_pending"] is False

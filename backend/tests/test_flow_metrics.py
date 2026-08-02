@@ -1,10 +1,6 @@
 """Flow metrics: cycle time, WIP, staleness gradation, and the completed_at stamp they read."""
 
-from datetime import datetime, timedelta, timezone
-
-
-def _ago(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+from conftest import _ago
 
 
 def test_completed_at_stamped_and_cleared(client, fresh_db):

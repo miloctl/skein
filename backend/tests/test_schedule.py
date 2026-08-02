@@ -1,12 +1,7 @@
 """Calendar events: cancel deindexes, agent cancels are always proposals, and bad legacy rows never break the feed."""
 
 import pytest
-
-
-def _strong(client, name="tester"):
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
+from conftest import _strong
 
 
 def test_cancel_event_deindexes_and_404s_on_missing(client):
