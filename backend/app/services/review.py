@@ -399,12 +399,12 @@ def review_stats() -> dict:
         )
         if r["m"] is not None
     )
+    # the shared primitive, not a third inline copy — services/stats.py exists
+    # because two of these had already drifted apart
+    from . import stats
+
     n = len(minutes)
-    median = (
-        round(minutes[n // 2] if n % 2 else (minutes[n // 2 - 1] + minutes[n // 2]) / 2, 1)
-        if n
-        else None
-    )
+    median = stats.median(minutes)
     return {
         "by_entity": by_entity,
         "by_proposer": by_proposer,

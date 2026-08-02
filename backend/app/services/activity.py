@@ -226,8 +226,11 @@ def verify_tail() -> dict:
 
 
 ANCHOR_LOG = "activity-anchors.log"
-# `unchained=` is optional: lines written before it existed still parse, and
-# an old reader still parses new lines up to the hash.
+# `unchained=` is optional so lines written before it existed still parse.
+# NOT symmetric: the old pattern was $-anchored, so an OLD binary reading a
+# NEW log matches nothing and, because non-matching lines are skipped,
+# reports ok with checked=0. Rolling back past this change means the anchor
+# replay silently stops checking.
 _ANCHOR_LINE = re.compile(r"^\S+ seq=(\d+) hash=([0-9a-f]{64})(?: unchained=(\d+))?$")
 
 
@@ -260,6 +263,29 @@ def _tail_anchor_line(path) -> tuple[int, str] | None:
     return None
 
 
+def _lowest_anchored_baseline() -> int | None:
+    """The smallest unchained baseline any anchor line ever recorded.
+
+    record_anchor writes this rather than the live value so a raised baseline
+    can never become the new floor: the contradiction has to survive every
+    later night, not just the first one.
+    """
+    lowest: int | None = None
+    for path in _anchor_log_paths():
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            m = _ANCHOR_LINE.match(raw.strip())
+            if m and m.group(3) is not None:
+                v = int(m.group(3))
+                lowest = v if lowest is None else min(lowest, v)
+    return lowest
+
+
 def record_anchor() -> dict:
     """Append the last VERIFIED tip to the anchor log(s) — one line per tip.
 
@@ -286,7 +312,12 @@ def record_anchor() -> dict:
     # outside the chain. Anchoring it makes that a dated, mirrored
     # contradiction instead of a silent reset — the same property the anchor
     # log already gives the chain itself.
+    # Anchor the LOWEST baseline ever recorded, not today's. Writing the
+    # current value meant one night after a laundering the elevated baseline
+    # became the new max() and the contradiction erased itself — the check
+    # held for under 24 hours and then went quiet again.
     baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
+    baseline = min(baseline, _lowest_anchored_baseline() or baseline)
     line = f"{db.now()} seq={seq} hash={digest} unchained={baseline}\n"
     written = []
     current = []
@@ -369,7 +400,8 @@ def check_anchor_log() -> dict:
                 return out
             recorded[seq] = digest
             if m.group(3) is not None:
-                anchored_baseline = max(anchored_baseline or 0, int(m.group(3)))
+                v = int(m.group(3))
+                anchored_baseline = v if anchored_baseline is None else min(anchored_baseline, v)
     out["checked"] = len(recorded)
     # The in-DB baseline is re-derived whenever its app_settings row is
     # absent, so deleting that one row re-baselines to whatever is present
@@ -381,16 +413,18 @@ def check_anchor_log() -> dict:
     # fact and its date rather than pretending to a verdict.
     current_baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
     if anchored_baseline is not None and current_baseline > anchored_baseline:
+        # recorded, then the digest replay still runs: a baseline discrepancy
+        # can be an honest fallback append, and returning here would let it
+        # mask a whole-chain re-forge, which is this function's primary job
         out.update(
             ok=False,
             reason=(
-                f"the unchained baseline is {current_baseline} but no anchored night"
-                f" recorded more than {anchored_baseline}. Either a row was written"
-                " outside the chain, or the baseline was reset. Compare"
+                f"the unchained baseline is {current_baseline} but an anchored night"
+                f" recorded {anchored_baseline}. Either a row was written outside the"
+                " chain, or the baseline was reset. Compare"
                 " backups/activity-anchors.log against the off-box mirror."
             ),
         )
-        return out
     for seq in sorted(recorded):
         row = db.query_one(
             "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"

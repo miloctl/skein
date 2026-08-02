@@ -57,20 +57,14 @@ def capture(text: str) -> str:
     # create_task queued and its `todo: …` capture written straight through,
     # so prefixing the text was a one-word way around the review inbox for
     # seven entity types.
-    kind = capture_svc.classify(text.strip())
-    entity = {
-        "task": "task",
-        "question": "question",
-        "decision": "decision",
-        "blocker": "blocker",
-        "commitment": "commitment",
-        "request": "intake",
-        "note": "note",
-    }.get(kind, "note")
+    # capture.plan gives the entity AND the handler's own kwargs, so a queued
+    # proposal is applicable. A generic {"text": ...} was applicable by
+    # nothing: every proposal failed at apply and reset to pending.
+    kind, entity, payload = capture_svc.plan(text, actor=ACTOR)
     return gated_write(
         entity,
         "create",
-        {"text": text},
+        payload,
         lambda: capture_svc.capture(text, actor=ACTOR, origin="agent"),
         summary=f"capture ({kind}): {text.strip()[:80]}",
         actor=ACTOR,

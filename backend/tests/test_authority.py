@@ -309,9 +309,76 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
     users.ensure_user("mcp-agent", kind="agent")
 
     from app import mcp_server
+    from app.services import review, work
 
     out = json.loads(mcp_server.capture("todo: ungated straight into the tracker"))
     assert out.get("status") == "pending", out
-    from app.services import work
-
     assert work.list_tasks() == []
+
+    # and the queued proposal must be APPLICABLE. A payload the registry
+    # handler cannot take made every capture fail at apply and reset to
+    # pending, wedging the inbox — a gate that swallows the work is not a gate
+    review.approve_change(out["id"], actor="mira")
+    assert [t["title"] for t in work.list_tasks()] == ["ungated straight into the tracker"]
+
+
+def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db, monkeypatch):
+    """One case per branch of capture.plan — the payload keys must be the
+    registry handler's own kwargs, for every entity capture can route to."""
+    import json
+
+    from app import config, mcp_server
+    from app.services import blockers, collab, commitments, intake, review, users, work
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("mcp-agent", kind="agent")
+    cases = [
+        ("todo: ship it", lambda: work.list_tasks()),
+        ("q: who owns dns?", lambda: collab.list_questions()),
+        ("blocked on the vendor", lambda: blockers.list_blockers()),
+        ("decision: use sqlite", lambda: collab.list_decisions()),
+        ("promised: demo friday", lambda: commitments.list_commitments()),
+        ("req: dashboards", lambda: intake.list_requests()),
+        ("just a plain note", lambda: collab.search_notes("")),
+    ]
+    for text, rows in cases:
+        out = json.loads(mcp_server.capture(text))
+        assert out.get("status") == "pending", (text, out)
+        review.approve_change(out["id"], actor="mira")  # must not raise
+        assert rows(), text
+
+
+def test_a_fine_grained_grant_is_not_defeated_by_an_absent_parent(fresh_db):
+    """authority_level defaults to 'review' when no row exists, so taking the
+    strictest of entity and family root made an ABSENT parent override an
+    explicit child grant — every fine-grained grant became a no-op."""
+    from app.services import delegation, users
+    from app.tools._gate import effective_level
+
+    users.ensure_user("scout", kind="agent")
+    users.ensure_user("mira")
+    delegation.set_authority("scout", "note_edit", "autonomous", actor="mira")
+    assert effective_level("scout", "note_edit") == "autonomous"  # no `note` row exists
+
+    delegation.set_authority("scout", "note", "forbidden", actor="mira")
+    assert effective_level("scout", "note_edit") == "forbidden"  # the ban still wins
+
+
+def test_every_registry_mutator_has_a_family_entry():
+    """_FAMILY is hand-maintained; this is what stops a new <root>_<verb>
+    entity from silently escaping a family-level forbidden."""
+    from app.services.review import _registry
+    from app.tools._gate import _FAMILY, _NOT_A_FAMILY
+
+    roots = set(_registry())
+    missing = [
+        e
+        for e in roots
+        if "_" in e and e.rsplit("_", 1)[0] in roots and e not in _FAMILY and e not in _NOT_A_FAMILY
+    ]
+    assert not missing, (
+        f"registry mutators with no _FAMILY entry: {missing}."
+        " Add the family, or add it to _NOT_A_FAMILY with the reason."
+    )
+    # every declared family root must itself be a real registry entity
+    assert not set(_FAMILY.values()) - roots

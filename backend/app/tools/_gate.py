@@ -27,6 +27,9 @@ ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}
 # creation the operator blocked. A grant may still be fine-grained; a
 # FORBIDDEN is absolute, so authority resolves over the family and the
 # strictest level wins.
+# Every registry entity named <root>_<verb> belongs to <root>'s family.
+# test_authority pins this against the registry so a new mutator cannot be
+# added without one.
 _FAMILY = {
     "note_edit": "note",
     "note_delete": "note",
@@ -35,17 +38,31 @@ _FAMILY = {
     "commitment_settle": "commitment",
     "intake_edit": "intake",
     "memory_forget": "memory",
+    "question_assign": "question",
+    "event_cancel": "event",
 }
-_STRICTNESS = {"autonomous": 0, "notify": 1, "review": 2, "forbidden": 3}
+
+# Registry entities that LOOK like <root>_<verb> but are not gate families.
+# task_completion is filed by delegation.submit_completion, which never routes
+# through gated_write — it is the sponsor's acceptance proposal, and the
+# delegation trio already honors the `task` kill switch via
+# delegation._check_not_forbidden. Listing it here is a decision on the
+# record, which is what the parity test asks for.
+_NOT_A_FAMILY = {"task_completion"}
 
 
 def effective_level(actor: str, entity: str) -> str:
-    """The strictest level across the entity and its family root."""
-    levels = [authority_level(actor, entity)]
+    """The entity's own level, unless its family root is explicitly forbidden.
+
+    ONLY forbidden propagates. authority_level returns the default "review"
+    when no row exists, so taking the strictest of the two made an ABSENT
+    parent override an explicit child grant — granting note_edit=autonomous
+    resolved to review, and the fine-grained grant the matrix exists to allow
+    became a no-op. A kill switch is absolute; a grant stays per-entity."""
     root = _FAMILY.get(entity)
-    if root:
-        levels.append(authority_level(actor, root))
-    return max(levels, key=lambda lvl: _STRICTNESS.get(lvl, 2))
+    if root and authority_level(actor, root) == "forbidden":
+        return "forbidden"
+    return authority_level(actor, entity)
 
 
 def gated_write(

@@ -74,6 +74,52 @@ def classify(text: str) -> str:
     return "note"
 
 
+def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
+    """(kind, review-registry entity, payload) for one capture.
+
+    The agent path PROPOSES this payload and the review registry applies it by
+    calling the create handler with **payload, so the keys here must be the
+    handler's own kwargs. A generic {"text": ...} was applicable by nothing:
+    every captured proposal failed at apply and reset to pending, wedging the
+    review inbox forever. capture() derives its own call from this function so
+    the two cannot drift apart again.
+    """
+    kind = classify(text)
+    body = PREFIX.sub("", text).strip() or text
+    if kind == "question":
+        assignee, q = split_assignee(body)
+        return kind, "question", {"question": q, "asked_by": actor, "assigned_to": assignee}
+    if kind == "blocker":
+        return kind, "blocker", {"title": body[:120], "detail": body, "owner": actor}
+    if kind == "decision":
+        review_by, d = split_review_by(body)
+        return (
+            kind,
+            "decision",
+            {
+                "title": d[:80],
+                "decision": d,
+                "decided_by": actor,
+                "review_by": review_by,
+            },
+        )
+    if kind == "commitment":
+        return kind, "commitment", {"promise": body}
+    if kind == "request":
+        return kind, "intake", {"title": body[:120], "detail": body}
+    if kind == "task":
+        return (
+            kind,
+            "task",
+            {
+                "title": body[:120],
+                "description": body if len(body) > 120 else "",
+                "assignee": "",
+            },
+        )
+    return kind, "note", {"topic": body[:60], "content": body, "author": actor}
+
+
 def capture(
     text: str, *, actor: str = "system", origin: str = "human", strong_auth: bool = False
 ) -> dict:
@@ -104,7 +150,7 @@ def capture(
         person, body = private_notes.parse_feedback(text)  # raises on bad format
         result = private_notes.add_note(actor, person, body, kind="feedback")
         return {"kind": "feedback", **result}
-    kind = classify(text)
+    kind, _entity, _payload = plan(text, actor=actor)
     body = PREFIX.sub("", text).strip() or text
 
     if kind == "question":

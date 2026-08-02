@@ -149,6 +149,17 @@ def delete_note(author: str, note_id: int) -> dict:
     return {"id": note_id, "deleted": True}
 
 
+def author_has_notes(author: str) -> bool:
+    """Does this author hold private rows? Callers outside private.db need
+    this to REFUSE an operation, never to read one — it returns a boolean and
+    no content, so it leaks nothing the caller could not already infer."""
+    with closing(_connect()) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM private_notes WHERE author = ? LIMIT 1", (author,)
+        ).fetchone()
+    return row is not None
+
+
 def rename_author(old: str, new: str) -> None:
     """Follow a roster rename/merge into private.db: notes and audit stay
     with the person (access is keyed by author name). Person references in

@@ -195,6 +195,20 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     row = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
     if not row:
         raise db.NotFound(f"no user named '{old}'")
+    # A third-party rename of an author WITH private notes is refused outright
+    # rather than half-completed, and refused BEFORE any row moves. There is
+    # no self-repair afterwards: this function deletes the `old` roster row,
+    # so the author cannot re-run it as themselves, and their keys have moved
+    # with the rename — the notes would be stranded with no supported
+    # recovery, which is worse for the legitimate "Mira vs mira" cleanup than
+    # refusing the rename.
+    from . import private_notes as _pn
+
+    if actor != old and _pn.author_has_notes(old):
+        raise ValueError(
+            f"'{old}' has private 1:1 notes, and only they can move them."
+            f" Ask {old} to rename their own account."
+        )
     if _is_bench_slug(new):
         # unconditional: persona names come from files, never from rename —
         # even agent→agent would fold foreign history into the persona
@@ -268,10 +282,7 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     # model makes them all admins over TEAM data) — but a rename that also
     # moved the private half would let anyone merge someone else's row into
     # their own name and inherit their 1:1 notes and fb: journal, the one
-    # dataset the product promises teammates cannot read. Refusing to move it
-    # fails closed: the rows keep the old author name, so they become
-    # unreachable rather than readable by the wrong person, and the author can
-    # complete the move themselves.
+    # dataset the product promises teammates cannot read.
     private_moved = actor == old
     if private_moved:
         private_notes.rename_author(old, new)
