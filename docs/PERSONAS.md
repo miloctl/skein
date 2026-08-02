@@ -33,8 +33,10 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 
 - **`backend/personas/*.md`** — one file per persona, edited like code
   (the playbooks precedent). Frontmatter: `name`, `description`, `emoji`,
-  `vibe`; body = the persona system prompt, written Skein-aware (knows the
-  capture grammar, the review gate, and its own lens). Slug = filename.
+  `vibe`, `disclosure`, plus the optional behavior fields (`model`,
+  `temperature`, `tools` — see below); body = the persona system prompt,
+  written Skein-aware (knows the capture grammar, the review gate, and its
+  own lens). Slug = filename.
 - **`services/personas.py`** — deterministic loader/parser (no YAML dep);
   `list_personas()` / `get_persona(slug)`. Slugs are `[a-z0-9][a-z0-9-]{1,40}` because
   they double as agent identities (and are path-safe by the same rule).
