@@ -551,7 +551,7 @@ def test_a_night_where_nothing_landed_reports_zero(fresh_db, monkeypatch):
     _log(2)
     activity.verify_tail()
     monkeypatch.setattr(activity, "_anchor_log_paths", lambda: [])
-    assert activity.record_anchor() == {"anchored": 0, "files": []}
+    assert activity.record_anchor() == {"anchored": 0, "files": [], "current": []}
 
 
 def test_the_mirror_gets_its_own_append_never_a_copy(fresh_db, tmp_path, monkeypatch):
@@ -600,3 +600,37 @@ def test_an_unwritable_mirror_does_not_fail_the_job(fresh_db, tmp_path, monkeypa
     assert result["ok"]
     assert result["anchor"]["anchored"] == 2
     assert len(result["anchor"]["files"]) == 1  # local only
+
+
+def test_an_unchanged_tip_is_not_appended_twice(fresh_db):
+    """The startup catch-up runs the nightly job on every process start — a
+    dev server restarting on file changes appended the same line dozens of
+    times in an evening. One line per tip, not per boot."""
+    from app.services import activity
+
+    _log(3)
+    activity.nightly_verify()
+    activity.nightly_verify()
+    result = activity.nightly_verify()
+    path = activity._anchor_log_paths()[0]
+    assert len(path.read_text().splitlines()) == 1
+    assert result["anchor"]["anchored"] == 3  # already on record still counts
+    assert result["anchor"]["files"] == []
+    assert result["anchor"]["current"] == [str(path)]
+
+
+def test_a_mirror_that_missed_a_night_still_catches_up(fresh_db, tmp_path, monkeypatch):
+    """The skip is PER FILE: the local file already holding the line must not
+    stop the mirror from getting it once the mount returns."""
+    from app.services import activity, admin
+
+    _log(2)
+    activity.nightly_verify()  # mirror not configured yet — local only
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    monkeypatch.setattr(admin, "mirror_dir", lambda: mirror)
+    result = activity.nightly_verify()
+    assert result["anchor"]["files"] == [str(mirror / activity.ANCHOR_LOG)]
+    local = activity._anchor_log_paths()[0]
+    assert local.read_text() != ""
+    assert "seq=2" in (mirror / activity.ANCHOR_LOG).read_text()
