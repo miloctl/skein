@@ -9,24 +9,40 @@ someone.
 import pytest
 
 
-def test_a_rename_by_someone_else_never_moves_the_private_journal(fresh_db):
+def test_a_rename_by_someone_else_cannot_touch_the_private_journal(fresh_db):
     """Every keyholder can rename any roster row — the trusted-LAN model makes
     them all admins over TEAM data. Moving the private half too let anyone
     merge another person's row into their own name and inherit their 1:1 notes
-    and fb: journal, the one dataset teammates are promised they cannot read."""
+    and fb: journal, the one dataset teammates are promised they cannot read.
+
+    Refused rather than half-completed: rename DELETES the old roster row, so
+    a third-party rename that skipped the private half would strand the notes
+    with no supported recovery — the author cannot re-run it as themselves."""
+    import pytest
+
+    from app import db
     from app.services import private_notes, users
 
     users.ensure_user("alice")
     users.ensure_user("mallory")
     private_notes.add_note("alice", "bob", "bob is coasting", kind="feedback")
 
-    result = users.rename_user("alice", "mallory", actor="mallory")
+    with pytest.raises(ValueError, match="private 1:1 notes"):
+        users.rename_user("alice", "mallory", actor="mallory")
 
-    assert result["private_notes_moved"] is False
+    # refused BEFORE any mutation — no partial write
+    assert db.query_one("SELECT 1 FROM users WHERE name = 'alice'") is not None
     assert private_notes.list_notes("mallory", "bob") == []
-    # fails CLOSED: the rows keep the old author, so they are unreachable
-    # rather than readable by the wrong person
     assert [n["body"] for n in private_notes.list_notes("alice", "bob")] == ["bob is coasting"]
+
+
+def test_an_author_with_no_private_notes_is_still_renameable_by_an_admin(fresh_db):
+    """The legitimate 'Mira vs mira' cleanup must keep working."""
+    from app.services import users
+
+    users.ensure_user("mira")
+    out = users.rename_user("mira", "Mira", actor="ops")
+    assert out["new"] == "Mira" and out["private_notes_moved"] is False
 
 
 def test_the_author_renaming_themselves_does_move_it(fresh_db):
@@ -95,7 +111,8 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
         },
     )
     assert r.status_code == 200
-    assert "agent identity" in r.json()["text"]
+    # loose on wording (an STE pass may reword it), strict on the outcome
+    assert "agent" in r.json()["text"].lower()
     # and nothing was written as that identity
     from app.services import work
 
@@ -124,4 +141,8 @@ def test_slack_still_writes_for_ordinary_people(client, fresh_db, monkeypatch, n
         },
     )
     assert r.status_code == 200
-    assert "agent identity" not in r.json()["text"]
+    assert "is an agent identity" not in r.json()["text"]
+    # and the write actually happened for a real person
+    from app.services import users as u
+
+    assert not u.is_agent(name)

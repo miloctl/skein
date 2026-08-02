@@ -7,6 +7,8 @@ import them, so there is no second implementation to drift. There was one:
 two middle values, and reported 9.0 where the median of [1, 9] is 5.0.
 """
 
+import math
+
 
 def median(values: list[float]) -> float | None:
     """None for an empty sample — a median of nothing is not zero."""
@@ -29,7 +31,5 @@ def p85(values: list[float]) -> float | None:
     if not values:
         return None
     v = sorted(values)
-    import math
-
     rank = max(1, math.ceil(0.85 * len(v)))
     return round(v[rank - 1], 1)

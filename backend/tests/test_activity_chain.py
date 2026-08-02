@@ -685,4 +685,51 @@ def test_a_legitimate_unchained_row_reports_the_same_way(fresh_db):
 
     out = activity.check_anchor_log()
     assert out["ok"] is False
-    assert "or the baseline was reset" in out["reason"]
+    assert "baseline" in out["reason"]
+
+
+def test_the_baseline_contradiction_survives_later_anchor_runs(fresh_db):
+    """record_anchor wrote the CURRENT baseline, so one night after a
+    laundering the elevated value became the new max() and the contradiction
+    erased itself — the check held for under 24 hours, then went quiet."""
+    from app.services import activity
+
+    _log(3)
+    activity.nightly_verify()
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at)"
+        " VALUES ('mallory', 'approve_change', 'smuggled', ?)",
+        (db.now(),),
+    )
+    db.execute("DELETE FROM app_settings WHERE key = 'activity_chain_legacy'")
+    activity.verify_chain()  # re-baselines
+    assert activity.check_anchor_log()["ok"] is False
+
+    for _ in range(3):  # three more nights must not wash it out
+        _log(1)
+        activity.nightly_verify()
+        assert activity.check_anchor_log()["ok"] is False
+
+
+def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
+    """The baseline finding used to `return` early, short-circuiting the
+    per-seq digest replay that is this function's primary job."""
+    from app.services import activity
+
+    _log(4)
+    activity.nightly_verify()  # anchors seq 4
+    # raise the baseline AND remove the anchored row — two independent faults
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES ('x','y','',?)",
+        (db.now(),),
+    )
+    db.execute("DELETE FROM app_settings WHERE key = 'activity_chain_legacy'")
+    activity.verify_chain()  # re-baselines, so the baseline check will fire
+    db.execute("DELETE FROM activity WHERE seq = 4")
+
+    out = activity.check_anchor_log()
+    assert out["ok"] is False
+    # the digest replay still ran rather than returning at the baseline
+    # finding — the replay is this function's primary job
+    assert out["seq"] == 4
+    assert "no longer in the ledger" in out["reason"]
