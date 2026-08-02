@@ -43,6 +43,12 @@ ARGS: dict[str, dict] = {
         "engagement_name": "coverage probe engagement",
     },
     "update_task": {"task_id": 1, "description": "coverage probe"},
+    # question 2, not 1: answer_question runs earlier in registry order and
+    # answers question 1, and assigning an answered question refuses pre-gate
+    "assign_question": {"question_id": 2, "assigned_to": "tester"},
+    # a dedicated undelegated task and a real active human sponsor — the
+    # heuristic sponsor string refuses before the gate
+    "delegate_task": {"task_id": 3, "agent": "probe-agent", "sponsor": "tester"},
     # non-empty payloads, or the empty-update bounce fires BEFORE the gate and
     # a bypass inside these tools passes the harness without ever writing
     "edit_note": {"note_id": 1, "content": "coverage probe edit"},
@@ -76,6 +82,7 @@ _STR_BY_NAME = {
     "review_by": "2026-08-20",
     "starts_on": "2026-08-10",
     "ends_on": "2026-08-11",
+    "starts_at": "2026-08-20T10:00:00",
     "date": "2026-08-20",
     "audience": "team",
     "impact": "low",
@@ -119,10 +126,13 @@ def _seed(fresh_db):
     )
 
     users.ensure_user("tester")  # the sponsor must be an active human
+    users.ensure_user("probe-agent", kind="agent")  # delegation target; the
+    # calling identity is "agent" and self-delegation is refused pre-gate
     engagements.create_engagement("probe engagement", actor="tester")
     work.create_milestone("probe milestone", actor="tester")
     work.create_task("probe task", actor="tester")
     collab.ask_question("probe question?", asked_by="tester")
+    collab.ask_question("probe question for assigning?", asked_by="tester")  # id 2
     collab.record_decision("probe decision", "we probe", actor="tester")
     collab.save_note("probe", "probe note", author="tester")
     schedule.schedule_event("probe event", "2026-08-20T10:00:00", actor="tester")
@@ -133,6 +143,7 @@ def _seed(fresh_db):
     intake.submit_request("probe request", requester="tester", actor="tester")
     work.create_task("probe delegated task", actor="tester")  # id 2, the trio's own
     delegation.delegate_task(2, "agent", sponsor="tester", actor="tester")
+    work.create_task("probe undelegated task", actor="tester")  # id 3, delegate_task's own
 
 
 def _unwrap(tool):
@@ -220,6 +231,9 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "edit_intake_request",
         "edit_commitment",
         "remember",
+        "assign_question",
+        "delegate_task",
+        "schedule_event",
     )
     for name in must_write:
         assert name in covered, f"{name} never reached its write path"
