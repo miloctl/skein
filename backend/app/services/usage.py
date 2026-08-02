@@ -56,13 +56,18 @@ def usage_summary() -> list[dict]:
     )
 
 
-def engagement_costs(days: int = 30) -> list[dict]:
+def engagement_costs(days: int = 30, since: str = "") -> list[dict]:
     """Spend per engagement over the window, via the thread link. Turns whose
     thread is unlinked (or predates the link) land in one honest 'unlinked'
-    bucket instead of disappearing."""
+    bucket instead of disappearing.
+
+    `since` (ISO date/datetime) overrides the trailing-days window — the
+    budget rule passes the calendar month start, because a month-to-date
+    claim backed by a trailing-window receipt names the wrong evidence."""
     from datetime import timedelta
 
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    if not since:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
     return db.query(
         "SELECT COALESCE(e.name, '(unlinked)') AS engagement,"
         " t.engagement_id AS engagement_id,"
