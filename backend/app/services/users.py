@@ -160,6 +160,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "lessons": ("created_by",),
     "pending_changes": ("proposed_by", "reviewed_by", "requested_by"),
     "notifications": ("user",),
+    "feature_unlocks": ("person",),
     # activity is DELIBERATELY absent: every chained row's digest covers its
     # actor, so a bulk rewrite here breaks verify_chain permanently at the
     # renamed person's earliest row — and the off-box anchor log makes
@@ -223,6 +224,16 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
         db.execute(
             "DELETE FROM tool_usage WHERE user = ? AND EXISTS (SELECT 1 FROM tool_usage n"
             " WHERE n.day = tool_usage.day AND n.surface = tool_usage.surface AND n.user = ?)",
+            (old, new),
+        )
+        # feature_unlocks (person, knot, kind): the target's existing unlock
+        # wins. Without this move, a rename orphaned the guide state under the
+        # old name — and since the ledger is immutable across rename, the
+        # activity-based predicates could never re-tie under the new one.
+        db.execute(
+            "DELETE FROM feature_unlocks WHERE person = ? AND EXISTS"
+            " (SELECT 1 FROM feature_unlocks n WHERE n.knot = feature_unlocks.knot"
+            " AND n.kind = feature_unlocks.kind AND n.person = ?)",
             (old, new),
         )
         # agent_authority (agent, entity): the target's existing grant wins
