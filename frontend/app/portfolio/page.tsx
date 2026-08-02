@@ -40,7 +40,7 @@ type Draft = {
 };
 
 type Forecast = {
-  basis: { milestones_measured: number; avg_slip_days: number };
+  basis: { milestones_measured: number; median_slip_days: number };
   forecasts: {
     milestone_id: number;
     title: string;
@@ -300,8 +300,8 @@ export default function Portfolio() {
           <>
             <p className="mb-2 text-xs text-ink-3">
               Based on {forecast.basis.milestones_measured} completed milestone
-              {forecast.basis.milestones_measured === 1 ? "" : "s"}, avg slip{" "}
-              {forecast.basis.avg_slip_days}d.
+              {forecast.basis.milestones_measured === 1 ? "" : "s"}, median slip{" "}
+              {forecast.basis.median_slip_days}d.
             </p>
             {forecast.forecasts.length === 0 ? (
               <p className="text-sm text-ink-3">No dated open milestones.</p>

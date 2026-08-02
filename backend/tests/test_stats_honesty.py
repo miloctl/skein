@@ -81,7 +81,7 @@ def test_slip_forecast_uses_the_median_so_one_outlier_cannot_move_it(fresh_db):
     fresh_db.execute("UPDATE milestones SET engagement_id=? WHERE id=?", (e, open_m))
 
     out = portfolio.slip_forecast()
-    assert out["basis"]["avg_slip_days"] == 0.0  # the median, not ~20
+    assert out["basis"]["median_slip_days"] == 0.0  # the median, not ~20
     row = next(m for m in out["forecasts"] if m["milestone_id"] == open_m)
     assert row["forecast_date"] == "2026-09-01"
 

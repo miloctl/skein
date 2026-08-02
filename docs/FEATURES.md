@@ -63,7 +63,7 @@ key (StrongUser).
 | Allocations & capacity | percent per person; >100% flagged | `POST /api/engagements/{id}/allocate` · `GET /api/capacity` |
 | **Allocation conflicts** | window-aware (>100% across engagements covering today) | `GET /api/portfolio/conflicts` · `/portfolio` |
 | **Engagement health** | R/Y/G with receipts: overdue milestones, linked open/escalated blockers, stale WIP, silence | `GET /api/portfolio/health` · `/portfolio` · tool/MCP |
-| **Slip forecast** | avg slip from the team's own completed milestones projected onto open ones — labeled heuristic, basis shown | `GET /api/portfolio/forecast` |
+| **Slip forecast** | MEDIAN slip from the team's own completed milestones projected onto open ones — labeled heuristic, basis shown. A mean let one pathological milestone rewrite every open date; docs/INSIGHTS.md promises medians | `GET /api/portfolio/forecast` |
 | **Flow metrics** | cycle time (created→`completed_at`), weekly throughput, WIP per person, stale-WIP list; Monday nudges to owners | `GET /api/portfolio/flow` · `/portfolio` |
 | **Exec readout** | curated markdown projection (health, ships, risks, commitments, flow), saved as an artifact | `POST /api/portfolio/readout` |
 | **Commitment ledger** | promises with `audience: external\|team` — external ones feed the exec readout and findings; `team` ones are the manager's own promises to the team, visible so they get kept; open→kept/missed/withdrawn (terminal) | `/api/commitments…` · capture `promised: …` · CLI `skein commitments [settle]` |

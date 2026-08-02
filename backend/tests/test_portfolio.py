@@ -62,7 +62,7 @@ def test_slip_forecast_uses_history(client, fresh_db):
     )
     out = client.get("/api/portfolio/forecast").json()
     assert out["basis"]["milestones_measured"] == 1
-    assert out["basis"]["avg_slip_days"] == 7.0
+    assert out["basis"]["median_slip_days"] == 7.0
     f = out["forecasts"][0]
     assert f["forecast_date"] > f["due_date"]
 

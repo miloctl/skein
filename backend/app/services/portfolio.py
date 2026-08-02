@@ -264,7 +264,9 @@ def slip_forecast() -> dict:
             }
         )
     return {
-        "basis": {"milestones_measured": len(slips), "avg_slip_days": avg_slip},
+        # median, and the key says so — an "avg_" key holding a median is
+        # the same kind of quiet lie the median fix was for
+        "basis": {"milestones_measured": len(slips), "median_slip_days": avg_slip},
         "forecasts": forecasts,
     }
 
