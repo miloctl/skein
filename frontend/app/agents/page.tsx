@@ -183,13 +183,20 @@ export default function Agents() {
               ? "Review gate on — every agent write waits in Inbox → Approvals"
               : "Review gate off — agent writes apply directly (authority rules still hold)"}
           </span>
-          {(status.context_strategy || status.context_error) && (
+          {/* the effective strategy and any config fault are SEPARATE spans:
+              rendering the fault instead of the strategy let the strip assert
+              a strategy the deployment was not using, because the Settings
+              toggle overrides the env value the fault describes */}
+          {status.context_strategy && (
             <span>
-              {status.context_error
-                ? `Long-chat memory: ${status.context_error} Correct the SKEIN_CONTEXT_* values in .env, then restart the server.`
-                : status.context_strategy === "summarize"
-                  ? "Long chats: older messages are summarized (costs one extra model call each time)"
-                  : "Long chats: oldest messages are dropped"}
+              {status.context_strategy === "summarize"
+                ? "Long chats: older messages are summarized (costs one extra model call each time)"
+                : "Long chats: oldest messages are dropped"}
+            </span>
+          )}
+          {status.context_error && (
+            <span className="text-danger">
+              {`Long-chat settings: ${status.context_error} Correct the SKEIN_CONTEXT_* values in .env, then restart the server.`}
             </span>
           )}
         </p>

@@ -31,6 +31,7 @@ ignore_decorators = ["@app.*", "@router.*", "@mcp.*", "@tool", "@pytest.fixture"
 ignore_names = [
     "row_factory", "isolation_level",  # sqlite3 connection config, write-only
     "repository",  # CIEventIn schema field, read via model_dump() in services/ci.py
+    "model_config",  # pydantic v2 model settings, read by the metaclass
 ]
 min_confidence = 60
 sort_by_size = true
