@@ -115,14 +115,19 @@ def test_set_authority_rejects_blank_agent(client, fresh_db):
 
 
 def test_mcp_forbidden_authority_holds(client, fresh_db, monkeypatch):
+    """Every MCP writer routes through gated_write now, so the kill switch is
+    asserted where it is actually enforced rather than in a private helper."""
+    import json
+
     from app import mcp_server
     from app.services import delegation
 
     monkeypatch.setattr(mcp_server, "ACTOR", "mcp-agent")
     delegation.set_authority("mcp-agent", "task", "forbidden", actor="tester")
-    with pytest.raises(ValueError, match="forbidden"):
-        mcp_server._check_authority("task")
-    mcp_server._check_authority("decision")  # default review level passes
+    refused = json.loads(mcp_server.create_task("blocked by the kill switch"))
+    assert "forbidden" in refused.get("error", "")
+    allowed = json.loads(mcp_server.log_decision("d", "text"))  # default review passes
+    assert "forbidden" not in str(allowed)
 
 
 def test_authority_not_self_serviceable_by_agents(client, fresh_db):
@@ -249,3 +254,64 @@ def test_mcp_writes_route_through_the_gate(client, fresh_db, monkeypatch):
     delegation.set_authority("code-agent", "task", "autonomous", actor="tester")
     out = j.loads(mcp_server.create_task("direct task"))
     assert out.get("status") == "todo"
+
+
+def test_a_generic_task_proposal_cannot_close_delegated_work(fresh_db):
+    """The sponsor-bound acceptance loop was optional: an agent could file a
+    plain `task` update instead of submit_for_acceptance, and ANY human could
+    approve it — no sponsor binding, no reason on record, no override marking,
+    and it counted as a clean approval toward promotion."""
+    import pytest
+
+    from app import db
+    from app.services import delegation, review, users, work
+
+    users.ensure_user("scout", kind="agent")
+    users.ensure_user("mira")
+    tid = work.create_task(title="probe", actor="mira")["id"]
+    delegation.delegate_task(tid, "scout", "mira", actor="mira")
+
+    p = review.propose_change("task", "update", {"status": "done"}, entity_id=tid, actor="scout")
+    with pytest.raises(ValueError, match="delegated"):
+        review.approve_change(p["id"], actor="dave")  # not the sponsor
+
+    assert db.query_one("SELECT status FROM tasks WHERE id = ?", (tid,))["status"] != "done"
+
+
+def test_forbidden_covers_the_whole_entity_family(fresh_db):
+    """A grant may be fine-grained; a forbidden is absolute. Forbidding `note`
+    left note_edit and note_delete at the default, so an agent blocked from
+    CREATING a note could still rewrite an existing one."""
+    from app.services import delegation, users
+    from app.tools._gate import effective_level
+
+    users.ensure_user("scout", kind="agent")
+    users.ensure_user("mira")
+    delegation.set_authority("scout", "note", "forbidden", actor="mira")
+
+    for entity in ("note", "note_edit", "note_delete"):
+        assert effective_level("scout", entity) == "forbidden", entity
+
+    # a fine-grained GRANT on the sibling still cannot loosen the family ban
+    delegation.set_authority("scout", "note_edit", "autonomous", actor="mira")
+    assert effective_level("scout", "note_edit") == "forbidden"
+
+
+def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
+    """capture checked only `forbidden`, so an agent at the DEFAULT review
+    level had create_task queued and `todo: …` written straight through."""
+    import json
+
+    from app import config
+    from app.services import users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("mcp-agent", kind="agent")
+
+    from app import mcp_server
+
+    out = json.loads(mcp_server.capture("todo: ungated straight into the tracker"))
+    assert out.get("status") == "pending", out
+    from app.services import work
+
+    assert work.list_tasks() == []

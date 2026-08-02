@@ -11,11 +11,12 @@ Claude Code registration:
         /path/to/backend/.venv/bin/python -m app.mcp_server
 
 Writes are attributed to SKEIN_MCP_USER (shown with origin=agent).
-Gating: create_task, complete_task, log_decision, add_blocker, and
-save_knowledge go through the same authority gate as chat-agent tools — with
-review mode on they queue in /review and build trust scores. capture and
-remember write directly; capture still enforces a 'forbidden' authority row
-on whatever entity it routes to (the kill switch always holds).
+Gating: EVERY writer here goes through the same authority gate as the
+chat-agent tools — with review mode on they queue in /review and build trust
+scores. capture gates on the entity its text classifies to, so prefixing a
+message is not a way around the review inbox. The delegation trio (claim,
+report_progress, submit_for_acceptance) is direct by design — working your own
+delegation is not a proposal — and each one honors the forbidden kill switch.
 """
 
 import json
@@ -37,17 +38,6 @@ ACTOR = os.getenv("SKEIN_MCP_USER", "mcp-agent")
 mcp = FastMCP("skein")
 
 
-def _check_authority(entity: str) -> None:
-    """The MCP path is direct-write by design (a teammate's own agent), but a
-    'forbidden' authority row must hold here too — it's the kill switch."""
-    from .services.delegation import authority_level
-
-    if authority_level(ACTOR, entity) == "forbidden":
-        raise ValueError(
-            f"writes to {entity} are forbidden for agent '{ACTOR}' by the authority matrix"
-        )
-
-
 @mcp.tool()
 def get_my_day(user: str = "") -> str:
     """The team briefing: what needs attention, tasks, blockers, today's events."""
@@ -61,20 +51,30 @@ def capture(text: str) -> str:
     decision / blocker / commitment (e.g. 'todo: ship the API', 'blocked on vendor')."""
     record_use(ACTOR, "mcp")
     ratelimit.check("capture", ACTOR)
-    # the kill switch must cover the routed entity, not just direct tools
+    # Route through the SAME gate every other MCP writer uses, on the entity
+    # the text classifies to. Checking only `forbidden` honored the kill
+    # switch but skipped the DEFAULT level: an agent at `review` had its
+    # create_task queued and its `todo: …` capture written straight through,
+    # so prefixing the text was a one-word way around the review inbox for
+    # seven entity types.
     kind = capture_svc.classify(text.strip())
-    _check_authority(
-        {
-            "task": "task",
-            "question": "question",
-            "decision": "decision",
-            "blocker": "blocker",
-            "commitment": "commitment",
-            "request": "intake",
-            "note": "note",
-        }.get(kind, "note")
+    entity = {
+        "task": "task",
+        "question": "question",
+        "decision": "decision",
+        "blocker": "blocker",
+        "commitment": "commitment",
+        "request": "intake",
+        "note": "note",
+    }.get(kind, "note")
+    return gated_write(
+        entity,
+        "create",
+        {"text": text},
+        lambda: capture_svc.capture(text, actor=ACTOR, origin="agent"),
+        summary=f"capture ({kind}): {text.strip()[:80]}",
+        actor=ACTOR,
     )
-    return json.dumps(capture_svc.capture(text, actor=ACTOR, origin="agent"))
 
 
 @mcp.tool()

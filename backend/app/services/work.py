@@ -230,8 +230,16 @@ def update_task(
     if not current:
         raise db.NotFound(f"task #{task_id} not found")
     # delegated work is closed by the sponsor's verdict, never by an agent
-    # marking it done — otherwise submit_for_acceptance is a paper wall
-    if status == "done" and current["delegated_agent"] and origin != "agent_verified":
+    # marking it done — otherwise submit_for_acceptance is a paper wall.
+    #
+    # No agent_verified exemption: approve_change applies EVERY proposal with
+    # exactly that origin, so exempting it made the guard void on the review
+    # path. An agent could file a generic `task` update proposal instead of
+    # submit_for_acceptance, and any human — not the sponsor — could approve
+    # it, with no reason on record and no override marking. accept_completion
+    # writes its own UPDATE and never routes through here, so the sponsor's
+    # real verdict is unaffected.
+    if status == "done" and current["delegated_agent"]:
         from .users import is_agent
 
         if is_agent(actor):
