@@ -359,18 +359,19 @@ def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
     return {"id": allocation_id, "deleted": True}
 
 
-def list_allocations(engagement_id: int = 0) -> list[dict]:
+def list_allocations(engagement_id: int = 0, limit: int = 500) -> list[dict]:
     if engagement_id:
         return db.query(
             "SELECT a.*, e.name AS engagement FROM allocations a"
             " JOIN engagements e ON e.id = a.engagement_id WHERE a.engagement_id = ?"
-            " ORDER BY a.id DESC",
-            (engagement_id,),
+            " ORDER BY a.id DESC LIMIT ?",
+            (engagement_id, limit),
         )
     return db.query(
         "SELECT a.*, e.name AS engagement FROM allocations a"
         " JOIN engagements e ON e.id = a.engagement_id WHERE e.status != 'closed'"
-        " ORDER BY a.id DESC"
+        " ORDER BY a.id DESC LIMIT ?",
+        (limit,),
     )
 
 

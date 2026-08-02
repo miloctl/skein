@@ -5,6 +5,10 @@ from datetime import datetime
 
 from .. import db
 
+# a date, or a date-prefixed ISO timestamp — both compare correctly against
+# the stored starts_at strings
+DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ].*)?$")
+
 
 def schedule_event(
     title: str,
@@ -53,6 +57,11 @@ def schedule_event(
 
 def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
     if from_date:
+        # a string compare against a garbage value returns [], which reads as
+        # "no events" — a silent wrong answer. Every write path validates
+        # dates strictly; this read must too.
+        if not DATE_PREFIX_RE.match(from_date):
+            raise ValueError("from_date must be YYYY-MM-DD or an ISO timestamp")
         return db.query(
             "SELECT * FROM events WHERE starts_at >= ? ORDER BY starts_at LIMIT ?",
             (from_date, limit),

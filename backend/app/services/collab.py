@@ -334,6 +334,11 @@ def list_standups(limit: int = 30) -> list[dict]:
 def save_note(
     topic: str, content: str, author: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
+    # every sibling create refuses an empty record; this one used to accept
+    # topic="" content="", indexing a blank row for search and burning a
+    # hash-chained activity seq on a note with nothing in it
+    if not topic.strip() and not content.strip():
+        raise ValueError("a note needs a topic or content")
     nid = db.execute(
         "INSERT INTO notes (topic, content, author, origin, created_by, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?)",
