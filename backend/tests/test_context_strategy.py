@@ -62,6 +62,14 @@ def test_a_non_numeric_knob_degrades_to_its_default(monkeypatch, env, attr, defa
         ({"SKEIN_CONTEXT_SUMMARY_RATIO": "0.01"}, "CONTEXT_SUMMARY_RATIO", 0.3),
         ({"SKEIN_CONTEXT_PRESERVE_RECENT": "-4"}, "CONTEXT_PRESERVE_RECENT", 10),
         ({"SKEIN_CONTEXT_PIN_FIRST": "-1"}, "CONTEXT_PIN_FIRST", 0),
+        # no static bound exists (both depend on live message count), but an
+        # absurd value makes the SDK raise on every overflow, so the ceiling
+        # is a typo guard
+        ({"SKEIN_CONTEXT_PRESERVE_RECENT": "5000"}, "CONTEXT_PRESERVE_RECENT", 10),
+        ({"SKEIN_CONTEXT_PIN_FIRST": "5000"}, "CONTEXT_PIN_FIRST", 0),
+        # NaN fails every comparison, so a bare </> check passes it straight
+        # to the SDK's clamp — the exact bug these bounds exist to refuse
+        ({"SKEIN_CONTEXT_SUMMARY_RATIO": "nan"}, "CONTEXT_SUMMARY_RATIO", 0.3),
     ],
 )
 def test_an_out_of_range_knob_degrades_and_says_so(monkeypatch, env, attr, default):
@@ -291,9 +299,11 @@ def test_changing_the_strategy_rewrites_an_existing_thread(fresh_db, monkeypatch
     team_agent._reconcile_session_strategy("t-flip", team_agent._conversation_manager())
     state = _stored_state("t-flip")
     assert state["__name__"] == "SummarizingConversationManager"
-    # reset, not carried: every message is still on disk, and carrying the
-    # offset would strand the ones the dropped summary used to stand for
-    assert state["removed_message_count"] == 0
+    # CARRIED, not reset. Resetting replays the whole thread into the next
+    # model call, which overflows, and the recovery summarizes a full history
+    # in one call and overflows again — several turns fail in a row on exactly
+    # the long threads this exists to save.
+    assert state["removed_message_count"] == 3
 
 
 def test_reconcile_leaves_a_matching_thread_alone(fresh_db, monkeypatch):
@@ -327,6 +337,45 @@ def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
 
     session_log.log_exchange("t-bridge", "/help", "here is help")
     assert _stored_state("t-bridge")["__name__"] == "SummarizingConversationManager"
+
+
+def test_build_agent_reconciles_a_mismatched_session(fresh_db, monkeypatch):
+    """The CALL SITE, not just the function. Without the reconcile call in
+    build_agent, this raises ValueError('Invalid conversation manager state.')
+    — the original bricking bug, which every other test here would miss."""
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    monkeypatch.setattr(team_agent, "_model", lambda: _FakeModel())
+    _seed_session("t-brick", "SlidingWindowConversationManager")
+
+    agent = team_agent.build_agent("t-brick")
+    assert type(agent.conversation_manager).__name__ == "SummarizingConversationManager"
+
+
+def test_a_failed_reconcile_is_logged_not_swallowed(fresh_db, monkeypatch, caplog):
+    """Silence here means the next turn dies with the SDK's opaque error and
+    nothing in the log explains why recovery never ran."""
+    import logging
+
+    from strands.session import FileSessionManager
+
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    _seed_session("t-boom", "SlidingWindowConversationManager")
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+
+    def boom(*a, **k):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(FileSessionManager, "update_agent", boom)
+    with caplog.at_level(logging.WARNING):
+        team_agent._reconcile_session_strategy("t-boom", team_agent._conversation_manager())
+    assert any(r.levelno >= logging.WARNING for r in caplog.records)
 
 
 def test_build_agent_actually_attaches_the_manager(fresh_db, monkeypatch):

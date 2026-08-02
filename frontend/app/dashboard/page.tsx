@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { API_URL, api } from "@/lib/api";
+import { api, backendUnreachable } from "@/lib/api";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
@@ -356,7 +356,7 @@ export default function Dashboard() {
       >
         <SectionTabs set="work" />
         <p className="text-sm text-danger">
-        Cannot reach the backend at {API_URL} — make sure that it runs, then refresh. ({error})
+        {backendUnreachable(error)}
         <button onClick={load} className="ml-2 underline">
           retry
         </button>

@@ -1,6 +1,18 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+/** One condition, one wording (CLAUDE.md). Every surface that cannot reach the
+ *  backend says this — the URL included, because on a LAN it is usually the
+ *  thing that is wrong. */
+export const backendUnreachable = (error?: unknown) =>
+  `Cannot reach the backend at ${API_URL}. Check that the server is running, then try again.` +
+  (error ? ` (${String(error)})` : "");
+
+/** True only for a transport failure. `api()` throws a plain Error carrying the
+ *  server's own detail for anything the backend actually answered, and calling
+ *  that "unreachable" tells the reader to go check a server that is running. */
+export const isUnreachable = (error: unknown) => error instanceof TypeError;
+
 const USER_KEY = "skein-user";
 const API_KEY_KEY = "skein-key";
 

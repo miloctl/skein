@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { API_URL, api, getUser, setUser } from "@/lib/api";
+import { api, backendUnreachable, getUser, setUser } from "@/lib/api";
 import { StandupComposer } from "@/components/standup-card";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
@@ -244,7 +244,7 @@ export default function MyDay() {
   if (error && !b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
-        Cannot reach the backend at {API_URL} — make sure that it runs, then refresh. ({error})
+        {backendUnreachable(error)}
       </main>
     );
   if (!b)
