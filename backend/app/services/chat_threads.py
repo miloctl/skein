@@ -77,7 +77,12 @@ def _own(thread_id: str, owner: str) -> dict:
     _check_id(thread_id)
     row = db.query_one("SELECT * FROM chat_threads WHERE id = ? AND owner = ?", (thread_id, owner))
     if not row:
-        raise ValueError(f"no chat '{thread_id}' for {owner}")
+        # NotFound, not ValueError: main.py's rule is that entity-lookup
+        # failures are 404 everywhere. This one answered 400, which the UI
+        # hits on every new chat (it reads messages before the first send
+        # stores the thread) and which reads as "your request was malformed"
+        # when the request was fine and the row simply is not there yet.
+        raise db.NotFound(f"no chat '{thread_id}' for {owner}")
     return row
 
 
