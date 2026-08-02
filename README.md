@@ -327,3 +327,9 @@ feed, turn guard, persona bench, per-turn cost and a budget rule).
 | [docs/SPEC.md](docs/SPEC.md) | The original phase plan. Superseded, kept for the data model |
 | [docs/PLAN.md](docs/PLAN.md) | The 2026-07-24 wave plan, executed. Kept for the recorded deviations |
 | [docs/reviews/](docs/reviews/) | Design rationale — the alternatives that lost, and why |
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE). [NOTICE](NOTICE) carries the
+attribution for the persona definitions adapted from
+[agency-agents](https://github.com/msitarzewski/agency-agents) (MIT).
