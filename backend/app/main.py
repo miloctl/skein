@@ -11,6 +11,7 @@ from . import config, db
 from .routes import api, chat, private, slack, webhooks
 from .services.activity import chain_health
 from .services.jobs import JOBS, job_health, run_job
+from .services.settings import effective_context_strategy
 from .telemetry import setup_telemetry
 
 logging.basicConfig(
@@ -146,7 +147,9 @@ def health():
         "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "embeddings_error": config.EMBEDDINGS_ERROR,
-        "context_strategy": config.CONTEXT_STRATEGY,
+        # the EFFECTIVE strategy, not the env default — the toggle overrides it,
+        # and two surfaces disagreeing about one fact is the bug this avoids
+        "context_strategy": effective_context_strategy(),
         "context_error": config.CONTEXT_STRATEGY_ERROR,
         "jobs": job_health(),
         "activity_chain": chain_health(),

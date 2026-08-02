@@ -818,14 +818,18 @@ export default function SettingsPage() {
         <p className="mb-3 text-sm text-ink-3">
           A model holds only so much of a conversation. When a chat outgrows
           that, Skein either drops the oldest messages or summarizes them.
-          This applies to everyone, so it needs a working API key (step 2).
+          This setting applies to everyone. To change it, use your personal
+          API key (step 2).
           {ctx && !ctx.applies && (
-            <>
-              {" "}
-              No AI model is connected, so nothing here is in use yet.
-            </>
+            <> No model is connected. This setting is not in use.</>
           )}
         </p>
+        {!ctx && (
+          <p className="text-sm text-ink-3">
+            Cannot reach the backend. Check that the server is running, then
+            try again.
+          </p>
+        )}
         {ctx && (
           <div className="space-y-2">
             {[
@@ -863,10 +867,14 @@ export default function SettingsPage() {
                           method: "POST",
                           body: JSON.stringify({ strategy: o.id }),
                         });
-                        setCtxStatus("Saved. New chat turns use it right away.");
+                        setCtxStatus(
+                          "Saved. Every chat uses it from its next message.",
+                        );
                         loadCtx();
-                      } catch (e) {
-                        setCtxStatus(String(e));
+                      } catch {
+                        setCtxStatus(
+                          "Cannot reach the backend. Check that the server is running, then try again.",
+                        );
                       }
                     }}
                   />
@@ -891,8 +899,10 @@ export default function SettingsPage() {
                       `Cleared. Back to the deployment default (${ctx.default}).`,
                     );
                     loadCtx();
-                  } catch (e) {
-                    setCtxStatus(String(e));
+                  } catch {
+                    setCtxStatus(
+                      "Cannot reach the backend. Check that the server is running, then try again.",
+                    );
                   }
                 }}
                 className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"

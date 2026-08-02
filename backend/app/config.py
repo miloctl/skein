@@ -243,42 +243,60 @@ TURN_GUARD = os.getenv("SKEIN_TURN_GUARD", "0") == "1"
 # SKEIN_MODEL_PROVIDER=mock is untouched by every knob below.
 CONTEXT_STRATEGIES = ("sliding", "summarize")
 CONTEXT_STRATEGY = os.getenv("SKEIN_CONTEXT_STRATEGY", "sliding").strip().lower() or "sliding"
-CONTEXT_STRATEGY_ERROR = ""
+_CONTEXT_FAULTS: list[str] = []
 
 if CONTEXT_STRATEGY not in CONTEXT_STRATEGIES:
-    CONTEXT_STRATEGY_ERROR = (
+    _CONTEXT_FAULTS.append(
         f"unknown SKEIN_CONTEXT_STRATEGY {CONTEXT_STRATEGY!r} —"
         f" expected one of: {', '.join(CONTEXT_STRATEGIES)}. Using sliding."
     )
     CONTEXT_STRATEGY = "sliding"
 
 
-def _ctx_num(name: str, default, cast):
+def _ctx_num(name: str, default, cast, low=None, high=None):
     """Operator input parsed the same way MAX_TOKENS is: a bad value degrades
     to the default and says so, rather than raising at import and taking the
-    REST API down with it."""
-    global CONTEXT_STRATEGY_ERROR
+    REST API down with it.
+
+    Range-checked HERE rather than left to the SDK. Out of range, the managers
+    either raise at construction (a negative window: every chat turn fails
+    while /health stays green) or silently clamp (a ratio above 0.8: the
+    operator believes a number that is not in effect). Both are the same bug —
+    a setting that does not mean what it says — so both are refused up front.
+
+    EVERY fault is collected, not just the first: these knobs are independent,
+    so reporting one at a time makes an operator with two typos restart twice.
+    """
+    raw = os.getenv(name, "").strip()
     try:
-        return cast(os.getenv(name, "").strip() or default)
+        value = cast(raw or default)
     except ValueError:
-        if not CONTEXT_STRATEGY_ERROR:
-            CONTEXT_STRATEGY_ERROR = f"{name} is not a number — falling back to {default}"
+        _CONTEXT_FAULTS.append(f"{name} is not a number — falling back to {default}")
         return default
+    if (low is not None and value < low) or (high is not None and value > high):
+        bounds = f"{low} to {high}" if high is not None else f"{low} or more"
+        _CONTEXT_FAULTS.append(f"{name}={value} is outside {bounds} — falling back to {default}")
+        return default
+    return value
 
 
-# messages kept before the oldest are dropped (sliding)
-CONTEXT_WINDOW = _ctx_num("SKEIN_CONTEXT_WINDOW", 40, int)
-# share of the oldest messages folded into a summary when it fires (summarize)
-CONTEXT_SUMMARY_RATIO = _ctx_num("SKEIN_CONTEXT_SUMMARY_RATIO", 0.3, float)
+# messages kept before the oldest are dropped (sliding). 0 would clear the
+# history on every reduction, which is a chat with no memory at all
+CONTEXT_WINDOW = _ctx_num("SKEIN_CONTEXT_WINDOW", 40, int, low=1)
+# share of the oldest messages folded into a summary when it fires (summarize).
+# bounds mirror the SDK's own clamp, so the configured number is the real one
+CONTEXT_SUMMARY_RATIO = _ctx_num("SKEIN_CONTEXT_SUMMARY_RATIO", 0.3, float, low=0.1, high=0.8)
 # recent messages never summarized away (summarize)
-CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int)
+CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low=0)
 # opening messages pinned to the front and never dropped OR summarized, under
 # either strategy. This is the native answer to "important context survives a
 # long chat" — it protects messages in place instead of re-adding tokens after
 # a trim, which is what makes a trim/re-inject loop impossible.
-CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int)
+CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0)
 # compress at 70% of the window instead of waiting for an overflow error
 CONTEXT_PROACTIVE = os.getenv("SKEIN_CONTEXT_PROACTIVE", "0") == "1"
+
+CONTEXT_STRATEGY_ERROR = "; ".join(_CONTEXT_FAULTS)
 
 CORS_ORIGINS = [
     o.strip()

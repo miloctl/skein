@@ -186,7 +186,7 @@ export default function Agents() {
           {(status.context_strategy || status.context_error) && (
             <span>
               {status.context_error
-                ? `Long-chat memory misconfigured — ${status.context_error}`
+                ? `Long-chat memory: ${status.context_error} Correct the SKEIN_CONTEXT_* values in .env, then restart the server.`
                 : status.context_strategy === "summarize"
                   ? "Long chats: older messages are summarized (costs one extra model call each time)"
                   : "Long chats: oldest messages are dropped"}
