@@ -233,15 +233,30 @@ def _user_aligned_offset(repo, thread_id: str, offset: int) -> int:
 
     Backward, not forward: moving back re-admits a message or two that are
     already on disk, while moving forward would silently drop them.
+
+    "Starts with a user message" is NOT the whole test, and checking only the
+    role reintroduces the bug through a side door: a user message carrying a
+    lone toolResult is deleted on restore as an orphan, leaving the assistant
+    turn first again. Skein's agent is tool-driven, so that shape is ordinary.
+    The SDK already owns the real predicate — a valid trim point is a user
+    message that is neither an orphaned toolResult nor an unpaired toolUse —
+    so this asks the SDK per candidate rather than restating the rules and
+    letting them drift.
     """
+    from strands.agent.conversation_manager.compression.context_compression import (
+        find_valid_trim_point,
+    )
+
     if offset <= 0:
         return 0
-    messages = repo.list_messages(thread_id, SESSION_AGENT_ID)
-    if offset >= len(messages):
+    stored = repo.list_messages(thread_id, SESSION_AGENT_ID)
+    if offset >= len(stored):
         return offset
-    while offset > 0 and messages[offset].to_message().get("role") != "user":
-        offset -= 1
-    return offset
+    messages = [m.to_message() for m in stored]
+    for candidate in range(offset, -1, -1):
+        if find_valid_trim_point(messages, candidate) == candidate:
+            return candidate
+    return offset  # nothing valid earlier — keep the offset rather than replay everything
 
 
 def _reconcile_session_strategy(thread_id: str, manager) -> None:

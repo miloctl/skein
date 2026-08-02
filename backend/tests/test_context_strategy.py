@@ -511,3 +511,52 @@ def test_several_faults_read_as_sentences(monkeypatch):
     assert ";" not in err  # user-visible functional text carries no semicolons
     assert ".;" not in err
     assert err.endswith(".")
+
+
+def _seed_tool_messages(thread_id: str) -> None:
+    """[user, assistant(toolUse), user(toolResult), assistant, user, assistant]
+    — the ordinary shape for a tool-driven agent, and a legal summarize split
+    at index 3 because the tool pair sits wholly inside the summarized range."""
+    from strands.session import FileSessionManager
+    from strands.types.session import SessionMessage
+
+    repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+    msgs = [
+        {"role": "user", "content": [{"text": "do it"}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "tu1", "name": "t", "input": {}}}],
+        },
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "tu1", "content": [{"text": "ok"}]}}],
+        },
+        {"role": "assistant", "content": [{"text": "done"}]},
+        {"role": "user", "content": [{"text": "next"}]},
+        {"role": "assistant", "content": [{"text": "sure"}]},
+    ]
+    for i, m in enumerate(msgs):
+        repo.create_message(thread_id, "default", SessionMessage.from_message(m, i))
+
+
+def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
+    """A lone toolResult IS a user message, so a role-only check lands on it —
+    and the SDK then deletes it as an orphan on restore, putting the assistant
+    turn first again. The role check alone is not the test."""
+    from strands.session import FileSessionManager
+
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    _seed_session("t-tools", "SummarizingConversationManager")
+    _seed_tool_messages("t-tools")
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
+
+    team_agent._reconcile_session_strategy("t-tools", team_agent._conversation_manager())
+    offset = _stored_state("t-tools")["removed_message_count"]
+    assert offset == 0  # index 2 is the orphaned toolResult, so it walks past it
+
+    repo = FileSessionManager(session_id="t-tools", storage_dir=str(config.SESSIONS_DIR))
+    restored = [m.to_message() for m in repo.list_messages("t-tools", "default", offset=offset)]
+    assert restored[0]["role"] == "user"
+    assert not any("toolResult" in c for c in restored[0]["content"])
