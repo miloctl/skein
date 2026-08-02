@@ -5,7 +5,6 @@ Commands route through the same deterministic engine as the mock agent
 budget and independent of whether an LLM provider is configured.
 """
 
-import contextlib
 import hashlib
 import hmac
 import time
@@ -48,15 +47,32 @@ async def slack_command(request: Request):
     text = str(form.get("text", "")).strip()
     user = str(form.get("user_name", "slack-user"))
 
+    from ..services import users as users_svc
     from ..services.adoption import record_use
     from ..services.users import ensure_user
 
     record_use(user, "slack")
     # every other write surface registers its writer (deps.py does it for
     # REST); without this, Slack captures logged under an unrostered name
-    # were invisible to the scoped activity surfaces
-    with contextlib.suppress(ValueError):  # name clash with an agent identity
+    # were invisible to the scoped activity surfaces.
+    #
+    # A clash with an agent identity is a REFUSAL, not something to suppress:
+    # deps.py refuses an agent identity on REST because agent rows carry trust
+    # scores and gate levels, and writes as them sidestep the review gate.
+    # Slack had no equivalent, so a workspace member whose user_name matched an
+    # agent wrote as that agent with origin=human.
+    try:
         ensure_user(user)
+    except ValueError as exc:
+        return {"response_type": "ephemeral", "text": str(exc)}
+    if users_svc.is_agent(user):
+        return {
+            "response_type": "ephemeral",
+            "text": (
+                f"'{user}' is an agent identity in Skein. Agents write through the gated"
+                " tool surface, not Slack. Ask whoever runs the server for a different name."
+            ),
+        }
     if text.lower().split(maxsplit=1)[:1] == ["/as"]:
         return {
             "response_type": "ephemeral",

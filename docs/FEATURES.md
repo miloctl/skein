@@ -148,7 +148,7 @@ daily at 05:00 UTC and written to `data/artifacts/context-pack/`.
 | `skein` CLI | stdlib-only; `pipx install ./cli`; config at `~/.config/skein/config.json` (0600, key prompted) |
 | Git trailers | `skein install-hooks`; `Closes-Task: #12` / `Refs-Task: #7` sync on commit |
 | CI webhook | `POST /api/webhooks/ci` (generic or GitHub Actions payload): red default-branch run files a deduped high-impact blocker; green auto-resolves; cancelled/skipped ignored |
-| MCP server | `claude mcp add skein -- env SKEIN_MCP_USER=you backend/.venv/bin/python -m app.mcp_server` — 16 tools + the context-pack resource against the same DB |
+| MCP server | `claude mcp add skein -- env SKEIN_MCP_USER=you-mcp backend/.venv/bin/python -m app.mcp_server` (a DISTINCT name: the server reserves it as an agent identity at boot, and agent identities are refused on REST and the private surfaces — if you set your own name here, free it again with `POST /api/users/<name>/rename`) — 16 tools + the context-pack resource against the same DB |
 | Slack | outbound webhook (`SLACK_WEBHOOK_URL`) + `/skein` slash command (`SLACK_SIGNING_SECRET`, HMAC-verified) |
 | Prebuilt agent tools | `SKEIN_EXTRA_TOOLS=calculator,current_time,think,batch` loads allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) into the real agent; research tools (`tavily_search`, `exa_search`) activate with their own keys; shell/file/exec tools, `http_request` (a third write path around the review gate), `use_agent`/`use_llm` (model-chosen provider endpoints), and `workflow`/`diagram` (path traversal/subprocess) are refused by the allowlist — rationale in `app/agents/extra_tools.py` |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` traces the agent loop |

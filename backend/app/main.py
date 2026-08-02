@@ -49,7 +49,23 @@ async def lifespan(app: FastAPI):
     from .services.users import ensure_user
 
     ensure_user("agent", kind="agent")
-    ensure_user(os.getenv("SKEIN_MCP_USER", "mcp-agent"), kind="agent")
+    # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
+    # your own name — which reserves it as an AGENT identity, and agent
+    # identities are refused on REST and on every private surface. An existing
+    # human row is safe (INSERT OR IGNORE leaves it alone), so the trap is a
+    # fresh install. Say so at boot instead of letting the operator find out
+    # by being locked out; the recovery is a rename of the agent row.
+    mcp_user = os.getenv("SKEIN_MCP_USER", "mcp-agent")
+    minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
+    ensure_user(mcp_user, kind="agent")
+    if minted and mcp_user != "mcp-agent":
+        log.warning(
+            "reserved %r as an AGENT identity (SKEIN_MCP_USER). Agent identities cannot"
+            " use REST or the private surfaces. If that is your own name, free it with"
+            " POST /api/users/%s/rename before picking it in the UI.",
+            mcp_user,
+            mcp_user,
+        )
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises
     for spec in JOBS:
