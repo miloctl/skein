@@ -274,3 +274,13 @@ def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     tops = [t["engagement"] for t in fired[0]["receipt"]["top_engagements"]]
     assert "this month" in tops
     assert "last month" not in tops
+
+
+def test_engagement_names_dedupe_case_insensitively(fresh_db):
+    """The chat panel snaps case-insensitively against the OPEN list only, so
+    a case-variant of a CLOSED engagement's name reached create() — which was
+    case-sensitive, silently forking usage rollups across near-duplicates."""
+    engagements.create_engagement("Alpha", actor="ava")
+    engagements.update_engagement(1, status="closed", conclusion="stopped", actor="ava")
+    with pytest.raises(ValueError, match="already exists"):
+        engagements.create_engagement("alpha", actor="ava")

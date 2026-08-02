@@ -702,9 +702,15 @@ export function ChatSidebar({
                         name="link-new-engagement"
                         placeholder="New engagement — ↵ to create & link"
                         aria-label="Create an engagement and link this chat to it"
+                        maxLength={120}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && e.currentTarget.value.trim())
-                            createAndLink(t.id, e.currentTarget.value.trim());
+                          const name = e.currentTarget.value.trim();
+                          if (e.key === "Enter" && name) {
+                            // clear synchronously: a second Enter during the
+                            // POST round-trip would re-submit the same name
+                            e.currentTarget.value = "";
+                            createAndLink(t.id, name);
+                          }
                           if (e.key === "Escape") closeMenu(t.id);
                         }}
                         className="mt-1 w-full rounded border border-line-strong bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-3"
