@@ -179,3 +179,28 @@ def test_slack_as_points_to_web_chat(client, monkeypatch):
         },
     )
     assert "web chat" in r.json()["text"]
+
+
+PROBE_MD = "---\nname: Probe\ndescription: probes\n---\nYou are a probe."
+
+
+def test_overlay_persona_joins_the_bench(tmp_path, monkeypatch):
+    from app import config
+    from app.services import personas
+
+    (tmp_path / "fixer.md").write_text(PROBE_MD)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", tmp_path)
+    slugs = [p["slug"] for p in personas.list_personas()]
+    assert "fixer" in slugs and "code-reviewer" in slugs
+    assert personas.get_persona("fixer")["body"] == "You are a probe."
+
+
+def test_overlay_wins_a_slug_collision(tmp_path, monkeypatch):
+    from app import config
+    from app.services import personas
+
+    (tmp_path / "code-reviewer.md").write_text(PROBE_MD)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", tmp_path)
+    assert personas.get_persona("code-reviewer")["name"] == "Probe"
+    slugs = [p["slug"] for p in personas.list_personas()]
+    assert slugs.count("code-reviewer") == 1

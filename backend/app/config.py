@@ -13,6 +13,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("SKEIN_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# Deployment overlays: extra playbooks/personas loaded ALONGSIDE the stock
+# directories, so deployment-specific content lives in its own repo instead
+# of a fork. An overlay file with the same slug replaces the stock file.
+# Empty = no overlay.
+_playbooks_overlay = os.getenv("SKEIN_PLAYBOOKS_DIR", "")
+PLAYBOOKS_OVERLAY: Path | None = Path(_playbooks_overlay) if _playbooks_overlay else None
+_personas_overlay = os.getenv("SKEIN_PERSONAS_DIR", "")
+PERSONAS_OVERLAY: Path | None = Path(_personas_overlay) if _personas_overlay else None
+
 DB_PATH = DATA_DIR / "platform.db"
 # Author-private records (1:1 prep, feedback journal) live in a SEPARATE
 # database file that backup/export/FTS/MCP/agents never open. Excluded from

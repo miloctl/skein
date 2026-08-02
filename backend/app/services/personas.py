@@ -1,4 +1,6 @@
-"""The Bench: curated specialist personas, loaded from backend/personas/*.md.
+"""The Bench: curated specialist personas, loaded from backend/personas/*.md
+plus an optional SKEIN_PERSONAS_DIR overlay (overlay wins a slug collision, and
+an overlay pack.json replaces the stock one wholesale).
 
 A persona file is frontmatter (name/description/emoji/vibe) plus a system-
 prompt body. Files are edited like code (the playbooks precedent) — adapted
@@ -24,8 +26,40 @@ import json
 import re
 from pathlib import Path
 
+from .. import config
+
 PERSONAS_DIR = Path(__file__).resolve().parent.parent.parent / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
+
+
+def _persona_files() -> dict[str, Path]:
+    """slug -> path across the stock dir and the SKEIN_PERSONAS_DIR overlay.
+    The overlay wins a slug collision, so a deployment can re-head a stock
+    persona without editing the repo."""
+    files: dict[str, Path] = {}
+    dirs = [PERSONAS_DIR]
+    overlay = config.PERSONAS_OVERLAY
+    if overlay and overlay.is_dir():
+        dirs.append(overlay)
+    for d in dirs:
+        if d.is_dir():
+            for path in sorted(d.glob("*.md")):
+                files[path.stem] = path
+    return files
+
+
+def _pack_file() -> Path:
+    """The effective pack.json: the overlay's copy wins wholesale when it
+    exists — behavioral defaults are one coherent object, never a field merge
+    of two files."""
+    overlay = config.PERSONAS_OVERLAY
+    if overlay:
+        candidate = overlay / "pack.json"
+        if candidate.is_file():
+            return candidate
+    return PACK_FILE
+
+
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 _FIELDS = ("name", "description", "emoji", "vibe", "disclosure", "model", "temperature", "tools")
 BEHAVIOR_FIELDS = ("model", "temperature", "tools")
@@ -64,12 +98,13 @@ def _parse(path: Path) -> dict | None:
 
 
 def _pack_defaults() -> dict:
-    """Behavioral defaults from personas/pack.json, or {} when absent/bad.
+    """Behavioral defaults from the effective pack.json, or {} when absent/bad.
     Lenient at runtime for the same reason _parse is; validate_all is strict."""
-    if not PACK_FILE.is_file():
+    pack = _pack_file()
+    if not pack.is_file():
         return {}
     try:
-        data = json.loads(PACK_FILE.read_text(encoding="utf-8"))
+        data = json.loads(pack.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     defaults = data.get("defaults") if isinstance(data, dict) else None
@@ -164,9 +199,10 @@ def validate_all() -> list[str]:
     malformed persona fails CI instead of silently vanishing from the bench."""
     errors: list[str] = []
     known = _known_tool_names()
-    if PACK_FILE.is_file():
+    pack = _pack_file()
+    if pack.is_file():
         try:
-            data = json.loads(PACK_FILE.read_text(encoding="utf-8"))
+            data = json.loads(pack.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or not isinstance(data.get("defaults", {}), dict):
                 errors.append("pack.json: expected an object with an optional 'defaults' object")
             else:
@@ -190,39 +226,38 @@ def validate_all() -> list[str]:
                 )
         except json.JSONDecodeError as exc:
             errors.append(f"pack.json: not valid JSON ({exc})")
-    for path in sorted(PERSONAS_DIR.glob("*.md")):
-        label = path.name
-        if not _SLUG.match(path.stem):
-            errors.append(f"{label}: slug must match {_SLUG.pattern}")
-            continue
-        p = _parse(path)
-        if p is None:
-            errors.append(f"{label}: missing frontmatter, or name/description empty")
-            continue
-        errors += _check_behavior(label, p["temperature"], p["tools"], known)
+    overlay = config.PERSONAS_OVERLAY
+    dirs = [PERSONAS_DIR] + ([overlay] if overlay and overlay.is_dir() else [])
+    for d in dirs:
+        for path in sorted(d.glob("*.md")):
+            label = path.name if d == PERSONAS_DIR else f"{path.name} (overlay)"
+            if not _SLUG.match(path.stem):
+                errors.append(f"{label}: slug must match {_SLUG.pattern}")
+                continue
+            p = _parse(path)
+            if p is None:
+                errors.append(f"{label}: missing frontmatter, or name/description empty")
+                continue
+            errors += _check_behavior(label, p["temperature"], p["tools"], known)
     return errors
 
 
 def list_personas() -> list[dict]:
     """The bench roster — everything except the prompt body."""
     out = []
-    if PERSONAS_DIR.is_dir():
-        for path in sorted(PERSONAS_DIR.glob("*.md")):
-            p = _parse(path)
-            if p:
-                out.append(
-                    {
-                        k: p[k]
-                        for k in ("slug", "name", "description", "emoji", "vibe", "disclosure")
-                    }
-                )
+    for _slug, path in sorted(_persona_files().items()):
+        p = _parse(path)
+        if p:
+            out.append(
+                {k: p[k] for k in ("slug", "name", "description", "emoji", "vibe", "disclosure")}
+            )
     return out
 
 
 def get_persona(slug: str) -> dict:
     if _SLUG.match(slug):
-        path = PERSONAS_DIR / f"{slug}.md"
-        if path.is_file():
+        path = _persona_files().get(slug)
+        if path is not None and path.is_file():
             p = _parse(path)
             if p:
                 return p
