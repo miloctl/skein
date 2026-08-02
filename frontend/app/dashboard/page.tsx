@@ -399,6 +399,8 @@ export default function Dashboard() {
         <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
           <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">
             Season {pulse.season.label}
+            {/* a real space, not just the margin: CSS gaps separate pixels,
+                not text, so "S5" + "0 days left" was read as "S50 days left" */}{" "}
             <span className="ml-2 font-normal normal-case text-ink-3">
               {pulse.season.days_left} days left
             </span>
@@ -406,7 +408,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
             <div>
               <p className="font-display text-[30px]/none font-semibold text-ink">
-                {pulse.standup_chain.chain}
+                {pulse.standup_chain.chain}{" "}
                 <span className="ml-1 text-sm font-normal text-ink-3">days</span>
               </p>
               <span
@@ -427,7 +429,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="font-display text-[30px]/none font-semibold text-ink">
-                {pulse.season_totals.blockers_spotted}
+                {pulse.season_totals.blockers_spotted}{" "}
                 <span className="ml-1 text-sm font-normal text-ink-3">
                   / {pulse.season_totals.blockers_open} open
                 </span>
