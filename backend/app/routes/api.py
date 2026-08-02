@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import db, ratelimit
+from .. import config, db, ratelimit
 from ..services import (
     absences,
     activity,
@@ -822,7 +822,14 @@ def post_findings_run(user: CurrentUser):
 
 @router.get("/usage")
 def get_usage():
-    return usage.usage_summary()
+    """Token and estimated-cost accounting. Costs are estimates from the
+    operator's price table; unpriced_calls says how much each sum cannot see."""
+    return {
+        "models": usage.usage_summary(),
+        "engagements": usage.engagement_costs(),
+        "month": usage.month_to_date(),
+        "prices_error": config.MODEL_PRICES_ERROR,
+    }
 
 
 # ---- writes ----------------------------------------------------------------

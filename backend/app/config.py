@@ -111,6 +111,41 @@ if not MODEL_PROVIDER_ERROR and (_raw := os.getenv("SKEIN_MODEL_PARAMS", "").str
         MODEL_PARAMS = {}
         MODEL_PROVIDER_ERROR = f"SKEIN_MODEL_PARAMS is not a JSON object: {exc}"
 
+# Price table for cost estimates: {"model-id": [usd_per_mtok_in, usd_per_mtok_out]}.
+# EMPTY by default, deliberately: a shipped price table goes stale and a stale
+# price is a wrong number presented as accounting. A model with no entry gets
+# cost NULL — honest, not zero. A bad value degrades and says so; it must
+# never take the provider down, because prices are bookkeeping, not routing.
+MODEL_PRICES: dict[str, tuple[float, float]] = {}
+MODEL_PRICES_ERROR = ""
+if _raw_prices := os.getenv("SKEIN_MODEL_PRICES", "").strip():
+    try:
+        _parsed = json.loads(_raw_prices)
+        if not isinstance(_parsed, dict):
+            raise TypeError("not a JSON object")
+        for _mid, _pair in _parsed.items():
+            if (
+                not isinstance(_pair, (list, tuple))
+                or len(_pair) != 2
+                or not all(isinstance(x, (int, float)) and x >= 0 for x in _pair)
+            ):
+                raise TypeError(f"{_mid!r} must map to [input_usd_per_mtok, output_usd_per_mtok]")
+            MODEL_PRICES[str(_mid)] = (float(_pair[0]), float(_pair[1]))
+    except (json.JSONDecodeError, TypeError) as exc:
+        MODEL_PRICES = {}
+        MODEL_PRICES_ERROR = f"SKEIN_MODEL_PRICES is unusable: {exc}. No costs are estimated."
+
+# Monthly team spend ceiling in USD for the budget findings rule. 0 = off.
+try:
+    MONTHLY_BUDGET_USD = float(os.getenv("SKEIN_MONTHLY_BUDGET_USD", "").strip() or 0)
+    if not math.isfinite(MONTHLY_BUDGET_USD) or MONTHLY_BUDGET_USD < 0:
+        raise ValueError
+except (ValueError, OverflowError):
+    MONTHLY_BUDGET_USD = 0.0
+    MODEL_PRICES_ERROR = (MODEL_PRICES_ERROR + " " if MODEL_PRICES_ERROR else "") + (
+        "SKEIN_MONTHLY_BUDGET_USD is not a usable number. The budget rule is off."
+    )
+
 # What the agent layer actually runs. Degrades to mock on any fault above so
 # the app boots and every deterministic surface keeps working.
 EFFECTIVE_PROVIDER = "mock" if MODEL_PROVIDER_ERROR else MODEL_PROVIDER

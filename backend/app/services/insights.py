@@ -745,6 +745,56 @@ def _r_activity_chain() -> list[dict]:
     ]
 
 
+def _r_budget() -> list[dict]:
+    """Month-to-date estimated spend crossed the operator's ceiling. Off until
+    SKEIN_MONTHLY_BUDGET_USD is set. If the budget is set but no model has a
+    price, the rule says the budget cannot be measured — silence there would
+    read as "under budget" while nothing was being counted."""
+    from .. import config
+    from .usage import engagement_costs, month_to_date
+
+    if not config.MONTHLY_BUDGET_USD:
+        return []
+    month = month_to_date()
+    if month["calls"] and month["cost_usd"] is None:
+        return [
+            _finding(
+                "budget",
+                "medium",
+                f"SKEIN_MONTHLY_BUDGET_USD is set to {config.MONTHLY_BUDGET_USD:.2f}"
+                f" but none of this month's {month['calls']} model calls have a"
+                " priced model. The budget cannot be measured. Add the model to"
+                " SKEIN_MODEL_PRICES, then restart the server.",
+                {"month": month["month"], "calls": month["calls"]},
+                subject=f"unmeasured:{month['month']}",
+                window="month-to-date",
+            )
+        ]
+    if month["cost_usd"] is None or month["cost_usd"] < config.MONTHLY_BUDGET_USD:
+        return []
+    top = [
+        {"engagement": e["engagement"], "cost_usd": e["cost_usd"]} for e in engagement_costs()[:3]
+    ]
+    unpriced = (
+        f" {month['unpriced_calls']} call(s) are unpriced and not counted."
+        if month["unpriced_calls"]
+        else ""
+    )
+    return [
+        _finding(
+            "budget",
+            "high",
+            f"Estimated model spend for {month['month']} is"
+            f" ${month['cost_usd']:.2f}, at or over the"
+            f" ${config.MONTHLY_BUDGET_USD:.2f} monthly budget.{unpriced}"
+            " Review the engagement costs on /api/usage.",
+            {"month": month, "top_engagements": top},
+            subject=f"month:{month['month']}",
+            window="month-to-date",
+        )
+    ]
+
+
 RULES = (
     _r_mttr,
     _r_escalation_spike,
@@ -762,6 +812,7 @@ RULES = (
     _r_authority_stale,
     _r_feature_unadopted,
     _r_activity_chain,
+    _r_budget,
 )
 
 
