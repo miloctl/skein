@@ -229,3 +229,25 @@ def test_limit_clamp_value(fresh_db):
     for i in range(205):
         db.log_activity("bot", "capture", f"#{i}")
     assert len(activity.feed("ava", limit=100000)["entries"]) == 200
+
+
+def test_rename_carries_the_field_guide_state(fresh_db):
+    """The ledger-immutability fix removed the accidental self-heal: activity
+    used to be renamed, so predicates re-tied under the new name. Now the
+    unlock STATE moves instead — a renamed veteran must not watch their guide
+    reset toward zero."""
+    from app.services import fieldguide
+
+    _seed_people(fresh_db)
+    db.log_activity("ben", "capture", "note #1")
+    fieldguide.detect("ben")
+    assert any(k["id"] == "capture" and k["tied"] for k in fieldguide.guide("ben")["cards"])
+    users.rename_user("ben", "benjamin", actor="ava")
+    assert any(k["id"] == "capture" and k["tied"] for k in fieldguide.guide("benjamin")["cards"])
+    # merge: the target's existing unlock wins, no UNIQUE collision
+    users.ensure_user("cara")
+    db.log_activity("cara", "capture", "note #2")
+    fieldguide.detect("cara")
+    users.rename_user("benjamin", "cara", actor="ava")
+    tied = [k for k in fieldguide.guide("cara")["cards"] if k["tied"]]
+    assert any(k["id"] == "capture" for k in tied)
