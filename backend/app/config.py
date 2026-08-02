@@ -1,6 +1,7 @@
 """Central configuration, loaded from environment / .env."""
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -271,11 +272,17 @@ def _ctx_num(name: str, default, cast, low=None, high=None):
     try:
         value = cast(raw or default)
     except ValueError:
-        _CONTEXT_FAULTS.append(f"{name} is not a number — falling back to {default}")
+        _CONTEXT_FAULTS.append(f"{name} is not a number. Skein uses {default}.")
+        return default
+    # NaN fails every comparison, so a bare < / > check would pass it straight
+    # to the SDK's max(min(...)) clamp — the exact "a number that is not in
+    # effect" case these bounds exist to refuse
+    if not math.isfinite(value):
+        _CONTEXT_FAULTS.append(f"{name} is not a real number. Skein uses {default}.")
         return default
     if (low is not None and value < low) or (high is not None and value > high):
         bounds = f"{low} to {high}" if high is not None else f"{low} or more"
-        _CONTEXT_FAULTS.append(f"{name}={value} is outside {bounds} — falling back to {default}")
+        _CONTEXT_FAULTS.append(f"{name}={value} is outside {bounds}. Skein uses {default}.")
         return default
     return value
 
@@ -286,13 +293,14 @@ CONTEXT_WINDOW = _ctx_num("SKEIN_CONTEXT_WINDOW", 40, int, low=1)
 # share of the oldest messages folded into a summary when it fires (summarize).
 # bounds mirror the SDK's own clamp, so the configured number is the real one
 CONTEXT_SUMMARY_RATIO = _ctx_num("SKEIN_CONTEXT_SUMMARY_RATIO", 0.3, float, low=0.1, high=0.8)
-# recent messages never summarized away (summarize)
-CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low=0)
-# opening messages pinned to the front and never dropped OR summarized, under
-# either strategy. This is the native answer to "important context survives a
-# long chat" — it protects messages in place instead of re-adding tokens after
-# a trim, which is what makes a trim/re-inject loop impossible.
-CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0)
+# recent messages never summarized away (summarize). Set too high, the SDK
+# raises "insufficient messages for summarization" on every overflow, so the
+# ceiling is a typo guard rather than a preference
+CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low=0, high=1000)
+# opening messages the SDK holds during a turn. INERT on Skein's file-backed
+# chats: session restore replays from an offset that skips exactly these
+# messages, so the pin does not survive a turn boundary. Wired for when it does.
+CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000)
 # compress at 70% of the window instead of waiting for an overflow error
 CONTEXT_PROACTIVE = os.getenv("SKEIN_CONTEXT_PROACTIVE", "0") == "1"
 

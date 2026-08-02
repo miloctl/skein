@@ -3,7 +3,16 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-import { API_URL, api, getApiKey, getUser, setApiKey, setUser } from "@/lib/api";
+import {
+  API_URL,
+  api,
+  backendUnreachable,
+  getApiKey,
+  getUser,
+  isUnreachable,
+  setApiKey,
+  setUser,
+} from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
 import {
@@ -71,6 +80,10 @@ export default function SettingsPage() {
     choices: string[];
     applies: boolean;
   } | null>(null);
+  // separate from ctx === null: before the first fetch resolves nothing has
+  // failed yet, and rendering an error during normal loading is a refusal
+  // describing something that did not happen
+  const [ctxLoaded, setCtxLoaded] = useState(false);
   const [ctxStatus, setCtxStatus] = useState("");
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
@@ -93,7 +106,8 @@ export default function SettingsPage() {
       applies: boolean;
     }>("/api/settings/context-strategy")
       .then(setCtx)
-      .catch(() => setCtx(null));
+      .catch(() => setCtx(null))
+      .finally(() => setCtxLoaded(true));
   }, []);
   useEffect(loadCtx, [loadCtx]);
 
@@ -824,11 +838,8 @@ export default function SettingsPage() {
             <> No model is connected. This setting is not in use.</>
           )}
         </p>
-        {!ctx && (
-          <p className="text-sm text-ink-3">
-            Cannot reach the backend. Check that the server is running, then
-            try again.
-          </p>
+        {ctxLoaded && !ctx && (
+          <p className="text-sm text-ink-3">{backendUnreachable()}</p>
         )}
         {ctx && (
           <div className="space-y-2">
@@ -871,9 +882,14 @@ export default function SettingsPage() {
                           "Saved. Every chat uses it from its next message.",
                         );
                         loadCtx();
-                      } catch {
+                      } catch (e) {
+                        // a served refusal (rate cap, revoked key) is not an
+                        // unreachable backend, and saying so sends the reader
+                        // to check a server that is running
                         setCtxStatus(
-                          "Cannot reach the backend. Check that the server is running, then try again.",
+                          isUnreachable(e)
+                            ? backendUnreachable()
+                            : `Not saved. ${String(e instanceof Error ? e.message : e)}`,
                         );
                       }
                     }}
@@ -899,9 +915,11 @@ export default function SettingsPage() {
                       `Cleared. Back to the deployment default (${ctx.default}).`,
                     );
                     loadCtx();
-                  } catch {
+                  } catch (e) {
                     setCtxStatus(
-                      "Cannot reach the backend. Check that the server is running, then try again.",
+                      isUnreachable(e)
+                        ? backendUnreachable()
+                        : `Not cleared. ${String(e instanceof Error ? e.message : e)}`,
                     );
                   }
                 }}

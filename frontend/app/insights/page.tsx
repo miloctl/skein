@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { API_URL, api } from "@/lib/api";
+import { api, backendUnreachable } from "@/lib/api";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 
@@ -145,7 +145,7 @@ export default function InsightsPage() {
       >
         <SectionTabs set="work" />
         <p className="text-sm text-danger">
-          Cannot reach the backend at {API_URL} — make sure that it runs, then refresh. ({error})
+          {backendUnreachable(error)}
         </p>
       </main>
     );
