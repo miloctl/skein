@@ -67,7 +67,7 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
 
 def list_threads(owner: str) -> list[dict]:
     return db.query(
-        "SELECT id, title, folder, created_at, updated_at FROM chat_threads"
+        "SELECT id, title, folder, engagement_id, created_at, updated_at FROM chat_threads"
         " WHERE owner = ? ORDER BY updated_at DESC, rowid DESC",
         (owner,),
     )

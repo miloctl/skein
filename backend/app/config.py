@@ -124,10 +124,19 @@ if _raw_prices := os.getenv("SKEIN_MODEL_PRICES", "").strip():
         if not isinstance(_parsed, dict):
             raise TypeError("not a JSON object")
         for _mid, _pair in _parsed.items():
+            # bool is an int in Python, and json.loads parses the bare
+            # Infinity token — either would price a model at a number the
+            # operator never wrote, and inf 500s /api/usage at render time
             if (
                 not isinstance(_pair, (list, tuple))
                 or len(_pair) != 2
-                or not all(isinstance(x, (int, float)) and x >= 0 for x in _pair)
+                or not all(
+                    isinstance(x, (int, float))
+                    and not isinstance(x, bool)
+                    and math.isfinite(x)
+                    and x >= 0
+                    for x in _pair
+                )
             ):
                 raise TypeError(f"{_mid!r} must map to [input_usd_per_mtok, output_usd_per_mtok]")
             MODEL_PRICES[str(_mid)] = (float(_pair[0]), float(_pair[1]))
