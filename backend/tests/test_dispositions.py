@@ -111,3 +111,49 @@ def test_rule_stats_counts(fresh_db):
     assert stats["aging_wip"]["fired"] == 2
     assert stats["aging_wip"]["dispositioned"] == 1
     assert stats["aging_wip"]["dismissed"] == 1
+
+
+def test_findings_feed_carries_disposition(client, fresh_db):
+    from app.services import insights
+
+    fresh_db.execute(
+        "INSERT INTO findings (rule_id, subject, severity, message, receipt, week, created_at)"
+        " VALUES ('question_aging', 'question-9', 'low', 'm', '{}', ?, ?)",
+        (insights._week(), fresh_db.now()),
+    )
+    fid = fresh_db.query("SELECT id FROM findings")[0]["id"]
+    rows = insights.list_findings()
+    assert rows[0]["disposition"] == ""
+    insights.disposition_finding(fid, "dismissed", reason="test", actor="tester")
+    rows = insights.list_findings()
+    assert rows[0]["disposition"] == "dismissed"
+
+
+def test_deferred_until_must_be_a_date(fresh_db):
+    from app import db
+    from app.services.insights import disposition_finding
+
+    fid = db.execute(
+        "INSERT INTO findings (rule_id, subject, severity, message, n, window,"
+        " receipt, week, created_at) VALUES ('r', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)",
+        (db.now(),),
+    )
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        disposition_finding(fid, "deferred", deferred_until="banana", actor="m")
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        disposition_finding(fid, "deferred", deferred_until="2026-7-1", actor="m")
+
+
+def test_rule_stats_median_days(fresh_db):
+    from app import db
+    from app.services.insights import disposition_finding, rule_stats
+
+    fid = db.execute(
+        "INSERT INTO findings (rule_id, subject, severity, message, n, window,"
+        " receipt, week, created_at) VALUES ('r1', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)",
+        ("2026-07-20T00:00:00+00:00",),
+    )
+    disposition_finding(fid, "resolved", actor="m")
+    stats = {s["rule_id"]: s for s in rule_stats()}
+    assert stats["r1"]["median_days_to_disposition"] is not None
+    assert stats["r1"]["median_days_to_disposition"] >= 3  # planted 4 days ago

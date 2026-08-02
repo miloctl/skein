@@ -337,3 +337,11 @@ def test_usage_logs_the_base_thread_and_the_agents_own_model(client, fresh_db, m
     assert row["model_id"] == "persona-model"  # the agent's model, not config.MODEL_ID
     assert row["cost_usd"] == pytest.approx(1.0)  # priced at the RIGHT model's rate
     assert row["agent_name"] == "code-reviewer"
+
+
+def test_record_chat_usage(fresh_db):
+    from app.services.usage import record_chat_usage
+
+    record_chat_usage("thread-1", "chief-of-staff", "mock", 10, 20, cycles=2, latency_ms=5)
+    row = fresh_db.query_row("SELECT * FROM usage_log")
+    assert row["input_tokens"] == 10 and row["output_tokens"] == 20

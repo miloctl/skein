@@ -76,3 +76,40 @@ def test_delivery_engagements_unchanged(fresh_db):
     with pytest.raises(ValueError, match="conclusion"):
         update_engagement(e["id"], status="closed", actor="tester")
     update_engagement(e["id"], status="closed", conclusion="achieved", actor="tester")
+
+
+def test_intake_accept_as_experiment(client, fresh_db):
+    req = client.post("/api/intake", json={"title": "RAG spike"}).json()
+    client.post(
+        f"/api/intake/{req['id']}/score",
+        json={"reach": 3, "impact": 3, "confidence": 3, "effort": 2},
+    )
+    r = client.post(
+        f"/api/intake/{req['id']}/disposition",
+        json={
+            "disposition": "accepted",
+            "reason": "worth two weeks",
+            "kind": "experiment",
+            "timebox_end": "2026-08-15",
+            "outcome": "median lookup under 8 minutes",
+        },
+    )
+    assert r.json()["engagement_created"] is True
+    eng = fresh_db.query_row("SELECT * FROM engagements WHERE name = 'RAG spike'")
+    assert eng["kind"] == "experiment"
+    assert eng["timebox_end"] == "2026-08-15"
+    assert eng["outcome"] == "median lookup under 8 minutes"
+
+
+def test_timebox_can_be_extended(client, fresh_db):
+    from app.services.engagements import create_engagement
+
+    e = create_engagement("Spike", kind="experiment", timebox_end="2026-08-01", actor="m")
+    r = client.patch(f"/api/engagements/{e['id']}", json={"timebox_end": "2026-09-01"})
+    assert r.status_code == 200
+    assert (
+        fresh_db.query_row("SELECT timebox_end FROM engagements WHERE id = ?", (e["id"],))[
+            "timebox_end"
+        ]
+        == "2026-09-01"
+    )

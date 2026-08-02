@@ -208,3 +208,30 @@ def test_brief_degrades_to_empty(client, fresh_db):
     b = r.json()
     assert b["open_blockers"] == [] and b["standups"] == []
     assert "never captured feedback" in b["nudge"]
+
+
+def test_private_note_delete_and_audit(client, fresh_db):
+    from app.services.api_keys import create_key
+
+    headers = {"Authorization": f"Bearer {create_key('manager', 't')['key']}"}
+    note = client.post(
+        "/api/private/notes", json={"person": "dana", "body": "note"}, headers=headers
+    ).json()
+    client.get("/api/private/notes?person=dana", headers=headers)
+    r = client.delete(f"/api/private/notes/{note['id']}", headers=headers)
+    assert r.json()["deleted"] is True
+    assert client.get("/api/private/notes?person=dana", headers=headers).json() == []
+    audit = client.get("/api/private/audit", headers=headers).json()
+    actions = [a["action"] for a in audit]
+    assert (
+        "add_note" in actions and "delete" in actions and any(a.startswith("list") for a in actions)
+    )
+    # someone else can't delete or read the audit
+    other = {"Authorization": f"Bearer {create_key('other', 't')['key']}"}
+    note2 = client.post(
+        "/api/private/notes", json={"person": "x", "body": "mine"}, headers=headers
+    ).json()
+    # 404, not 400: someone else's note must be indistinguishable from a
+    # missing one — no existence leak
+    assert client.delete(f"/api/private/notes/{note2['id']}", headers=other).status_code == 404
+    assert client.get("/api/private/audit", headers=other).json() == []
