@@ -9,7 +9,11 @@ shipped** (standup 'yesterday' derives from your activity on My Day — CLI
 **chat-identity contextvar fix shipped** (personas run on it), the
 onboarding key step is now self-serve ("Request a key"), and A2's
 prerequisite (strong-verdict provenance, `reviewed_strong`) exists.
-Everything else below remains un-implemented, pending triage.
+
+> **CLOSED 2026-08-02.** Every remaining proposal was checked against the code
+> and moved to `docs/ROADMAP.md` under "Open backlog". C1, P2, P5, A1, A2 and
+> D1 turned out to be built and were dropped. This file is kept for the
+> mechanism sketches and the per-agent reasoning behind each proposal.
 
 ## Cross-agent convergences
 
