@@ -308,7 +308,10 @@ CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low
 # chats: session restore replays from an offset that skips exactly these
 # messages, so the pin does not survive a turn boundary. Wired for when it does.
 CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000)
-# compress at 70% of the window instead of waiting for an overflow error
+# compress before an overflow instead of after. The threshold is 70% of the
+# MODEL's TOKEN context window (the SDK assumes 200k when nothing sets
+# context_window_limit, and nothing here does) — NOT of CONTEXT_WINDOW above,
+# which is a message count. On a small local model this never fires.
 CONTEXT_PROACTIVE = os.getenv("SKEIN_CONTEXT_PROACTIVE", "0") == "1"
 
 # joined with a space, not a semicolon: every fault terminates itself, and
