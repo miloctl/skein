@@ -5,6 +5,7 @@ Commands route through the same deterministic engine as the mock agent
 budget and independent of whether an LLM provider is configured.
 """
 
+import contextlib
 import hashlib
 import hmac
 import time
@@ -48,8 +49,14 @@ async def slack_command(request: Request):
     user = str(form.get("user_name", "slack-user"))
 
     from ..services.adoption import record_use
+    from ..services.users import ensure_user
 
     record_use(user, "slack")
+    # every other write surface registers its writer (deps.py does it for
+    # REST); without this, Slack captures logged under an unrostered name
+    # were invisible to the scoped activity surfaces
+    with contextlib.suppress(ValueError):  # name clash with an agent identity
+        ensure_user(user)
     if text.lower().split(maxsplit=1)[:1] == ["/as"]:
         return {
             "response_type": "ephemeral",

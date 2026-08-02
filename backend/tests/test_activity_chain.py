@@ -211,11 +211,12 @@ def test_the_legacy_baseline_is_not_treated_as_tampering(fresh_db):
 def test_the_feed_orders_by_seq_not_rowid(fresh_db):
     """`id` is outside the digest, so ordering the feed by it would let the
     visible timeline be resequenced while verification still reports intact."""
-    from app.services import collab
+    from app.services import collab, users
 
+    users.ensure_user("tester")
     _log(3)
     db.execute("UPDATE activity SET id = 500 WHERE seq = 1")
-    assert [r["seq"] for r in collab.recent_activity()] == [3, 2, 1]
+    assert [r["seq"] for r in collab.recent_activity("tester")] == [3, 2, 1]
     assert activity.verify_chain()["ok"]
 
 
