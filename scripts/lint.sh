@@ -13,6 +13,9 @@ echo "== mypy =="
 echo "== vulture (dead code) =="
 (cd backend && .venv/bin/vulture)
 
+echo "== personas =="
+(cd backend && .venv/bin/python -m app.services.personas)
+
 echo "== eslint =="
 (cd frontend && npm run --silent lint)
 
