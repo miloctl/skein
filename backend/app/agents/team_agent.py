@@ -197,6 +197,32 @@ def _tool_name(t) -> str:
     return str(getattr(t, "tool_name", "") or getattr(t, "__name__", ""))
 
 
+def _planner_tools(allowlist: list[str] | None) -> list:
+    """The planning specialist's tool set, narrowed by the persona allowlist.
+
+    The planner runs under the PERSONA's identity (contextvars span the whole
+    request), so its writes are the persona's writes — an allowlist that
+    stopped at the outer agent would hand a "read-only" persona three write
+    tools through this one door. Module-level so the filter is testable
+    without spying on Agent construction.
+    """
+    from ..tools.platform import list_playbooks, start_engagement_from_playbook
+    from ..tools.work import create_milestone, create_task, list_milestones, list_tasks
+
+    tools = [
+        list_playbooks,
+        start_engagement_from_playbook,
+        create_milestone,
+        create_task,
+        list_milestones,
+        list_tasks,
+    ]
+    if allowlist is None:
+        return tools
+    allowed = set(allowlist)
+    return [t for t in tools if _tool_name(t) in allowed]
+
+
 def _conversation_manager():
     """How a long chat is kept inside the context window.
 
@@ -329,7 +355,10 @@ def _reconcile_session_strategy(thread_id: str, manager) -> None:
 def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations via FileSessionManager.
-    A persona swaps the head (system prompt + identity), never the tools."""
+    A persona swaps the head (system prompt + identity) and can narrow the
+    tools: a declared allowlist filters what BOTH this agent and its planner
+    sub-agent are built with (the planner runs under the persona's identity,
+    so its writes are the persona's writes)."""
     # A misconfigured provider must NOT quietly become the mock agent — that
     # is the failure where the UI looks healthy and answers are fabricated.
     # Raise; routes/chat.py renders it as an error in the chat pane.
@@ -346,10 +375,14 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
 
     from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
-    from ..tools.platform import list_playbooks, start_engagement_from_playbook
-    from ..tools.work import create_milestone, create_task, list_milestones, list_tasks
     from .extra_tools import extra_tools
     from .mcp_tools import mcp_tools
+
+    beh: dict[str, Any] = {"model": "", "temperature": None, "tools": None}
+    if persona:
+        from ..services.personas import behavior
+
+        beh = behavior(persona)
 
     @tool
     def plan_project(goal: str, project: str = "default") -> str:
@@ -362,16 +395,11 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
             project: Project/engagement name to file the work under.
         """
         planner = Agent(
+            # the deployment model, not the persona override: the planner is
+            # its own specialist, not the persona speaking
             model=_model(),
             system_prompt=PLANNER_PROMPT,
-            tools=[
-                list_playbooks,
-                start_engagement_from_playbook,
-                create_milestone,
-                create_task,
-                list_milestones,
-                list_tasks,
-            ],
+            tools=_planner_tools(beh["tools"]),
             callback_handler=None,
         )
         result = planner(f"Project: {project}\nGoal: {goal}")
@@ -380,12 +408,10 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     system = SYSTEM_PROMPT.format(
         today=datetime.now(timezone.utc).date().isoformat(), user=user
     ) + memory_prompt(user)
-    beh: dict[str, Any] = {"model": "", "temperature": None, "tools": None}
     if persona:
-        from ..services.personas import behavior, get_persona
+        from ..services.personas import get_persona
 
         p = get_persona(persona)
-        beh = behavior(persona)
         gate = (
             "Review mode is ON: your writes become proposals a human approves."
             if config.AGENT_REVIEW

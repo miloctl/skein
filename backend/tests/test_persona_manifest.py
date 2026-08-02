@@ -158,3 +158,56 @@ def test_a_persona_cannot_change_the_provider(bench):
     file must not be able to redirect traffic to a different endpoint."""
     _write(bench, "probe", "model: anything\n")
     assert set(personas.behavior("probe")) == {"model", "temperature", "tools"}
+
+
+def test_pack_json_native_types_are_accepted(bench):
+    """A JSON list is the natural way to write a tool list in a JSON file —
+    str() on it produced a repr matching no tool, silently building every
+    persona with ZERO tools."""
+    (bench / "pack.json").write_text(
+        '{"defaults": {"tools": ["save_note", "ask_question"], "temperature": 0.4}}'
+    )
+    _write(bench, "probe")
+    b = personas.behavior("probe")
+    assert b["tools"] == ["save_note", "ask_question"]
+    assert b["temperature"] == 0.4
+
+
+def test_the_validator_checks_pack_default_values_not_just_names(bench):
+    """The pack must not smuggle what a persona cannot: a bad default here
+    strips tools from EVERY persona at once."""
+    (bench / "pack.json").write_text('{"defaults": {"tools": "not_a_tool", "temperature": "warm"}}')
+    errors = personas.validate_all()
+    joined = "\n".join(errors)
+    assert "not_a_tool" in joined
+    assert "'warm' is not a number" in joined
+
+
+def test_the_validator_rejects_unusable_pack_value_types(bench):
+    (bench / "pack.json").write_text('{"defaults": {"tools": {"a": 1}}}')
+    errors = personas.validate_all()
+    assert any("list of strings" in e for e in errors)
+
+
+def test_the_planner_inherits_the_persona_allowlist():
+    """plan_project spawns a sub-agent under the SAME persona identity — an
+    allowlist that stopped at the outer agent handed a read-only persona three
+    write tools through this one door."""
+    from app.agents import team_agent
+
+    names = [team_agent._tool_name(t) for t in team_agent._planner_tools(None)]
+    assert "create_task" in names and len(names) == 6
+
+    narrowed = team_agent._planner_tools(["list_tasks", "plan_project", "list_playbooks"])
+    assert sorted(team_agent._tool_name(t) for t in narrowed) == ["list_playbooks", "list_tasks"]
+
+
+def test_build_agent_wires_the_planner_filter():
+    """The closure must call _planner_tools with the persona allowlist — the
+    helper being correct means nothing if build_agent ignores it."""
+    import inspect
+
+    from app.agents import team_agent
+
+    src = inspect.getsource(team_agent.build_agent)
+    assert '_planner_tools(beh["tools"])' in src

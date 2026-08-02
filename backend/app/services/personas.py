@@ -75,12 +75,25 @@ def _pack_defaults() -> dict:
     defaults = data.get("defaults") if isinstance(data, dict) else None
     if not isinstance(defaults, dict):
         return {}
-    return {k: str(v) for k, v in defaults.items() if k in BEHAVIOR_FIELDS}
+    out = {}
+    for k, v in defaults.items():
+        if k not in BEHAVIOR_FIELDS:
+            continue
+        # a JSON list is the natural way to write a tool list in a JSON file;
+        # str() on it would produce a repr that matches no tool, silently
+        # building every persona with ZERO tools
+        out[k] = ",".join(str(i) for i in v) if isinstance(v, list) else str(v)
+    return out
 
 
 def _merge_behavior(persona: dict, defaults: dict) -> dict:
     """Persona frontmatter wins field-by-field over the pack defaults.
-    Separate so the precedence is testable in isolation."""
+    Separate so the precedence is testable in isolation.
+
+    KNOWN LIMIT: an empty frontmatter value falls through to the pack default,
+    so a persona cannot override a pack default back to "unrestricted" or
+    "deployment model". Keep pack.json defaults minimal — a pack-wide tools
+    default restricts every persona with no per-persona escape hatch."""
     return {k: persona.get(k) or defaults.get(k, "") for k in BEHAVIOR_FIELDS}
 
 
@@ -124,6 +137,28 @@ def _known_tool_names() -> set[str]:
     return names
 
 
+def _check_behavior(label: str, temperature: str, tools: str, known: set[str]) -> list[str]:
+    """The value checks shared by frontmatter and pack.json defaults — one
+    rule, two sources, so the pack cannot smuggle what a persona cannot."""
+    errors = []
+    raw = temperature.strip()
+    if raw:
+        try:
+            t = float(raw)
+        except ValueError:
+            errors.append(f"{label}: temperature {raw!r} is not a number")
+        else:
+            if not 0.0 <= t <= 2.0:
+                errors.append(f"{label}: temperature {t} is outside 0.0 to 2.0")
+    for name in (n.strip() for n in tools.split(",") if n.strip()):
+        if name not in known:
+            errors.append(
+                f"{label}: tools names unknown tool {name!r} — the allowlist"
+                " denies by omission, so a typo silently strips the tool"
+            )
+    return errors
+
+
 def validate_all() -> list[str]:
     """Every check _parse forgives, as loud errors — run by lint.sh so a
     malformed persona fails CI instead of silently vanishing from the bench."""
@@ -135,9 +170,24 @@ def validate_all() -> list[str]:
             if not isinstance(data, dict) or not isinstance(data.get("defaults", {}), dict):
                 errors.append("pack.json: expected an object with an optional 'defaults' object")
             else:
-                unknown = set(data.get("defaults", {})) - set(BEHAVIOR_FIELDS)
+                defaults = data.get("defaults", {})
+                unknown = set(defaults) - set(BEHAVIOR_FIELDS)
                 if unknown:
                     errors.append(f"pack.json: unknown default field(s): {sorted(unknown)}")
+                for k, v in defaults.items():
+                    ok_types = (str, int, float)
+                    if not (
+                        isinstance(v, ok_types)
+                        or (isinstance(v, list) and all(isinstance(i, str) for i in v))
+                    ):
+                        errors.append(
+                            f"pack.json: default {k!r} must be a string, a number,"
+                            " or a list of strings"
+                        )
+                merged = _pack_defaults()
+                errors += _check_behavior(
+                    "pack.json", merged.get("temperature", ""), merged.get("tools", ""), known
+                )
         except json.JSONDecodeError as exc:
             errors.append(f"pack.json: not valid JSON ({exc})")
     for path in sorted(PERSONAS_DIR.glob("*.md")):
@@ -149,21 +199,7 @@ def validate_all() -> list[str]:
         if p is None:
             errors.append(f"{label}: missing frontmatter, or name/description empty")
             continue
-        raw = p["temperature"].strip()
-        if raw:
-            try:
-                t = float(raw)
-            except ValueError:
-                errors.append(f"{label}: temperature {raw!r} is not a number")
-            else:
-                if not 0.0 <= t <= 2.0:
-                    errors.append(f"{label}: temperature {t} is outside 0.0 to 2.0")
-        for name in (t.strip() for t in p["tools"].split(",") if t.strip()):
-            if name not in known:
-                errors.append(
-                    f"{label}: tools names unknown tool {name!r} — the allowlist"
-                    " denies by omission, so a typo silently strips the tool"
-                )
+        errors += _check_behavior(label, p["temperature"], p["tools"], known)
     return errors
 
 

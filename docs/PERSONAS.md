@@ -1,10 +1,11 @@
 # The Bench — persona spec
 
 Curated specialist personas the team can invoke in chat. A persona is the
-same Chief-of-Staff agent wearing a different head: same tools, same review
-gate, same provenance — a different system prompt, and crucially **its own
-agent identity**, so the authority matrix and trust scores track each
-persona separately.
+same Chief-of-Staff agent wearing a different head: same review gate, same
+provenance — a different system prompt, and crucially **its own agent
+identity**, so the authority matrix and trust scores track each persona
+separately. By default a persona shares the full tool registry; frontmatter
+behavior fields can narrow that (see "Behavior fields" below).
 
 Source material: definitions adapted from `~/external/agency-agents`
 (867 agents; we vendor a curated subset as repo files — no runtime
@@ -83,8 +84,13 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 
 ## Non-goals (this iteration)
 
-- No per-persona tool restriction (they share ALL_TOOLS; the authority
-  matrix is the restriction mechanism).
+- ~~No per-persona tool restriction~~ — superseded: frontmatter `tools`
+  declares an allowlist, enforced at Agent construction for BOTH the persona's
+  agent and its planner sub-agent (the planner runs under the persona's
+  identity, so its writes are the persona's writes). The layering with the
+  authority matrix is: the allowlist decides what the model sees at
+  construction, the matrix gates each write per entity at call time — the
+  stricter of the two wins in both directions.
 - No persona-to-persona conversation (see ideation A4 for handoffs).
 - No auto-selection of personas (the human picks; the CoS remains the
   default head).
@@ -107,3 +113,25 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
   filing. Genuinely private career prep belongs on the People page.
 - **Sticky sessions (shipped):** the mode chip + invisible prefixing
   resolved the per-message `/as` interaction cost flagged in review.
+
+## Behavior fields (since 2026-08-02)
+
+Frontmatter can add three optional fields; pack-wide defaults live in
+`personas/pack.json` (`{"defaults": {...}}`), persona wins field-by-field.
+
+- `model:` — model ID override. Never the provider or endpoint: a persona
+  file cannot redirect traffic.
+- `temperature:` — 0.0 to 2.0. Beats `SKEIN_MODEL_PARAMS` (the persona is the
+  more specific operator intent). A bad value drops at runtime and fails the
+  validator.
+- `tools:` — comma list, deny-by-omission once declared: the persona's agent
+  (and its planner) is built with exactly those tools, so the model never
+  sees the rest. Extra/MCP tools cannot be allowlisted by name. A pack-wide
+  `tools` default restricts every persona and no persona can override it
+  back to unrestricted — keep pack defaults minimal.
+
+Runtime parsing is lenient (a malformed persona drops off the bench, chat
+stays up). `python -m app.services.personas` is the strict validator that
+lint.sh and CI run — the same file fails the build instead of vanishing.
+Behavior fields apply on real providers only; the mock path never builds a
+Strands agent.
