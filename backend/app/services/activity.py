@@ -245,23 +245,47 @@ def _anchor_log_paths() -> list:
     return paths
 
 
+def _tail_anchor_line(path) -> tuple[int, str] | None:
+    """The last parseable (seq, digest) in an anchor file, or None."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for raw in reversed(lines):
+        m = _ANCHOR_LINE.match(raw.strip())
+        if m:
+            return int(m.group(1)), m.group(2)
+    return None
+
+
 def record_anchor() -> dict:
-    """Append the last VERIFIED tip to the anchor log(s) — one line per night.
+    """Append the last VERIFIED tip to the anchor log(s) — one line per tip.
 
     Reads the app_settings anchor rather than the live tail: the tail may
     contain rows written since verification ran, and anchoring an unverified
     digest would launder whatever it happens to say into tomorrow's baseline.
+
+    A file whose last line already records this tip is skipped. The startup
+    catch-up runs this on every process start, and a dev server restarting on
+    file changes appended the same line dozens of times in an evening. The
+    check is PER FILE, so a mirror that was unmounted last night still gets
+    the line the local file already has.
+
     A failed append is logged and skipped — the mirror is a mounted path that
-    is allowed to be absent — but the local file failing too means tonight's
-    tip goes unanchored, which the job outcome records via the return value.
+    is allowed to be absent — but every file failing means the tip goes
+    unanchored, which the job outcome records via the return value.
     """
     seq, digest = _anchor()
     if not seq or not digest:
         return {"anchored": 0, "files": []}
     line = f"{db.now()} seq={seq} hash={digest}\n"
     written = []
+    current = []
     for path in _anchor_log_paths():
         try:
+            if _tail_anchor_line(path) == (seq, digest):
+                current.append(str(path))
+                continue
             # no mkdir here, deliberately. _backups_dir() already creates the
             # local dir, and manufacturing the MIRROR directory would build the
             # mount point on the local disk when the NAS is unmounted — the
@@ -281,9 +305,9 @@ def record_anchor() -> dict:
             written.append(str(path))
         except OSError:
             log.warning("could not append the chain anchor to %s", path, exc_info=True)
-    # anchored reports what actually landed — a night where every append
-    # failed must not read as a success in the job outcome
-    return {"anchored": seq if written else 0, "files": written}
+    # anchored reports what actually landed or was already on record — a night
+    # where every append failed must not read as a success in the job outcome
+    return {"anchored": seq if written or current else 0, "files": written, "current": current}
 
 
 def nightly_verify() -> dict:
