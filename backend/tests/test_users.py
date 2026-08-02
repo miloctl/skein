@@ -130,3 +130,18 @@ def test_growth_interests_self_declared_and_in_what_if(client, fresh_db):
     by_person = {p["person"]: p for p in out["projection"]}
     assert "RAG" in by_person["chen"]["growth_interests"]
     assert by_person["dana"]["growth_interests"] == ""
+
+
+def test_an_overlay_persona_slug_is_reserved_from_humans(fresh_db, tmp_path, monkeypatch):
+    """The bench-slug guard must see personas added through the overlay, live -
+    a cached roster would let a human absorb an overlay persona's identity."""
+    import pytest
+
+    from app import config
+    from app.services import users
+
+    users.ensure_user("fixer")  # before the overlay exists, the name is free
+    (tmp_path / "fixer2.md").write_text("---\nname: Fixer\ndescription: fixes\n---\nYou fix.")
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", tmp_path)
+    with pytest.raises(ValueError, match="reserved for a bench persona"):
+        users.ensure_user("fixer2")

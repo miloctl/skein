@@ -1,9 +1,10 @@
-# push-only by design: the runner lives on the production box with docker
-# access, so untrusted pull_request code must never execute here. Re-add a PR
-# trigger only after moving the runner to an ephemeral sandboxed host.
+# push-only by design: a runner that shares a host with a live deployment
+# must never execute untrusted pull_request code. Add a PR trigger only on an
+# ephemeral, sandboxed runner host.
 #
-# Manual clone instead of actions/checkout: this Gitea instance 403s the
-# `x-access-token` basic-auth username the action hardcodes; user:token works.
+# Manual clone instead of actions/checkout: some Gitea instances 403 the
+# `x-access-token` basic-auth username the action hardcodes; a real username
+# and token work. Set two repo secrets: CI_CHECKOUT_USER, CI_CHECKOUT_TOKEN.
 name: ci
 on:
   push:
@@ -15,7 +16,8 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          git clone --depth 50 "https://OWNER:${{ secrets.CI_CHECKOUT_TOKEN }}@gitea.example.com/OWNER/skein.git" .
+          base="${{ github.server_url }}"
+          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@v5
         with:
@@ -32,6 +34,7 @@ jobs:
           vulture
           python -m app.services.personas
           python ../scripts/check_theme_contrast.py
+          cmp ../LICENSE LICENSE && cmp ../NOTICE NOTICE
       - name: Test
         working-directory: backend
         env:
@@ -44,7 +47,8 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          git clone --depth 50 "https://OWNER:${{ secrets.CI_CHECKOUT_TOKEN }}@gitea.example.com/OWNER/skein.git" .
+          base="${{ github.server_url }}"
+          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-node@v4
         with:

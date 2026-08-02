@@ -29,6 +29,14 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 | growth-mentor | specialized/personal-growth-mentor | goal clarity, habit design, accountability — career growth |
 | training-designer | specialized/corporate-training-designer | skill-building plans for the team — career growth |
 
+## Deployment overlay
+
+`SKEIN_PERSONAS_DIR` names a directory of extra persona files loaded
+alongside `backend/personas/`. An overlay file with a stock slug wins, and an
+overlay `pack.json` replaces the stock one wholesale. This keeps a
+deployment's own bench in its own repo instead of a fork. The strict
+validator covers overlay files and labels them `(overlay)`.
+
 ## Architecture
 
 - **`backend/personas/*.md`** — one file per persona, edited like code

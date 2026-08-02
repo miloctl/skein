@@ -15,10 +15,15 @@ from . import collab, engagements, schedule, work
 PLAYBOOKS_DIR = Path(__file__).resolve().parent.parent.parent / "playbooks"
 
 
+_SLUG = re.compile(r"^[a-z0-9_-]+$")
+
+
 def _playbook_files() -> dict[str, Path]:
     """slug -> path across the stock dir and the SKEIN_PLAYBOOKS_DIR overlay.
     The overlay wins a slug collision, so a deployment can tailor a stock
-    playbook without editing the repo."""
+    playbook without editing the repo. A stem the slug charset rejects never
+    enters the map — it could never be fetched, so listing it would be a
+    roster entry with no playbook behind it."""
     files: dict[str, Path] = {}
     dirs = [PLAYBOOKS_DIR]
     overlay = config.PLAYBOOKS_OVERLAY
@@ -26,14 +31,23 @@ def _playbook_files() -> dict[str, Path]:
         dirs.append(overlay)
     for d in dirs:
         for path in sorted(d.glob("*.yaml")):
-            files[path.stem] = path
+            if _SLUG.match(path.stem):
+                files[path.stem] = path
     return files
 
 
 def list_playbooks() -> list[dict]:
+    """Lenient the way the persona loader is: one malformed overlay file drops
+    off the roster instead of taking down every playbook surface — the stock
+    files are CI-gated, but overlay files are live operator content."""
     out = []
     for slug, path in sorted(_playbook_files().items()):
-        data = yaml.safe_load(path.read_text())
+        try:
+            data = yaml.safe_load(path.read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict):
+            continue
         out.append(
             {
                 "slug": slug,
@@ -45,9 +59,6 @@ def list_playbooks() -> list[dict]:
     return out
 
 
-_SLUG = re.compile(r"^[a-z0-9_-]+$")
-
-
 def get_playbook(slug: str) -> dict:
     if not _SLUG.match(slug):  # path traversal guard — slug becomes a filename
         raise ValueError(f"invalid playbook slug '{slug}'")
@@ -56,7 +67,10 @@ def get_playbook(slug: str) -> dict:
         raise ValueError(
             f"no playbook '{slug}'; available: {[p['slug'] for p in list_playbooks()]}"
         )
-    pb = yaml.safe_load(path.read_text())
+    try:
+        pb = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError(f"playbook '{slug}' is malformed ({type(exc).__name__})") from exc
     if not isinstance(pb, dict):
         raise ValueError(f"playbook '{slug}' is malformed (expected a mapping)")
     for m in pb.get("milestones", []):

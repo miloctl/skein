@@ -13,7 +13,7 @@ rotates and every bird's lift carries the one behind it. That's this team:
 humans and AI agents drafting off each other, earning turns at the front,
 receipts shown at every checkpoint.
 
-Skein is an internal coordination harness for an AI-enabled strike team —
+Skein is a self-hosted coordination harness for an AI-enabled strike team —
 engagements, milestones, tasks, blockers, questions, decisions, standups,
 intake triage, a knowledge base, and a team calendar, shared between people
 and their agents.
@@ -101,8 +101,8 @@ docker compose logs -f backend               # watch migrations + scheduler star
 docker compose exec backend python -m app.bootstrap_key <name>
 ```
 
-If something already uses port 3000 on the host (true on this box — a
-`serve.js` app owns it), pick another frontend port:
+If another app already uses port 3000 on the host, pick another frontend
+port:
 
 ```bash
 SKEIN_FRONTEND_PORT=3100 docker compose up --build -d   # UI at :3100
@@ -120,17 +120,17 @@ overrides `SKEIN_OLLAMA_HOST` to `http://host.docker.internal:11434`
 `*-cloud` models, works from inside the container. **But default Ollama
 installs bind 127.0.0.1 only**, which the gateway can't reach. Either fix the
 daemon (`sudo systemctl edit ollama` → `Environment="OLLAMA_HOST=0.0.0.0"`)
-or, without root, run the bundled bridge (`ops/ollama-bridge.py`, a user
-systemd service on this box already: `ollama-bridge`) and point at port 11435.
+or, without root, run the bundled bridge (`ops/ollama-bridge.py`, installable
+as a user systemd service) and point at port 11435.
 
-**The verified command for THIS box** (port 3000/3100 taken, loopback Ollama
-bridged on 11435):
+A combined example — frontend port in use AND a loopback-only Ollama daemon
+behind the bridge:
 
 ```bash
-SKEIN_FRONTEND_PORT=3200 \
+SKEIN_FRONTEND_PORT=3100 \
 SKEIN_OLLAMA_HOST=http://host.docker.internal:11435 \
 docker compose up --build -d
-# UI: http://localhost:3200 · API: http://localhost:8000
+# UI: http://localhost:3100 · API: http://localhost:8000
 ```
 
 **Backup mirror in Docker:** the mirror path from `backend/.env` doesn't
@@ -157,10 +157,10 @@ as surprises): the REST write path does not pass through the agent review
 gate or authority matrix — only the tool/MCP paths do — so issue `sk-` keys
 to humans, not to agent processes you want gated; the CI webhook
 (`/api/webhooks/ci`) inherits only whatever the shared token provides; and
-the Actions runner on this box runs push-to-main only — never re-add a
-`pull_request` trigger while the runner has docker access on the production
-host. Authority levels can only be set by human identities (self-service by
-an agent is refused).
+if you register a CI runner with docker access on the host that runs Skein,
+keep it push-only — untrusted `pull_request` code must never execute on a
+production host. Authority levels can only be set by human identities
+(self-service by an agent is refused).
 
 ## Optional integrations — built in, off until configured
 

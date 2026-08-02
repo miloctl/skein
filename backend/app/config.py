@@ -22,6 +22,26 @@ PLAYBOOKS_OVERLAY: Path | None = Path(_playbooks_overlay) if _playbooks_overlay 
 _personas_overlay = os.getenv("SKEIN_PERSONAS_DIR", "")
 PERSONAS_OVERLAY: Path | None = Path(_personas_overlay) if _personas_overlay else None
 
+
+def overlay_errors() -> list[str]:
+    """A configured overlay dir that does not exist is ignored by the loaders
+    (the deployment keeps working on stock content) — but silently, which is
+    how an unmounted volume masquerades as a working overlay. /health carries
+    this, on the MODEL_PROVIDER_ERROR precedent: degrade AND say so.
+    Computed live so mounting the directory clears the error without a
+    restart."""
+    out = []
+    for label, overlay in (
+        ("SKEIN_PLAYBOOKS_DIR", PLAYBOOKS_OVERLAY),
+        ("SKEIN_PERSONAS_DIR", PERSONAS_OVERLAY),
+    ):
+        if overlay and not overlay.is_dir():
+            out.append(
+                f"{label} is set to {overlay}, which is not a directory. Mount the directory or clear the variable."
+            )
+    return out
+
+
 DB_PATH = DATA_DIR / "platform.db"
 # Author-private records (1:1 prep, feedback journal) live in a SEPARATE
 # database file that backup/export/FTS/MCP/agents never open. Excluded from

@@ -205,10 +205,10 @@ def test_agents_status_reports_the_fault(monkeypatch, restore_config):
     assert "nonsense" in body["provider_error"]
 
 
-# ---- back-compat: this box runs ollama + glm-5.2:cloud ----
+# ---- free-form model ids: cloud-suffixed ollama ids pass through untouched ----
 
 
-def test_ollama_config_on_this_box_is_unchanged(monkeypatch, restore_config):
+def test_ollama_cloud_model_id_passes_untouched(monkeypatch, restore_config):
     cfg = _reload_config(
         monkeypatch,
         SKEIN_MODEL_PROVIDER="ollama",

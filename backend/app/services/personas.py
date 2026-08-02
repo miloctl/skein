@@ -48,6 +48,14 @@ def _persona_files() -> dict[str, Path]:
     return files
 
 
+def bench_slugs() -> set[str]:
+    """Slugs reserved as agent identities, computed live (glob only, no
+    parsing) — a cached set would miss a persona dropped into a mounted
+    overlay after startup, and the human-name guard in users.ensure_user
+    would then let a human absorb that persona's identity."""
+    return set(_persona_files())
+
+
 def _pack_file() -> Path:
     """The effective pack.json: the overlay's copy wins wholesale when it
     exists — behavioral defaults are one coherent object, never a field merge

@@ -34,6 +34,10 @@ def test_overlay_playbook_joins_the_roster_and_instantiates(fresh_db, tmp_path, 
 
     result = playbooks.instantiate("vendor_audit", "Acme audit", actor="tester")
     assert result["milestones"] and result["engagement"]["name"] == "Acme audit"
+    from app.services import work
+
+    titles = [t["title"] for t in work.list_tasks()]
+    assert "List the vendors" in titles  # the overlay's task really lands
 
 
 def test_overlay_wins_a_slug_collision(fresh_db, tmp_path, monkeypatch):
@@ -46,12 +50,12 @@ def test_overlay_wins_a_slug_collision(fresh_db, tmp_path, monkeypatch):
     assert slugs.count("incident") == 1
 
 
-def test_no_overlay_keeps_the_stock_roster(fresh_db):
+def test_no_overlay_keeps_the_stock_roster_exactly(fresh_db):
+    """Equality, not subset — a leaked overlay would show up as an extra slug."""
     from app.services import playbooks
 
     slugs = {p["slug"] for p in playbooks.list_playbooks()}
-    assert {"incident", "prototype", "migration", "manager_onboarding"} <= slugs
-    assert playbooks.get_playbook("incident")["milestones"]
+    assert slugs == {"incident", "prototype", "migration", "manager_onboarding"}
 
 
 def test_missing_overlay_dir_is_ignored(fresh_db, tmp_path, monkeypatch):
@@ -60,3 +64,33 @@ def test_missing_overlay_dir_is_ignored(fresh_db, tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", tmp_path / "does-not-exist")
     assert {p["slug"] for p in playbooks.list_playbooks()} >= {"incident"}
+
+
+def test_a_malformed_overlay_file_drops_off_the_roster(fresh_db, tmp_path, monkeypatch):
+    """One broken operator file must not take down every playbook surface."""
+    from app.services import playbooks
+
+    _overlay(
+        tmp_path,
+        monkeypatch,
+        {
+            "vendor_audit.yaml": OVERLAY_YAML,
+            "broken.yaml": "name: [unclosed",
+            "empty.yaml": "",
+            "listy.yaml": "- not\n- a\n- mapping\n",
+        },
+    )
+    slugs = {p["slug"] for p in playbooks.list_playbooks()}
+    assert "vendor_audit" in slugs
+    assert not {"broken", "empty", "listy"} & slugs
+    import pytest
+
+    with pytest.raises(ValueError, match="malformed"):
+        playbooks.get_playbook("broken")
+
+
+def test_a_non_slug_stem_never_enters_the_roster(fresh_db, tmp_path, monkeypatch):
+    from app.services import playbooks
+
+    _overlay(tmp_path, monkeypatch, {"My Playbook.yaml": OVERLAY_YAML})
+    assert all(" " not in p["slug"] for p in playbooks.list_playbooks())

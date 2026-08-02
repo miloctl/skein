@@ -46,8 +46,8 @@ services:
         NEXT_PUBLIC_API_TOKEN: ${SKEIN_API_TOKEN:-}
     init: true
     ports:
-      # Host port is a knob — this box already runs another app on :3000,
-      # so use e.g. SKEIN_FRONTEND_PORT=3100 docker compose up --build -d
+      # Host port is a knob — if another app owns :3000 on the host, use
+      # e.g. SKEIN_FRONTEND_PORT=3100 docker compose up --build -d
       - "${SKEIN_FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend

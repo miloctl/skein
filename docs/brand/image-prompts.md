@@ -342,7 +342,7 @@ paper." The mask route is far more reliable than re-prompting.
 
 ## Crop commands
 
-No ImageMagick on this box; Python + Pillow works:
+Python + Pillow (no ImageMagick needed):
 
 ```python
 from PIL import Image
