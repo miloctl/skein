@@ -116,7 +116,7 @@ export default function SettingsPage() {
         // a 401 behind SKEIN_API_TOKEN, or a 500 from a locked database, is a
         // server that answered — calling it unreachable sends the reader to
         // check something that is running
-        setCtxLoadError(isUnreachable(e) ? backendUnreachable(e) : loadError(e));
+        setCtxLoadError(loadError(e));  // routes to backendUnreachable itself
       })
       .finally(() => setCtxLoaded(true));
   }, []);
