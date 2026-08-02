@@ -50,9 +50,9 @@ def _daily_backup():
 
 
 def _activity_verify():
-    from .activity import verify_tail
+    from .activity import nightly_verify
 
-    return verify_tail()
+    return nightly_verify()
 
 
 def _weekly_plan():

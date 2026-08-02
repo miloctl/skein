@@ -18,13 +18,27 @@ WHAT THIS CATCHES, and what it does not. The digest is unkeyed and every input
 to it is stored in the row it protects, so anyone who can write platform.db can
 recompute the whole chain. Three marks in app_settings raise that cost — the
 last verified anchor, a monotonic high-water seq, and the pre-036 unchained
-baseline — but they live in the same file. This detects corruption, partial
-writes, and hand edits. It does not defeat an attacker who read this module and
-is willing to rewrite app_settings too. Making that claim true needs an anchor
-stored outside the database, which is not built.
+baseline — but they live in the same file, so they do not defeat an attacker
+who read this module and rewrites app_settings too.
+
+The ANCHOR LOG covers that case. Each successful nightly verification appends
+the verified tip (seq + digest) to a file beside the backups AND,
+independently, to the same file on SKEIN_BACKUP_MIRROR. The daily findings
+rule replays every line ever anchored against the ledger as it exists now, so
+a re-forge or a truncation has to contradict a record made on an earlier day.
+Honest limits, in order of sharpness: rows newer than the last nightly line
+are covered only by the in-DB marks until tonight; an attacker who rewrites
+the LOCAL anchor log too is only caught by comparing it against the mirror
+copy, which is a human step after a finding fires; an attacker who can also
+write the mirror is not caught at all. Detection, never prevention.
 """
 
+import logging
+import re
+
 from .. import db
+
+log = logging.getLogger("skein")
 
 ANCHOR_SEQ = "activity_chain_seq"
 ANCHOR_HASH = "activity_chain_hash"
@@ -207,6 +221,114 @@ def verify_tail() -> dict:
         last = db.query_row("SELECT hash FROM activity WHERE seq = ?", (result["chained_through"],))
         _set_anchor(result["chained_through"], last["hash"])
     return result
+
+
+ANCHOR_LOG = "activity-anchors.log"
+_ANCHOR_LINE = re.compile(r"^\S+ seq=(\d+) hash=([0-9a-f]{64})$")
+
+
+def _anchor_log_paths() -> list:
+    """The local log beside the backups, plus the same file on the mirror.
+
+    APPENDED to independently, never copied. A copy would let a truncated
+    local file overwrite the mirror's longer history — and the mirror's
+    history is the record the local file is compared against after a break.
+    """
+    from .admin import _backups_dir, mirror_dir
+
+    paths = [_backups_dir() / ANCHOR_LOG]
+    mirror = mirror_dir()
+    if mirror is not None:
+        paths.append(mirror / ANCHOR_LOG)
+    return paths
+
+
+def record_anchor() -> dict:
+    """Append the last VERIFIED tip to the anchor log(s) — one line per night.
+
+    Reads the app_settings anchor rather than the live tail: the tail may
+    contain rows written since verification ran, and anchoring an unverified
+    digest would launder whatever it happens to say into tomorrow's baseline.
+    A failed append is logged and skipped — the mirror is a mounted path that
+    is allowed to be absent — but the local file failing too means tonight's
+    tip goes unanchored, which the job outcome records via the return value.
+    """
+    seq, digest = _anchor()
+    if not seq or not digest:
+        return {"anchored": 0, "files": []}
+    line = f"{db.now()} seq={seq} hash={digest}\n"
+    written = []
+    for path in _anchor_log_paths():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(line)
+            written.append(str(path))
+        except OSError:
+            log.warning("could not append the chain anchor to %s", path, exc_info=True)
+    return {"anchored": seq, "files": written}
+
+
+def nightly_verify() -> dict:
+    """The 03:30 job body: verify the tail, then anchor the verified tip.
+
+    Anchoring only on ok is the point — after a break, appending would anchor
+    a digest the verification just refused to bless.
+    """
+    result = verify_tail()
+    if result["ok"]:
+        result["anchor"] = record_anchor()
+    return result
+
+
+def check_anchor_log() -> dict:
+    """Replay every line ever anchored against the ledger as it exists now.
+
+    This is the check the in-DB marks cannot make: a whole-chain re-forge that
+    also rewrites app_settings passes verify_chain, but every anchored row's
+    digest changed with the rewrite — content or lineage — so it no longer
+    matches what was recorded on the night it was verified.
+
+    Reads the LOCAL file only. If the local file was rewritten along with the
+    ledger, this passes and the mirror copy is the remaining evidence — that
+    comparison is a human step, not this function. Lines that do not parse are
+    skipped, not failed: a crash mid-append tears a line, and a false tamper
+    alarm teaches the operator to ignore the true one.
+    """
+    out: dict = {"ok": True, "checked": 0, "seq": None, "reason": ""}
+    path = _anchor_log_paths()[0]
+    if not path.exists():
+        return out
+    recorded: dict[int, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        m = _ANCHOR_LINE.match(raw.strip())
+        if not m:
+            continue
+        seq, digest = int(m.group(1)), m.group(2)
+        if recorded.get(seq, digest) != digest:
+            out.update(
+                ok=False, seq=seq, reason="the anchor log disagrees with itself about this entry"
+            )
+            return out
+        recorded[seq] = digest
+    out["checked"] = len(recorded)
+    for seq in sorted(recorded):
+        row = db.query_one(
+            "SELECT seq, hash, prev_hash, actor, action, detail, created_at FROM activity"
+            " WHERE seq = ?",
+            (seq,),
+        )
+        if row is None:
+            out.update(ok=False, seq=seq, reason="an anchored entry is no longer in the ledger")
+            return out
+        if _digest(row) != recorded[seq]:
+            out.update(
+                ok=False,
+                seq=seq,
+                reason="an anchored entry no longer matches the record made when it was verified",
+            )
+            return out
+    return out
 
 
 def chain_health() -> dict:
