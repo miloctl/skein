@@ -10,6 +10,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from .. import db
+from . import stats
 from .slas import AGING_WIP_DAYS
 
 WINDOW_DAYS = 28
@@ -32,20 +33,9 @@ def _week(d: date | None = None) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
-def _median(values: list[float]) -> float | None:
-    if not values:
-        return None
-    v = sorted(values)
-    n = len(v)
-    mid = n // 2
-    return round(v[mid] if n % 2 else (v[mid - 1] + v[mid]) / 2, 1)
-
-
-def _p85(values: list[float]) -> float | None:
-    if not values:
-        return None
-    v = sorted(values)
-    return round(v[min(len(v) - 1, int(0.85 * len(v)))], 1)
+# one implementation, shared with portfolio — see services/stats.py
+_median = stats.median
+_p85 = stats.p85
 
 
 # ---- trends (team-rolled only) ----------------------------------------------
@@ -62,10 +52,14 @@ def _resolve_hours(since: str, until: str) -> list[float]:
 
 
 def mttr_windows() -> dict:
+    # WINDOW_DAYS - 1: the current window is INCLUSIVE of today, so counting
+    # back a full WINDOW_DAYS gave 29 days against the prior window's 28 — a
+    # 3.6% wider current window on both sides of the ratio comparison and of
+    # the n>=8 sample floors, under a UI card that reads "rolling 28 days".
     now, cut, prior = (
         _today(),
-        _today() - timedelta(days=WINDOW_DAYS),
-        _today() - timedelta(days=2 * WINDOW_DAYS),
+        _today() - timedelta(days=WINDOW_DAYS - 1),
+        _today() - timedelta(days=2 * WINDOW_DAYS - 1),
     )
     current = _resolve_hours(_iso(cut), _iso(now + timedelta(days=1)))
     previous = _resolve_hours(_iso(prior), _iso(cut))
@@ -191,7 +185,14 @@ def insights() -> dict:
         "review_trend": review_trend(),
         "intake_funnel": intake_funnel(),
         "token_spend_weekly": token_spend_weekly(),
-        "adoption": adoption(),
+        # adoption() carries active_users — per-person action counts over a
+        # past window. docs/FEATURES.md: "no person-keyed insight endpoints
+        # exist"; docs/INSIGHTS.md: "the insights service returns only
+        # team-rolled results". That is the anti-surveillance rule, and a
+        # retrospective per-person tally is exactly the leaderboard input it
+        # refuses. The team-rolled fields stay; the roster does not. The
+        # frontend never rendered it, so this was a raw-endpoint leak.
+        "adoption": {k: v for k, v in adoption().items() if k != "active_users"},
         "findings": list_findings(weeks=4),
         "rule_stats": rule_stats(),
     }
