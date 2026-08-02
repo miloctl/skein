@@ -203,7 +203,9 @@ the agent's prompt) work keyless, in-app.
   at `/api/webhooks/ci`: a red default-branch build files a deduped high-impact
   blocker; green auto-resolves it.
 - **MCP server** — your *other* AI agents join the platform:
-  `claude mcp add skein -- env SKEIN_MCP_USER=you /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
+  `claude mcp add skein -- env SKEIN_MCP_USER=you-mcp /abs/path/to/backend/.venv/bin/python -m app.mcp_server`
+  (a DISTINCT name, never your own — the server reserves it as an agent
+  identity, and an agent identity cannot use REST or the private surfaces)
   (needs the local backend install — Docker-only deployments should `uv venv`
   the backend once on the host for MCP use; run `skein install-hooks` inside
   each work repo you want git-trailer sync in)

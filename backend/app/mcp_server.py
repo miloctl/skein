@@ -3,11 +3,11 @@ Code sessions, custom agents) can read/write the platform natively.
 
 Runs in-process against the same database (no HTTP hop):
 
-    cd backend && SKEIN_MCP_USER=mario .venv/bin/python -m app.mcp_server
+    cd backend && SKEIN_MCP_USER=mario-mcp .venv/bin/python -m app.mcp_server
 
 Claude Code registration:
 
-    claude mcp add skein -- env SKEIN_MCP_USER=you \
+    claude mcp add skein -- env SKEIN_MCP_USER=you-mcp \
         /path/to/backend/.venv/bin/python -m app.mcp_server
 
 Writes are attributed to SKEIN_MCP_USER (shown with origin=agent).

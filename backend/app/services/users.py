@@ -263,7 +263,18 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
             db.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
     from . import private_notes
 
-    private_notes.rename_author(old, new)
+    # The private journal follows the person ONLY when the person is doing the
+    # renaming. Every keyholder can rename any roster row (the trusted-LAN
+    # model makes them all admins over TEAM data) — but a rename that also
+    # moved the private half would let anyone merge someone else's row into
+    # their own name and inherit their 1:1 notes and fb: journal, the one
+    # dataset the product promises teammates cannot read. Refusing to move it
+    # fails closed: the rows keep the old author name, so they become
+    # unreachable rather than readable by the wrong person, and the author can
+    # complete the move themselves.
+    private_moved = actor == old
+    if private_moved:
+        private_notes.rename_author(old, new)
     db.log_activity(
         actor,
         "rename_user",
@@ -274,6 +285,9 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
         "new": new,
         "merged": bool(target),
         "rows_moved": sum(moved.values()),
+        # the caller must be able to tell the operator that private notes did
+        # not follow, and that only the author can complete that half
+        "private_notes_moved": private_moved,
     }
 
 
