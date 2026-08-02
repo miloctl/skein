@@ -160,7 +160,11 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "lessons": ("created_by",),
     "pending_changes": ("proposed_by", "reviewed_by", "requested_by"),
     "notifications": ("user",),
-    "activity": ("actor",),
+    # activity is DELIBERATELY absent: every chained row's digest covers its
+    # actor, so a bulk rewrite here breaks verify_chain permanently at the
+    # renamed person's earliest row — and the off-box anchor log makes
+    # re-chaining impossible by design. A rename leaves ledger history under
+    # the old name; the ledger records what was true when it was written.
     "tool_usage": ("user",),
     "feedback": ("created_by",),  # pulse rows store '' and stay untouched
     "api_keys": ("owner",),

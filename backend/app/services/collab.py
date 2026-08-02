@@ -390,13 +390,23 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
     return {"id": note_id, "deleted": True}
 
 
-def recent_activity(limit: int = 50) -> list[dict]:
-    """Ordered by seq, not id. `id` is the rowid and is NOT covered by the
-    chain digest, so ordering the provenance feed by it would let the visible
-    timeline be resequenced while verification still reports intact. Legacy
-    unchained rows (seq NULL) sort to the bottom on their id."""
+def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
+    """Raw ledger rows, SCOPED like the feed: the viewer's own strand plus
+    agents and system processes — another human's rows do not appear here
+    either, or the raw endpoint would be the one-curl bypass of the rule the
+    feed enforces. Includes pre-036 unchained rows (the feed cannot; its
+    cursor is seq).
+
+    Ordered by seq, not id. `id` is the rowid and is NOT covered by the chain
+    digest, so ordering the provenance feed by it would let the visible
+    timeline be resequenced while verification still reports intact."""
+    from .activity import visible_actor_filter
+
+    actor_sql, params = visible_actor_filter(viewer)
     return db.query(
-        "SELECT * FROM activity ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT ?", (limit,)
+        f"SELECT * FROM activity WHERE {actor_sql}"  # noqa: S608 — placeholders built above
+        " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT ?",
+        (*params, limit),
     )
 
 

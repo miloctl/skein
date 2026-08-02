@@ -138,8 +138,8 @@ def delete_event(event_id: int, user: CurrentUser):
 
 
 @router.get("/activity")
-def get_activity():
-    return collab.recent_activity()
+def get_activity(user: CurrentUser):
+    return collab.recent_activity(user)
 
 
 @router.get("/activity/feed")

@@ -477,6 +477,23 @@ VERBS: dict[str, tuple[str, str]] = {
 }
 
 
+# Actors that are processes, not people. An allowlist, because the previous
+# blocklist-of-registered-humans was default-open: a human writing under a
+# name that never got a users row (the Slack path did this) leaked to every
+# viewer's feed labeled "system".
+SYSTEM_ACTORS = ("system", "scheduler", "team")
+
+
+def visible_actor_filter(viewer: str) -> tuple[str, list]:
+    """SQL fragment limiting rows to the viewer's own strand: their actor,
+    agent identities, and the known system processes. Default-CLOSED — an
+    actor this cannot classify is hidden, never shown as system."""
+    agents = [r["name"] for r in db.query("SELECT name FROM users WHERE kind = 'agent'")]
+    allowed = [viewer, *agents, *SYSTEM_ACTORS]
+    marks = ", ".join("?" for _ in allowed)
+    return f"actor IN ({marks})", allowed
+
+
 def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     """The activity feed: one sentence per ledger row, newest first.
 
@@ -491,21 +508,12 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     Pre-036 rows have no seq and stay reachable through the raw endpoint.
     """
     limit = max(1, min(int(limit), 200))
-    humans = [
-        r["name"]
-        for r in db.query("SELECT name FROM users WHERE kind = 'human' AND name != ?", (viewer,))
-    ]
     agents = {r["name"] for r in db.query("SELECT name FROM users WHERE kind = 'agent'")}
-    where = "seq IS NOT NULL"
-    params: list = []
+    actor_sql, params = visible_actor_filter(viewer)
+    where = f"seq IS NOT NULL AND {actor_sql}"
     if before:
         where += " AND seq < ?"
         params.append(before)
-    if humans:
-        marks = ", ".join("?" for _ in humans)
-        where += f" AND (actor = ? OR actor NOT IN ({marks}))"
-        params.append(viewer)
-        params += humans
     rows = db.query(
         f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 — placeholders built above
         f" WHERE {where} ORDER BY seq DESC LIMIT ?",
@@ -520,7 +528,7 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
         elif row["actor"] in agents:
             who = "agent"
         else:
-            who = "system"
+            who = "system"  # allowlisted literals only — nothing else gets here
         entries.append(
             {
                 "seq": row["seq"],

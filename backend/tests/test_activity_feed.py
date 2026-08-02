@@ -161,3 +161,71 @@ def test_the_route_scopes_to_the_header_user(client, fresh_db):
     body = client.get("/api/activity/feed").json()  # X-User: tester
     assert all(e["actor"] != "ben" for e in body["entries"])
     assert any(e["actor"] == "bot" for e in body["entries"])
+
+
+def test_rename_leaves_the_ledger_alone(fresh_db):
+    """rename rewrote activity.actor in bulk, and every chained digest covers
+    its actor — one rename permanently broke verify_chain at the renamed
+    person's earliest row, with the off-box anchor making re-chaining
+    impossible by design. History stays under the old name."""
+    _seed_people(fresh_db)
+    db.log_activity("ben", "save_note", "#1 his")
+    assert activity.verify_chain()["ok"]
+    users.rename_user("ben", "benjamin", actor="ava")
+    assert activity.verify_chain()["ok"]
+    assert db.query_row("SELECT actor FROM activity WHERE seq = 1")["actor"] == "ben"
+    # and the old-name rows stay hidden from everyone: default-closed scope
+    assert all(e["actor"] != "ben" for e in activity.feed("benjamin")["entries"])
+
+
+def test_an_unrostered_human_actor_is_hidden_not_shown_as_system(fresh_db):
+    """The blocklist version was default-open: a human writing under a name
+    with no users row (the Slack path did this) leaked to every viewer's feed
+    labeled system. Default-closed: unknown actors are hidden."""
+    _seed_people(fresh_db)
+    db.log_activity("jane.slack", "capture", "her note")
+    assert activity.feed("ava")["entries"] == []
+
+
+def test_the_raw_endpoint_is_scoped_like_the_feed(client, fresh_db):
+    """Without this, GET /api/activity was the one-curl bypass of the rule
+    the feed enforces."""
+    from app.services import collab
+
+    _seed_people(fresh_db)
+    db.log_activity("ben", "save_note", "#1 his")
+    db.log_activity("bot", "capture", "#2")
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("bot", "capture", "legacy unchained", db.now()),
+    )
+    rows = client.get("/api/activity").json()
+    actors = {r["actor"] for r in rows}
+    assert "ben" not in actors
+    assert "bot" in actors
+    # unlike the feed, the raw endpoint still reaches unchained rows
+    assert any(r["detail"] == "legacy unchained" for r in rows)
+    service_actors = {r["actor"] for r in collab.recent_activity("ava")}
+    assert "ben" not in service_actors  # scheduler/system rows are fine
+    assert "bot" in service_actors
+
+
+def test_my_day_recent_activity_is_scoped(fresh_db):
+    """My Day must not be the surface where colleagues watch each other."""
+    from app.services import briefing
+
+    _seed_people(fresh_db)
+    db.log_activity("ava", "save_note", "#1 mine")
+    db.log_activity("ben", "save_note", "#2 his")
+    db.log_activity("bot", "capture", "#3")
+    recent = briefing.my_day("ava")["team"]["recent_activity"]
+    actors = {r["actor"] for r in recent}
+    assert "ben" not in actors
+    assert {"ava", "bot"} <= actors
+
+
+def test_limit_clamp_value(fresh_db):
+    _seed_people(fresh_db)
+    for i in range(205):
+        db.log_activity("bot", "capture", f"#{i}")
+    assert len(activity.feed("ava", limit=100000)["entries"]) == 200

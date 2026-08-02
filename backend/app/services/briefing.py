@@ -180,6 +180,17 @@ def _human_digest(rows: list[dict]) -> list[dict]:
     return out[:20]
 
 
+def _scoped_recent(user: str, since: str) -> list[dict]:
+    from .activity import visible_actor_filter
+
+    actor_sql, params = visible_actor_filter(user)
+    return db.query(
+        f"SELECT * FROM activity WHERE created_at >= ? AND {actor_sql}"  # noqa: S608 — placeholders
+        " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT 40",
+        (since, *params),
+    )
+
+
 def my_day(user: str) -> dict:
     # UTC dates to match db.now() timestamps on the rows
     utc_today = datetime.now(timezone.utc).date()
@@ -250,13 +261,9 @@ def my_day(user: str) -> dict:
                 "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
                 (today, (utc_today + timedelta(days=1)).isoformat()),
             ),
-            "recent_activity": _human_digest(
-                db.query(
-                    "SELECT * FROM activity WHERE created_at >= ?"
-                    " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT 40",
-                    (yesterday,),
-                )
-            ),
+            # scoped like /activity: your own strand plus agents and system —
+            # My Day must not be the surface where colleagues watch each other
+            "recent_activity": _human_digest(_scoped_recent(user, yesterday)),
         },
     }
 
