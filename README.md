@@ -68,10 +68,10 @@ Key mechanics:
   (`human | agent | agent_verified`) and `created_by`; every mutation lands in
   the activity log.
 - **A tamper-evident ledger** — each activity row commits to its own content
-  and to the row before it (SHA-256, migration 036). A nightly job verifies the
-  whole chain and appends the verified tip to an anchor log that is mirrored
-  off-box, so a later rewrite has to contradict a record made on an earlier
-  day. Detection, never prevention — the limits are stated plainly in
+  and to the row before it (SHA-256, migration 036). A nightly job verifies
+  the whole chain and appends the verified tip to an anchor log mirrored
+  off-box. A later rewrite must contradict a record made on an earlier day.
+  Detection, never prevention — the limits are stated plainly in
   [docs/FEATURES.md](docs/FEATURES.md).
 - **Approval gate** — with `SKEIN_AGENT_REVIEW=1`, agent writes become
   `pending_changes` proposals that humans approve in `/review`.

@@ -403,8 +403,8 @@ a tombstone would meet it; 3's premise does not apply.
 
 This is the only home for un-shipped work. Before this date the backlog was in
 four places: this file, `docs/PLAN.md`, and two review transcripts. Every item
-below was checked against the code on 2026-08-02. The items that turned out to
-be built were dropped, not carried forward.
+below was checked against the code on 2026-08-02. The items that were already
+built were dropped, not carried forward.
 
 The ID tags are kept because source comments cite them. `TD1` and `TP5` and
 their neighbours are named in `frontend/app/globals.css`, `frontend/lib/theme.ts`,
@@ -412,8 +412,8 @@ and `frontend/lib/whimsy.ts`.
 
 ## Self-serve UX (from the 2026-07-24 fresh-user review)
 
-Sized S or M by that review. Items 6 and 8 of the original list are gone: the
-engagement-close conclusion select shipped (`app/dashboard/page.tsx`), and the
+Sized S or M by that review. Items 6 and 8 of the original list are gone. The
+engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
 
 1. [M] Global search box in the nav. `GET /api/search` exists and is invisible.
@@ -428,8 +428,10 @@ portfolio commitments card now names its two audiences in the card title.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
-C1 (week rituals), P2 (absences) and P5 (standup auto-draft) shipped. These did
-not:
+C1 (week rituals) and P2 (absences) shipped. P5 shipped its web half — My Day
+prefills a standup suggestion from your activity — and its CLI half did not:
+`skein standup` has no `--draft` flag and never reads the suggestion. These
+did not ship:
 
 - **C2 received-promise chaser** — `commitments.direction ('given'|'received')`
   plus `last_nudged_at` in a migration. Capture grammar
@@ -442,7 +444,8 @@ not:
   and gives the hours-burned receipt.
 - **C4 stakeholder open-threads brief** — a read-only union over
   `commitments.to_whom`, `intake.requester`, `questions.asked_by` and
-  `events.attendees` for names outside the team.
+  `events.attendees` for names outside the team. A morning rule attaches the
+  brief to meetings with external attendees.
 - **C5 decision links and cascade** — a `decision_links` table, populated at
   record time and by scanning references. Consumed by scoped context packs,
   supersede notifications, and handoffs.
@@ -472,10 +475,19 @@ A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
   pieces prove out.
 - Rejected proposals nag agent inboxes forever. An `acked_at` column ends it.
 - Notify-tier writes link to an empty `/review`.
+- The review registry has no registration-time assertion on apply-handler
+  signatures — a mismatched handler surfaces at apply time as a caught
+  runtime error, not at startup. Assert the signatures when the registry is
+  built, or record the runtime guard as the accepted answer.
 
 ## Developer loop (2026-07-25)
 
-D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped.
+D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
+`--all-from <agent>` batch flag.
+
+- **P5's CLI half** — `skein standup --draft` prefills from the same
+  suggestion My Day shows (`GET /api/briefing` carries it). Own-data-to-self
+  only.
 
 - **D2 attention count in the shell prompt** — `skein attention --porcelain`
   reads a 60-second cache at mode 0600, never blocks and never errors.
@@ -486,9 +498,9 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped.
   trailer from the branch name. `skein pr-body` composes task, engagement pack
   and commits for `gh pr create`.
 - **D4 MCP mid-task parity** — `claim`, `report` and `submit` landed.
-  `update_task`, `answer_question` and `resolve_blocker` did not. Review
-  approval over MCP stays deliberately absent, because an agent must not
-  launder its own proposal.
+  `update_task`, `answer_question`, `resolve_blocker`, `ask` and `week` did
+  not. Review approval over MCP stays deliberately absent, because an agent
+  must not launder its own proposal.
 - **D5 offline capture outbox** — a JSONL outbox with an idempotency key that
   auto-flushes on any successful command, plus `my-day --cached`.
 - **F6** CLI argument grammar normalization. **F7** `skein context --engagement`.
@@ -512,12 +524,12 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped.
 
 ## Decisions needed, not builds (2026-07-25)
 
-These are not features. Each one needs a call.
+These are not features. Each one needs a decision.
 
 - **Time zone.** Every human rhythm is hardcoded to UTC. A team outside UTC
   gets a digest at the wrong hour. A `SKEIN_TZ` setting has zero hits today.
-- **The OIDC and API-key identity bridge is undefined.** `TODO.md` carries two
-  accepted debts that both repay when this lands.
+- **The OIDC and API-key identity bridge is undefined.** `TODO.md` carries an
+  accepted debt that repays when this lands.
 - **`docs/FEATURES.md` claims person-level data never judges the past, and
   `services/portfolio.py` still returns `wip_by_person`.** Narrow the claim or
   aggregate the display. Leaving both is the only wrong answer.
@@ -551,7 +563,7 @@ These are deliberate refusals. Each names the condition that reopens it.
 | `entity_links` table, registry, thread view | A 4th typed relationship with a named consumer. |
 | Attention budget, ack states, dedupe keys | Real duplicate-notification pain. Findings already dedupe weekly. |
 | Trust profile partitions by model version | A model swap causes a problem that review stats did not catch. |
-| Auto-quiet findings rules | The rule count grows beyond hand-tending. The maintainer retires rules at season end today. |
+| Auto-quiet findings rules | The rule count or the noise grows beyond hand-tending. The maintainer retires rules at season end today. |
 | Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |
 | Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
 | Playbooks 2.0, delegation contracts, evidence pack, outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |

@@ -10,9 +10,11 @@ shipped** (standup 'yesterday' derives from your activity on My Day — CLI
 onboarding key step is now self-serve ("Request a key"), and A2's
 prerequisite (strong-verdict provenance, `reviewed_strong`) exists.
 
-> **CLOSED 2026-08-02.** Every remaining proposal was checked against the code
-> and moved to `docs/ROADMAP.md` under "Open backlog". C1, P2, P5, A1, A2 and
-> D1 turned out to be built and were dropped. This file is kept for the
+> **CLOSED 2026-08-02.** The 2026-08-02 consolidation checked every remaining
+> proposal against the code and moved the open ones to `docs/ROADMAP.md` under
+> "Open backlog" — including the residuals of partial ships (P5's CLI `--draft`
+> flag, D1's `--all-from`, D4's `ask`/`week`). C1, P2, A1, A2 and the D1 core
+> verbs were already built and were dropped. This file is kept for the
 > mechanism sketches and the per-agent reasoning behind each proposal.
 
 ## Cross-agent convergences

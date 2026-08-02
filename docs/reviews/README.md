@@ -17,15 +17,15 @@ work is in `docs/ROADMAP.md` under "Open backlog".
 
 ## Deleted 2026-08-02
 
-Four transcripts were removed because every conclusion in them was already
-recorded elsewhere: the 3-week dogfood log (absorbed into `docs/PLAN.md`), the
-whole-app UX review and the whole-app audit (absorbed into `docs/FEATURES.md`
-and `docs/CORRECTIONS.md`), and fresh-eyes audit 2 (its two skip decisions are
-now comments at the code they describe).
+The 2026-08-02 consolidation removed four transcripts because every conclusion
+in them was recorded elsewhere. The 3-week dogfood log went into
+`docs/PLAN.md`. The whole-app UX review and the whole-app audit went into
+`docs/FEATURES.md` and `docs/CORRECTIONS.md`. Fresh-eyes audit 2 left its two
+skip decisions as comments at the code they describe.
 
-Two `pack-contrast-check` scripts were also removed. They were checks that
-nothing ran. `scripts/check_theme_contrast.py` replaces them and runs in
-`lint.sh`.
+The same consolidation removed two `pack-contrast-check` scripts. They were
+checks that nothing ran. `scripts/check_theme_contrast.py` replaces them and
+runs in `lint.sh` and CI.
 
 ## Adding a review
 

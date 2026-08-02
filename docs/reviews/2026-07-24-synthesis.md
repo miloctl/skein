@@ -1,5 +1,9 @@
 # Synthesis of the two independent reviews — FINAL
 
+> **CLOSED 2026-08-02.** The cut table below moved to `docs/ROADMAP.md` under
+> "Open backlog". The ROADMAP copy is authoritative — this file records the
+> table as it stood when the decisions were made.
+
 *Inputs: `2026-07-24-agent-sol.md`, `2026-07-24-agent-fable.md`, and the
 five-agent panel review of the draft (`2026-07-24-panel.md`). The
 implementation plan lives in `docs/PLAN.md`. Context: solo builder,

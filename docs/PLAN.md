@@ -287,8 +287,8 @@ review-resolution clears its notification, findings feed shows dispositions,
 pulse feedback without input_text, user deactivation (strong-identity) +
 Settings roster, intake accept carries lead/kill_criteria, digest collapses
 job_stale noise, eval corpus separates free-text corrections from
-machine-checkable labels. The raw log was deleted 2026-08-02: every entry in
-it had shipped, and this section is the record of what came out of it.
+machine-checkable labels. The 2026-08-02 consolidation deleted the raw log:
+every entry in it had shipped, and this section records its results.
 
 All four follow-ups shipped 2026-07-25 (same day):
 
