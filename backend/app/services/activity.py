@@ -428,6 +428,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "update_engagement": ("updated an engagement", "normal"),
     "raise_blocker": ("raised a blocker", "normal"),
     "resolve_blocker": ("resolved a blocker", "normal"),
+    "escalate_blocker": ("escalated a blocker", "loud"),
     "edit_blocker": ("edited a blocker", "normal"),
     "submit_intake": ("submitted an intake request", "normal"),
     "score_intake": ("scored an intake request", "normal"),
