@@ -1,6 +1,7 @@
 """Cross-thread agent memory: forget removes it everywhere, and the agent path is gated, capped, and carries provenance."""
 
 import pytest
+from conftest import _strong
 
 
 def _approve_latest(client):
@@ -12,12 +13,6 @@ def _approve_latest(client):
     r = client.post(f"/api/review/{pending[0]['id']}/approve", json={}, headers=headers)
     assert r.json()["status"] == "approved"
     return pending[0]
-
-
-def _strong(client, name="tester"):
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
 
 
 def test_forget_removes_memory_everywhere(client):

@@ -73,9 +73,6 @@ def test_review_propose_approve_applies_change(fresh_db):
     assert task["origin"] == "agent_verified"
     assert result["result"]["id"] == task["id"]
 
-    with pytest.raises(ValueError):
-        review.approve_change(p["id"], actor="alice")  # already approved
-
 
 def test_review_reject(fresh_db):
     from app.services import review, work

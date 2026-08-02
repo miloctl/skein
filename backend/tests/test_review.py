@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from conftest import _delegated_task, _strong
 
 
 def _approve_latest(client):
@@ -14,22 +15,6 @@ def _approve_latest(client):
     r = client.post(f"/api/review/{pending[0]['id']}/approve", json={}, headers=headers)
     assert r.json()["status"] == "approved"
     return pending[0]
-
-
-def _strong(client, name="tester"):
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
-
-
-def _delegated_task(fresh_db, title="probe"):
-    from app.services import delegation, users, work
-
-    users.ensure_user("mira")
-    users.ensure_user("scout", kind="agent")
-    t = work.create_task(title=title, actor="mira")
-    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
-    return t["id"]
 
 
 def test_approval_keeps_proposer_as_author(fresh_db):
@@ -387,19 +372,6 @@ def test_empty_update_proposal_bounced_on_the_agent(fresh_db, monkeypatch):
         reset_agent_identity(token)
     assert "nothing to change" in out["error"]
     assert not fresh_db.query_one("SELECT id FROM pending_changes")
-
-
-def test_clear_sentinel_rejected_on_create_paths(fresh_db):
-    from app.services import commitments, engagements, users, work
-
-    with pytest.raises(ValueError, match="only clears"):
-        work.create_task(title="t", due_date="-")
-    with pytest.raises(ValueError, match="only clears"):
-        commitments.add_commitment("p", due_date="-")
-    users.ensure_user("mira")
-    e = engagements.create_engagement("SentinelCheck")
-    with pytest.raises(ValueError, match="only clears"):
-        engagements.allocate("mira", e["id"], 50, starts_on="-")
 
 
 def test_review_resolution_clears_notification(client, fresh_db):

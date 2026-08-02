@@ -1,4 +1,6 @@
-"""My Day: attention grouping and reasons, notice coalescing and caps, and the standup suggestion derived from your own activity."""
+"""My Day: attention grouping and reasons, due-soon scoping, notice coalescing
+and caps, the _ellipsize/_coalesce digest helpers, and the standup suggestion
+derived from your own activity."""
 
 from datetime import datetime, timezone
 

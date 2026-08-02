@@ -1,4 +1,5 @@
-"""The roster: rename, merge, deactivate, and the attribution map that has to match the schema."""
+"""The roster: rename, merge, deactivate, growth interests, the anonymous
+exclusion, and the attribution map that must match the schema."""
 
 
 def test_merge_backfills_profile_fields_target_never_set(fresh_db):

@@ -1,20 +1,6 @@
 """Acceptance verdicts bind to the task sponsor. Anyone else needs a reason on the record, and overrides never feed streaks."""
 
-
-def _strong(client, name="tester"):
-    from app.services.api_keys import create_key
-
-    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
-
-
-def _delegated_task(fresh_db, title="probe"):
-    from app.services import delegation, users, work
-
-    users.ensure_user("mira")
-    users.ensure_user("scout", kind="agent")
-    t = work.create_task(title=title, actor="mira")
-    delegation.delegate_task(t["id"], "scout", "mira", actor="mira")
-    return t["id"]
+from conftest import _delegated_task, _strong
 
 
 def test_acceptance_verdicts_bind_to_the_sponsor(client, fresh_db):

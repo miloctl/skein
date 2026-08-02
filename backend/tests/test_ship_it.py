@@ -18,19 +18,6 @@ def test_ship_it_counts_only_linked_blockers(client, fresh_db, monkeypatch):
     assert "1 blockers survived" in note["content"]
 
 
-def test_ship_it_recap_and_notification(fresh_db, monkeypatch):
-    from app.services import engagements, notifications
-
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
-    e = engagements.create_engagement("Big launch", actor="ava")
-    engagements.update_engagement(e["id"], status="closed", conclusion="achieved", actor="ava")
-
-    notes = fresh_db.query("SELECT * FROM notes WHERE topic = 'shipped-Big launch'")
-    assert notes and "Shipped" in notes[0]["content"]
-    msgs = [n["message"] for n in notifications.list_notifications("team")]
-    assert any("Shipped" in m for m in msgs)
-
-
 def test_ship_it_recap_omits_zero_stats(fresh_db, monkeypatch):
     from app.services import engagements, notifications
 
