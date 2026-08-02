@@ -204,3 +204,18 @@ def test_overlay_wins_a_slug_collision(tmp_path, monkeypatch):
     assert personas.get_persona("code-reviewer")["name"] == "Probe"
     slugs = [p["slug"] for p in personas.list_personas()]
     assert slugs.count("code-reviewer") == 1
+
+
+def test_an_unparseable_overlay_stem_reserves_no_bench_name(tmp_path, monkeypatch):
+    """bench_slugs() reserves every key of _persona_files() as an agent
+    identity. A stem the slug charset rejects would reserve a name against a
+    persona that list_personas() hides and get_persona() refuses to produce."""
+    from app import config
+    from app.services import personas
+
+    (tmp_path / "Vendor Audit.md").write_text(PROBE_MD)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", tmp_path)
+    assert not any(" " in s for s in personas.bench_slugs())
+    assert not any(" " in p["slug"] for p in personas.list_personas())
+    # and the validator still REPORTS it, so the bad file is not silent
+    assert any("Vendor Audit.md" in e for e in personas.validate_all())

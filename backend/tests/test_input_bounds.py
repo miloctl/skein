@@ -15,8 +15,9 @@ def _deep_body(depth: int) -> str:
 
 def test_deeply_nested_body_is_422_not_500(client):
     """FastAPI's default handler renders the rejected value with
-    jsonable_encoder, which recursed and returned a plain-text 500 — to a
-    caller with no headers at all."""
+    jsonable_encoder, which recursed and returned a plain-text 500. The live
+    instance answered this with no auth headers at all; the suite's client
+    always sends X-User, so this pins the status, not the reachability."""
     r = client.post(
         "/api/tasks", content=_deep_body(2000), headers={"content-type": "application/json"}
     )
@@ -47,18 +48,6 @@ def test_patch_honors_the_same_caps_as_create(client, fresh_db):
     assert len(row.get("description") or "") == 0
 
 
-def test_patch_caps_cover_milestones_and_engagements(client, fresh_db):
-    m = client.post("/api/milestones", json={"title": "bounds probe"}).json()
-    assert (
-        client.patch(f"/api/milestones/{m['id']}", json={"title": "x" * 30_000}).status_code == 422
-    )
-    e = client.post("/api/engagements", json={"name": "bounds probe"}).json()
-    assert (
-        client.patch(f"/api/engagements/{e['id']}", json={"summary": "x" * 30_000}).status_code
-        == 422
-    )
-
-
 def test_an_empty_note_is_refused_like_every_other_create(client, fresh_db):
     """Every sibling create refuses an empty record. This one accepted it,
     indexed a blank row for search, and spent a hash-chained activity seq."""
@@ -77,10 +66,14 @@ def test_an_empty_note_is_refused_like_every_other_create(client, fresh_db):
 def test_garbage_from_date_is_refused_not_silently_empty(client, fresh_db):
     """A string compare against garbage returned [], which reads as 'no
     events' — a wrong answer rather than an error."""
-    r = client.get("/api/events?from_date=garbage")
-    assert r.status_code == 400
-    assert "YYYY-MM-DD" in r.json()["detail"]
+    assert client.get("/api/events?from_date=garbage").status_code == 400
+    # shape alone is not enough: these match the pattern and are not dates
+    for bad in ("9999-99-99", "2026-13-45", "2026-02-30"):
+        r = client.get(f"/api/events?from_date={bad}")
+        assert r.status_code == 400, bad
+        assert "real date" in r.json()["detail"], bad
     assert client.get("/api/events?from_date=2026-08-01").status_code == 200
+    assert client.get("/api/events?from_date=2026-08-01T10:00").status_code == 200
     assert client.get("/api/events").status_code == 200
 
 
@@ -97,15 +90,47 @@ def test_allocation_writes_are_rate_capped(client, fresh_db):
         ).status_code
         for _ in range(40)
     ]
-    assert 400 in codes, "no rate cap engaged on allocate"
+    # `400 in codes` alone would also pass if EVERY call failed for an
+    # unrelated reason, so pin the happy path and the transition too
+    assert codes[0] == 200, "allocate is broken, not rate-capped"
+    assert codes[-1] == 400
+    assert 20 < codes.count(200) < 40
 
 
-def test_allocations_list_is_bounded(fresh_db):
-    import inspect
+ALLOCATION_ROWS = 620  # the service default LIMIT is 500
 
-    from app.services import engagements
 
-    assert "LIMIT" in inspect.getsource(engagements.list_allocations)
+def test_allocations_list_is_bounded(client, fresh_db):
+    """Every other list service caps its result set. This one returned the
+    whole table, so one fat-fingered staffing script made /api/allocations
+    (and the capacity page that reads it) grow without limit.
+
+    person == actor short-circuits resolve_teammate, so seeding is one INSERT
+    plus one activity row per call."""
+    from app.services import engagements, users
+
+    users.ensure_user("loadtest")
+    eid = engagements.create_engagement("bounds probe", actor="loadtest")["id"]
+    for _ in range(ALLOCATION_ROWS):
+        engagements.allocate("loadtest", eid, 1, actor="loadtest")
+
+    total = fresh_db.query_one("SELECT COUNT(*) AS n FROM allocations")["n"]
+    assert total == ALLOCATION_ROWS
+
+    rows = engagements.list_allocations()
+    assert len(rows) < total, "the unfiltered list returned every row"
+    assert len(rows) <= 500
+    # bounded must mean a window on the NEWEST rows — a LIMIT that keeps
+    # returning the oldest 500 forever is bounded and still wrong
+    assert rows[0]["id"] == total
+
+    # the engagement-scoped branch is a SEPARATE query and needs its own cap
+    scoped = engagements.list_allocations(eid)
+    assert len(scoped) < total
+    assert scoped[0]["id"] == total
+
+    # and the route serves the bound rather than re-querying unbounded
+    assert len(client.get("/api/allocations").json()) == len(rows)
 
 
 def test_error_bodies_stay_json_and_leak_nothing(client):

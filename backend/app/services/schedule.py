@@ -1,7 +1,7 @@
 """Team calendar services."""
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 from .. import db
 
@@ -59,9 +59,15 @@ def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
     if from_date:
         # a string compare against a garbage value returns [], which reads as
         # "no events" — a silent wrong answer. Every write path validates
-        # dates strictly; this read must too.
+        # dates strictly, so this read must too. Shape alone is not enough:
+        # "9999-99-99" matches the pattern and is still not a date.
+        head = from_date[:10]
         if not DATE_PREFIX_RE.match(from_date):
             raise ValueError("from_date must be YYYY-MM-DD or an ISO timestamp")
+        try:
+            date.fromisoformat(head)
+        except ValueError as exc:
+            raise ValueError(f"from_date is not a real date: {head}") from exc
         return db.query(
             "SELECT * FROM events WHERE starts_at >= ? ORDER BY starts_at LIMIT ?",
             (from_date, limit),

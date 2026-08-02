@@ -26,8 +26,27 @@ new features are reviewed against it.
    of someone else's content ERROR instead (answers); merges backfill
    person-level fields rather than dropping them; approvals apply as the
    proposer, never the reviewer.
-5. **Bounded.** Anything listable is LIMITed; anything writable is
-   rate-capped and length-capped where flood-prone.
+5. **Bounded.** Three checks, each mechanical. No endpoint is exempt by
+   judgment.
+   - **Listable is LIMITed.** Every service function that returns a list takes
+     a `limit` and puts `LIMIT ?` in its SQL, on every branch.
+   - **Writable is length-capped.** Every string field of every request model
+     carries `max_length` — on the PATCH model as well as the create model,
+     and never looser on the PATCH. Every create refuses a record whose
+     capped fields are all empty.
+   - **Writable is rate-capped.** Every mutating route calls
+     `ratelimit.check(<surface>, user)` before it calls the service.
+
+   `tests/test_input_bounds.py` and `tests/test_patch_cap_parity.py` run these
+   checks. To exempt an endpoint, write `# unbounded: <reason>` on the line
+   above it and add a row to the table below. An endpoint with no cap and no
+   row is a bug, not a decision.
+
+### Bounded exemptions
+
+| Endpoint | Check waived | Reason | Declared |
+|---|---|---|---|
+| _(none)_ | | | |
 
 ## Status matrix (post-audit batches)
 

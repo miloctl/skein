@@ -33,7 +33,9 @@ growth (pairs with Settings "growth interests" and the 1:1 loop):
 
 `SKEIN_PERSONAS_DIR` names a directory of extra persona files loaded
 alongside `backend/personas/`. An overlay file with a stock slug wins, and an
-overlay `pack.json` replaces the stock one wholesale. This keeps a
+overlay `pack.json` merges field-by-field over the stock one, the same
+precedence persona frontmatter has over pack defaults. To clear a stock
+default rather than change it, set the key to JSON `null`. This keeps a
 deployment's own bench in its own repo instead of a fork. The strict
 validator covers overlay files and labels them `(overlay)`.
 

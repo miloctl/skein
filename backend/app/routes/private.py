@@ -4,7 +4,7 @@ X-User header is never enough. No agent tool, MCP tool, or review-registry
 entry may reference these records."""
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..services import private_notes
 from .deps import StrongUser
@@ -13,9 +13,9 @@ router = APIRouter(prefix="/api/private")
 
 
 class NoteIn(BaseModel):
-    person: str
-    body: str
-    kind: str = "note"
+    person: str = Field(max_length=64)
+    body: str = Field(max_length=20_000)
+    kind: str = Field("note", max_length=20)
 
 
 @router.get("/notes")

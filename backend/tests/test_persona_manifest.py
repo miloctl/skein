@@ -243,7 +243,9 @@ def test_extra_tools_cannot_be_granted_by_allowlist_name(bench, fresh_db, monkey
     assert agent.tool_names == ["save_note"]  # calculator filtered despite the name match
 
 
-def test_overlay_pack_json_replaces_the_stock_pack(bench, tmp_path, monkeypatch):
+def test_overlay_pack_json_merges_field_by_field(bench, tmp_path, monkeypatch):
+    """Naming one key must not clear the others — the same precedence persona
+    frontmatter already has over the pack."""
     from app import config
 
     _write(bench, "probe")
@@ -253,8 +255,37 @@ def test_overlay_pack_json_replaces_the_stock_pack(bench, tmp_path, monkeypatch)
     (overlay / "pack.json").write_text('{"defaults": {"model": "overlay-model"}}')
     monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
     b = personas.behavior("probe")
-    assert b.get("model") == "overlay-model"
-    assert b.get("temperature") is None  # wholesale replacement, never a field merge
+    assert b["model"] == "overlay-model"  # the overlay set it
+    assert b["temperature"] == 0.9  # and did NOT silently drop the stock default
+
+
+def test_overlay_pack_json_clears_a_stock_default_with_null(bench, tmp_path, monkeypatch):
+    """Merging means an operator needs a way to say 'no default' explicitly.
+    JSON null is it: unrepresentable in frontmatter, so the two never blur."""
+    from app import config
+
+    _write(bench, "probe")
+    (bench / "pack.json").write_text('{"defaults": {"temperature": 0.9, "model": "stock"}}')
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "pack.json").write_text('{"defaults": {"temperature": null}}')
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    b = personas.behavior("probe")
+    assert b["temperature"] is None  # cleared on purpose
+    assert b["model"] == "stock"  # untouched key survives
+    assert personas.validate_all() == []  # null is a legal value, not an error
+
+
+def test_validator_names_which_pack_carries_the_error(bench, tmp_path, monkeypatch):
+    from app import config
+
+    _write(bench, "probe")
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "pack.json").write_text('{"defaults": {"colour": "red"}}')
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    problems = personas.validate_all()
+    assert any("(overlay)" in p and "colour" in p for p in problems)
 
 
 def test_validator_covers_overlay_files(bench, tmp_path, monkeypatch):

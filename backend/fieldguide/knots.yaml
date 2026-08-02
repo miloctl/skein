@@ -79,7 +79,7 @@ knots:
     knot: Lark's Head
     set: loops
     pitch: "`convention:` topics feed the context pack every agent reads."
-    how: "Save a note whose topic starts with `convention` — e.g. how the team names branches."
+    how: "Save a note whose topic starts with `convention`, for example how the team names branches."
     link: /dashboard
     since: 2026-07-31
 
@@ -264,7 +264,7 @@ knots:
     set: manager
     role: manager
     pitch: Monday brief and Friday close-out — the week gets opened and settled on purpose.
-    how: Run one yourself from manager controls on Work → Health — scheduler runs don't count as yours.
+    how: Run one yourself from manager controls on Work → Health. A scheduler run does not count as yours.
     link: /portfolio
     since: 2026-07-31
 

@@ -32,18 +32,26 @@ PERSONAS_DIR = Path(__file__).resolve().parent.parent.parent / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
 
 
+def _persona_dirs() -> list[Path]:
+    """Stock first, overlay second — later wins."""
+    dirs = [PERSONAS_DIR]
+    overlay = config.PERSONAS_OVERLAY
+    if overlay and overlay.is_dir() and overlay.resolve() != PERSONAS_DIR.resolve():
+        dirs.append(overlay)
+    return [d for d in dirs if d.is_dir()]
+
+
 def _persona_files() -> dict[str, Path]:
     """slug -> path across the stock dir and the SKEIN_PERSONAS_DIR overlay.
     The overlay wins a slug collision, so a deployment can re-head a stock
-    persona without editing the repo."""
+    persona without editing the repo. A stem the slug charset rejects never
+    enters the map: bench_slugs() reserves every key here as an agent
+    identity, so an unparseable stem would reserve a name against a persona
+    that get_persona() then refuses to produce."""
     files: dict[str, Path] = {}
-    dirs = [PERSONAS_DIR]
-    overlay = config.PERSONAS_OVERLAY
-    if overlay and overlay.is_dir():
-        dirs.append(overlay)
-    for d in dirs:
-        if d.is_dir():
-            for path in sorted(d.glob("*.md")):
+    for d in _persona_dirs():
+        for path in sorted(d.glob("*.md")):
+            if _SLUG.match(path.stem):
                 files[path.stem] = path
     return files
 
@@ -56,16 +64,19 @@ def bench_slugs() -> set[str]:
     return set(_persona_files())
 
 
-def _pack_file() -> Path:
-    """The effective pack.json: the overlay's copy wins wholesale when it
-    exists — behavioral defaults are one coherent object, never a field merge
-    of two files."""
+def _pack_files() -> list[Path]:
+    """Stock first, overlay second. The layers merge FIELD-BY-FIELD, the same
+    precedence persona frontmatter has over the pack one function below.
+    Naming one key must not clear the others: an operator who writes
+    {"defaults": {"model": "x"}} has set the model, not cleared the
+    temperature. To clear a stock default, set it to JSON null."""
+    files = [PACK_FILE]
     overlay = config.PERSONAS_OVERLAY
     if overlay:
         candidate = overlay / "pack.json"
-        if candidate.is_file():
-            return candidate
-    return PACK_FILE
+        if candidate.resolve() != PACK_FILE.resolve():
+            files.append(candidate)
+    return [p for p in files if p.is_file()]
 
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
@@ -105,12 +116,9 @@ def _parse(path: Path) -> dict | None:
     }
 
 
-def _pack_defaults() -> dict:
-    """Behavioral defaults from the effective pack.json, or {} when absent/bad.
-    Lenient at runtime for the same reason _parse is; validate_all is strict."""
-    pack = _pack_file()
-    if not pack.is_file():
-        return {}
+def _read_pack(pack: Path) -> dict:
+    """One pack.json as {field: value}. Lenient at runtime for the same reason
+    _parse is; validate_all is strict."""
     try:
         data = json.loads(pack.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -122,10 +130,23 @@ def _pack_defaults() -> dict:
     for k, v in defaults.items():
         if k not in BEHAVIOR_FIELDS:
             continue
-        # a JSON list is the natural way to write a tool list in a JSON file;
-        # str() on it would produce a repr that matches no tool, silently
-        # building every persona with ZERO tools
-        out[k] = ",".join(str(i) for i in v) if isinstance(v, list) else str(v)
+        if v is None:
+            out[k] = ""  # explicit clear — see _pack_files
+        elif isinstance(v, list):
+            # a JSON list is the natural way to write a tool list in a JSON
+            # file; str() on it would produce a repr that matches no tool,
+            # silently building every persona with ZERO tools
+            out[k] = ",".join(str(i) for i in v)
+        else:
+            out[k] = str(v)
+    return out
+
+
+def _pack_defaults() -> dict:
+    """Behavioral defaults, stock then overlay, merged field-by-field."""
+    out: dict[str, str] = {}
+    for pack in _pack_files():
+        out.update(_read_pack(pack))
     return out
 
 
@@ -207,36 +228,38 @@ def validate_all() -> list[str]:
     malformed persona fails CI instead of silently vanishing from the bench."""
     errors: list[str] = []
     known = _known_tool_names()
-    pack = _pack_file()
-    if pack.is_file():
+    # BOTH packs, each labeled by path: with two layers "pack.json:" alone
+    # cannot say which file carries the error
+    for pack in _pack_files():
+        label = "pack.json" if pack == PACK_FILE else f"{pack} (overlay)"
         try:
             data = json.loads(pack.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or not isinstance(data.get("defaults", {}), dict):
-                errors.append("pack.json: expected an object with an optional 'defaults' object")
+                errors.append(f"{label}: expected an object with an optional 'defaults' object")
             else:
                 defaults = data.get("defaults", {})
                 unknown = set(defaults) - set(BEHAVIOR_FIELDS)
                 if unknown:
-                    errors.append(f"pack.json: unknown default field(s): {sorted(unknown)}")
+                    errors.append(f"{label}: unknown default field(s): {sorted(unknown)}")
                 for k, v in defaults.items():
                     ok_types = (str, int, float)
                     if not (
-                        isinstance(v, ok_types)
+                        v is None  # explicit clear
+                        or isinstance(v, ok_types)
                         or (isinstance(v, list) and all(isinstance(i, str) for i in v))
                     ):
                         errors.append(
-                            f"pack.json: default {k!r} must be a string, a number,"
-                            " or a list of strings"
+                            f"{label}: default {k!r} must be a string, a number,"
+                            " a list of strings, or null to clear"
                         )
-                merged = _pack_defaults()
-                errors += _check_behavior(
-                    "pack.json", merged.get("temperature", ""), merged.get("tools", ""), known
-                )
         except json.JSONDecodeError as exc:
-            errors.append(f"pack.json: not valid JSON ({exc})")
-    overlay = config.PERSONAS_OVERLAY
-    dirs = [PERSONAS_DIR] + ([overlay] if overlay and overlay.is_dir() else [])
-    for d in dirs:
+            errors.append(f"{label}: not valid JSON ({exc})")
+    # the MERGED result is what personas actually run on, so check it once
+    merged = _pack_defaults()
+    errors += _check_behavior(
+        "pack defaults (merged)", merged.get("temperature", ""), merged.get("tools", ""), known
+    )
+    for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
             label = path.name if d == PERSONAS_DIR else f"{path.name} (overlay)"
             if not _SLUG.match(path.stem):
