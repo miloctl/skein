@@ -1,0 +1,262 @@
+"""The authority matrix and trust scores: the gate, half-life, promotion and demotion, and the walls that keep agents out of their own levels."""
+
+import pytest
+
+
+def _strong(client, name="tester"):
+    from app.services.api_keys import create_key
+
+    return {"Authorization": f"Bearer {create_key(name, 'r')['key']}"}
+
+
+def _strong_headers():
+    from app.services.api_keys import create_key
+
+    return {"Authorization": f"Bearer {create_key('tester', 'test')['key']}"}
+
+
+def test_authority_review_files_promotion_and_applies(client, fresh_db, monkeypatch):
+    from app.services import delegation, review, users
+
+    # 5 strong-verdict approvals for scribe on note -> promotion proposal
+    users.ensure_user("scribe", kind="agent")
+    headers = _strong(client)
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    out = delegation.review_authority(actor="scheduler")
+    assert out["filed"] == 1
+    # idempotent while pending
+    assert delegation.review_authority(actor="scheduler")["filed"] == 0
+    pending = client.get("/api/review?status=pending").json()
+    auth = next(p for p in pending if p["entity"] == "authority")
+    client.post(f"/api/review/{auth['id']}/approve", json={}, headers=headers)
+    assert delegation.authority_level("scribe", "note") == "notify"
+
+
+def test_authority_verdicts_need_strong_human_identity(client, fresh_db):
+    from app.services import review, users
+
+    users.ensure_user("scribe", kind="agent")
+    p = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scribe", "entity": "note", "level": "notify"},
+        actor="scheduler",
+    )
+    weak = client.post(f"/api/review/{p['id']}/approve", json={})
+    assert weak.status_code == 400 and "strong identity" in weak.json()["detail"]
+    # the dep now refuses the weak agent header outright (403) — the service
+    # guard behind it ("judged by humans") stays as defense in depth
+    as_agent = client.post(f"/api/review/{p['id']}/approve", json={}, headers={"X-User": "scribe"})
+    assert as_agent.status_code == 403 and "agent identity" in as_agent.json()["detail"]
+    ok = client.post(f"/api/review/{p['id']}/approve", json={}, headers=_strong(client))
+    assert ok.json()["status"] == "approved"
+
+
+def test_stale_authority_proposal_never_lifts_forbidden(client, fresh_db):
+    from app.services import delegation, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    p = review.propose_change(
+        "authority",
+        "create",
+        {"agent": "scribe", "entity": "note", "level": "notify", "expected_current": "review"},
+        actor="scheduler",
+    )
+    delegation.set_authority("scribe", "note", "forbidden", actor="mira")
+    r = client.post(f"/api/review/{p['id']}/approve", json={}, headers=_strong(client))
+    assert r.status_code == 400 and "stale" in r.json()["detail"]
+    assert delegation.authority_level("scribe", "note") == "forbidden"
+
+
+def test_authority_demotion_end_to_end(client, fresh_db):
+    from app.services import delegation, review, users
+
+    users.ensure_user("scribe", kind="agent")
+    delegation.set_authority("scribe", "note", "notify", actor="mira")
+    headers = _strong(client)
+    for i in range(3):
+        p = review.propose_change(
+            "note", "create", {"topic": f"bad{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/reject", json={"note": "off"}, headers=headers)
+    out = delegation.review_authority(actor="scheduler")
+    assert out["filed"] == 1
+    pending = client.get("/api/review?status=pending").json()
+    auth = next(c for c in pending if c["entity"] == "authority")
+    assert "notify -> review" in auth["summary"]
+    client.post(f"/api/review/{auth['id']}/approve", json={}, headers=headers)
+    assert delegation.authority_level("scribe", "note") == "review"
+
+
+def test_authority_review_skips_humans_and_meta_entities(client, fresh_db):
+    from app.services import delegation, review
+
+    headers = _strong(client)
+    for i in range(5):  # human proposer with a perfect streak: no proposal
+        p = review.propose_change(
+            "note", "create", {"topic": f"h{i}", "content": "c"}, actor="tester"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    assert delegation.review_authority(actor="scheduler")["filed"] == 0
+
+
+def test_set_authority_rejects_blank_agent(client, fresh_db):
+    assert (
+        client.post(
+            "/api/agents/authority",
+            headers=_strong_headers(),
+            json={"agent": "", "entity": "task", "level": "notify"},
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/agents/authority",
+            headers=_strong_headers(),
+            json={"agent": "   ", "entity": "task", "level": "notify"},
+        ).status_code
+        == 400
+    )
+    # no phantom agent was minted
+    assert not fresh_db.query_one("SELECT * FROM users WHERE name = 'anonymous' AND kind = 'agent'")
+
+
+def test_mcp_forbidden_authority_holds(client, fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.services import delegation
+
+    monkeypatch.setattr(mcp_server, "ACTOR", "mcp-agent")
+    delegation.set_authority("mcp-agent", "task", "forbidden", actor="tester")
+    with pytest.raises(ValueError, match="forbidden"):
+        mcp_server._check_authority("task")
+    mcp_server._check_authority("decision")  # default review level passes
+
+
+def test_authority_not_self_serviceable_by_agents(client, fresh_db):
+    from app.services import delegation, users
+
+    users.ensure_user("sneaky", kind="agent")
+    with pytest.raises(ValueError, match="humans"):
+        delegation.set_authority("task-bot", "task", "autonomous", actor="sneaky")
+    with pytest.raises(ValueError):
+        delegation.set_authority("planner", "task", "autonomous", actor="planner")
+    out = delegation.set_authority("task-bot", "task", "notify", actor="tester")
+    assert out["level"] == "notify"  # humans still can
+
+
+def test_authority_matrix_gate(client, fresh_db, monkeypatch):
+    import json as j
+
+    from app import config
+    from app.tools.portfolio import add_commitment
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    # default 'review' → proposal
+    out = j.loads(add_commitment(promise="p1"))
+    assert out.get("note") == "queued for human review"
+
+    # autonomous → direct write even with review mode on
+    client.post(
+        "/api/agents/authority",
+        headers=_strong_headers(),
+        json={"agent": "agent", "entity": "commitment", "level": "autonomous"},
+    )
+    out = j.loads(add_commitment(promise="p2"))
+    assert out.get("status") == "open"
+
+    # forbidden → refused
+    client.post(
+        "/api/agents/authority",
+        headers=_strong_headers(),
+        json={"agent": "agent", "entity": "commitment", "level": "forbidden"},
+    )
+    out = j.loads(add_commitment(promise="p3"))
+    assert "forbidden" in out["error"]
+
+
+def test_trust_scores_streak_suggestion(client, fresh_db):
+    from app.services import review
+    from app.services.api_keys import create_key
+
+    # promotion streaks count only strong-identity verdicts
+    headers = {"Authorization": f"Bearer {create_key('tester', 't')['key']}"}
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"t{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    trust = client.get("/api/agents/trust").json()
+    row = next(r for r in trust if r["agent"] == "scribe")
+    assert row["approved"] == 5 and row["recent_streak"] == 5
+    assert "autonomous" in row["suggestion"]
+
+
+def test_weak_identity_verdicts_never_suggest_promotion(client, fresh_db):
+    from app.services import review
+
+    for i in range(5):
+        p = review.propose_change(
+            "note", "create", {"topic": f"w{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={})  # X-User only
+    row = next(r for r in client.get("/api/agents/trust").json() if r["agent"] == "scribe")
+    assert row["approved"] == 5  # verdicts still count as history
+    assert row["recent_streak"] == 0 and row["suggestion"] == ""
+
+
+def test_authority_half_life(client, fresh_db):
+    from app.services.delegation import set_authority
+    from app.services.insights import run_findings
+
+    set_authority("planner-agent", "task", "autonomous", actor="manager")
+    row = fresh_db.query_row("SELECT * FROM agent_authority WHERE agent = 'planner-agent'")
+    assert row["review_by"] is not None
+    # not stale yet
+    assert not any(f["rule_id"] == "authority_stale" for f in run_findings(actor="t")["findings"])
+    fresh_db.execute(
+        "UPDATE agent_authority SET review_by = '2020-01-01' WHERE agent = 'planner-agent'"
+    )
+    hits = [f for f in run_findings(actor="t")["findings"] if f["rule_id"] == "authority_stale"]
+    assert len(hits) == 1 and "planner-agent" in hits[0]["message"]
+    # forbidden/review grants carry no review_by — the kill switch never expires
+    set_authority("planner-agent", "note", "forbidden", actor="manager")
+    row = fresh_db.query_row(
+        "SELECT review_by FROM agent_authority WHERE agent = 'planner-agent' AND entity = 'note'"
+    )
+    assert row["review_by"] is None
+
+
+def test_authority_stale_null_review_by_falls_back(fresh_db):
+    from app.services.insights import run_findings
+
+    fresh_db.execute(
+        "INSERT INTO agent_authority (agent, entity, level, updated_by, updated_at)"
+        " VALUES ('old-agent', 'task', 'autonomous', 'm', '2020-01-01T00:00:00')"
+    )
+    hits = [f for f in run_findings(actor="t")["findings"] if f["rule_id"] == "authority_stale"]
+    assert len(hits) == 1  # pre-017-style row (NULL review_by) still expires
+
+
+def test_mcp_writes_route_through_the_gate(client, fresh_db, monkeypatch):
+    from app import config, mcp_server
+
+    monkeypatch.setattr(mcp_server, "ACTOR", "code-agent")
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    import json as j
+
+    out = j.loads(mcp_server.create_task("gated task"))
+    assert out.get("note") == "queued for human review"
+    assert client.get("/api/tasks").json() == []
+    pending = client.get("/api/review?status=pending").json()
+    assert pending and pending[0]["proposed_by"] == "code-agent"
+
+    # autonomous grant flips it to direct — and trust history exists
+    from app.services import delegation
+
+    delegation.set_authority("code-agent", "task", "autonomous", actor="tester")
+    out = j.loads(mcp_server.create_task("direct task"))
+    assert out.get("status") == "todo"

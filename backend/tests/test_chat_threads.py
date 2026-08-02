@@ -121,3 +121,11 @@ def test_emptied_folder_survives_and_delete_unfiles(client):
     assert "Keep" not in client.get("/api/chats/folders").json()
     chats = {c["id"]: c for c in client.get("/api/chats").json()}
     assert chats["ef-1"]["folder"] == ""
+
+
+def test_chat_thread_id_sanitized(client):
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "../../etc/passwd", "message": "/help"}
+    ) as r:
+        assert r.status_code == 200
+        assert "Mock agent" in r.read().decode()

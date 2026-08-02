@@ -1,3 +1,6 @@
+"""Service-layer smoke suite: the happy path of each service, proving the
+shared write path works. Depth lives in the per-behavior files."""
+
 from datetime import datetime, timedelta, timezone
 
 import pytest

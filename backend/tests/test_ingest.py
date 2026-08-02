@@ -90,3 +90,8 @@ def test_failed_compound_apply_rolls_back_and_stays_pending(fresh_db, monkeypatc
     monkeypatch.setattr(schedule, "schedule_event", original)
     review.approve_change(p["id"], actor="alice")
     assert len(fresh_db.query("SELECT * FROM engagements")) == 1
+
+
+def test_ingest_counts_short_fb_lines(client, fresh_db):
+    r = client.post("/api/ingest", json={"text": "todo: real work item\nfb: d—x"})
+    assert r.json()["skipped_private"] == 1  # short fb: still counted, never stored

@@ -55,3 +55,15 @@ def test_shell_and_friends_are_refused(monkeypatch, caplog):
 def test_unknown_name_skipped_not_fatal(monkeypatch):
     tools = _load(monkeypatch, ["definitely-not-a-tool", "calculator"])
     assert len(tools) == 1
+
+
+def test_extra_tools_security_cuts(monkeypatch):
+    from app import config
+    from app.agents import extra_tools as mod
+
+    monkeypatch.setattr(
+        config, "EXTRA_TOOLS", ("http_request", "use_agent", "use_llm", "workflow", "diagram")
+    )
+    mod.extra_tools.cache_clear()
+    assert mod.extra_tools() == ()
+    mod.extra_tools.cache_clear()

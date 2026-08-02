@@ -1,4 +1,4 @@
-"""W1.6: ICS feed + review diff."""
+"""The ICS calendar feed: token semantics and RFC5545 formatting."""
 
 
 def test_ics_feed_open_when_no_token(client, fresh_db):
@@ -35,22 +35,3 @@ def test_ics_datetime_format_is_rfc5545(client, fresh_db):
     client.post("/api/events", json={"title": "Ops", "starts_at": "2026-08-01T15:00"})
     body = client.get("/api/calendar.ics").text
     assert "DTSTART:20260801T150000" in body  # padded to 15 chars, not 13
-
-
-def test_review_diff_for_updates(client, fresh_db):
-    from app.services import review, work
-
-    t = work.create_task(title="old title", actor="tester")
-    p = review.propose_change(
-        "task",
-        "update",
-        {"title": "new title", "status": "in_progress"},
-        entity_id=t["id"],
-        actor="agent",
-    )
-    d = client.get(f"/api/review/{p['id']}/diff").json()
-    assert d["diff"]["current"]["title"] == "old title"
-    assert d["diff"]["proposed"]["title"] == "new title"
-    # creates have no diff
-    p2 = review.propose_change("task", "create", {"title": "x"}, actor="agent")
-    assert client.get(f"/api/review/{p2['id']}/diff").json()["diff"] is None
