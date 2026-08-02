@@ -780,9 +780,10 @@ def _r_budget() -> list[dict]:
         {"engagement": e["engagement"], "cost_usd": e["cost_usd"]}
         for e in engagement_costs(since=month_start)[:3]
     ]
+    n_unpriced = month["unpriced_calls"]
     unpriced = (
-        f" {month['unpriced_calls']} call(s) are unpriced and not counted."
-        if month["unpriced_calls"]
+        f" {_n(n_unpriced, 'call')} {'is' if n_unpriced == 1 else 'are'} unpriced and not counted."
+        if n_unpriced
         else ""
     )
     return [

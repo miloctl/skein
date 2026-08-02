@@ -200,7 +200,12 @@ def generate_handoff(engagement_id: int) -> str:
 
     try:
         result = handoff.generate_handoff(engagement_id, actor=agent_identity())
-        receipts.record("wrote", "artifact", f"handoff package for engagement #{engagement_id}")
+        receipts.record(
+            "wrote",
+            "artifact",
+            f"handoff package for engagement #{engagement_id}",
+            int(result.get("artifact_id") or 0),
+        )
         return json.dumps(result)
     except ValueError as exc:
         receipts.record("failed", "artifact", str(exc))

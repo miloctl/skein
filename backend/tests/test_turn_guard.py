@@ -124,3 +124,74 @@ def test_a_silent_turn_does_not_tie_the_knot(client, monkeypatch):
     client.post("/api/chat", json={"thread_id": "t-silent2", "message": "todo: nope"})
     tied = {k["id"] for k in fieldguide.guide("tester")["cards"] if k["tied"]}
     assert "chat_capture" not in tied
+
+
+def test_the_reprompt_runs_once_and_only_once(client, monkeypatch):
+    """The opt-in second exchange: budget of exactly one, and a turn that
+    stays unfiled after the reprompt still states the absence."""
+    from app import config
+
+    calls = []
+
+    class CountingAgent:
+        async def stream_async(self, message):
+            calls.append(message)
+            yield {"data": "noted."}
+
+    monkeypatch.setattr(config, "TURN_GUARD", True)
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: CountingAgent())
+
+    body = client.post(
+        "/api/chat", json={"thread_id": "t-reprompt", "message": "todo: file me"}
+    ).text
+    assert len(calls) == 2  # the message, then the OBJECTION — never a third
+    assert calls[0] == "todo: file me"
+    assert "capture prefix" in calls[1]  # the objection text reached the agent
+    assert '"kind": "nothing"' in body  # still unfiled -> the absence is stated
+
+
+def test_a_reprompt_that_files_clears_the_guard(client, monkeypatch):
+    from app import config
+    from app.agents import receipts as receipts_mod
+
+    class SecondTryAgent:
+        def __init__(self):
+            self.turn = 0
+
+        async def stream_async(self, message):
+            self.turn += 1
+            if self.turn == 2:
+                receipts_mod.record("wrote", "task", "filed on the retry", 7)
+            yield {"data": "ok"}
+
+    monkeypatch.setattr(config, "TURN_GUARD", True)
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: SecondTryAgent())
+
+    body = client.post(
+        "/api/chat", json={"thread_id": "t-reprompt2", "message": "todo: file me"}
+    ).text
+    assert '"kind": "wrote"' in body
+    assert '"kind": "nothing"' not in body
+
+
+def test_a_failed_write_does_not_tie_the_knot(client, monkeypatch):
+    """A failed receipt silences the guard — it told the truth — but nothing
+    was filed, so the knot must not tie. `wrote` was the wrong predicate."""
+    from app.agents import receipts as receipts_mod
+    from app.services import fieldguide
+
+    class FailingAgent:
+        async def stream_async(self, message):
+            receipts_mod.record("failed", "task", "rate capped")
+            yield {"data": "could not file it"}
+
+    client.post("/api/users", json={"name": "tester"})
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: FailingAgent())
+    body = client.post("/api/chat", json={"thread_id": "t-fail", "message": "todo: doomed"}).text
+    assert '"kind": "nothing"' not in body  # the failed receipt already said it
+    tied = {k["id"] for k in fieldguide.guide("tester")["cards"] if k["tied"]}
+    assert "chat_capture" not in tied

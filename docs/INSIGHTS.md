@@ -77,7 +77,7 @@ within a week even on severity change.
 
     A consequence worth knowing before writing a migration: **no migration may UPDATE or DELETE `activity` rows that carry a seq.** Migration 020 (`pulse_anonymize`) rewrote `activity.actor` in bulk; the same migration written today would break the chain permanently at its earliest touched row, with no re-baseline path other than dispositioning the finding into silence.
 
-18. **Budget** — off until `SKEIN_MONTHLY_BUDGET_USD` is set. High when month-to-date estimated spend (from `SKEIN_MODEL_PRICES`, computed at write time) crosses the ceiling, with the top engagements in the receipt via the thread→engagement link. Medium "budget cannot be measured" when the budget is set but no call this month has a priced model — silence there would read as under budget while nothing was being counted. Unpriced calls are named in the message, never folded into the sum. Subject = `month:<YYYY-MM>` (or `unmeasured:<YYYY-MM>`).
+18. **Budget** — off until `SKEIN_MONTHLY_BUDGET_USD` is set. High when month-to-date estimated spend (from `SKEIN_MODEL_PRICES`, computed at write time) reaches the ceiling, with the top engagements in the receipt via the thread→engagement link. Medium "budget cannot be measured" when the budget is set but no call this month has a priced model — silence there would read as under budget while nothing was being counted. Unpriced calls are named in the message, never folded into the sum. Subject = `month:<YYYY-MM>` (or `unmeasured:<YYYY-MM>`).
 
 (19. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
 

@@ -284,3 +284,56 @@ def test_engagement_names_dedupe_case_insensitively(fresh_db):
     engagements.update_engagement(1, status="closed", conclusion="stopped", actor="ava")
     with pytest.raises(ValueError, match="already exists"):
         engagements.create_engagement("alpha", actor="ava")
+
+
+def test_rename_cannot_reopen_the_case_variant_fork(fresh_db):
+    """The create check went NOCASE in 88dadbf; the rename path kept the
+    BINARY check, so update_engagement(name="APOLLO") beside "Apollo" forked
+    rollups exactly the way the create fix prevents. Re-casing an
+    engagement's OWN name stays legal."""
+    engagements.create_engagement("Apollo", actor="ava")
+    engagements.create_engagement("Beta", actor="ava")
+    with pytest.raises(ValueError, match="already exists"):
+        engagements.update_engagement(2, name="APOLLO", actor="ava")
+    result = engagements.update_engagement(1, name="APOLLO", actor="ava")  # own re-case
+    assert "name" in result["updated"]
+
+
+class _MeteredAgent:
+    """A metrics-bearing fake: what mock never provides, which is why the
+    usage-recording path had zero route-level coverage and two real bugs
+    (persona-suffixed thread id, hardcoded model id) survived the suite."""
+
+    def __init__(self, model_id: str = "persona-model"):
+        from types import SimpleNamespace
+
+        self.event_loop_metrics = SimpleNamespace(
+            accumulated_usage={"inputTokens": 1_000_000, "outputTokens": 0},
+            accumulated_metrics={"latencyMs": 5},
+            cycle_count=1,
+        )
+        self.model = SimpleNamespace(get_config=lambda: {"model_id": model_id})
+
+    async def stream_async(self, message):
+        yield {"data": "done"}
+
+
+def test_usage_logs_the_base_thread_and_the_agents_own_model(client, fresh_db, monkeypatch):
+    """Two route-level pins the suite lacked. The thread id must be the BASE
+    id — the persona session id carries a --slug suffix that matches no
+    chat_threads row, silently dropping linked-persona spend to (unlinked).
+    The model id must be the AGENT's — a persona override priced at the
+    deployment model's rate misattributes and miscosts every overridden turn."""
+    monkeypatch.setattr(config, "MODEL_PRICES", {"persona-model": (1.0, 1.0)})
+    monkeypatch.setattr(
+        "app.routes.chat.build_agent", lambda *a, **k: _MeteredAgent("persona-model")
+    )
+    r = client.post(
+        "/api/chat", json={"thread_id": "t-metered", "message": "/as code-reviewer hello"}
+    )
+    assert r.status_code == 200
+    row = db.query_row("SELECT thread_id, model_id, cost_usd, agent_name FROM usage_log")
+    assert row["thread_id"] == "t-metered"  # base id, not t-metered--code-reviewer
+    assert row["model_id"] == "persona-model"  # the agent's model, not config.MODEL_ID
+    assert row["cost_usd"] == pytest.approx(1.0)  # priced at the RIGHT model's rate
+    assert row["agent_name"] == "code-reviewer"

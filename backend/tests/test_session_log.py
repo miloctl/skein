@@ -2,16 +2,28 @@
 
 import json
 
+import pytest
+
 from app import config
 from app.agents import session_log
 
 
+@pytest.fixture(autouse=True)
+def _own_db(fresh_db):
+    """The strategy work added a DB read (effective_context_strategy) into the
+    bridge; without a fresh DB these tests only passed when an earlier test
+    had initialized the shared one — order-dependence, not verification."""
+    return fresh_db
+
+
 def _messages_dir(tmp, thread):
-    return tmp / f"session_{thread}" / "agents" / "agent_default" / "messages"
+    return tmp / "sessions" / f"session_{thread}" / "agents" / "agent_default" / "messages"
 
 
 def _live(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path)
+    # a SUBDIR of tmp_path: fresh_db parks test.db in tmp_path itself, and
+    # the emptiness assertions below must see only session artifacts
+    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
 
@@ -47,7 +59,7 @@ def test_agent_record_restores_on_next_turn(monkeypatch, tmp_path):
 
     _live(monkeypatch, tmp_path)
     session_log.log_exchange("t3", "/playbooks", "the playbooks")
-    repo = FileSessionManager(session_id="t3", storage_dir=str(tmp_path))
+    repo = FileSessionManager(session_id="t3", storage_dir=str(tmp_path / "sessions"))
     agent = repo.read_agent("t3", "default")
     assert agent is not None
     SlidingWindowConversationManager().restore_from_session(agent.conversation_manager_state)
@@ -56,31 +68,31 @@ def test_agent_record_restores_on_next_turn(monkeypatch, tmp_path):
 
 
 def test_mock_provider_writes_nothing(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path)
+    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "mock")
     session_log.log_exchange("t4", "/briefing", "briefing text")
-    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path / "sessions").exists()
 
 
 def test_provider_error_writes_nothing(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path)
+    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "bad host")
     session_log.log_exchange("t5", "/briefing", "briefing text")
-    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path / "sessions").exists()
 
 
 def test_empty_output_writes_nothing(monkeypatch, tmp_path):
     _live(monkeypatch, tmp_path)
     session_log.log_exchange("t6", "/help", "   ")
-    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path / "sessions").exists()
 
 
 def test_fb_line_never_bridged(monkeypatch, tmp_path):
     _live(monkeypatch, tmp_path)
     session_log.log_exchange("t7", "/remember fb: dana — private thing", "refused")
     session_log.log_exchange("t7", "fb: dana — private thing", "refused")
-    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path / "sessions").exists()
 
 
 def test_write_failure_is_swallowed(monkeypatch, tmp_path):
@@ -100,7 +112,7 @@ def test_stranded_user_turn_is_folded(monkeypatch, tmp_path):
     from strands.types.session import SessionAgent, SessionMessage
 
     _live(monkeypatch, tmp_path)
-    repo = FileSessionManager(session_id="t9", storage_dir=str(tmp_path))
+    repo = FileSessionManager(session_id="t9", storage_dir=str(tmp_path / "sessions"))
     repo.create_agent(
         "t9",
         SessionAgent(
@@ -113,9 +125,9 @@ def test_stranded_user_turn_is_folded(monkeypatch, tmp_path):
     repo.create_message("t9", "default", SessionMessage.from_message(stranded, 0))
 
     session_log.log_exchange("t9", "/briefing", "briefing text")
-    restored = FileSessionManager(session_id="t9", storage_dir=str(tmp_path)).list_messages(
-        "t9", "default"
-    )
+    restored = FileSessionManager(
+        session_id="t9", storage_dir=str(tmp_path / "sessions")
+    ).list_messages("t9", "default")
     assert [m.message["role"] for m in restored] == ["user", "assistant"]
     assert restored[0].message["content"] == [{"text": "?"}, {"text": "/briefing"}]
     assert restored[1].message["content"] == [{"text": "briefing text"}]
