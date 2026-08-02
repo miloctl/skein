@@ -94,3 +94,19 @@ def test_bridge_skipped_while_agent_turn_in_flight(client, monkeypatch):
     finally:
         del chat_route._inflight["t"]
     assert calls == []
+
+
+def test_a_late_receipt_in_a_command_survives_the_stream(client, monkeypatch):
+    """A receipt recorded after a command generator's last yield must reach
+    the stream and the transcript — the post-loop drain mirrors pump()'s, and
+    without it the receipt vanishes from all three destinations."""
+    from app.agents import commands, receipts
+
+    async def late_receipt_command():
+        yield {"data": "working…"}
+        receipts.record("wrote", "note", "recorded after the last yield", 5)
+
+    monkeypatch.setattr(commands, "dispatch", lambda text, user: late_receipt_command())
+    body = client.post("/api/chat", json={"thread_id": "t-late", "message": "/briefing"}).text
+    assert '"kind": "wrote"' in body
+    assert "recorded after the last yield" in body
