@@ -76,12 +76,12 @@
 
 /* Fabric packs: a different cloth on the same loom. Packs re-weave the
    surfaces, text, texture, and type; colorways (and custom hues) still dye
-   the accent threads on top. Invariant, verified in pack_check.py: pack
-   light surfaces are at least as bright as the loom's dimmest light surface
-   and dark surfaces at most as bright as its brightest dark one — so every
-   AA-verified accent (all 360 custom hues included) stays AA on every pack.
-   Selectors match ANY [data-pack] element, not just :root, so the Settings
-   theme cards can render live scoped previews of each fabric. */
+   the accent threads on top. scripts/check_theme_contrast.py (run by
+   lint.sh) reads the packs out of this file and verifies every accent —
+   the named colorways and all 360 custom hues — against every pack surface
+   directly, so a new pack is gated the day it ships. Selectors match ANY
+   [data-pack] element, not just :root, so the Settings theme cards can
+   render live scoped previews of each fabric. */
 
 /* Ledger: cool paper, ruled lines, print-crisp. Square corners, serif
    headlines, zero shadow — a broadsheet, not a web app. */

@@ -51,8 +51,10 @@ Two rules that follow:
   intermittently.
 - **Never paint it `--thread-solid`.** That token stays dark in dark mode so
   light text can sit on it — painted *on* the page it falls to 2.52:1 under
-  graphite. `--thread` holds ≥5.5:1 across every named theme and ≥6.09:1 across
-  a 360-hue custom sweep.
+  graphite. `--thread` holds ≥5.5:1 across every named theme on every pack
+  surface, and the 360-hue custom sweep bottoms at 5.56:1 — both enforced by
+  `scripts/check_theme_contrast.py` in `lint.sh`, which prints the current
+  sweep floor on every run.
 
 ## Why the icon is a plate
 
