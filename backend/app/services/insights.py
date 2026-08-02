@@ -734,9 +734,10 @@ def _r_activity_chain() -> list[dict]:
             "high",
             f"The activity ledger does not match its anchor log at entry"
             f" {anchors['seq']}: {anchors['reason']}. The chain itself"
-            " verifies, so the ledger and its marks were rewritten together"
-            " after that entry was anchored. Compare the anchor log and"
-            " platform.db against the copies on the backup mirror.",
+            " verifies, so the ledger and its marks were rewritten together,"
+            " an older backup was restored, or the anchor log was changed."
+            " Compare the anchor log and platform.db against the copies in"
+            " data/backups and on the backup mirror.",
             {"anchored_seq": anchors["seq"], "reason": anchors["reason"]},
             subject=f"anchor:{anchors['seq']}",
             window="point-in-time",

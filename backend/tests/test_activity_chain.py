@@ -446,7 +446,112 @@ def test_torn_and_conflicting_lines(fresh_db):
         fh.write(f"\n2026-08-03T03:30:00+00:00 seq=3 hash={'0' * 64}\n")
     result = activity.check_anchor_log()
     assert not result["ok"]
-    assert result["reason"] == "the anchor log disagrees with itself about this entry"
+    assert result["reason"] == "the anchor logs disagree about this entry"
+
+
+def test_a_torn_line_does_not_swallow_the_next_night(fresh_db):
+    """A torn line has no trailing newline, so a bare append would glue the
+    next night's line onto it and lose BOTH from coverage."""
+    from app.services import activity
+
+    _log(3)
+    activity.nightly_verify()
+    path = activity._anchor_log_paths()[0]
+    with path.open("a") as fh:
+        fh.write("2026-08-02T03:30:00+00:00 seq=3 hash=deadbe")  # torn, no newline
+    _log(1)
+    activity.nightly_verify()
+    result = activity.check_anchor_log()
+    assert result["ok"]
+    assert result["checked"] == 2  # seq 3 and seq 4 — the healed line parsed
+
+
+def test_the_job_registry_actually_anchors(fresh_db):
+    """The wiring, not the function: reverting the job body to a bare
+    verify_tail() would leave every direct nightly_verify test green while
+    production never writes a line."""
+    from app.services import activity, jobs
+
+    _log(2)
+    spec = next(s for s in jobs.JOBS if s.name == "activity-verify")
+    result = spec.fn()
+    assert result["ok"]
+    assert result["anchor"]["anchored"] == 2
+    assert activity._anchor_log_paths()[0].exists()
+
+
+def test_record_anchor_uses_the_verified_anchor_not_the_live_tail(fresh_db):
+    """Rows written since verification are unverified — anchoring the live
+    tail would launder whatever they happen to say into tomorrow's baseline."""
+    from app.services import activity
+
+    _log(3)
+    activity.verify_tail()  # blesses seq 3
+    _log(2)  # seq 4 and 5 exist but are unverified
+    result = activity.record_anchor()
+    assert result["anchored"] == 3
+    assert "seq=3" in activity._anchor_log_paths()[0].read_text()
+
+
+def test_deleting_the_local_log_is_caught_by_the_mirror(fresh_db, tmp_path, monkeypatch):
+    """The cheapest local-file attack is rm, not a consistent rewrite. The
+    mirror holds the same lines, and the check reads both."""
+    from app.services import activity, admin
+
+    monkeypatch.setattr(admin, "mirror_dir", lambda: tmp_path / "mirror")
+    (tmp_path / "mirror").mkdir()
+    _log(6)
+    activity.nightly_verify()
+    _reforge_everything(edit_seq=2, new_actor="ghost")
+    activity._anchor_log_paths()[0].unlink()  # attacker removes the local log
+
+    assert activity.verify_chain()["ok"]
+    result = activity.check_anchor_log()
+    assert not result["ok"]
+    assert result["seq"] == 6
+
+
+def test_a_rewritten_local_log_conflicts_with_the_mirror(fresh_db, tmp_path, monkeypatch):
+    """A local log rewritten to agree with the forged ledger disagrees with
+    the mirror's honest line for the same seq."""
+    from app.services import activity, admin
+
+    monkeypatch.setattr(admin, "mirror_dir", lambda: tmp_path / "mirror")
+    (tmp_path / "mirror").mkdir()
+    _log(6)
+    activity.nightly_verify()
+    _reforge_everything(edit_seq=2, new_actor="ghost")
+    forged_tip = db.query_row("SELECT hash FROM activity WHERE seq = 6")["hash"]
+    activity._anchor_log_paths()[0].write_text(f"{db.now()} seq=6 hash={forged_tip}\n")
+
+    result = activity.check_anchor_log()
+    assert not result["ok"]
+    assert result["reason"] == "the anchor logs disagree about this entry"
+
+
+def test_an_unmounted_mirror_directory_is_never_manufactured(fresh_db, tmp_path, monkeypatch):
+    """mkdir on the mirror path would build the mount point on the LOCAL disk;
+    the append would land on the wrong disk and be shadowed when the real
+    mount returns — a silent hole in the history."""
+    from app.services import activity, admin
+
+    mirror = tmp_path / "not-mounted"
+    monkeypatch.setattr(admin, "mirror_dir", lambda: mirror)
+    _log(2)
+    result = activity.nightly_verify()
+    assert result["ok"]
+    assert result["anchor"]["anchored"] == 2
+    assert len(result["anchor"]["files"]) == 1  # local only
+    assert not mirror.exists()
+
+
+def test_a_night_where_nothing_landed_reports_zero(fresh_db, monkeypatch):
+    from app.services import activity
+
+    _log(2)
+    activity.verify_tail()
+    monkeypatch.setattr(activity, "_anchor_log_paths", lambda: [])
+    assert activity.record_anchor() == {"anchored": 0, "files": []}
 
 
 def test_the_mirror_gets_its_own_append_never_a_copy(fresh_db, tmp_path, monkeypatch):
@@ -455,6 +560,7 @@ def test_the_mirror_gets_its_own_append_never_a_copy(fresh_db, tmp_path, monkeyp
     from app.services import activity, admin
 
     mirror = tmp_path / "mirror"
+    mirror.mkdir()  # a mounted mirror exists; record_anchor never mkdirs it
     monkeypatch.setattr(admin, "mirror_dir", lambda: mirror)
     _log(2)
     activity.nightly_verify()
