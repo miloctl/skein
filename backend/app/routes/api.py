@@ -4,7 +4,7 @@ alongside agent tools — both go through app.services)."""
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import db, ratelimit
 from ..services import (
@@ -663,7 +663,11 @@ def get_agents_status(user: CurrentUser):
 
 
 class ContextStrategyIn(BaseModel):
-    strategy: str = ""
+    # extra=forbid + no default: a mistyped field name would otherwise fall
+    # through to "" — the CLEAR sentinel — silently reverting the whole team to
+    # the env default and answering 200 as if it were deliberate
+    model_config = ConfigDict(extra="forbid")
+    strategy: str
 
 
 @router.get("/settings/context-strategy")

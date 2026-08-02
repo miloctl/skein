@@ -248,8 +248,12 @@ _CONTEXT_FAULTS: list[str] = []
 
 if CONTEXT_STRATEGY not in CONTEXT_STRATEGIES:
     _CONTEXT_FAULTS.append(
-        f"unknown SKEIN_CONTEXT_STRATEGY {CONTEXT_STRATEGY!r} —"
-        f" expected one of: {', '.join(CONTEXT_STRATEGIES)}. Using sliding."
+        # deliberately does NOT assert which strategy is in use: the Settings
+        # toggle overrides the env value, so "Using sliding." would keep
+        # claiming that while every chat summarizes. The surfaces report the
+        # effective strategy separately.
+        f"unknown SKEIN_CONTEXT_STRATEGY {CONTEXT_STRATEGY!r}."
+        f" Expected one of: {', '.join(CONTEXT_STRATEGIES)}."
     )
     CONTEXT_STRATEGY = "sliding"
 
@@ -271,14 +275,17 @@ def _ctx_num(name: str, default, cast, low=None, high=None):
     raw = os.getenv(name, "").strip()
     try:
         value = cast(raw or default)
-    except ValueError:
-        _CONTEXT_FAULTS.append(f"{name} is not a number. Skein uses {default}.")
-        return default
-    # NaN fails every comparison, so a bare < / > check would pass it straight
-    # to the SDK's max(min(...)) clamp — the exact "a number that is not in
-    # effect" case these bounds exist to refuse
-    if not math.isfinite(value):
-        _CONTEXT_FAULTS.append(f"{name} is not a real number. Skein uses {default}.")
+        # NaN fails every comparison, so a bare < / > check would pass it
+        # straight to the SDK's max(min(...)) clamp — the exact "a number that
+        # is not in effect" case these bounds exist to refuse.
+        # OverflowError, not just ValueError: isfinite() converts to a C double
+        # first, so a 309-digit int raises here — and an uncaught raise in this
+        # module takes down every route, the ICS feed, and backups with it.
+        if not math.isfinite(value):
+            _CONTEXT_FAULTS.append(f"{name} is not a real number. Skein uses {default}.")
+            return default
+    except (ValueError, OverflowError):
+        _CONTEXT_FAULTS.append(f"{name} is not a usable number. Skein uses {default}.")
         return default
     if (low is not None and value < low) or (high is not None and value > high):
         bounds = f"{low} to {high}" if high is not None else f"{low} or more"

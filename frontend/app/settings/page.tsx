@@ -10,6 +10,7 @@ import {
   getApiKey,
   getUser,
   isUnreachable,
+  loadError,
   setApiKey,
   setUser,
 } from "@/lib/api";
@@ -84,6 +85,7 @@ export default function SettingsPage() {
   // failed yet, and rendering an error during normal loading is a refusal
   // describing something that did not happen
   const [ctxLoaded, setCtxLoaded] = useState(false);
+  const [ctxLoadError, setCtxLoadError] = useState("");
   const [ctxStatus, setCtxStatus] = useState("");
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
@@ -105,8 +107,17 @@ export default function SettingsPage() {
       choices: string[];
       applies: boolean;
     }>("/api/settings/context-strategy")
-      .then(setCtx)
-      .catch(() => setCtx(null))
+      .then((r) => {
+        setCtx(r);
+        setCtxLoadError("");
+      })
+      .catch((e) => {
+        setCtx(null);
+        // a 401 behind SKEIN_API_TOKEN, or a 500 from a locked database, is a
+        // server that answered — calling it unreachable sends the reader to
+        // check something that is running
+        setCtxLoadError(isUnreachable(e) ? backendUnreachable(e) : loadError(e));
+      })
       .finally(() => setCtxLoaded(true));
   }, []);
   useEffect(loadCtx, [loadCtx]);
@@ -839,7 +850,7 @@ export default function SettingsPage() {
           )}
         </p>
         {ctxLoaded && !ctx && (
-          <p className="text-sm text-ink-3">{backendUnreachable()}</p>
+          <p className="text-sm text-ink-3">{ctxLoadError}</p>
         )}
         {ctx && (
           <div className="space-y-2">

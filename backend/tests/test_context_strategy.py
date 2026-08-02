@@ -560,3 +560,36 @@ def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
     restored = [m.to_message() for m in repo.list_messages("t-tools", "default", offset=offset)]
     assert restored[0]["role"] == "user"
     assert not any("toolResult" in c for c in restored[0]["content"])
+
+
+def test_a_mistyped_field_is_refused_not_treated_as_clear(client, fresh_db):
+    """Empty string is the CLEAR sentinel, so a typo'd field name falling
+    through to the default would silently revert the whole team and answer
+    200 as if that were deliberate."""
+    from app.services import settings
+
+    client.post("/api/settings/context-strategy", json={"strategy": "summarize"}, headers=_key())
+    r = client.post("/api/settings/context-strategy", json={"stratgy": "sliding"}, headers=_key())
+    assert r.status_code == 422
+    assert settings.effective_context_strategy() == "summarize"  # untouched
+
+    r = client.post("/api/settings/context-strategy", json={}, headers=_key())
+    assert r.status_code == 422
+    assert settings.effective_context_strategy() == "summarize"
+
+
+def test_the_strategy_fault_does_not_assert_which_strategy_runs(monkeypatch):
+    """The toggle overrides the env value, so a fault claiming "Using sliding."
+    would keep saying that while every chat summarizes."""
+    cfg = _reload(monkeypatch, SKEIN_CONTEXT_STRATEGY="summarise")
+    assert "Using" not in cfg.CONTEXT_STRATEGY_ERROR
+    assert "summarise" in cfg.CONTEXT_STRATEGY_ERROR
+
+
+def test_an_absurdly_long_number_does_not_kill_the_import(monkeypatch):
+    """math.isfinite converts to a C double first, so a 309-digit int raises
+    OverflowError — and an uncaught raise in config takes down every route,
+    the ICS feed, and backups with it."""
+    cfg = _reload(monkeypatch, SKEIN_CONTEXT_WINDOW="9" * 400)
+    assert cfg.CONTEXT_WINDOW == 40
+    assert "SKEIN_CONTEXT_WINDOW" in cfg.CONTEXT_STRATEGY_ERROR
