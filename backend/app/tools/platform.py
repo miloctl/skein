@@ -10,13 +10,6 @@ from ..services import blockers, engagements, handoff, intake, playbooks, search
 from ._gate import gated_write
 
 
-def _safe(fn):
-    try:
-        return json.dumps(fn())
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
-
-
 @tool
 def raise_blocker(
     title: str, detail: str = "", owner: str = "", impact: str = "medium", task_id: int = 0
@@ -200,7 +193,18 @@ def generate_handoff(engagement_id: int) -> str:
     Args:
         engagement_id: ID of the engagement to hand off.
     """
-    return _safe(lambda: handoff.generate_handoff(engagement_id, actor=agent_identity()))
+    # writes an artifact (row + file) without the gate: a handoff package is a
+    # projection of existing records, not a mutation of them, and the artifact
+    # itself is the reviewable output. It still reports what it did.
+    from ..agents import receipts
+
+    try:
+        result = handoff.generate_handoff(engagement_id, actor=agent_identity())
+        receipts.record("wrote", "artifact", f"handoff package for engagement #{engagement_id}")
+        return json.dumps(result)
+    except ValueError as exc:
+        receipts.record("failed", "artifact", str(exc))
+        return json.dumps({"error": str(exc)})
 
 
 @tool

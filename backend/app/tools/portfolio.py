@@ -6,6 +6,7 @@ from typing import Any
 
 from strands import tool
 
+from ..agents import receipts
 from ..agents.identity import agent_identity
 from ..services import absences, collab, commitments, context_pack, delegation, portfolio
 from ._gate import gated_write
@@ -221,9 +222,15 @@ def claim_delegated_task(task_id: int) -> str:
     Args:
         task_id: ID of the task delegated to you.
     """
+    # the delegation loop bypasses the generic gate on purpose (sponsor-bound
+    # verdicts, not the authority matrix) — so it must record its own
+    # receipts, or the UI cannot state that the write happened
     try:
-        return json.dumps(delegation.claim_task(task_id, actor=agent_identity()))
+        result = delegation.claim_task(task_id, actor=agent_identity())
+        receipts.record("wrote", "task", f"claimed delegated task #{task_id}", task_id)
+        return json.dumps(result)
     except ValueError as exc:
+        receipts.record("failed", "task", str(exc))
         return json.dumps({"error": str(exc)})
 
 
@@ -237,8 +244,11 @@ def report_progress(task_id: int, note: str) -> str:
         note: What you did / found / decided since the last note.
     """
     try:
-        return json.dumps(delegation.report_progress(task_id, note, actor=agent_identity()))
+        result = delegation.report_progress(task_id, note, actor=agent_identity())
+        receipts.record("wrote", "worklog", f"progress on task #{task_id}: {note[:80]}", task_id)
+        return json.dumps(result)
     except ValueError as exc:
+        receipts.record("failed", "worklog", str(exc))
         return json.dumps({"error": str(exc)})
 
 
@@ -256,12 +266,20 @@ def submit_for_acceptance(task_id: int, summary: str) -> str:
     from ..agents.identity import requester_identity
 
     try:
-        return json.dumps(
-            delegation.submit_completion(
-                task_id, summary, actor=agent_identity(), requested_by=requester_identity()
-            )
+        result = delegation.submit_completion(
+            task_id, summary, actor=agent_identity(), requested_by=requester_identity()
         )
+        # a filed proposal with no receipt reads as nothing having happened —
+        # the exact silence the turn guard exists to catch
+        receipts.record(
+            "queued",
+            "task_completion",
+            f"task #{task_id} awaits the sponsor's acceptance",
+            int(result.get("id") or 0),
+        )
+        return json.dumps(result)
     except ValueError as exc:
+        receipts.record("failed", "task_completion", str(exc))
         return json.dumps({"error": str(exc)})
 
 
