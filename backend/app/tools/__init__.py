@@ -12,7 +12,7 @@ from .collab import (
     save_note,
     search_notes,
 )
-from .memory import forget_memory
+from .memory import forget_memory, recall_memories, remember
 from .platform import (
     edit_blocker,
     edit_intake_request,
@@ -107,6 +107,8 @@ ALL_TOOLS = [
     get_context_pack,
     my_agent_inbox,
     forget_memory,
+    remember,
+    recall_memories,
     claim_delegated_task,
     report_progress,
     submit_for_acceptance,

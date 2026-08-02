@@ -43,6 +43,16 @@ ARGS: dict[str, dict] = {
         "engagement_name": "coverage probe engagement",
     },
     "update_task": {"task_id": 1, "description": "coverage probe"},
+    # non-empty payloads, or the empty-update bounce fires BEFORE the gate and
+    # a bypass inside these tools passes the harness without ever writing
+    "edit_note": {"note_id": 1, "content": "coverage probe edit"},
+    "edit_blocker": {"blocker_id": 1, "title": "coverage probe edit"},
+    "edit_intake_request": {"request_id": 1, "title": "coverage probe edit"},
+    "edit_commitment": {"commitment_id": 1, "promise": "coverage probe edit"},
+    # the delegation trio uses its own task so no earlier tool can disturb it
+    "claim_delegated_task": {"task_id": 2},
+    "report_progress": {"task_id": 2, "note": "coverage probe progress"},
+    "submit_for_acceptance": {"task_id": 2, "summary": "coverage probe done"},
     "update_milestone": {"milestone_id": 1, "title": "coverage probe rename"},
     "update_engagement": {"engagement_id": 1, "summary": "coverage probe"},
     "add_absence": {
@@ -64,7 +74,6 @@ _STR_BY_NAME = {
     "starts_on": "2026-08-10",
     "ends_on": "2026-08-11",
     "date": "2026-08-20",
-    "status": "",
     "audience": "team",
     "impact": "low",
 }
@@ -99,6 +108,7 @@ def _seed(fresh_db):
         commitments,
         delegation,
         engagements,
+        intake,
         memory,
         schedule,
         users,
@@ -116,7 +126,9 @@ def _seed(fresh_db):
     blockers.raise_blocker("probe blocker", actor="tester")
     commitments.add_commitment("probe commitment", actor="tester")
     memory.remember("probe memory", "probe", actor="tester")
-    delegation.delegate_task(1, "agent", sponsor="tester", actor="tester")
+    intake.submit_request("probe request", requester="tester", actor="tester")
+    work.create_task("probe delegated task", actor="tester")  # id 2, the trio's own
+    delegation.delegate_task(2, "agent", sponsor="tester", actor="tester")
 
 
 def _unwrap(tool):
@@ -155,7 +167,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
 
     silent_writers = []
     uncallable = []
-    covered = 0
+    covered = set()
     for tool in ALL_TOOLS:
         fn = _unwrap(tool)
         try:
@@ -180,7 +192,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         if real_writes and not got:
             silent_writers.append(f"{fn.__name__}: wrote {real_writes} with no receipt")
         if real_writes and got:
-            covered += 1
+            covered.add(fn.__name__)
 
     assert not uncallable, "tools the heuristics cannot call:\n" + "\n".join(uncallable)
     assert not silent_writers, (
@@ -190,7 +202,11 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     )
     # the harness itself must be alive: if instrumentation or arg generation
     # quietly broke, zero covered writers would report a hollow green
-    assert covered >= 15, f"only {covered} tools produced an observed gated write"
+    assert len(covered) >= 20, f"only {len(covered)} tools produced an observed write: {covered}"
+    # the ungated writers must be IN the observed set — a future ARGS change
+    # that degrades them to error paths must not pass as merely uncovered
+    for name in ("claim_delegated_task", "report_progress", "submit_for_acceptance"):
+        assert name in covered, f"{name} never reached its write path"
 
 
 def test_the_registry_is_the_only_inclusion_source():
@@ -221,19 +237,23 @@ def test_the_ungated_writers_report_themselves(fresh_db, monkeypatch, tool_name,
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     _seed(fresh_db)
     args = {
-        "claim_delegated_task": {"task_id": 1},
-        "report_progress": {"task_id": 1, "note": "probe progress"},
-        "submit_for_acceptance": {"task_id": 1, "summary": "probe done"},
+        "claim_delegated_task": {"task_id": 2},
+        "report_progress": {"task_id": 2, "note": "probe progress"},
+        "submit_for_acceptance": {"task_id": 2, "summary": "probe done"},
         "generate_handoff": {"engagement_id": 1},
     }[tool_name]
     if tool_name in ("report_progress", "submit_for_acceptance"):
-        _unwrap(tools_pkg.claim_delegated_task)(task_id=1)
+        _unwrap(tools_pkg.claim_delegated_task)(task_id=2)
 
     receipts.start()
     out = json.loads(_unwrap(getattr(tools_pkg, tool_name))(**args))
     got = receipts.drain()
     assert "error" not in out, out
     assert [r["kind"] for r in got] == [expected_kind]
+    if expected_kind == "queued":
+        # the ref IS the proposal id — the transcript renders "#N", and 0
+        # silently drops it, unlike every gate-queued receipt
+        assert got[0]["ref"] == out["proposal_id"] > 0
 
 
 def test_a_failing_ungated_writer_reports_the_failure(fresh_db, monkeypatch):
