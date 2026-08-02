@@ -14,4 +14,20 @@ this file is only for accepted trade-offs that must eventually be repaid.
   docs/FIELD-GUIDE.md "Weak identity accepted"). Repay when the OIDC
   identity bridge lands: once every request carries a validated identity,
   move the guide (and the other personal-but-not-private surfaces) onto it
-  instead of inventing a bespoke auth layer now.
+  instead of inventing a bespoke auth layer now. The 2026-08 buzz work grew
+  this class: the activity feed's anti-surveillance scope, chat threads and
+  their engagement links, and /api/usage all key on the same weak header —
+  the feed matters most, because its "teammates' rows never appear"
+  guarantee is only as strong as X-User until the bridge lands.
+
+- **No re-baseline path for a legitimate unchained activity row.** When
+  log_activity's standalone append fails, the row is recorded unchained (a
+  write must not 500 over bookkeeping) — and an unchained row above the
+  pre-036 baseline fires `activity_chain_broken` on every weekly re-fire,
+  indistinguishable from a smuggled row. Dismissal only suppresses 28 days;
+  the sole true fix is hand-editing the baseline in app_settings. Accepted
+  2026-08-02 because the fallback has never fired outside tests and a
+  re-baseline operation is attacker-usable machinery we should not build
+  speculatively. Repay when the first real fallback fires in production:
+  add a logged, StrongUser re-baseline that records the reason in the
+  ledger itself.
