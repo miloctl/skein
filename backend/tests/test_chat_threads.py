@@ -44,13 +44,15 @@ def test_folders_rename_and_owner_scoping(client):
     # another user cannot see or touch it
     other = client.get("/api/chats", headers={"X-User": "intruder"}).json()
     assert all(c["id"] != "th-4" for c in other)
-    assert client.get("/api/chats/th-4/messages", headers={"X-User": "intruder"}).status_code == 400
+    # 404, not 400: a lookup miss is not a malformed request, and answering
+    # 404 to an intruder also declines to confirm that th-4 exists at all
+    assert client.get("/api/chats/th-4/messages", headers={"X-User": "intruder"}).status_code == 404
 
 
 def test_delete_removes_transcript(client):
     _read_chat(client, "note: delete me soon", thread="th-5")
     assert client.delete("/api/chats/th-5").json()["deleted"] is True
-    assert client.get("/api/chats/th-5/messages").status_code == 400
+    assert client.get("/api/chats/th-5/messages").status_code == 404
 
 
 def test_log_message_never_cross_files_on_id_collision(client, fresh_db):
