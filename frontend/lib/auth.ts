@@ -152,14 +152,21 @@ export async function signIn(returnTo?: string): Promise<string> {
 /** A path inside this app, or "/".
  *
  *  Anything handed to location.replace() after a sign-in sits in the classic
- *  open-redirect position. "//evil.com" is a PATH to us and an origin to the
- *  browser, and a backslash is normalized to a slash by some parsers, so both
- *  are refused rather than repaired. */
+ *  open-redirect position, so this asks the SAME parser the navigation will
+ *  use and compares origins. Inspecting the string instead is what fails:
+ *  "//evil.com" is a path to a prefix check and an origin to the browser, and
+ *  the URL parser strips tab, newline and carriage return BEFORE resolving —
+ *  so "/<tab>/evil.com" passes any check that runs first and still lands on
+ *  evil.com. One parser, one answer, no gap to slip through. */
 function localPath(returnTo: string): string {
-  if (!returnTo.startsWith("/") || returnTo.startsWith("//") || returnTo.includes("\\")) {
+  try {
+    const here = window.location.origin;
+    const url = new URL(returnTo, here);
+    if (url.origin !== here) return "/";
+    return url.pathname + url.search + url.hash;
+  } catch {
     return "/";
   }
-  return returnTo;
 }
 
 // One exchange per callback URL. React StrictMode runs an effect twice in
