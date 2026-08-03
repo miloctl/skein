@@ -27,6 +27,14 @@ class NotFound(ValueError):
     the whole surface instead of per-route guesswork."""
 
 
+class TerminalReject(ValueError):
+    """A service refusal that re-approval can never satisfy — a permanent
+    policy block, not a transient failure. Subclasses ValueError so the direct
+    write path is unchanged (still a 400); review.approve_change catches it
+    and settles the proposal as rejected, instead of resetting it to pending
+    where it would boomerang forever."""
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

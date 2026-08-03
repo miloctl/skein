@@ -241,6 +241,18 @@ def approve_change(
             f"could not apply {change['entity']}.{change['action']}: {exc}"
             " — proposal auto-rejected (its target no longer exists)"
         ) from exc
+    except db.TerminalReject as exc:
+        # a permanent policy block (an agent's own delegated-done proposal):
+        # re-approving can never succeed, so settle it rejected like a vanished
+        # target instead of resetting to pending, where it would clutter the
+        # queue until a human rejected it by hand
+        db.execute(
+            "UPDATE pending_changes SET status = 'rejected', review_note = ? WHERE id = ?",
+            (f"auto-rejected — {exc}", change_id),
+        )
+        db.log_activity(actor, "reject_change", f"#{change_id} (not applicable)")
+        _clear_review_ping(change_id)
+        raise ValueError(f"could not apply and auto-rejected: {exc}") from exc
     except Exception as exc:
         # ANY OTHER failure (IntegrityError, lock timeout, stale state)
         # resets the claim — an approved-but-never-applied proposal would

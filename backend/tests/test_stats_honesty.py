@@ -100,18 +100,23 @@ def test_insights_returns_no_person_keyed_rows(fresh_db):
     assert out["adoption"]["weekly_active_users"] >= 1  # team-rolled facts stay
     # nothing anywhere in the payload names a person
     assert "mira" not in str(out["adoption"])
-    # the service keeps it for its own team-rolled computation
-    assert "active_users" in adoption.adoption()
+    # closed at the SOURCE, not just in this wrapper: the next endpoint over
+    # (GET /api/adoption) serves adoption() raw, and it had no filter of its own
+    assert "active_users" not in adoption.adoption()
+    assert "mira" not in str(adoption.adoption())
 
 
 def test_the_two_rolling_windows_are_the_same_width(fresh_db):
     """The current window counted back a full WINDOW_DAYS from an inclusive
     today, giving 29 days against the prior window's 28."""
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from app.services import blockers, insights
 
-    today = date.today()
+    # the service windows in UTC, so the fixture must seed in UTC too — local
+    # date.today() drifts a day whenever the two calendars disagree, and the
+    # boundary count then reads 27 or 29 instead of 28
+    today = insights._today()
     for i in range(60):
         b = blockers.raise_blocker(title=f"b{i}", actor="mira")["id"]
         day = (today - timedelta(days=i)).isoformat()

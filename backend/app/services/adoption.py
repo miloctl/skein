@@ -33,14 +33,12 @@ def adoption(weeks: int = 4) -> dict:
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1 AND name != 'anonymous'"
     )
-    # deactivated names drop out here too — else "4/3 humans active" after
-    # a roster cleanup
-    active = db.query(
-        "SELECT t.user, MAX(t.day) AS last_day, SUM(t.actions) AS actions"
-        " FROM tool_usage t JOIN users u ON u.name = t.user AND u.active = 1"
-        " WHERE t.day >= ? GROUP BY t.user ORDER BY last_day DESC",
-        (cutoff,),
-    )
+    # NO per-person list here. A per-person action tally over a past window is
+    # the leaderboard input the anti-surveillance rule refuses (docs/INSIGHTS.md:
+    # person-level data plans the future, only team aggregates judge the past),
+    # and this payload is served raw at GET /api/adoption. weekly_active_users
+    # below is the team COUNT, computed on its own — the reach number without
+    # the names.
     by_surface = db.query(
         "SELECT surface, COUNT(DISTINCT user) AS users, SUM(actions) AS actions"
         " FROM tool_usage WHERE day >= ? GROUP BY surface ORDER BY actions DESC",
@@ -64,7 +62,6 @@ def adoption(weeks: int = 4) -> dict:
         "window_weeks": weeks,
         "team_humans": len(humans),
         "weekly_active_users": weekly_active["n"],
-        "active_users": active,
         "by_surface": by_surface,
         "non_web_share": round((non_web["n"] or 0) / total["n"], 2) if total["n"] else None,
         "captures_in_window": capture_total["n"],

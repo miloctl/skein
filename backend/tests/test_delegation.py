@@ -151,3 +151,19 @@ def test_reassign_ends_delegation(client, fresh_db):
 
 def test_agent_inbox_unknown_agent_is_an_error(client):
     assert client.get("/api/agents/definitely-a-typo/inbox").status_code == 404
+
+
+def test_agent_delegated_done_proposal_auto_rejects_not_wedges(client, fresh_db):
+    """A generic task/done proposal on an agent's OWN delegated task can never
+    be approved into success. It must settle as rejected, not reset to pending
+    where it would clutter /review until a human rejects it by hand."""
+    from app.services import review
+
+    tid = _delegated_task(fresh_db)
+    p = review.propose_change("task", "update", {"status": "done"}, entity_id=tid, actor="scout")
+    with pytest.raises(ValueError, match="auto-rejected"):
+        review.approve_change(p["id"], actor="mira")
+    row = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
+    assert row["status"] == "rejected"  # settled, not boomeranged to pending
+    # and the task itself stayed open — the escape is still closed
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (tid,))["status"] != "done"

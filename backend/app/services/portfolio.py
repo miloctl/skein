@@ -221,7 +221,8 @@ def nudge_stale_wip() -> dict:
 
 def slip_forecast() -> dict:
     """Forecast open milestone dates from the team's own slip history.
-    Labeled heuristic: avg days late across done milestones that had a due date."""
+    Labeled heuristic: MEDIAN days late across done milestones that had a
+    due date (median, not mean — see the note below)."""
     # completed_at, not updated_at: post-done corrections (relinks, title
     # fixes) bump updated_at and would inflate every forecast
     history = db.query(
@@ -235,8 +236,8 @@ def slip_forecast() -> dict:
     # nine delivered on time plus one 200 days late pushed EVERY open
     # milestone 20 days. The median of that history is 0.
     med = _median(slips)
-    avg_slip = round(med, 1) if med is not None else 0.0
-    applied = max(0.0, avg_slip)
+    median_slip = round(med, 1) if med is not None else 0.0
+    applied = max(0.0, median_slip)
     forecasts = []
     for m in db.query(
         "SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id"
@@ -266,7 +267,7 @@ def slip_forecast() -> dict:
     return {
         # median, and the key says so — an "avg_" key holding a median is
         # the same kind of quiet lie the median fix was for
-        "basis": {"milestones_measured": len(slips), "median_slip_days": avg_slip},
+        "basis": {"milestones_measured": len(slips), "median_slip_days": median_slip},
         "forecasts": forecasts,
     }
 
