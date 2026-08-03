@@ -25,8 +25,10 @@ def main() -> None:
         ensure_user(name)
     except ValueError as exc:
         # a reserved or colliding name is the operator's typo, not a crash:
-        # the reason belongs on stderr, never a traceback to decode
-        print(f"cannot create '{name}': {exc}. Pick another name.", file=sys.stderr)
+        # the reason belongs on stderr, never a traceback to decode. No
+        # appended imperative — the service message already carries its own
+        # ("pick another name"), and one condition gets one wording
+        print(f"cannot create '{name}': {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     result = create_key(name, label)
     print(f"API key for {name} (shown once — store it now):\n{result['key']}")
