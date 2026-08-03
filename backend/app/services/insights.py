@@ -51,18 +51,28 @@ def _resolve_hours(since: str, until: str) -> list[float]:
     return [r["h"] for r in rows if r["h"] is not None]
 
 
-def mttr_windows() -> dict:
-    # WINDOW_DAYS - 1: the current window is INCLUSIVE of today, so counting
-    # back a full WINDOW_DAYS gave 29 days against the prior window's 28 — a
-    # 3.6% wider current window on both sides of the ratio comparison and of
-    # the n>=8 sample floors, under a UI card that reads "rolling 28 days".
-    now, cut, prior = (
-        _today(),
-        _today() - timedelta(days=WINDOW_DAYS - 1),
-        _today() - timedelta(days=2 * WINDOW_DAYS - 1),
+def _rolling_bounds() -> tuple[str, str, str]:
+    """(prior_start, cut, upper) for two adjacent WINDOW_DAYS windows, the
+    current one INCLUSIVE of today: current = [cut, upper), prior =
+    [prior_start, cut), each exactly WINDOW_DAYS wide.
+
+    One definition, because every rolling-window rule needs it and each spike
+    rule that recomputed it drifted to 29-vs-28 — counting back a full
+    WINDOW_DAYS from a today-inclusive upper bound is 29 days, a 3.6% wider
+    current window on both sides of every ratio and n>=8 floor, under UI cards
+    that read "rolling 28 days"."""
+    today = _today()
+    return (
+        _iso(today - timedelta(days=2 * WINDOW_DAYS - 1)),
+        _iso(today - timedelta(days=WINDOW_DAYS - 1)),
+        _iso(today + timedelta(days=1)),
     )
-    current = _resolve_hours(_iso(cut), _iso(now + timedelta(days=1)))
-    previous = _resolve_hours(_iso(prior), _iso(cut))
+
+
+def mttr_windows() -> dict:
+    prior, cut, upper = _rolling_bounds()
+    current = _resolve_hours(cut, upper)
+    previous = _resolve_hours(prior, cut)
     return {
         "window_days": WINDOW_DAYS,
         "current": {
@@ -147,7 +157,7 @@ def intake_funnel(weeks: int = 12) -> dict:
         r["d"]
         for r in db.query(
             "SELECT julianday(updated_at) - julianday(created_at) AS d"
-            " FROM intake_requests WHERE created_at >= ?"
+            " FROM intake_requests WHERE updated_at >= ?"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
         )
@@ -185,14 +195,11 @@ def insights() -> dict:
         "review_trend": review_trend(),
         "intake_funnel": intake_funnel(),
         "token_spend_weekly": token_spend_weekly(),
-        # adoption() carries active_users — per-person action counts over a
-        # past window. docs/FEATURES.md: "no person-keyed insight endpoints
-        # exist"; docs/INSIGHTS.md: "the insights service returns only
-        # team-rolled results". That is the anti-surveillance rule, and a
-        # retrospective per-person tally is exactly the leaderboard input it
-        # refuses. The team-rolled fields stay; the roster does not. The
-        # frontend never rendered it, so this was a raw-endpoint leak.
-        "adoption": {k: v for k, v in adoption().items() if k != "active_users"},
+        # adoption() is team-rolled by construction — the per-person tally that
+        # the anti-surveillance rule refuses was removed at the source, so it
+        # is safe here and at GET /api/adoption alike (fixing it in one filter
+        # here was the leak: the next endpoint over had none)
+        "adoption": adoption(),
         "findings": list_findings(weeks=4),
         "rule_stats": rule_stats(),
     }
@@ -227,11 +234,12 @@ def _r_mttr() -> list[dict]:
     if cur["n"] < 8 or prev["n"] < 8 or not prev["median_hours"]:
         return []
     ratio = cur["median_hours"] / prev["median_hours"]
+    _, cut, _upper = _rolling_bounds()
     slowest = db.query(
         "SELECT id, title, ROUND((julianday(resolved_at) - julianday(created_at)) * 24) AS hours"
         " FROM blockers WHERE status = 'resolved' AND resolved_at >= ?"
         " ORDER BY hours DESC LIMIT 3",
-        (_iso(_today() - timedelta(days=WINDOW_DAYS)),),
+        (cut,),
     )
     receipt = {"current": cur, "previous": prev, "slowest": slowest}
     if ratio >= 1.5:
@@ -274,17 +282,17 @@ def _escalated_share(since: str, until: str) -> tuple[int, float | None]:
 
 
 def _r_escalation_spike() -> list[dict]:
-    cut = _today() - timedelta(days=WINDOW_DAYS)
-    n, share = _escalated_share(_iso(cut), _iso(_today() + timedelta(days=1)))
+    prior, cut, upper = _rolling_bounds()
+    n, share = _escalated_share(cut, upper)
     if n < 6 or share is None or share < 0.4:
         return []
-    pn, pshare = _escalated_share(_iso(_today() - timedelta(days=2 * WINDOW_DAYS)), _iso(cut))
+    pn, pshare = _escalated_share(prior, cut)
     if pn >= 6 and pshare and share < 1.5 * pshare:
         return []
     ids = db.query(
         "SELECT id, title, impact FROM blockers WHERE status = 'resolved'"
         " AND escalated_at IS NOT NULL AND resolved_at >= ?",
-        (_iso(cut),),
+        (cut,),  # already an ISO string from _rolling_bounds
     )
     return [
         _finding(
@@ -443,8 +451,7 @@ def _r_review_stall() -> list[dict]:
 
 
 def _r_rejection_spike() -> list[dict]:
-    cut = _iso(_today() - timedelta(days=WINDOW_DAYS))
-    prior_cut = _iso(_today() - timedelta(days=2 * WINDOW_DAYS))
+    prior_cut, cut, _upper = _rolling_bounds()
     cur = db.query_one(
         "SELECT COUNT(*) AS n, SUM(status = 'rejected') AS rej FROM pending_changes"
         " WHERE status != 'pending' AND reviewed_at >= ?",
@@ -487,7 +494,7 @@ def _r_intake_stall() -> list[dict]:
         r["d"]
         for r in db.query(
             "SELECT julianday(updated_at) - julianday(created_at) AS d"
-            " FROM intake_requests WHERE created_at >= ?"
+            " FROM intake_requests WHERE updated_at >= ?"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
         )

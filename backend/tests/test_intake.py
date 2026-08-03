@@ -75,3 +75,26 @@ def test_intake_disposition_notifies_requester(fresh_db):
     r = intake.submit_request("try skein for docs", requester="mira", actor="mira")
     intake.disposition_request(r["id"], "declined", "out of scope this season", actor="claude")
     assert _unread_for(fresh_db, "mira", "%was declined%")
+
+
+def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
+    """The stall rule's 6-week sample. A request created 50 days ago (outside
+    6 weeks) but dispositioned TODAY (inside it) is the slowest kind — exactly
+    what the rule watches for. created_at windowing dropped every one of them;
+    updated_at (which intake rows freeze at disposition) keeps them."""
+    from app.services import insights, intake
+
+    for i in range(5):
+        r = intake.submit_request(f"slow {i}", requester="mira", actor="mira")
+        fresh_db.execute(
+            "UPDATE intake_requests SET created_at = datetime('now', '-50 days') WHERE id = ?",
+            (r["id"],),
+        )
+        intake.disposition_request(r["id"], "declined", "too late", actor="mira")
+
+    findings = insights._r_intake_stall()
+    # created_at windowing saw an empty 6-week sample and stayed silent; the
+    # fix puts all five ~50-day dispositions in, so the rule fires
+    assert findings, "the stall rule missed dispositions that took ~50 days"
+    assert findings[0]["n"] == 5
+    assert findings[0]["receipt"]["median_days"] > 7

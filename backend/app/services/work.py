@@ -243,7 +243,11 @@ def update_task(
         from .users import is_agent
 
         if is_agent(actor):
-            raise ValueError(
+            # TerminalReject, not ValueError: an agent's own delegated-done
+            # proposal can never be approved into success, so approve_change
+            # must settle it rejected rather than reset it to pending, where
+            # it would clutter /review until a human rejects it by hand
+            raise db.TerminalReject(
                 f"task #{task_id} is delegated — submit_for_acceptance gets the"
                 " sponsor's verdict; only that closes it"
             )

@@ -10,8 +10,10 @@ def test_adoption_excludes_deactivated_users(client, fresh_db):
     users.ensure_user("tester")
     users.set_active("ghost", False, actor="tester")
     d = adoption.adoption()
-    names = [a["user"] for a in d["active_users"]]
-    assert "ghost" not in names and "tester" in names
+    # no per-person list to inspect (it was the anti-surveillance leak); the
+    # team COUNT proves the exclusion — two users touched the tool, the
+    # deactivated one does not count
+    assert "active_users" not in d
     assert d["weekly_active_users"] == 1
 
 
