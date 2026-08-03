@@ -128,11 +128,11 @@ export default function GuidePage() {
                         {c.tied ? "✓ " : ""}
                         {c.feature}
                       </span>
-                      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-ink-3">
+                      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-ink-2">
                         {c.knot}
                       </span>
                     </div>
-                    <p className="mb-2 text-xs text-ink-2">{c.pitch}</p>
+                    <p className="mb-2 text-xs text-ink">{c.pitch}</p>
                     {/* how: stays after the card ties. It is the only place
                         some grammars are written down — the search card
                         teaches `#42` — and hiding it on first use deletes the
@@ -141,12 +141,12 @@ export default function GuidePage() {
                         where 12px ink-3 measures 4.48:1 and misses AA. */}
                     <p className="mb-2 text-xs text-ink-2">{c.how}</p>
                     {c.tied ? (
-                      <p className="text-xs text-ink-3">Tied · {c.tied_on}</p>
+                      <p className="text-xs text-ink-2">Tied · {c.tied_on}</p>
                     ) : (
                       <Link
                         href={c.link}
                         aria-label={`Try it: ${c.feature}`}
-                        className="text-xs font-medium text-thread-solid underline hover:opacity-80"
+                        className="text-xs font-medium text-thread underline hover:opacity-80"
                       >
                         Try it <span aria-hidden>→</span>
                       </Link>

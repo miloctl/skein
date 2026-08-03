@@ -83,6 +83,22 @@ async def lifespan(app: FastAPI):
             " header. This mode is for a trusted network or local development. If the"
             " deployment is shared, set SKEIN_AUTH_MODE=api-key or oidc."
         )
+    # a row holding a system-actor name predates the wall that now refuses it.
+    # The doors refuse the identity, so nothing writes under it — but the
+    # person cannot work until it moves, and moving a person is rename_user's
+    # job, not a migration's: it knows all 47 attribution columns and the
+    # private notes DB that SQL cannot reach.
+    from .services.users import reserved_name_rows
+
+    for stuck in reserved_name_rows():
+        log.warning(
+            "roster row '%s' holds a name reserved for the system, so every"
+            " request as that identity is refused. Move it:"
+            " python -m app.rename_user %s <new-name>",
+            stuck,
+            stuck,
+        )
+
     if config.API_TOKEN and config.AUTH_MODE != "trusted-header":
         log.warning(
             "SKEIN_API_TOKEN has no effect with SKEIN_AUTH_MODE=%s — that mode"

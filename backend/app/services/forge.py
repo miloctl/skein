@@ -67,10 +67,11 @@ def _clean_url(url: str) -> str:
     # URL would otherwise lose every link
     if not url.lower().startswith(("https://", "http://")):
         return ""
-    # allowlist the shape, never blocklist the characters: a blocklist missed
-    # form feed and U+2028, and HTML treats both as whitespace, so each one
-    # ends an unquoted attribute in the first renderer that is not React
-    if any(c.isspace() or c < " " or c == "\x7f" for c in url):
+    # ALLOWLIST. Every blocklist here has leaked: it missed form feed, then
+    # U+2028, then the 31 C1 controls and every bidi override — and
+    # `https://good.test/‮gpj.exe` renders reversed in an href. RFC 3986
+    # has no non-ASCII characters, so anything else belongs percent-encoded.
+    if not all(c.isascii() and c.isprintable() for c in url):
         return ""
     if any(c in url for c in "\"'<>`"):
         return ""
@@ -199,11 +200,6 @@ def is_agent_login(login: str) -> bool:
     and `scout` the agent coexist — and a plain lookup returns whichever sorts
     first, which would let a human's chosen capitalization disarm the refusal
     for the agent."""
-    login = (login or "").strip()
-    if not login:
-        return False
-    return bool(
-        db.query_one(
-            "SELECT 1 FROM users WHERE lower(name) = lower(?) AND kind = 'agent'", (login,)
-        )
-    )
+    from .users import is_agent
+
+    return is_agent(login)

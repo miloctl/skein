@@ -415,13 +415,18 @@ def test_an_agent_login_never_acts_through_the_webhook(signed, fresh_db):
 
 
 def test_a_human_named_like_an_agent_cannot_disarm_the_refusal(signed, fresh_db):
+    # ensure_user refuses to CREATE this collision now, so plant it the way a
+    # database written before that guard carries it. `users.name` is
+    # case-sensitively unique, so both rows coexist, and a lookup that returns
+    # "the first row" gets the human — BINARY order sorts `Scout` first.
+    from app import db
     from app.services import forge, users, work
 
-    # `users.name` is case-sensitively unique, so both rows exist. A lookup
-    # that returns "the first row" gets the human, because BINARY order sorts
-    # `Scout` first — and the agent walks through.
-    users.ensure_user("Scout")
     users.ensure_user("scout", kind="agent")
+    db.execute(
+        "INSERT INTO users (name, kind, active, created_at) VALUES ('Scout', 'human', 1, ?)",
+        (db.now(),),
+    )
     tid = work.create_task("Fix login")["id"]
     assert forge.is_agent_login("scout") is True
     out = signed("push", _push(f"task/{tid}-x", login="scout")).json()
