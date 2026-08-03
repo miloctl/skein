@@ -13,6 +13,11 @@ function cell(v: unknown): string {
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
+type Diff = {
+  current: Record<string, unknown>;
+  proposed: Record<string, unknown>;
+};
+
 type Change = {
   id: number;
   entity: string;
@@ -29,6 +34,59 @@ type Change = {
   reviewed_override?: number; // 1: judged by someone other than the sponsor
 };
 
+/** The reason input owns its draft (EditRow idiom, app/dashboard/page.tsx):
+ *  keystrokes re-render this row, not the whole approvals list. */
+function VerdictAsk({
+  verb,
+  sponsor,
+  onSubmit,
+  onCancel,
+}: {
+  verb: "approve" | "reject";
+  sponsor?: string;
+  onSubmit: (note: string) => void;
+  onCancel: () => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        autoFocus
+        name="verdict-reason"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && note.trim()) onSubmit(note.trim());
+          if (e.key === "Escape") onCancel();
+        }}
+        aria-label={
+          verb === "reject"
+            ? "Rejection reason — sent back to the proposer"
+            : "Reason for accepting on the sponsor's behalf"
+        }
+        placeholder={
+          verb === "reject"
+            ? "Why? — sent back to the proposer"
+            : `Why are you accepting for ${sponsor}? — goes on the record`
+        }
+        className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
+      />
+      <button
+        onClick={() => onSubmit(note.trim())}
+        disabled={!note.trim()}
+        className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40 ${
+          verb === "reject" ? "bg-danger" : "bg-ok"
+        }`}
+      >
+        {verb === "reject" ? "Reject" : "Accept"}
+      </button>
+      <button onClick={onCancel} className="text-sm text-ink-3 hover:text-ink">
+        cancel
+      </button>
+    </div>
+  );
+}
+
 export default function ReviewPage() {
   // tracks cross-tab identity switches too, like the nav's name chip
   const me = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
@@ -36,13 +94,11 @@ export default function ReviewPage() {
   const [history, setHistory] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [diffs, setDiffs] = useState<
-    Record<number, { current: Record<string, unknown>; proposed: Record<string, unknown> }>
-  >({});
+  const [diffs, setDiffs] = useState<Record<number, Diff>>({});
 
   const load = useCallback(() => {
     api<Change[]>("/api/review?status=pending")
-      .then((rows) => {
+      .then(async (rows) => {
         setChanges(rows);
         if (rows.length > 0)
           // a human is now looking — starts the active-review clock
@@ -50,17 +106,20 @@ export default function ReviewPage() {
             method: "POST",
             body: JSON.stringify({ ids: rows.map((r) => r.id) }),
           }).catch(() => {});
-        rows
-          .filter((r) => r.action === "update")
-          .forEach((r) =>
-            api<{ diff: { current: Record<string, unknown>; proposed: Record<string, unknown> } | null }>(
-              `/api/review/${r.id}/diff`,
-            )
-              .then((d) => {
-                if (d.diff) setDiffs((prev) => ({ ...prev, [r.id]: d.diff! }));
-              })
-              .catch(() => {}),
-          );
+        // one state commit for all diffs: a setDiffs per row re-rendered
+        // the whole page once per pending change
+        const entries: [number, Diff][] = [];
+        await Promise.all(
+          rows
+            .filter((r) => r.action === "update")
+            .map(async (r) => {
+              try {
+                const d = await api<{ diff: Diff | null }>(`/api/review/${r.id}/diff`);
+                if (d.diff) entries.push([r.id, d.diff]);
+              } catch {}
+            }),
+        );
+        setDiffs(Object.fromEntries(entries));
       })
       .catch((e) => setError(String(e)));
     api<Change[]>("/api/review?status=approved").then(setHistory).catch(() => {});
@@ -96,7 +155,6 @@ export default function ReviewPage() {
   // rejecting — and accepting on a sponsor's behalf — needs a reason the
   // record will keep; asked inline, not via a browser prompt
   const [asking, setAsking] = useState<{ id: number; verb: "approve" | "reject" } | null>(null);
-  const [askNote, setAskNote] = useState("");
 
   const act = async (id: number, verb: "approve" | "reject", note = "") => {
     try {
@@ -105,7 +163,6 @@ export default function ReviewPage() {
         body: JSON.stringify({ note }),
       });
       setAsking(null);
-      setAskNote("");
       load();
     } catch (e) {
       alert(String(e));
@@ -243,54 +300,18 @@ export default function ReviewPage() {
               </div>
             )}
             {asking?.id === c.id ? (
-              <div className="flex items-center gap-2">
-                <input
-                  autoFocus
-                  name="verdict-reason"
-                  value={askNote}
-                  onChange={(e) => setAskNote(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && askNote.trim())
-                      act(c.id, asking.verb, askNote.trim());
-                    if (e.key === "Escape") closeAsk();
-                  }}
-                  aria-label={
-                    asking.verb === "reject"
-                      ? "Rejection reason — sent back to the proposer"
-                      : "Reason for accepting on the sponsor's behalf"
-                  }
-                  placeholder={
-                    asking.verb === "reject"
-                      ? "Why? — sent back to the proposer"
-                      : `Why are you accepting for ${c.sponsor}? — goes on the record`
-                  }
-                  className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
-                />
-                <button
-                  onClick={() => act(c.id, asking.verb, askNote.trim())}
-                  disabled={!askNote.trim()}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40 ${
-                    asking.verb === "reject" ? "bg-danger" : "bg-ok"
-                  }`}
-                >
-                  {asking.verb === "reject" ? "Reject" : "Accept"}
-                </button>
-                <button
-                  onClick={closeAsk}
-                  className="text-sm text-ink-3 hover:text-ink"
-                >
-                  cancel
-                </button>
-              </div>
+              <VerdictAsk
+                verb={asking.verb}
+                sponsor={c.sponsor}
+                onSubmit={(note) => act(c.id, asking.verb, note)}
+                onCancel={closeAsk}
+              />
             ) : (
               <div className="flex gap-2">
                 {forSponsor(c) ? (
                   <button
                     id={`verdict-approve-${c.id}`}
-                    onClick={() => {
-                      setAsking({ id: c.id, verb: "approve" });
-                      setAskNote("");
-                    }}
+                    onClick={() => setAsking({ id: c.id, verb: "approve" })}
                     title={`You are not the sponsor — your reason goes on the record and the verdict will not count toward ${c.proposed_by}'s trust streak`}
                     className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
@@ -306,10 +327,7 @@ export default function ReviewPage() {
                 )}
                 <button
                   id={`verdict-reject-${c.id}`}
-                  onClick={() => {
-                    setAsking({ id: c.id, verb: "reject" });
-                    setAskNote("");
-                  }}
+                  onClick={() => setAsking({ id: c.id, verb: "reject" })}
                   className="rounded-lg bg-danger/15 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/20"
                 >
                   Reject…

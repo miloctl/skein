@@ -72,10 +72,52 @@ export async function bearer(): Promise<string> {
   return (await accessToken()) || getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN || "";
 }
 
+/** Short-lived GET cache. Pages fan out to the same handful of list
+ *  endpoints (dashboard alone reads 13), and a tab switch refires them all;
+ *  within this window the previous body is the answer. */
+const GET_CACHE_TTL_MS = 15_000;
+const getCache = new Map<string, { at: number; entry: Promise<unknown> }>();
+
+if (typeof window !== "undefined") {
+  // Identity rides on every request (X-User, bearer), so a cached body
+  // belongs to ONE identity. Every identity writer — setUser and setApiKey
+  // here, writeStored in lib/auth.ts — dispatches "storage"; without this
+  // clear, someone who switches identity reads the previous identity's
+  // data for up to GET_CACHE_TTL_MS.
+  window.addEventListener("storage", () => getCache.clear());
+  // The chat stream (app/runtime-provider.tsx) posts through raw fetch,
+  // not api(), so the non-GET clear below never sees it — this event is
+  // that write's only signal.
+  window.addEventListener("skein-chat-activity", () => getCache.clear());
+}
+
 export async function api<T = unknown>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  if ((init?.method ?? "GET").toUpperCase() !== "GET") {
+    // clear on BOTH sides of a write: before, so nothing stale outlives it;
+    // after it settles, so a GET that started mid-write cannot pin a
+    // pre-write body under a fresh timestamp
+    getCache.clear();
+    try {
+      return await request<T>(path, init);
+    } finally {
+      getCache.clear();
+    }
+  }
+  const hit = getCache.get(path);
+  if (hit && Date.now() - hit.at < GET_CACHE_TTL_MS) return hit.entry as Promise<T>;
+  const entry = request<T>(path, init);
+  getCache.set(path, { at: Date.now(), entry });
+  // a failure proves nothing about the next call — never serve it from cache
+  entry.catch(() => {
+    if (getCache.get(path)?.entry === entry) getCache.delete(path);
+  });
+  return entry;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const auth = await bearer();
   const res = await fetch(`${API_URL}${path}`, {
     ...init,

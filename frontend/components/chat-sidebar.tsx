@@ -9,15 +9,8 @@ import {
 } from "react";
 
 import { api, getUser, loadError as describeLoadError } from "@/lib/api";
+import { chatThreads, type ChatThread } from "@/lib/chat-threads";
 import { copyText } from "@/lib/clipboard";
-
-export type ChatThread = {
-  id: string;
-  title: string;
-  folder: string;
-  engagement_id: number | null;
-  updated_at: string;
-};
 
 type EngagementRow = { id: number; name: string; status: string };
 
@@ -122,7 +115,9 @@ export function ChatSidebar({
   const [confirmingBulk, setConfirmingBulk] = useState(false);
 
   const load = useCallback(() => {
-    api<ChatThread[]>("/api/chats")
+    // shared single-flight list (lib/chat-threads.ts) — ThreadTitle reads
+    // the same fetch, so each activity event costs one request, not two
+    chatThreads()
       .then((rows) => {
         setThreads(rows);
         setLoadError(false);
@@ -147,6 +142,12 @@ export function ChatSidebar({
     window.addEventListener("skein-chat-activity", load);
     return () => window.removeEventListener("skein-chat-activity", load);
   }, [load]);
+
+  // after a mutation, announce rather than call load(): the event drops the
+  // shared chatThreads() promise (lib/chat-threads.ts) before any listener
+  // runs — a bare load() would re-read the pre-mutation list — and it also
+  // refreshes ThreadTitle's h1, which load() alone never did
+  const announce = () => window.dispatchEvent(new Event("skein-chat-activity"));
 
   // outside-click closes any open panel (pointerdown: Safari doesn't focus
   // buttons on click, so focus-based closing would silently fail there)
@@ -194,7 +195,7 @@ export function ChatSidebar({
       method: "POST",
       body: JSON.stringify({ name: name.trim() }),
     }).catch((e) => alert(String(e)));
-    load();
+    announce();
   };
 
   const setEngagement = async (id: string, engagementId: number) => {
@@ -203,7 +204,7 @@ export function ChatSidebar({
       method: "PATCH",
       body: JSON.stringify({ engagement_id: engagementId }),
     }).catch((e) => alert(String(e)));
-    load();
+    announce();
   };
 
   const createAndLink = async (id: string, name: string) => {
@@ -232,7 +233,7 @@ export function ChatSidebar({
       method: "PATCH",
       body: JSON.stringify({ folder }),
     }).catch((e) => alert(String(e)));
-    load();
+    announce();
   };
 
   const renameTo = async (id: string, title: string) => {
@@ -242,7 +243,7 @@ export function ChatSidebar({
       method: "PATCH",
       body: JSON.stringify({ title: title.trim() }),
     }).catch((e) => alert(String(e)));
-    load();
+    announce();
   };
 
   const copyTranscript = async (t: ChatThread) => {
@@ -272,7 +273,7 @@ export function ChatSidebar({
     try {
       await api(`/api/chats/${t.id}`, { method: "DELETE" });
       if (t.id === threadId) onNew();
-      load();
+      announce();
     } catch (e) {
       alert(String(e));
     }
@@ -318,7 +319,7 @@ export function ChatSidebar({
       setSelFolders((s) => new Set([...s].filter((n) => !doneFolders.has(n))));
     } finally {
       if (activeSelected && doneChats.has(threadId)) onNew();
-      load();
+      announce();
     }
   };
 
@@ -333,7 +334,7 @@ export function ChatSidebar({
       method: "PATCH",
       body: JSON.stringify({ folder }),
     }).catch((err) => alert(String(err)));
-    load();
+    announce();
   };
 
   const groups = ["", ...folders];

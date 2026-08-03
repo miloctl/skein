@@ -24,9 +24,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// preload: false on the four theme-pack faces below: only the active pack
+// renders one of them (globals.css maps --font-heading/--font-body per
+// pack), and preloading all six made every cold load pay for four fonts it
+// would never draw. Geist sans/mono stay preloaded — every pack uses them.
+// The cost: a pack whose heading face is here (Bricolage on the default
+// loom pack included) swaps in after first paint instead of before.
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
   subsets: ["latin"],
+  preload: false,
 });
 
 const fraunces = Fraunces({
@@ -35,11 +42,13 @@ const fraunces = Fraunces({
   // variable axes: Ledger wears the hard newsprint cut (SOFT 0, WONK 0),
   // Atelier the soft wonky one (SOFT 80, WONK 1) — same family, two voices
   axes: ["SOFT", "WONK", "opsz"],
+  preload: false,
 });
 
 const sourceSerif = Source_Serif_4({
   variable: "--font-source-serif",
   subsets: ["latin"],
+  preload: false,
 });
 
 // Hermes wears a pixel display face — the closest open cut to the source
@@ -47,6 +56,7 @@ const sourceSerif = Source_Serif_4({
 const pixelify = Pixelify_Sans({
   variable: "--font-pixelify",
   subsets: ["latin"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
