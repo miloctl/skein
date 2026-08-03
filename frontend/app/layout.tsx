@@ -12,6 +12,7 @@ import "./globals.css";
 import { CapturePalette } from "@/components/capture-palette";
 import { Nav } from "@/components/nav";
 import { ThemeSync } from "@/components/theme-sync";
+import { themeBootScript } from "@/lib/theme-boot";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -90,13 +91,10 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* apply saved theme prefs before first paint (mirrors lib/theme.ts —
-            keep the key names and allow-lists in sync) */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("skein-theme");if(["madder","verdigris","graphite","coral","bone"].indexOf(t)>=0)d.dataset.theme=t;else if(t==="custom"){var c=JSON.parse(localStorage.getItem("skein-custom")||"{}"),th=((Math.round(+c.thread)%360)+360)%360,w=((Math.round(+c.weld)%360)+360)%360;if(isFinite(th)&&isFinite(w)){d.dataset.theme="custom";d.style.setProperty("--thread","light-dark(oklch(0.44 0.13 "+th+"), oklch(0.8 0.09 "+th+"))");d.style.setProperty("--thread-solid","light-dark(oklch(0.44 0.13 "+th+"), oklch(0.5 0.13 "+th+"))");d.style.setProperty("--weld","light-dark(oklch(0.47 0.09 "+w+"), oklch(0.78 0.09 "+w+"))")}}var a=localStorage.getItem("skein-appearance");if(a==="light"||a==="dark")d.dataset.appearance=a;var p=localStorage.getItem("skein-pack");if(["ledger","phosphor","contrast","atelier","claw","hermes"].indexOf(p)>=0)d.dataset.pack=p;if(localStorage.getItem("skein-chat-sidebar-collapsed")==="1")d.dataset.chatSidebar="collapsed"}catch(e){}})()`,
-          }}
-        />
+        {/* Applies saved theme prefs before first paint. GENERATED from
+            lib/theme.ts — the ids, keys and formulas are never written twice.
+            See lib/theme-boot.ts for why this cannot simply import them. */}
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeSync />

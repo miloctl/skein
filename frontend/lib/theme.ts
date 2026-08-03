@@ -1,12 +1,24 @@
 // Theme prefs live in this browser, like identity. Two axes:
 // appearance (system/light/dark -> color-scheme) and colorway (accent dyes).
-// globals.css owns the preset values; layout.tsx applies these before paint
-// with an inline script that mirrors this logic (keep the two in sync).
+// globals.css owns the preset values.
+//
+// This module is the SINGLE SOURCE for the pack and colorway ids, the storage
+// keys, and the custom-hue formula. It used to be one of three copies:
+// layout.tsx repeated the ids and formulas inside its pre-paint script, and
+// scripts/check_theme_contrast.py repeated the formulas again, with only a
+// comment holding them together. That drift shipped the theme-revert bug
+// twice. Now layout.tsx GENERATES its script from the values below
+// (lib/theme-boot.ts) and the contrast checker PARSES them out of this file,
+// so there is nothing left to keep in sync by hand.
 
-const THEME_KEY = "skein-theme";
-const APPEARANCE_KEY = "skein-appearance";
-const CUSTOM_KEY = "skein-custom";
-const PACK_KEY = "skein-pack";
+export const THEME_KEY = "skein-theme";
+export const APPEARANCE_KEY = "skein-appearance";
+export const CUSTOM_KEY = "skein-custom";
+export const PACK_KEY = "skein-pack";
+
+// The ids that need no data attribute: globals.css carries them on :root.
+export const DEFAULT_PACK = "loom";
+export const DEFAULT_COLORWAY = "indigo";
 
 // Fabric packs re-weave surfaces, texture, and type (globals.css owns the
 // values); colorways and custom hues dye the accents on top of any pack.
@@ -40,19 +52,39 @@ export const APPEARANCES = [
 // Custom colorway: the user dyes the two accent threads by hue; lightness
 // and chroma are fixed at values that pass WCAG AA against every pack
 // surface at EVERY hue, so no dial position can make the UI unreadable.
-// scripts/check_theme_contrast.py sweeps all 360 hues of both formulas on
-// every lint run and prints the floor (5.56:1 today). Changing these L/C
-// values means changing the mirrored formulas there and in layout.tsx.
 export const CUSTOM_DEFAULT = { thread: 264, weld: 65 };
 
-function customCss(threadHue: number, weldHue: number) {
-  const t = ((Math.round(threadHue) % 360) + 360) % 360;
-  const w = ((Math.round(weldHue) % 360) + 360) % 360;
-  return {
-    "--thread": `light-dark(oklch(0.44 0.13 ${t}), oklch(0.8 0.09 ${t}))`,
-    "--thread-solid": `light-dark(oklch(0.44 0.13 ${t}), oklch(0.5 0.13 ${t}))`,
-    "--weld": `light-dark(oklch(0.47 0.09 ${w}), oklch(0.78 0.09 ${w}))`,
-  };
+// The fixed half of the custom colorway: per CSS token, which hue dial feeds
+// it, what it must stay legible against, and the (lightness, chroma) it wears
+// in each mode. Only the hue varies.
+//
+//   on: "surface"  the token is INK — swept against every pack surface
+//   on: "white"    the token is a solid FILL under white text (bg-thread-solid)
+//
+// scripts/check_theme_contrast.py PARSES this table (it does not copy it) and
+// sweeps all 360 integer hues of every row on each lint run, printing the
+// floor. So a change here is checked on the next lint, and a row added here is
+// swept without touching the checker. Keep the literal shape regular: one
+// token per line, `[lightness, chroma]`.
+export const CUSTOM_LC = {
+  "--thread": { hue: "thread", on: "surface", light: [0.44, 0.13], dark: [0.8, 0.09] },
+  "--thread-solid": { hue: "thread", on: "white", light: [0.44, 0.13], dark: [0.5, 0.13] },
+  "--weld": { hue: "weld", on: "surface", light: [0.47, 0.09], dark: [0.78, 0.09] },
+} as const;
+
+function normalizeHue(n: number): number {
+  return ((Math.round(n) % 360) + 360) % 360;
+}
+
+function customCss(threadHue: number, weldHue: number): Record<string, string> {
+  const hues = { thread: normalizeHue(threadHue), weld: normalizeHue(weldHue) };
+  const css: Record<string, string> = {};
+  for (const [token, lc] of Object.entries(CUSTOM_LC)) {
+    const h = hues[lc.hue];
+    css[token] =
+      `light-dark(oklch(${lc.light[0]} ${lc.light[1]} ${h}), oklch(${lc.dark[0]} ${lc.dark[1]} ${h}))`;
+  }
+  return css;
 }
 
 // storage can throw (blocked third-party contexts, some private modes) —
@@ -73,10 +105,10 @@ function write(key: string, value: string | null) {
 }
 
 export function getColorway(): string {
-  if (typeof window === "undefined") return "indigo";
+  if (typeof window === "undefined") return DEFAULT_COLORWAY;
   const t = read(THEME_KEY);
   if (t === "custom") return "custom";
-  return COLORWAYS.some((c) => c.id === t) ? (t as string) : "indigo";
+  return COLORWAYS.some((c) => c.id === t) ? (t as string) : DEFAULT_COLORWAY;
 }
 
 export function getCustomHues(): { thread: number; weld: number } {
@@ -86,10 +118,7 @@ export function getCustomHues(): { thread: number; weld: number } {
     const thread = Number(raw.thread);
     const weld = Number(raw.weld);
     if (Number.isFinite(thread) && Number.isFinite(weld)) {
-      return {
-        thread: ((Math.round(thread) % 360) + 360) % 360,
-        weld: ((Math.round(weld) % 360) + 360) % 360,
-      };
+      return { thread: normalizeHue(thread), weld: normalizeHue(weld) };
     }
   } catch {}
   return CUSTOM_DEFAULT;
@@ -102,9 +131,9 @@ export function getAppearance(): string {
 }
 
 export function getPack(): string {
-  if (typeof window === "undefined") return "loom";
+  if (typeof window === "undefined") return DEFAULT_PACK;
   const p = read(PACK_KEY);
-  return PACKS.some((x) => x.id === p) ? (p as string) : "loom";
+  return PACKS.some((x) => x.id === p) ? (p as string) : DEFAULT_PACK;
 }
 
 export function setPack(id: string) {
@@ -117,7 +146,7 @@ export function setPack(id: string) {
 export function applyPrefs() {
   const root = document.documentElement;
   const t = getColorway();
-  if (t === "indigo") delete root.dataset.theme;
+  if (t === DEFAULT_COLORWAY) delete root.dataset.theme;
   else root.dataset.theme = t;
   if (t === "custom") {
     const { thread, weld } = getCustomHues();
@@ -125,7 +154,7 @@ export function applyPrefs() {
       root.style.setProperty(k, v);
     }
   } else {
-    for (const k of ["--thread", "--thread-solid", "--weld"]) {
+    for (const k of Object.keys(CUSTOM_LC)) {
       root.style.removeProperty(k);
     }
   }
@@ -133,7 +162,7 @@ export function applyPrefs() {
   if (a === "system") delete root.dataset.appearance;
   else root.dataset.appearance = a;
   const p = getPack();
-  if (p === "loom") delete root.dataset.pack;
+  if (p === DEFAULT_PACK) delete root.dataset.pack;
   else root.dataset.pack = p;
   syncThemeColor();
 }
@@ -288,7 +317,7 @@ export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
     if (browserHasOpinion()) return null;
     write(ADOPTED_KEY, r.theme ? "profile" : "team");
     const t = JSON.parse(blob);
-    if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === "loom" ? null : t.pack);
+    if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === DEFAULT_PACK ? null : t.pack);
     if (t.colorway === "custom" && t.custom) {
       const thread = Number(t.custom.thread);
       const weld = Number(t.custom.weld);
