@@ -111,6 +111,9 @@ class NotePatch(BaseModel):
 
 @router.patch("/notes/{note_id}")
 def patch_note(note_id: int, body: NotePatch, user: CurrentUser):
+    # edits scan for @mentions, so an uncapped PATCH is a notification
+    # amplifier — same cap as the create routes
+    ratelimit.check("write", user)
     try:
         return collab.update_note(note_id, body.topic, body.content, actor=user)
     except db.NotFound:
@@ -909,6 +912,9 @@ class TaskPatch(BaseModel):
 
 @router.patch("/tasks/{task_id}")
 def patch_task(task_id: int, body: TaskPatch, user: CurrentUser):
+    # edits scan for @mentions, so an uncapped PATCH is a notification
+    # amplifier — same cap as the create routes
+    ratelimit.check("write", user)
     return work.update_task(task_id, **body.model_dump(), actor=user)
 
 
@@ -940,6 +946,8 @@ class AnswerIn(BaseModel):
 
 @router.post("/questions/{question_id}/answer")
 def post_answer(question_id: int, body: AnswerIn, user: CurrentUser):
+    # answers scan for @mentions — capped like every other notifying write
+    ratelimit.check("write", user)
     return collab.answer_question(question_id, body.answer, answered_by=user, actor=user)
 
 

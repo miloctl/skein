@@ -178,10 +178,11 @@ def create_task(
     )
     db.log_activity(actor, "create_task", f"#{tid} {title}")
     index_record("task", tid, title, f"{description} {assignee}")
-    if description:
-        from .mentions import scan
+    from .mentions import scan
 
-        scan("task", tid, description, actor=actor, link="/dashboard")
+    # title too: a short `todo: ask @mira ...` capture lands entirely in the
+    # title, and a mention there must ping like one in the description
+    scan("task", tid, f"{title} {description}", actor=actor, link="/dashboard")
     return {"id": tid, "title": title, "status": "todo"}
 
 
@@ -312,10 +313,16 @@ def update_task(
     row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if row:
         index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
-        if fields.get("description"):
+        if fields.get("description") or fields.get("title"):
             from .mentions import scan
 
-            scan("task", task_id, row["description"], actor=actor, link="/dashboard")
+            scan(
+                "task",
+                task_id,
+                f"{row['title']} {row['description']}",
+                actor=actor,
+                link="/dashboard",
+            )
     return {"id": task_id, "updated": list(fields)}
 
 

@@ -13,8 +13,10 @@ import re
 from .. import db
 
 # a roster name is matched whole and case-insensitively; a name with a space
-# cannot be written as one @token and is therefore not mentionable
-_MENTION = re.compile(r"@([a-z0-9][a-z0-9._-]*)", re.ASCII | re.IGNORECASE)
+# cannot be written as one @token and is therefore not mentionable.
+# The lookbehind keeps an email localpart or ssh target (root@scout) from
+# pinging scout — a mention starts a token, it never continues one.
+_MENTION = re.compile(r"(?<![a-z0-9])@([a-z0-9][a-z0-9._-]*)", re.ASCII | re.IGNORECASE)
 
 
 def scan(
@@ -27,8 +29,9 @@ def scan(
     link: str = "/",
 ) -> list[str]:
     """Returns the names notified. `exclude` names people the parent write
-    already notified (the question assignee) — a mention must not double-ping.
-    The actor is always excluded: a self-mention is not directed attention."""
+    already pinged (the assignee on a question, the asker on an answer) —
+    a mention must not double-ping. The actor is always excluded: a
+    self-mention is not directed attention."""
     if not text or "@" not in text:
         return []
     roster = {
@@ -40,8 +43,11 @@ def scan(
 
     notified = []
     for token in dict.fromkeys(m.group(1).lower() for m in _MENTION.finditer(text)):
-        name = roster.get(token)
-        if not name or token in skip:
+        # "thanks @mira." binds the sentence-final punctuation into the
+        # token (._- are legal name characters) — retry stripped, or the
+        # most common mention position never notifies
+        name = roster.get(token) or roster.get(token.rstrip("._-"))
+        if not name or name.lower() in skip:
             continue
         fresh = db.execute_rowcount(
             "INSERT OR IGNORE INTO mention_log"
@@ -52,7 +58,7 @@ def scan(
         if fresh:
             notify(
                 name,
-                f"{actor or 'someone'} mentioned you on {entity} #{entity_id}",
+                f"{actor or 'system'} mentioned you on {entity} #{entity_id}",
                 tier="immediate",
                 link=link,
             )

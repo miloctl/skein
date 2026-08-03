@@ -35,6 +35,17 @@ def prune(*, actor: str = "scheduler") -> dict:
         "job_outcomes": db.execute_rowcount(
             "DELETE FROM job_outcomes WHERE created_at < ?", (_cutoff(JOB_ROW_DAYS),)
         ),
+        # orphans only, never by age: the (entity, entity_id, person) key is
+        # the notify-once promise, and an age prune would let an edit of an
+        # old row ping the same person again. AUTOINCREMENT ids never come
+        # back, so an orphan can never suppress a mention on a future row.
+        "mention_log": db.execute_rowcount(
+            "DELETE FROM mention_log WHERE"
+            " (entity = 'task' AND entity_id NOT IN (SELECT id FROM tasks))"
+            " OR (entity = 'note' AND entity_id NOT IN (SELECT id FROM notes))"
+            " OR (entity = 'question' AND entity_id NOT IN (SELECT id FROM questions))"
+            " OR (entity = 'decision' AND entity_id NOT IN (SELECT id FROM decisions))"
+        ),
     }
     db.log_activity(actor, "retention_prune", json.dumps(removed))
     return removed
