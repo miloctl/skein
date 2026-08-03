@@ -72,12 +72,21 @@ export function isSignedIn(): boolean {
 let configCache: Promise<AuthConfig> | null = null;
 
 /** The deployment's auth mode and public sign-in parameters. Cached: it is
- *  read on nav mount and cannot change without a server restart. */
+ *  read on nav mount and cannot change without a server restart.
+ *
+ *  A FAILED read is not cached. The mode cannot change without a restart, but
+ *  a fetch that never reached the server proves nothing about it — and holding
+ *  "unknown" for the life of the page hides the Sign in button entirely, which
+ *  in oidc mode leaves no way to establish identity until a full reload. */
 export function authConfig(): Promise<AuthConfig> {
   if (!configCache) {
-    configCache = fetch(`${API_URL}/api/auth/config`)
-      .then((r) => (r.ok ? r.json() : { mode: "unknown", error: `HTTP ${r.status}` }))
-      .catch((e) => ({ mode: "unknown", error: String(e) }));
+    const attempt = fetch(`${API_URL}/api/auth/config`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .catch((e) => {
+        if (configCache === attempt) configCache = null; // let the next mount retry
+        return { mode: "unknown", error: String(e) };
+      });
+    configCache = attempt;
   }
   return configCache;
 }
@@ -115,22 +124,24 @@ export async function signIn(returnTo?: string): Promise<string> {
   // interceptor exactly what PKCE exists to withhold.
   const verifier = randomString(32);
   const state = randomString(16);
-  const nonce = randomString(16);
   try {
     window.sessionStorage.setItem(
       FLOW_KEY,
-      JSON.stringify({ verifier, state, nonce, returnTo: returnTo || window.location.pathname }),
+      JSON.stringify({ verifier, state, returnTo: returnTo || window.location.pathname }),
     );
   } catch {
     return "This browser blocks session storage, which sign-in needs.";
   }
+  // No nonce. A nonce binds an ID TOKEN to this request, and this flow never
+  // consumes one — the API validates the access token and answers with a name.
+  // Sending one nothing checks reads as a guarantee that is not in force. If an
+  // ID token is ever consumed, the nonce comes back WITH the check that reads it.
   const params = new URLSearchParams({
     response_type: "code",
     client_id: cfg.client_id,
     redirect_uri: redirectUri(),
     scope: cfg.scopes || "openid profile",
     state,
-    nonce,
     code_challenge: await challenge(verifier),
     code_challenge_method: "S256",
   });
@@ -138,9 +149,40 @@ export async function signIn(returnTo?: string): Promise<string> {
   return "";
 }
 
+/** A path inside this app, or "/".
+ *
+ *  Anything handed to location.replace() after a sign-in sits in the classic
+ *  open-redirect position. "//evil.com" is a PATH to us and an origin to the
+ *  browser, and a backslash is normalized to a slash by some parsers, so both
+ *  are refused rather than repaired. */
+function localPath(returnTo: string): string {
+  if (!returnTo.startsWith("/") || returnTo.startsWith("//") || returnTo.includes("\\")) {
+    return "/";
+  }
+  return returnTo;
+}
+
+// One exchange per callback URL. React StrictMode runs an effect twice in
+// development, and completeSignIn takes the flow state on its first line —
+// the second run would find it gone and report a failed sign-in that in fact
+// succeeded. Joining the first attempt makes both runs see one outcome.
+let completing: { search: string; result: Promise<string> } | null = null;
+
 /** Finish a sign-in from the callback URL. Returns where to go next, or
  *  throws with a message worth showing. */
-export async function completeSignIn(search: string): Promise<string> {
+export function completeSignIn(search: string): Promise<string> {
+  if (completing && completing.search === search) return completing.result;
+  const result = runCompleteSignIn(search);
+  completing = { search, result };
+  // a failure is not cached: Try again re-runs it, and the flow state it
+  // needed is already gone, so it fails the same way rather than hanging
+  result.catch(() => {
+    if (completing?.result === result) completing = null;
+  });
+  return result;
+}
+
+async function runCompleteSignIn(search: string): Promise<string> {
   const params = new URLSearchParams(search);
   const idpError = params.get("error");
   if (idpError) {
@@ -168,8 +210,14 @@ export async function completeSignIn(search: string): Promise<string> {
     redirect_uri: redirectUri(),
   });
   writeStored(stored);
-  return flow.returnTo || "/";
+  return localPath(flow.returnTo || "/");
 }
+
+/** A sign-in failure the session cannot survive: the provider judged the
+ *  credential and said no. Anything else — the network, a 5xx, a server that
+ *  is restarting — leaves the stored session alone, because throwing it away
+ *  turns a moment of bad Wi-Fi into a full re-authentication. */
+class Rejected extends Error {}
 
 async function exchange(body: Record<string, string>): Promise<Stored> {
   const res = await fetch(`${API_URL}/api/auth/token`, {
@@ -188,7 +236,13 @@ async function exchange(body: Record<string, string>): Promise<Stored> {
     payload = await res.json();
   } catch {}
   if (!res.ok || !payload.access_token) {
-    throw new Error(payload.detail || `Sign-in failed (HTTP ${res.status}).`);
+    const message = payload.detail || `Sign-in failed (HTTP ${res.status}).`;
+    // 4xx is the provider's verdict on this credential. 5xx and a dead
+    // connection are not, and the API answers 503 for an unreachable provider
+    // precisely so this side can tell the difference.
+    throw res.status >= 400 && res.status < 500
+      ? new Rejected(message)
+      : new Error(message);
   }
   return {
     access_token: payload.access_token,
@@ -217,20 +271,52 @@ export async function accessToken(): Promise<string> {
     return "";
   }
   if (!refreshing) {
-    refreshing = exchange({ refresh_token: t.refresh_token })
-      .then((fresh) => {
-        writeStored(fresh);
-        return fresh.access_token;
-      })
-      .catch(() => {
-        writeStored(null);
-        return "";
-      })
-      .finally(() => {
-        refreshing = null;
-      });
+    refreshing = withRefreshLock(() => refreshOnce(t.refresh_token)).finally(() => {
+      refreshing = null;
+    });
   }
   return refreshing;
+}
+
+/** Serialize refreshes ACROSS tabs, not only within one.
+ *
+ *  `refreshing` is module state, so two tabs waking together each send their
+ *  own refresh with the same token. A provider that rotates refresh tokens and
+ *  detects reuse answers that by revoking the whole chain — the exact outcome
+ *  the in-tab single-flight exists to avoid. Web Locks is the only cross-tab
+ *  primitive here; where it is missing the old behavior is what remains. */
+async function withRefreshLock(run: () => Promise<string>): Promise<string> {
+  const locks = navigator.locks;
+  if (!locks) return run();
+  try {
+    return await locks.request("skein-oidc-refresh", run);
+  } catch {
+    return "";
+  }
+}
+
+async function refreshOnce(had: string): Promise<string> {
+  // re-read INSIDE the lock: while this tab waited, the other one may have
+  // finished and stored a token that is good for another hour
+  const now = readStored();
+  if (!now) return "";
+  const renewed = now.expires_at && now.expires_at - Date.now() > EXPIRY_MARGIN_MS;
+  if (now.refresh_token !== had || renewed) return now.access_token;
+  try {
+    const fresh = await exchange({ refresh_token: now.refresh_token });
+    // RFC 6749 §6: the provider MAY answer without a refresh_token when it
+    // does not rotate them, and several do. Dropping ours on that answer ends
+    // the session at the NEXT expiry, an hour later and far from the cause —
+    // so an absent one means "keep the one that still works".
+    writeStored({ ...fresh, refresh_token: fresh.refresh_token || now.refresh_token });
+    return fresh.access_token;
+  } catch (err) {
+    // only a verdict ends the session. A transient fault keeps the tokens so
+    // the next call can try again — the alternative signs people out for
+    // waking a laptop before the network is up.
+    if (err instanceof Rejected) writeStored(null);
+    return "";
+  }
 }
 
 /** The stored token without refreshing it. For the one caller that cannot
