@@ -161,13 +161,25 @@ def author_has_notes(author: str) -> bool:
 
 
 def rename_author(old: str, new: str) -> None:
-    """Follow a roster rename/merge into private.db: notes and audit stay
-    with the person (access is keyed by author name). Person references in
-    notes move too, so 1:1 journals survive the rename."""
+    """Move OWNERSHIP: the author's own notes and audit trail. Access is keyed
+    by author name, so only the author may trigger this — see the guard in
+    users.rename_user."""
     with closing(_connect()) as conn:
         conn.execute("UPDATE private_notes SET author = ? WHERE author = ?", (new, old))
-        conn.execute("UPDATE private_notes SET person = ? WHERE person = ?", (new, old))
         conn.execute("UPDATE private_audit SET author = ? WHERE author = ?", (new, old))
+        conn.commit()
+
+
+def rename_subject(old: str, new: str) -> None:
+    """Move the SUBJECT reference: notes other people keep ABOUT this person.
+
+    Safe for any actor to trigger, and it must run on every rename. It changes
+    no ownership — each author still reads only their own rows — so it leaks
+    nothing. Skipping it stranded every teammate's 1:1 journal about the
+    renamed person under a name with no roster row: their brief rendered empty
+    and their feedback-gap nudge reset to 'never'."""
+    with closing(_connect()) as conn:
+        conn.execute("UPDATE private_notes SET person = ? WHERE person = ?", (new, old))
         conn.commit()
 
 

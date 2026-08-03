@@ -675,7 +675,7 @@ class ContextStrategyIn(BaseModel):
     # through to "" — the CLEAR sentinel — silently reverting the whole team to
     # the env default and answering 200 as if it were deliberate
     model_config = ConfigDict(extra="forbid")
-    strategy: str
+    strategy: str = Field(max_length=20)
 
 
 @router.get("/settings/context-strategy")

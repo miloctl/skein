@@ -60,6 +60,19 @@ def capture(text: str) -> str:
     # capture.plan gives the entity AND the handler's own kwargs, so a queued
     # proposal is applicable. A generic {"text": ...} was applicable by
     # nothing: every proposal failed at apply and reset to pending.
+    # fb: BEFORE plan(). capture() has this guard, but the proposal path never
+    # calls capture() — review.approve_change applies the payload straight
+    # against the registry. Without this, a private feedback line became a
+    # note proposal sitting in the TEAM-VISIBLE review queue, and approving it
+    # wrote (and FTS-indexed) a public note. chat.py and session_log.py both
+    # refuse at the surface; this was the one writer that did not.
+    if capture_svc.is_private_feedback(text):
+        return json.dumps(
+            {
+                "error": "feedback notes are private and never route through an agent."
+                " Use the fb: prefix in the web palette with your personal API key."
+            }
+        )
     kind, entity, payload = capture_svc.plan(text, actor=ACTOR)
     return gated_write(
         entity,

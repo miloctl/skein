@@ -283,6 +283,14 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     # moved the private half would let anyone merge someone else's row into
     # their own name and inherit their 1:1 notes and fb: journal, the one
     # dataset the product promises teammates cannot read.
+    # ALWAYS move the subject reference: notes other people keep ABOUT this
+    # person carry no ownership, so moving them leaks nothing — and NOT moving
+    # them stranded every teammate's 1:1 journal about the renamed person
+    # under a name with no roster row (empty brief, feedback-gap reset).
+    private_notes.rename_subject(old, new)
+    # Ownership (the person's OWN notes and audit) moves only when they are
+    # the one renaming — the guard above refuses a third-party rename that
+    # would need this, so reaching here with actor != old means nothing to move.
     private_moved = actor == old
     if private_moved:
         private_notes.rename_author(old, new)

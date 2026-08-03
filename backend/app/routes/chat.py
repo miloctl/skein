@@ -54,8 +54,11 @@ def chat_commands() -> list[dict]:
 class ChatPatch(BaseModel):
     # extra=forbid: a mistyped field name must 422, not silently no-op
     model_config = ConfigDict(extra="forbid")
-    title: str = ""
-    folder: str | None = None
+    # capped at the service's own truncation lengths (chat_threads.TITLE_LEN /
+    # FOLDER_LEN): the row was always safe, but a 50 MB title was accepted,
+    # parsed and silently discarded instead of refused
+    title: str = Field("", max_length=60)
+    folder: str | None = Field(None, max_length=40)
     engagement_id: int | None = None  # 0 clears the link
 
 
@@ -65,7 +68,7 @@ def get_chats(user: CurrentUser):
 
 
 class FolderIn(BaseModel):
-    name: str
+    name: str = Field(max_length=40)
 
 
 @router.get("/api/chats/folders")
