@@ -26,8 +26,10 @@ _last_flush = 0.0
 
 
 def _write(batch: dict[tuple[str, str, str], int]) -> None:
-    with contextlib.suppress(Exception):
-        for (day, user, surface), n in batch.items():
+    # suppression per row, not around the loop: one failing upsert must not
+    # drop the rest of the batch with it
+    for (day, user, surface), n in batch.items():
+        with contextlib.suppress(Exception):
             db.execute(
                 "INSERT INTO tool_usage (day, user, surface, actions) VALUES (?, ?, ?, ?)"
                 " ON CONFLICT (day, user, surface)"

@@ -91,3 +91,31 @@ def test_pulse_votes_are_unattributable(client, fresh_db):
         if row["kind"] == "pulse":
             assert row["created_by"] == ""
     assert key  # export exercised under the strong-identity path
+
+
+def test_standup_chain_counts_backdated_weekdays_and_breaks_at_a_gap(fresh_db):
+    import datetime
+
+    from app.services import collab, pulse, users
+
+    users.ensure_user("a")
+    # the 5 most recent COMPLETED weekdays, newest first
+    weekdays: list[datetime.date] = []
+    d = datetime.datetime.now(datetime.timezone.utc).date()
+    while len(weekdays) < 5:
+        d -= datetime.timedelta(days=1)
+        if d.weekday() < 5:
+            weekdays.append(d)
+    # standups on the 3 newest, a gap on the 4th, one more on the 5th —
+    # pins the lookback window, the weekend rewind, and the gap break
+    for day in [*weekdays[:3], weekdays[4]]:
+        collab.post_standup("a", today="x")
+        sid = fresh_db.query_row("SELECT MAX(id) AS id FROM standups")["id"]
+        fresh_db.execute(
+            "UPDATE standups SET created_at = ? WHERE id = ?",
+            (f"{day.isoformat()}T09:00:00+00:00", sid),
+        )
+    chain = pulse.standup_chain()
+    assert chain["humans"] == 1
+    # today (no standup yet) does not break the chain; the 4th-day gap does
+    assert chain["chain"] == 3

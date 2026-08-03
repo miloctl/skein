@@ -31,10 +31,15 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
     document.title = title ? `${title} — Skein` : "Chat — Skein";
   }, [title]);
 
+  // deferred: the button carrying btnRef is unmounted while editing, so an
+  // immediate focus() hits a null ref and focus falls to <body> — the ref
+  // attaches when the non-editing branch re-renders, before the timeout runs
+  const refocus = () => setTimeout(() => btnRef.current?.focus(), 0);
+
   const save = async (next: string) => {
     const name = next.trim();
     setEditing(false);
-    btnRef.current?.focus();
+    refocus();
     if (!name || name === title) return;
     setTitle(name); // optimistic: the sidebar refreshes off the same event
     try {
@@ -60,7 +65,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
           if (e.key === "Enter") save((e.target as HTMLInputElement).value);
           if (e.key === "Escape") {
             setEditing(false);
-            btnRef.current?.focus();
+            refocus();
           }
         }}
         onBlur={(e) => save(e.target.value)}

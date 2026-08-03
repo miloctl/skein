@@ -256,7 +256,7 @@ const Composer = () => {
         <ComposerPrimitive.Input
           role="combobox"
           aria-expanded={open}
-          aria-controls="cmd-list"
+          aria-controls={open ? "cmd-list" : undefined}
           aria-activedescendant={open ? `cmd-${sel}` : undefined}
           autoFocus
           placeholder={

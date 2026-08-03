@@ -14,7 +14,9 @@ def _today() -> date:
 
 
 # a wait on a resolved/done/kept target is satisfied — it must stop yellowing
-# the engagement the moment the dependency clears, without a manual unset
+# the engagement the moment the dependency clears, without a manual unset.
+# Keys mirror work.WAITING_ON_TYPES (the write path's whitelist): a type
+# added there without a query here KeyErrors _satisfied_targets → /portfolio
 _WAIT_SATISFIED = {
     "task": "SELECT id FROM tasks WHERE status = 'done' AND id IN ({marks})",
     "blocker": "SELECT id FROM blockers WHERE status = 'resolved' AND id IN ({marks})",

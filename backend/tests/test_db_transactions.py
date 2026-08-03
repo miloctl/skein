@@ -75,3 +75,24 @@ def test_on_commit_isolates_a_raising_callback(fresh_db):
         db.on_commit(boom)
         db.on_commit(lambda: ran.append("after"))
     assert ran == ["after"]
+
+
+def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):
+    from app import db
+    from app.services import search
+
+    embedded: list[tuple] = []
+    monkeypatch.setattr(search, "_maybe_embed", lambda e, i, t: embedded.append((e, i)))
+
+    with db.transaction():
+        search.index_record("note", 1, "t", "b")
+        assert embedded == []  # deferred: the embed must not hold the write lock
+    assert embedded == [("note", 1)]
+
+    with pytest.raises(RuntimeError), db.transaction():
+        search.index_record("note", 2, "t", "b")
+        raise RuntimeError("boom")
+    assert embedded == [("note", 1)]  # a rollback drops the embed with the row
+
+    search.index_record("note", 3, "t", "b")  # no transaction: embeds inline
+    assert embedded == [("note", 1), ("note", 3)]

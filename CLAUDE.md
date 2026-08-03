@@ -42,7 +42,7 @@ ideation and engineering backlog.
   carries a `seq` — those rows are hash-chained, and a bulk rewrite breaks
   verification permanently at the earliest row it touches.
 - **A filename names the behavior, not the session that made it.** This is
-  what `app/services/` already does: 43 files, each named for its subject.
+  what `app/services/` already does: 46 files, each named for its subject.
   Name a test for what it pins (`test_delegation.py`), never for the wave,
   round, audit or review that produced it. Name a doc for its function.
   Dates belong in `docs/reviews/`, which holds closed transcripts only.

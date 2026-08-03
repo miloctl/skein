@@ -35,21 +35,30 @@ def _short_id_hit(q: str) -> dict | None:
     if not m:
         return None
     row = db.query_one(
-        "SELECT entity, entity_id, title, substr(body, 1, 120) AS snippet"
-        " FROM search_index WHERE entity = ? AND entity_id = ?",
+        "SELECT s.entity, s.entity_id, s.title, substr(s.body, 1, 120) AS snippet"
+        " FROM search_ids i JOIN search_index s ON s.rowid = i.id"
+        " WHERE i.entity = ? AND i.entity_id = ?",
         (m.group(2) or "task", int(m.group(1) or m.group(3))),
     )
     return {**row, "rank": None} if row else None
 
 
 def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
+    # by rowid via search_ids, never WHERE entity = ?: entity/entity_id are
+    # UNINDEXED in FTS5, so that predicate scans the whole virtual table —
+    # under the write lock, on every service write (migration 043)
     db.execute(
-        "DELETE FROM search_index WHERE entity = ? AND entity_id = ?",
+        "INSERT OR IGNORE INTO search_ids (entity, entity_id) VALUES (?, ?)",
         (entity, entity_id),
     )
+    sid = db.query_row(
+        "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
+        (entity, entity_id),
+    )["id"]
+    db.execute("DELETE FROM search_index WHERE rowid = ?", (sid,))
     db.execute(
-        "INSERT INTO search_index (entity, entity_id, title, body) VALUES (?, ?, ?, ?)",
-        (entity, entity_id, title, body),
+        "INSERT INTO search_index (rowid, entity, entity_id, title, body) VALUES (?, ?, ?, ?, ?)",
+        (sid, entity, entity_id, title, body),
     )
     # The embed is an HTTP round-trip of up to ~5s. Callers run index_record
     # inside db.transaction() (review.approve_change, playbooks.instantiate,
@@ -69,10 +78,13 @@ def deindex_record(entity: str, entity_id: int) -> None:
     orphaned embedding can't leak content (snippets come from search_index),
     but it outranks live records and silently burns a semantic result slot
     per query, forever."""
-    db.execute(
-        "DELETE FROM search_index WHERE entity = ? AND entity_id = ?",
+    row = db.query_one(
+        "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
         (entity, entity_id),
     )
+    if row:
+        db.execute("DELETE FROM search_index WHERE rowid = ?", (row["id"],))
+        db.execute("DELETE FROM search_ids WHERE id = ?", (row["id"],))
     db.execute(
         "DELETE FROM embeddings WHERE entity = ? AND entity_id = ?",
         (entity, entity_id),
@@ -138,8 +150,9 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
             if (s["entity"], s["entity_id"]) in seen:
                 continue
             row = db.query_one(
-                "SELECT title, substr(body, 1, 120) AS snippet FROM search_index"
-                " WHERE entity = ? AND entity_id = ?",
+                "SELECT s.title, substr(s.body, 1, 120) AS snippet"
+                " FROM search_ids i JOIN search_index s ON s.rowid = i.id"
+                " WHERE i.entity = ? AND i.entity_id = ?",
                 (s["entity"], s["entity_id"]),
             )
             if row:

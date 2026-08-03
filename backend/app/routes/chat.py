@@ -155,6 +155,9 @@ async def chat(req: ChatRequest, user: CurrentUser):
     # stream, so one inline disk or DB stall freezes them all. main.py's
     # perimeter middleware documents the same rule.
     ratelimit.check("chat", user)
+    # the UI transcript is keyed by the BASE thread id (persona sessions
+    # share one visible conversation); sanitize once, up front
+    ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
     # /as <persona> <message>: resolve the bench persona BEFORE any model —
     # unknown slugs get a deterministic error, valid ones swap the agent's
     # head and identity (writes are attributed and gated per persona)
@@ -176,6 +179,10 @@ async def chat(req: ChatRequest, user: CurrentUser):
         if err:
 
             async def usage_stream(text=err):
+                # logged like every command path: the exchange must survive
+                # a reload, not vanish from the thread's history
+                await run_in_threadpool(_log_turn, ui_thread, user, "user", req.message)
+                await run_in_threadpool(_log_turn, ui_thread, user, "assistant", text)
                 yield _sse({"type": "text", "text": text})
                 yield _sse({"type": "done"})
 
@@ -190,6 +197,10 @@ async def chat(req: ChatRequest, user: CurrentUser):
             # e.g. a human already claimed the slug — SSE, not a bare 400
 
             async def clash_stream(text=f"⚠️ {exc}"):
+                # logged like every command path: the exchange must survive
+                # a reload, not vanish from the thread's history
+                await run_in_threadpool(_log_turn, ui_thread, user, "user", req.message)
+                await run_in_threadpool(_log_turn, ui_thread, user, "assistant", text)
                 yield _sse({"type": "text", "text": text})
                 yield _sse({"type": "done"})
 
@@ -219,10 +230,6 @@ async def chat(req: ChatRequest, user: CurrentUser):
     # tokens — same engine the mock agent and Slack use. The exchange is
     # still bridged into the model session afterwards (session_log) so a
     # follow-up question to the agent has the context.
-    # the UI transcript is keyed by the BASE thread id (persona sessions
-    # share one visible conversation); sanitize once, up front
-    ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
-
     command_events = commands.dispatch(message, user)
     if command_events is not None:
 
@@ -235,6 +242,21 @@ async def chat(req: ChatRequest, user: CurrentUser):
             # the model's copy of the exchange: everything the user read
             # except the 🔧 chip markup, which is UI chrome, not content
             model_parts: list[str] = []
+            closed = False
+
+            def _close_turn() -> None:
+                _log_turn(ui_thread, user, "assistant", "".join(parts))
+                # a follow-up question about this output goes to the agent —
+                # replay the exchange into its session so it has the context
+                # (unless an agent turn holds the session right now: bridged
+                # indices would race the SDK's cache and clobber files)
+                if ui_thread in _inflight:
+                    logging.getLogger("skein.chat").info(
+                        "session bridge skipped, agent turn in flight (thread=%s)", ui_thread
+                    )
+                else:
+                    session_log.log_exchange(ui_thread, message, "".join(model_parts))
+
             try:
                 async for event in command_events:
                     if "data" in event:
@@ -257,26 +279,25 @@ async def chat(req: ChatRequest, user: CurrentUser):
                     parts.append(line)
                     model_parts.append(line)
                     yield _sse({"type": "receipt", **r})
+                # closed flips BEFORE the await: run_in_threadpool is not
+                # abandoned on cancel, so a disconnect arriving mid-write
+                # still lands it — flipped after, the finally would write
+                # the same turn a second time
+                closed = True
+                await run_in_threadpool(_close_turn)
             except Exception as exc:
                 logging.getLogger("skein.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
+                closed = True
+                await run_in_threadpool(_close_turn)
             finally:
-                # sync on purpose, unlike the calls above: a client disconnect
-                # cancels this stream, and inside the cancelled scope an await
-                # in finally raises instead of running — threadpooling these
-                # would drop the transcript and the bridge exactly in the
-                # cancelled case they exist for
-                _log_turn(ui_thread, user, "assistant", "".join(parts))
-                # a follow-up question about this output goes to the agent —
-                # replay the exchange into its session so it has the context
-                # (unless an agent turn holds the session right now: bridged
-                # indices would race the SDK's cache and clobber files)
-                if ui_thread in _inflight:
-                    logging.getLogger("skein.chat").info(
-                        "session bridge skipped, agent turn in flight (thread=%s)", ui_thread
-                    )
-                else:
-                    session_log.log_exchange(ui_thread, message, "".join(model_parts))
+                # sync fallback for the CANCELLED stream only (stop button,
+                # tab close): inside the cancelled scope an await in finally
+                # raises instead of running — threadpooling this branch would
+                # drop the transcript and the bridge exactly then. Completed
+                # turns already closed through the threadpool above.
+                if not closed:
+                    _close_turn()
             yield _sse({"type": "done"})
 
         return StreamingResponse(command_stream(), media_type="text/event-stream")
@@ -332,6 +353,14 @@ async def chat(req: ChatRequest, user: CurrentUser):
             yield _sse({"type": "text", "text": masthead})
         receipts.start()
         _inflight[thread_id] += 1
+        closed = False
+
+        def _close_turn() -> None:
+            # ui_thread, not the session id: persona sessions append --<slug>,
+            # which would break the join that lands spend on an engagement.
+            # agent_name already records which head spent it.
+            _log_usage(agent, ui_thread, agent_name=persona or "chief-of-staff")
+            _log_turn(ui_thread, user, "assistant", "".join(transcript))
 
         async def pump(prompt: str):
             """One model exchange, rendered. Factored out so the turn guard can
@@ -378,12 +407,20 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 yield _sse({"type": "receipt", **note})
             elif filed and capture.PREFIX.match(message):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
+            # closed flips BEFORE the await: run_in_threadpool is not
+            # abandoned on cancel, so a disconnect arriving mid-write still
+            # lands it — flipped after, the finally would write the same
+            # turn a second time
+            closed = True
+            await run_in_threadpool(_close_turn)
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
             transcript.append(f"\n\n> ⚠️ {str(exc)[:300]}\n")
             yield _sse({"type": "error", "message": str(exc)})
+            closed = True
+            await run_in_threadpool(_close_turn)
         finally:
             _inflight[thread_id] -= 1
             if _inflight[thread_id] <= 0:
@@ -395,16 +432,13 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 reset_requester_identity(req_token)
             except ValueError:
                 pass
-            # sync on purpose, unlike the calls above: a client disconnect
-            # cancels this stream, and inside the cancelled scope an await in
-            # finally raises instead of running — threadpooling these would
-            # drop usage accounting and the partial transcript exactly in the
-            # cancelled case the comment above promises to keep.
-            # ui_thread, not the session id: persona sessions append --<slug>,
-            # which would break the join that lands spend on an engagement.
-            # agent_name already records which head spent it.
-            _log_usage(agent, ui_thread, agent_name=persona or "chief-of-staff")
-            _log_turn(ui_thread, user, "assistant", "".join(transcript))
+            # sync fallback for the CANCELLED stream only (stop button, tab
+            # close): inside the cancelled scope an await in finally raises
+            # instead of running — threadpooling this branch would drop usage
+            # accounting and the partial transcript exactly then. Completed
+            # turns already closed through the threadpool above.
+            if not closed:
+                _close_turn()
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
