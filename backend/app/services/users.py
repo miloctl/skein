@@ -56,11 +56,13 @@ def reserved_name_rows() -> list[str]:
     return [r["name"] for r in db.query("SELECT name FROM users") if _fold(r["name"]) in reserved]
 
 
-def refuse_kind_collision(name: str, kind: str, *, ignore: str = "") -> None:
-    """One name, one identity — checked wherever a roster row is created OR
+def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
+    """One folded name, one roster row — checked wherever a row is created OR
     moved. It lived inside ensure_user for one round, which left rename_user
     as the back door: renaming a human onto an agent's name bricks them at
-    every door, including the rename route itself.
+    every door, including the rename route itself. Kind does not soften it:
+    authority_level and trust key on the EXACT name, so a second agent row
+    folding onto the first would answer to neither's kill switch.
 
     Folds in Python, not in SQL. sqlite's lower() is ASCII-only, so it reads
     `SCOÜT` and `scoüt` as different names while resolve_teammate and
@@ -71,10 +73,7 @@ def refuse_kind_collision(name: str, kind: str, *, ignore: str = "") -> None:
         # the EXACT-name case belongs to the callers: ensure_user reads it as
         # `existing`, and rename_user's target lookup explains the human/agent
         # boundary in the terms that case deserves. This guard is for the
-        # variants those exact lookups cannot see — SAME kind included:
-        # authority_level and trust_scores key on the exact name, so a second
-        # agent row that folds onto the first answers to neither's kill switch,
-        # and two fold-equal humans split one person's notes across two rows.
+        # variants those exact lookups cannot see.
         if row["name"] in (ignore, name):
             continue
         if _fold(row["name"]) == target:
@@ -92,7 +91,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     # silently absorb the persona's trust/authority history (and vice versa)
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
     if existing is None:
-        refuse_kind_collision(name, kind)
+        refuse_fold_collision(name)
     if existing is None and kind == "human" and _is_bench_slug(name):
         raise ValueError(f"'{name}' is reserved for a bench persona — pick another name")
     if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
@@ -100,7 +99,11 @@ def ensure_user(name: str, kind: str = "human") -> dict:
             f"'{name}' already exists as a {existing['kind']} — bench persona"
             " slugs cannot be shared across kinds"
         )
-    # INSERT OR IGNORE + SELECT: safe under concurrent first requests
+    # INSERT OR IGNORE + SELECT: safe under concurrent first requests for the
+    # SAME name. Two concurrent first requests for fold-variant names can both
+    # pass the guard above — folding lives in Python (sqlite lower() is
+    # ASCII-only), so no unique index can back it, and rename_user's merge is
+    # the repair when that race ever lands.
     db.execute(
         "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
         (name, kind if kind in ("human", "agent") else "human", db.now()),
@@ -311,7 +314,7 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     # the same wall ensure_user applies. Without it a rename onto an agent's
     # name (in any capitalization) locks the person out of every door,
     # including this route, with no self-service recovery.
-    refuse_kind_collision(new, row["kind"], ignore=old)
+    refuse_fold_collision(new, ignore=old)
     if _is_bench_slug(new):
         # unconditional: persona names come from files, never from rename —
         # even agent→agent would fold foreign history into the persona

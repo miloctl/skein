@@ -293,7 +293,20 @@ def main() -> None:
     # picking this name first would permanently shadow the agent
     from .services.users import ensure_user
 
-    ensure_user(ACTOR, kind="agent")
+    try:
+        ensure_user(ACTOR, kind="agent")
+    except ValueError as exc:
+        import sys
+
+        # the migrations refusal above exits the same way: a process whose
+        # whole identity is unavailable fails fast, but with the reason on
+        # stderr, never a traceback the operator has to decode
+        print(
+            f"skein-mcp: cannot reserve '{ACTOR}': {exc}."
+            " Set SKEIN_MCP_USER to a free name, or rename the existing row.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
     mcp.run()  # stdio: stdout carries the protocol, so diagnostics (the print above) go to stderr
 
 
