@@ -585,9 +585,14 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     if before:
         where += " AND seq < ?"
         params.append(before)
+    # INDEXED BY: left alone, the optimizer picks idx_activity_actor and then
+    # sorts with a temp B-tree — and the visible actor set is most of the
+    # table, so that plan re-sorts nearly the whole ledger on every page. The
+    # seq index already IS the sort order; walking it descending stops at
+    # `limit` rows no matter how large the ledger grows.
     rows = db.query(
         f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 — placeholders built above
-        f" WHERE {where} ORDER BY seq DESC LIMIT ?",
+        f" INDEXED BY idx_activity_seq WHERE {where} ORDER BY seq DESC LIMIT ?",
         (*params, limit + 1),
     )
     has_more = len(rows) > limit

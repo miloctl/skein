@@ -20,6 +20,10 @@ def prune(*, actor: str = "scheduler") -> dict:
     month = db.now()[:7]
     if not db.claim_job("retention-prune", month):
         return {"skipped": "already pruned this month"}
+    # usage_log is deliberately absent from this list: it is the platform's
+    # cost history (spend per thread and engagement over time), it is not
+    # derivable from anything else, and its ranged reads ride
+    # idx_usage_log_created — kept forever, like activity.
     removed = {
         "forecast_snapshots": db.execute_rowcount(
             "DELETE FROM forecast_snapshots WHERE created_at < ?",

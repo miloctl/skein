@@ -6,6 +6,7 @@ import hashlib
 import re
 import secrets
 import shlex
+from datetime import datetime, timezone
 
 from .. import db
 
@@ -66,12 +67,21 @@ def verify_key(key: str) -> str | None:
     if not key.startswith(PREFIX):
         return None
     row = db.query_one(
-        "SELECT id, owner FROM api_keys WHERE key_hash = ? AND active = 1",
+        "SELECT id, owner, last_used_at FROM api_keys WHERE key_hash = ? AND active = 1",
         (_hash(key),),
     )
     if not row:
         return None
-    db.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?", (db.now(), row["id"]))
+    # last_used_at is display telemetry (the key list's "last used" column) —
+    # stamped per call it made every keyed request pay a write-lock
+    # acquisition. Under 60 seconds since the stored stamp, skip the write.
+    last = row["last_used_at"]
+    try:
+        fresh = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() < 60
+    except (TypeError, ValueError):
+        fresh = False
+    if not fresh:
+        db.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?", (db.now(), row["id"]))
     return row["owner"]
 
 
