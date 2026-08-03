@@ -66,6 +66,23 @@ async def lifespan(app: FastAPI):
             mcp_user,
             mcp_user,
         )
+    if config.AUTH_ERROR:
+        log.error(
+            "auth is misconfigured: %s — every /api request is refused until this is fixed",
+            config.AUTH_ERROR,
+        )
+    elif config.AUTH_MODE == "trusted-header":
+        log.warning(
+            "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted X-User"
+            " header. Right for a trusted LAN or local dev; for anything shared,"
+            " set SKEIN_AUTH_MODE=api-key or oidc."
+        )
+    if config.API_TOKEN and config.AUTH_MODE != "trusted-header":
+        log.warning(
+            "SKEIN_API_TOKEN has no effect with SKEIN_AUTH_MODE=%s — that mode"
+            " already demands a per-caller credential on every request",
+            config.AUTH_MODE,
+        )
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises
     for spec in JOBS:
@@ -88,30 +105,56 @@ app = FastAPI(title="Skein", description="Many strands. One formation.", lifespa
 
 
 @app.middleware("http")
-async def bearer_auth(request: Request, call_next):
-    """Optional shared-token auth: enforced only when SKEIN_API_TOKEN is set.
-    /health stays open for container checks; Slack verifies its own signature."""
+async def perimeter_auth(request: Request, call_next):
+    """Perimeter gate, by SKEIN_AUTH_MODE. Route dependencies (routes/deps.py)
+    resolve WHO the caller is; this layer only refuses requests that carry no
+    valid credential at all — so a future route that forgets a user dependency
+    is still not open in api-key/oidc mode. /health stays open for container
+    checks; Slack verifies its own signature.
+
+    trusted-header mode keeps the historical behavior: open unless
+    SKEIN_API_TOKEN sets a shared perimeter token.
+    """
     # calendar.ics: calendar clients can't send headers — the route checks
-    # ?token= itself when a shared token is configured
+    # its own dedicated ?token= secret
     open_paths = ("/health", "/api/slack/", "/api/calendar.ics")
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.
     if (
-        config.API_TOKEN
-        and request.method != "OPTIONS"
-        and request.url.path.startswith("/api")
-        and not request.url.path.startswith(open_paths)
+        request.method == "OPTIONS"
+        or not request.url.path.startswith("/api")
+        or request.url.path.startswith(open_paths)
     ):
+        return await call_next(request)
+    if config.AUTH_ERROR:
+        # fail CLOSED: a typo'd mode must not silently open the deployment
+        return JSONResponse(status_code=503, content={"detail": config.AUTH_ERROR})
+    if config.AUTH_MODE == "trusted-header" and not config.API_TOKEN:
+        return await call_next(request)
+    from .routes.deps import INVALID_KEY, NEED_KEY, NEED_LOGIN
+    from .services.api_keys import PREFIX, verify_key
+
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith(f"Bearer {PREFIX}"):
+        if verify_key(auth[7:]) is not None:
+            return await call_next(request)
+        return JSONResponse(status_code=401, content={"detail": INVALID_KEY})
+    if config.AUTH_MODE == "trusted-header":
         import hmac
 
-        from .services.api_keys import PREFIX, verify_key
+        if hmac.compare_digest(auth, f"Bearer {config.API_TOKEN}"):
+            return await call_next(request)
+        return JSONResponse(status_code=401, content={"detail": "invalid API token"})
+    if config.AUTH_MODE == "oidc" and auth.startswith("Bearer "):
+        from . import oidc
 
-        auth = request.headers.get("Authorization", "")
-        shared_ok = hmac.compare_digest(auth, f"Bearer {config.API_TOKEN}")
-        key_ok = auth.startswith(f"Bearer {PREFIX}") and verify_key(auth[7:]) is not None
-        if not (shared_ok or key_ok):
-            return JSONResponse(status_code=401, content={"detail": "invalid API token"})
-    return await call_next(request)
+        try:
+            oidc.validate(auth[7:])
+        except oidc.OIDCError as exc:
+            return JSONResponse(status_code=401, content={"detail": str(exc)})
+        return await call_next(request)
+    detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN
+    return JSONResponse(status_code=401, content={"detail": detail})
 
 
 # JSON payloads compress ~77%; added before CORS so CORS stays outermost
@@ -187,6 +230,8 @@ app.include_router(webhooks.router)
 def health():
     return {
         "ok": True,
+        "auth_mode": config.AUTH_MODE,
+        "auth_error": config.AUTH_ERROR,
         "provider": config.MODEL_PROVIDER,
         "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
         "provider_error": config.MODEL_PROVIDER_ERROR,

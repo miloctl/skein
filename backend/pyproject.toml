@@ -17,6 +17,7 @@ dependencies = [
     "apscheduler>=3.10",
     "pyyaml>=6.0",
     "strands-agents-tools>=0.2",
+    "pyjwt[crypto]>=2.8",
 ]
 
 [project.optional-dependencies]

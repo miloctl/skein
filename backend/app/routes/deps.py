@@ -2,29 +2,57 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
 
+from .. import config
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
 from ..services.users import ensure_user, is_agent
 
+# One condition, one wording: main.py's perimeter middleware refuses the same
+# conditions before a route dependency ever runs, so it imports these strings
+# instead of drafting near-duplicates.
+INVALID_KEY = "invalid or revoked API key"
+NEED_KEY = (
+    "SKEIN_AUTH_MODE=api-key: every request needs a personal API key. Get"
+    " your first one from whoever runs the server (python -m"
+    " app.bootstrap_key <you>). Then set it with the 🔑 button, or send"
+    " Authorization: Bearer sk-skein-..."
+)
+NEED_LOGIN = (
+    "SKEIN_AUTH_MODE=oidc: every request needs a sign-in token or a personal"
+    " API key. Sign in, or send Authorization: Bearer sk-skein-..."
+)
 
-def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str, bool]:
-    """Identity resolution → (user, strong).
 
-    1. A per-teammate API key (Authorization: Bearer sk-skein-…) wins —
-       attributed automation (CLI, MCP, hooks, scripts). A PRESENTED key that
-       is invalid or revoked is a hard 401 — never a silent fallback, or
-       revocation would be a no-op for callers that also send X-User.
-    2. Otherwise the trusted-LAN X-User header from the frontend name picker
-       — a weak, self-asserted identity (strong=False). A weak header may
-       never claim an agent identity: agent rows carry trust scores and gate
-       levels, and writes as them would sidestep the review gate entirely.
-       Reads don't mint roster rows — a typo'd or scripted GET must not
-       grow the roster.
+def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str, bool, list[str]]:
+    """Identity resolution → (user, strong, groups). SKEIN_AUTH_MODE picks
+    which doors exist; this function is the single swap point.
+
+    1. A per-teammate API key (Authorization: Bearer sk-skein-…) wins in
+       EVERY mode — attributed automation (CLI, MCP, hooks, scripts). A
+       PRESENTED key that is invalid or revoked is a hard 401 — never a
+       silent fallback, or revocation would be a no-op for callers that also
+       send X-User.
+    2. oidc mode: any other bearer token is an IdP-issued JWT, validated
+       in-process (app/oidc.py). A validated sign-in is strong identity and
+       carries the IdP's group claims. Like a key, it may never claim an
+       agent identity: agent rows carry trust scores and gate levels, and
+       writes as them would sidestep the review gate entirely.
+    3. trusted-header mode only: the X-User header from the frontend name
+       picker — weak, self-asserted (strong=False), same agent wall. Reads
+       don't mint roster rows — a typo'd or scripted GET must not grow the
+       roster. api-key and oidc modes never reach this door: those modes
+       exist exactly because the header is self-asserted.
+
+    A broken auth config (config.AUTH_ERROR) refuses everything with a 503 —
+    fail closed, unlike the model-provider faults that degrade to mock,
+    because "degrade" for auth means "open".
     """
+    if config.AUTH_ERROR:
+        raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
     if authorization.startswith("Bearer ") and authorization[7:].startswith(PREFIX):
         owner = verify_key(authorization[7:])
         if not owner:
-            raise HTTPException(status_code=401, detail="invalid or revoked API key")
+            raise HTTPException(status_code=401, detail=INVALID_KEY)
         # two write paths, one service layer: humans use REST, agents use the
         # gated tools/MCP. An agent-owned key on REST would reach every
         # ungated human surface with origin=human — refuse the door entirely
@@ -34,7 +62,25 @@ def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str
                 detail=f"'{owner}' is an agent identity — agents work through"
                 " the gated tool surface (chat tools / MCP), not the REST API",
             )
-        return owner, True
+        return owner, True, []
+    if config.AUTH_MODE == "oidc":
+        if authorization.startswith("Bearer "):
+            from .. import oidc
+
+            try:
+                name, groups = oidc.principal(oidc.validate(authorization[7:]))
+            except oidc.OIDCError as exc:
+                raise HTTPException(status_code=401, detail=str(exc)) from exc
+            if is_agent(name):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"'{name}' is an agent identity — agents authenticate"
+                    " with their API key, not a sign-in",
+                )
+            return ensure_user(name)["name"], True, groups
+        raise HTTPException(status_code=401, detail=NEED_LOGIN)
+    if config.AUTH_MODE == "api-key":
+        raise HTTPException(status_code=401, detail=NEED_KEY)
     name = (x_user or "anonymous").strip()[:64] or "anonymous"
     if is_agent(name):
         raise HTTPException(
@@ -43,8 +89,24 @@ def _resolve(x_user: str, authorization: str, method: str = "POST") -> tuple[str
             " their API key, not the name picker",
         )
     if method in ("GET", "HEAD", "OPTIONS"):
-        return name, False
-    return ensure_user(name)["name"], False
+        return name, False, []
+    return ensure_user(name)["name"], False, []
+
+
+def _is_admin(user: str, groups: list[str]) -> bool:
+    """SKEIN_ADMINS names administrators; in oidc mode an IdP group
+    (SKEIN_OIDC_ADMIN_GROUP) grants it too. With NEITHER configured,
+    trusted-header mode lets every key holder administer — the historical
+    scarcity model, right where the operator mints each key by hand. api-key
+    and oidc modes hand out credentials freely, so there the fallback stays
+    closed until SKEIN_ADMINS is set."""
+    if user in config.ADMINS:
+        return True
+    if config.OIDC_ADMIN_GROUP and config.OIDC_ADMIN_GROUP in groups:
+        return True
+    return (
+        not config.ADMINS and not config.OIDC_ADMIN_GROUP and config.AUTH_MODE == "trusted-header"
+    )
 
 
 def _surface(request: Request, x_client: str) -> str:
@@ -61,27 +123,13 @@ def current_user(
 ) -> str:
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
-    user, strong = _resolve(x_user, authorization, request.method)
+    user, strong, _ = _resolve(x_user, authorization, request.method)
     request.state.strong_auth = strong
     record_use(user, _surface(request, x_client))
     return user
 
 
-def strong_user(
-    request: Request,
-    x_user: Annotated[str, Header()] = "",
-    x_client: Annotated[str, Header()] = "",
-    authorization: Annotated[str, Header()] = "",
-) -> str:
-    """Strong identity ONLY — private records and admin surfaces. The
-    self-asserted X-User header is never sufficient here.
-
-    Today a strong credential is a personal API key. The deployed target is
-    OIDC + PKCE (ported from an existing setup); when it lands, a validated
-    OIDC session satisfies this dependency and nothing downstream changes —
-    this function is the single swap point.
-    """
-    user, strong = _resolve(x_user, authorization, request.method)
+def _require_strong(strong: bool) -> None:
     if not strong:
         raise HTTPException(
             status_code=403,
@@ -90,6 +138,45 @@ def strong_user(
             " <you>). Then set it with the 🔑 button, or send"
             " Authorization: Bearer sk-skein-...",
         )
+
+
+def strong_user(
+    request: Request,
+    x_user: Annotated[str, Header()] = "",
+    x_client: Annotated[str, Header()] = "",
+    authorization: Annotated[str, Header()] = "",
+) -> str:
+    """Strong identity ONLY — private records and self-scoped credentials.
+    The self-asserted X-User header is never sufficient here. A personal API
+    key or a validated OIDC sign-in both qualify: each one proves the caller
+    is who the record says."""
+    user, strong, _ = _resolve(x_user, authorization, request.method)
+    _require_strong(strong)
+    request.state.strong_auth = True
+    record_use(user, _surface(request, x_client))
+    return user
+
+
+def admin_user(
+    request: Request,
+    x_user: Annotated[str, Header()] = "",
+    x_client: Annotated[str, Header()] = "",
+    authorization: Annotated[str, Header()] = "",
+) -> str:
+    """Administrator identity: strong AND named an administrator. Guards what
+    changes OTHER people's rows or the whole team's configuration — roster
+    changes, key visibility and the kill switch, agent authority, team theme,
+    context strategy, backups, the full export. Self-scoped strong surfaces
+    (own keys, private notes) stay on StrongUser: locking a person out of
+    their own records is not a privilege boundary, it is a dead end."""
+    user, strong, groups = _resolve(x_user, authorization, request.method)
+    _require_strong(strong)
+    if not _is_admin(user, groups):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{user}' is not an administrator. Ask whoever runs the"
+            " server to add the name to SKEIN_ADMINS.",
+        )
     request.state.strong_auth = True
     record_use(user, _surface(request, x_client))
     return user
@@ -97,3 +184,4 @@ def strong_user(
 
 CurrentUser = Annotated[str, Depends(current_user)]
 StrongUser = Annotated[str, Depends(strong_user)]
+AdminUser = Annotated[str, Depends(admin_user)]

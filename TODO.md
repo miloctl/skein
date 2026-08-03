@@ -20,6 +20,13 @@ this file is only for accepted trade-offs that must eventually be repaid.
   the feed matters most, because its "teammates' rows never appear"
   guarantee is only as strong as X-User until the bridge lands.
 
+  Narrowed 2026-08-02: the bridge landed (`SKEIN_AUTH_MODE`). In api-key
+  and oidc modes the header is never consulted — every request carries a
+  validated identity, so this whole exposure class closes there with no
+  per-surface work. The debt now applies to trusted-header deployments
+  only, and repays fully when the frontend sign-in flow (docs/ROADMAP.md)
+  lets a team leave that mode.
+
 - **No re-baseline path for a legitimate unchained activity row.** When
   log_activity's standalone append fails, the row is recorded unchained (a
   write must not 500 over bookkeeping) — and an unchained row above the

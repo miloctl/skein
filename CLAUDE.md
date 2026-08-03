@@ -92,8 +92,10 @@ that hasn't passed it will fail on push-to-main.
 
 ## Conventions
 
-- Current user comes from the `X-User` header (frontend name picker, trusted
-  LAN model). FastAPI routes take it via the `CurrentUser` dependency.
+- Current user resolution is `SKEIN_AUTH_MODE` (`trusted-header` default: the
+  `X-User` name-picker header; `api-key`; `oidc`), branched ONLY in
+  `routes/deps.py`. Routes take it via `CurrentUser`; strong-identity
+  surfaces use `StrongUser`, team-wide/roster surfaces use `AdminUser`.
 - Times are UTC ISO-8601 strings (`db.now()`); dates are `YYYY-MM-DD`.
 - Tools return JSON strings; services return dicts/lists.
 - Keep frontend components small and Tailwind-styled; no extra UI libraries.

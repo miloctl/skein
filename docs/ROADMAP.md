@@ -552,8 +552,13 @@ These are not features. Each one needs a decision.
 
 - **Time zone.** Every human rhythm is hardcoded to UTC. A team outside UTC
   gets a digest at the wrong hour. A `SKEIN_TZ` setting has zero hits today.
-- **The OIDC and API-key identity bridge is undefined.** `TODO.md` carries an
-  accepted debt that repays when this lands.
+- **The OIDC and API-key identity bridge** — DECIDED and shipped 2026-08-02:
+  `SKEIN_AUTH_MODE` (`trusted-header | api-key | oidc`), in-process JWT
+  validation in `app/oidc.py`, and the `AdminUser` split (`SKEIN_ADMINS` /
+  `SKEIN_OIDC_ADMIN_GROUP`). Remaining build: the frontend sign-in flow —
+  an OIDC + PKCE login in the Next.js app that stores the token and sends
+  it as the Authorization header. Until it lands, oidc mode serves API and
+  automation callers; the web UI needs trusted-header or api-key mode.
 - **`docs/FEATURES.md` claims person-level data never judges the past, and
   `services/portfolio.py` still returns `wip_by_person`.** Narrow the claim or
   aggregate the display. Leaving both is the only wrong answer.
