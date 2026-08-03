@@ -98,3 +98,66 @@ def test_agent_mention_lands_in_its_inbox(roster):
 
     work.create_task("Sweep logs", description="@scout take this one", actor="mira")
     assert any("mentioned you" in m for m in _unread("scout"))
+
+
+def test_sentence_final_punctuation_still_mentions(roster):
+    from app.services import work
+
+    work.create_task("Fix login", description="thanks @mira.", actor="dana")
+    work.create_task("Fix logout", description="see @mira... then ship", actor="dana")
+    assert len(_unread("mira")) == 2
+
+
+def test_email_or_ssh_target_is_not_a_mention(roster):
+    from app.services import work
+
+    work.create_task("Rotate keys", description="run ssh root@scout tonight", actor="mira")
+    assert _unread("scout") == []
+
+
+def test_title_only_capture_shape_mentions(roster):
+    from app.services import work
+
+    # the short `todo: ask @mira ...` ⌘K capture lands entirely in the title
+    tid = work.create_task("ask @mira about the rollout", actor="dana")["id"]
+    assert any(f"task #{tid}" in m for m in _unread("mira"))
+
+
+def test_question_creation_mentions_a_non_assignee(roster):
+    from app.services import collab
+
+    qid = collab.ask_question("@mira what broke?", asked_by="dana")["id"]
+    assert any(f"question #{qid}" in m for m in _unread("mira"))
+
+
+def test_note_edit_mentions_the_newly_added_person(roster):
+    from app.services import collab
+
+    nid = collab.save_note("postmortem", "draft", actor="dana")["id"]
+    collab.update_note(nid, content="ask @mira for the timeline", actor="dana")
+    assert any(f"note #{nid}" in m for m in _unread("mira"))
+
+
+def test_answer_mentioning_the_asker_does_not_double_ping(roster):
+    from app.services import collab, users
+
+    users.ensure_user("dana")
+    qid = collab.ask_question("what broke?", asked_by="dana")["id"]
+    collab.answer_question(qid, "@dana it was the cache", answered_by="mira")
+    msgs = _unread("dana")
+    assert any("was answered" in m for m in msgs)
+    assert not any("mentioned you" in m for m in msgs)
+
+
+def test_retention_prunes_only_orphaned_mentions(roster):
+    from app.services import collab, retention
+
+    keep = collab.save_note("keep", "ping @mira", actor="dana")["id"]
+    drop = collab.save_note("drop", "ping @scout", actor="dana")["id"]
+    collab.delete_note(drop, actor="dana")
+    removed = retention.prune()
+    assert removed["mention_log"] == 1
+    from app import db
+
+    rows = db.query("SELECT entity_id FROM mention_log WHERE entity = 'note'")
+    assert [r["entity_id"] for r in rows] == [keep]

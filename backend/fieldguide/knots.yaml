@@ -192,6 +192,15 @@ knots:
     link: /review
     since: 2026-07-31
 
+  - id: mention
+    feature: "@mentions"
+    knot: Prusik
+    set: hitches
+    pitch: A name in prose becomes a tap on the shoulder — the knot that grips a moving line.
+    how: "Write `@name` in a task, note, question, answer, or decision. The named person gets one notification. An edit does not notify twice."
+    link: /dashboard
+    since: 2026-08-03
+
   # ---- Bends — where two systems join ---------------------------------
   - id: standup_blocker
     feature: Standup → blocker
@@ -287,12 +296,3 @@ knots:
     how: Generate one from an engagement on Work → Browse.
     link: /dashboard
     since: 2026-07-31
-
-  - id: mention
-    feature: "@mentions"
-    knot: Prusik
-    set: hitches
-    pitch: A name in prose becomes a tap on the shoulder — the knot that grips a moving line.
-    how: "Write `@name` in a task description, note, question, answer, or decision. The named person gets one notification. An edit does not notify twice."
-    link: /dashboard
-    since: 2026-08-03
