@@ -30,7 +30,15 @@ type Week = {
   committed: number;
   done: number;
   kept_percent: number | null;
-  tasks: { id: number; title: string; status: string; assignee: string }[];
+  // forge_url: written only by the forge webhook, so it is absent on every
+  // task nobody pushed for. weekly.py selects t.*, so it is on the wire.
+  tasks: {
+    id: number;
+    title: string;
+    status: string;
+    assignee: string;
+    forge_url?: string;
+  }[];
 };
 
 type Draft = {
@@ -176,7 +184,10 @@ export default function Portfolio() {
             </p>
             <ul className="space-y-1 text-sm">
               {week.tasks.map((t) => (
-                <li key={t.id} className={t.status === "done" ? "text-ink-3 line-through" : ""}>
+                <li
+                  key={t.id}
+                  className={`break-words ${t.status === "done" ? "text-ink-3 line-through" : ""}`}
+                >
                   #{t.id} {t.title}
                   <span className="ml-1 text-xs text-ink-3">@{t.assignee || "unassigned"}</span>
                   {/* the only surface a merged task's pull request has: Browse
@@ -188,7 +199,10 @@ export default function Portfolio() {
                       target="_blank"
                       rel="noopener noreferrer"
                       aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
-                      className="ml-2 text-xs text-ink-3 underline no-underline hover:underline"
+                      // inline-block: a done row is struck through, and an
+                      // ancestor's line-through paints over descendants —
+                      // the merged pull request is the most live thing here
+                      className="ml-2 inline-block text-xs text-ink-3 underline hover:text-ink-2"
                     >
                       code <span aria-hidden>↗</span>
                     </a>

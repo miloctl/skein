@@ -34,6 +34,15 @@ def agent_on_signin(name: str) -> str:
     return f"'{name}' is an agent identity — agents authenticate with their API key, not a sign-in"
 
 
+def _refuse_reserved(name: str) -> None:
+    from ..services.users import refuse_reserved_name
+
+    try:
+        refuse_reserved_name(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 def _cached(request: Request | None, attr: str):
     """What the perimeter middleware already proved about this request.
 
@@ -86,6 +95,12 @@ def _resolve(
         # ungated human surface with origin=human — refuse the door entirely
         if is_agent(owner):
             raise HTTPException(status_code=403, detail=agent_on_rest(owner))
+        # the key door never calls ensure_user, so a row that predates the
+        # reserved-name wall (or was renamed into one) would keep writing as a
+        # system actor and leak every row to every viewer. Refuse the
+        # CREDENTIAL, so a broken identity fails at the door rather than
+        # half-working.
+        _refuse_reserved(owner)
         return owner, True, []
     if config.AUTH_MODE == "oidc":
         if authorization.startswith("Bearer "):
@@ -105,6 +120,8 @@ def _resolve(
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             if is_agent(name):
                 raise HTTPException(status_code=403, detail=agent_on_signin(name))
+            # the read path skips ensure_user, so the wall is applied here too
+            _refuse_reserved(name)
             # same rule as the header door: a read never grows the roster, so
             # a polling service account does not accumulate rows
             if method in ("GET", "HEAD", "OPTIONS"):

@@ -25,6 +25,12 @@ cmp LICENSE backend/LICENSE && cmp NOTICE backend/NOTICE
 echo "== theme contrast =="
 python3 scripts/check_theme_contrast.py
 
+echo "== typescript =="
+# eslint does not typecheck, so a type error reaches main with every gate
+# green. CLAUDE.md tells a person to run `npm run build`; this makes the
+# gate enforce it, at a fraction of a full build's cost.
+(cd frontend && npx --no-install tsc --noEmit)
+
 echo "== eslint =="
 (cd frontend && npm run --silent lint)
 

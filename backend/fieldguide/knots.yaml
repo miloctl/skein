@@ -87,6 +87,9 @@ knots:
     feature: Search & /ask
     knot: Thief Knot
     set: loops
+    # ties when a route calls fieldguide.mark — the feature is a read,
+    # so there is no write to detect
+    ties: mark
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
     how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask. Type `#42` and task 42 is the first result. `blocker 3` finds blocker 3."
     link: /chat
@@ -141,6 +144,9 @@ knots:
     feature: File it from chat
     knot: Highwayman's Hitch
     set: loops
+    # ties when a route calls fieldguide.mark — the feature is a read,
+    # so there is no write to detect
+    ties: mark
     pitch: The ⌘K grammar works in chat too — and a turn that files nothing says so.
     how: "In Chat, start a message with `todo:`, `q:`, `decision:`, or `promised:`. If nothing gets filed, the reply says that outright."
     link: /chat
@@ -178,6 +184,9 @@ knots:
     feature: The activity feed
     knot: Snubbing Hitch
     set: hitches
+    # ties when a route calls fieldguide.mark — the feature is a read,
+    # so there is no write to detect
+    ties: mark
     pitch: What the agents did, one sentence per action, next to your own.
     how: "Team → Activity. Loud rows are the destructive ones. The raw toggle shows the ledger rows themselves."
     link: /activity
@@ -207,6 +216,10 @@ knots:
     feature: Code forge webhook
     knot: Timber Hitch
     set: bends
+    # the forge acts for the whole team under one actor and names nobody, so
+    # there is no first USE to attribute to a person. The card is the setup
+    # documentation, and it stays that way.
+    ties: never
     pitch: The branch drags the task along behind it — one hitch, and the log follows the tow.
     how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Add the webhook URL from Settings to your repository with that same secret. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
     link: /settings

@@ -222,20 +222,27 @@ def test_a_non_http_url_never_reaches_a_task(fresh_db):
     from app import db
     from app.services import forge, work
 
-    tid = work.create_task("Fix login")["id"]
     # the pull request path passes html_url straight through — _clean_url is
-    # the only guard on it, so drive that path, not the rebuilt push URL
+    # the only guard on it, so drive that path, not the rebuilt push URL. A
+    # fresh task each time: the write only happens on a real transition.
     for hostile in (
         "javascript:fetch('//evil/')",
         "data:text/html,<script>alert(1)</script>",
         'https://ok.example/" onmouseover="alert(1)',
         "https://user:pass@evil.example/x",
+        "https://ok.example/x\x0conmouseover=alert(1)",
+        "https://ok.example/x\u2028y",  # line separator: HTML whitespace
     ):
+        tid = work.create_task("Fix login")["id"]
         forge.forge_event("pr_opened", branch=f"task/{tid}-x", url=hostile)
-        assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"] == ""
-    forge.forge_event("pr_opened", branch=f"task/{tid}-x", url="https://ok.example/pulls/1")
-    row = db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))
-    assert row["forge_url"] == "https://ok.example/pulls/1"
+        stored = db.query_one("SELECT forge_url, status FROM tasks WHERE id = ?", (tid,))
+        assert stored["status"] == "in_progress"  # the transition still lands
+        assert stored["forge_url"] == "", hostile
+    good = work.create_task("Fix login")["id"]
+    # a scheme is case-insensitive, so an uppercase base URL must survive
+    forge.forge_event("pr_opened", branch=f"task/{good}-x", url="HTTPS://ok.example/pulls/1")
+    row = db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (good,))
+    assert row["forge_url"] == "HTTPS://ok.example/pulls/1"
 
 
 def test_repeat_pushes_do_not_append_ledger_rows(signed, fresh_db):
@@ -404,6 +411,54 @@ def test_an_agent_login_never_acts_through_the_webhook(signed, fresh_db):
     assert "gated tools" in out["ignored"]
     assert work.list_tasks_joined()[0]["status"] == "todo"
     assert forge.is_agent_login("scout") is True
+    assert forge.is_agent_login(" scout ") is True  # a login carries whitespace
+
+
+def test_a_human_named_like_an_agent_cannot_disarm_the_refusal(signed, fresh_db):
+    from app.services import forge, users, work
+
+    # `users.name` is case-sensitively unique, so both rows exist. A lookup
+    # that returns "the first row" gets the human, because BINARY order sorts
+    # `Scout` first — and the agent walks through.
+    users.ensure_user("Scout")
+    users.ensure_user("scout", kind="agent")
+    tid = work.create_task("Fix login")["id"]
+    assert forge.is_agent_login("scout") is True
+    out = signed("push", _push(f"task/{tid}-x", login="scout")).json()
+    assert "gated tools" in out["ignored"]
+    assert work.list_tasks_joined()[0]["status"] == "todo"
+
+
+def test_the_push_pr_push_cycle_writes_one_row_per_transition(signed, fresh_db):
+    from app import db
+    from app.services import work
+
+    tid = work.create_task("Fix login")["id"]
+    branch = f"task/{tid}-x"
+    # the ordinary workflow: push, open the PR, then push review fixes. Every
+    # hop alternates the URL between the branch page and the PR link, so a
+    # URL-keyed guard writes a permanent hash-chained row on each one.
+    signed("push", _push(branch))
+    for _ in range(4):
+        signed("pull_request", _pr(branch, action="opened"))
+        signed("push", _push(branch))
+    rows = db.query("SELECT id FROM activity WHERE action = 'update_task'")
+    assert len(rows) == 1  # one transition: todo -> in_progress
+    signed("pull_request", _pr(branch, action="closed", merged=True))
+    assert len(db.query("SELECT id FROM activity WHERE action = 'update_task'")) == 2
+
+
+def test_a_moving_repository_url_does_not_append_rows(signed, fresh_db):
+    from app import db
+    from app.services import work
+
+    tid = work.create_task("Fix login")["id"]
+    for n in range(4):
+        p = _push(f"task/{tid}-x")
+        # a rename, a mirror, or a hostile signed caller
+        p["repository"]["html_url"] = f"https://git.example/skein?v={n}"
+        signed("push", p)
+    assert len(db.query("SELECT id FROM activity WHERE action = 'update_task'")) == 1
 
 
 # --- the signature is the door ---------------------------------------------
