@@ -152,14 +152,27 @@ def forge_event(
     return {"task_id": task_id, "status": status, "url": url}
 
 
+# _dict/_str, on EVERY nested read below: the route only guards the top level
+# (webhooks.py refuses a non-dict payload), so `{"ref": 1}` or `"pusher": "x"`
+# raised AttributeError here — and main.py maps no AttributeError to a 4xx, so
+# a signed caller turned one wrong-typed field into a 500. A wrong-typed field
+# coerces to empty and the payload reads as "not an event that moves work".
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _str(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def parse_gitea(event: str, payload: dict) -> dict | None:
     """Map a Gitea webhook to the generic shape. None means "not an event
     that moves work" — a comment, a label, a draft, a closed-unmerged pull
     request. Returning None is the honest answer, not an error."""
-    sender = (payload.get("sender") or {}).get("login") or ""
-    repo = (payload.get("repository") or {}).get("html_url") or ""
+    sender = _str(_dict(payload.get("sender")).get("login"))
+    repo = _str(_dict(payload.get("repository")).get("html_url"))
     if event == "push":
-        ref = payload.get("ref") or ""
+        ref = _str(payload.get("ref"))
         if not ref.startswith("refs/heads/"):
             return None  # a tag or a note, not a branch
         branch = ref[len("refs/heads/") :]
@@ -169,11 +182,11 @@ def parse_gitea(event: str, payload: dict) -> dict | None:
         # stable and outlives every commit on it. quote() because a ref may
         # carry characters that break a URL.
         url = f"{repo}/src/branch/{quote(branch, safe='/')}" if repo else ""
-        login = (payload.get("pusher") or {}).get("login") or sender
+        login = _str(_dict(payload.get("pusher")).get("login")) or sender
         return {"kind": "branch_push", "branch": branch, "url": url, "login": login}
     if event == "pull_request":
-        pr = payload.get("pull_request") or {}
-        action = payload.get("action") or ""
+        pr = _dict(payload.get("pull_request"))
+        action = _str(payload.get("action"))
         if action in ("opened", "reopened"):
             kind = "pr_opened"
         elif action == "closed" and pr.get("merged"):
@@ -182,11 +195,11 @@ def parse_gitea(event: str, payload: dict) -> dict | None:
             return None
         return {
             "kind": kind,
-            "branch": (pr.get("head") or {}).get("ref") or "",
-            "title": pr.get("title") or "",
-            "body": pr.get("body") or "",
-            "url": pr.get("html_url") or "",
-            "login": sender or (pr.get("user") or {}).get("login") or "",
+            "branch": _str(_dict(pr.get("head")).get("ref")),
+            "title": _str(pr.get("title")),
+            "body": _str(pr.get("body")),
+            "url": _str(pr.get("html_url")),
+            "login": sender or _str(_dict(pr.get("user")).get("login")),
         }
     return None
 

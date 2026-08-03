@@ -388,6 +388,44 @@ def test_a_json_array_payload_is_a_4xx_not_a_500(signed, fresh_db):
     assert signed("push", [{"ref": "refs/heads/task/1-x"}]).status_code == 400
 
 
+def test_a_wrong_typed_nested_field_is_never_a_500(signed, fresh_db):
+    from app.services import work
+
+    tid = work.create_task("Fix login")["id"]
+    # Gitea types every field correctly, so only a caller holding the secret
+    # sends these — and each one reached an AttributeError inside parse_gitea
+    # before the _dict/_str boundary, which main.py maps to no 4xx. The suite's
+    # fixtures are all well-typed; that blind spot is why three rounds of
+    # review missed this.
+    payloads = [
+        ("push", {"ref": 1}),
+        ("push", {"ref": ["refs/heads/task/1-x"]}),
+        ("push", {"ref": True, "sender": "x"}),
+        (
+            "push",
+            {"ref": f"refs/heads/task/{tid}-x", "pusher": 3, "repository": [], "sender": "x"},
+        ),
+        ("pull_request", {"action": "opened", "pull_request": ["x"]}),
+        ("pull_request", {"action": 1, "pull_request": {"merged": True}}),
+        (
+            "pull_request",
+            {"action": "opened", "pull_request": {"head": "x", "title": 7, "body": {}}},
+        ),
+        (
+            "pull_request",
+            {
+                "action": "opened",
+                "pull_request": {"head": {"ref": f"task/{tid}-x"}, "html_url": 9, "user": 2},
+            },
+        ),
+    ]
+    for event, payload in payloads:
+        assert signed(event, payload).status_code == 200, (event, payload)
+    # coerced, not refused: the well-typed part of a payload still lands, so
+    # a forge that grows one odd field does not silently stop moving work
+    assert work.list_tasks_joined()[0]["status"] == "in_progress"
+
+
 def test_a_forge_move_is_visible_in_the_activity_feed(signed, fresh_db):
     from app.services import activity, users, work
 

@@ -81,6 +81,35 @@ def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):
         users.ensure_user("Scout")
 
 
+def test_a_case_variant_of_the_same_kind_is_refused_too(fresh_db):
+    from app.services import users
+
+    users.ensure_user("scout", kind="agent")
+    users.ensure_user("mira")
+    users.ensure_user("bob")
+    # same kind is not safer: authority_level and trust key on the EXACT name,
+    # so a second agent row that folds onto the first answers to neither's
+    # kill switch — and a second human row splits one person's notes and
+    # preferences across two accounts
+    with pytest.raises(ValueError, match="differs only by case"):
+        users.ensure_user("SCOUT", kind="agent")
+    with pytest.raises(ValueError, match="differs only by case"):
+        users.ensure_user("MIRA")
+    with pytest.raises(ValueError, match="differs only by case"):
+        users.rename_user("bob", "MIRA", actor="bob")
+
+
+def test_a_person_can_still_recase_their_own_name(fresh_db):
+    from app.services import users
+
+    users.ensure_user("mira")
+    # the guard skips the row being moved, or fixing your own capitalization
+    # would be the one rename it refuses
+    users.rename_user("mira", "Mira", actor="mira")
+    names = [r["name"] for r in users.list_users()]
+    assert "Mira" in names and "mira" not in names
+
+
 def test_a_name_that_merely_renders_as_a_system_actor_is_refused(fresh_db):
     from app.services import users
 
