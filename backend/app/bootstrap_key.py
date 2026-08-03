@@ -21,7 +21,13 @@ def main() -> None:
     name = sys.argv[1].strip()
     label = sys.argv[2] if len(sys.argv) > 2 else "bootstrap"
     db.init_db()
-    ensure_user(name)
+    try:
+        ensure_user(name)
+    except ValueError as exc:
+        # a reserved or colliding name is the operator's typo, not a crash:
+        # the reason belongs on stderr, never a traceback to decode
+        print(f"cannot create '{name}': {exc}. Pick another name.", file=sys.stderr)
+        raise SystemExit(1) from exc
     result = create_key(name, label)
     print(f"API key for {name} (shown once — store it now):\n{result['key']}")
 
