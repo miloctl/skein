@@ -1,5 +1,7 @@
-export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { accessToken } from "./auth";
+import { API_URL } from "./config";
+
+export { API_URL };
 
 /** One condition, one wording (CLAUDE.md). Every surface that cannot reach the
  *  backend says this — the URL included, because on a LAN it is usually the
@@ -59,13 +61,22 @@ export function setApiKey(key: string) {
   window.dispatchEvent(new Event("storage"));
 }
 
+/** The credential this request carries, strongest first.
+ *
+ *  A signed-in OIDC session wins: it is the deployment's own identity model
+ *  wherever it is on, and it is the most recent deliberate act. A personal
+ *  key comes next — it is per-person and proves identity. The shared token is
+ *  last and proves only that the caller reached the app, since it ships inside
+ *  the public JS bundle. */
+export async function bearer(): Promise<string> {
+  return (await accessToken()) || getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN || "";
+}
+
 export async function api<T = unknown>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const token = process.env.NEXT_PUBLIC_API_TOKEN;
-  const personal = getApiKey();
-  const auth = personal || token;
+  const auth = await bearer();
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {

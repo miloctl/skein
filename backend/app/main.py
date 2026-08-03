@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import config, db
-from .routes import api, chat, private, slack, webhooks
+from .routes import api, auth, chat, private, slack, webhooks
 from .services.activity import chain_health
 from .services.jobs import JOBS, job_health, run_job
 from .services.settings import effective_context_strategy
@@ -134,8 +134,11 @@ async def perimeter_auth(request: Request, call_next):
     SKEIN_API_TOKEN sets a shared perimeter token.
     """
     # calendar.ics: calendar clients can't send headers — the route checks
-    # its own dedicated ?token= secret
-    open_paths = ("/health", "/api/slack/", "/api/calendar.ics")
+    # its own dedicated ?token= secret.
+    # /api/auth/: the sign-in flow itself, which by definition runs before the
+    # caller has a credential. Both routes there are written for that (public
+    # client parameters, and a relay of a code the browser already holds).
+    open_paths = ("/health", "/api/slack/", "/api/calendar.ics", "/api/auth/")
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.
     if (
@@ -254,6 +257,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 
 app.include_router(api.router)
+app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(private.router)
 app.include_router(slack.router)

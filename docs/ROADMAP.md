@@ -555,10 +555,12 @@ These are not features. Each one needs a decision.
 - **The OIDC and API-key identity bridge** — DECIDED and shipped 2026-08-02:
   `SKEIN_AUTH_MODE` (`trusted-header | api-key | oidc`), in-process JWT
   validation in `app/oidc.py`, and the `AdminUser` split (`SKEIN_ADMINS` /
-  `SKEIN_OIDC_ADMIN_GROUP`). Remaining build: the frontend sign-in flow —
-  an OIDC + PKCE login in the Next.js app that stores the token and sends
-  it as the Authorization header. Until it lands, oidc mode serves API and
-  automation callers; the web UI needs trusted-header or api-key mode.
+  `SKEIN_OIDC_ADMIN_GROUP`). The browser sign-in landed the same day:
+  authorization code + PKCE in `frontend/lib/auth.ts`, `/auth/callback`,
+  and `GET /api/auth/config` + `POST /api/auth/token`. Nothing is left of
+  this item. Open follow-ons, none blocking: RP-initiated logout (sign-out
+  is local only, so the IdP session survives), and refresh-token rotation
+  if the deployment's IdP issues rotating tokens.
 - **`docs/FEATURES.md` claims person-level data never judges the past, and
   `services/portfolio.py` still returns `wip_by_person`.** Narrow the claim or
   aggregate the display. Leaving both is the only wrong answer.

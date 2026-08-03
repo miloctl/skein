@@ -21,6 +21,8 @@ server and the identity provider.
 import json
 import threading
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -51,7 +53,11 @@ class OIDCError(Exception):
     to the exception class name so a crafted token cannot reflect content."""
 
 
-_lock = threading.Lock()
+# RLock, not Lock: _client() holds this while resolving the JWKS URL, and that
+# path calls metadata(), which takes the lock again. A plain Lock deadlocks the
+# first oidc request that has to discover — and it deadlocks a worker thread,
+# so the symptom is a hang, not an error.
+_lock = threading.RLock()
 _client_cache: PyJWKClient | None = None
 # -inf, not 0.0: time.monotonic() has an arbitrary origin, so 0.0 would
 # block the first refresh on a machine that booted less than a cooldown ago.
@@ -59,17 +65,22 @@ _discovery_failed_at = float("-inf")
 _last_refresh = float("-inf")
 
 
+_metadata_cache: dict[str, Any] | None = None
+
+
 def reset() -> None:
-    """Drop the cached client and both throttles. For tests, and for a
-    deployment that changes issuer configuration without a restart."""
-    global _client_cache, _discovery_failed_at, _last_refresh
+    """Drop the cached client, discovery document and both throttles. For
+    tests, and for a deployment that changes issuer configuration without a
+    restart."""
+    global _client_cache, _discovery_failed_at, _last_refresh, _metadata_cache
     with _lock:
         _client_cache = None
+        _metadata_cache = None
         _discovery_failed_at = float("-inf")
         _last_refresh = float("-inf")
 
 
-def _discover_jwks_url() -> str:
+def _fetch_metadata() -> dict[str, Any]:
     url = f"{config.OIDC_ISSUER}/.well-known/openid-configuration"
     try:
         with urllib.request.urlopen(  # noqa: S310 — operator-configured issuer
@@ -79,14 +90,114 @@ def _discover_jwks_url() -> str:
     except Exception as exc:
         raise OIDCError(
             f"OIDC discovery failed ({exc.__class__.__name__})."
-            " Check SKEIN_OIDC_ISSUER, or set SKEIN_OIDC_JWKS_URL directly."
+            " Check SKEIN_OIDC_ISSUER, or set the endpoint variables directly."
         ) from exc
-    jwks = str(doc.get("jwks_uri", "") or "")
+    if not isinstance(doc, dict):
+        raise OIDCError("the OIDC discovery document is not a JSON object.")
+    return doc
+
+
+def metadata() -> dict[str, Any]:
+    """The issuer's discovery document, fetched once and reused.
+
+    Shares the failure cooldown with the JWKS client: while the IdP is down,
+    one attempt per DISCOVERY_COOLDOWN, not one per request."""
+    global _metadata_cache, _discovery_failed_at
+    with _lock:
+        if _metadata_cache is not None:
+            return _metadata_cache
+        if time.monotonic() - _discovery_failed_at < DISCOVERY_COOLDOWN:
+            raise OIDCError("the identity provider cannot be reached. Try again in a minute.")
+        try:
+            _metadata_cache = _fetch_metadata()
+        except OIDCError:
+            _discovery_failed_at = time.monotonic()
+            raise
+        return _metadata_cache
+
+
+def _web_url(url: str, source: str) -> str:
+    """Refuse anything that is not http(s).
+
+    Endpoints arrive from the discovery document, which is REMOTE data: an
+    issuer that is hostile or compromised could answer with file:// and turn
+    a token request into a local file read. Operator config goes through the
+    same gate — a typo deserves the same refusal."""
+    if urllib.parse.urlparse(url).scheme not in ("http", "https"):
+        raise OIDCError(f"{source} is not an http(s) URL. Check the identity provider.")
+    return url
+
+
+def _endpoint(override: str, key: str, env_name: str) -> str:
+    """A configured endpoint wins; otherwise discovery supplies it."""
+    if override:
+        return _web_url(override, env_name)
+    url = str(metadata().get(key, "") or "")
+    if not url:
+        raise OIDCError(f"the OIDC discovery document has no {key}. Set {env_name} directly.")
+    return _web_url(url, f"the discovery document's {key}")
+
+
+def authorize_url() -> str:
+    return _endpoint(
+        config.OIDC_AUTHORIZE_URL, "authorization_endpoint", "SKEIN_OIDC_AUTHORIZE_URL"
+    )
+
+
+def token_url() -> str:
+    return _endpoint(config.OIDC_TOKEN_URL, "token_endpoint", "SKEIN_OIDC_TOKEN_URL")
+
+
+def exchange(form: dict[str, str]) -> dict[str, Any]:
+    """Relay a token request to the IdP and return its JSON answer.
+
+    The browser runs PKCE and keeps the verifier; this only carries the request
+    across, so the web app stays a public client and the IdP never needs CORS
+    for the app's origin. An IdP error is passed through as OIDCError with the
+    IdP's own error CODE (never its description, which can echo the submitted
+    value back into our response).
+    """
+    body = urllib.parse.urlencode(form).encode()
+    request = urllib.request.Request(  # noqa: S310 — scheme checked by _web_url
+        token_url(),
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(  # noqa: S310 — operator-configured issuer
+            request, timeout=FETCH_TIMEOUT
+        ) as resp:
+            payload = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = str(json.load(exc).get("error", "") or "")[:80]
+        except Exception:
+            detail = ""
+        raise OIDCError(
+            f"the identity provider refused the sign-in{f' ({detail})' if detail else ''}."
+            " Start the sign-in again."
+        ) from exc
+    except Exception as exc:
+        raise OIDCError(
+            f"the identity provider cannot be reached ({exc.__class__.__name__})."
+            " Try again in a minute."
+        ) from exc
+    if not isinstance(payload, dict):
+        raise OIDCError("the identity provider returned an unusable token response.")
+    return payload
+
+
+def _discover_jwks_url() -> str:
+    jwks = str(metadata().get("jwks_uri", "") or "")
     if not jwks:
         raise OIDCError(
             "the OIDC discovery document has no jwks_uri. Set SKEIN_OIDC_JWKS_URL directly."
         )
-    return jwks
+    return _web_url(jwks, "the discovery document's jwks_uri")
 
 
 def _client() -> PyJWKClient:

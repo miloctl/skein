@@ -235,13 +235,17 @@ if (typeof window !== "undefined") {
     if (!pushTimer) return;
     clearTimeout(pushTimer);
     pushTimer = null;
-    import("./api").then(({ API_URL, getUser, getApiKey }) => {
+    Promise.all([import("./api"), import("./auth")]).then(([apiMod, authMod]) => {
+      const { API_URL, getUser, getApiKey } = apiMod;
       const user = getUser();
       if (user === "anonymous") return;
       // carries the credential api() sends: outside trusted-header mode an
       // unauthenticated POST is a 401, and this catch swallows it — the
-      // last theme change before a tab closes would vanish without a trace
-      const auth = getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN;
+      // last theme change before a tab closes would vanish without a trace.
+      // The sync token read is deliberate: the tab is closing, so a refresh
+      // round trip would never land.
+      const auth =
+        authMod.accessTokenSync() || getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN;
       fetch(`${API_URL}/api/users/theme`, {
         method: "POST",
         headers: {

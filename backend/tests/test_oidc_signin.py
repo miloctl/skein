@@ -1,0 +1,246 @@
+"""Browser sign-in (authorization code + PKCE) — /api/auth/config and
+/api/auth/token. Both answer before the caller holds any credential, so what
+they refuse matters as much as what they return."""
+
+import json
+import urllib.error
+import urllib.request
+
+import pytest
+
+from app import config, oidc
+
+
+@pytest.fixture(autouse=True)
+def _clean_oidc():
+    oidc.reset()
+    yield
+    oidc.reset()
+
+
+def _as_oidc(monkeypatch, **over):
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://idp.test")
+    monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", over.get("client_id", "skein-web"))
+    monkeypatch.setattr(config, "OIDC_AUTHORIZE_URL", over.get("authorize", ""))
+    monkeypatch.setattr(config, "OIDC_TOKEN_URL", over.get("token", ""))
+
+
+def _discovery(monkeypatch, doc=None, calls=None):
+    body = json.dumps(
+        doc
+        if doc is not None
+        else {
+            "authorization_endpoint": "https://idp.test/auth",
+            "token_endpoint": "https://idp.test/token",
+            "jwks_uri": "https://idp.test/jwks",
+        }
+    ).encode()
+
+    class _Resp:
+        def read(self):
+            return body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(url, timeout=None):
+        if calls is not None:
+            calls.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(oidc.urllib.request, "urlopen", fake)
+
+
+def test_config_names_the_mode_in_every_mode(client):
+    # the frontend has no other way to learn that the name picker is not the
+    # identity model — this answers even in trusted-header mode
+    body = client.get("/api/auth/config").json()
+    assert body["mode"] == "trusted-header"
+    assert body["error"] == ""
+    assert "client_id" not in body
+
+
+def test_config_carries_public_client_parameters(client, monkeypatch):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    body = client.get("/api/auth/config").json()
+    assert body["mode"] == "oidc"
+    assert body["client_id"] == "skein-web"
+    assert body["authorize_url"] == "https://idp.test/auth"
+    assert body["scopes"]
+    # a client SECRET is not a concept here: the web app is a public client
+    assert not any("secret" in k.lower() for k in body)
+
+
+def test_config_is_reachable_without_any_credential(client, monkeypatch):
+    """It is on the perimeter's open-path list on purpose: the sign-in flow
+    runs before the caller has a credential. Everything else still 401s."""
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    assert client.get("/api/auth/config").status_code == 200
+    assert client.get("/api/tasks").status_code == 401
+
+
+def test_config_says_so_when_browser_sign_in_is_not_configured(client, monkeypatch):
+    _as_oidc(monkeypatch, client_id="")
+    body = client.get("/api/auth/config").json()
+    assert "SKEIN_OIDC_CLIENT_ID" in body["error"]
+    assert "authorize_url" not in body
+
+
+def test_config_reports_a_down_identity_provider_rather_than_failing(client, monkeypatch):
+    _as_oidc(monkeypatch)
+
+    def boom(url, timeout=None):
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(oidc.urllib.request, "urlopen", boom)
+    body = client.get("/api/auth/config").json()
+    assert body["mode"] == "oidc"
+    assert "discovery failed" in body["error"]
+
+
+def test_discovery_is_fetched_once_for_both_the_jwks_and_the_endpoints(monkeypatch):
+    """_client() resolves the JWKS URL while holding the module lock, and that
+    path calls metadata(), which takes the lock again. With a plain Lock this
+    hangs a worker thread instead of raising."""
+    _as_oidc(monkeypatch)
+    calls: list[str] = []
+    _discovery(monkeypatch, calls=calls)
+    assert oidc.token_url() == "https://idp.test/token"
+    assert oidc._client() is not None  # would deadlock, not fail, if regressed
+    assert len(calls) == 1  # one document serves both
+
+
+def test_token_exchange_returns_a_validated_token(client, monkeypatch, fresh_db):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    sent = {}
+
+    def fake_exchange(form):
+        sent.update(form)
+        return {"access_token": "opaque", "refresh_token": "r1", "expires_in": 300}
+
+    monkeypatch.setattr(oidc, "exchange", fake_exchange)
+    monkeypatch.setattr(oidc, "validate", lambda t: {"preferred_username": "casey"})
+    out = client.post(
+        "/api/auth/token",
+        json={"code": "c", "code_verifier": "v", "redirect_uri": "http://app/cb"},
+    )
+    assert out.status_code == 200
+    assert out.json()["user"] == "casey"
+    assert out.json()["refresh_token"] == "r1"
+    # PKCE is carried across, and no client secret is ever sent
+    assert sent["grant_type"] == "authorization_code"
+    assert sent["code_verifier"] == "v"
+    assert sent["client_id"] == "skein-web"
+    assert "client_secret" not in sent
+
+
+def test_token_refuses_a_token_it_cannot_validate(client, monkeypatch, fresh_db):
+    """Answering 200 here would leave the browser holding a token that every
+    later request rejects — a signed-in UI that 401s on everything."""
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "bad"})
+    monkeypatch.setattr(
+        oidc, "validate", lambda t: (_ for _ in ()).throw(oidc.OIDCError("refused"))
+    )
+    r = client.post(
+        "/api/auth/token",
+        json={"code": "c", "code_verifier": "v", "redirect_uri": "http://app/cb"},
+    )
+    assert r.status_code == 502
+
+
+def test_token_accepts_a_refresh_token(client, monkeypatch, fresh_db):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    sent = {}
+    monkeypatch.setattr(
+        oidc, "exchange", lambda form: (sent.update(form), {"access_token": "a"})[1]
+    )
+    monkeypatch.setattr(oidc, "validate", lambda t: {"preferred_username": "casey"})
+    assert client.post("/api/auth/token", json={"refresh_token": "r1"}).status_code == 200
+    assert sent["grant_type"] == "refresh_token"
+
+
+def test_token_needs_a_complete_request(client, monkeypatch, fresh_db):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    # a code without its verifier is exactly the interception PKCE prevents
+    r = client.post("/api/auth/token", json={"code": "c"})
+    assert r.status_code == 400
+
+
+def test_token_is_off_outside_oidc_mode(client):
+    r = client.post("/api/auth/token", json={"refresh_token": "r"})
+    assert r.status_code == 404
+
+
+def test_token_is_rate_capped_for_anonymous_callers(client, monkeypatch, fresh_db):
+    """The one surface a signed-out caller can use to make the server call the
+    identity provider. Uncapped, it is an amplifier pointed at the IdP."""
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "a"})
+    monkeypatch.setattr(oidc, "validate", lambda t: {"preferred_username": "casey"})
+    codes = {
+        client.post("/api/auth/token", json={"refresh_token": "r"}).status_code for _ in range(15)
+    }
+    assert 400 in codes  # the cap answers before the IdP is called again
+
+
+def test_a_non_web_endpoint_from_the_discovery_document_is_refused(monkeypatch):
+    """The discovery document is REMOTE data. An issuer answering with a
+    file:// token_endpoint would turn a sign-in into a local file read."""
+    _as_oidc(monkeypatch)
+    _discovery(
+        monkeypatch,
+        {
+            "authorization_endpoint": "file:///etc/passwd",
+            "token_endpoint": "file:///etc/shadow",
+            "jwks_uri": "https://idp.test/jwks",
+        },
+    )
+    for call in (oidc.token_url, oidc.authorize_url):
+        with pytest.raises(oidc.OIDCError) as e:
+            call()
+        assert "http(s)" in str(e.value)
+
+
+def test_a_non_web_endpoint_from_operator_config_is_refused(monkeypatch):
+    _as_oidc(monkeypatch, token="file:///etc/shadow")
+    with pytest.raises(oidc.OIDCError):
+        oidc.token_url()
+
+
+def test_idp_error_description_is_not_echoed_back(monkeypatch):
+    """An IdP error_description can quote the submitted value. The code is
+    useful to an operator; the description is the caller's own input coming
+    back through us."""
+    _as_oidc(monkeypatch, token="https://idp.test/token")
+
+    def boom(request, timeout=None):
+        raise urllib.error.HTTPError(
+            "https://idp.test/token",
+            400,
+            "Bad Request",
+            {},
+            __import__("io").BytesIO(
+                json.dumps(
+                    {"error": "invalid_grant", "error_description": "SECRETVALUE was wrong"}
+                ).encode()
+            ),
+        )
+
+    monkeypatch.setattr(oidc.urllib.request, "urlopen", boom)
+    with pytest.raises(oidc.OIDCError) as e:
+        oidc.exchange({"grant_type": "refresh_token"})
+    assert "invalid_grant" in str(e.value)
+    assert "SECRETVALUE" not in str(e.value)

@@ -7,7 +7,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SkeinMark } from "@/components/mark";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
-import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
+import { api, getApiKey, getUser, setUser, subscribeUser } from "@/lib/api";
+import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |
 // people & rules. Former top-level pages live on as tabs inside Work
@@ -95,6 +96,14 @@ export function Nav() {
     () => Boolean(getApiKey()),
     () => false,
   );
+  const signedIn = useSyncExternalStore(subscribeUser, isSignedIn, () => false);
+  // the deployment's identity model. Until it arrives the nav shows nothing
+  // mode-specific rather than guessing, because guessing wrong offers a
+  // sign-in that cannot work or hides one that is required.
+  const [mode, setMode] = useState("");
+  useEffect(() => {
+    authConfig().then((c) => setMode(c.mode));
+  }, []);
 
   useEffect(() => {
     let generation = 0;
@@ -217,8 +226,28 @@ export function Nav() {
                   className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
                 >
                   <span aria-hidden>⚙ </span>
-                  {anonymous ? "Pick your name…" : "Settings"}
+                  {/* only trusted-header mode lets a person type who they are.
+                      Offering it elsewhere invites a name the server ignores. */}
+                  {anonymous && mode === "trusted-header" ? "Pick your name…" : "Settings"}
                 </Link>
+                {mode === "oidc" && (
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (signedIn) {
+                        signOut();
+                        setUser("anonymous");
+                      } else {
+                        signIn(pathname).then((m) => m && alert(m));
+                      }
+                    }}
+                    className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
+                  >
+                    <span aria-hidden>{signedIn ? "⇥ " : "⇤ "}</span>
+                    {signedIn ? "Sign out" : "Sign in"}
+                  </button>
+                )}
                 <Link
                   href="/guide"
                   role="menuitem"
@@ -235,11 +264,21 @@ export function Nav() {
                   )}
                 </Link>
                 <p className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3">
-                  {anonymous
-                    ? "No name picked — writes will not be yours"
-                    : hasKey
-                      ? "Strong identity active"
-                      : "Weak identity — no API key"}
+                  {/* what the SERVER will make of this caller. "Weak identity"
+                      is true only where the name picker is the identity. */}
+                  {signedIn
+                    ? "Signed in — strong identity"
+                    : mode === "oidc"
+                      ? "Signed out — sign in to write"
+                      : mode === "api-key"
+                        ? hasKey
+                          ? "Strong identity active"
+                          : "No API key — this deployment needs one"
+                        : anonymous
+                          ? "No name picked — writes will not be yours"
+                          : hasKey
+                            ? "Strong identity active"
+                            : "Weak identity — no API key"}
                 </p>
               </div>
             )}

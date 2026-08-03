@@ -24,6 +24,10 @@ LIMITS = {
     "write": 30,  # generic create-endpoint cap — content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call
     "verify": 2,  # full-chain walk over an unpruned table — the priciest read
+    # the one surface an UNAUTHENTICATED caller can use to make us call out to
+    # the identity provider. Generous for a person signing in, useless as an
+    # amplifier. Keyed by client address, since a signed-out caller has no name.
+    "signin": 10,
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 
