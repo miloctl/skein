@@ -320,9 +320,13 @@ export default function Dashboard() {
   // inline actions re-fetch instead of window.location.reload() — a reload
   // resets focus to the document top and strips a screen-reader user of all
   // context mid-task
-  // last-request-wins: two quick mutations both refresh; the older snapshot
-  // resolving last must not overwrite fresher data or raise a stale banner
+  // last-request-wins PER COLLECTION: two quick mutations can refresh
+  // disjoint subsets concurrently, so an older result only loses to a newer
+  // refresh that re-requested the SAME collection — discarding the whole
+  // older snapshot would leave its collections stale with nothing left in
+  // flight to refetch them (the user's own edit would look like a lost save)
   const generation = useRef(0);
+  const collectionGen = useRef<Record<string, number>>({});
   // an inline mutation refreshes ONLY the collections it changed (the write
   // endpoints answer with summaries, not rows, so local patching is not an
   // option) — the full 13-endpoint sweep is for mount and retry. Every
@@ -330,19 +334,23 @@ export default function Dashboard() {
   // rides along (blocker/engagement/standup writes move its numbers).
   const refresh = useCallback((names: string[]) => {
     const g = ++generation.current;
+    for (const e of names) collectionGen.current[e] = g;
     Promise.all(
       names.map(async (e) => [e, await fetchCollection(e)] as const),
     )
       .then((pairs) => {
-        if (g !== generation.current) return;
-        setData((prev) => ({ ...prev, ...Object.fromEntries(pairs) }));
+        const fresh = pairs.filter(([e]) => collectionGen.current[e] === g);
+        if (fresh.length === 0) return;
+        setData((prev) => ({ ...prev, ...Object.fromEntries(fresh) }));
         setError(null); // a recovered refresh must clear the banner
       })
       .catch((err) => {
         if (g === generation.current) setError(loadError(err));
       });
     api<Pulse>("/api/pulse")
-      .then(setPulse)
+      .then((p) => {
+        if (g === generation.current) setPulse(p);
+      })
       .catch(() => {}); // pulse is decorative — its failure must not blank the page
   }, []);
   const load = useCallback(() => refresh(COLLECTIONS), [refresh]);
@@ -588,7 +596,9 @@ export default function Dashboard() {
                           body: JSON.stringify({ status: "closed", conclusion: c }),
                         });
                         setClosing(null);
-                        refresh(["engagements", "activity"]);
+                        // closing removes the engagement's allocations from
+                        // capacity and ships a recap note — both render here
+                        refresh(["engagements", "capacity", "notes", "activity"]);
                       } catch (err) {
                         alert(String(err));
                       }

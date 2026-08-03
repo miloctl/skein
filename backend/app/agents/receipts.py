@@ -29,6 +29,13 @@ def record(kind: str, entity: str, detail: str = "", ref: int = 0) -> None:
     box.append({"kind": kind, "entity": entity, "detail": detail[:160], "ref": ref})
 
 
+def reset() -> None:
+    """Unset the box. Without this a box left set by one context collects
+    the next context's gate writes undrained (tests share worker threads;
+    see conftest's autouse reset)."""
+    _receipts.set(None)
+
+
 def drain() -> list[dict]:
     """Take everything recorded since the last drain."""
     box = _receipts.get()

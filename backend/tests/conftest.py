@@ -30,15 +30,20 @@ def _reset_telemetry_buffers(monkeypatch):
     timestamp from one test would let hint() skip detection against the next
     test's fresh db, and a buffered tool_usage count would land in the wrong
     database (or never land — tests assert counts right after record_use, so
-    the 30s buffer is zeroed to flush per call)."""
+    the 30s buffer is zeroed to flush per call). Receipts too: a box left
+    set by one test's chat turn collects a later test's gate writes in the
+    same worker, and whichever test drains next fails on the leftovers."""
+    from app.agents import receipts
     from app.services import adoption, fieldguide
 
     adoption.reset()
     fieldguide.reset()
+    receipts.reset()
     monkeypatch.setattr(adoption, "FLUSH_SECONDS", 0.0)
     yield
     adoption.reset()
     fieldguide.reset()
+    receipts.reset()
 
 
 @pytest.fixture()

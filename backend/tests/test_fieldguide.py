@@ -297,3 +297,16 @@ def test_a_never_tying_card_is_out_of_the_denominator_and_the_sweep(fresh_db):
     for _ in range(len(cards) + 1):
         s = fieldguide.guide("ava")["suggestion"]
         assert s is None or s["id"] not in never
+
+
+def test_hint_skips_detect_within_ttl_and_guide_never_does(fresh_db, monkeypatch):
+    from app.services import fieldguide, users
+
+    users.ensure_user("ava")
+    fieldguide.hint("ava")  # first read sweeps and stamps the throttle clock
+    swept: list[str] = []
+    monkeypatch.setattr(fieldguide, "detect", lambda person: swept.append(person))
+    fieldguide.hint("ava")
+    assert swept == []  # within DETECT_TTL_SECONDS the lightweight read skips the sweep
+    fieldguide.guide("ava")
+    assert swept == ["ava"]  # the guide page always sweeps

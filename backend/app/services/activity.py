@@ -589,7 +589,11 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
     # sorts with a temp B-tree — and the visible actor set is most of the
     # table, so that plan re-sorts nearly the whole ledger on every page. The
     # seq index already IS the sort order; walking it descending stops at
-    # `limit` rows no matter how large the ledger grows.
+    # `limit` rows no matter how large the ledger grows. Hard couplings:
+    # idx_activity_seq lives in migrations/036_activity_chain.sql — rename or
+    # drop it and this query raises OperationalError instead of replanning —
+    # and it is partial on seq IS NOT NULL, so the WHERE above must keep that
+    # predicate first or SQLite rejects the index the same way.
     rows = db.query(
         f"SELECT seq, actor, action, detail, created_at FROM activity"  # noqa: S608 — placeholders built above
         f" INDEXED BY idx_activity_seq WHERE {where} ORDER BY seq DESC LIMIT ?",

@@ -28,7 +28,9 @@ def on_commit(fn: Callable[[], None]) -> bool:
     """Queue fn to run after the ambient transaction commits; a rollback
     drops it. Returns False when no transaction is active — the caller runs
     the work inline. For side effects that must not hold the write lock
-    (search's embedding HTTP call) and must not survive a rolled-back write."""
+    (search's embedding HTTP call) and must not survive a rolled-back write.
+    A raising callback is logged and swallowed — the write it followed
+    committed, so the caller must never see its failure."""
     callbacks = _on_commit.get()
     if callbacks is None:
         return False
@@ -157,9 +159,15 @@ def transaction() -> Iterator[None]:
         _ambient.reset(token)
         conn.close()
     # reached only after a successful COMMIT (an exception propagates past
-    # here), with the connection closed — a callback never holds the lock
+    # here), with the connection closed — a callback never holds the lock.
+    # Isolated per callback: the write already committed, so a raising
+    # callback must not turn a successful write into a 500, and must not
+    # starve the callbacks queued after it.
     for cb in callbacks:
-        cb()
+        try:
+            cb()
+        except Exception:
+            log.exception("on_commit callback failed")
 
 
 def pending_migrations() -> list[str]:

@@ -12,9 +12,11 @@ from .. import db
 SURFACES = ("web", "cli", "chat", "slack", "mcp", "webhook", "api")
 
 # Buffered, not written per call: every authenticated request lands here, and
-# each upsert took SQLite's single write lock on the hot path. Counts pool in
-# process and flush at most every FLUSH_SECONDS; counts buffered at crash time
-# are lost — accepted, these rows are reach counters, not an audit record.
+# each upsert took SQLite's single write lock on the hot path. The buffer
+# drains on the first record_use after FLUSH_SECONDS, when adoption() reads,
+# and at app shutdown — on an idle process the tail sits buffered until one
+# of those. Counts buffered at a crash, and a batch whose write fails, are
+# lost — accepted, these rows are reach counters, not an audit record.
 # Process-local like ratelimit; conftest zeroes FLUSH_SECONDS and clears the
 # buffer between tests.
 FLUSH_SECONDS = 30.0
@@ -61,9 +63,22 @@ def reset() -> None:
         _last_flush = 0.0
 
 
+def flush() -> None:
+    """Write buffered counts now (adoption() reads, app shutdown)."""
+    global _last_flush
+    with _pending_lock:
+        if not _pending:
+            return
+        batch = dict(_pending)
+        _pending.clear()
+        _last_flush = time.monotonic()
+    _write(batch)
+
+
 def adoption(weeks: int = 4) -> dict:
     """Who touched the platform, how recently, through what. The success bar
     from the DX panel: >50% of actions should originate outside the web UI."""
+    flush()  # buffered counts belong in the numbers this reports
     weeks = max(1, min(int(weeks), 520))
     cutoff = (datetime.now(timezone.utc).date() - timedelta(weeks=weeks)).isoformat()
     week_ago = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
