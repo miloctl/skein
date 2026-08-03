@@ -58,7 +58,21 @@ async def lifespan(app: FastAPI):
     # by being locked out; the recovery is a rename of the agent row.
     mcp_user = os.getenv("SKEIN_MCP_USER", "mcp-agent")
     minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
-    ensure_user(mcp_user, kind="agent")
+    try:
+        ensure_user(mcp_user, kind="agent")
+    except ValueError as exc:
+        # operator-supplied config NEVER takes down the REST API — the same
+        # rule the model provider follows when it degrades to mock. Without
+        # this, one typo in SKEIN_MCP_USER refuses every request in the
+        # deployment, which is worse than the lockout the warning below
+        # exists to prevent.
+        minted = False
+        log.error(
+            "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
+            " unavailable until this is changed. The REST API is unaffected.",
+            mcp_user,
+            exc,
+        )
     if minted and mcp_user != "mcp-agent":
         log.warning(
             "reserved %r as an AGENT identity (SKEIN_MCP_USER). Agent identities cannot"
@@ -93,8 +107,8 @@ async def lifespan(app: FastAPI):
     for stuck in reserved_name_rows():
         log.warning(
             "roster row '%s' holds a name reserved for the system, so every"
-            " request as that identity is refused. Move it:"
-            " python -m app.rename_user %s <new-name>",
+            " request as that identity is refused. An administrator moves it"
+            " with POST /api/users/%s/rename",
             stuck,
             stuck,
         )

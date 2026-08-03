@@ -405,9 +405,11 @@ def main() -> int:
     # 2.39:1 in dark on graphite with every gate green. Catch the usage
     # instead, from the same single source that declares the intent.
     fill_only = [t.removeprefix("--") for t, row in custom.items() if row["on"] == "white"]
-    for path in sorted(THEME_TS.parents[1].rglob("*.tsx")):
-        if "node_modules" in path.parts:
-            continue
+    # *.ts* and the stylesheet, not *.tsx alone: a class assembled in a .ts
+    # module or applied in CSS is the same misuse, and scanning one extension
+    # would fix this instance rather than the rule.
+    scanned = [p for p in THEME_TS.parents[1].rglob("*.ts*") if "node_modules" not in p.parts]
+    for path in [*sorted(scanned), CSS]:
         text = path.read_text()
         for token in fill_only:
             if f"text-{token}" in text:

@@ -921,7 +921,7 @@ export default function SettingsPage() {
                     }}
                   />
                   <span>
-                    <span className="block text-sm font-medium text-ink-1">
+                    <span className="block text-sm font-medium text-ink">
                       {o.title}
                     </span>
                     <span className="block text-xs text-ink-3">{o.note}</span>

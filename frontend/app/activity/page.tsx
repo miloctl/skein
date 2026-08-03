@@ -23,8 +23,8 @@ type Feed = { entries: Entry[]; next_before: number | null };
 
 const WHO_BADGE: Record<Entry["who"], string> = {
   you: "bg-thread-solid/15 text-thread",
-  agent: "bg-weld/15 text-weld",
-  system: "bg-raised text-ink-3",
+  agent: "bg-raised text-weld",
+  system: "bg-raised text-ink-2",
 };
 
 export default function ActivityPage() {
@@ -67,7 +67,7 @@ export default function ActivityPage() {
       <SectionTabs set="team" />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-ink-1">Activity</h1>
+          <h1 className="text-xl font-semibold text-ink">Activity</h1>
           <p className="mt-0.5 text-sm text-ink-3">
             What the agents did, what the system did, and what you did — one
             sentence per action. Teammates&apos; rows are not shown here.
@@ -100,7 +100,7 @@ export default function ActivityPage() {
               raw ? (
                 <li key={e.seq} className="py-1.5 font-mono text-[11px] text-ink-2">
                   <span className="text-ink-3">#{e.seq}</span> {e.created_at}{" "}
-                  <span className="text-thread">{e.actor}</span> {e.action}{" "}
+                  <span className="font-medium text-thread">{e.actor}</span> {e.action}{" "}
                   {e.detail}
                 </li>
               ) : (
@@ -112,7 +112,7 @@ export default function ActivityPage() {
                     aria-expanded={expanded === e.seq}
                     className={
                       "flex w-full items-baseline gap-2 py-2 text-left text-sm hover:bg-raised/50 " +
-                      (e.salience === "quiet" ? "opacity-60" : "")
+                      (e.salience === "quiet" ? "text-ink-2" : "")
                     }
                   >
                     <span
@@ -130,7 +130,7 @@ export default function ActivityPage() {
                     >
                       {e.who === "you" ? "you" : e.who}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-ink-1">
+                    <span className="min-w-0 flex-1 truncate text-ink">
                       {e.sentence}
                       {e.detail && (
                         <span className="text-ink-3"> — {e.detail}</span>

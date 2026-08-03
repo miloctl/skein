@@ -98,3 +98,41 @@ def test_an_agent_is_refused_at_the_door_whatever_its_capitalization(client, fre
     for spelling in ("scout", "Scout", "SCOUT", "sCoUt"):
         r = client.get("/api/briefing", headers={"X-User": spelling})
         assert r.status_code == 403, spelling
+
+
+def test_rename_cannot_brick_an_account_on_an_agents_name(fresh_db):
+    from app.services import users
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    # renaming a human onto an agent's name in ANY capitalization locks them
+    # out of every door, including this route — with no self-service recovery
+    with pytest.raises(ValueError, match="differs only by case"):
+        users.rename_user("mira", "Scout", actor="mira")
+    assert users.is_agent("mira") is False
+
+
+def test_identity_folding_agrees_with_the_resolver(fresh_db):
+    from app import db
+    from app.services import users
+
+    # sqlite's lower() is ASCII-only, so a SQL-folded wall reads these as two
+    # names while resolve_teammate reads them as one
+    db.execute(
+        "INSERT INTO users (name, kind, active, created_at) VALUES ('scoüt', 'agent', 1, ?)",
+        (db.now(),),
+    )
+    assert users.is_agent("SCOÜT") is True
+    with pytest.raises(ValueError, match="differs only by case"):
+        users.ensure_user("SCOÜT")
+
+
+def test_a_bad_mcp_identity_never_takes_down_the_api(client, fresh_db, monkeypatch):
+    # operator config degrades, it does not abort boot — the same rule the
+    # model provider follows. Proven at the service the boot path calls.
+    from app.services import users
+
+    users.ensure_user("mira")
+    with pytest.raises(ValueError):
+        users.ensure_user("Mira", kind="agent")
+    assert client.get("/health").status_code == 200
