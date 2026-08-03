@@ -5,6 +5,9 @@
 # Manual clone instead of actions/checkout: some Gitea instances 403 the
 # `x-access-token` basic-auth username the action hardcodes; a real username
 # and token work. Set two repo secrets: CI_CHECKOUT_USER, CI_CHECKOUT_TOKEN.
+#
+# Lint gates live in scripts/lint.sh alone — call it, never restate a gate
+# here, or the local run and CI drift apart again.
 name: ci
 on:
   push:
@@ -21,26 +24,20 @@ jobs:
           git checkout "$GITHUB_SHA"
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
       - name: Install
         working-directory: backend
         run: pip install -e ".[dev]"
       - name: Lint
-        working-directory: backend
-        run: |
-          ruff check app tests seed.py ../cli/skein_cli.py ../scripts
-          ruff format --check app tests seed.py ../cli/skein_cli.py ../scripts
-          mypy
-          vulture
-          python -m app.services.personas
-          python ../scripts/check_theme_contrast.py
-          cmp ../LICENSE LICENSE && cmp ../NOTICE NOTICE
+        run: ./scripts/lint.sh backend
       - name: Test
         working-directory: backend
         env:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
-        run: pytest -q
+        run: pytest -q -n auto
 
   frontend:
     runs-on: ubuntu-latest
@@ -53,14 +50,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install
         working-directory: frontend
         run: npm ci
       - name: Lint
-        working-directory: frontend
-        run: |
-          npm run lint
-          npm run knip
+        env:
+          # `next build` below typechecks the same files; lint.sh documents this flag.
+          SKIP_TSC: "1"
+        run: ./scripts/lint.sh frontend
       - name: Build
         working-directory: frontend
         run: npm run build

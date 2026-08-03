@@ -249,6 +249,7 @@ npm run dev                                # http://localhost:3000
 
 # or both: ./scripts/skein.sh dev      (detached: ./scripts/skein.sh start)
 # tests:   cd backend && .venv/bin/pytest
+# hooks:   git config core.hooksPath scripts/hooks   # lint + tests run before every push
 ```
 
 Model provider in `backend/.env`:
