@@ -3,7 +3,11 @@
  *  the app uses (lib/api.ts, lib/theme.ts) so cross-tab changes work too.
  *  The key and its remove-on-expand semantics are unchanged, so preferences
  *  saved by the old in-sidebar toggle stay valid. */
-const KEY = "skein-chat-sidebar-collapsed";
+// exported because layout.tsx's pre-paint script stamps the same preference
+// onto <html> before first paint, and it generates that script from here
+// rather than repeating the string (see lib/theme-boot.ts)
+export const SIDEBAR_KEY = "skein-chat-sidebar-collapsed";
+const KEY = SIDEBAR_KEY;
 
 export function subscribeChatLayout(cb: () => void) {
   window.addEventListener("storage", cb);

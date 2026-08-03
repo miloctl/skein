@@ -7,7 +7,7 @@ shipped that way and fell outside the surface bounds unnoticed, and no colorway
 older than 2026-08-01 was ever held to the 5.5:1 thread rule. This reads the
 packs out of globals.css, so a new pack is covered on the day it ships.
 
-Three hard invariants and one advisory note:
+Four hard invariants and one advisory note:
 
 (a) Text and status tokens hold >= 4.5:1 on every surface combination that the
     Loom baseline itself passes. Combinations Loom already fails are excluded,
@@ -19,12 +19,13 @@ Three hard invariants and one advisory note:
     where it is made rather than inferring it.
 
 (c) The custom colorway holds WCAG AA (4.5:1) at every hue. theme.ts pins
-    lightness and chroma and exposes only the hue dial (thread
-    oklch(0.44 0.13 h) light / oklch(0.8 0.09 h) dark, weld
-    oklch(0.47 0.09 h) light / oklch(0.78 0.09 h) dark). This sweeps all 360
-    integer hues of both formulas against every pack surface in both modes.
-    The formulas here MUST match theme.ts customCss and the layout.tsx
-    bootstrap inline script - update all three together.
+    lightness and chroma and exposes only the hue dial. The formulas are READ
+    from frontend/lib/theme.ts (CUSTOM_LC) rather than copied here, and each
+    row declares what it must stay legible against: an ink token is swept
+    across every pack surface in both modes, a solid fill is swept against the
+    white text it carries. All 360 integer hues, every row. A row added in
+    theme.ts is swept without touching this file; a shape this cannot read is
+    a hard error, never a silently empty sweep.
 
 (d) Surface brightness. A light surface is not dimmer than Loom's dimmest, and
     a dark surface is not lighter than Loom's brightest. This one is a proxy:
@@ -33,6 +34,14 @@ Three hard invariants and one advisory note:
     is survivable — but only by an entry in SURFACE_BOUND_EXCEPTIONS that says
     which surface and why. An unlisted surface outside the bounds fails, and a
     listed surface back inside them fails as a stale entry.
+
+(e) frontend/lib/theme.ts and globals.css name the same packs and colorways.
+    A pack styled in CSS but missing from theme.ts is unreachable in the
+    picker and unstamped by the pre-paint script; one listed in theme.ts but
+    unstyled renders as Loom while the UI claims otherwise. theme.ts is the
+    single source for the ids, the storage keys and the custom formulas -
+    layout.tsx GENERATES its pre-paint script from them (lib/theme-boot.ts)
+    and this file parses them, so nothing is kept in sync by hand.
 
 Exit status is 0 when every pack passes and 1 when one fails.
 """
@@ -65,12 +74,71 @@ SURFACE_BOUND_EXCEPTIONS = {
     ),
 }
 
-# Mirror of theme.ts customCss (and the layout.tsx bootstrap script):
-# token -> (light (L, C), dark (L, C)); the hue is the swept variable.
-CUSTOM_FORMULAS = {
-    "thread": ((0.44, 0.13), (0.8, 0.09)),
-    "weld": ((0.47, 0.09), (0.78, 0.09)),
-}
+THEME_TS = Path(__file__).resolve().parents[1] / "frontend" / "lib" / "theme.ts"
+
+# White, for the solid fills that carry white text (bg-thread-solid).
+WHITE_LUM = 1.0
+
+_CUSTOM_BLOCK = re.compile(r"export const CUSTOM_LC = \{(.*?)\n\} as const;", re.S)
+_CUSTOM_ROW = re.compile(
+    r'"(--[a-z0-9-]+)":\s*\{\s*hue:\s*"\w+",\s*on:\s*"(\w+)",\s*'
+    r"light:\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\],\s*"
+    r"dark:\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\]"
+)
+_LIST_BLOCK = "export const {} = \\[(.*?)\\n\\] as const;"
+_ID = re.compile(r'\{\s*id:\s*"([a-z-]+)"')
+
+
+def parse_custom(ts: str) -> dict[str, dict]:
+    """The custom-colorway formulas, READ from lib/theme.ts.
+
+    This used to be a hand-copied literal, one of three copies of the same
+    numbers (theme.ts, the layout.tsx pre-paint script, here). Parsing means a
+    retuned formula is swept on the next lint instead of when someone
+    remembers. A shape this cannot read is a hard error, never an empty sweep
+    that reports success.
+    """
+    block = _CUSTOM_BLOCK.search(ts)
+    if not block:
+        raise SystemExit(
+            f"cannot find `export const CUSTOM_LC = {{...}} as const;` in {THEME_TS}."
+            " The contrast sweep reads its formulas there. Restore the export,"
+            " or update this parser with it."
+        )
+    rows = {}
+    for token, on, light_l, light_c, dark_l, dark_c in _CUSTOM_ROW.findall(block.group(1)):
+        rows[token] = {
+            "on": on,
+            "light": (float(light_l), float(light_c)),
+            "dark": (float(dark_l), float(dark_c)),
+        }
+    declared = block.group(1).count('": {')
+    if not rows or len(rows) != declared:
+        raise SystemExit(
+            f"read {len(rows)} of {declared} CUSTOM_LC rows in {THEME_TS}."
+            " Keep one token per line in the documented shape, or update this parser."
+        )
+    return rows
+
+
+def parse_default(ts: str, name: str) -> str:
+    """DEFAULT_PACK / DEFAULT_COLORWAY: the id globals.css carries on :root, so
+    it has no [data-*] selector of its own and cannot be found by parsing CSS."""
+    found = re.search(rf'export const DEFAULT_{name} = "([a-z-]+)";', ts)
+    if not found:
+        raise SystemExit(f"cannot find `export const DEFAULT_{name}` in {THEME_TS}.")
+    return found.group(1)
+
+
+def parse_ids(ts: str, name: str) -> set[str]:
+    block = re.search(_LIST_BLOCK.format(name), ts, re.S)
+    if not block:
+        raise SystemExit(f"cannot find `export const {name} = [...]` in {THEME_TS}.")
+    ids = set(_ID.findall(block.group(1)))
+    if not ids:
+        raise SystemExit(f"no ids parsed out of {name} in {THEME_TS}.")
+    return ids
+
 
 _BLOCK = re.compile(r"([^{}]*)\{([^{}]*)\}", re.S)
 _LIGHT_DARK = re.compile(
@@ -153,7 +221,14 @@ def parse(css: str) -> tuple[dict, dict]:
     return packs, ways
 
 
-def check(packs: dict, ways: dict) -> tuple[list[str], list[str], list[str]]:
+def check(
+    packs: dict,
+    ways: dict,
+    custom: dict,
+    theme_packs: set[str],
+    theme_ways: set[str],
+    default_colorway: str,
+) -> tuple[list[str], list[str], list[str]]:
     """Return (failures, notes, floors)."""
     base = packs[BASE_PACK]
     failures: list[str] = []
@@ -203,28 +278,61 @@ def check(packs: dict, ways: dict) -> tuple[list[str], list[str], list[str]]:
                                 f"{ratio:.2f}:1 is below {need}:1"
                             )
 
-    # (c) the custom colorway: sweep all 360 integer hues of both accent
-    # formulas against every pack surface in both modes. Report the floor so
-    # the numbers documented in theme.ts and docs/brand stay auditable.
+    # (c) the custom colorway: sweep all 360 integer hues of every formula in
+    # theme.ts against what that token has to stay legible on. Report the floor
+    # so the numbers documented in theme.ts and docs/brand stay auditable.
     floor_ratio, floor_at = 999.0, ""
-    for token, (light_lc, dark_lc) in CUSTOM_FORMULAS.items():
-        for mode, (lightness, chroma) in (("light", light_lc), ("dark", dark_lc)):
+    solid_floor, solid_at = 999.0, ""
+    for token, row in sorted(custom.items()):
+        for mode in ("light", "dark"):
+            lightness, chroma = row[mode]
             for hue in range(360):
                 accent_lum = _oklch_luminance(lightness, chroma, hue)
+                if row["on"] == "white":
+                    # a solid fill under white text: the pack surfaces behind it
+                    # are irrelevant, the label on top is what must be readable
+                    ratio = _ratio(accent_lum, WHITE_LUM)
+                    if ratio < solid_floor:
+                        solid_floor = ratio
+                        solid_at = f"{token} {mode} hue {hue}"
+                    if ratio < CUSTOM_MIN:
+                        failures.append(
+                            f"custom {token} {mode} hue {hue} under white text: "
+                            f"{ratio:.2f}:1 is below {CUSTOM_MIN}:1"
+                        )
+                    continue
                 for pname in sorted(packs):
                     for surface in SURFACES:
                         surf_lum = _luminance(packs[pname][mode][surface])
                         ratio = _ratio(accent_lum, surf_lum)
                         if ratio < floor_ratio:
                             floor_ratio = ratio
-                            floor_at = f"--{token} {mode} hue {hue} on {pname} --{surface}"
+                            floor_at = f"{token} {mode} hue {hue} on {pname} --{surface}"
                         if ratio < CUSTOM_MIN:
                             failures.append(
-                                f"custom --{token} {mode} hue {hue} on pack {pname} "
+                                f"custom {token} {mode} hue {hue} on pack {pname} "
                                 f"--{surface} {packs[pname][mode][surface]}: "
                                 f"{ratio:.2f}:1 is below {CUSTOM_MIN}:1"
                             )
     floors.append(f"custom-hue sweep floor: {floor_ratio:.2f}:1 at {floor_at}")
+    if solid_at:
+        floors.append(
+            f"custom solid-fill floor under white text: {solid_floor:.2f}:1 at {solid_at}"
+        )
+
+    # (e) the ids in theme.ts and the selectors in globals.css describe the same
+    # set. A pack styled in CSS but absent from theme.ts is unreachable in the
+    # picker AND unstamped by the pre-paint script; one listed in theme.ts but
+    # unstyled renders as Loom while the UI claims otherwise. Either way the two
+    # files disagree about what ships, which is how the theme bugs started.
+    for label, declared, styled in (
+        ("pack", theme_packs, set(packs)),
+        ("colorway", theme_ways, set(ways) | {default_colorway}),
+    ):
+        for missing in sorted(declared - styled):
+            failures.append(f"{label} {missing!r} is in theme.ts but has no rule in globals.css")
+        for extra in sorted(styled - declared):
+            failures.append(f"{label} {extra!r} is styled in globals.css but missing from theme.ts")
 
     # (d) surfaces outside the Loom bounds: a hard gate with a named-exception
     # list, so a NEW violation never hides behind an accepted one.
@@ -271,8 +379,24 @@ def check(packs: dict, ways: dict) -> tuple[list[str], list[str], list[str]]:
 
 def main() -> int:
     packs, ways = parse(CSS.read_text(encoding="utf-8"))
-    failures, notes, floors = check(packs, ways)
+    ts = THEME_TS.read_text(encoding="utf-8")
+    custom = parse_custom(ts)
+    base = parse_default(ts, "PACK")
+    if base != BASE_PACK:
+        raise SystemExit(
+            f"theme.ts DEFAULT_PACK is {base!r} but this checker baselines on {BASE_PACK!r}."
+            f" Set BASE_PACK to {base!r}, or restore the default in theme.ts."
+        )
+    failures, notes, floors = check(
+        packs,
+        ways,
+        custom,
+        parse_ids(ts, "PACKS"),
+        parse_ids(ts, "COLORWAYS"),
+        parse_default(ts, "COLORWAY"),
+    )
     checked = sorted(n for n in packs if n != BASE_PACK)
+    print(f"custom formulas read from theme.ts: {', '.join(sorted(custom))}")
     print(f"packs: {', '.join(checked)} (baseline {BASE_PACK})")
     print(f"colorways: {', '.join(sorted(ways))} (+ the default on {BASE_PACK})")
     for line in floors:  # a measurement, not a violation — never shares NOTE
