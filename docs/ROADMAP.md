@@ -232,12 +232,7 @@ today.
   notification tiers. No new mutating surface, so no new tool, gate row,
   or receipts. Dedupe by (entity, id, person) — every edit re-parses,
   and a typo fix must not re-notify.
-- **K4 waiting_on self-edge refusal** — `work.py` refuses
-  `waiting_on: task:N` on task N itself. A two-line check protecting the
-  health receipts and slip forecast that consume the edges. (`subtask`
-  relations are NOT part of this item — the entity_links cut below
-  already prices typed relationships.)
-- **K5 `?task=` side peek** — a linkable, back-button-safe task panel.
+- **K4 `?task=` side peek** — a linkable, back-button-safe task panel.
   Named consumers exist today: `/ask` citations, attention items, and
   activity rows all reference tasks with nowhere to land.
 
