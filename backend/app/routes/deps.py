@@ -49,9 +49,10 @@ def _cached(request: Request | None, attr: str):
     The middleware verifies the credential before any route runs, and in
     api-key/oidc mode it is the ONLY gate for the read routes that carry no
     user dependency. Re-verifying here would charge every request twice:
-    verify_key writes last_used_at on each call, and an OIDC token costs a
-    full signature check. None means "not proved yet" — a direct call, or
-    trusted-header mode, where the middleware steps aside entirely."""
+    verify_key costs a hash and a lookup (plus a periodic last_used_at
+    stamp), and an OIDC token costs a full signature check. None means "not
+    proved yet" — a direct call, or trusted-header mode, where the
+    middleware steps aside entirely."""
     return getattr(request.state, attr, None) if request is not None else None
 
 

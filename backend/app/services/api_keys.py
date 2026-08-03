@@ -75,9 +75,12 @@ def verify_key(key: str) -> str | None:
     # last_used_at is display telemetry (the key list's "last used" column) —
     # stamped per call it made every keyed request pay a write-lock
     # acquisition. Under 60 seconds since the stored stamp, skip the write.
+    # A negative age (a clock step wrote a future stamp) rewrites too, else
+    # the stamp freezes until the wall clock catches up.
     last = row["last_used_at"]
     try:
-        fresh = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() < 60
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+        fresh = 0 <= age < 60
     except (TypeError, ValueError):
         fresh = False
     if not fresh:

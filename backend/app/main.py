@@ -140,6 +140,9 @@ async def lifespan(app: FastAPI):
     from .agents.mcp_tools import shutdown_mcp
 
     shutdown_mcp()
+    from .services import adoption
+
+    adoption.flush()
 
 
 # /docs, /redoc and /openapi.json sit OUTSIDE /api, so the perimeter

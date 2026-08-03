@@ -94,3 +94,26 @@ def test_key_request_refiles_after_notification_read(client):
     assert any("requests a personal API key" in n["message"] for n in notes)
     client.post("/api/notifications/read", json={"notification_id": 0})  # dismiss all
     assert client.post("/api/keys/request").json()["already_pending"] is False
+
+
+def test_verify_key_throttles_the_last_used_stamp(client, fresh_db):
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.api_keys import create_key, verify_key
+
+    key = create_key("tester", "probe")["key"]
+
+    recent = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(timespec="seconds")
+    fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (recent,))
+    assert verify_key(key) == "tester"
+    assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] == recent
+
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat(timespec="seconds")
+    fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (stale,))
+    assert verify_key(key) == "tester"
+    assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] != stale
+
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+    fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (future,))
+    assert verify_key(key) == "tester"  # a clock-step stamp rewrites instead of freezing
+    assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] != future

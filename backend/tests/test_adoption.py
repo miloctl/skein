@@ -42,3 +42,14 @@ def test_adoption_upserts_daily_row(client, fresh_db):
         client.get("/api/briefing", headers={"X-Client": "web"})
     rows = fresh_db.query("SELECT * FROM tool_usage WHERE user = 'tester' AND surface = 'web'")
     assert len(rows) == 1 and rows[0]["actions"] == 3
+
+
+def test_record_use_buffers_between_flushes(fresh_db, monkeypatch):
+    from app.services import adoption
+
+    monkeypatch.setattr(adoption, "FLUSH_SECONDS", 3600.0)
+    adoption.record_use("ava", "web")  # first call after reset flushes and arms the clock
+    adoption.record_use("ava", "web")  # inside the window: buffered, not written
+    assert fresh_db.query_row("SELECT SUM(actions) AS n FROM tool_usage")["n"] == 1
+    adoption.flush()
+    assert fresh_db.query_row("SELECT SUM(actions) AS n FROM tool_usage")["n"] == 2

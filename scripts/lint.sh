@@ -52,6 +52,10 @@ if [ "$mode" != "backend" ]; then
     if [ "${SKIP_TSC:-0}" != "1" ]; then
         echo "== typescript =="
         (cd frontend && npx --no-install tsc --noEmit)
+    else
+        # Announced, never silent: an exported SKIP_TSC from a debug session
+        # would otherwise skip the gate locally with no trace in the output.
+        echo "== typescript == skipped (SKIP_TSC=1)"
     fi
 
     echo "== eslint =="
