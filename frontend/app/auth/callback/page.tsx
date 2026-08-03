@@ -19,10 +19,11 @@ export default function AuthCallback() {
     let cancelled = false;
     completeSignIn(window.location.search)
       .then((returnTo) => {
-        if (cancelled) return;
-        // the rest of the app reads identity from here, so a signed-in person
-        // sees their own name everywhere without a second source of truth
+        // Outside the cancelled guard on purpose. The token is already stored
+        // by this point, so skipping this would leave the app signed in with
+        // nobody's name on it — the rest of the app reads identity from here.
         setUser(signedInUser() || "anonymous");
+        if (cancelled) return;
         // replace(): the callback URL carries a spent code, and it must not
         // come back on the Back button
         window.location.replace(returnTo || "/");
