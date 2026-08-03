@@ -178,6 +178,10 @@ def create_task(
     )
     db.log_activity(actor, "create_task", f"#{tid} {title}")
     index_record("task", tid, title, f"{description} {assignee}")
+    if description:
+        from .mentions import scan
+
+        scan("task", tid, description, actor=actor, link="/dashboard")
     return {"id": tid, "title": title, "status": "todo"}
 
 
@@ -308,6 +312,10 @@ def update_task(
     row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if row:
         index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
+        if fields.get("description"):
+            from .mentions import scan
+
+            scan("task", task_id, row["description"], actor=actor, link="/dashboard")
     return {"id": task_id, "updated": list(fields)}
 
 
