@@ -6,7 +6,7 @@ import contextlib
 import hashlib
 import logging
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -19,6 +19,21 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 log = logging.getLogger("skein")
 
 _ambient: ContextVar[sqlite3.Connection | None] = ContextVar("skein_txn", default=None)
+_on_commit: ContextVar[list[Callable[[], None]] | None] = ContextVar(
+    "skein_txn_commits", default=None
+)
+
+
+def on_commit(fn: Callable[[], None]) -> bool:
+    """Queue fn to run after the ambient transaction commits; a rollback
+    drops it. Returns False when no transaction is active — the caller runs
+    the work inline. For side effects that must not hold the write lock
+    (search's embedding HTTP call) and must not survive a rolled-back write."""
+    callbacks = _on_commit.get()
+    if callbacks is None:
+        return False
+    callbacks.append(fn)
+    return True
 
 
 class NotFound(ValueError):
@@ -128,6 +143,8 @@ def transaction() -> Iterator[None]:
     conn = connect()
     conn.isolation_level = None  # sqlite3's implicit BEGIN breaks BEGIN IMMEDIATE below
     token = _ambient.set(conn)
+    callbacks: list[Callable[[], None]] = []
+    cb_token = _on_commit.set(callbacks)
     try:
         conn.execute("BEGIN IMMEDIATE")
         yield
@@ -136,8 +153,13 @@ def transaction() -> Iterator[None]:
         conn.execute("ROLLBACK")
         raise
     finally:
+        _on_commit.reset(cb_token)
         _ambient.reset(token)
         conn.close()
+    # reached only after a successful COMMIT (an exception propagates past
+    # here), with the connection closed — a callback never holds the lock
+    for cb in callbacks:
+        cb()
 
 
 def pending_migrations() -> list[str]:

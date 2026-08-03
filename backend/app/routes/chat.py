@@ -14,6 +14,7 @@ from collections import Counter
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from .. import config, ratelimit
 from ..agents import commands, receipts, session_log, turn_guard
@@ -148,6 +149,11 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, user: CurrentUser):
+    # Sync work (SQLite reads, disk session restore, transcript writes) goes
+    # through run_in_threadpool everywhere in this route: this coroutine and
+    # its generators run on the event loop that carries every open SSE
+    # stream, so one inline disk or DB stall freezes them all. main.py's
+    # perimeter middleware documents the same rule.
     ratelimit.check("chat", user)
     # /as <persona> <message>: resolve the bench persona BEFORE any model —
     # unknown slugs get a deterministic error, valid ones swap the agent's
@@ -161,7 +167,8 @@ async def chat(req: ChatRequest, user: CurrentUser):
             err = "Usage: `/as <persona> <message>` — `/personas` lists the bench."
         else:
             try:
-                persona = str(personas.get_persona(parts[1].lower())["slug"])
+                pdef = await run_in_threadpool(personas.get_persona, parts[1].lower())
+                persona = str(pdef["slug"])
                 message = parts[2]
                 err = ""
             except ValueError as exc:
@@ -178,7 +185,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         # deliberate registration from the curated bench (not typo-minting):
         # the persona needs a user row for authority, trust, and its inbox
         try:
-            ensure_user(persona, kind="agent")
+            await run_in_threadpool(ensure_user, persona, kind="agent")
         except ValueError as exc:
             # e.g. a human already claimed the slug — SSE, not a bare 400
 
@@ -222,7 +229,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         async def command_stream():
             # user turn first, assistant turn in finally: a cancelled stream
             # (stop button, tab close, thread switch) must not lose history
-            _log_turn(ui_thread, user, "user", message)
+            await run_in_threadpool(_log_turn, ui_thread, user, "user", message)
             receipts.start()
             parts: list[str] = []
             # the model's copy of the exchange: everything the user read
@@ -254,6 +261,11 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 logging.getLogger("skein.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
             finally:
+                # sync on purpose, unlike the calls above: a client disconnect
+                # cancels this stream, and inside the cancelled scope an await
+                # in finally raises instead of running — threadpooling these
+                # would drop the transcript and the bridge exactly in the
+                # cancelled case they exist for
                 _log_turn(ui_thread, user, "assistant", "".join(parts))
                 # a follow-up question about this output goes to the agent —
                 # replay the exchange into its session so it has the context
@@ -277,22 +289,26 @@ async def chat(req: ChatRequest, user: CurrentUser):
     if persona:
         # deterministic nameplate for EVERY provider, once per thread — who
         # answered must never depend on whether the model signs its work
-        pdef = personas.get_persona(persona)
+        pdef = await run_in_threadpool(personas.get_persona, persona)
         # provider-neutral once-per-persona-per-thread check: transcripts are
         # logged under the BASE thread id (the mock path never creates a
         # session dir, and the suffixed id never appears in chat_messages)
-        if not chat_threads.thread_contains(ui_thread, f"**{pdef['name']}**"):
+        if not await run_in_threadpool(
+            chat_threads.thread_contains, ui_thread, f"**{pdef['name']}**"
+        ):
             vibe = f" — *{pdef['vibe']}*" if pdef["vibe"] else ""
             masthead = f"{pdef['emoji']} **{pdef['name']}**{vibe}\n"
             if pdef["disclosure"]:
                 masthead += f"\n> {pdef['disclosure']}\n"
             masthead += "\n"
     try:
-        agent = build_agent(thread_id, user, persona=persona)
+        # threadpool, not inline: build_agent restores the whole session
+        # transcript from disk before it returns
+        agent = await run_in_threadpool(build_agent, thread_id, user, persona=persona)
     except Exception as exc:
         # keep the SSE protocol even when agent construction fails (bad model id, etc.)
-        _log_turn(ui_thread, user, "user", message)
-        _log_turn(ui_thread, user, "assistant", f"> ⚠️ {str(exc)[:300]}")
+        await run_in_threadpool(_log_turn, ui_thread, user, "user", message)
+        await run_in_threadpool(_log_turn, ui_thread, user, "assistant", f"> ⚠️ {str(exc)[:300]}")
 
         async def error_stream(message=str(exc)):
             yield _sse({"type": "error", "message": message})
@@ -307,7 +323,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         filed = False  # wrote/queued only — a failed write must not tie a knot
         # user turn first, assistant turn in finally: a cancelled stream
         # (stop button, tab close, thread switch) keeps the partial exchange
-        _log_turn(ui_thread, user, "user", message)
+        await run_in_threadpool(_log_turn, ui_thread, user, "user", message)
         # identity is set INSIDE the generator: tool calls run during this
         # iteration, in this context — proposals sign the persona's name
         token = set_agent_identity(persona or "agent")
@@ -361,7 +377,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 transcript.append(_receipt_line(note))
                 yield _sse({"type": "receipt", **note})
             elif filed and capture.PREFIX.match(message):
-                fieldguide.mark(user, "chat_capture")
+                await run_in_threadpool(fieldguide.mark, user, "chat_capture")
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
@@ -379,6 +395,11 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 reset_requester_identity(req_token)
             except ValueError:
                 pass
+            # sync on purpose, unlike the calls above: a client disconnect
+            # cancels this stream, and inside the cancelled scope an await in
+            # finally raises instead of running — threadpooling these would
+            # drop usage accounting and the partial transcript exactly in the
+            # cancelled case the comment above promises to keep.
             # ui_thread, not the session id: persona sessions append --<slug>,
             # which would break the join that lands spend on an engagement.
             # agent_name already records which head spent it.

@@ -368,13 +368,15 @@ def mark_seen(ids: list[int], *, actor: str = "system") -> dict:
     first-seen (claim_at) starts the active-review clock, so review burden
     can be measured as seen→verdict instead of created→verdict (which is
     dominated by queue wait, not human effort)."""
-    n = 0
-    for cid in ids[:200]:
-        n += db.execute_rowcount(
-            "UPDATE pending_changes SET claim_at = ?"
-            " WHERE id = ? AND status = 'pending' AND claim_at IS NULL",
-            (db.now(), cid),
-        )
+    batch = ids[:200]
+    if not batch:
+        return {"seen": 0}
+    marks = ", ".join("?" for _ in batch)
+    n = db.execute_rowcount(
+        f"UPDATE pending_changes SET claim_at = ?"  # noqa: S608 — placeholders built above
+        f" WHERE id IN ({marks}) AND status = 'pending' AND claim_at IS NULL",
+        (db.now(), *batch),
+    )
     return {"seen": n}
 
 

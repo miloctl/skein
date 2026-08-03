@@ -3,25 +3,62 @@ Team-scoped by design — this measures the platform's reach, not people's
 output. One row per (day, user, surface); counts only, no content."""
 
 import contextlib
+import time
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from .. import db
 
 SURFACES = ("web", "cli", "chat", "slack", "mcp", "webhook", "api")
 
+# Buffered, not written per call: every authenticated request lands here, and
+# each upsert took SQLite's single write lock on the hot path. Counts pool in
+# process and flush at most every FLUSH_SECONDS; counts buffered at crash time
+# are lost — accepted, these rows are reach counters, not an audit record.
+# Process-local like ratelimit; conftest zeroes FLUSH_SECONDS and clears the
+# buffer between tests.
+FLUSH_SECONDS = 30.0
+_pending: dict[tuple[str, str, str], int] = {}
+_pending_lock = Lock()
+_last_flush = 0.0
+
+
+def _write(batch: dict[tuple[str, str, str], int]) -> None:
+    with contextlib.suppress(Exception):
+        for (day, user, surface), n in batch.items():
+            db.execute(
+                "INSERT INTO tool_usage (day, user, surface, actions) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT (day, user, surface)"
+                " DO UPDATE SET actions = actions + excluded.actions",
+                (day, user, surface, n),
+            )
+
 
 def record_use(user: str, surface: str) -> None:
-    """Fire-and-forget upsert; must never break the request it rides on."""
+    """Fire-and-forget count; must never break the request it rides on."""
+    global _last_flush
     if not user or user == "anonymous":
         return
     surface = surface if surface in SURFACES else "api"
     day = datetime.now(timezone.utc).date().isoformat()
-    with contextlib.suppress(Exception):
-        db.execute(
-            "INSERT INTO tool_usage (day, user, surface, actions) VALUES (?, ?, ?, 1)"
-            " ON CONFLICT (day, user, surface) DO UPDATE SET actions = actions + 1",
-            (day, user, surface),
-        )
+    with _pending_lock:
+        key = (day, user, surface)
+        _pending[key] = _pending.get(key, 0) + 1
+        if time.monotonic() - _last_flush < FLUSH_SECONDS:
+            return
+        batch = dict(_pending)
+        _pending.clear()
+        _last_flush = time.monotonic()
+    _write(batch)
+
+
+def reset() -> None:
+    """Drop buffered counts and re-arm the flush clock (conftest — a count
+    buffered against one test's database must not land in the next test's)."""
+    global _last_flush
+    with _pending_lock:
+        _pending.clear()
+        _last_flush = 0.0
 
 
 def adoption(weeks: int = 4) -> dict:

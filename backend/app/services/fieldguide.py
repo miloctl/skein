@@ -7,6 +7,7 @@ the non-negotiables: docs/FIELD-GUIDE.md."""
 
 import contextlib
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -188,12 +189,27 @@ def _tied(person: str) -> dict[str, dict]:
     }
 
 
+# hint() rides My Day and the nav menu, so detect() would otherwise run on
+# nearly every page load — 1-2 queries per untied knot, some LIKE scans over
+# activity. Within the TTL, hint() reuses the last sweep's rows; guide() and
+# unadopted() always sweep, so the guide page itself is never stale.
+# Process-local like ratelimit; the conftest autouse reset clears it so a
+# sweep against one test's database cannot suppress the next test's.
+DETECT_TTL_SECONDS = 15 * 60
+_last_detect: dict[str, float] = {}
+
+
+def reset() -> None:
+    _last_detect.clear()
+
+
 def detect(person: str) -> int:
     """Evaluate untied predicates and materialize unlocks. A person's very
     first detection seeds silently (seen=1): a veteran's history renders as
     already-tied with zero ceremony, never as a wall of 'newly tied'."""
     if not _is_active_human(person):
         return 0
+    _last_detect[person] = time.monotonic()
     tied = _tied(person)
     seeding = not tied
     n = 0
@@ -252,10 +268,14 @@ def dismiss(person: str, knot: str) -> dict:
     return {"dismissed": knot}
 
 
-def _state(person: str) -> tuple[dict[str, dict], set[str]]:
+def _state(person: str, *, throttled: bool = False) -> tuple[dict[str, dict], set[str]]:
     """detect + tied rows + dismissed set — the choreography hint() and
-    guide() share. Caller must have verified _is_active_human."""
-    detect(person)
+    guide() share. Caller must have verified _is_active_human. throttled=True
+    (hint's lightweight read) skips detect within DETECT_TTL_SECONDS of the
+    last sweep; the tied/dismissed rows below are read fresh either way."""
+    last = _last_detect.get(person)
+    if not (throttled and last is not None and time.monotonic() - last < DETECT_TTL_SECONDS):
+        detect(person)
     tied = _tied(person)
     dismissed = {
         r["knot"]
@@ -301,7 +321,7 @@ def hint(person: str) -> dict:
     cards = registry()
     if not _is_active_human(person):
         return {"suggestion": None, "tied_count": 0, "total": _tieable(cards)}
-    tied, dismissed = _state(person)
+    tied, dismissed = _state(person, throttled=True)
     ids = {k["id"] for k in cards}
     return {
         "suggestion": _suggestion(cards, set(tied), dismissed),

@@ -51,7 +51,16 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
         "INSERT INTO search_index (entity, entity_id, title, body) VALUES (?, ?, ?, ?)",
         (entity, entity_id, title, body),
     )
-    _maybe_embed(entity, entity_id, f"{title}\n{body}")
+    # The embed is an HTTP round-trip of up to ~5s. Callers run index_record
+    # inside db.transaction() (review.approve_change, playbooks.instantiate,
+    # intake.disposition) — inline, the round-trip would hold SQLite's single
+    # write lock and stall every concurrent write for its duration. Deferred
+    # to after commit it holds nothing, and a rollback drops the embed along
+    # with the row it would have described. The FTS write above stays inside
+    # the transaction — it is the authoritative index.
+    text = f"{title}\n{body}"
+    if not db.on_commit(lambda: _maybe_embed(entity, entity_id, text)):
+        _maybe_embed(entity, entity_id, text)
 
 
 def deindex_record(entity: str, entity_id: int) -> None:

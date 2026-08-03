@@ -47,19 +47,25 @@ def standup_chain() -> dict:
     ]
     if not humans:
         return {"chain": 0, "humans": 0}
+    # One range scan instead of a per-day substr() query: substr(created_at)
+    # can never use an index, so the old loop full-scanned standups up to 90
+    # times per call. 130 days covers the 90 loop steps plus the weekend
+    # rewind below; the range predicate rides idx_standups_created.
+    lookback = (_today() - timedelta(days=130)).isoformat()
+    by_day: dict[str, set[str]] = {}
+    for r in db.query(
+        "SELECT substr(created_at, 1, 10) AS day, author FROM standups"
+        " WHERE created_at >= ? GROUP BY 1, 2",
+        (lookback,),
+    ):
+        by_day.setdefault(r["day"], set()).add(r["author"])
     chain = 0
     day = _today()
     if day.weekday() >= 5:
         day -= timedelta(days=day.weekday() - 4)
     for _ in range(90):
         if day.weekday() < 5:
-            authors = {
-                r["author"]
-                for r in db.query(
-                    "SELECT DISTINCT author FROM standups WHERE substr(created_at, 1, 10) = ?",
-                    (day.isoformat(),),
-                )
-            }
+            authors = by_day.get(day.isoformat(), set())
             if not set(humans) <= authors:
                 # today doesn't break the chain until it's over
                 if day == _today():

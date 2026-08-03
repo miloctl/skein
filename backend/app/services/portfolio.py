@@ -16,19 +16,25 @@ def _today() -> date:
 # a wait on a resolved/done/kept target is satisfied — it must stop yellowing
 # the engagement the moment the dependency clears, without a manual unset
 _WAIT_SATISFIED = {
-    "task": "SELECT 1 FROM tasks WHERE id = ? AND status = 'done'",
-    "blocker": "SELECT 1 FROM blockers WHERE id = ? AND status = 'resolved'",
-    "commitment": "SELECT 1 FROM commitments WHERE id = ? AND status != 'open'",
+    "task": "SELECT id FROM tasks WHERE status = 'done' AND id IN ({marks})",
+    "blocker": "SELECT id FROM blockers WHERE status = 'resolved' AND id IN ({marks})",
+    "commitment": "SELECT id FROM commitments WHERE status != 'open' AND id IN ({marks})",
 }
 
 
-def _unsatisfied_waits(sql: str, params: tuple) -> list[dict]:
-    out = []
-    for t in db.query(sql, params):
-        satisfied = db.query_one(_WAIT_SATISFIED[t["waiting_on_type"]], (t["waiting_on_id"],))
-        if not satisfied:
-            out.append(t)
-    return out
+def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
+    """(waiting_on_type, waiting_on_id) pairs whose dependency has cleared.
+    One IN query per target type — the per-wait probe this replaces was one
+    query per waiting task, on every /portfolio load."""
+    by_type: dict[str, set[int]] = {}
+    for w in waits:
+        by_type.setdefault(w["waiting_on_type"], set()).add(w["waiting_on_id"])
+    done: set[tuple[str, int]] = set()
+    for typ, ids in by_type.items():
+        marks = ", ".join("?" for _ in ids)
+        sql = _WAIT_SATISFIED[typ].format(marks=marks)
+        done.update((typ, r["id"]) for r in db.query(sql, tuple(ids)))
+    return done
 
 
 def _linked_blockers(engagement_id: int) -> list[dict]:
@@ -44,65 +50,86 @@ def engagement_health() -> list[dict]:
     """R/Y/G per non-closed engagement, each signal listed as a receipt."""
     today = _today().isoformat()
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
+    silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
+    engagements = db.query("SELECT * FROM engagements WHERE status != 'closed' ORDER BY id")
+    # Four batched scans grouped in Python, not per-engagement queries: the
+    # old shape ran ~6 queries per engagement plus one per waiting task, so
+    # a growing portfolio multiplied /portfolio and exec-readout latency.
+    # A task can reach an engagement two ways (its own engagement_id, or its
+    # milestone's) — the id set below dedups exactly like the old OR predicate.
+    overdue_by: dict[int, list[dict]] = {}
+    for m in db.query(
+        "SELECT id, title, due_date, engagement_id FROM milestones"
+        " WHERE status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
+        (today,),
+    ):
+        overdue_by.setdefault(m["engagement_id"], []).append(m)
+    blockers_by: dict[int, list[dict]] = {}
+    for b in db.query(
+        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"
+        " FROM blockers b JOIN tasks t ON t.id = b.task_id"
+        " LEFT JOIN milestones m ON m.id = t.milestone_id"
+        " WHERE b.status != 'resolved' ORDER BY b.id"
+    ):
+        for eng_id in {b.pop("t_eng"), b.pop("m_eng")} - {None}:
+            blockers_by.setdefault(eng_id, []).append(b)
+    stale_by: dict[int, list[dict]] = {}
+    waits_by: dict[int, list[dict]] = {}
+    last_by: dict[int, str] = {}
+    open_by: dict[int, int] = {}
+    all_waits: list[dict] = []
+    for t in db.query(
+        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"
+        " t.waiting_on_type, t.waiting_on_id,"
+        " t.engagement_id AS t_eng, m.engagement_id AS m_eng"
+        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id ORDER BY t.id"
+    ):
+        engs = {t["t_eng"], t["m_eng"]} - {None}
+        if not engs:
+            continue
+        is_wait = t["status"] != "done" and t["waiting_on_type"] is not None
+        if is_wait:
+            all_waits.append(t)
+        for eng_id in engs:
+            if t["status"] == "in_progress" and t["updated_at"] and t["updated_at"] < stale_cutoff:
+                stale_by.setdefault(eng_id, []).append(t)
+            if is_wait:
+                waits_by.setdefault(eng_id, []).append(t)
+            if t["updated_at"] and t["updated_at"] > last_by.get(eng_id, ""):
+                last_by[eng_id] = t["updated_at"]
+            if t["status"] != "done":
+                open_by[eng_id] = open_by.get(eng_id, 0) + 1
+    satisfied = _satisfied_targets(all_waits)
     out = []
-    for eng in db.query("SELECT * FROM engagements WHERE status != 'closed' ORDER BY id"):
+    for eng in engagements:
         name = eng["name"]
         receipts = []
-        overdue = db.query(
-            "SELECT id, title, due_date FROM milestones WHERE engagement_id = ?"
-            " AND status != 'done' AND due_date IS NOT NULL AND due_date < ?",
-            (eng["id"], today),
-        )
+        overdue = overdue_by.get(eng["id"], [])
         for m in overdue:
             receipts.append(f"milestone #{m['id']} '{m['title']}' overdue since {m['due_date']}")
-        blocked = _linked_blockers(eng["id"])
+        blocked = blockers_by.get(eng["id"], [])
         escalated = [b for b in blocked if b["status"] == "escalated"]
         for b in escalated:
             receipts.append(f"blocker #{b['id']} '{b['title']}' is escalated")
         for b in blocked:
             if b["status"] == "open":
                 receipts.append(f"blocker #{b['id']} '{b['title']}' open")
-        stale = db.query(
-            "SELECT t.id, t.title, t.assignee FROM tasks t"
-            " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status = 'in_progress' AND t.updated_at < ?",
-            (eng["id"], eng["id"], stale_cutoff),
-        )
-        for t in stale:
+        for t in stale_by.get(eng["id"], []):
             receipts.append(
                 f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d"
                 f" (@{t['assignee'] or 'unassigned'})"
             )
-        for t in _unsatisfied_waits(
-            "SELECT t.id, t.title, t.waiting_on_type, t.waiting_on_id FROM tasks t"
-            " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done' AND t.waiting_on_type IS NOT NULL",
-            (eng["id"], eng["id"]),
-        ):
+        for t in waits_by.get(eng["id"], []):
+            if (t["waiting_on_type"], t["waiting_on_id"]) in satisfied:
+                continue
             receipts.append(
                 f"task #{t['id']} '{t['title']}' waiting on"
                 f" {t['waiting_on_type']} #{t['waiting_on_id']}"
             )
-        last = db.query_one(
-            "SELECT MAX(t.updated_at) AS ts FROM tasks t WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))",
-            (eng["id"], eng["id"]),
-        )
-        open_tasks = db.query_one(
-            "SELECT COUNT(*) AS n FROM tasks t"
-            " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done'",
-            (eng["id"], eng["id"]),
-        )
-        silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
-        silent = bool(
-            open_tasks
-            and open_tasks["n"]
-            and last
-            and last["ts"]
-            and last["ts"][:10] < silence_cutoff
-        )
-        if silent and last:
-            receipts.append(f"no task activity since {last['ts'][:10]}")
+        last_ts = last_by.get(eng["id"], "")
+        silent = bool(open_by.get(eng["id"]) and last_ts and last_ts[:10] < silence_cutoff)
+        if silent:
+            receipts.append(f"no task activity since {last_ts[:10]}")
 
         if escalated or len(overdue) >= 2:
             color = "red"
@@ -238,18 +265,32 @@ def slip_forecast() -> dict:
     med = _median(slips)
     median_slip = round(med, 1) if med is not None else 0.0
     applied = max(0.0, median_slip)
-    forecasts = []
-    for m in db.query(
+    open_ms = db.query(
         "SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id"
         " WHERE e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
-    ):
+    )
+    # one waiting-task query for all open milestones, one resolution query
+    # per target type — was one query per milestone plus one per wait
+    waits_by: dict[int, list[dict]] = {}
+    if open_ms:
+        marks = ", ".join("?" for _ in open_ms)
+        for w in db.query(
+            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above
+            f" WHERE milestone_id IN ({marks}) AND status != 'done'"
+            f" AND waiting_on_type IS NOT NULL ORDER BY id",
+            tuple(m["id"] for m in open_ms),
+        ):
+            waits_by.setdefault(w["milestone_id"], []).append(w)
+    satisfied = _satisfied_targets([w for ws in waits_by.values() for w in ws])
+    forecasts = []
+    for m in open_ms:
         forecast = (date.fromisoformat(m["due_date"]) + timedelta(days=round(applied))).isoformat()
-        waiting = _unsatisfied_waits(
-            "SELECT id, waiting_on_type, waiting_on_id FROM tasks"
-            " WHERE milestone_id = ? AND status != 'done' AND waiting_on_type IS NOT NULL",
-            (m["id"],),
-        )
+        waiting = [
+            w
+            for w in waits_by.get(m["id"], [])
+            if (w["waiting_on_type"], w["waiting_on_id"]) not in satisfied
+        ]
         forecasts.append(
             {
                 "milestone_id": m["id"],

@@ -10,8 +10,17 @@ never drift from what the backend actually accepts.
 from collections.abc import AsyncIterator
 from difflib import get_close_matches
 
+from starlette.concurrency import run_in_threadpool
+
 from .. import config
 from ..services import briefing, memory, personas, playbooks, search
+
+# Handlers below call services through run_in_threadpool, never inline: these
+# async generators run on the event loop the chat route shares with every open
+# SSE stream. Concrete case: with SKEIN_EMBEDDINGS=1 a hung embedding endpoint
+# inside search.search blocks the loop for up to 5s — every concurrent chat
+# stream freezes with it. main.py's perimeter middleware documents the same
+# rule for auth lookups.
 
 Event = dict
 
@@ -26,7 +35,7 @@ async def _help(args: str, user: str) -> AsyncIterator[Event]:
 
 async def _briefing(args: str, user: str) -> AsyncIterator[Event]:
     yield _tool_event("my_day")
-    b = briefing.my_day(user)
+    b = await run_in_threadpool(briefing.my_day, user)
     n = b["needs_you"]
     lines = [f"**My Day — {b['user']}, {b['date']}**", ""]
     lines.append(f"- Open questions for you: {len(n['open_questions'])}")
@@ -48,7 +57,7 @@ async def _search(args: str, user: str) -> AsyncIterator[Event]:
         yield {"data": "Usage: `/search <query>`"}
         return
     yield _tool_event("search_workspace")
-    hits = search.search(args)
+    hits = await run_in_threadpool(search.search, args)
     if not hits:
         yield {"data": f"No matches for “{args}”."}
     else:
@@ -73,7 +82,9 @@ async def _plan(args: str, user: str) -> AsyncIterator[Event]:
         return
     yield _tool_event("start_engagement_from_playbook")
     try:
-        created = playbooks.instantiate(parts[0], parts[1], lead=user, actor=user, origin="human")
+        created = await run_in_threadpool(
+            playbooks.instantiate, parts[0], parts[1], lead=user, actor=user, origin="human"
+        )
         yield {
             "data": (
                 f"Instantiated **{parts[0]}** as engagement "
@@ -90,7 +101,7 @@ async def _plan(args: str, user: str) -> AsyncIterator[Event]:
 
 async def _playbooks(args: str, user: str) -> AsyncIterator[Event]:
     yield _tool_event("list_playbooks")
-    rows = playbooks.list_playbooks()
+    rows = await run_in_threadpool(playbooks.list_playbooks)
     body = (
         "\n".join(f"- **{p['slug']}** — {p['name']}: {p['description'].strip()}" for p in rows)
         or "No playbooks found."
@@ -100,7 +111,7 @@ async def _playbooks(args: str, user: str) -> AsyncIterator[Event]:
 
 async def _personas(args: str, user: str) -> AsyncIterator[Event]:
     yield _tool_event("list_personas")
-    rows = personas.list_personas()
+    rows = await run_in_threadpool(personas.list_personas)
     body = (
         "\n".join(
             f"- {p['emoji']} **{p['slug']}** — {p['description']}"
@@ -126,7 +137,7 @@ async def _remember(args: str, user: str) -> AsyncIterator[Event]:
         return
     yield _tool_event("remember")
     try:
-        m = memory.remember(args, user=user, actor=user)
+        m = await run_in_threadpool(memory.remember, args, user=user, actor=user)
         from .. import config
 
         surfaced = (
