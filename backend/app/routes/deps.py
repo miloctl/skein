@@ -135,6 +135,17 @@ def _resolve(
     return ensure_user(name)["name"], False, []
 
 
+def forge_webhook_off() -> HTTPException:
+    """The refusal for an unconfigured forge webhook. Returned rather than
+    raised so the route can refuse BEFORE it reads a body, and raised again
+    here so no caller can reach the door with the feature switched off."""
+    return HTTPException(
+        status_code=503,
+        detail="the forge webhook is off. Set SKEIN_FORGE_WEBHOOK_SECRET,"
+        " then use the same secret in the repository webhook settings.",
+    )
+
+
 def verify_forge_signature(body: bytes, signature: str) -> None:
     """The forge webhook's whole identity: HMAC-SHA256 over the raw body with
     a shared secret. It lives here because every other door in Skein is
@@ -148,11 +159,7 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
     from hashlib import sha256
 
     if not config.FORGE_WEBHOOK_SECRET:
-        raise HTTPException(
-            status_code=503,
-            detail="the forge webhook is off. Set SKEIN_FORGE_WEBHOOK_SECRET,"
-            " then use the same secret in the repository webhook settings.",
-        )
+        raise forge_webhook_off()
     expected = hmac.new(config.FORGE_WEBHOOK_SECRET.encode(), body, sha256).hexdigest()
     # Gitea sends the bare hex digest, and also GitHub's "sha256=" form.
     # Compare BYTES: starlette decodes headers as latin-1, and compare_digest

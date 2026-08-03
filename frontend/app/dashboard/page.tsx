@@ -744,23 +744,28 @@ export default function Dashboard() {
             />
           ) : (
             <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
-              <span>
+              <span className="min-w-0 break-words">
                 <span className="text-ink-3">#{t.id}</span> {t.title}
                 {t.assignee ? (
                   <span className="ml-2 text-xs text-ink-3">@{t.assignee}</span>
                 ) : null}
                 {t.forge_url ? (
+                  // the name repeats on every row, so a screen reader's link
+                  // list reads "code, code, code" without the label. Safe as
+                  // a bare href because services/forge.py::_clean_url is the
+                  // only writer and admits bounded http(s) only.
                   <a
                     href={String(t.forge_url)}
                     target="_blank"
-                    rel="noreferrer noopener"
+                    rel="noopener noreferrer"
+                    aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
                     className="ml-2 text-xs text-ink-3 underline hover:text-ink-2"
                   >
-                    code ↗
+                    code <span aria-hidden>↗</span>
                   </a>
                 ) : null}
               </span>
-              <span className="flex items-center gap-1">
+              <span className="flex shrink-0 items-center gap-1">
                 <button
                   id={`edit-task-${t.id}`}
                   aria-label={`Edit task #${t.id}: ${t.title}`}

@@ -88,7 +88,7 @@ knots:
     knot: Thief Knot
     set: loops
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
-    how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask. Type `#42` to jump to task 42, or `blocker 3` to jump to blocker 3."
+    how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask. Type `#42` and task 42 is the first result. `blocker 3` finds blocker 3."
     link: /chat
     since: 2026-07-31
 
@@ -198,7 +198,7 @@ knots:
     set: hitches
     pitch: A name in prose becomes a tap on the shoulder — the knot that grips a moving line.
     how: "Write `@name` in a task, note, question, answer, or decision. The named person gets one notification. An edit does not notify twice."
-    link: /dashboard
+    link: /chat
     since: 2026-08-03
 
   # ---- Bends — where two systems join ---------------------------------
@@ -208,7 +208,7 @@ knots:
     knot: Timber Hitch
     set: bends
     pitch: The branch drags the task along behind it — one hitch, and the log follows the tow.
-    how: "Add the webhook URL from Settings to your repository. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
+    how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Add the webhook URL from Settings to your repository with that same secret. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
     link: /settings
     since: 2026-08-03
 

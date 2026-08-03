@@ -133,18 +133,20 @@ export default function GuidePage() {
                       </span>
                     </div>
                     <p className="mb-2 text-xs text-ink-2">{c.pitch}</p>
+                    {/* how: stays after the card ties. It is the only place
+                        some grammars are written down — the search card
+                        teaches `#42` — and hiding it on first use deletes the
+                        documentation exactly when someone starts using it. */}
+                    <p className="mb-2 text-xs text-ink-3">{c.how}</p>
                     {c.tied ? (
                       <p className="text-xs text-ink-3">Tied · {c.tied_on}</p>
                     ) : (
-                      <>
-                        <p className="mb-2 text-xs text-ink-3">{c.how}</p>
-                        <Link
-                          href={c.link}
-                          className="text-xs font-medium text-thread-solid underline hover:opacity-80"
-                        >
-                          Try it <span aria-hidden>→</span>
-                        </Link>
-                      </>
+                      <Link
+                        href={c.link}
+                        className="text-xs font-medium text-thread-solid underline hover:opacity-80"
+                      >
+                        Try it <span aria-hidden>→</span>
+                      </Link>
                     )}
                   </li>
                 ))}

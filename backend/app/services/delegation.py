@@ -136,7 +136,14 @@ def accept_completion(
     # acceptance must be for work the proposer still owns
     if actor and task["delegated_agent"] != actor:
         raise ValueError(f"task #{task_id} is no longer delegated to '{actor}'")
-    db.execute("UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?", (db.now(), task_id))
+    # completed_at, not just status: flow metrics filter on it, so a delegated
+    # task accepted here would otherwise count zero in cycle time AND in
+    # throughput. The forge routes every delegated close to this function, so
+    # the more work a team delegates, the more of its throughput disappears.
+    db.execute(
+        "UPDATE tasks SET status = 'done', completed_at = ?, updated_at = ? WHERE id = ?",
+        (db.now(), db.now(), task_id),
+    )
     if summary:
         db.execute(
             "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"

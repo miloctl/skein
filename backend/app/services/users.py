@@ -11,6 +11,12 @@ def _is_bench_slug(name: str) -> bool:
 
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
+    # the activity feed shows system actors to EVERY viewer, so a human who
+    # picks one of those names leaks all of their rows past the scope rule
+    from .activity import SYSTEM_ACTORS
+
+    if kind == "human" and name.casefold() in {a.casefold() for a in SYSTEM_ACTORS}:
+        raise ValueError(f"'{name}' is reserved for the system — pick another name")
     # bench persona slugs are reserved identities: a human picking one would
     # silently absorb the persona's trust/authority history (and vice versa)
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))

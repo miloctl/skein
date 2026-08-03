@@ -95,13 +95,21 @@ def test_text_scan_is_bounded_and_linear(fresh_db):
 
     from app.services import forge
 
-    # `\s*#?\s*` backtracks n+1 ways per position: 80 KB of spaces measured at
-    # 31s before the separators were fixed-width. The route is async, so that
-    # is the whole event loop, not one request.
-    hostile = "task" + " " * 200_000 + "1"
+    # the verb must MATCH for the ambiguous separators to backtrack at all —
+    # a fixture without one never reaches the pathological path and passes
+    # against the vulnerable pattern too. Measured: 48s on `\s*#?\s*`.
+    hostile = "closes task" + " " * 100_000
     start = time.monotonic()
-    assert forge.match_task(title=hostile, body=hostile) is None
+    assert forge._TEXT.search(hostile) is None
     assert time.monotonic() - start < 1.0
+
+
+def test_a_closing_verb_at_the_end_of_a_long_body_still_matches(fresh_db):
+    from app.services import forge
+
+    # the body is scanned whole: a pull request description is long, and the
+    # closing line lands at the bottom of it
+    assert forge.match_task(body="x" * 20_000 + "\n\ncloses task 42") == 42
 
 
 def test_branch_name_beats_the_title(fresh_db):
@@ -121,7 +129,8 @@ def test_push_starts_the_task(signed, fresh_db):
     assert out["status"] == "in_progress"
     row = work.list_tasks_joined()[0]
     assert row["status"] == "in_progress"
-    assert row["forge_url"] == "https://git.example/skein/compare/abc"
+    # the stable branch page, never Gitea's compare_url
+    assert row["forge_url"] == f"https://git.example/skein/src/branch/task/{tid}-fix-login"
 
 
 def test_merged_pull_request_finishes_the_task(signed, fresh_db):
@@ -190,33 +199,43 @@ def test_the_ledger_never_reads_as_the_teammates_own_edit(signed, fresh_db):
     row = db.query_one(
         "SELECT actor, detail FROM activity WHERE action = 'update_task' ORDER BY id DESC LIMIT 1"
     )
-    # activity rows are hash-chained and can never be corrected, so a secret
-    # holder must not be able to write one attributed to a person
+    # hash-chained rows can never be corrected, so a secret holder must not be
+    # able to write one attributed to a person — AND `forge` is a system actor
+    # the feed shows to everyone, so the pusher's name must appear nowhere
     assert row["actor"] == "forge"
-    assert "pushed by mira" in row["detail"]
+    assert "mira" not in row["detail"].lower()
 
 
-def test_a_new_branch_push_links_the_branch_not_the_forge_home_page(signed, fresh_db):
+def test_a_push_links_the_branch_page_not_the_compare_url(signed, fresh_db):
     from app import db
     from app.services import work
 
     tid = work.create_task("Fix login")["id"]
-    # Gitea fills compare_url only for a branch that already existed; the push
-    # that CREATES the branch sends the bare instance root
-    signed("push", _push(f"task/{tid}-fix", compare="https://git.example/"))
+    # Gitea's compare_url carries the two shas, so it differs on every push;
+    # storing it would defeat the repeat-push guard below
+    signed("push", _push(f"task/{tid}-fix", compare="https://git.example/skein/compare/aaa...bbb"))
     row = db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))
     assert row["forge_url"] == f"https://git.example/skein/src/branch/task/{tid}-fix"
 
 
-def test_a_non_http_url_is_dropped(signed, fresh_db):
+def test_a_non_http_url_never_reaches_a_task(fresh_db):
     from app import db
-    from app.services import work
+    from app.services import forge, work
 
     tid = work.create_task("Fix login")["id"]
-    signed("push", _push(f"task/{tid}-x", compare="javascript:fetch('//evil/')"))
-    row = db.query_one("SELECT forge_url, status FROM tasks WHERE id = ?", (tid,))
-    assert row["status"] == "in_progress"
-    assert row["forge_url"] == f"https://git.example/skein/src/branch/task/{tid}-x"
+    # the pull request path passes html_url straight through — _clean_url is
+    # the only guard on it, so drive that path, not the rebuilt push URL
+    for hostile in (
+        "javascript:fetch('//evil/')",
+        "data:text/html,<script>alert(1)</script>",
+        'https://ok.example/" onmouseover="alert(1)',
+        "https://user:pass@evil.example/x",
+    ):
+        forge.forge_event("pr_opened", branch=f"task/{tid}-x", url=hostile)
+        assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"] == ""
+    forge.forge_event("pr_opened", branch=f"task/{tid}-x", url="https://ok.example/pulls/1")
+    row = db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))
+    assert row["forge_url"] == "https://ok.example/pulls/1"
 
 
 def test_repeat_pushes_do_not_append_ledger_rows(signed, fresh_db):
@@ -224,12 +243,27 @@ def test_repeat_pushes_do_not_append_ledger_rows(signed, fresh_db):
     from app.services import work
 
     tid = work.create_task("Fix login")["id"]
-    for _ in range(3):
-        signed("push", _push(f"task/{tid}-x"))
+    # a real repo sends a DIFFERENT compare_url every push — the fixture must
+    # vary it, or the test proves only that identical input dedupes
+    for n in range(3):
+        signed("push", _push(f"task/{tid}-x", compare=f"https://git.example/skein/compare/{n}"))
     rows = db.query("SELECT id FROM activity WHERE action = 'update_task'")
     # activity is hash-chained and retention never prunes it: a busy repo must
     # not append a permanent row per push
     assert len(rows) == 1
+
+
+def test_an_event_without_a_url_never_erases_the_stored_one(signed, fresh_db):
+    from app import db
+    from app.services import forge, work
+
+    tid = work.create_task("Fix login")["id"]
+    signed("push", _push(f"task/{tid}-x"))
+    stored = db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"]
+    out = forge.forge_event("branch_push", branch=f"task/{tid}-x", url="")
+    assert "ignored" in out
+    assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"] == stored
+    assert len(db.query("SELECT id FROM activity WHERE action = 'update_task'")) == 1
 
 
 def test_a_pull_request_opening_starts_the_task(signed, fresh_db):
@@ -297,6 +331,56 @@ def test_an_oversized_body_is_refused(client, fresh_db, monkeypatch):
     assert r.status_code == 400
 
 
+def test_a_body_that_hides_its_length_is_still_refused(client, fresh_db, monkeypatch):
+    from app import config
+    from app.routes import deps
+
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(deps.config, "FORGE_WEBHOOK_SECRET", SECRET)
+
+    def chunks():
+        for _ in range(64):
+            yield b"x" * 65_536
+
+    # no Content-Length: the in-stream counter is the guard that matters for
+    # an unsigned caller, and the header check cannot see this at all
+    r = client.post(
+        "/api/webhooks/forge",
+        content=chunks(),
+        headers={"X-Gitea-Event": "push", "X-Gitea-Signature": "0" * 64},
+    )
+    assert r.status_code == 400
+
+
+def test_an_unconfigured_webhook_refuses_before_it_reads_a_body(client, fresh_db, monkeypatch):
+    from app import config
+    from app.routes import deps
+
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", "")
+    monkeypatch.setattr(deps.config, "FORGE_WEBHOOK_SECRET", "")
+    read = False
+
+    def chunks():
+        nonlocal read
+        read = True
+        yield b"{}"
+
+    r = client.post(
+        "/api/webhooks/forge",
+        content=chunks(),
+        headers={"X-Gitea-Event": "push", "X-Gitea-Signature": "0" * 64},
+    )
+    # a deployment that never turned the webhook on must not buffer a byte
+    # for an unsigned caller
+    assert r.status_code == 503
+    assert read is False
+
+
+def test_a_json_array_payload_is_a_4xx_not_a_500(signed, fresh_db):
+    # parse_gitea calls .get on it — a caller's input must never be a 500
+    assert signed("push", [{"ref": "refs/heads/task/1-x"}]).status_code == 400
+
+
 def test_a_forge_move_is_visible_in_the_activity_feed(signed, fresh_db):
     from app.services import activity, users, work
 
@@ -309,11 +393,17 @@ def test_a_forge_move_is_visible_in_the_activity_feed(signed, fresh_db):
     assert any(r["actor"] == "forge" and str(tid) in r["detail"] for r in rows)
 
 
-def test_an_agent_login_never_acts_through_the_webhook(fresh_db):
-    from app.services import forge, users
+def test_an_agent_login_never_acts_through_the_webhook(signed, fresh_db):
+    from app.services import forge, users, work
 
     users.ensure_user("scout", kind="agent")
-    assert forge.resolve_pusher("scout") == ""
+    tid = work.create_task("Fix login")["id"]
+    # refused, not merely un-named: the write itself must not happen, or an
+    # agent reaches the human path with the review gate behind it
+    out = signed("push", _push(f"task/{tid}-x", login="scout")).json()
+    assert "gated tools" in out["ignored"]
+    assert work.list_tasks_joined()[0]["status"] == "todo"
+    assert forge.is_agent_login("scout") is True
 
 
 # --- the signature is the door ---------------------------------------------
