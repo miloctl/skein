@@ -589,14 +589,14 @@ export default function SettingsPage() {
       <Section title="6 · Code forge webhook (optional)">
         <p className="mb-2 text-sm text-ink-3">
           Let your git forge move tasks. A push to <code>task/42-…</code>{" "}
-          starts task 42, and the pull request that merges it finishes the
-          task. Add this URL as a repository webhook, content type JSON.
+          starts task 42. When the pull request merges, the task finishes. Add
+          this URL as a repository webhook, content type JSON.
         </p>
         <CopyLine text={`${API_URL}/api/webhooks/forge`} />
         <p className="mt-2 text-xs text-ink-3">
           Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET and puts the
-          same secret in the webhook. Without the secret the endpoint stays
-          closed. A branch name that carries no task number is ignored, and a
+          same secret in the webhook. If the secret is not set, the endpoint
+          stays closed. Skein ignores a branch name that has no task number. A
           merge never closes a delegated task — the sponsor accepts that work.
         </p>
       </Section>

@@ -28,13 +28,17 @@ LIMITS = {
     # the identity provider. Generous for a person signing in, useless as an
     # amplifier. Keyed by client address, since a signed-out caller has no name.
     "signin": 10,
+    # the forge webhook, metered as ONE integration rather than per pusher: a
+    # signed caller must never be able to spend a named teammate's write
+    # budget, and a busy monorepo pushes more than a person types.
+    "forge": 120,
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 # What the cap counts, per surface. A signed-out caller has no name, so the
 # signin cap counts addresses — and the refusal must not claim otherwise.
 # Behind a reverse proxy that does not pass the caller's address through,
 # every browser shares one address, and so one signin bucket.
-PER = {"signin": "per address"}
+PER = {"signin": "per address", "forge": "for the whole integration"}
 
 
 def check(surface: str, user: str) -> None:

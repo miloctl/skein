@@ -211,6 +211,7 @@ knots:
     how: "Add the webhook URL from Settings to your repository. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request finishes it."
     link: /settings
     since: 2026-08-03
+
   - id: standup_blocker
     feature: Standup → blocker
     knot: Sheet Bend

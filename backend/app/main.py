@@ -138,7 +138,17 @@ async def perimeter_auth(request: Request, call_next):
     # /api/auth/: the sign-in flow itself, which by definition runs before the
     # caller has a credential. Both routes there are written for that (public
     # client parameters, and a relay of a code the browser already holds).
-    open_paths = ("/health", "/api/slack/", "/api/calendar.ics", "/api/auth/")
+    # /api/webhooks/forge: a git forge cannot hold a personal key or sign in,
+    # so it proves itself with an HMAC over the body (deps.verify_forge_
+    # signature), the way Slack does. Without this the endpoint answers every
+    # delivery with "get a personal API key" in api-key, oidc, and token mode.
+    open_paths = (
+        "/health",
+        "/api/slack/",
+        "/api/calendar.ics",
+        "/api/auth/",
+        "/api/webhooks/forge",
+    )
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.
     if (
