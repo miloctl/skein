@@ -46,25 +46,39 @@ def reserved_name_rows() -> list[str]:
     return [r["name"] for r in db.query("SELECT name FROM users") if _fold(r["name"]) in reserved]
 
 
+def refuse_kind_collision(name: str, kind: str, *, ignore: str = "") -> None:
+    """One name, one identity — checked wherever a roster row is created OR
+    moved. It lived inside ensure_user for one round, which left rename_user
+    as the back door: renaming a human onto an agent's name bricks them at
+    every door, including the rename route itself.
+
+    Folds in Python, not in SQL. sqlite's lower() is ASCII-only, so it reads
+    `SCOÜT` and `scoüt` as different names while resolve_teammate and
+    mentions.scan read them as the same one — the collision then arrives
+    through the very guard meant to stop it."""
+    target = _fold(name)
+    for row in db.query("SELECT name, kind FROM users"):
+        # the EXACT-name case belongs to the callers: ensure_user reads it as
+        # `existing`, and rename_user's target lookup explains the human/agent
+        # boundary in the terms that case deserves. This guard is for the
+        # variants those exact lookups cannot see.
+        if row["name"] in (ignore, name) or row["kind"] == kind:
+            continue
+        if _fold(row["name"]) == target:
+            raise ValueError(
+                f"'{row['name']}' already exists as a {row['kind']} —"
+                f" '{name}' differs only by case, and one name must mean one identity"
+            )
+
+
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     refuse_reserved_name(name)
     # bench persona slugs are reserved identities: a human picking one would
     # silently absorb the persona's trust/authority history (and vice versa)
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
-    # a case-variant row of the OTHER kind is how `Scout` the human ends up
-    # beside `scout` the agent, and every identity question then depends on
-    # which one a query happens to return first
     if existing is None:
-        clash = db.query_one(
-            "SELECT name, kind FROM users WHERE lower(name) = lower(?) AND kind != ?",
-            (name, kind),
-        )
-        if clash:
-            raise ValueError(
-                f"'{clash['name']}' already exists as a {clash['kind']} —"
-                f" '{name}' differs only by case, and one name must mean one identity"
-            )
+        refuse_kind_collision(name, kind)
     if existing is None and kind == "human" and _is_bench_slug(name):
         raise ValueError(f"'{name}' is reserved for a bench persona — pick another name")
     if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
@@ -162,11 +176,15 @@ def is_agent(name: str) -> bool:
     routes/deps.py, and a first-row match let it walk through the forge's.
     resolve_teammate already matches this way, so the question every surface
     asks about a name is now the same question."""
-    return bool(
-        db.query_one(
-            "SELECT 1 FROM users WHERE lower(name) = lower(?) AND kind = 'agent'",
-            ((name or "").strip(),),
-        )
+    target = _fold(name)
+    if not target:
+        return False
+    # folded in PYTHON, not in SQL. sqlite's lower() is ASCII-only, so it
+    # reads `SCOÜT` and `scoüt` as different names while resolve_teammate and
+    # mentions.scan read them as the same one — the wall and the resolver must
+    # not disagree about what two names being equal means.
+    return any(
+        _fold(r["name"]) == target for r in db.query("SELECT name FROM users WHERE kind = 'agent'")
     )
 
 
@@ -276,6 +294,10 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     # same ones. Without this a teammate is renameable to a system actor, and
     # their surviving API key then writes rows every viewer can read.
     refuse_reserved_name(new)
+    # the same wall ensure_user applies. Without it a rename onto an agent's
+    # name (in any capitalization) locks the person out of every door,
+    # including this route, with no self-service recovery.
+    refuse_kind_collision(new, row["kind"], ignore=old)
     if _is_bench_slug(new):
         # unconditional: persona names come from files, never from rename —
         # even agent→agent would fold foreign history into the persona

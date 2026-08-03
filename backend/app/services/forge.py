@@ -71,7 +71,9 @@ def _clean_url(url: str) -> str:
     # U+2028, then the 31 C1 controls and every bidi override — and
     # `https://good.test/‮gpj.exe` renders reversed in an href. RFC 3986
     # has no non-ASCII characters, so anything else belongs percent-encoded.
-    if not all(c.isascii() and c.isprintable() for c in url):
+    # 0x21-0x7E: isprintable() is True for U+0020, and a space ends an
+    # unquoted attribute exactly the way the form feed did
+    if not all(0x21 <= ord(c) <= 0x7E for c in url):
         return ""
     if any(c in url for c in "\"'<>`"):
         return ""
