@@ -152,6 +152,13 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 - **Runner isolation** — move CI to an ephemeral sandboxed host before ever
   re-adding a pull_request trigger; consider rootless docker for the runner.
   Ops work on the runner host, not a repo change.
+- **Proxy-aware client addresses** — `request.client.host` behind the
+  OpenShift router is the router pod, so every external caller shares one
+  address-keyed bucket (`signin`, `forge_addr`): an unsigned flooder can
+  starve the real forge's deliveries, and Gitea does not auto-retry. Needs
+  trusted-proxy `X-Forwarded-For` handling (uvicorn `--proxy-headers` +
+  `--forwarded-allow-ips`, or middleware) before the prod deploy — flagged
+  by the 2026-08-03 net-state review.
 
 ## Delight (2026-07-25)
 
