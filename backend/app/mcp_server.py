@@ -294,7 +294,7 @@ def main() -> None:
     from .services.users import ensure_user
 
     ensure_user(ACTOR, kind="agent")
-    mcp.run()  # stdio transport
+    mcp.run()  # stdio: stdout carries the protocol, so diagnostics (the print above) go to stderr
 
 
 if __name__ == "__main__":

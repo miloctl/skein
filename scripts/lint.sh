@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run every lint gate CI runs: ruff (backend + CLI), mypy (backend), eslint (frontend).
+# Every lint gate CI runs. .gitea/workflows/ci.yml duplicates these commands —
+# a gate added here without updating ci.yml passes locally and never runs on push.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

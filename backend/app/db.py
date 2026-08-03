@@ -87,7 +87,7 @@ def init_db() -> None:
     concurrent workers serialize on the write lock instead of double-applying.
     """
     conn = connect()
-    conn.isolation_level = None  # explicit transaction control
+    conn.isolation_level = None  # sqlite3's implicit BEGIN breaks BEGIN IMMEDIATE below
     try:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_version"
@@ -126,7 +126,7 @@ def transaction() -> Iterator[None]:
         yield
         return
     conn = connect()
-    conn.isolation_level = None  # explicit transaction control
+    conn.isolation_level = None  # sqlite3's implicit BEGIN breaks BEGIN IMMEDIATE below
     token = _ambient.set(conn)
     try:
         conn.execute("BEGIN IMMEDIATE")
