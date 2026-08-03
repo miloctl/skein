@@ -16,6 +16,13 @@ signature is checked, and PyJWKClient refreshes its key set on any miss —
 so without the throttles below, an unauthenticated caller sending random
 kids turns each request into an outbound JWKS fetch, against both this
 server and the identity provider.
+
+That covers three fetches, not two. Discovery and the unknown-kid refresh
+are the obvious ones; the third is the ORDINARY key-set read, which looks
+cached until you notice PyJWKClient stores nothing when a fetch fails. A
+cold or expired key set plus an unreachable endpoint means every request
+carrying any bearer token pays another attempt, so it carries the same
+cooldown the other two do.
 """
 
 import json
@@ -28,6 +35,7 @@ from typing import Any
 
 import jwt as pyjwt
 from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientError
 
 from . import config
 
@@ -53,6 +61,22 @@ class OIDCError(Exception):
     to the exception class name so a crafted token cannot reflect content."""
 
 
+class OIDCUnavailable(OIDCError):
+    """The identity provider could not be reached, so the token was never
+    judged. Separate from OIDCError because the two need OPPOSITE answers:
+    a refused token is 401 and the fix is to sign in again, while an
+    unreachable provider is 503 and signing in again cannot work. Telling
+    every signed-in person their token is bad during an IdP outage sends the
+    whole team to a sign-in that is also down."""
+
+
+class OIDCRefused(OIDCError):
+    """The identity provider rejected the caller's own submission — a stale
+    or replayed code, a mismatched redirect_uri. Caller input, so the route
+    answers 4xx: a 5xx here would tell the browser to retry something that
+    can never succeed, and page whoever is on call for a user's typo."""
+
+
 # RLock, not Lock: _client() holds this while resolving the JWKS URL, and that
 # path calls metadata(), which takes the lock again. A plain Lock deadlocks the
 # first oidc request that has to discover — and it deadlocks a worker thread,
@@ -62,7 +86,12 @@ _client_cache: PyJWKClient | None = None
 # -inf, not 0.0: time.monotonic() has an arbitrary origin, so 0.0 would
 # block the first refresh on a machine that booted less than a cooldown ago.
 _discovery_failed_at = float("-inf")
+_jwks_failed_at = float("-inf")
 _last_refresh = float("-inf")
+
+# One condition, one wording: every path that gives up on reaching the IdP
+# says this, so the caller cannot tell which fetch failed (and does not need to).
+IDP_UNREACHABLE = "the identity provider cannot be reached. Try again in a minute."
 
 
 _metadata_cache: dict[str, Any] | None = None
@@ -72,11 +101,12 @@ def reset() -> None:
     """Drop the cached client, discovery document and both throttles. For
     tests, and for a deployment that changes issuer configuration without a
     restart."""
-    global _client_cache, _discovery_failed_at, _last_refresh, _metadata_cache
+    global _client_cache, _discovery_failed_at, _jwks_failed_at, _last_refresh, _metadata_cache
     with _lock:
         _client_cache = None
         _metadata_cache = None
         _discovery_failed_at = float("-inf")
+        _jwks_failed_at = float("-inf")
         _last_refresh = float("-inf")
 
 
@@ -88,7 +118,7 @@ def _fetch_metadata() -> dict[str, Any]:
         ) as resp:
             doc = json.load(resp)
     except Exception as exc:
-        raise OIDCError(
+        raise OIDCUnavailable(
             f"OIDC discovery failed ({exc.__class__.__name__})."
             " Check SKEIN_OIDC_ISSUER, or set the endpoint variables directly."
         ) from exc
@@ -107,7 +137,7 @@ def metadata() -> dict[str, Any]:
         if _metadata_cache is not None:
             return _metadata_cache
         if time.monotonic() - _discovery_failed_at < DISCOVERY_COOLDOWN:
-            raise OIDCError("the identity provider cannot be reached. Try again in a minute.")
+            raise OIDCUnavailable(IDP_UNREACHABLE)
         try:
             _metadata_cache = _fetch_metadata()
         except OIDCError:
@@ -177,12 +207,14 @@ def exchange(form: dict[str, str]) -> dict[str, Any]:
             detail = str(json.load(exc).get("error", "") or "")[:80]
         except Exception:
             detail = ""
-        raise OIDCError(
+        # OIDCRefused, not OIDCError: the provider judged the caller's own code
+        # or redirect_uri and said no. That is 4xx input, not a server fault.
+        raise OIDCRefused(
             f"the identity provider refused the sign-in{f' ({detail})' if detail else ''}."
             " Start the sign-in again."
         ) from exc
     except Exception as exc:
-        raise OIDCError(
+        raise OIDCUnavailable(
             f"the identity provider cannot be reached ({exc.__class__.__name__})."
             " Try again in a minute."
         ) from exc
@@ -206,7 +238,7 @@ def _client() -> PyJWKClient:
         if _client_cache is not None:
             return _client_cache
         if time.monotonic() - _discovery_failed_at < DISCOVERY_COOLDOWN:
-            raise OIDCError("the identity provider cannot be reached. Try again in a minute.")
+            raise OIDCUnavailable(IDP_UNREACHABLE)
         try:
             url = config.OIDC_JWKS_URL or _discover_jwks_url()
         except OIDCError:
@@ -216,6 +248,31 @@ def _client() -> PyJWKClient:
             url, cache_keys=True, lifespan=KEY_LIFESPAN, timeout=FETCH_TIMEOUT
         )
         return _client_cache
+
+
+def _keys(refresh: bool = False) -> list[Any]:
+    """The issuer's signing keys, with the same failure cooldown discovery has.
+
+    PyJWKClient caches only SUCCESSFUL fetches, so a cold or expired key set
+    plus an unreachable endpoint means every request that carries any bearer
+    token pays another outbound attempt. The perimeter middleware reaches this
+    BEFORE the caller is authenticated and runs it on the shared threadpool,
+    so without this cooldown a signed-out flood both hammers a struggling IdP
+    and starves the workers the rest of the API needs.
+    """
+    global _jwks_failed_at
+    with _lock:
+        if time.monotonic() - _jwks_failed_at < DISCOVERY_COOLDOWN:
+            raise OIDCUnavailable(IDP_UNREACHABLE)
+    try:
+        return _client().get_signing_keys(refresh=refresh)
+    except PyJWKClientError as exc:
+        with _lock:
+            _jwks_failed_at = time.monotonic()
+        raise OIDCUnavailable(
+            f"the identity provider signing keys cannot be read ({exc.__class__.__name__})."
+            " Try again in a minute."
+        ) from exc
 
 
 def _may_refresh() -> bool:
@@ -242,9 +299,9 @@ def _signing_key(token: str) -> Any:
     if not kid:
         raise OIDCError("the sign-in token names no signing key. Sign in again.")
     client = _client()
-    key = client.match_kid(client.get_signing_keys(), kid)
+    key = client.match_kid(_keys(), kid)
     if key is None and _may_refresh():
-        key = client.match_kid(client.get_signing_keys(refresh=True), kid)
+        key = client.match_kid(_keys(refresh=True), kid)
     if key is None:
         raise OIDCError("the sign-in token is signed by an unknown key. Sign in again.")
     return key

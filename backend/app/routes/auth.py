@@ -59,7 +59,8 @@ def post_token(body: TokenIn, request: Request):
         raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
     if config.AUTH_MODE != "oidc":
         raise HTTPException(
-            status_code=404, detail="browser sign-in is off unless SKEIN_AUTH_MODE=oidc"
+            status_code=404,
+            detail="If SKEIN_AUTH_MODE is not oidc, browser sign-in is off.",
         )
     if not config.OIDC_CLIENT_ID:
         raise HTTPException(
@@ -91,8 +92,15 @@ def post_token(body: TokenIn, request: Request):
             detail="send code, code_verifier and redirect_uri, or send refresh_token",
         )
 
+    # Three outcomes, three answers. A refusal is the caller's own stale or
+    # replayed code (4xx — retrying cannot help); an unreachable provider is
+    # 503 (retrying later can); anything else is a genuine relay fault (502).
     try:
         payload = oidc.exchange(form)
+    except oidc.OIDCRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except oidc.OIDCUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except oidc.OIDCError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -106,11 +114,29 @@ def post_token(body: TokenIn, request: Request):
     # 401s on everything.
     try:
         name, _ = oidc.principal(oidc.validate(token))
+    except oidc.OIDCUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except oidc.OIDCError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {
         "access_token": token,
         "refresh_token": str(payload.get("refresh_token") or ""),
-        "expires_in": int(payload.get("expires_in") or 0),
+        # the IdP's own field: a non-numeric value must not become a 400 that
+        # quotes it back. 0 means "no lifetime given", which the browser reads
+        # as a token it cannot refresh ahead of time.
+        "expires_in": _seconds(payload.get("expires_in")),
         "user": name,
     }
+
+
+def _seconds(raw: object) -> int:
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, (int, float)):
+        return max(0, int(raw))
+    if isinstance(raw, str):
+        try:
+            return max(0, int(raw.strip()))
+        except ValueError:
+            return 0
+    return 0

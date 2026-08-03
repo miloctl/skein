@@ -30,6 +30,11 @@ LIMITS = {
     "signin": 10,
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
+# What the cap counts, per surface. A signed-out caller has no name, so the
+# signin cap counts addresses — and the refusal must not claim otherwise.
+# Behind a reverse proxy that does not pass the caller's address through,
+# every browser shares one address, and so one signin bucket.
+PER = {"signin": "per address"}
 
 
 def check(surface: str, user: str) -> None:
@@ -53,7 +58,8 @@ def check(surface: str, user: str) -> None:
         while window and now - window[0] > WINDOW_SECONDS:
             window.popleft()
         if len(window) >= limit:
-            raise ValueError(f"slow down — {surface} is capped at {limit}/minute per person")
+            scope = PER.get(surface, "per person")
+            raise ValueError(f"slow down — {surface} is capped at {limit}/minute {scope}")
         window.append(now)
 
 
