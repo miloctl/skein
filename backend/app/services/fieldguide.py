@@ -77,6 +77,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "ingest": lambda u: _act(u, "ingest_notes"),
     "delegate": lambda u: _act(u, "delegate_task"),
     "mention": lambda u: _has("SELECT 1 FROM mention_log WHERE mentioned_by = ?", (u,)),
+    # team-wide by design: the webhook attributes to the pusher when the forge
+    # login names a teammate and to 'forge' otherwise, so a per-person
+    # predicate would leave the card untied for everyone whose login differs
+    "forge": lambda _u: _has("SELECT 1 FROM tasks WHERE forge_url != ''", ()),
     # reviewed_override=0 on a task_completion verdict means the reviewer WAS
     # the sponsor at verdict time — the loop closed the designed way
     "sponsor_verdict": lambda u: _has(

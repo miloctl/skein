@@ -210,21 +210,17 @@ TD1, TD2, TD6, TP5, TP6 and TP3 shipped. Open by choice:
 
 ## From the PM Review (2026-08-03)
 
-K2 (short-id fast path) and K3 (@mentions) shipped 2026-08-03. Each
-remaining item has a deterministic, keyless core and a consumer that
-exists today.
+K1 (forge webhook), K2 (short-id fast path) and K3 (@mentions) shipped
+2026-08-03. The open question K1 carried is answered: the webhook
+signature is a door, so `verify_forge_signature` lives in
+`routes/deps.py` beside the others. Still deferred, and still for the
+stated reason: outbound sync and echo suppression (Skein writes nothing
+back, so there is no echo), and comment import (`origin` has no
+external-author value — that provenance decision must be made
+deliberately, not implied by an importer). Issue events move nothing: a
+forge issue is a second place to track the work, which is the thing
+Skein exists to stop.
 
-- **K1 Gitea integration, inbound only** — an HMAC-verified webhook
-  endpoint receiving branch/PR/issue events: branch/PR ↔ task linking
-  (pattern set `task/{number}-{slug}` etc., falling back to PR title then
-  `closes N` in the body) and status transitions, mapped by a constant
-  dict — a rule table waits for a second integration. Extends the
-  `routes/webhooks.py` + `services/ci.py` precedent; pairs with D3.
-  Named open question before build: webhook-secret verification is a new
-  identity class, and identity branching is confined to `routes/deps.py`.
-  Outbound sync, echo suppression, and comment import are deferred —
-  comment import forces a provenance decision (`origin` has no
-  external-author value) that must be made deliberately, not implied.
 - **K4 `?task=` side peek** — a linkable, back-button-safe task panel.
   Named consumers exist today: `/ask` citations, attention items, and
   activity rows all reference tasks with nowhere to land.

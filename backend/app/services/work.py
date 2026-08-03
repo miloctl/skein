@@ -202,6 +202,9 @@ def update_task(
     waiting_on: str = "",
     milestone_id: int = 0,
     engagement_id: int = 0,
+    # keyword-only and absent from the REST patch model on purpose: the forge
+    # webhook writes this link, a person never retypes it
+    forge_url: str = "",
     *,
     actor: str = "system",
     origin: str = "human",
@@ -266,6 +269,7 @@ def update_task(
             ("description", description),
             ("title", title),
             ("committed_week", committed_week),
+            ("forge_url", forge_url),
         ]
         if v
     }

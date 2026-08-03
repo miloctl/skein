@@ -483,3 +483,9 @@ API_TOKEN = os.getenv("SKEIN_API_TOKEN", "")
 # clients put the URL in configs/logs, so it must NEVER be the API token.
 # When API_TOKEN is set but this is not, the feed is disabled (fail closed).
 ICS_TOKEN = os.getenv("SKEIN_ICS_TOKEN", "")
+
+# Shared secret for the Gitea webhook (HMAC-SHA256 over the raw body). Empty
+# disables the endpoint: the webhook moves tasks, so an unsigned caller must
+# never reach it. Its own secret, never the API token — the forge stores it
+# in a repository setting that every repo admin can read.
+FORGE_WEBHOOK_SECRET = os.getenv("SKEIN_FORGE_WEBHOOK_SECRET", "")

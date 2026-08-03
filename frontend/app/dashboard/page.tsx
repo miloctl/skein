@@ -749,6 +749,16 @@ export default function Dashboard() {
                 {t.assignee ? (
                   <span className="ml-2 text-xs text-ink-3">@{t.assignee}</span>
                 ) : null}
+                {t.forge_url ? (
+                  <a
+                    href={String(t.forge_url)}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="ml-2 text-xs text-ink-3 underline hover:text-ink-2"
+                  >
+                    code ↗
+                  </a>
+                ) : null}
               </span>
               <span className="flex items-center gap-1">
                 <button
