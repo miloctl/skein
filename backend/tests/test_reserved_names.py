@@ -55,13 +55,20 @@ def test_a_key_for_a_system_name_is_refused_at_the_door(client, fresh_db):
     assert "reserved for the system" in r.json()["detail"]
 
 
-def test_the_migration_frees_a_reserved_roster_row(fresh_db):
+def test_a_stuck_row_is_named_at_boot_and_moved_by_rename(fresh_db):
     from app import db
+    from app.services import users
 
-    # 040 runs at startup; a row that arrived before it keeps its work under
-    # the freed name rather than being deleted
-    rows = db.query("SELECT name FROM users WHERE lower(name) IN ('team','system','forge')")
-    assert rows == []
+    # migration 040 is deliberately a no-op: moving a person is rename_user's
+    # job, because it knows all 47 attribution columns and the private notes
+    # DB that SQL cannot reach. Boot names the row instead.
+    db.execute(
+        "INSERT INTO users (name, kind, active, created_at) VALUES ('team', 'human', 1, ?)",
+        (db.now(),),
+    )
+    assert users.reserved_name_rows() == ["team"]
+    users.rename_user("team", "tamsin", actor="team")
+    assert users.reserved_name_rows() == []
 
 
 def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):
@@ -136,3 +143,22 @@ def test_a_bad_mcp_identity_never_takes_down_the_api(client, fresh_db, monkeypat
     with pytest.raises(ValueError):
         users.ensure_user("Mira", kind="agent")
     assert client.get("/health").status_code == 200
+
+
+def test_a_reserved_key_cannot_read_through_the_perimeter(client, fresh_db, monkeypatch):
+    """deps.py refuses this credential, but the read routes that carry no user
+    dependency never reach deps — in api-key mode the perimeter is their only
+    gate, so the same wall belongs there."""
+    from app import config, db
+    from app.services import api_keys
+
+    db.execute(
+        "INSERT INTO users (name, kind, active, created_at) VALUES ('team', 'human', 1, ?)",
+        (db.now(),),
+    )
+    key = api_keys.create_key("team", "legacy")["key"]
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    for path in ("/api/users", "/api/tasks", "/api/decisions"):
+        r = client.get(path, headers={"Authorization": f"Bearer {key}"})
+        assert r.status_code == 403, path
+        assert "reserved for the system" in r.json()["detail"]

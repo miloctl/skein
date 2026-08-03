@@ -247,3 +247,53 @@ def test_registry_rejects_manager_set_without_role(fresh_db, tmp_path, monkeypat
     with pytest.raises(ValueError, match="travel together"):
         fieldguide.registry()
     monkeypatch.setattr(fieldguide, "_registry_cache", None)
+
+
+def test_a_card_must_say_how_it_ties(fresh_db, monkeypatch):
+    """The whole `ties` mechanism could be deleted with the suite green. It
+    exists because a predicate-less card that says nothing becomes a nag no
+    one can satisfy: unadopted() reports it forever and the weekly suggestion
+    keeps offering it."""
+    import pytest
+
+    from app.services import fieldguide
+
+    def rebuild(cards):
+        monkeypatch.setattr(fieldguide, "_registry_cache", None)
+        monkeypatch.setattr(fieldguide.yaml, "safe_load", lambda _t: {"knots": cards})
+
+    base = [dict(k) for k in fieldguide.registry()]
+    forge_card = next(k for k in base if k["id"] == "forge")
+    capture = next(k for k in base if k["id"] == "capture")
+
+    forge_card.pop("ties")
+    rebuild(base)
+    with pytest.raises(ValueError, match="must declare ties"):
+        fieldguide.registry()
+
+    forge_card["ties"] = "sometimes"
+    rebuild(base)
+    with pytest.raises(ValueError, match="unknown ties"):
+        fieldguide.registry()
+
+    # and the reverse: a card WITH a predicate cannot claim never and hide a
+    # real feature from the zero-adoption sweep
+    forge_card["ties"] = "never"
+    capture["ties"] = "never"
+    rebuild(base)
+    with pytest.raises(ValueError, match="ties must be 'predicate'"):
+        fieldguide.registry()
+
+
+def test_a_never_tying_card_is_out_of_the_denominator_and_the_sweep(fresh_db):
+    from app.services import fieldguide
+
+    _mint(fresh_db, "ava")
+    cards = fieldguide.registry()
+    never = [k["id"] for k in cards if k.get("ties") == "never"]
+    assert never  # the mechanism is live, not theoretical
+    assert fieldguide.hint("ava")["total"] == len(cards) - len(never)
+    assert not any(k["id"] in never for k in fieldguide.unadopted(grace_days=0))
+    for _ in range(len(cards) + 1):
+        s = fieldguide.guide("ava")["suggestion"]
+        assert s is None or s["id"] not in never
