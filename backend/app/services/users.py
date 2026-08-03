@@ -71,12 +71,16 @@ def refuse_kind_collision(name: str, kind: str, *, ignore: str = "") -> None:
         # the EXACT-name case belongs to the callers: ensure_user reads it as
         # `existing`, and rename_user's target lookup explains the human/agent
         # boundary in the terms that case deserves. This guard is for the
-        # variants those exact lookups cannot see.
-        if row["name"] in (ignore, name) or row["kind"] == kind:
+        # variants those exact lookups cannot see — SAME kind included:
+        # authority_level and trust_scores key on the exact name, so a second
+        # agent row that folds onto the first answers to neither's kill switch,
+        # and two fold-equal humans split one person's notes across two rows.
+        if row["name"] in (ignore, name):
             continue
         if _fold(row["name"]) == target:
+            article = "an" if row["kind"] == "agent" else "a"
             raise ValueError(
-                f"'{row['name']}' already exists as an {row['kind']} —"
+                f"'{row['name']}' already exists as {article} {row['kind']} —"
                 f" '{name}' differs only by case, and one name must mean one identity"
             )
 

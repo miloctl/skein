@@ -73,7 +73,13 @@ def test_rename_user_merges_into_existing(client, fresh_db):
     from app.services import adoption, users, work
 
     users.ensure_user("Mira")
-    users.ensure_user("mira")
+    # planted raw: ensure_user refuses to CREATE a same-kind case variant now,
+    # and this test is about repairing a roster that carries one from before
+    # that guard — rename-merge is the repair path, so it must keep working
+    fresh_db.execute(
+        "INSERT INTO users (name, kind, active, created_at) VALUES ('mira', 'human', 1, ?)",
+        (fresh_db.now(),),
+    )
     adoption.record_use("Mira", "api")
     adoption.record_use("mira", "api")
     work.create_task(title="merge me", assignee="Mira", actor="Mira")
