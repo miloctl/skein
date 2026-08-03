@@ -210,8 +210,8 @@ TD1, TD2, TD6, TP5, TP6 and TP3 shipped. Open by choice:
 
 ## From the PM Review (2026-08-03)
 
-Each item has a deterministic, keyless core and a consumer that exists
-today.
+K2 (short-id fast path) shipped 2026-08-03. Each remaining item has a
+deterministic, keyless core and a consumer that exists today.
 
 - **K1 Gitea integration, inbound only** — an HMAC-verified webhook
   endpoint receiving branch/PR/issue events: branch/PR ↔ task linking
@@ -224,9 +224,6 @@ today.
   Outbound sync, echo suppression, and comment import are deferred —
   comment import forces a provenance decision (`origin` has no
   external-author value) that must be made deliberately, not implied.
-- **K2 short-id fast path** — `#42` / `task 42` resolves directly in
-  search and `/ask` citations. No new numbering scheme: SQLite ids are
-  already unique, and D3 already derives `task/42-slug` from them.
 - **K3 @mentions** — deterministic parse at write time in the service
   layer against the known roster, delivered through the existing
   notification tiers. No new mutating surface, so no new tool, gate row,

@@ -11,6 +11,12 @@ def test_ask_or_fallback(client):
     assert "loosely related" in out["note"]
 
 
+def test_ask_short_id_cites_the_row(client, fresh_db):
+    tid = client.post("/api/tasks", json={"title": "Optimize queries"}).json()["id"]
+    out = client.get("/api/ask", params={"q": f"#{tid}"}).json()
+    assert out["citations"][0]["ref"] == f"task #{tid}"
+
+
 def test_ask_cites_rows(client, fresh_db):
     client.post("/api/decisions", json={"title": "Ship on Fridays", "decision": "we ship fridays"})
     out = client.get("/api/ask?q=fridays").json()

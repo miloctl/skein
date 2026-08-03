@@ -9,12 +9,37 @@ results; otherwise hybrid search degrades cleanly to FTS-only.
 
 import json
 import logging
+import re
 
 from .. import config, db
 
 
 def _fts_quote(q: str) -> str:
     return '"' + q.replace('"', '""') + '"'
+
+
+_SHORT_ID = re.compile(r"^(?:#(\d{1,18})|([a-z_]+)(?:\s+#?|#)(\d{1,18}))$", re.ASCII)
+
+
+def _short_id_hit(q: str) -> dict | None:
+    """`#42` / `task 42` / `blocker #3` jump straight to the row — the forms
+    /ask citations (`entity #id`) and git trailers (`#12`) put in front of
+    people. Bare `#N` means task, matching what the trailers mean by it.
+    The index row IS the kind list: an unknown word or missing id falls
+    through to FTS, and a new entity is covered the day it is first indexed.
+    ASCII + 18-digit cap keep every match inside SQLite's integer range, so
+    an oversized id is an FTS miss, never an OverflowError. A separator is
+    required ("task 42", never "task42") so a literal token in a body is
+    not reinterpreted as a ref."""
+    m = _SHORT_ID.match(q.strip().lower())
+    if not m:
+        return None
+    row = db.query_one(
+        "SELECT entity, entity_id, title, substr(body, 1, 120) AS snippet"
+        " FROM search_index WHERE entity = ? AND entity_id = ?",
+        (m.group(2) or "task", int(m.group(1) or m.group(3))),
+    )
+    return {**row, "rank": None} if row else None
 
 
 def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
@@ -90,6 +115,14 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
         " ORDER BY rank LIMIT ?",
         (q if raw else _fts_quote(q), limit),
     )
+    direct = None if raw else _short_id_hit(q)
+    if direct:
+        rest = [
+            h
+            for h in hits
+            if (h["entity"], h["entity_id"]) != (direct["entity"], direct["entity_id"])
+        ]
+        hits = [direct, *rest[: limit - 1]]
     if len(hits) < limit:
         seen = {(h["entity"], h["entity_id"]) for h in hits}
         for s in semantic_search(q, limit - len(hits)):
