@@ -208,6 +208,10 @@ def update_task(
     *,
     actor: str = "system",
     origin: str = "human",
+    # suffix for the activity detail. A machine write must be able to say
+    # which channel it came through, or its row reads as a person's own edit
+    # in a ledger that can never be corrected.
+    note: str = "",
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
@@ -313,7 +317,7 @@ def update_task(
         f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), db.now(), task_id),
     )
-    db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}")
+    db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
     row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if row:
         index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")

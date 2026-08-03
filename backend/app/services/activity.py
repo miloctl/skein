@@ -548,7 +548,11 @@ VERBS: dict[str, tuple[str, str]] = {
 # blocklist-of-registered-humans was default-open: a human writing under a
 # name that never got a users row (the Slack path did this) leaked to every
 # viewer's feed labeled "system".
-SYSTEM_ACTORS = ("system", "scheduler", "team")
+# 'forge' is the webhook acting for a push whose login names nobody on the
+# roster. It belongs here for the same reason 'scheduler' does: the filter
+# below is default-CLOSED, so an actor missing from this tuple writes rows
+# that NO viewer can ever see, and the task appears to move by itself.
+SYSTEM_ACTORS = ("system", "scheduler", "team", "forge")
 
 
 def visible_actor_filter(viewer: str) -> tuple[str, list]:

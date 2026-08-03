@@ -43,23 +43,38 @@ async def forge_webhook(
     x_gitea_signature: str = Header(""),
     x_hub_signature_256: str = Header(""),
 ) -> dict:
-    """Gitea (and any forge that speaks its shape) moves tasks through here.
-    No CurrentUser: the signature IS the identity, and a forge cannot send a
-    personal key or sign in."""
-    body = await request.body()
-    if len(body) > MAX_FORGE_BODY:
+    """Gitea moves tasks through here. No CurrentUser: the signature IS the
+    identity, and a forge cannot send a personal key or sign in. Gitea-shaped
+    payloads only — GitHub names the same fields differently (`compare`,
+    `pusher.name`), so it needs its own parser, not just its header."""
+    # bounded BEFORE the read, not after: an unsigned caller must never make
+    # the process buffer an arbitrary body. Content-Length is a hint, so the
+    # stream is counted too.
+    if int(request.headers.get("content-length") or 0) > MAX_FORGE_BODY:
         raise HTTPException(400, "the webhook payload is too large")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_FORGE_BODY:
+            raise HTTPException(400, "the webhook payload is too large")
+        chunks.append(chunk)
+    body = b"".join(chunks)
     verify_forge_signature(body, x_gitea_signature or x_hub_signature_256)
+    # RecursionError, not just ValueError: deeply nested JSON raises it, and
+    # this route hand-rolls the parse instead of taking a pydantic model, so
+    # main.py's RequestValidationError handler never sees the payload
     try:
         payload = json.loads(body)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise HTTPException(400, "the webhook payload is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise HTTPException(400, "the webhook payload must be a JSON object")
+    # its own bucket, keyed to the integration: keying on the pusher's name
+    # would let a signed caller drain a named teammate's REST write budget
+    ratelimit.check("forge", "forge")
     mapped = forge.parse_gitea(x_gitea_event, payload)
     if mapped is None:
-        return {"ignored": f"'{x_gitea_event}' is not an event that moves work"}
-    actor = forge.resolve_actor(mapped.pop("actor", ""))
-    # signed callers only, so this bounds a leaked-secret flood, not the world
-    ratelimit.check("write", actor)
-    return forge.forge_event(**mapped, actor=actor)
+        # the event name is caller-supplied — name what we accept, never echo
+        return {"ignored": "only push and pull_request events move work"}
+    pushed_by = forge.resolve_pusher(mapped.pop("pushed_by", ""))
+    return forge.forge_event(**mapped, pushed_by=pushed_by)

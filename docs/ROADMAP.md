@@ -56,6 +56,14 @@ portfolio commitments card now names its two audiences in the card title.
 5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
    on the pulse banner, origin glossary beside Review.
+7. [S] Done tasks have no surface. Browse filters `status !== "done"`, so a
+   task's `forge_url` (the pull request that closed it) becomes unreachable
+   the moment the merge lands, and nothing shows what shipped this week
+   except the digest. A "recently shipped" strip on Health, or a done filter
+   on Browse.
+8. [S] A task cannot be deleted. Every other entity a person can create by
+   accident has a way out (notes, chats, absences, folders); a mistyped task
+   is permanent, which is why demo and validation rows accumulate.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 

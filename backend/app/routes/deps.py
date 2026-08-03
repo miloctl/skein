@@ -154,8 +154,12 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
             " then use the same secret in the repository webhook settings.",
         )
     expected = hmac.new(config.FORGE_WEBHOOK_SECRET.encode(), body, sha256).hexdigest()
-    # Gitea sends the bare hex digest, GitHub prefixes it with "sha256="
-    if not hmac.compare_digest(expected, signature.strip().removeprefix("sha256=")):
+    # Gitea sends the bare hex digest, and also GitHub's "sha256=" form.
+    # Compare BYTES: starlette decodes headers as latin-1, and compare_digest
+    # raises TypeError on a non-ASCII str — an unsigned caller must not be
+    # able to turn one 0xFF byte into a 500.
+    sent = signature.strip().removeprefix("sha256=").encode("utf-8", "replace")
+    if not hmac.compare_digest(expected.encode(), sent):
         raise HTTPException(status_code=401, detail="the webhook signature does not match")
 
 
