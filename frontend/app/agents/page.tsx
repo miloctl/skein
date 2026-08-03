@@ -388,8 +388,8 @@ export default function Agents() {
         )}
         {!manage && (
           <p className="text-xs text-ink-3">
-            Changing these needs “manager controls” (top right) and a personal
-            API key.
+            Changing these needs “manager controls” (top right), a personal
+            API key, and administrator access.
           </p>
         )}
       </Card>

@@ -831,7 +831,7 @@ export default function SettingsPage() {
                     choice beats it.{" "}
                     {strong
                       ? "Fresh browsers and anonymous visitors start here."
-                      : "Needs your API key — step 2 below."}
+                      : "Needs your API key (step 2 below) and administrator access."}
                   </p>
                 </div>
             </div>
@@ -843,8 +843,8 @@ export default function SettingsPage() {
         <p className="mb-3 text-sm text-ink-3">
           A model holds only so much of a conversation. When a chat outgrows
           that, Skein either drops the oldest messages or summarizes them.
-          This setting applies to everyone. To change it, use your personal
-          API key (step 2).
+          This setting applies to everyone. Only an administrator can change
+          it, with a personal API key (step 2).
           {ctx && !ctx.applies && (
             <> No model is connected. This setting is not in use.</>
           )}
@@ -941,7 +941,9 @@ export default function SettingsPage() {
             )}
             <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
               {ctxStatus ||
-                (strong ? "" : "Needs your API key — step 2 above.")}
+                (strong
+                  ? ""
+                  : "Needs your API key (step 2 above) and administrator access.")}
             </p>
           </div>
         )}
@@ -952,7 +954,7 @@ export default function SettingsPage() {
           Everyone who has picked a name here. Deactivate a name to remove a
           typo or a departed teammate from the roster and the counts. This
           also revokes their API keys — history stays attributed. Requires a
-          working API key (step 2).
+          working API key (step 2) and administrator access.
         </p>
         <h3 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Teammates

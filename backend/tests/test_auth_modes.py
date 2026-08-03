@@ -5,7 +5,35 @@ behavior; this file pins the api-key and oidc modes, the fail-closed handling
 of a broken auth config, and the StrongUser/AdminUser split.
 """
 
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
+
+BACKEND = Path(__file__).resolve().parents[1]
+
+
+def _boot_config(**env):
+    """config.py values as a FRESH process reads them. conftest imports config
+    once at session start, so monkeypatching an attribute never exercises the
+    parse — and the parse is what refuses a typo'd mode."""
+    code = (
+        "import json; from app import config; print(json.dumps({"
+        "'mode': config.AUTH_MODE, 'error': config.AUTH_ERROR,"
+        "'admins': sorted(config.ADMINS)}))"
+    )
+    out = subprocess.run(  # noqa: S603 — fixed argv, this interpreter, literal source
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=BACKEND,
+        env={**os.environ, "SKEIN_SCHEDULER": "0", **env},
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
 
 
 def _key(owner="tester"):
@@ -25,6 +53,34 @@ def _oidc(monkeypatch, tokens):
         raise oidc.OIDCError("the sign-in token was refused (Fake). Sign in again.")
 
     monkeypatch.setattr(oidc, "validate", fake_validate)
+
+
+def test_config_refuses_an_unknown_mode_at_boot():
+    # the parse itself, not a monkeypatched AUTH_ERROR: this is the code that
+    # stands between a typo and a silently open deployment
+    bad = _boot_config(SKEIN_AUTH_MODE="oidk")
+    assert bad["error"]
+    assert "SKEIN_AUTH_MODE" in bad["error"]
+    assert "oidk" not in bad["error"]  # the 503 body never echoes the value
+    for mode in ("trusted-header", "api-key"):
+        assert _boot_config(SKEIN_AUTH_MODE=mode)["error"] == ""
+
+
+def test_config_requires_issuer_and_audience_for_oidc():
+    assert "SKEIN_OIDC_ISSUER" in _boot_config(SKEIN_AUTH_MODE="oidc")["error"]
+    only_issuer = _boot_config(SKEIN_AUTH_MODE="oidc", SKEIN_OIDC_ISSUER="https://idp.test")
+    assert "SKEIN_OIDC_AUDIENCE" in only_issuer["error"]
+    full = _boot_config(
+        SKEIN_AUTH_MODE="oidc",
+        SKEIN_OIDC_ISSUER="https://idp.test",
+        SKEIN_OIDC_AUDIENCE="skein",
+    )
+    assert full["error"] == ""
+
+
+def test_config_normalizes_mode_and_admin_names():
+    assert _boot_config(SKEIN_AUTH_MODE="  API-KEY  ")["mode"] == "api-key"
+    assert _boot_config(SKEIN_ADMINS=" ada , grace ,, ")["admins"] == ["ada", "grace"]
 
 
 def test_broken_auth_config_fails_closed(client, monkeypatch):
@@ -76,6 +132,66 @@ def test_api_key_mode_refuses_the_header_at_the_route_layer_too(monkeypatch, fre
     assert e.value.status_code == 401
 
 
+def test_deps_refuse_a_broken_config_on_their_own(monkeypatch, fresh_db):
+    # twin of the api-key test below: the middleware is the perimeter, but
+    # every route dependency must hold even if a path joins open_paths
+    from fastapi import HTTPException
+
+    from app import config
+    from app.routes.deps import _resolve
+
+    monkeypatch.setattr(config, "AUTH_ERROR", "SKEIN_AUTH_MODE is not a known mode.")
+    with pytest.raises(HTTPException) as e:
+        _resolve("tester", "", "GET")
+    assert e.value.status_code == 503
+
+
+def test_a_key_wins_in_oidc_mode_both_ways(client, monkeypatch, fresh_db):
+    # rule 1: a personal key authenticates in EVERY mode, or every CLI, MCP
+    # and hook automation breaks the day a team turns on oidc
+    headers = _key("automation")
+    _oidc(monkeypatch, {"good": {"preferred_username": "casey"}})
+    assert client.get("/api/tasks", headers=headers).status_code == 200
+    # a bogus key is refused AS A KEY — never handed to the token validator
+    r = client.get("/api/tasks", headers={"Authorization": "Bearer sk-skein-nope"})
+    assert r.status_code == 401
+    assert "invalid or revoked" in r.json()["detail"]
+    # and it is strong identity, so self-scoped surfaces open
+    assert client.post("/api/keys", json={"label": "x"}, headers=headers).status_code == 200
+
+
+def test_an_agent_key_is_refused_at_the_perimeter(client, monkeypatch):
+    """41 GET routes carry no user dependency, so in the locked modes the
+    middleware is their only gate. The agent wall has to live there too."""
+    from app import config
+    from app.services.api_keys import create_key
+    from app.services.users import ensure_user
+
+    ensure_user("scout", kind="agent")
+    hdr = {"Authorization": f"Bearer {create_key('scout', 'k')['key']}"}
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    r = client.get("/api/tasks", headers=hdr)  # no CurrentUser dependency
+    assert r.status_code == 403
+    assert "agent identity" in r.json()["detail"]
+
+
+def test_a_credential_is_verified_once_per_request(client, monkeypatch):
+    """The middleware and the dependency both used to verify. verify_key
+    writes last_used_at on every call, so a double check cost two SQLite
+    writes per request."""
+    from app import config
+    from app.routes import deps
+
+    headers = _key("counted")
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    calls = []
+    real = deps.verify_key
+    monkeypatch.setattr(deps, "verify_key", lambda k: (calls.append(k), real(k))[1])
+    # /api/keys carries CurrentUser, so both layers run for this request
+    assert client.get("/api/keys", headers=headers).status_code == 200
+    assert calls == []  # deps reused what the middleware already proved
+
+
 def test_slack_endpoint_keeps_its_own_gate(client, monkeypatch):
     from app import config
 
@@ -92,6 +208,18 @@ def test_calendar_feed_fails_closed_outside_trusted_header_mode(client, monkeypa
     assert client.get("/api/calendar.ics").status_code == 403
     monkeypatch.setattr(config, "ICS_TOKEN", "feed-secret")
     assert client.get("/api/calendar.ics?token=feed-secret").status_code == 200
+    assert client.get("/api/calendar.ics?token=wrong").status_code == 401
+
+
+def test_a_shared_token_shaped_like_a_key_still_works(client, monkeypatch):
+    # an operator whose SKEIN_API_TOKEN happens to start with the key prefix
+    # must not be locked out of their own deployment
+    from app import config
+
+    monkeypatch.setattr(config, "API_TOKEN", "sk-skein-operator-chose-this")
+    assert client.get("/api/tasks").status_code == 401
+    ok = client.get("/api/tasks", headers={"Authorization": f"Bearer {config.API_TOKEN}"})
+    assert ok.status_code == 200
 
 
 def test_oidc_mode_sign_in_is_strong_identity(client, monkeypatch, fresh_db):
@@ -106,6 +234,48 @@ def test_oidc_mode_sign_in_is_strong_identity(client, monkeypatch, fresh_db):
     assert tasks[0]["created_by"] == "casey"
     # a validated sign-in is STRONG: minting a first key needs no prior key
     assert client.post("/api/keys", json={"label": "cli"}, headers=hdr).status_code == 200
+
+
+def test_oidc_write_mints_the_roster_row_but_a_read_does_not(client, monkeypatch, fresh_db):
+    def roster(name):
+        return fresh_db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+
+    _oidc(
+        monkeypatch,
+        {"w": {"preferred_username": "writer"}, "r": {"preferred_username": "reader"}},
+    )
+    client.get("/api/notifications", headers={"Authorization": "Bearer r"})
+    # same rule as the name picker: a polling service account never grows the roster
+    assert roster("reader") is None
+    client.post("/api/capture", json={"text": "todo: x"}, headers={"Authorization": "Bearer w"})
+    row = roster("writer")
+    assert row is not None and row["kind"] == "human"
+
+
+def test_oidc_username_colliding_with_a_reserved_name_says_what_to_change(
+    client, monkeypatch, fresh_db
+):
+    """ensure_user refuses bench-persona slugs. An OIDC caller cannot pick a
+    different name the way the picker can, so a bare 400 would be a permanent
+    lockout with no stated cause."""
+    from app.services import personas
+
+    slug = sorted(personas.bench_slugs())[0]
+    _oidc(monkeypatch, {"tok": {"preferred_username": slug}})
+    r = client.post(
+        "/api/capture", json={"text": "todo: x"}, headers={"Authorization": "Bearer tok"}
+    )
+    assert r.status_code == 403
+    assert "SKEIN_OIDC_USERNAME_CLAIM" in r.json()["detail"]
+
+
+def test_oidc_admin_by_name_not_only_by_group(client, monkeypatch, fresh_db):
+    from app import config
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "Casey"}})
+    monkeypatch.setattr(config, "ADMINS", frozenset({"casey"}))
+    # names match the way the roster matches them — case must not lock an admin out
+    assert client.get("/api/admin/keys", headers={"Authorization": "Bearer tok"}).status_code == 200
 
 
 def test_oidc_sign_in_cannot_claim_an_agent_identity(client, monkeypatch, fresh_db):

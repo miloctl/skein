@@ -25,24 +25,53 @@ def rsa_key():
     return rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
+KID = "test-key-1"
+
+
+class _Key:
+    """The two attributes app/oidc.py reads off a PyJWK."""
+
+    def __init__(self, key, kid):
+        self.key = key
+        self.key_id = kid
+
+
+class _Client:
+    """Stands in for PyJWKClient with the exact surface _signing_key uses,
+    and counts fetches so the unknown-kid throttle can be observed."""
+
+    def __init__(self, key):
+        self._keys = [_Key(key, KID)]
+        self.fetches = 0
+
+    def get_signing_keys(self, refresh=False):
+        self.fetches += 1
+        return self._keys
+
+    def match_kid(self, keys, kid):
+        return next((k for k in keys if k.key_id == kid), None)
+
+
+_live: dict = {}
+
+
 @pytest.fixture()
 def issuer(monkeypatch, rsa_key):
     monkeypatch.setattr(config, "OIDC_ISSUER", ISS)
     monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein")
-    pub = rsa_key.public_key()
-
-    class _Key:
-        key = pub
-
-    class _Client:
-        def get_signing_key_from_jwt(self, token):
-            return _Key()
-
-    monkeypatch.setattr(oidc, "_client", lambda: _Client())
-    return rsa_key
+    oidc.reset()  # the refresh throttle is module state — never leak it across tests
+    _live["client"] = _Client(rsa_key.public_key())
+    monkeypatch.setattr(oidc, "_client", lambda: _live["client"])
+    yield rsa_key
+    oidc.reset()
 
 
-def _token(key, **over):
+@pytest.fixture()
+def jwks(issuer):
+    return _live["client"]
+
+
+def _token(key, kid=KID, **over):
     claims = {
         "iss": ISS,
         "aud": "skein",
@@ -52,7 +81,7 @@ def _token(key, **over):
     }
     claims.update(over)
     claims = {k: v for k, v in claims.items() if v is not None}
-    return pyjwt.encode(claims, key, algorithm="RS256")
+    return pyjwt.encode(claims, key, algorithm="RS256", headers={"kid": kid})
 
 
 def test_valid_token_yields_claims(issuer):
@@ -108,6 +137,70 @@ def test_hs256_confusion_refused(issuer):
         oidc.validate(forged)
 
 
+def test_none_is_not_an_accepted_algorithm():
+    # the allowlist is a security boundary, not a compatibility knob
+    assert "none" not in oidc.ALGORITHMS
+    assert all(a[:2] != "HS" for a in oidc.ALGORITHMS)
+
+
+def test_unknown_kid_refresh_is_throttled(jwks, issuer):
+    """An attacker-chosen kid is read BEFORE any signature check, and
+    PyJWKClient refreshes its key set on every miss. Without a throttle each
+    forged kid becomes one outbound JWKS fetch, blocking a worker for the
+    fetch timeout — an unauthenticated denial of service."""
+    forged = _token(issuer, kid="attacker-chosen")
+    with pytest.raises(oidc.OIDCError):
+        oidc.validate(forged)
+    after_first = jwks.fetches
+    assert after_first == 2  # one cached lookup, one throttled refresh
+    for _ in range(20):
+        with pytest.raises(oidc.OIDCError):
+            oidc.validate(forged)
+    # 20 more forged kids cost lookups against the CACHED set only — the
+    # refresh does not fire again inside the cooldown
+    assert jwks.fetches == after_first + 20
+
+
+def test_token_without_a_kid_is_refused_without_a_fetch(jwks, issuer):
+    headerless = pyjwt.encode({"iss": ISS, "aud": "skein"}, issuer, algorithm="RS256")
+    with pytest.raises(oidc.OIDCError) as e:
+        oidc.validate(headerless)
+    assert "names no signing key" in str(e.value)
+    assert jwks.fetches == 0
+
+
+def test_a_rotated_key_is_picked_up_on_refresh(jwks, issuer):
+    rotated = _Key(issuer.public_key(), "rotated-kid")
+
+    def rotate(refresh=False):
+        jwks.fetches += 1
+        return [rotated] if refresh else jwks._keys
+
+    jwks.get_signing_keys = rotate
+    claims = oidc.validate(_token(issuer, kid="rotated-kid"))
+    assert claims["preferred_username"] == "casey"
+
+
+def test_failed_discovery_is_not_retried_on_every_request(monkeypatch):
+    monkeypatch.setattr(config, "OIDC_ISSUER", ISS)
+    monkeypatch.setattr(config, "OIDC_JWKS_URL", "")
+    oidc.reset()
+    calls = []
+
+    def boom(url, timeout):
+        calls.append(url)
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(oidc.urllib.request, "urlopen", boom)
+    for _ in range(5):
+        with pytest.raises(oidc.OIDCError):
+            oidc._client()
+    # one attempt, then the cooldown answers — a down IdP must not turn every
+    # request into an outbound connection attempt
+    assert len(calls) == 1
+    oidc.reset()
+
+
 def test_principal_maps_configured_claims(monkeypatch):
     monkeypatch.setattr(config, "OIDC_USERNAME_CLAIM", "upn")
     monkeypatch.setattr(config, "OIDC_GROUPS_CLAIM", "roles")
@@ -122,10 +215,18 @@ def test_principal_requires_the_username_claim():
     assert "SKEIN_OIDC_USERNAME_CLAIM" in str(e.value)
 
 
-def test_principal_tolerates_a_non_list_groups_claim():
-    name, groups = oidc.principal({"preferred_username": "casey", "groups": "eng"})
+def test_principal_reads_a_lone_string_groups_claim_whole():
+    # some IdPs send a single group as a bare string. Splitting on spaces
+    # would invent two groups out of "Domain Admins", so it is taken whole.
+    name, groups = oidc.principal({"preferred_username": "casey", "groups": "Domain Admins"})
     assert name == "casey"
-    assert groups == []
+    assert groups == ["Domain Admins"]
+    assert oidc.principal({"preferred_username": "c", "groups": {"a": 1}})[1] == []
+
+
+def test_principal_truncates_a_long_username_to_the_roster_limit():
+    name, _ = oidc.principal({"preferred_username": "x" * 200})
+    assert len(name) == 64
 
 
 def test_discovery_without_jwks_uri_is_a_config_error(monkeypatch):

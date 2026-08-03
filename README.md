@@ -176,7 +176,8 @@ production host. Authority levels can only be set by human identities
 | Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent (keyless: `calculator,current_time,think,batch,sleep,rss`; key-gated: tavily/exa research tools — full allowlist in `app/agents/extra_tools.py`). Shell/file/exec tools **and** `http_request`/`use_agent`/`workflow` are deliberately not loadable — see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) — vectors tagged per model |
 | OpenTelemetry | `SKEIN_OTEL_ENDPOINT` | Agent traces to Jaeger/Langfuse |
-| API auth | `SKEIN_API_TOKEN` | Shared bearer token on every endpoint |
+| API auth | `SKEIN_AUTH_MODE` | `trusted-header` (default) · `api-key` (a personal key on every request) · `oidc` (IdP tokens validated in-process). Admin surfaces are held to `SKEIN_ADMINS` / `SKEIN_OIDC_ADMIN_GROUP` |
+| Shared token | `SKEIN_API_TOKEN` | Perimeter bearer token, `trusted-header` mode only |
 
 Notification tiers (immediate / digest / passive) and cross-thread agent
 memory (`/remember`, `remember`/`recall_memories` tools, auto-injected into
