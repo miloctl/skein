@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
     elif config.AUTH_MODE == "trusted-header":
         log.warning(
             "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted X-User"
-            " header. This mode is for a trusted LAN or local dev. If the"
+            " header. This mode is for a trusted network or local development. If the"
             " deployment is shared, set SKEIN_AUTH_MODE=api-key or oidc."
         )
     if config.API_TOKEN and config.AUTH_MODE != "trusted-header":

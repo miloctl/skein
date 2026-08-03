@@ -5,7 +5,7 @@ sidebar rehydrates from — written by the chat route for mock and real
 providers alike, so history is keyless-first. It is the UI's copy; the
 Strands session files remain the model's own conversation memory.
 
-Threads are owner-scoped by the trusted-LAN identity (X-User) — a
+Threads are owner-scoped by the trusted-network identity (X-User) — a
 convenience boundary, not privacy: anything you'd mark fb: belongs in
 ⌘K capture or the People page, and the chat route enforces that by
 refusing fb: lines before any logging. When OIDC lands, these routes

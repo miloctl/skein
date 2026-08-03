@@ -422,8 +422,8 @@ EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(
 
 # ---- authentication --------------------------------------------------------
 # How a caller proves who they are. routes/deps.py is the single branch point.
-#   trusted-header  identity is the self-asserted X-User header (LAN / local
-#                   dev). Personal API keys still work and are the only
+#   trusted-header  identity is the self-asserted X-User header (trusted
+#                   network / local dev). Personal API keys still work and are the only
 #                   STRONG identity.
 #   api-key         every request needs a personal API key (sk-skein-…).
 #   oidc            humans present an IdP-issued JWT, validated in-process

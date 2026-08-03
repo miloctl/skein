@@ -4,8 +4,8 @@ import { API_URL } from "./config";
 export { API_URL };
 
 /** One condition, one wording (CLAUDE.md). Every surface that cannot reach the
- *  backend says this — the URL included, because on a LAN it is usually the
- *  thing that is wrong. */
+ *  backend says this — the URL included, because in a self-hosted deployment
+ *  it is usually the thing that is wrong. */
 export const backendUnreachable = (error?: unknown) =>
   `Cannot reach the backend at ${API_URL}. Check that the server is running, then try again.` +
   (error ? ` (${String(error)})` : "");

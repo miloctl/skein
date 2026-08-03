@@ -278,7 +278,7 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     from . import private_notes
 
     # The private journal follows the person ONLY when the person is doing the
-    # renaming. Every keyholder can rename any roster row (the trusted-LAN
+    # renaming. Every keyholder can rename any roster row (the trusted-network
     # model makes them all admins over TEAM data) — but a rename that also
     # moved the private half would let anyone merge someone else's row into
     # their own name and inherit their 1:1 notes and fb: journal, the one

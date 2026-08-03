@@ -118,8 +118,8 @@ def _ics_dt_lines(prop: str, iso: str) -> list[str]:
 
 def ics_feed() -> str:
     """Events + open milestone/commitment due dates as an iCalendar feed.
-    Team-visible data only; LAN-only surface (hosted calendar clients would
-    mirror titles off-box — prefer local clients)."""
+    Team-visible data only; keep the feed inside the trusted network (hosted
+    calendar clients would mirror titles off-box — prefer local clients)."""
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",

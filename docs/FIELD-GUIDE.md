@@ -39,7 +39,7 @@ and judgment-laden surfaces; silent retroactive seeding; quiet cadence.
   the `tool_usage` precedent (self-scoped telemetry), not the provenance
   convention for work data.
 - **Weak identity accepted, on purpose.** `GET /api/field-guide` rides
-  `CurrentUser` (spoofable `X-User`, trusted-LAN model), same as the
+  `CurrentUser` (spoofable `X-User`, trusted-network model), same as the
   briefing and every personal-but-not-private surface. Unlock state is
   discovery telemetry about tool usage, not private content — the truly
   private surfaces (1:1 notes, `fb:` journal) are excluded from the guide

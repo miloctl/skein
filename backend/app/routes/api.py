@@ -407,8 +407,9 @@ class KeyIn(BaseModel):
 
 
 # Key MUTATION requires an existing key (StrongUser): minting on X-User
-# identity alone would let any LAN caller become anyone and defeat the whole
-# private-record boundary. First key per person: python -m app.bootstrap_key.
+# identity alone would let anyone who can reach the API become anyone and
+# defeat the whole private-record boundary. First key per person:
+# python -m app.bootstrap_key.
 
 
 @router.post("/keys")
@@ -1266,7 +1267,8 @@ def post_digest(user: CurrentUser):
 @router.get("/calendar.ics")
 def get_calendar_ics(token: str = ""):
     """iCalendar feed of events + due dates (team-visible data only).
-    LAN-only. Calendar clients can't send headers, so auth is a DEDICATED
+    Keep the feed inside the trusted network. Calendar clients can't send
+    headers, so auth is a DEDICATED
     feed secret (?token=SKEIN_ICS_TOKEN) — never the API token, which
     would end up in calendar configs and access logs. Fully-open mode only
     when the whole API is open (trusted-header mode, no API_TOKEN);

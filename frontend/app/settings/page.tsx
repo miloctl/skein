@@ -577,7 +577,7 @@ export default function SettingsPage() {
         <p className="mb-2 text-sm text-ink-3">
           Subscribe your calendar app to team events + milestone/commitment
           due dates. Use a local calendar client — hosted clients (Google)
-          mirror titles off-LAN.
+          mirror titles outside your network.
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
         <p className="mt-2 text-xs text-ink-3">
