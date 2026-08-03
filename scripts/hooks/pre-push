@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# CI runs only on push to main (.gitea/workflows/ci.yml), so this hook is the
+# first mechanical gate a change meets. Install: git config core.hooksPath scripts/hooks
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if ! ./scripts/lint.sh; then
+    echo "pre-push: lint failed. Fix the errors above, then push again." >&2
+    exit 1
+fi
+
+if ! (cd backend && .venv/bin/pytest -q -n auto); then
+    echo "pre-push: tests failed. Fix the failing tests, then push again." >&2
+    exit 1
+fi

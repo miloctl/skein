@@ -1,40 +1,64 @@
 #!/usr/bin/env bash
-# Every lint gate CI runs. .gitea/workflows/ci.yml duplicates these commands —
-# a gate added here without updating ci.yml passes locally and never runs on push.
+# The one list of lint gates. .gitea/workflows/ci.yml calls this script with a
+# mode argument — add a gate here and it runs locally and on push with no
+# second edit. Do not restate a gate in ci.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== ruff =="
-backend/.venv/bin/ruff check backend/app backend/tests backend/seed.py cli/skein_cli.py scripts
-backend/.venv/bin/ruff format --check backend/app backend/tests backend/seed.py cli/skein_cli.py scripts
+mode="${1:-all}"
+case "$mode" in
+    backend | frontend | all) ;;
+    *)
+        echo "lint.sh: unknown argument. Use backend, frontend, or all." >&2
+        exit 2
+        ;;
+esac
 
-echo "== mypy =="
-(cd backend && .venv/bin/mypy)
+# CI installs the backend dev tools into the runner's Python, not a venv;
+# without this fallback every gate below fails there with "No such file".
+if [ -d backend/.venv/bin ]; then
+    export PATH="$PWD/backend/.venv/bin:$PATH"
+fi
 
-echo "== vulture (dead code) =="
-(cd backend && .venv/bin/vulture)
+if [ "$mode" != "frontend" ]; then
+    echo "== ruff =="
+    ruff check backend/app backend/tests backend/seed.py cli/skein_cli.py scripts
+    ruff format --check backend/app backend/tests backend/seed.py cli/skein_cli.py scripts
 
-echo "== personas =="
-(cd backend && .venv/bin/python -m app.services.personas)
+    echo "== mypy =="
+    (cd backend && mypy)
 
-echo "== license copies =="
-# backend/ carries copies because PEP 639 forbids ../ in license-files;
-# a drifted copy would ship a wheel with the wrong license text.
-cmp LICENSE backend/LICENSE && cmp NOTICE backend/NOTICE
+    echo "== vulture (dead code) =="
+    (cd backend && vulture)
 
-echo "== theme contrast =="
-python3 scripts/check_theme_contrast.py
+    echo "== personas =="
+    (cd backend && python -m app.services.personas)
 
-echo "== typescript =="
-# eslint does not typecheck, so a type error reaches main with every gate
-# green. CLAUDE.md tells a person to run `npm run build`; this makes the
-# gate enforce it, at a fraction of a full build's cost.
-(cd frontend && npx --no-install tsc --noEmit)
+    echo "== license copies =="
+    # backend/ carries copies because PEP 639 forbids ../ in license-files;
+    # a drifted copy would ship a wheel with the wrong license text.
+    cmp LICENSE backend/LICENSE && cmp NOTICE backend/NOTICE
 
-echo "== eslint =="
-(cd frontend && npm run --silent lint)
+    echo "== theme contrast =="
+    python3 scripts/check_theme_contrast.py
+fi
 
-echo "== knip (dead code) =="
-(cd frontend && npm run --silent knip)
+if [ "$mode" != "backend" ]; then
+    # eslint does not typecheck, so a type error reaches main with every gate
+    # green. CLAUDE.md tells a person to run `npm run build`; this makes the
+    # gate enforce it, at a fraction of a full build's cost. CI's frontend job
+    # sets SKIP_TSC=1 because its `next build` step typechecks the same files —
+    # set it anywhere else and type errors reach main unchecked.
+    if [ "${SKIP_TSC:-0}" != "1" ]; then
+        echo "== typescript =="
+        (cd frontend && npx --no-install tsc --noEmit)
+    fi
 
-echo "all lint checks passed"
+    echo "== eslint =="
+    (cd frontend && npm run --silent lint)
+
+    echo "== knip (dead code) =="
+    (cd frontend && npm run --silent knip)
+fi
+
+echo "lint checks passed ($mode)"
