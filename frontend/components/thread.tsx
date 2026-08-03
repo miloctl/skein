@@ -65,6 +65,35 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "remember", args: "<fact>", description: "Save a durable cross-thread memory" },
 ];
 
+// Promise-cached for the life of the page: both catalogs change only on a
+// server restart, and RuntimeProvider's key={threadId} remounts the Composer
+// on every thread switch — uncached, each switch cost two requests. The
+// authConfig() shape (lib/auth.ts): a failed read is not cached, so the
+// next mount retries.
+let commandsCache: Promise<SlashCommand[]> | null = null;
+function chatCommands(): Promise<SlashCommand[]> {
+  if (!commandsCache) {
+    const attempt = api<SlashCommand[]>("/api/chat/commands").catch((e) => {
+      if (commandsCache === attempt) commandsCache = null;
+      throw e;
+    });
+    commandsCache = attempt;
+  }
+  return commandsCache;
+}
+
+let personasCache: Promise<Persona[]> | null = null;
+function personaList(): Promise<Persona[]> {
+  if (!personasCache) {
+    const attempt = api<Persona[]>("/api/personas").catch((e) => {
+      if (personasCache === attempt) personasCache = null;
+      throw e;
+    });
+    personasCache = attempt;
+  }
+  return personasCache;
+}
+
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
@@ -79,8 +108,8 @@ const Composer = () => {
   );
 
   useEffect(() => {
-    api<SlashCommand[]>("/api/chat/commands").then(setCommands).catch(() => {});
-    api<Persona[]>("/api/personas")
+    chatCommands().then(setCommands).catch(() => {});
+    personaList()
       .then((list) => {
         setPersonas(list);
         setBench(list);

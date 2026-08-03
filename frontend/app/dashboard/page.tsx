@@ -174,6 +174,116 @@ function EditRow({
   );
 }
 
+/** The draft lives here (EditRow idiom): keystrokes re-render this form,
+ *  not the thirteen-section page around it. */
+function AbsenceForm({
+  onAdd,
+}: {
+  onAdd: (draft: Record<string, string>) => Promise<void>;
+}) {
+  const empty = { person: "", starts_on: "", ends_on: "", kind: "pto" };
+  const [draft, setDraft] = useState(empty);
+  const [adding, setAdding] = useState(false);
+  const add = async () => {
+    setAdding(true);
+    try {
+      await onAdd(draft);
+      setDraft(empty);
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setAdding(false);
+    }
+  };
+  return (
+    <div className="mb-3 flex flex-wrap items-end gap-1.5 text-xs">
+      <PersonInput
+        aria-label="Who is away"
+        value={draft.person}
+        onChange={(e) => setDraft({ ...draft, person: e.target.value })}
+        placeholder="who"
+        className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+      />
+      {/* visible captions: once the row wraps, two bare date inputs are
+          indistinguishable — aria-labels don't help a sighted phone user */}
+      <label className="flex flex-col gap-0.5">
+        <span className="text-[10px] uppercase tracking-wide text-ink-3">from</span>
+        <input
+          type="date"
+          aria-label="Away from"
+          value={draft.starts_on}
+          onChange={(e) => setDraft({ ...draft, starts_on: e.target.value })}
+          className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+        />
+      </label>
+      <label className="flex flex-col gap-0.5">
+        <span className="text-[10px] uppercase tracking-wide text-ink-3">until</span>
+        <input
+          type="date"
+          aria-label="Away until"
+          min={draft.starts_on || undefined}
+          value={draft.ends_on}
+          onChange={(e) => setDraft({ ...draft, ends_on: e.target.value })}
+          className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
+        />
+      </label>
+      <select
+        aria-label="Kind of absence"
+        value={draft.kind}
+        onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
+        className="rounded-lg border border-line-strong bg-card px-1.5 py-1"
+      >
+        <option value="pto">PTO</option>
+        <option value="oncall">on-call</option>
+        <option value="focus">focus</option>
+      </select>
+      <button
+        disabled={
+          adding ||
+          !draft.person.trim() ||
+          !draft.starts_on ||
+          !draft.ends_on ||
+          draft.ends_on < draft.starts_on
+        }
+        onClick={add}
+        className="rounded-lg bg-thread-solid px-2.5 py-1 font-medium text-white hover:opacity-90 disabled:opacity-40"
+      >
+        {adding ? "Adding…" : "Add"}
+      </button>
+    </div>
+  );
+}
+
+const COLLECTIONS = [
+  "milestones",
+  "tasks",
+  "questions",
+  "decisions",
+  "standups",
+  "events",
+  "notes",
+  "activity",
+  "blockers",
+  "engagements",
+  "capacity",
+  "absences",
+];
+
+function fetchCollection(name: string): Promise<Row[]> {
+  if (name !== "events") return api<Row[]>(`/api/${name}`);
+  // calendar shows what's ahead — without the cutoff the card fills with
+  // the 50 oldest events and never today's
+  const now = new Date();
+  // cutoff = the EARLIER of local and UTC day: event timestamps are naive
+  // UTC by convention but typed as local wall times in practice, and the
+  // cutoff must never hide the rest of "today" on either side of UTC —
+  // worst case it shows one extra stale day
+  const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const utcDay = now.toISOString().slice(0, 10);
+  const today = localDay < utcDay ? localDay : utcDay;
+  return api<Row[]>(`/api/events?from_date=${today}`);
+}
+
 const CONCLUSIONS = [
   "achieved",
   "partial",
@@ -205,13 +315,6 @@ export default function Dashboard() {
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
   const [deletingAbsence, setDeletingAbsence] = useState<number | null>(null);
-  const [addingAbsence, setAddingAbsence] = useState(false);
-  const [absDraft, setAbsDraft] = useState({
-    person: "",
-    starts_on: "",
-    ends_on: "",
-    kind: "pto",
-  });
 
 
   // inline actions re-fetch instead of window.location.reload() — a reload
@@ -220,46 +323,19 @@ export default function Dashboard() {
   // last-request-wins: two quick mutations both refresh; the older snapshot
   // resolving last must not overwrite fresher data or raise a stale banner
   const generation = useRef(0);
-  const load = useCallback(() => {
+  // an inline mutation refreshes ONLY the collections it changed (the write
+  // endpoints answer with summaries, not rows, so local patching is not an
+  // option) — the full 13-endpoint sweep is for mount and retry. Every
+  // handler adds "activity" (every service write logs there) and pulse
+  // rides along (blocker/engagement/standup writes move its numbers).
+  const refresh = useCallback((names: string[]) => {
     const g = ++generation.current;
-    const endpoints = [
-      "milestones",
-      "tasks",
-      "questions",
-      "decisions",
-      "standups",
-      "events",
-      "notes",
-      "activity",
-      "blockers",
-      "engagements",
-      "capacity",
-      "absences",
-    ];
-    // calendar shows what's ahead — without the cutoff the card fills with
-    // the 50 oldest events and never today's
-    const now = new Date();
-    // cutoff = the EARLIER of local and UTC day: event timestamps are naive
-    // UTC by convention but typed as local wall times in practice, and the
-    // cutoff must never hide the rest of "today" on either side of UTC —
-    // worst case it shows one extra stale day
-    const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const utcDay = now.toISOString().slice(0, 10);
-    const today = localDay < utcDay ? localDay : utcDay;
     Promise.all(
-      endpoints.map(
-        async (e) =>
-          [
-            e,
-            await api<Row[]>(
-              e === "events" ? `/api/events?from_date=${today}` : `/api/${e}`,
-            ),
-          ] as const,
-      ),
+      names.map(async (e) => [e, await fetchCollection(e)] as const),
     )
       .then((pairs) => {
         if (g !== generation.current) return;
-        setData(Object.fromEntries(pairs));
+        setData((prev) => ({ ...prev, ...Object.fromEntries(pairs) }));
         setError(null); // a recovered refresh must clear the banner
       })
       .catch((err) => {
@@ -269,29 +345,23 @@ export default function Dashboard() {
       .then(setPulse)
       .catch(() => {}); // pulse is decorative — its failure must not blank the page
   }, []);
+  const load = useCallback(() => refresh(COLLECTIONS), [refresh]);
   useEffect(load, [load]);
 
   const refocusEdit = (kind: string, id: number) =>
     setTimeout(() => document.getElementById(`edit-${kind}-${id}`)?.focus(), 0);
 
-  const addAbsence = async () => {
-    setAddingAbsence(true);
-    try {
-      await api("/api/absences", { method: "POST", body: JSON.stringify(absDraft) });
-      setAbsDraft({ person: "", starts_on: "", ends_on: "", kind: "pto" });
-      load();
-    } catch (e) {
-      alert(String(e));
-    } finally {
-      setAddingAbsence(false);
-    }
+  const addAbsence = async (draft: Record<string, string>) => {
+    // absences feed capacity's "away" markers — both must refresh together
+    await api("/api/absences", { method: "POST", body: JSON.stringify(draft) });
+    refresh(["absences", "capacity", "activity"]);
   };
 
   const deleteAbsence = async (id: number) => {
     try {
       await api(`/api/absences/${id}`, { method: "DELETE" });
       setDeletingAbsence(null);
-      load();
+      refresh(["absences", "capacity", "activity"]);
     } catch (e) {
       alert(String(e));
     }
@@ -302,7 +372,7 @@ export default function Dashboard() {
       await api(`/api/${entity}/${id}`, { method: "PATCH", body: JSON.stringify(fields) });
       setEditing(null);
       refocusEdit(entity === "tasks" ? "task" : "milestone", id);
-      load();
+      refresh([entity, "activity"]);
     } catch (e) {
       alert(String(e));
     }
@@ -316,7 +386,7 @@ export default function Dashboard() {
       });
       setEditingNote(null);
       refocusEdit("note", id);
-      load();
+      refresh(["notes", "activity"]);
     } catch (e) {
       alert(String(e));
     }
@@ -326,7 +396,7 @@ export default function Dashboard() {
     try {
       await api(`/api/notes/${id}`, { method: "DELETE" });
       setDeletingNote(null);
-      load();
+      refresh(["notes", "activity"]);
     } catch (e) {
       alert(String(e));
     }
@@ -339,7 +409,7 @@ export default function Dashboard() {
         body: JSON.stringify({ assigned_to: who }),
       });
       setAssigning(null);
-      load();
+      refresh(["questions", "activity"]);
     } catch (e) {
       alert(String(e));
     }
@@ -518,7 +588,7 @@ export default function Dashboard() {
                           body: JSON.stringify({ status: "closed", conclusion: c }),
                         });
                         setClosing(null);
-                        load();
+                        refresh(["engagements", "activity"]);
                       } catch (err) {
                         alert(String(err));
                       }
@@ -586,61 +656,7 @@ export default function Dashboard() {
           PTO zeroes someone out of capacity and the weekly plan. On-call and
           focus are advisory context for staffing calls.
         </p>
-        <div className="mb-3 flex flex-wrap items-end gap-1.5 text-xs">
-          <PersonInput
-            aria-label="Who is away"
-            value={absDraft.person}
-            onChange={(e) => setAbsDraft({ ...absDraft, person: e.target.value })}
-            placeholder="who"
-            className="w-28 rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
-          />
-          {/* visible captions: once the row wraps, two bare date inputs are
-              indistinguishable — aria-labels don't help a sighted phone user */}
-          <label className="flex flex-col gap-0.5">
-            <span className="text-[10px] uppercase tracking-wide text-ink-3">from</span>
-            <input
-              type="date"
-              aria-label="Away from"
-              value={absDraft.starts_on}
-              onChange={(e) => setAbsDraft({ ...absDraft, starts_on: e.target.value })}
-              className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
-            />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-[10px] uppercase tracking-wide text-ink-3">until</span>
-            <input
-              type="date"
-              aria-label="Away until"
-              min={absDraft.starts_on || undefined}
-              value={absDraft.ends_on}
-              onChange={(e) => setAbsDraft({ ...absDraft, ends_on: e.target.value })}
-              className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
-            />
-          </label>
-          <select
-            aria-label="Kind of absence"
-            value={absDraft.kind}
-            onChange={(e) => setAbsDraft({ ...absDraft, kind: e.target.value })}
-            className="rounded-lg border border-line-strong bg-card px-1.5 py-1"
-          >
-            <option value="pto">PTO</option>
-            <option value="oncall">on-call</option>
-            <option value="focus">focus</option>
-          </select>
-          <button
-            disabled={
-              addingAbsence ||
-              !absDraft.person.trim() ||
-              !absDraft.starts_on ||
-              !absDraft.ends_on ||
-              absDraft.ends_on < absDraft.starts_on
-            }
-            onClick={addAbsence}
-            className="rounded-lg bg-thread-solid px-2.5 py-1 font-medium text-white hover:opacity-90 disabled:opacity-40"
-          >
-            {addingAbsence ? "Adding…" : "Add"}
-          </button>
-        </div>
+        <AbsenceForm onAdd={addAbsence} />
         {(data.absences ?? []).length === 0 ? (
           <p className="text-sm text-ink-3">Nobody is scheduled away.</p>
         ) : (
@@ -839,7 +855,7 @@ export default function Dashboard() {
                             body: JSON.stringify({ answer }),
                           });
                           setAnswering(null);
-                          load();
+                          refresh(["questions", "activity"]);
                         } catch (e) {
                           alert(String(e));
                         }

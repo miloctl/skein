@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { ChatThread } from "@/components/chat-sidebar";
+import { chatThreads } from "@/lib/chat-threads";
 
 /** The conversation's name, as the page's h1. With the sidebar closed this
  *  was the only thing telling you which of your chats you were in — and the
@@ -14,7 +14,9 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(() => {
-    api<ChatThread[]>("/api/chats")
+    // shared single-flight list (lib/chat-threads.ts) — the sidebar reads
+    // the same fetch, so each activity event costs one request, not two
+    chatThreads()
       .then((rows) => setTitle(rows.find((t) => t.id === threadId)?.title ?? ""))
       .catch(() => {});
   }, [threadId]);
