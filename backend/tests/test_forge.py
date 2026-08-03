@@ -504,3 +504,51 @@ def test_a_bad_payload_is_a_4xx_not_a_500(client, fresh_db, monkeypatch):
         },
     )
     assert r.status_code == 400
+
+
+def test_the_address_meter_runs_before_the_signature_check(signed, fresh_db, monkeypatch):
+    """The property that makes forge_addr a defense is its POSITION: an
+    unsigned caller has no name to key on, and the HMAC over the body is the
+    expensive part. Metering after verification protects nothing they touch."""
+    from app import ratelimit
+
+    monkeypatch.setitem(ratelimit.LIMITS, "forge_addr", 3)
+    # every one of these fails the signature — the meter must still count them
+    for _ in range(3):
+        assert signed("push", _push("task/1-x"), secret="wrong").status_code == 401
+    r = signed("push", _push("task/1-x"), secret="wrong")
+    assert r.status_code == 400
+    assert "forge_addr" in r.json()["detail"]
+
+
+def test_the_link_rides_the_transition_that_earns_it(signed, fresh_db):
+    from app import db
+    from app.services import work
+
+    tid = work.create_task("Fix login")["id"]
+    signed("push", _push(f"task/{tid}-x"))
+    assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"].endswith(
+        f"/src/branch/task/{tid}-x"
+    )
+    signed("pull_request", _pr(f"task/{tid}-x", action="closed", merged=True))
+    # the merge earned the transition, so it carries the pull request link
+    assert (
+        db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"]
+        == "https://git.example/skein/pulls/7"
+    )
+
+
+def test_a_task_someone_else_closed_keeps_its_branch_link(signed, fresh_db):
+    from app import db
+    from app.services import work
+
+    tid = work.create_task("Fix login")["id"]
+    signed("push", _push(f"task/{tid}-x"))
+    work.update_task(tid, status="done", actor="mira")
+    out = signed("pull_request", _pr(f"task/{tid}-x", action="closed", merged=True)).json()
+    # no transition left to earn, so nothing is recorded — docs/FEATURES.md
+    # says exactly this, and said the opposite for three rounds
+    assert out["ignored"] == "task is already done"
+    assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"].endswith(
+        f"/src/branch/task/{tid}-x"
+    )

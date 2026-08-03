@@ -163,12 +163,11 @@ def parse_gitea(event: str, payload: dict) -> dict | None:
         if not ref.startswith("refs/heads/"):
             return None  # a tag or a note, not a branch
         branch = ref[len("refs/heads/") :]
-        # NEVER compare_url. It carries the before/after shas, so it differs on
-        # every push — storing it defeats the repeat-push guard in forge_event
-        # and appends a permanent ledger row per push. It is also empty on the
-        # push that CREATES the branch, which is the push that starts the task.
-        # The branch page is stable and the better link either way. quote()
-        # because a ref may carry characters that break a URL.
+        # NEVER compare_url. It names two shas, so it points at one diff
+        # rather than at the work, and it is empty on the push that CREATES
+        # the branch — the push that starts the task. The branch page is
+        # stable and outlives every commit on it. quote() because a ref may
+        # carry characters that break a URL.
         url = f"{repo}/src/branch/{quote(branch, safe='/')}" if repo else ""
         login = (payload.get("pusher") or {}).get("login") or sender
         return {"kind": "branch_push", "branch": branch, "url": url, "login": login}

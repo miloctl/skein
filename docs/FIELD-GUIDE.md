@@ -53,6 +53,16 @@ and judgment-laden surfaces; silent retroactive seeding; quiet cadence.
   optional `role: manager` tag, `since` date. Predicates live in
   `app/services/fieldguide.py` keyed by id (SQL stays in the service layer);
   the loader fails loudly on a card without a predicate or vice versa.
+- `ties:` says how a card is tied, and the loader refuses a card whose
+  answer does not match its predicate. `predicate` (the default) means the
+  entry in `PREDICATES` detects first use. `mark` means the card has no
+  predicate because the feature is a READ, so a route calls
+  `fieldguide.mark`. `never` means the card documents a team-level setup
+  with no personal first use — it stays untied for everyone, leaves the
+  weekly suggestion, and leaves the `feature_unadopted` sweep, because a
+  card nobody can tie would otherwise nag forever. A predicate-less card
+  that claims `predicate`, or a card with a predicate that claims anything
+  else, aborts boot.
 - State: `feature_unlocks` (migration 033), append-only rows
   (person, knot, kind tied|dismissed, seen, first_at). Predicates *detect*;
   the table *holds* — activity gets pruned by retention, unlocks survive.

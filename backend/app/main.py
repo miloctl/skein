@@ -49,7 +49,12 @@ async def lifespan(app: FastAPI):
     # permanently shadow the chat identity's writes
     from .services.users import ensure_user
 
-    ensure_user("agent", kind="agent")
+    try:
+        ensure_user("agent", kind="agent")
+    except ValueError as exc:
+        # a legacy human row named `Agent` was legal before the collision
+        # guard; it must not brick a boot nobody can reach the rename route on
+        log.error("the built-in 'agent' identity is unavailable: %s", exc)
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing
@@ -200,7 +205,7 @@ async def perimeter_auth(request: Request, call_next):
         agent_on_signin,
     )
     from .services.api_keys import PREFIX, verify_key
-    from .services.users import is_agent
+    from .services.users import is_agent, reserved_refusal
 
     auth = request.headers.get("Authorization", "")
     # The shared token is checked BEFORE the key prefix: an operator whose
@@ -223,6 +228,11 @@ async def perimeter_auth(request: Request, call_next):
         # in api-key/oidc mode this is their only gate.
         if await run_in_threadpool(is_agent, owner):
             return JSONResponse(status_code=403, content={"detail": agent_on_rest(owner)})
+        # and the reserved-name wall, for exactly the same reason: deps.py
+        # refuses this credential, but the read routes never reach deps.
+        reserved = await run_in_threadpool(reserved_refusal, owner)
+        if reserved:
+            return JSONResponse(status_code=403, content={"detail": reserved})
         request.state.auth_key_owner = owner
         return await call_next(request)
     if config.AUTH_MODE == "trusted-header":
@@ -244,6 +254,9 @@ async def perimeter_auth(request: Request, call_next):
         # naming an agent row would otherwise read them all.
         if await run_in_threadpool(is_agent, name):
             return JSONResponse(status_code=403, content={"detail": agent_on_signin(name)})
+        reserved = await run_in_threadpool(reserved_refusal, name)
+        if reserved:
+            return JSONResponse(status_code=403, content={"detail": reserved})
         request.state.auth_claims = claims
         return await call_next(request)
     detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN

@@ -330,9 +330,6 @@ def guide(person: str) -> dict:
             "how": k["how"],
             "link": k["link"],
             "role": k.get("role", ""),
-            # the UI shows a completable "N of M tied" counter, so a card that
-            # never ties has to say so rather than read as one you missed
-            "ties": k.get("ties", "predicate"),
             "tied": t is not None,
             "tied_on": t["first_at"][:10] if t else "",
         }

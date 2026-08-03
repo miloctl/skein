@@ -36,6 +36,16 @@ def refuse_reserved_name(name: str) -> None:
         raise ValueError(f"'{name.strip()}' is reserved for the system — pick another name")
 
 
+def reserved_refusal(name: str) -> str:
+    """The reserved-name refusal as a STRING, for the perimeter middleware,
+    which returns responses rather than raising. One rule, two shapes."""
+    try:
+        refuse_reserved_name(name)
+    except ValueError as exc:
+        return str(exc)
+    return ""
+
+
 def reserved_name_rows() -> list[str]:
     """Roster rows whose name the wall now refuses. Named at boot so whoever
     runs the server can move them with rename_user, the one code path that
@@ -66,7 +76,7 @@ def refuse_kind_collision(name: str, kind: str, *, ignore: str = "") -> None:
             continue
         if _fold(row["name"]) == target:
             raise ValueError(
-                f"'{row['name']}' already exists as a {row['kind']} —"
+                f"'{row['name']}' already exists as an {row['kind']} —"
                 f" '{name}' differs only by case, and one name must mean one identity"
             )
 

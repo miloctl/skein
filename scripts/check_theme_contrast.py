@@ -408,7 +408,13 @@ def main() -> int:
     # *.ts* and the stylesheet, not *.tsx alone: a class assembled in a .ts
     # module or applied in CSS is the same misuse, and scanning one extension
     # would fix this instance rather than the rule.
-    scanned = [p for p in THEME_TS.parents[1].rglob("*.ts*") if "node_modules" not in p.parts]
+    src = THEME_TS.parents[1]
+    scanned = [
+        f
+        for d in ("app", "components", "lib")
+        for f in (src / d).rglob("*.ts*")
+        if "node_modules" not in f.parts
+    ]
     for path in [*sorted(scanned), CSS]:
         text = path.read_text()
         for token in fill_only:
