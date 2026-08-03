@@ -88,7 +88,7 @@ knots:
     knot: Thief Knot
     set: loops
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
-    how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask."
+    how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask. Type `#42` to jump to task 42, or `blocker 3` to jump to blocker 3."
     link: /chat
     since: 2026-07-31
 
