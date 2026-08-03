@@ -1,6 +1,6 @@
 """Tiny in-process, per-user sliding-window rate caps for flood-prone write
 endpoints (capture, ingest). Not a security control — a DoS-annoyance guard
-for a single-process trusted-LAN deployment. Deliberately process-local:
+for a single-process trusted-network deployment. Deliberately process-local:
 restarting resets it, multi-worker deployments each get their own window."""
 
 import time

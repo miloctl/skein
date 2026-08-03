@@ -1,8 +1,9 @@
 """Out-of-band first-key bootstrap: `python -m app.bootstrap_key <name>`.
 
 Minting via POST /api/keys requires an existing key (StrongUser) — otherwise
-anyone on the LAN could mint a key for any identity with one X-User header
-and walk through the private-record boundary. The first key per person is
+anyone who can reach the API could mint a key for any identity with one
+X-User header and walk through the private-record boundary. The first key
+per person is
 therefore issued here, by someone with shell access to the box (the trusted
 root of the deployment). OIDC+PKCE replaces this flow at deployment."""
 

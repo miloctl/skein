@@ -1,5 +1,5 @@
 /** navigator.clipboard exists only in secure contexts (https / localhost);
- *  Skein is typically served over plain http on a LAN IP, so fall back to
+ *  Skein can be served over plain http (no secure context), so fall back to
  *  the legacy hidden-textarea path there. */
 export async function copyText(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard) {

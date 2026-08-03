@@ -17,8 +17,8 @@ import {
 const LAST_KEY = "skein-last-chat";
 
 function newId() {
-  // crypto.randomUUID is secure-context-only — absent over plain http on a
-  // LAN IP, which is exactly how Skein is served. getRandomValues is not.
+  // crypto.randomUUID is secure-context-only — absent when Skein is served
+  // over plain http. getRandomValues is not.
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const b = crypto.getRandomValues(new Uint8Array(16));
   b[6] = (b[6] & 0x0f) | 0x40;

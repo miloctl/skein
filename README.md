@@ -191,7 +191,7 @@ the agent's prompt) work keyless, in-app.
   box: `python -m app.bootstrap_key <you>` (or
   `docker compose exec backend python -m app.bootstrap_key <you>`). Minting
   via the API requires an *existing* key, deliberately — on X-User identity
-  alone any LAN caller could become anyone. Once you hold one, later keys
+  alone anyone who can reach the API could become anyone. Once you hold one, later keys
   come from `curl -X POST $URL/api/keys -H 'Authorization: Bearer sk-skein-…'
   -H 'Content-Type: application/json' -d '{"label":"cli"}'`. Store the
   `sk-skein-…` once — it is never shown again; keys authenticate and

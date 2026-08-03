@@ -9,7 +9,7 @@ this file is only for accepted trade-offs that must eventually be repaid.
   untied cards, consume their "newly tied" state, and (via the rate-capped
   dismiss endpoint) permanently silence their weekly suggestions — a write
   into their state, not just a read. Accepted 2026-07-31
-  under the trusted-LAN model (same exposure class as the My Day briefing;
+  under the trusted-network model (same exposure class as the My Day briefing;
   truly private surfaces are excluded from the guide entirely — see
   docs/FIELD-GUIDE.md "Weak identity accepted"). Repay when the OIDC
   identity bridge lands: once every request carries a validated identity,

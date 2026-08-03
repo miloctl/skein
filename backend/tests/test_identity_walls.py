@@ -10,7 +10,7 @@ import pytest
 
 
 def test_a_rename_by_someone_else_cannot_touch_the_private_journal(fresh_db):
-    """Every keyholder can rename any roster row — the trusted-LAN model makes
+    """Every keyholder can rename any roster row — the trusted-network model makes
     them all admins over TEAM data. Moving the private half too let anyone
     merge another person's row into their own name and inherit their 1:1 notes
     and fb: journal, the one dataset teammates are promised they cannot read.
