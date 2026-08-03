@@ -9,6 +9,17 @@ def _is_bench_slug(name: str) -> bool:
     return name in personas.bench_slugs()
 
 
+def _fold(name: str) -> str:
+    """The one normalization every identity comparison uses. NFKC because
+    a fullwidth `TEAM` renders as `team`, and category Cf is stripped
+    because a zero-width joiner inside `team` does too — a name that reads as a system actor in every
+    surface must not be a different identity from the system actor."""
+    import unicodedata
+
+    folded = unicodedata.normalize("NFKC", (name or "").strip())
+    return "".join(c for c in folded if unicodedata.category(c) != "Cf").casefold()
+
+
 def refuse_reserved_name(name: str) -> None:
     """One predicate for every identity entry point — ensure_user, rename, and
     the credential doors in routes/deps.py.
@@ -16,11 +27,23 @@ def refuse_reserved_name(name: str) -> None:
     ANY kind, not just human: the activity feed shows a system actor's rows to
     EVERY viewer, so whoever holds one of these names walks their own writes
     past the scope rule. delegate_task and set_authority both mint agents from
-    a caller-supplied string, so a human-only check is a hole, not a wall."""
+    a caller-supplied string, so a human-only check is a hole, not a wall.
+    It normalizes its own input, because two of its four callers hand it a
+    header value that nothing else has touched."""
     from .activity import SYSTEM_ACTORS
 
-    if name.casefold() in {a.casefold() for a in SYSTEM_ACTORS}:
-        raise ValueError(f"'{name}' is reserved for the system — pick another name")
+    if _fold(name) in {_fold(a) for a in SYSTEM_ACTORS}:
+        raise ValueError(f"'{name.strip()}' is reserved for the system — pick another name")
+
+
+def reserved_name_rows() -> list[str]:
+    """Roster rows whose name the wall now refuses. Named at boot so whoever
+    runs the server can move them with rename_user, the one code path that
+    knows every attribution column and the private notes DB."""
+    from .activity import SYSTEM_ACTORS
+
+    reserved = {_fold(a) for a in SYSTEM_ACTORS}
+    return [r["name"] for r in db.query("SELECT name FROM users") if _fold(r["name"]) in reserved]
 
 
 def ensure_user(name: str, kind: str = "human") -> dict:
@@ -29,6 +52,19 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     # bench persona slugs are reserved identities: a human picking one would
     # silently absorb the persona's trust/authority history (and vice versa)
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+    # a case-variant row of the OTHER kind is how `Scout` the human ends up
+    # beside `scout` the agent, and every identity question then depends on
+    # which one a query happens to return first
+    if existing is None:
+        clash = db.query_one(
+            "SELECT name, kind FROM users WHERE lower(name) = lower(?) AND kind != ?",
+            (name, kind),
+        )
+        if clash:
+            raise ValueError(
+                f"'{clash['name']}' already exists as a {clash['kind']} —"
+                f" '{name}' differs only by case, and one name must mean one identity"
+            )
     if existing is None and kind == "human" and _is_bench_slug(name):
         raise ValueError(f"'{name}' is reserved for a bench persona — pick another name")
     if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
@@ -118,8 +154,20 @@ def get_theme(name: str) -> str:
 
 
 def is_agent(name: str) -> bool:
-    row = db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
-    return bool(row and row["kind"] == "agent")
+    """Does ANY row with this name belong to an agent?
+
+    Case-insensitive, and asking about the SET rather than about one row.
+    `users.name` is case-sensitively unique, so `Scout` and `scout` coexist —
+    an exact match let a human's capitalization walk through the agent wall in
+    routes/deps.py, and a first-row match let it walk through the forge's.
+    resolve_teammate already matches this way, so the question every surface
+    asks about a name is now the same question."""
+    return bool(
+        db.query_one(
+            "SELECT 1 FROM users WHERE lower(name) = lower(?) AND kind = 'agent'",
+            ((name or "").strip(),),
+        )
+    )
 
 
 def resolve_teammate(

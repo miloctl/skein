@@ -62,3 +62,39 @@ def test_the_migration_frees_a_reserved_roster_row(fresh_db):
     # the freed name rather than being deleted
     rows = db.query("SELECT name FROM users WHERE lower(name) IN ('team','system','forge')")
     assert rows == []
+
+
+def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):
+    from app.services import users
+
+    users.ensure_user("scout", kind="agent")
+    # one name, one identity: a human `Scout` beside the agent `scout` makes
+    # every identity question depend on which row a query returns first
+    with pytest.raises(ValueError, match="differs only by case"):
+        users.ensure_user("Scout")
+
+
+def test_a_name_that_merely_renders_as_a_system_actor_is_refused(fresh_db):
+    from app.services import users
+
+    # NFKC folds the fullwidth form, and category Cf is stripped: both render
+    # as `team` in every surface
+    for lookalike in ("\uff34\uff25\uff21\uff2d", "team\u200b", "  team  "):
+        with pytest.raises(ValueError, match="reserved for the system"):
+            users.ensure_user(lookalike)
+
+
+def test_the_reads_a_system_name_can_make_are_refused_too(client, fresh_db):
+    # the trusted-header READ path returns before ensure_user, so the wall
+    # has to be applied at the door
+    assert client.get("/api/briefing", headers={"X-User": "forge"}).status_code == 403
+    assert client.get("/api/briefing", headers={"X-User": "TEAM"}).status_code == 403
+
+
+def test_an_agent_is_refused_at_the_door_whatever_its_capitalization(client, fresh_db):
+    from app.services import users
+
+    users.ensure_user("scout", kind="agent")
+    for spelling in ("scout", "Scout", "SCOUT", "sCoUt"):
+        r = client.get("/api/briefing", headers={"X-User": spelling})
+        assert r.status_code == 403, spelling

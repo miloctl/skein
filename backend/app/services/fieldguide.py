@@ -135,14 +135,21 @@ def registry() -> list[dict]:
             raise ValueError(f"knot '{kid}' has no predicate in fieldguide.PREDICATES")
         if k.get("set") not in SETS:
             raise ValueError(f"knot '{kid}' has invalid set '{k.get('set')}'")
+        ties = k.get("ties", "predicate")
+        if ties not in ("predicate", "mark", "never"):
+            raise ValueError(f"knot '{kid}' has unknown ties '{ties}'")
         # a card with no predicate must say how it DOES tie, or it becomes an
         # unsatisfiable nag: unadopted() would report it forever and the
         # weekly suggestion would keep offering it to everyone
-        if PREDICATES[kid] is None and k.get("ties") not in ("mark", "never"):
+        if PREDICATES[kid] is None and ties == "predicate":
             raise ValueError(
                 f"knot '{kid}' has no predicate, so it must declare ties:"
                 " 'mark' (a route calls fieldguide.mark) or 'never'"
             )
+        # and the reverse: `ties: never` on a card that HAS a predicate would
+        # quietly hide a real feature from the zero-adoption sweep
+        if PREDICATES[kid] is not None and ties != "predicate":
+            raise ValueError(f"knot '{kid}' has a predicate, so ties must be 'predicate'")
         for field in ("feature", "knot", "pitch", "how", "link", "since"):
             if not k.get(field):
                 raise ValueError(f"knot '{kid}' is missing '{field}'")
@@ -280,13 +287,20 @@ def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict 
     return {"id": k["id"], "feature": k["feature"], "pitch": k["pitch"], "link": k["link"]}
 
 
+def _tieable(cards: list[dict]) -> int:
+    """The denominator of "N of M tied". A card that never ties is not a card
+    you missed — counting it caps everyone below M forever, on a number the
+    UI presents as completable."""
+    return sum(1 for k in cards if k.get("ties") != "never")
+
+
 def hint(person: str) -> dict:
     """The lightweight read (My Day one-liner, nav menu count): suggestion +
     counts, NO side effects on seen state — landing on My Day must never
     consume the guide page's 'newly tied' strip."""
     cards = registry()
     if not _is_active_human(person):
-        return {"suggestion": None, "tied_count": 0, "total": len(cards)}
+        return {"suggestion": None, "tied_count": 0, "total": _tieable(cards)}
     tied, dismissed = _state(person)
     ids = {k["id"] for k in cards}
     return {
@@ -294,7 +308,7 @@ def hint(person: str) -> dict:
         # intersect with the registry — a retired card must not leave a
         # veteran at "27 of 26 tied"
         "tied_count": len(set(tied) & ids),
-        "total": len(cards),
+        "total": _tieable(cards),
     }
 
 
@@ -338,7 +352,7 @@ def guide(person: str) -> dict:
         "suggestion": _suggestion(registry(), set(tied), dismissed) if named else None,
         # registry intersection — a retired card must not yield "27 of 26"
         "tied_count": len(set(tied) & {c["id"] for c in cards}),
-        "total": len(cards),
+        "total": _tieable(cards),
         # false = the roster hasn't met this name yet (or it's anonymous/agent)
         # — the UI can explain the all-untied page instead of implying deficit
         "known": named,

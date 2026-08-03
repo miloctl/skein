@@ -22,7 +22,7 @@ type Entry = {
 type Feed = { entries: Entry[]; next_before: number | null };
 
 const WHO_BADGE: Record<Entry["who"], string> = {
-  you: "bg-thread-solid/15 text-thread-solid",
+  you: "bg-thread-solid/15 text-thread",
   agent: "bg-weld/15 text-weld",
   system: "bg-raised text-ink-3",
 };
@@ -100,7 +100,7 @@ export default function ActivityPage() {
               raw ? (
                 <li key={e.seq} className="py-1.5 font-mono text-[11px] text-ink-2">
                   <span className="text-ink-3">#{e.seq}</span> {e.created_at}{" "}
-                  <span className="text-thread-solid">{e.actor}</span> {e.action}{" "}
+                  <span className="text-thread">{e.actor}</span> {e.action}{" "}
                   {e.detail}
                 </li>
               ) : (

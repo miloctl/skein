@@ -399,6 +399,24 @@ def main() -> int:
         parse_ids(ts, "COLORWAYS"),
         parse_default(ts, "COLORWAY"),
     )
+    # A token declared on:"white" is a FILL — its formula is tuned so white
+    # text on top is legible, which says nothing about the token as ink. The
+    # sweep below never looks at it that way, so `text-thread-solid` measured
+    # 2.39:1 in dark on graphite with every gate green. Catch the usage
+    # instead, from the same single source that declares the intent.
+    fill_only = [t.removeprefix("--") for t, row in custom.items() if row["on"] == "white"]
+    for path in sorted(THEME_TS.parents[1].rglob("*.tsx")):
+        if "node_modules" in path.parts:
+            continue
+        text = path.read_text()
+        for token in fill_only:
+            if f"text-{token}" in text:
+                failures.append(
+                    f"{path.name} uses text-{token} as ink."
+                    f" --{token} is a solid fill (on: white in theme.ts) and is not"
+                    f" swept against pack surfaces. Use text-{token.replace('-solid', '')}."
+                )
+
     checked = sorted(n for n in packs if n != BASE_PACK)
     print(f"custom formulas read from theme.ts: {', '.join(sorted(custom))}")
     print(f"packs: {', '.join(checked)} (baseline {BASE_PACK})")

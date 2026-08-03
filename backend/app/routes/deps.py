@@ -141,6 +141,9 @@ def _resolve(
     if config.AUTH_MODE == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
     name = (x_user or "anonymous").strip()[:64] or "anonymous"
+    # the read path returns before ensure_user, so the wall is applied here —
+    # the same gap the key and OIDC doors had
+    _refuse_reserved(name)
     if is_agent(name):
         raise HTTPException(
             status_code=403,
