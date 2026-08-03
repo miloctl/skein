@@ -43,7 +43,7 @@ from ..services import (
     weekly,
     work,
 )
-from .deps import CurrentUser, StrongUser
+from .deps import AdminUser, CurrentUser, StrongUser
 
 router = APIRouter(prefix="/api")
 
@@ -264,8 +264,8 @@ class UserRenameIn(BaseModel):
 
 
 @router.post("/users/{name}/rename")
-def post_user_rename(name: str, body: UserRenameIn, user: StrongUser):
-    # rename/merge moves attribution history — strong identity only
+def post_user_rename(name: str, body: UserRenameIn, user: AdminUser):
+    # rename/merge moves attribution history — administrators only
     return users.rename_user(name, body.new_name, actor=user)
 
 
@@ -274,9 +274,9 @@ class UserActiveIn(BaseModel):
 
 
 @router.post("/users/{name}/active")
-def post_user_active(name: str, body: UserActiveIn, user: StrongUser):
-    # roster edits need strong identity — a spoofed header must not be able
-    # to deactivate teammates
+def post_user_active(name: str, body: UserActiveIn, user: AdminUser):
+    # roster edits are admin surface — one teammate must not be able to
+    # deactivate another
     return users.set_active(name, body.active, actor=user)
 
 
@@ -316,7 +316,7 @@ def get_user_theme(user: CurrentUser):
 
 
 @router.post("/users/theme/default")
-def post_team_theme(body: ThemeIn, user: StrongUser):
+def post_team_theme(body: ThemeIn, user: AdminUser):
     try:
         return users.set_team_default_theme(body.theme, actor=user)
     except db.NotFound:
@@ -427,14 +427,15 @@ def delete_key(key_id: int, user: StrongUser):
 
 
 @router.get("/admin/keys")
-def get_all_keys(user: StrongUser):
-    # key metadata (owners, prefixes, last use) is admin surface — a spoofed
-    # X-User must not enumerate it; matches revoke-all and /admin/export
+def get_all_keys(user: AdminUser):
+    # key metadata (owners, prefixes, last use) is admin surface — one
+    # teammate must not enumerate another's credentials; matches revoke-all
+    # and /admin/export
     return api_keys.list_all_keys()
 
 
 @router.post("/admin/keys/revoke-all")
-def post_revoke_all_keys(user: StrongUser):
+def post_revoke_all_keys(user: AdminUser):
     return api_keys.revoke_all_keys(actor=user)
 
 
@@ -694,10 +695,10 @@ def get_context_strategy(user: CurrentUser):
 
 
 @router.post("/settings/context-strategy")
-def post_context_strategy(body: ContextStrategyIn, user: StrongUser):
-    """StrongUser: this changes what every chat costs, so it needs a personal
-    key rather than a name typed into a header. Rate-capped because each call
-    appends to the activity ledger, which is never pruned."""
+def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
+    """AdminUser: this changes what every chat costs for the whole team, so
+    it needs an administrator, not just any credential holder. Rate-capped
+    because each call appends to the activity ledger, which is never pruned."""
     ratelimit.check("write", user)
     try:
         return settings.set_context_strategy(body.strategy, actor=user)
@@ -732,8 +733,9 @@ class AuthorityIn(BaseModel):
 
 
 @router.post("/agents/authority")
-def post_agents_authority(body: AuthorityIn, user: StrongUser):
-    """Authority IS the kill switch — a spoofable X-User must not flip it."""
+def post_agents_authority(body: AuthorityIn, user: AdminUser):
+    """Authority IS the kill switch — administrators only, and never a
+    spoofable X-User."""
     return delegation.set_authority(body.agent, body.entity, body.level, actor=user)
 
 
@@ -1267,7 +1269,9 @@ def get_calendar_ics(token: str = ""):
     LAN-only. Calendar clients can't send headers, so auth is a DEDICATED
     feed secret (?token=SKEIN_ICS_TOKEN) — never the API token, which
     would end up in calendar configs and access logs. Fully-open mode only
-    when the whole API is open (no API_TOKEN); otherwise fail closed."""
+    when the whole API is open (trusted-header mode, no API_TOKEN);
+    otherwise fail closed — the feed sits on the perimeter middleware's
+    open-path list, so this check is its only gate."""
     import hmac
 
     from fastapi import HTTPException
@@ -1279,7 +1283,7 @@ def get_calendar_ics(token: str = ""):
         # bytes compare: str compare_digest raises on non-ASCII input (→500)
         if not hmac.compare_digest(token.encode(), config.ICS_TOKEN.encode()):
             raise HTTPException(status_code=401, detail="token required")
-    elif config.API_TOKEN:
+    elif config.API_TOKEN or config.AUTH_MODE != "trusted-header":
         raise HTTPException(
             status_code=403,
             detail="calendar feed disabled — set SKEIN_ICS_TOKEN to enable it",
@@ -1295,11 +1299,11 @@ def get_calendar_ics(token: str = ""):
 
 
 @router.post("/admin/backup")
-def post_backup(user: StrongUser):
+def post_backup(user: AdminUser):
     return admin.backup()
 
 
 @router.get("/admin/export")
-def get_export(user: StrongUser):
-    # full-table dump — strong identity required, never the X-User header
+def get_export(user: AdminUser):
+    # full-table dump — administrators only, never the X-User header
     return admin.export()

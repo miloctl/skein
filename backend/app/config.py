@@ -420,8 +420,50 @@ OTEL_ENDPOINT = os.getenv("SKEIN_OTEL_ENDPOINT", "")
 # allowlisted names load — see app/agents/extra_tools.py.
 EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(",") if t.strip())
 
+# ---- authentication --------------------------------------------------------
+# How a caller proves who they are. routes/deps.py is the single branch point.
+#   trusted-header  identity is the self-asserted X-User header (LAN / local
+#                   dev). Personal API keys still work and are the only
+#                   STRONG identity.
+#   api-key         every request needs a personal API key (sk-skein-…).
+#   oidc            humans present an IdP-issued JWT, validated in-process
+#                   against the issuer's JWKS (app/oidc.py). Personal API
+#                   keys still work for automation (CLI, MCP, hooks).
+# An unknown mode fails CLOSED — every /api request is refused and /health
+# says why. A typo of "oidc" must not silently open the deployment, so this
+# is the one config fault that does NOT degrade to a working default.
+AUTH_MODES = ("trusted-header", "api-key", "oidc")
+AUTH_MODE = os.getenv("SKEIN_AUTH_MODE", "trusted-header").strip().lower() or "trusted-header"
+AUTH_ERROR = ""
+if AUTH_MODE not in AUTH_MODES:
+    AUTH_ERROR = f"unknown SKEIN_AUTH_MODE {AUTH_MODE!r} — expected one of: {', '.join(AUTH_MODES)}"
+
+# Administrators: the only identities the roster / team-config / export
+# surfaces accept (deps.AdminUser). Empty + trusted-header mode = every key
+# holder administers — the historical scarcity model, where the operator
+# mints each key by hand. api-key and oidc modes remove that scarcity, so
+# there an empty set keeps the admin surfaces locked until it is set.
+ADMINS = frozenset(a.strip() for a in os.getenv("SKEIN_ADMINS", "").split(",") if a.strip())
+
+# OIDC (SKEIN_AUTH_MODE=oidc): validation is local — signature against the
+# issuer's JWKS, then iss / aud / exp. No sidecar, no per-request IdP call.
+OIDC_ISSUER = os.getenv("SKEIN_OIDC_ISSUER", "").strip().rstrip("/")
+OIDC_AUDIENCE = os.getenv("SKEIN_OIDC_AUDIENCE", "").strip()
+# empty = derived from <issuer>/.well-known/openid-configuration at first use
+OIDC_JWKS_URL = os.getenv("SKEIN_OIDC_JWKS_URL", "").strip()
+OIDC_USERNAME_CLAIM = os.getenv("SKEIN_OIDC_USERNAME_CLAIM", "").strip() or "preferred_username"
+OIDC_GROUPS_CLAIM = os.getenv("SKEIN_OIDC_GROUPS_CLAIM", "").strip() or "groups"
+# IdP group that grants admin, alongside SKEIN_ADMINS
+OIDC_ADMIN_GROUP = os.getenv("SKEIN_OIDC_ADMIN_GROUP", "").strip()
+if not AUTH_ERROR and AUTH_MODE == "oidc":
+    if not OIDC_ISSUER:
+        AUTH_ERROR = "SKEIN_AUTH_MODE=oidc requires SKEIN_OIDC_ISSUER"
+    elif not OIDC_AUDIENCE:
+        AUTH_ERROR = "SKEIN_AUTH_MODE=oidc requires SKEIN_OIDC_AUDIENCE"
+
 # Optional shared bearer token for the whole API (set when exposing beyond
-# a trusted network). Empty = open (trusted-LAN mode).
+# a trusted network). Only read in trusted-header mode — the other modes
+# carry a per-caller credential on every request, which is strictly stronger.
 API_TOKEN = os.getenv("SKEIN_API_TOKEN", "")
 
 # Dedicated secret for the ICS calendar feed URL (?token=...). Calendar

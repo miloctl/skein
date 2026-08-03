@@ -141,13 +141,17 @@ For a ~10-person team this single-box setup is deliberate: SQLite in WAL mode
 handles this write volume easily, and one backend container means exactly one
 scheduler.
 
-**Security model, stated plainly:** identity is a trusted name picker
-(`X-User`) — teammates, not strangers. `SKEIN_API_TOKEN` adds a shared
-bearer token, but it is baked into the frontend's public JS bundle, so anyone
-who can load the UI can read it — it keeps out network scanners, not people
-who can reach port 3000; treat per-user `sk-skein-` keys and a reverse
-proxy as the real credentials. To actually expose this beyond a trusted
-network, put both services behind an authenticating reverse proxy (Tailscale,
+**Security model, stated plainly:** `SKEIN_AUTH_MODE` picks it. The default,
+`trusted-header`, is a trusted name picker (`X-User`) — teammates, not
+strangers; `SKEIN_API_TOKEN` adds a shared bearer token there, but it is
+baked into the frontend's public JS bundle, so anyone who can load the UI can
+read it — it keeps out network scanners, not people who can reach port 3000.
+`api-key` mode demands a personal `sk-skein-` key on every request. `oidc`
+mode validates IdP-issued JWTs in-process (the web UI's sign-in flow is still
+to come — until then oidc serves API/automation callers). Admin surfaces
+(roster, key visibility, authority, backups, export) are held to
+`SKEIN_ADMINS` / an IdP admin group. To expose this beyond a trusted network
+today, put both services behind an authenticating reverse proxy (Tailscale,
 Caddy + SSO, etc.). Copy `data/backups/` off the box on a schedule (or set
 `SKEIN_BACKUP_MIRROR`) — backups otherwise live on the same volume as the
 database.
