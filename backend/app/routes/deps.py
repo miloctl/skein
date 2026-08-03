@@ -135,6 +135,30 @@ def _resolve(
     return ensure_user(name)["name"], False, []
 
 
+def verify_forge_signature(body: bytes, signature: str) -> None:
+    """The forge webhook's whole identity: HMAC-SHA256 over the raw body with
+    a shared secret. It lives here because every other door in Skein is
+    decided in this file, and a caller that proves possession of a secret is
+    a door — the ICS feed token is the same shape.
+
+    No secret configured means the endpoint is CLOSED, not open: it moves
+    tasks, so an unsigned caller must never reach it. compare_digest, not
+    ==, or the reject time leaks the expected prefix byte by byte."""
+    import hmac
+    from hashlib import sha256
+
+    if not config.FORGE_WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="the forge webhook is off. Set SKEIN_FORGE_WEBHOOK_SECRET,"
+            " then use the same secret in the repository webhook settings.",
+        )
+    expected = hmac.new(config.FORGE_WEBHOOK_SECRET.encode(), body, sha256).hexdigest()
+    # Gitea sends the bare hex digest, GitHub prefixes it with "sha256="
+    if not hmac.compare_digest(expected, signature.strip().removeprefix("sha256=")):
+        raise HTTPException(status_code=401, detail="the webhook signature does not match")
+
+
 def _is_admin(user: str, groups: list[str]) -> bool:
     """SKEIN_ADMINS names administrators; in oidc mode an IdP group
     (SKEIN_OIDC_ADMIN_GROUP) grants it too. With NEITHER configured,
