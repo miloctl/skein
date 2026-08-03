@@ -34,7 +34,8 @@ export default function CharterPage() {
     setReviewBy(new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10));
   }, []);
   const [superseding, setSuperseding] = useState<number | null>(null);
-  // dismissing the editor hands focus back to its trigger (review closeAsk idiom)
+  // dismissing the editor hands focus back to its trigger, or a keyboard user
+  // lands at the top of the page (same idiom: closeAsk in app/review/page.tsx)
   const closeSupersede = (id: number) => {
     setSuperseding(null);
     setTimeout(() => document.getElementById(`supersede-${id}`)?.focus(), 0);
@@ -237,10 +238,10 @@ export default function CharterPage() {
           </li>
         ))}
         {decisions.length === 0 && (
-          <li className="rounded-xl border border-dashed border-line-strong p-8 text-center text-sm text-ink-3">
+          <li><EmptyState>
             No charter entries yet. Start with: who owns what, how we escalate,
             what quality bar we hold.
-          </li>
+          </EmptyState></li>
         )}
       </ul>
     </main>
