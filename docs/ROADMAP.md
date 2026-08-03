@@ -56,14 +56,16 @@ portfolio commitments card now names its two audiences in the card title.
 5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
    on the pulse banner, origin glossary beside Review.
-7. [S] Done tasks have no surface. Browse filters `status !== "done"`, so a
-   task's `forge_url` (the pull request that closed it) becomes unreachable
-   the moment the merge lands, and nothing shows what shipped this week
-   except the digest. A "recently shipped" strip on Health, or a done filter
-   on Browse.
-8. [S] A task cannot be deleted. Every other entity a person can create by
-   accident has a way out (notes, chats, absences, folders); a mistyped task
-   is permanent, which is why demo and validation rows accumulate.
+7. [S] Browse hides done tasks entirely (`status !== "done"`), so a finished
+   task is reachable only if it was COMMITTED to a week — Health's week plan
+   is the one surface that lists done work. A done filter on Browse, or a
+   "recently shipped" strip that does not depend on the commitment line.
+8. [S] A mistyped task is permanent. `docs/CORRECTIONS.md` rule 2 says
+   records that carry history get a terminal state instead of a delete, and
+   Task already has `done` — so this is not a contract gap. It is an
+   ergonomics one: nothing distinguishes "finished" from "never should have
+   existed", which is why demo and validation rows accumulate. A `void`
+   disposition, or accept it and say so in CORRECTIONS.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 

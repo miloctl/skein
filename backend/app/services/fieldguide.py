@@ -42,7 +42,10 @@ def _act(user: str, action: str, like: str = "") -> bool:
 PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "capture": lambda u: _act(u, "capture"),
     "standup": lambda u: _has("SELECT 1 FROM standups WHERE author = ?", (u,)),
-    "task_done": lambda u: _act(u, "complete_task") or _act(u, "update_task", "#% done"),
+    # trailing % : update_task's detail carries a channel suffix when a machine
+    # wrote it (work.py's `note`), and an anchored pattern would silently stop
+    # tying the day any human-actor caller passes one
+    "task_done": lambda u: _act(u, "complete_task") or _act(u, "update_task", "#% done%"),
     "decision": lambda u: _has(
         "SELECT 1 FROM decisions WHERE decided_by = ? AND review_by IS NOT NULL"
         " AND review_by != ''",
@@ -77,10 +80,13 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "ingest": lambda u: _act(u, "ingest_notes"),
     "delegate": lambda u: _act(u, "delegate_task"),
     "mention": lambda u: _has("SELECT 1 FROM mention_log WHERE mentioned_by = ?", (u,)),
-    # team-wide by design: the webhook attributes to the pusher when the forge
-    # login names a teammate and to 'forge' otherwise, so a per-person
-    # predicate would leave the card untied for everyone whose login differs
-    "forge": lambda _u: _has("SELECT 1 FROM tasks WHERE forge_url != ''", ()),
+    # None, not a query: the forge acts for the team under one actor and names
+    # nobody (services/forge.py keeps the pusher out of the ledger so the feed
+    # cannot become a record of who pushed). A team-wide predicate would tie
+    # this card for people who never used it, which is what "first use" means,
+    # and would report 100% adoption off one person's push. Untied is honest,
+    # and it keeps the how-to — the setup steps — in front of everyone.
+    "forge": None,
     # reviewed_override=0 on a task_completion verdict means the reviewer WAS
     # the sponsor at verdict time — the loop closed the designed way
     "sponsor_verdict": lambda u: _has(

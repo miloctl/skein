@@ -179,6 +179,20 @@ export default function Portfolio() {
                 <li key={t.id} className={t.status === "done" ? "text-ink-3 line-through" : ""}>
                   #{t.id} {t.title}
                   <span className="ml-1 text-xs text-ink-3">@{t.assignee || "unassigned"}</span>
+                  {/* the only surface a merged task's pull request has: Browse
+                      drops a task the moment it is done, which is exactly when
+                      the forge stores the PR link */}
+                  {t.forge_url ? (
+                    <a
+                      href={String(t.forge_url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
+                      className="ml-2 text-xs text-ink-3 underline no-underline hover:underline"
+                    >
+                      code <span aria-hidden>↗</span>
+                    </a>
+                  ) : null}
                 </li>
               ))}
             </ul>

@@ -31,7 +31,12 @@ def render(px: int, *, radius_frac: float, glyph_scale: float = 1.0) -> Image.Im
 def main() -> None:
     # iOS discards alpha and composites onto black — full bleed, no rounding,
     # the home-screen mask supplies the corners.
-    render(180, radius_frac=0).convert("RGB").save(OUT / "app/apple-icon.png")
+    apple = render(180, radius_frac=0).convert("RGB")
+    apple.save(OUT / "app/apple-icon.png")
+    # the same image at the well-known path. Next serves app/apple-icon.png
+    # under a hashed URL and links it, but a client that does not read the
+    # link tag probes /apple-touch-icon.png and logs a 404 against us.
+    apple.save(OUT / "public/apple-touch-icon.png")
 
     for px in (192, 512):
         render(px, radius_frac=0.175).save(OUT / f"public/icon-{px}.png")
@@ -43,7 +48,10 @@ def main() -> None:
     ico = render(256, radius_frac=0.175)
     ico.save(OUT / "app/favicon.ico", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
 
-    print("wrote apple-icon.png, icon-192/512, icon-maskable-512, favicon.ico")
+    print(
+        "wrote apple-icon.png, apple-touch-icon.png, icon-192/512,"
+        " icon-maskable-512, favicon.ico"
+    )
 
 
 if __name__ == "__main__":

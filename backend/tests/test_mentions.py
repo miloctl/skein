@@ -149,6 +149,41 @@ def test_answer_mentioning_the_asker_does_not_double_ping(roster):
     assert not any("mentioned you" in m for m in msgs)
 
 
+def test_a_self_mention_is_silent_for_a_mixed_case_name(fresh_db):
+    from app.services import users, work
+
+    users.ensure_user("Mira")
+    # the roster returns canonical case and `skip` holds lower case — every
+    # other test uses an all-lowercase name, so this comparison is unpinned
+    work.create_task("Fix login", description="note to self @Mira", actor="Mira")
+    assert _unread("Mira") == []
+
+
+def test_a_deactivated_teammate_is_not_mentionable(roster):
+    from app.services import users, work
+
+    users.ensure_user("gone")
+    users.set_active("gone", False)
+    work.create_task("Fix login", description="@gone are you there", actor="mira")
+    assert _unread("gone") == []
+
+
+def test_a_digit_before_the_at_sign_is_not_a_mention(roster):
+    from app.services import work
+
+    # the lookbehind excludes letters; a digit must not slip through
+    work.create_task("Rotate keys", description="run ops2@scout tonight", actor="mira")
+    assert _unread("scout") == []
+
+
+def test_a_mention_notification_is_immediate_and_deep_links(roster):
+    from app.services import notifications, work
+
+    work.create_task("Fix login", description="@mira look", actor="dana")
+    row = notifications.list_notifications("mira")[0]
+    assert row["tier"] == "immediate" and row["link"] == "/dashboard"
+
+
 def test_retention_prunes_only_orphaned_mentions(roster):
     from app.services import collab, retention
 

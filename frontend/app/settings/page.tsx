@@ -581,7 +581,7 @@ export default function SettingsPage() {
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
         <p className="mt-2 text-xs text-ink-3">
-          If the API is token-locked, the operator sets SKEIN_ICS_TOKEN and
+          If the API is token-locked, whoever runs the server sets SKEIN_ICS_TOKEN and
           the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
         </p>
       </Section>
@@ -589,12 +589,12 @@ export default function SettingsPage() {
       <Section title="6 · Code forge webhook (optional)">
         <p className="mb-2 text-sm text-ink-3">
           Let your git forge move tasks. A push to <code>task/42-…</code>{" "}
-          starts task 42. When the pull request merges, the task finishes. Add
-          this URL as a repository webhook, content type JSON.
+          starts task 42. When the pull request merges, the task finishes.
+          Add this URL as a repository webhook. Set the content type to JSON.
         </p>
         <CopyLine text={`${API_URL}/api/webhooks/forge`} />
         <p className="mt-2 text-xs text-ink-3">
-          Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET and puts the
+          Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Put the
           same secret in the webhook. If the secret is not set, the endpoint
           stays closed. Skein ignores a branch name that has no task number. A
           merge never closes a delegated task — the sponsor accepts that work.
