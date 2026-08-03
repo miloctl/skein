@@ -86,7 +86,11 @@ _CUSTOM_ROW = re.compile(
     r"dark:\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\]"
 )
 _LIST_BLOCK = "export const {} = \\[(.*?)\\n\\] as const;"
-_ID = re.compile(r'\{\s*id:\s*"([a-z-]+)"')
+# [a-z0-9-]+, matching the CSS selectors below and the token regex above. A
+# narrower class here is not a stricter check — an id it cannot match drops out
+# of BOTH `declared` and `styled`, so the pack ships unswept and invariant (e)
+# reports nothing. Widen these four together or not at all.
+_ID = re.compile(r'\{\s*id:\s*"([a-z0-9-]+)"')
 
 
 def parse_custom(ts: str) -> dict[str, dict]:
@@ -124,7 +128,7 @@ def parse_custom(ts: str) -> dict[str, dict]:
 def parse_default(ts: str, name: str) -> str:
     """DEFAULT_PACK / DEFAULT_COLORWAY: the id globals.css carries on :root, so
     it has no [data-*] selector of its own and cannot be found by parsing CSS."""
-    found = re.search(rf'export const DEFAULT_{name} = "([a-z-]+)";', ts)
+    found = re.search(rf'export const DEFAULT_{name} = "([a-z0-9-]+)";', ts)
     if not found:
         raise SystemExit(f"cannot find `export const DEFAULT_{name}` in {THEME_TS}.")
     return found.group(1)
@@ -197,8 +201,8 @@ def parse(css: str) -> tuple[dict, dict]:
         tokens = {m[0]: (m[1], m[2]) for m in _LIGHT_DARK.findall(body)}
         if not tokens:
             continue
-        pack_names = re.findall(r'\[data-pack="([a-z]+)"\]', selector)
-        way_names = re.findall(r'\[data-theme="([a-z]+)"\]', selector)
+        pack_names = re.findall(r'\[data-pack="([a-z0-9-]+)"\]', selector)
+        way_names = re.findall(r'\[data-theme="([a-z0-9-]+)"\]', selector)
         # ":root," with no [data-pack] is Loom itself.
         if re.search(r"(^|,)\s*:root\s*(,|$)", selector) and not way_names:
             pack_names.append(BASE_PACK)

@@ -152,7 +152,13 @@ async def perimeter_auth(request: Request, call_next):
         return JSONResponse(status_code=503, content={"detail": config.AUTH_ERROR})
     if config.AUTH_MODE == "trusted-header" and not config.API_TOKEN:
         return await call_next(request)
-    from .routes.deps import INVALID_KEY, NEED_KEY, NEED_LOGIN, agent_on_rest
+    from .routes.deps import (
+        INVALID_KEY,
+        NEED_KEY,
+        NEED_LOGIN,
+        agent_on_rest,
+        agent_on_signin,
+    )
     from .services.api_keys import PREFIX, verify_key
     from .services.users import is_agent
 
@@ -186,8 +192,18 @@ async def perimeter_auth(request: Request, call_next):
 
         try:
             claims = await run_in_threadpool(oidc.validate, auth[7:])
+            name, _ = oidc.principal(claims)
+        except oidc.OIDCUnavailable as exc:
+            # the token was never judged, so this is our fault to report, not
+            # the caller's to fix by signing in again
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
         except oidc.OIDCError as exc:
             return JSONResponse(status_code=401, content={"detail": str(exc)})
+        # the agent wall again, for the same reason it is above: the read
+        # routes that carry no user dependency never reach deps, so a sign-in
+        # naming an agent row would otherwise read them all.
+        if await run_in_threadpool(is_agent, name):
+            return JSONResponse(status_code=403, content={"detail": agent_on_signin(name)})
         request.state.auth_claims = claims
         return await call_next(request)
     detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN

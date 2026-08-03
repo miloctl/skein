@@ -178,6 +178,52 @@ def test_token_needs_a_complete_request(client, monkeypatch, fresh_db):
     assert r.status_code == 400
 
 
+def test_a_stale_code_is_the_callers_fault_not_a_server_fault(client, monkeypatch, fresh_db):
+    """A code that expired while the tab sat open is caller input. A 5xx tells
+    the browser to retry something that can never succeed, and pages whoever is
+    on call for a person walking away from a sign-in."""
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+
+    def refused(form):
+        raise oidc.OIDCRefused("the identity provider refused the sign-in (invalid_grant).")
+
+    monkeypatch.setattr(oidc, "exchange", refused)
+    r = client.post(
+        "/api/auth/token",
+        json={"code": "stale", "code_verifier": "v", "redirect_uri": "http://app/cb"},
+    )
+    assert r.status_code == 400
+    assert "invalid_grant" in r.json()["detail"]
+
+
+def test_an_unreachable_provider_is_a_503_not_a_refusal(client, monkeypatch, fresh_db):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+
+    def down(form):
+        raise oidc.OIDCUnavailable("the identity provider cannot be reached.")
+
+    monkeypatch.setattr(oidc, "exchange", down)
+    r = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    assert r.status_code == 503
+
+
+def test_a_non_numeric_lifetime_does_not_become_a_400_quoting_it(client, monkeypatch, fresh_db):
+    """expires_in is the IdP's own field. A junk value must not reach the
+    error path, which would echo the provider's string back to the browser."""
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    monkeypatch.setattr(
+        oidc, "exchange", lambda form: {"access_token": "a", "expires_in": "soon-ish"}
+    )
+    monkeypatch.setattr(oidc, "validate", lambda t: {"preferred_username": "casey"})
+    r = client.post("/api/auth/token", json={"refresh_token": "r1"})
+    assert r.status_code == 200
+    assert r.json()["expires_in"] == 0
+    assert "soon-ish" not in r.text
+
+
 def test_token_is_off_outside_oidc_mode(client):
     r = client.post("/api/auth/token", json={"refresh_token": "r"})
     assert r.status_code == 404

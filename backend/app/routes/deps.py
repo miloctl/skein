@@ -30,6 +30,10 @@ def agent_on_rest(owner: str) -> str:
     )
 
 
+def agent_on_signin(name: str) -> str:
+    return f"'{name}' is an agent identity — agents authenticate with their API key, not a sign-in"
+
+
 def _cached(request: Request | None, attr: str):
     """What the perimeter middleware already proved about this request.
 
@@ -92,14 +96,15 @@ def _resolve(
                 if claims is None:
                     claims = oidc.validate(authorization[7:])
                 name, groups = oidc.principal(claims)
+            except oidc.OIDCUnavailable as exc:
+                # 503, not 401: the token was never judged. Answering 401 tells
+                # a whole team of signed-in people to sign in again, at an
+                # identity provider that is the very thing that is down.
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
             except oidc.OIDCError as exc:
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             if is_agent(name):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"'{name}' is an agent identity — agents authenticate"
-                    " with their API key, not a sign-in",
-                )
+                raise HTTPException(status_code=403, detail=agent_on_signin(name))
             # same rule as the header door: a read never grows the roster, so
             # a polling service account does not accumulate rows
             if method in ("GET", "HEAD", "OPTIONS"):

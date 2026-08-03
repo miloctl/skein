@@ -14,6 +14,7 @@ import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.exceptions import PyJWKClientConnectionError
 
 from app import config, oidc
 
@@ -210,6 +211,58 @@ def test_failed_discovery_is_not_retried_on_every_request(monkeypatch):
     # request into an outbound connection attempt
     assert len(calls) == 1
     oidc.reset()
+
+
+class _Down:
+    """A JWKS endpoint that cannot be read. PyJWKClient raises this family for
+    every fetch fault, and it caches nothing on failure."""
+
+    def __init__(self):
+        self.calls: list[bool] = []
+
+    def get_signing_keys(self, refresh=False):
+        self.calls.append(refresh)
+        raise PyJWKClientConnectionError("unreachable")
+
+    def match_kid(self, keys, kid):
+        return None
+
+
+def test_a_failing_jwks_fetch_is_not_retried_on_every_request(monkeypatch, issuer):
+    """PyJWKClient caches only SUCCESSFUL fetches, so a cold key set plus an
+    unreachable endpoint made every bearer token cost another outbound attempt.
+    The perimeter middleware reaches this before the caller is authenticated
+    and runs it on the shared threadpool, so an unauthenticated flood both
+    hammered the IdP and starved the workers the rest of the API needs."""
+    down = _Down()
+    monkeypatch.setattr(oidc, "_client", lambda: down)
+    token = _token(issuer)
+    for _ in range(20):
+        with pytest.raises(oidc.OIDCError):
+            oidc.validate(token)
+    assert len(down.calls) == 1  # one attempt, then the cooldown answers
+
+
+def test_an_unreachable_jwks_is_not_reported_as_a_refused_token(monkeypatch, issuer):
+    """PyJWKClientConnectionError subclasses PyJWTError, so it used to land in
+    the same branch as a bad signature: every signed-in person was told their
+    token was refused and to sign in again — at an identity provider that is
+    the very thing that is down."""
+    monkeypatch.setattr(oidc, "_client", lambda: _Down())
+    with pytest.raises(oidc.OIDCUnavailable) as e:
+        oidc.validate(_token(issuer))
+    assert "Sign in again" not in str(e.value)
+    assert "refused" not in str(e.value)
+    # still the family every route already catches
+    assert isinstance(e.value, oidc.OIDCError)
+
+
+def test_a_genuinely_bad_token_is_still_refused_not_excused(issuer):
+    """The other side of the split: a real token fault must NOT become a 503
+    that tells the caller to wait for a provider that is answering fine."""
+    with pytest.raises(oidc.OIDCError) as e:
+        oidc.validate(_token(issuer, exp=int(time.time()) - 10))
+    assert not isinstance(e.value, oidc.OIDCUnavailable)
 
 
 def test_principal_maps_configured_claims(monkeypatch):

@@ -192,6 +192,51 @@ def test_a_credential_is_verified_once_per_request(client, monkeypatch):
     assert calls == []  # deps reused what the middleware already proved
 
 
+def test_an_oidc_sign_in_naming_an_agent_is_refused_at_the_perimeter(client, monkeypatch, fresh_db):
+    """The twin of the API-key wall above, for the other locked mode. A token
+    whose username claim names an agent row reaches the same 41 dependency-less
+    GET routes, so the wall has to stand in both branches of the middleware."""
+    from app.services.users import ensure_user
+
+    ensure_user("scout", kind="agent")
+    _oidc(monkeypatch, {"tok": {"preferred_username": "scout"}})
+    r = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+    assert r.status_code == 403
+    assert "agent identity" in r.json()["detail"]
+
+
+def test_an_oidc_token_is_validated_once_per_request(client, monkeypatch, fresh_db):
+    """The twin of the key test above. A signature check is the expensive half
+    of oidc mode, and the dependency must reuse what the middleware proved."""
+    from app import oidc
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "casey"}})
+    calls = []
+    real = oidc.validate
+    monkeypatch.setattr(oidc, "validate", lambda t: (calls.append(t), real(t))[1])
+    # /api/keys carries a user dependency, so both layers run for this request
+    assert client.get("/api/keys", headers={"Authorization": "Bearer tok"}).status_code == 200
+    assert len(calls) == 1
+
+
+def test_an_unreachable_identity_provider_is_a_503_not_a_sign_in_again(
+    client, monkeypatch, fresh_db
+):
+    """During an IdP outage, 401 sends every signed-in person to a sign-in that
+    is also down. 503 says the truth: the token was never judged."""
+    from app import config, oidc
+
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+
+    def down(token):
+        raise oidc.OIDCUnavailable("the identity provider cannot be reached.")
+
+    monkeypatch.setattr(oidc, "validate", down)
+    r = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+    assert r.status_code == 503
+    assert "cannot be reached" in r.json()["detail"]
+
+
 def test_slack_endpoint_keeps_its_own_gate(client, monkeypatch):
     from app import config
 
