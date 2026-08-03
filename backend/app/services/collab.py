@@ -29,6 +29,9 @@ def ask_question(
             tier="digest",
             link="/",
         )
+    from .mentions import scan
+
+    scan("question", qid, question, actor=actor or asked_by, exclude=(assigned_to,), link="/")
     return {"id": qid, "status": "open"}
 
 
@@ -95,6 +98,9 @@ def answer_question(
                 tier="digest",
                 link="/dashboard",
             )
+        from .mentions import scan
+
+        scan("question", question_id, answer, actor=who, exclude=(row["asked_by"],), link="/")
     return {"id": question_id, "status": "answered"}
 
 
@@ -161,6 +167,15 @@ def record_decision(
     )
     db.log_activity(actor or decided_by or "system", "record_decision", f"#{did} {title}")
     index_record("decision", did, title, f"{decision} {context}")
+    from .mentions import scan
+
+    scan(
+        "decision",
+        did,
+        f"{title} {decision} {context}",
+        actor=actor or decided_by or "system",
+        link="/charter",
+    )
     return {"id": did, "title": title}
 
 
@@ -346,6 +361,9 @@ def save_note(
     )
     db.log_activity(actor or author or "system", "save_note", topic)
     index_record("note", nid, topic, content)
+    from .mentions import scan
+
+    scan("note", nid, f"{topic} {content}", actor=actor or author or "system", link="/")
     return {"id": nid, "topic": topic}
 
 
@@ -376,6 +394,9 @@ def update_note(
     new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
     if new:
         index_record("note", note_id, new["topic"], new["content"])
+        from .mentions import scan
+
+        scan("note", note_id, f"{new['topic']} {new['content']}", actor=actor or "system", link="/")
     return {"id": note_id, "updated": list(fields)}
 
 

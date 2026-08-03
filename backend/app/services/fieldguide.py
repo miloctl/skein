@@ -76,6 +76,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     ),
     "ingest": lambda u: _act(u, "ingest_notes"),
     "delegate": lambda u: _act(u, "delegate_task"),
+    "mention": lambda u: _has("SELECT 1 FROM mention_log WHERE mentioned_by = ?", (u,)),
     # reviewed_override=0 on a task_completion verdict means the reviewer WAS
     # the sponsor at verdict time — the loop closed the designed way
     "sponsor_verdict": lambda u: _has(
