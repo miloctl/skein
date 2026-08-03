@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import config, db
 from .routes import api, chat, private, slack, webhooks
@@ -67,15 +68,20 @@ async def lifespan(app: FastAPI):
             mcp_user,
         )
     if config.AUTH_ERROR:
+        # the rejected value goes to the LOG, never to the 503 body: that
+        # response is served to unauthenticated callers, and an operator who
+        # pastes a secret into the wrong variable must not broadcast it
         log.error(
-            "auth is misconfigured: %s — every /api request is refused until this is fixed",
+            "auth is misconfigured (SKEIN_AUTH_MODE=%r): %s — every /api request"
+            " is refused until this is fixed",
+            config.AUTH_MODE,
             config.AUTH_ERROR,
         )
     elif config.AUTH_MODE == "trusted-header":
         log.warning(
             "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted X-User"
-            " header. Right for a trusted LAN or local dev; for anything shared,"
-            " set SKEIN_AUTH_MODE=api-key or oidc."
+            " header. This mode is for a trusted LAN or local dev. If the"
+            " deployment is shared, set SKEIN_AUTH_MODE=api-key or oidc."
         )
     if config.API_TOKEN and config.AUTH_MODE != "trusted-header":
         log.warning(
@@ -101,7 +107,19 @@ async def lifespan(app: FastAPI):
     shutdown_mcp()
 
 
-app = FastAPI(title="Skein", description="Many strands. One formation.", lifespan=lifespan)
+# /docs, /redoc and /openapi.json sit OUTSIDE /api, so the perimeter
+# middleware never sees them. In the locked modes the endpoint map is
+# credentialed surface like everything else — an unauthenticated caller must
+# not be able to read the whole admin route list.
+_open_docs = config.AUTH_MODE == "trusted-header"
+app = FastAPI(
+    title="Skein",
+    description="Many strands. One formation.",
+    lifespan=lifespan,
+    docs_url="/docs" if _open_docs else None,
+    redoc_url="/redoc" if _open_docs else None,
+    openapi_url="/openapi.json" if _open_docs else None,
+)
 
 
 @app.middleware("http")
@@ -131,27 +149,43 @@ async def perimeter_auth(request: Request, call_next):
         return JSONResponse(status_code=503, content={"detail": config.AUTH_ERROR})
     if config.AUTH_MODE == "trusted-header" and not config.API_TOKEN:
         return await call_next(request)
-    from .routes.deps import INVALID_KEY, NEED_KEY, NEED_LOGIN
+    from .routes.deps import INVALID_KEY, NEED_KEY, NEED_LOGIN, agent_on_rest
     from .services.api_keys import PREFIX, verify_key
+    from .services.users import is_agent
 
     auth = request.headers.get("Authorization", "")
-    if auth.startswith(f"Bearer {PREFIX}"):
-        if verify_key(auth[7:]) is not None:
-            return await call_next(request)
-        return JSONResponse(status_code=401, content={"detail": INVALID_KEY})
+    # The shared token is checked BEFORE the key prefix: an operator whose
+    # SKEIN_API_TOKEN happens to begin with the key prefix would otherwise be
+    # routed into verify_key and locked out of their own deployment.
     if config.AUTH_MODE == "trusted-header":
         import hmac
 
         if hmac.compare_digest(auth, f"Bearer {config.API_TOKEN}"):
             return await call_next(request)
+    if auth.startswith(f"Bearer {PREFIX}"):
+        # verify_key and is_agent hit SQLite; oidc.validate does network I/O
+        # and RSA work. This middleware is async, so running any of it inline
+        # blocks the event loop for EVERY concurrent request.
+        owner = await run_in_threadpool(verify_key, auth[7:])
+        if owner is None:
+            return JSONResponse(status_code=401, content={"detail": INVALID_KEY})
+        # the same agent wall routes/deps.py applies. It belongs here too:
+        # the read routes that carry no user dependency never reach deps, so
+        # in api-key/oidc mode this is their only gate.
+        if await run_in_threadpool(is_agent, owner):
+            return JSONResponse(status_code=403, content={"detail": agent_on_rest(owner)})
+        request.state.auth_key_owner = owner
+        return await call_next(request)
+    if config.AUTH_MODE == "trusted-header":
         return JSONResponse(status_code=401, content={"detail": "invalid API token"})
     if config.AUTH_MODE == "oidc" and auth.startswith("Bearer "):
         from . import oidc
 
         try:
-            oidc.validate(auth[7:])
+            claims = await run_in_threadpool(oidc.validate, auth[7:])
         except oidc.OIDCError as exc:
             return JSONResponse(status_code=401, content={"detail": str(exc)})
+        request.state.auth_claims = claims
         return await call_next(request)
     detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN
     return JSONResponse(status_code=401, content={"detail": detail})
@@ -161,7 +195,7 @@ async def perimeter_auth(request: Request, call_next):
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
-# added AFTER bearer_auth so CORS is the OUTERMOST layer — a 401 short-circuit
+# added AFTER perimeter_auth so CORS is the OUTERMOST layer — a 401 short-circuit
 # must still carry Access-Control-Allow-Origin, or the browser reports an
 # opaque CORS failure instead of a readable auth error
 app.add_middleware(

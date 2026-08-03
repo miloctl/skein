@@ -436,7 +436,10 @@ AUTH_MODES = ("trusted-header", "api-key", "oidc")
 AUTH_MODE = os.getenv("SKEIN_AUTH_MODE", "trusted-header").strip().lower() or "trusted-header"
 AUTH_ERROR = ""
 if AUTH_MODE not in AUTH_MODES:
-    AUTH_ERROR = f"unknown SKEIN_AUTH_MODE {AUTH_MODE!r} — expected one of: {', '.join(AUTH_MODES)}"
+    # states the fault and the fix, and does NOT echo the rejected value:
+    # this message reaches unauthenticated callers in the 503 body and on
+    # /health. main.py logs the value for whoever runs the server.
+    AUTH_ERROR = f"SKEIN_AUTH_MODE is not a known mode. Set it to one of: {', '.join(AUTH_MODES)}."
 
 # Administrators: the only identities the roster / team-config / export
 # surfaces accept (deps.AdminUser). Empty + trusted-header mode = every key

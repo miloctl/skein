@@ -206,12 +206,20 @@ if (typeof window !== "undefined") {
     if (!pushTimer) return;
     clearTimeout(pushTimer);
     pushTimer = null;
-    import("./api").then(({ API_URL, getUser }) => {
+    import("./api").then(({ API_URL, getUser, getApiKey }) => {
       const user = getUser();
       if (user === "anonymous") return;
+      // carries the credential api() sends: outside trusted-header mode an
+      // unauthenticated POST is a 401, and this catch swallows it — the
+      // last theme change before a tab closes would vanish without a trace
+      const auth = getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN;
       fetch(`${API_URL}/api/users/theme`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-User": user },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User": user,
+          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+        },
         body: JSON.stringify({ theme: serialize() }),
         keepalive: true,
       }).catch(() => {});
