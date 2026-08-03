@@ -458,6 +458,16 @@ OIDC_USERNAME_CLAIM = os.getenv("SKEIN_OIDC_USERNAME_CLAIM", "").strip() or "pre
 OIDC_GROUPS_CLAIM = os.getenv("SKEIN_OIDC_GROUPS_CLAIM", "").strip() or "groups"
 # IdP group that grants admin, alongside SKEIN_ADMINS
 OIDC_ADMIN_GROUP = os.getenv("SKEIN_OIDC_ADMIN_GROUP", "").strip()
+# Browser sign-in (authorization code + PKCE). The web app is a PUBLIC client:
+# there is no client secret anywhere in this codebase, because a secret shipped
+# to a browser is not a secret. Empty client id = the API accepts IdP tokens
+# but the web app shows no sign-in button.
+OIDC_CLIENT_ID = os.getenv("SKEIN_OIDC_CLIENT_ID", "").strip()
+OIDC_SCOPES = os.getenv("SKEIN_OIDC_SCOPES", "").strip() or "openid profile"
+# Endpoint overrides. Empty = read from the issuer's discovery document, the
+# same one SKEIN_OIDC_JWKS_URL overrides.
+OIDC_AUTHORIZE_URL = os.getenv("SKEIN_OIDC_AUTHORIZE_URL", "").strip()
+OIDC_TOKEN_URL = os.getenv("SKEIN_OIDC_TOKEN_URL", "").strip()
 if not AUTH_ERROR and AUTH_MODE == "oidc":
     if not OIDC_ISSUER:
         AUTH_ERROR = "SKEIN_AUTH_MODE=oidc requires SKEIN_OIDC_ISSUER"

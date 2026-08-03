@@ -147,8 +147,10 @@ strangers; `SKEIN_API_TOKEN` adds a shared bearer token there, but it is
 baked into the frontend's public JS bundle, so anyone who can load the UI can
 read it — it keeps out network scanners, not people who can reach port 3000.
 `api-key` mode demands a personal `sk-skein-` key on every request. `oidc`
-mode validates IdP-issued JWTs in-process (the web UI's sign-in flow is still
-to come — until then oidc serves API/automation callers). Admin surfaces
+mode validates IdP-issued JWTs in-process, and the web app signs in against
+the same provider with authorization code + PKCE — register it as a public
+client with `<origin>/auth/callback` as the redirect URI, then set
+`SKEIN_OIDC_CLIENT_ID`. Admin surfaces
 (roster, key visibility, authority, backups, export) are held to
 `SKEIN_ADMINS` / an IdP admin group. To expose this beyond a trusted network
 today, put both services behind an authenticating reverse proxy (Tailscale,

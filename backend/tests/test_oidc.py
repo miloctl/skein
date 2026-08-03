@@ -20,6 +20,17 @@ from app import config, oidc
 ISS = "https://idp.test/realms/team"
 
 
+@pytest.fixture(autouse=True)
+def _clean_oidc():
+    """app/oidc.py caches the JWKS client, the discovery document and two
+    throttles at module level. Any of them surviving into the next test makes
+    that test pass for the wrong reason — a discovery-failure test cannot fail
+    if an earlier file already cached a working document."""
+    oidc.reset()
+    yield
+    oidc.reset()
+
+
 @pytest.fixture(scope="module")
 def rsa_key():
     return rsa.generate_private_key(public_exponent=65537, key_size=2048)
