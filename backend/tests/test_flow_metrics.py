@@ -34,3 +34,21 @@ def test_slas_constants_wired():
     assert portfolio.STALE_WIP_DAYS == slas.STALE_WIP_DAYS
     assert insights.AGING_WIP_DAYS == slas.AGING_WIP_DAYS
     assert digest.DIGEST_STALLED_DAYS == slas.DIGEST_STALLED_DAYS
+
+
+def test_accepted_delegated_work_counts_in_flow(fresh_db):
+    """A sponsor's acceptance is the ONLY way a delegated task closes — the
+    forge refuses to — so if it does not stamp completed_at, every delegated
+    task a team finishes is invisible to cycle time and throughput."""
+    from app.services import delegation, portfolio, users, work
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    tid = work.create_task("Delegated thing", actor="mira")["id"]
+    delegation.delegate_task(tid, "scout", "mira", actor="mira")
+    # actor is the delegated agent the acceptance is FOR; the sponsor's
+    # approval is what routes here
+    delegation.accept_completion(tid, actor="scout")
+    flow = portfolio.flow_metrics()
+    assert flow["cycle_time"]["tasks_done"] == 1
+    assert sum(flow["throughput_by_week"].values()) == 1

@@ -67,6 +67,9 @@ async def forge_webhook(
     # an unsigned caller. routes/slack.py refuses the same way, first thing.
     if not config.FORGE_WEBHOOK_SECRET:
         raise forge_webhook_off()
+    # by address, BEFORE the read and the HMAC: an unsigned caller has no name
+    # to key on, and everything after this point costs real work
+    ratelimit.check("forge_addr", request.client.host if request.client else "unknown")
     # Content-Length is a hint a caller can lie about, so the stream is
     # counted too; the timeout bounds a caller who dribbles bytes instead.
     declared = request.headers.get("content-length") or "0"

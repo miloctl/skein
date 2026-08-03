@@ -32,13 +32,22 @@ LIMITS = {
     # signed caller must never be able to spend a named teammate's write
     # budget, and a busy monorepo pushes more than a person types.
     "forge": 120,
+    # every delivery, counted by ADDRESS before the signature is checked. The
+    # `forge` bucket above cannot cover an unsigned caller — it is keyed on a
+    # name we only trust after verifying — so without this a caller holding no
+    # credential buys an HMAC over the whole body at line rate.
+    "forge_addr": 600,
 }
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 # What the cap counts, per surface. A signed-out caller has no name, so the
 # signin cap counts addresses — and the refusal must not claim otherwise.
 # Behind a reverse proxy that does not pass the caller's address through,
 # every browser shares one address, and so one signin bucket.
-PER = {"signin": "per address", "forge": "for the whole integration"}
+PER = {
+    "signin": "per address",
+    "forge": "for the whole integration",
+    "forge_addr": "per address",
+}
 
 
 def check(surface: str, user: str) -> None:

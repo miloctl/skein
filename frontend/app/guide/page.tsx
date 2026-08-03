@@ -136,13 +136,16 @@ export default function GuidePage() {
                     {/* how: stays after the card ties. It is the only place
                         some grammars are written down — the search card
                         teaches `#42` — and hiding it on first use deletes the
-                        documentation exactly when someone starts using it. */}
-                    <p className="mb-2 text-xs text-ink-3">{c.how}</p>
+                        documentation exactly when someone starts using it.
+                        ink-2, not ink-3: a tied card sits on surface-raised,
+                        where 12px ink-3 measures 4.48:1 and misses AA. */}
+                    <p className="mb-2 text-xs text-ink-2">{c.how}</p>
                     {c.tied ? (
                       <p className="text-xs text-ink-3">Tied · {c.tied_on}</p>
                     ) : (
                       <Link
                         href={c.link}
+                        aria-label={`Try it: ${c.feature}`}
                         className="text-xs font-medium text-thread-solid underline hover:opacity-80"
                       >
                         Try it <span aria-hidden>→</span>

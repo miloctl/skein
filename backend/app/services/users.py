@@ -9,14 +9,23 @@ def _is_bench_slug(name: str) -> bool:
     return name in personas.bench_slugs()
 
 
-def ensure_user(name: str, kind: str = "human") -> dict:
-    name = (name or "anonymous").strip()[:64] or "anonymous"
-    # the activity feed shows system actors to EVERY viewer, so a human who
-    # picks one of those names leaks all of their rows past the scope rule
+def refuse_reserved_name(name: str) -> None:
+    """One predicate for every identity entry point — ensure_user, rename, and
+    the credential doors in routes/deps.py.
+
+    ANY kind, not just human: the activity feed shows a system actor's rows to
+    EVERY viewer, so whoever holds one of these names walks their own writes
+    past the scope rule. delegate_task and set_authority both mint agents from
+    a caller-supplied string, so a human-only check is a hole, not a wall."""
     from .activity import SYSTEM_ACTORS
 
-    if kind == "human" and name.casefold() in {a.casefold() for a in SYSTEM_ACTORS}:
+    if name.casefold() in {a.casefold() for a in SYSTEM_ACTORS}:
         raise ValueError(f"'{name}' is reserved for the system — pick another name")
+
+
+def ensure_user(name: str, kind: str = "human") -> dict:
+    name = (name or "anonymous").strip()[:64] or "anonymous"
+    refuse_reserved_name(name)
     # bench persona slugs are reserved identities: a human picking one would
     # silently absorb the persona's trust/authority history (and vice versa)
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
@@ -215,6 +224,10 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
             f"'{old}' has private 1:1 notes, and only they can move them."
             f" Ask {old} to rename their own account."
         )
+    # rename is the back door around ensure_user's walls, so it honors the
+    # same ones. Without this a teammate is renameable to a system actor, and
+    # their surviving API key then writes rows every viewer can read.
+    refuse_reserved_name(new)
     if _is_bench_slug(new):
         # unconditional: persona names come from files, never from rename —
         # even agent→agent would fold foreign history into the persona

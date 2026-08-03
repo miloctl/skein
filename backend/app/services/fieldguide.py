@@ -80,12 +80,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "ingest": lambda u: _act(u, "ingest_notes"),
     "delegate": lambda u: _act(u, "delegate_task"),
     "mention": lambda u: _has("SELECT 1 FROM mention_log WHERE mentioned_by = ?", (u,)),
-    # None, not a query: the forge acts for the team under one actor and names
-    # nobody (services/forge.py keeps the pusher out of the ledger so the feed
-    # cannot become a record of who pushed). A team-wide predicate would tie
-    # this card for people who never used it, which is what "first use" means,
-    # and would report 100% adoption off one person's push. Untied is honest,
-    # and it keeps the how-to — the setup steps — in front of everyone.
+    # never ties, and says so in knots.yaml (`ties: never`). A team-wide query
+    # would tie this card for people who never used it — the opposite of first
+    # use — and services/forge.py deliberately keeps the pusher out of the
+    # ledger, so there is no honest per-person signal to key on either.
     "forge": None,
     # reviewed_override=0 on a task_completion verdict means the reviewer WAS
     # the sponsor at verdict time — the loop closed the designed way
@@ -137,6 +135,14 @@ def registry() -> list[dict]:
             raise ValueError(f"knot '{kid}' has no predicate in fieldguide.PREDICATES")
         if k.get("set") not in SETS:
             raise ValueError(f"knot '{kid}' has invalid set '{k.get('set')}'")
+        # a card with no predicate must say how it DOES tie, or it becomes an
+        # unsatisfiable nag: unadopted() would report it forever and the
+        # weekly suggestion would keep offering it to everyone
+        if PREDICATES[kid] is None and k.get("ties") not in ("mark", "never"):
+            raise ValueError(
+                f"knot '{kid}' has no predicate, so it must declare ties:"
+                " 'mark' (a route calls fieldguide.mark) or 'never'"
+            )
         for field in ("feature", "knot", "pitch", "how", "link", "since"):
             if not k.get(field):
                 raise ValueError(f"knot '{kid}' is missing '{field}'")
@@ -261,7 +267,11 @@ def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict 
     candidates = [
         k
         for k in cards
-        if k["id"] not in tied and k["id"] not in dismissed and k.get("role") != "manager"
+        if k["id"] not in tied
+        and k["id"] not in dismissed
+        and k.get("role") != "manager"
+        # a card that never ties would be offered every week forever
+        and k.get("ties") != "never"
     ]
     if not candidates:
         return None
@@ -306,6 +316,9 @@ def guide(person: str) -> dict:
             "how": k["how"],
             "link": k["link"],
             "role": k.get("role", ""),
+            # the UI shows a completable "N of M tied" counter, so a card that
+            # never ties has to say so rather than read as one you missed
+            "ties": k.get("ties", "predicate"),
             "tied": t is not None,
             "tied_on": t["first_at"][:10] if t else "",
         }
@@ -347,6 +360,10 @@ def unadopted(grace_days: int = UNADOPTED_GRACE_DAYS) -> list[dict]:
     out = []
     for k in registry():
         if str(k["since"]) > cutoff:
+            continue
+        # a card that never ties has no adoption signal to report — listing it
+        # would print a zero-adoption nag every day that nobody can satisfy
+        if k.get("ties") == "never":
             continue
         if not _has("SELECT 1 FROM feature_unlocks WHERE knot = ? AND kind = 'tied'", (k["id"],)):
             out.append(

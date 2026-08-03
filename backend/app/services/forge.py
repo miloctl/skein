@@ -63,9 +63,16 @@ def _clean_url(url: str) -> str:
     passes a scheme check and breaks the first renderer that builds markup by
     hand."""
     url = (url or "").strip()[:2000]
-    if not url.startswith(("https://", "http://")):
+    # schemes are case-insensitive; a forge configured with an uppercase base
+    # URL would otherwise lose every link
+    if not url.lower().startswith(("https://", "http://")):
         return ""
-    if any(c in url for c in "\"'<> \r\n\t") or "\x00" in url:
+    # allowlist the shape, never blocklist the characters: a blocklist missed
+    # form feed and U+2028, and HTML treats both as whitespace, so each one
+    # ends an unquoted attribute in the first renderer that is not React
+    if any(c.isspace() or c < " " or c == "\x7f" for c in url):
+        return ""
+    if any(c in url for c in "\"'<>`"):
         return ""
     try:
         parts = urlsplit(url)
@@ -123,16 +130,18 @@ def forge_event(
     # submit_for_acceptance is the only path that records a verdict
     if status == "done" and task["delegated_agent"]:
         return {"task_id": task_id, "ignored": "task is delegated — the sponsor accepts it"}
-    # every push to an open branch re-delivers the same event, and a busy
-    # branch would otherwise append one unprunable hash-chained row per push.
-    # This holds ONLY because a push's url is the stable branch page rather
-    # than Gitea's compare_url, which carries the two shas and so differs
-    # every time (see parse_gitea).
-    if task["status"] == status and url in ("", task["forge_url"]):
+    # The TRANSITION is the write, not the link. Once a task is in the status
+    # an event means, nothing more is recorded: the ordinary push → open PR →
+    # push-review-fixes cycle alternates between the branch page and the PR
+    # link, and a URL-keyed guard writes a permanent hash-chained row on every
+    # hop. A caller-supplied string must never decide whether we write.
+    if task["status"] == status:
         return {"task_id": task_id, "ignored": f"task is already {status}"}
     work.update_task(
         task_id,
-        status="" if task["status"] == status else status,
+        status=status,
+        # the link is carried by the transition that earns it, so a merge
+        # leaves the PR and a first push leaves the branch page
         forge_url=url,
         actor="forge",
         note=" (from the forge)",
@@ -183,10 +192,18 @@ def parse_gitea(event: str, payload: dict) -> dict | None:
 def is_agent_login(login: str) -> bool:
     """Does this forge login name an agent on the roster? The name is used for
     this refusal and nothing else — it never reaches the ledger, so the feed
-    cannot become a record of who pushed what (see forge_event)."""
-    from .users import is_agent
+    cannot become a record of who pushed what (see forge_event).
 
+    Asks whether ANY row with this name is an agent, never "what kind is the
+    first row". `users.name` is case-sensitively unique, so `Scout` the human
+    and `scout` the agent coexist — and a plain lookup returns whichever sorts
+    first, which would let a human's chosen capitalization disarm the refusal
+    for the agent."""
+    login = (login or "").strip()
     if not login:
         return False
-    row = db.query_one("SELECT name FROM users WHERE lower(name) = lower(?)", (login,))
-    return bool(row and is_agent(row["name"]))
+    return bool(
+        db.query_one(
+            "SELECT 1 FROM users WHERE lower(name) = lower(?) AND kind = 'agent'", (login,)
+        )
+    )
