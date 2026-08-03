@@ -128,7 +128,9 @@ def test_slack_still_writes_for_ordinary_people(client, fresh_db, monkeypatch, n
     from app import config
 
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
-    body = f"text=%2Fhelp&user_name={name}"
+    # a body that WRITES — /help writes nothing, so it could not prove the
+    # ordinary-person path still works
+    body = f"text=todo%3A+ordinary+person+capture&user_name={name}"
     ts = str(int(time.time()))
     sig = "v0=" + hmac.new(b"shhh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
     r = client.post(
@@ -142,7 +144,10 @@ def test_slack_still_writes_for_ordinary_people(client, fresh_db, monkeypatch, n
     )
     assert r.status_code == 200
     assert "is an agent identity" not in r.json()["text"]
-    # and the write actually happened for a real person
-    from app.services import users as u
+    # is_agent() is False for a user that does not EXIST, so asserting it alone
+    # passed even if ensure_user never ran. Assert the row, and the write.
+    from app.services import work
 
-    assert not u.is_agent(name)
+    row = fresh_db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
+    assert row is not None and row["kind"] == "human"
+    assert [t for t in work.list_tasks() if t["created_by"] == name]

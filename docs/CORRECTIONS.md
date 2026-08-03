@@ -26,21 +26,26 @@ new features are reviewed against it.
    of someone else's content ERROR instead (answers); merges backfill
    person-level fields rather than dropping them; approvals apply as the
    proposer, never the reviewer.
-5. **Bounded.** Three checks, each mechanical. No endpoint is exempt by
-   judgment.
-   - **Listable is LIMITed.** Every service function that returns a list takes
-     a `limit` and puts `LIMIT ?` in its SQL, on every branch.
-   - **Writable is length-capped.** Every string field of every request model
-     carries `max_length` — on the PATCH model as well as the create model,
-     and never looser on the PATCH. Every create refuses a record whose
-     capped fields are all empty.
-   - **Writable is rate-capped.** Every mutating route calls
-     `ratelimit.check(<surface>, user)` before it calls the service.
+5. **Bounded.** Three rules. One is enforced mechanically today. The other
+   two are review obligations, and this entry says which is which — a rule
+   that claims an enforcement it does not have is worse than a soft rule,
+   because it stops people looking.
+   - **A PATCH never loosens a create cap.** ENFORCED.
+     `tests/test_patch_cap_parity.py` discovers every `*Patch`/`*In` pair by
+     convention and fails on any field capped looser than its create model,
+     so a new pair is covered the day it is written.
+   - **Writable is length-capped.** REVIEW OBLIGATION. Every string field of
+     every request model carries `max_length`, and every create refuses a
+     record whose capped fields are all empty. The parity test above compares
+     PATCH against create; it cannot see a field left uncapped on BOTH sides.
+   - **Writable is rate-capped, listable is LIMITed.** REVIEW OBLIGATION.
+     A mutating route calls `ratelimit.check(<surface>, user)`; a list service
+     takes a `limit` and puts `LIMIT ?` in its SQL on every branch. Neither is
+     swept today — see the ROADMAP entry for the census that would make them
+     enforced.
 
-   `tests/test_input_bounds.py` and `tests/test_patch_cap_parity.py` run these
-   checks. To exempt an endpoint, write `# unbounded: <reason>` on the line
-   above it and add a row to the table below. An endpoint with no cap and no
-   row is a bug, not a decision.
+   To exempt an endpoint deliberately, write `# unbounded: <reason>` above it
+   and add a row below.
 
 ### Bounded exemptions
 

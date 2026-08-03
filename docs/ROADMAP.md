@@ -410,6 +410,30 @@ The ID tags are kept because source comments cite them. `TD1` and `TP5` and
 their neighbours are named in `frontend/app/globals.css`, `frontend/lib/theme.ts`,
 and `frontend/lib/whimsy.ts`.
 
+## Bounded-input census (from the 2026-08-03 holistic review)
+
+CORRECTIONS rule 5 names three bounds. Only the PATCH-vs-create parity check
+is enforced by a test. The other two are review obligations, and a review
+found real gaps behind both:
+
+- **Rate caps.** About 46 mutating routes never call `ratelimit.check`,
+  including `PATCH /api/tasks/{id}`, `PATCH /api/questions/{id}`, the
+  `/api/private/*` writes, and the chat folder/thread writes. Needed: a
+  structural test that reflects over the route table and asserts every
+  mutating route either calls the check or carries an `# unbounded:` marker
+  with a row in the exemptions table.
+- **Unbounded lists.** `private_notes.list_notes` has no LIMIT on its
+  `if person:` branch, and `chat_threads.list_threads`, `get_messages`,
+  `api_keys.list_keys` and `list_all_keys` have none at all.
+- **Uncapped-on-both-sides fields.** The parity test compares a PATCH to its
+  create model, so a field left uncapped on BOTH passes. Four were found and
+  capped; a census would prove there are no more.
+- **The service layer is uncapped where the route is capped.** `create_task`
+  and `create_milestone` bound only non-emptiness, so the agent and MCP paths
+  write unbounded LLM-authored titles that the now-capped PATCH route then
+  refuses — a row the system wrote that its own UI cannot edit. Either cap at
+  the service, or have the route accept what the service already stored.
+
 ## Self-serve UX (from the 2026-07-24 fresh-user review)
 
 Sized S or M by that review. Items 6 and 8 of the original list are gone. The

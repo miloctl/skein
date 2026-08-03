@@ -235,3 +235,45 @@ def test_private_note_delete_and_audit(client, fresh_db):
     # missing one — no existence leak
     assert client.delete(f"/api/private/notes/{note2['id']}", headers=other).status_code == 404
     assert client.get("/api/private/audit", headers=other).json() == []
+
+
+def test_mcp_capture_refuses_private_feedback(fresh_db, monkeypatch):
+    """Routing MCP capture through the review gate made capture.plan() run
+    BEFORE the fb: guard, and the proposal path never calls capture() — so a
+    private feedback line became a note proposal in the TEAM-VISIBLE review
+    queue, and approving it wrote an FTS-indexed public note."""
+    from app import config, mcp_server
+    from app.services import users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("mira")
+    users.ensure_user(mcp_server.ACTOR, kind="agent")
+
+    fn = getattr(mcp_server.capture, "fn", mcp_server.capture)
+    out = fn("fb: mira — candid private assessment")
+
+    assert "private" in out
+    assert fresh_db.query_one("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
+    assert fresh_db.query_one("SELECT COUNT(*) AS n FROM notes")["n"] == 0
+    # an ordinary capture still routes through the gate
+    assert "pending" in fn("todo: an ordinary capture")
+
+
+def test_a_third_party_rename_still_moves_notes_ABOUT_the_person(fresh_db):
+    """The refusal guard checks whether the renamed person AUTHORS notes. It
+    says nothing about notes others keep ABOUT them, and that column carries
+    no ownership — so it must follow the rename. Freezing it stranded every
+    teammate's 1:1 journal under a name with no roster row."""
+    from app.services import private_notes, users
+
+    for n in ("alice", "Bobby", "ops"):
+        users.ensure_user(n)
+    private_notes.add_note("alice", "Bobby", "1:1 notes about Bobby", kind="note")
+    assert not private_notes.author_has_notes("Bobby")  # the guard will not fire
+
+    users.rename_user("Bobby", "bob", actor="ops")
+
+    assert [n["body"] for n in private_notes.list_notes("alice", "bob")] == [
+        "1:1 notes about Bobby"
+    ]
+    assert private_notes.list_notes("alice", "Bobby") == []

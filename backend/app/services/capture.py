@@ -74,6 +74,16 @@ def classify(text: str) -> str:
     return "note"
 
 
+def is_private_feedback(text: str) -> bool:
+    """Does this text carry an fb: line? Any surface that could route text to
+    a team-visible record must refuse first — chat, the session bridge, ingest
+    and MCP all ask here rather than importing the private module, so the
+    privacy canary in test_privacy can stay a strict source-level rule."""
+    from . import private_notes
+
+    return any(private_notes.FB_GUARD.match(ln) for ln in text.splitlines())
+
+
 def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
     """(kind, review-registry entity, payload) for one capture.
 
