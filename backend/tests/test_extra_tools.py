@@ -40,8 +40,10 @@ def test_shell_and_friends_are_refused(monkeypatch, caplog):
         "mcp_client",
         "use_computer",
         "use_aws",
-        # cut on security review: third write path / SSRF /
-        # model-chosen provider endpoints / path traversal
+        # http_request is SSRF plus a third write path into our own keyless
+        # API (forged X-User skips the gate); use_agent/use_llm take a
+        # model-chosen provider endpoint; workflow/diagram reach subprocess
+        # and path traversal
         "http_request",
         "use_agent",
         "use_llm",

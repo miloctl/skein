@@ -129,7 +129,8 @@ def test_canary_absent_from_every_disk_file(client, fresh_db):
     publish_digest(actor="tester", force=True)
     admin.backup()
     admin.export()
-    assert "BEGIN:VCALENDAR" in client.get("/api/calendar.ics").text  # exercise the feed
+    # the feed must render, or the canary check below passes vacuously
+    assert "BEGIN:VCALENDAR" in client.get("/api/calendar.ics").text
     assert CANARY not in client.get("/api/calendar.ics").text
     # /ask reads the same FTS: the echo of the question is fine, citations must be empty
     assert client.get(f"/api/ask?q={CANARY}").json()["citations"] == []

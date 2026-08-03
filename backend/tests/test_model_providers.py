@@ -221,7 +221,7 @@ def test_ollama_cloud_model_id_passes_untouched(monkeypatch, restore_config):
     assert cfg.OLLAMA_HOST == "http://localhost:11434"
 
 
-# ---- regressions for the bugs found reviewing the first cut ----
+# ---- key hygiene and operator-input traps: leaks, leftovers, collisions ----
 
 
 def test_openai_key_never_leaks_to_a_third_party_endpoint(monkeypatch, restore_config):

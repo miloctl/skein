@@ -93,8 +93,9 @@ def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
         intake.disposition_request(r["id"], "declined", "too late", actor="mira")
 
     findings = insights._r_intake_stall()
-    # created_at windowing saw an empty 6-week sample and stayed silent; the
-    # fix puts all five ~50-day dispositions in, so the rule fires
+    # windowing on created_at saw an empty 6-week sample and stayed silent;
+    # windowing on updated_at puts all five ~50-day dispositions in, so the
+    # rule fires
     assert findings, "the stall rule missed dispositions that took ~50 days"
     assert findings[0]["n"] == 5
     assert findings[0]["receipt"]["median_days"] > 7

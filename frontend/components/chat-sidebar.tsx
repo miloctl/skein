@@ -169,7 +169,6 @@ export function ChatSidebar({
     setConfirmingBulk(false);
   };
 
-  // Escape leaves select mode
   useEffect(() => {
     if (!selectMode) return;
     const onKey = (e: KeyboardEvent) => {
@@ -258,7 +257,7 @@ export function ChatSidebar({
       if (!(await copyText(md))) throw new Error("cannot copy here — select the text and copy manually");
       setCopied(t.id);
       setTimeout(() => {
-        // identity-guarded: never clobber a newer menu/toast (review fix)
+        // identity-guarded: the 1200ms timer must never clobber a newer menu/toast
         setCopied((c) => (c === t.id ? null : c));
         setMenu((m) => (m && m.kind === "thread" && m.id === t.id ? null : m));
       }, 1200);
@@ -314,7 +313,7 @@ export function ChatSidebar({
       exitSelect();
     } catch (e) {
       alert(String(e));
-      // prune what succeeded so a retry never re-deletes ghosts (review fix)
+      // prune what succeeded so a retry never re-deletes ghosts
       setSelChats((s) => new Set([...s].filter((id) => !doneChats.has(id))));
       setSelFolders((s) => new Set([...s].filter((n) => !doneFolders.has(n))));
     } finally {

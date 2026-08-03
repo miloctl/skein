@@ -27,7 +27,8 @@ def test_write_receipts_state_what_actually_happened(fresh_db, monkeypatch):
         assert queued[0]["ref"] == out["id"]  # the proposal to open in Inbox
         assert receipts.drain() == []  # drained exactly once
 
-        # a refusal is a receipt too — silence is what we're fixing
+        # a refusal is a receipt too — a refused write must not vanish from
+        # the transcript
         delegation.set_authority("scribe", "task", "forbidden", actor="mira")
         j.loads(create_task_tool(title="blocked"))
         refused = receipts.drain()

@@ -99,7 +99,7 @@ that hasn't passed it will fail on push-to-main.
 - Times are UTC ISO-8601 strings (`db.now()`); dates are `YYYY-MM-DD`.
 - Tools return JSON strings; services return dicts/lists.
 - Keep frontend components small and Tailwind-styled; no extra UI libraries.
-- Python: no comments narrating what code does; match existing terse style.
+- Python: match the existing terse style. Comments follow "Code comments" below.
 
 ### User-visible wording
 
@@ -126,3 +126,32 @@ commands, and quoted errors are never rewritten.
   carries", "2 promises carry"). A bare `(s)` is fine in stat rows and labels.
 - A rewrite must not change what a sentence claims. A refusal describes what
   the system prevented, never what already happened.
+
+### Code comments
+
+A comment records a constraint that the code cannot show. Before you write
+one, ask: what does an editor with no memory of this change break here? If
+there is no answer, write nothing. An agent is that editor — it reads the
+code in slices, with no access to the session that made it.
+
+- Put the comment at the point of temptation, and state the consequence.
+  Name the concrete failure, not the rule ("str() on the list matches no
+  tool, and every persona gets ZERO tools").
+- If the constraint lives in another file, name that file. Point to the
+  test, the doc, or the component that enforces it.
+- If you omit an item from a list on purpose, record that decision where
+  the list lives. An absence with no comment reads as an oversight.
+- Put the threat next to a security check. A check with no reason reads as
+  redundant validation, and a later edit deletes it.
+- If a re-check follows an `await`, name the race that it prevents.
+- Never write narration ("loop over the users"), session history ("added
+  in round 3"), hedges ("this should probably..."), or bare markers ("do
+  not remove"). A marker with no consequence does not survive the next edit.
+- If an edit makes a comment false, the edit is wrong or the comment must
+  change with it. Never delete only the comment.
+- If your own code needs an explanation, restructure the code instead. Keep
+  the comment only when an external constraint causes the confusion (an SDK
+  rule, a protocol, a cross-file contract).
+
+`services/review.py`, `tools/_gate.py`, and `frontend/lib/theme.ts` show
+the style.
