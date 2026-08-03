@@ -186,6 +186,8 @@ def create_task(
     return {"id": tid, "title": title, "status": "todo"}
 
 
+# portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
+# satisfied-query there or /portfolio KeyErrors on the first wait using it
 WAITING_ON_TYPES = ("task", "blocker", "commitment")
 _WAITING_TABLES = {"task": "tasks", "blocker": "blockers", "commitment": "commitments"}
 

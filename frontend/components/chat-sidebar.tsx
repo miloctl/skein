@@ -110,7 +110,7 @@ export function ChatSidebar({
   const [selectMode, setSelectMode] = useState(false);
   const [selChats, setSelChats] = useState<Set<string>>(new Set());
   const [selFolders, setSelFolders] = useState<Set<string>>(new Set());
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [confirmingBulk, setConfirmingBulk] = useState(false);
 
@@ -120,9 +120,9 @@ export function ChatSidebar({
     chatThreads()
       .then((rows) => {
         setThreads(rows);
-        setLoadError(false);
+        setLoadError("");
       })
-      .catch(() => setLoadError(true));
+      .catch((e) => setLoadError(describeLoadError(e)));
     api<string[]>("/api/chats/folders").then(setFolders).catch(() => {});
     api<EngagementRow[]>("/api/engagements")
       .then((rows) => {
@@ -177,7 +177,7 @@ export function ChatSidebar({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  });
+  }, [selectMode]);
 
   const refocusTrigger = (id: string) =>
     setTimeout(() => document.getElementById(`chat-menu-${id}`)?.focus(), 0);
@@ -467,11 +467,7 @@ export function ChatSidebar({
           className="mb-2 rounded-lg border border-thread-solid bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
         />
       )}
-      {loadError && (
-        <p className="px-1 text-xs text-danger">
-          Cannot load your chats — make sure that the backend runs, then refresh.
-        </p>
-      )}
+      {loadError && <p className="px-1 text-xs text-danger">{loadError}</p>}
       {!selectMode && !threads.some((t) => t.id === threadId) && (
         <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
           New chat

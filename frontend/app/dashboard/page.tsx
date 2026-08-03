@@ -327,6 +327,10 @@ export default function Dashboard() {
   // flight to refetch them (the user's own edit would look like a lost save)
   const generation = useRef(0);
   const collectionGen = useRef<Record<string, number>>({});
+  // collections whose LAST refresh failed — the error banner stays up until
+  // every one of them is redelivered, so a success over other collections
+  // cannot mask a failure that left these stale
+  const failedNames = useRef<Set<string>>(new Set());
   // an inline mutation refreshes ONLY the collections it changed (the write
   // endpoints answer with summaries, not rows, so local patching is not an
   // option) — the full 13-endpoint sweep is for mount and retry. Every
@@ -342,10 +346,20 @@ export default function Dashboard() {
         const fresh = pairs.filter(([e]) => collectionGen.current[e] === g);
         if (fresh.length === 0) return;
         setData((prev) => ({ ...prev, ...Object.fromEntries(fresh) }));
-        setError(null); // a recovered refresh must clear the banner
+        for (const [e] of fresh) failedNames.current.delete(e);
+        if (failedNames.current.size === 0) setError(null);
       })
       .catch((err) => {
-        if (g === generation.current) setError(loadError(err));
+        // release the claims: an older in-flight result may still deliver
+        // these collections, and nothing must stay claimed by a generation
+        // that never delivered. Claims re-taken by a NEWER refresh are that
+        // refresh's to deliver or fail — this failure is then obsolete.
+        const mine = names.filter((e) => collectionGen.current[e] === g);
+        for (const e of mine) delete collectionGen.current[e];
+        if (mine.length > 0) {
+          for (const e of mine) failedNames.current.add(e);
+          setError(loadError(err));
+        }
       });
     api<Pulse>("/api/pulse")
       .then((p) => {

@@ -107,8 +107,9 @@ def revoke_key(key_id: int, owner: str) -> dict:
 
 
 def list_all_keys() -> list[dict]:
-    """Team-wide key visibility (trust model: everyone is admin). Makes hidden
-    keys minted under a spoofed identity discoverable and revocable."""
+    """Team-wide key visibility for admins (the route is AdminUser — one
+    teammate must not enumerate another's credentials). Makes hidden keys
+    minted under a spoofed identity discoverable and revocable."""
     return db.query(
         "SELECT id, prefix, owner, label, active, created_at, last_used_at"
         " FROM api_keys ORDER BY active DESC, id DESC"

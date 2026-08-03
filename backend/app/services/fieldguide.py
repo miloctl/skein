@@ -166,8 +166,9 @@ def registry() -> list[dict]:
     if orphans:
         raise ValueError(f"predicates without a card in knots.yaml: {sorted(orphans)}")
     _registry_cache = knots
-    # a copy per caller — the cache must not be poisonable by a mutating one
-    return list(knots)
+    # a copy per caller — the cache must not be poisonable by a mutating one.
+    # dict(k), not a bare list copy: the cards are the mutable part
+    return [dict(k) for k in knots]
 
 
 def _is_active_human(person: str) -> bool:
@@ -209,7 +210,6 @@ def detect(person: str) -> int:
     already-tied with zero ceremony, never as a wall of 'newly tied'."""
     if not _is_active_human(person):
         return 0
-    _last_detect[person] = time.monotonic()
     tied = _tied(person)
     seeding = not tied
     n = 0
@@ -230,6 +230,9 @@ def detect(person: str) -> int:
                 " VALUES (?, ?, 'tied', ?, ?)",
                 (person, k["id"], 1 if seeding else 0, db.now()),
             )
+    # stamped at the END: a sweep that raised above must not buy hint() 15
+    # minutes of silence on the strength of a sweep that never ran
+    _last_detect[person] = time.monotonic()
     return n
 
 
