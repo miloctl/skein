@@ -1,6 +1,49 @@
 """The ambient-connection transaction context manager: rollback, nesting, and the compound services that depend on it being atomic."""
 
+import sqlite3
+import threading
+
 import pytest
+
+
+def test_a_write_lock_timeout_reports_the_lock_not_the_rollback(fresh_db, monkeypatch):
+    """A BEGIN IMMEDIATE that times out opened no transaction, so the handler's
+    ROLLBACK raises "cannot rollback - no transaction is active" and REPLACES
+    the real "database is locked". sqlite3.OperationalError has no handler in
+    main.py, so the caller gets a 500 and whoever runs the server gets the
+    wrong diagnosis to chase."""
+    from app import db
+
+    real_connect = db.connect
+
+    def impatient():
+        conn = real_connect()
+        conn.execute("PRAGMA busy_timeout = 50")  # 5000 default would stall the suite
+        return conn
+
+    monkeypatch.setattr(db, "connect", impatient)
+    holding, release = threading.Event(), threading.Event()
+
+    def hold_the_write_lock():
+        conn = real_connect()
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
+        holding.set()
+        release.wait(10)
+        conn.execute("ROLLBACK")
+        conn.close()
+
+    holder = threading.Thread(target=hold_the_write_lock)
+    holder.start()
+    try:
+        assert holding.wait(5), "the holder thread never took the write lock"
+        with pytest.raises(sqlite3.OperationalError) as exc, db.transaction():
+            pass  # BEGIN IMMEDIATE raises before the body ever runs
+        assert "locked" in str(exc.value)
+        assert "cannot rollback" not in str(exc.value)
+    finally:
+        release.set()
+        holder.join(10)
 
 
 def test_transaction_rolls_back_all_writes(fresh_db):
