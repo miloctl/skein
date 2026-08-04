@@ -71,6 +71,7 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [who, setWho] = useState<WhoAmI | null>(null);
+  const [whoError, setWhoError] = useState("");
   const [keyStatus, setKeyStatus] = useState<string>("");
   const [interests, setInterests] = useState("");
   const [interestsSaved, setInterestsSaved] = useState("");
@@ -125,7 +126,18 @@ export default function SettingsPage() {
   useEffect(loadCtx, [loadCtx]);
 
   const refresh = useCallback(() => {
-    api<WhoAmI>("/api/whoami").then(setWho).catch(() => setWho(null));
+    api<WhoAmI>("/api/whoami")
+      .then((w) => {
+        setWho(w);
+        setWhoError("");
+      })
+      .catch((e) => {
+        // the failure carries its own diagnosis: a served 401 IS the revoked
+        // verdict, in the server's words; an unreachable backend gets the one
+        // wording. The old text blamed the key for both.
+        setWho(null);
+        setWhoError(loadError(e));
+      });
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -421,7 +433,7 @@ export default function SettingsPage() {
               <>
                 <p className="mb-2">
                   {who === null
-                    ? "Cannot check the key status right now — the stored key is possibly revoked. Ask whoever runs the server for a fresh one."
+                    ? whoError || "Checking the key status…"
                     : `No key exists for ${currentUser} yet — ask whoever runs the server to mint one and send it to you privately.`}
                 </p>
                 <button

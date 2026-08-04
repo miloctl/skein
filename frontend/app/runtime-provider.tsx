@@ -9,7 +9,8 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 
-import { API_URL, api, bearer, getUser } from "@/lib/api";
+import { API_URL, actionError, api, bearer, getUser } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
 
@@ -141,7 +142,13 @@ function ThreadHydrator({
           thread.reset(initial);
         }
       })
-      .catch(() => {}) // brand-new thread: nothing stored yet
+      .catch((e) => {
+        // the brand-new-thread case RESOLVES [] above, so a rejection here is
+        // a real failure — the saved list or this thread's messages did not
+        // load. Swallowed, it rendered saved history as an empty conversation
+        // the user types over believing the thread is new.
+        if (!cancelled) reportStatus(`This chat's saved messages did not load. ${actionError(e)}`);
+      })
       .finally(() => {
         if (!cancelled) setReady(true);
       });

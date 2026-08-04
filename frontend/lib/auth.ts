@@ -116,6 +116,13 @@ export function redirectUri(): string {
  *  leaves for the identity provider. */
 export async function signIn(returnTo?: string): Promise<string> {
   const cfg = await authConfig();
+  if (cfg.mode === "unknown") {
+    // a failed CONFIG READ proves nothing about the deployment. "Does not
+    // use sign-in" here turned a network fault into a configuration verdict
+    // — served to a user mid-flow, on the callback page's retry button,
+    // where the cache is empty and the API being down is the likely cause.
+    return "Cannot read the sign-in configuration. Check that the server is running, then start the sign-in again.";
+  }
   if (cfg.mode !== "oidc") return "This deployment does not use sign-in.";
   if (cfg.error || !cfg.authorize_url || !cfg.client_id) {
     return cfg.error || "Sign-in is not configured. Ask whoever runs the server.";
