@@ -68,6 +68,7 @@ uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 
 # frontend (from frontend/)
 npm run dev     # dev server on :3000
+npm test        # vitest + React Testing Library (jsdom); npm run test:watch to iterate
 npm run build   # verify compile (run before committing frontend changes)
 
 # app lifecycle (repo root)
