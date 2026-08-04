@@ -74,6 +74,8 @@ uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 # frontend (from frontend/)
 npm run dev     # dev server on :3000
 npm test        # vitest + React Testing Library (jsdom); npm run test:watch to iterate
+npx playwright test   # browser smoke + axe against a seeded mock backend
+                      # (PW_REUSE=1 reuses pre-started servers, see playwright.config.ts)
 npm run build   # verify compile (run before committing frontend changes)
 
 # app lifecycle (repo root)
@@ -93,7 +95,9 @@ that hasn't passed it will fail on push-to-main.
 - `backend/app/agents/` — Chief-of-Staff orchestrator, planner sub-agent, mock provider
 - `backend/migrations/` — numbered SQL, applied at startup, tracked in `schema_version`
 - `backend/playbooks/*.yaml` — project-class templates (edited like code)
-- `backend/data/` — gitignored: platform.db, sessions/, artifacts/, backups/, exports/
+- `backend/data/` — gitignored: platform.db, artifacts/, backups/, exports/, and
+  sessions/ (pre-045 files, kept only until a cleanup release — live sessions
+  are database rows via `agents/session_store.py`)
 - `frontend/app/` — pages; `frontend/components/` — UI; `frontend/lib/` — api client/config
 
 ## Conventions
