@@ -3,38 +3,19 @@
 Commands are deterministic and never reach a model, but their output is part
 of the conversation the user sees — a follow-up like "more details on this
 briefing?" must find the briefing in the agent's history, not open with a
-blank slate. Writes use the same strands session files build_agent restores
-from, via the SDK's own repository API, so the next agent turn replays the
+blank slate. Writes use the same session store build_agent restores from,
+via the SDK's own repository API, so the next agent turn replays the
 exchange as ordinary history. Best-effort by contract: the command reply has
 already streamed, so a session write failure only logs.
 """
 
 import logging
-import threading
 
-from .. import config
+from .. import config, db
 from ..services.private_notes import FB_GUARD
 
 # strands' _DEFAULT_AGENT_ID; build_agent never overrides it
 _AGENT_ID = "default"
-
-# One lock per thread id. Everything below is a read-modify-write over a shared
-# directory: next_id comes from the LAST message on disk, and the session is
-# created when missing. Unserialized, two concurrent commands on one thread
-# both read the same last id and write message_<n>.json over each other, and
-# both try to create the session — measured at 34 of 180 messages surviving.
-#
-# Covers bridge-against-bridge. The agent's own turn writes through strands
-# outside this lock; routes/chat.py::_inflight is what stands between the two.
-# In-process only: a second uvicorn worker races on the same directory, so a
-# multi-worker deployment needs a file lock here instead.
-_thread_locks: dict[str, threading.Lock] = {}
-_locks_guard = threading.Lock()
-
-
-def _lock_for(thread_id: str) -> threading.Lock:
-    with _locks_guard:
-        return _thread_locks.setdefault(thread_id, threading.Lock())
 
 
 def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
@@ -43,25 +24,27 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
     if not assistant_text.strip():
         return
     # defense-in-depth behind the chat route's gate: fb: is private, and
-    # session files are replayed to the model provider on the next turn
+    # session history is replayed to the model provider on the next turn
     if any(FB_GUARD.match(ln) for ln in user_text.splitlines()):
         return
     try:
-        from strands.session import FileSessionManager
         from strands.types.content import Message
-        from strands.types.session import SessionAgent, SessionMessage
+        from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
+        from .session_store import SqliteSessionRepository
         from .team_agent import _conversation_manager
 
+        repo = SqliteSessionRepository()
         # everything below reads the session, derives next_id from it, and
-        # writes back — one lock over the whole read-modify-write, not around
-        # the individual calls
-        with _lock_for(thread_id):
-            # constructing the manager creates the session when it is missing;
-            # a command-first thread must not lose its opening exchange
-            repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+        # writes back. BEGIN IMMEDIATE is the lock: the whole read-modify-
+        # write commits atomically, across threads AND processes — the
+        # per-thread lock dict this replaced covered one process only, and
+        # was measured at 34 of 180 messages surviving without it
+        with db.transaction():
             messages: list = []
             if repo.read_agent(thread_id, _AGENT_ID) is None:
+                # a command-first thread must not lose its opening exchange
+                repo.create_session(Session(session_id=thread_id, session_type=SessionType.AGENT))
                 repo.create_agent(
                     thread_id,
                     SessionAgent(

@@ -54,6 +54,10 @@ ignore_names = [
     # request.state fields the perimeter middleware sets and routes/deps.py
     # reads back through getattr, which static analysis cannot follow
     "auth_key_owner", "auth_claims",
+    # the SDK's SessionRepository ABC requires the multi-agent trio; Skein
+    # never builds a Swarm or Graph, so nothing here calls them. The import
+    # is real but appears only in quoted annotations under TYPE_CHECKING.
+    "create_multi_agent", "update_multi_agent", "MultiAgentBase",
 ]
 min_confidence = 60
 sort_by_size = true
