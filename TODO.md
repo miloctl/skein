@@ -45,33 +45,6 @@ this file is only for accepted trade-offs that must eventually be repaid.
   a legitimate fallback append look the same from there. The debt that
   remains is only the missing operation to tell those two apart.
 
-- **Agent sessions live in files, outside the transaction boundary.** The
-  Strands SDK writes session files on its own schedule while
-  `session_log.py` bridges command turns in from outside; the per-thread
-  lock serializes bridge-vs-bridge, but bridge-vs-agent-turn stays an
-  accepted race (`routes/chat.py::_close_turn` names it and its cost: one
-  clobbered exchange), and session data sits outside backups, exports, and
-  `db.transaction()`. Accepted 2026-08-04 because the lock covered the
-  measured mass-loss failure and the rest needed a storage change. Repay by
-  moving sessions into SQLite — verified against the installed SDK:
-  `SessionRepository` is an abstract CRUD interface (create/read session,
-  create/read/update agent, create/read/update/list messages, plus the
-  multi_agent trio) and `RepositorySessionManager(session_id, repository)`
-  is the manager shell FileSessionManager itself is built on. The plan:
-  (1) migration adding `sessions`, `session_agents`, `session_messages`
-  (JSON payload columns — the SDK owns the payload shape, we own identity
-  and ordering); (2) `agents/session_store.py::SqliteSessionRepository`
-  over db.py helpers, every method one statement, joining the ambient
-  transaction; (3) `team_agent.py` + `session_log.py` swap
-  `FileSessionManager` for the repository manager — the bridge write
-  becomes one `db.transaction()` block and the per-thread lock dict comes
-  out along with the accepted-risk comment; (4) one-time boot import of
-  existing `data/sessions/` dirs through FileSessionManager; (5) the
-  existing concurrency pin must pass unchanged, plus a
-  bridge-vs-agent-turn interleave test, writable for the first time
-  because both sides commit through one database. ~1 day, no new
-  dependency; deletes bespoke locking.
-
 - **No upgrade-path coverage: fresh and upgraded schemas can diverge.**
   Every test database is born fresh at HEAD, so an edited old migration
   (they stay hand-editable until first deploy) can leave production
