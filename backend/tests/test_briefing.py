@@ -2,11 +2,11 @@
 and caps, the _ellipsize/_coalesce digest helpers, and the standup suggestion
 derived from your own activity."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _utc_today():
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def _notice_items(client):

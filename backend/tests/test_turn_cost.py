@@ -6,6 +6,7 @@ a later price change never rewrites history. No price means cost NULL — never
 zero, because zero would silently understate spend."""
 
 import importlib
+from datetime import UTC
 
 import pytest
 
@@ -225,7 +226,7 @@ def test_engagement_costs_since_overrides_the_trailing_window(fresh_db, monkeypa
     INSIDE the trailing 30 days but BEFORE the bound must be excluded. (The
     first version seeded 40 days back — outside both windows — so it passed
     against the unfixed code and pinned nothing.)"""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services import chat_threads as ct
 
@@ -234,11 +235,11 @@ def test_engagement_costs_since_overrides_the_trailing_window(fresh_db, monkeypa
     ct.log_message("old", "ava", "user", "x")
     ct.update_thread("old", "ava", engagement_id=1)
     usage.record_chat_usage("old", "a", "m", 90_000_000, 0)
-    ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds")
+    ten_days_ago = (datetime.now(UTC) - timedelta(days=10)).isoformat(timespec="seconds")
     db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (ten_days_ago,))
 
     assert usage.engagement_costs()  # trailing window sees it
-    five_days_ago = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(timespec="seconds")
+    five_days_ago = (datetime.now(UTC) - timedelta(days=5)).isoformat(timespec="seconds")
     assert usage.engagement_costs(since=five_days_ago) == []  # the bound wins
 
 
@@ -247,7 +248,7 @@ def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     month's biggest spender as its evidence. Seeds the prior month at one hour
     before the month start — inside the trailing-30d window on most calendar
     days, so the buggy trailing-window receipt would include it."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services import chat_threads as ct
     from app.services import insights
@@ -262,9 +263,7 @@ def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     ct.update_thread("new", "ava", engagement_id=2)
 
     usage.record_chat_usage("old", "a", "m", 90_000_000, 0)  # $90, last month
-    month_start = datetime.now(timezone.utc).replace(
-        day=1, hour=0, minute=0, second=0, microsecond=0
-    )
+    month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     just_before = (month_start - timedelta(hours=1)).isoformat(timespec="seconds")
     db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (just_before,))
     usage.record_chat_usage("new", "a", "m", 1_000_000, 0)  # $1, this month

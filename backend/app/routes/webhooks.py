@@ -78,7 +78,7 @@ async def forge_webhook(
     # wait_for, not asyncio.timeout: the project's floor is Python 3.10
     try:
         body = await asyncio.wait_for(_read_bounded(request), FORGE_READ_TIMEOUT)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(400, "the webhook payload did not arrive in time") from exc
     verify_forge_signature(body, x_gitea_signature or x_hub_signature_256)
     # RecursionError, not just ValueError: deeply nested JSON raises it, and

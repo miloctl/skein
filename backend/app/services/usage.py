@@ -7,7 +7,7 @@ price gets cost NULL — honest, not zero — and every rollup reports how many
 rows went unpriced, so a sum is never mistaken for a total.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .. import config, db
 
@@ -67,7 +67,7 @@ def engagement_costs(days: int = 30, since: str = "") -> list[dict]:
     from datetime import timedelta
 
     if not since:
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     return db.query(
         "SELECT COALESCE(e.name, '(unlinked)') AS engagement,"
         " t.engagement_id AS engagement_id,"
@@ -87,7 +87,7 @@ def engagement_costs(days: int = 30, since: str = "") -> list[dict]:
 def month_to_date() -> dict:
     """This calendar month's estimated spend, with the unpriced count that
     says how much of it the estimate cannot see."""
-    start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
+    start = datetime.now(UTC).date().replace(day=1).isoformat()
     row = db.query_row(
         "SELECT ROUND(SUM(cost_usd), 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls, COUNT(*) AS calls"

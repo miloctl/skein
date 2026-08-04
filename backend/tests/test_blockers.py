@@ -1,5 +1,7 @@
 """Blockers: raising, resolving, the escalation sweep, and the funeral."""
 
+from datetime import UTC
+
 import pytest
 
 
@@ -24,13 +26,13 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
 
 
 def test_blocker_funeral_after_three_days(fresh_db, monkeypatch):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services import blockers, notifications
 
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     b = blockers.raise_blocker("ancient blocker", escalate_after_hours=999)
-    old = (datetime.now(timezone.utc) - timedelta(days=4)).isoformat(timespec="seconds")
+    old = (datetime.now(UTC) - timedelta(days=4)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE blockers SET created_at = ? WHERE id = ?", (old, b["id"]))
     blockers.resolve_blocker(b["id"])
     msgs = [n["message"] for n in notifications.list_notifications("team")]

@@ -2,7 +2,7 @@
 mock fallback. All three speak the same stream_async protocol to the chat route."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .. import config
@@ -406,7 +406,7 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
         return str(result)
 
     system = SYSTEM_PROMPT.format(
-        today=datetime.now(timezone.utc).date().isoformat(), user=user
+        today=datetime.now(UTC).date().isoformat(), user=user
     ) + memory_prompt(user)
     if persona:
         from ..services.personas import get_persona

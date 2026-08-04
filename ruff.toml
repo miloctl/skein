@@ -1,5 +1,5 @@
 # One config for the whole repo (backend/, cli/) regardless of cwd.
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 extend-exclude = ["backend/data"]
 

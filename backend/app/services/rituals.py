@@ -5,7 +5,7 @@ each person on their OWN obligations. Both are pure SQL, produce a markdown
 artifact, and notify — attention lands where the ritual used to be
 assembled manually from five pages."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
@@ -59,7 +59,7 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
     """Friday sweep: what this week leaves open — due/overdue promises,
     engagements stuck closing, proposals nobody has judged, questions still
     waiting. One packet, one notification, zero page-hopping."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-close"
     if not _claim_week("week_close", week, force):
         return {"week": week, "skipped": "already ran this week"}
@@ -80,12 +80,12 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
     stuck_closing = db.query(
         "SELECT id, name, updated_at FROM engagements WHERE status = 'closing'"
         " AND updated_at < ? ORDER BY updated_at",
-        ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds"),),
+        ((datetime.now(UTC) - timedelta(days=7)).isoformat(timespec="seconds"),),
     )
     stale_proposals = db.query(
         "SELECT id, summary, proposed_by, created_at FROM pending_changes"
         " WHERE status = 'pending' AND created_at < ? ORDER BY id",
-        ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(timespec="seconds"),),
+        ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
     )
     open_questions = db.query(
         "SELECT id, question, assigned_to FROM questions WHERE status = 'open' ORDER BY id"
@@ -156,7 +156,7 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
     """Monday brief: each person's OWN obligations for the week — the
     promises they made, decisions they own past review-by, questions waiting
     on them, tasks due. Personal notifications, team artifact."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-open"
     if not _claim_week("week_open", week, force):
         return {"week": week, "skipped": "already ran this week"}

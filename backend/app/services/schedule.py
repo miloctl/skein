@@ -1,7 +1,7 @@
 """Team calendar services."""
 
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from .. import db
 
@@ -36,9 +36,7 @@ def schedule_event(
         if len(value) == 10:
             return value  # date-only stays a date: an all-day VEVENT, not midnight
         if dt.tzinfo is not None:
-            from datetime import timezone
-
-            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            dt = dt.astimezone(UTC).replace(tzinfo=None)
         return dt.strftime("%Y-%m-%dT%H:%M")
 
     starts_at = _canon("starts_at", starts_at)

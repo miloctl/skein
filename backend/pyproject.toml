@@ -7,7 +7,7 @@ description = "Skein — team coordination platform for humans + AI agents, buil
 # them from the built wheel. lint.sh asserts the copies match.
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "strands-agents[anthropic,openai,ollama]>=1.0",
     "fastapi>=0.115",
@@ -59,7 +59,7 @@ min_confidence = 60
 sort_by_size = true
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 files = ["app", "seed.py"]
 ignore_missing_imports = true
 check_untyped_defs = true

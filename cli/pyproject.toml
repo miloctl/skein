@@ -2,7 +2,7 @@
 name = "skein-cli"
 version = "0.2.0"
 description = "Skein — the team platform from your terminal (stdlib only)"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 [project.scripts]
 skein = "skein_cli:main"

@@ -3,7 +3,7 @@ is configured with keys, the digest is additionally narrated by the agent —
 otherwise the markdown is published as-is."""
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
@@ -11,11 +11,11 @@ from .slas import DIGEST_STALLED_DAYS
 
 
 def _utc_today():
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def _stalled_tasks(days: int = DIGEST_STALLED_DAYS) -> list[dict]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     return db.query(
         "SELECT * FROM tasks WHERE status = 'in_progress' AND updated_at < ?", (cutoff,)
     )

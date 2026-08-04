@@ -1,6 +1,6 @@
 """Tests for the Insights layer: trends, findings rules, dedupe, digest."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from conftest import _ago
 
@@ -93,7 +93,7 @@ def test_commitment_rules(client, fresh_db):
         json={
             "promise": "board demo",
             "to_whom": "CEO",
-            "due_date": (datetime.now(timezone.utc).date() + timedelta(days=3)).isoformat(),
+            "due_date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat(),
         },
     ).json()
     out = insights._r_commitments_external()

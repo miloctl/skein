@@ -1,12 +1,12 @@
 """Decisions: half-life, supersede chains, reconfirm, and the charter category."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 
 def _days_ahead(days: int) -> str:
-    return (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat()
+    return (datetime.now(UTC).date() + timedelta(days=days)).isoformat()
 
 
 def test_supersede_with_bad_date_leaves_old_decision_intact(client, fresh_db):

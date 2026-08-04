@@ -4,7 +4,7 @@ unblock / commit / review / notice) and each carries a "why you're seeing
 this" reason. An LLM narrative can be layered on top later (see digest.py)."""
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .. import db
 
@@ -193,7 +193,7 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
 
 def my_day(user: str) -> dict:
     # UTC dates to match db.now() timestamps on the rows
-    utc_today = datetime.now(timezone.utc).date()
+    utc_today = datetime.now(UTC).date()
     today = utc_today.isoformat()
     week = (utc_today + timedelta(days=7)).isoformat()
     yesterday = (utc_today - timedelta(days=1)).isoformat()

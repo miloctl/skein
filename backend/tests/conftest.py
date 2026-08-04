@@ -12,6 +12,8 @@ os.environ["SKEIN_EMBEDDINGS"] = "0"
 os.environ["SKEIN_PLAYBOOKS_DIR"] = ""
 os.environ["SKEIN_PERSONAS_DIR"] = ""
 
+from datetime import UTC
+
 import pytest
 
 
@@ -95,6 +97,6 @@ def _delegated_task(fresh_db, title="probe"):
 
 
 def _ago(days: float) -> str:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")

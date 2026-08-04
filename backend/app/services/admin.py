@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config, db
@@ -64,7 +64,7 @@ def _backups_dir() -> Path:
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def backup(*, keep: int = 14) -> dict:
