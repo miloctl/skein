@@ -106,7 +106,7 @@ export default function ReviewPage() {
             method: "POST",
             body: JSON.stringify({ ids: rows.map((r) => r.id) }),
           }).catch(() => {});
-        // one state commit for all diffs: a setDiffs per row re-rendered
+        // one state commit for all diffs: a setDiffs per row re-renders
         // the whole page once per pending change
         const entries: [number, Diff][] = [];
         await Promise.all(

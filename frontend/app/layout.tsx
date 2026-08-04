@@ -26,8 +26,8 @@ const geistMono = Geist_Mono({
 
 // preload: false on the four theme-pack faces below: only the active pack
 // renders one of them (globals.css maps --font-heading/--font-body per
-// pack), and preloading all six made every cold load pay for four fonts it
-// would never draw. Geist sans/mono stay preloaded — every pack uses them.
+// pack), and preloading all six makes every cold load pay for four fonts it
+// never draws. Geist sans/mono stay preloaded — every pack uses them.
 // The cost: a pack whose heading face is here (Bricolage on the default
 // loom pack included) swaps in after first paint instead of before.
 const bricolage = Bricolage_Grotesque({

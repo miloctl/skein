@@ -73,8 +73,8 @@ def verify_key(key: str) -> str | None:
     if not row:
         return None
     # last_used_at is display telemetry (the key list's "last used" column) —
-    # stamped per call it made every keyed request pay a write-lock
-    # acquisition. Under 60 seconds since the stored stamp, skip the write.
+    # stamped per call, every keyed request pays a write-lock acquisition
+    # for it. Under 60 seconds since the stored stamp, skip the write.
     # A negative age (a clock step wrote a future stamp) rewrites too, else
     # the stamp freezes until the wall clock catches up.
     last = row["last_used_at"]

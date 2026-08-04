@@ -128,7 +128,6 @@ def test_health_red_on_two_overdue_with_stale_and_silence_receipts(client, fresh
 def test_wait_satisfied_queries_cover_every_waiting_on_type():
     from app.services import portfolio, work
 
-    # a type added to work.WAITING_ON_TYPES without a satisfied-query here
-    # KeyErrors _satisfied_targets and 500s /portfolio — the source comments
-    # name the contract; this pins it
+    # a type added to work.WAITING_ON_TYPES without a satisfied-query in
+    # portfolio._WAIT_SATISFIED KeyErrors _satisfied_targets and 500s /portfolio
     assert set(portfolio._WAIT_SATISFIED) == set(work.WAITING_ON_TYPES)

@@ -33,8 +33,8 @@ def test_standup_chain_roster_is_participation_based(fresh_db):
     assert pulse.standup_chain() == {"chain": 0, "humans": 0}
 
     # posts land on the most recent COMPLETED weekday, so the chain
-    # assertions hold on all 7 days — an `if weekday:` guard here skipped
-    # them on 2 of every 7 CI days
+    # assertions hold on all 7 days — asserting on a standup posted today
+    # needs a weekday guard, which skips the assertion on 2 of every 7 CI days
     def post_on_last_weekday(author: str, text: str) -> None:
         collab.post_standup(author, today=text)
         sid = fresh_db.query_row("SELECT MAX(id) AS id FROM standups")["id"]

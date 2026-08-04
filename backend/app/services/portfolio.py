@@ -54,11 +54,12 @@ def engagement_health() -> list[dict]:
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
     engagements = db.query("SELECT * FROM engagements WHERE status != 'closed' ORDER BY id")
-    # Four batched scans grouped in Python, not per-engagement queries: the
-    # old shape ran ~6 queries per engagement plus one per waiting task, so
-    # a growing portfolio multiplied /portfolio and exec-readout latency.
+    # Four batched scans grouped in Python, not per-engagement queries: at
+    # ~6 queries per engagement plus one per waiting task, a growing
+    # portfolio multiplies /portfolio and exec-readout latency.
     # A task can reach an engagement two ways (its own engagement_id, or its
-    # milestone's) — the id set below dedups exactly like the old OR predicate.
+    # milestone's) — the id set below dedups the two paths, and a task whose
+    # two paths reach DIFFERENT engagements counts toward both.
     overdue_by: dict[int, list[dict]] = {}
     for m in db.query(
         "SELECT id, title, due_date, engagement_id FROM milestones"
@@ -273,7 +274,8 @@ def slip_forecast() -> dict:
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     )
     # one waiting-task query for all open milestones, one resolution query
-    # per target type — was one query per milestone plus one per wait
+    # per target type — per-milestone and per-wait probes multiply with the
+    # portfolio, and this runs in the daily forecast snapshot too
     waits_by: dict[int, list[dict]] = {}
     if open_ms:
         marks = ", ".join("?" for _ in open_ms)
