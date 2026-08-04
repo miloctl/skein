@@ -38,6 +38,13 @@ jobs:
           SKEIN_MODEL_PROVIDER: mock
           SKEIN_SCHEDULER: "0"
         run: pytest -q -n auto
+      - name: Upgrade path
+        # the clone above is shallow and tagless; the baseline tag's commit
+        # must be reachable for the worktree. Skips itself until the first
+        # v* release tag exists.
+        run: |
+          git fetch --tags --unshallow --quiet || git fetch --tags --quiet
+          ./scripts/upgrade-path.sh
 
   frontend:
     runs-on: ubuntu-latest

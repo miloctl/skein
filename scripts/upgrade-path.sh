@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# The upgrade path: the schema a deployed database reaches by applying
+# HEAD's pending migrations must equal the schema a fresh database gets
+# from HEAD alone — and the activity hash chain must survive the ride.
+# Every test database is born fresh at HEAD, so this class (an edited or
+# renamed migration leaving upgraded production diverging from fresh CI)
+# has no other net; the gutted migration 040 is the standing example.
+#
+# Baseline: the newest v* tag — the thing a deployment can actually be
+# running. Before the first release tag nothing is deployed, so there is
+# nothing to upgrade from; the check says so and passes. An explicit ref
+# overrides for local runs:
+#     scripts/upgrade-path.sh [baseline-ref]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+baseline="${1:-$(git tag --list 'v*' --sort=-version:refname | head -1)}"
+if [ -z "$baseline" ]; then
+    echo "upgrade-path: no v* release tag, so nothing is deployed to upgrade from. Skipped."
+    exit 0
+fi
+
+python="backend/.venv/bin/python"
+[ -x "$python" ] || python="$(command -v python)"
+
+tmp="$(mktemp -d)"
+trap 'git worktree remove --force "$tmp/base" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+
+echo "upgrade-path: baseline $baseline"
+git worktree add --detach "$tmp/base" "$baseline" >/dev/null
+
+# 1. a database as the baseline release built it, carrying chained rows —
+#    CI databases are otherwise always empty, which is the blind spot
+SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="$tmp/base/backend" "$python" - <<'PY'
+from app import db
+
+db.init_db()
+for i in range(3):
+    db.log_activity("ci", "upgrade_probe", f"row {i}")
+PY
+
+# 2. HEAD boots it — the upgrade a deployment performs
+SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
+
+# 3. a fresh database from HEAD alone
+SKEIN_DATA_DIR="$tmp/fresh" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
+
+# 4. the two schemas must be identical, object by object
+"$python" - "$tmp/upgraded/platform.db" "$tmp/fresh/platform.db" <<'PY'
+import sqlite3
+import sys
+
+
+def schema(path):
+    conn = sqlite3.connect(path)
+    rows = conn.execute(
+        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name"
+    ).fetchall()
+    conn.close()
+    return {(t, n): s for t, n, s in rows}
+
+
+upgraded, fresh = schema(sys.argv[1]), schema(sys.argv[2])
+diverged = False
+for key in sorted(set(upgraded) | set(fresh)):
+    a, b = upgraded.get(key), fresh.get(key)
+    if a != b:
+        diverged = True
+        print(f"DIVERGED {key[0]} {key[1]}:")
+        print(f"  upgraded: {a}")
+        print(f"  fresh:    {b}")
+if diverged:
+    sys.exit(1)
+print("upgrade-path: schemas identical")
+PY
+
+# 5. the hash chain written at the baseline must verify after the upgrade
+SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="backend" "$python" - <<'PY'
+from app.services import activity
+
+out = activity.verify_chain()
+assert out["ok"], out
+print(f"upgrade-path: chain ok through seq {out['chained_through']}")
+PY
+
+echo "upgrade-path: ok"
