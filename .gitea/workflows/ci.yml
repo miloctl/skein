@@ -73,3 +73,35 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  e2e:
+    # a real browser walking the real app against a seeded mock-provider
+    # backend: console errors, failed requests, and an axe scan per page.
+    # Needs both toolchains, so it is its own job.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        run: |
+          base="${{ github.server_url }}"
+          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          git checkout "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend
+        working-directory: backend
+        # the e2e config boots uvicorn from .venv, same path as local runs
+        run: python -m venv .venv && .venv/bin/pip install -e .
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Smoke
+        working-directory: frontend
+        run: npx playwright test

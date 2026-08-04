@@ -1,5 +1,11 @@
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, expect } from "vitest";
+import * as axeMatchers from "vitest-axe/matchers";
+
+// toHaveNoViolations for the page-rendering tests. jsdom does no layout, so
+// color-contrast is out of scope here (the Playwright suite covers it in a
+// real browser); the structural rules — roles, names, aria wiring — run.
+expect.extend(axeMatchers);
 
 // RTL auto-cleans only when vitest runs with globals; this config does not, so
 // without this every rendered tree stays in the document and getByRole finds
