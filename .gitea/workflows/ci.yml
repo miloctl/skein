@@ -60,6 +60,9 @@ jobs:
           # `next build` below typechecks the same files; lint.sh documents this flag.
           SKIP_TSC: "1"
         run: ./scripts/lint.sh frontend
+      - name: Test
+        working-directory: frontend
+        run: npm test
       - name: Build
         working-directory: frontend
         run: npm run build
