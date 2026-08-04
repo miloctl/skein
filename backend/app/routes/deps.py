@@ -21,6 +21,9 @@ NEED_LOGIN = (
     "SKEIN_AUTH_MODE=oidc: every request needs a sign-in token or a personal"
     " API key. Sign in, or send Authorization: Bearer sk-skein-..."
 )
+# names no name on purpose: this refuses caller-supplied identity in
+# trusted-header mode, and an error never echoes the rejected value back
+INACTIVE = "This roster entry is not active. Ask whoever runs the server to reactivate it."
 
 
 def agent_on_rest(owner: str) -> str:
@@ -41,6 +44,23 @@ def _refuse_reserved(name: str) -> None:
         refuse_reserved_name(name)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _refuse_inactive(name: str) -> None:
+    """services/users.py::set_active calls itself the offboarding switch and
+    revokes every API key the person owns. It revoked keys and nothing else,
+    so the oidc and header doors stayed open and an offboarded teammate kept
+    strong read AND write — including their own private notes — until someone
+    separately disabled the IdP account. No roster row is not inactive: a
+    first-ever sign-in has none, and a read must not refuse it.
+
+    The detail names no name: this runs on caller-supplied identity in
+    trusted-header mode, and an error never echoes the rejected value back.
+    """
+    from ..services.users import is_active
+
+    if not is_active(name):
+        raise HTTPException(status_code=403, detail=INACTIVE)
 
 
 def _cached(request: Request | None, attr: str):
@@ -102,6 +122,7 @@ def _resolve(
         # CREDENTIAL, so a broken identity fails at the door rather than
         # half-working.
         _refuse_reserved(owner)
+        _refuse_inactive(owner)
         return owner, True, []
     if config.AUTH_MODE == "oidc":
         if authorization.startswith("Bearer "):
@@ -124,6 +145,7 @@ def _resolve(
             # the read path skips ensure_user, so the walls it applies are
             # applied here too
             _refuse_reserved(name)
+            _refuse_inactive(name)
             try:
                 if method in ("GET", "HEAD", "OPTIONS"):
                     # a read never grows the roster, so a polling service
@@ -152,6 +174,7 @@ def _resolve(
     # the read path returns before ensure_user, so the wall is applied here —
     # the same gap the key and OIDC doors had
     _refuse_reserved(name)
+    _refuse_inactive(name)
     if is_agent(name):
         raise HTTPException(
             status_code=403,

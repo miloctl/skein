@@ -201,6 +201,7 @@ async def perimeter_auth(request: Request, call_next):
     if config.AUTH_MODE == "trusted-header" and not config.API_TOKEN:
         return await call_next(request)
     from .routes.deps import (
+        INACTIVE,
         INVALID_KEY,
         NEED_KEY,
         NEED_LOGIN,
@@ -208,7 +209,7 @@ async def perimeter_auth(request: Request, call_next):
         agent_on_signin,
     )
     from .services.api_keys import PREFIX, verify_key
-    from .services.users import is_agent, reserved_refusal
+    from .services.users import is_active, is_agent, reserved_refusal
 
     auth = request.headers.get("Authorization", "")
     # The shared token is checked BEFORE the key prefix: an operator whose
@@ -236,6 +237,11 @@ async def perimeter_auth(request: Request, call_next):
         reserved = await run_in_threadpool(reserved_refusal, owner)
         if reserved:
             return JSONResponse(status_code=403, content={"detail": reserved})
+        # deactivation wall, for the same reason the agent wall is here: the
+        # read routes that carry no user dependency never reach deps, so an
+        # offboarded teammate would still read all 45 of them
+        if not await run_in_threadpool(is_active, owner):
+            return JSONResponse(status_code=403, content={"detail": INACTIVE})
         request.state.auth_key_owner = owner
         return await call_next(request)
     if config.AUTH_MODE == "trusted-header":
@@ -260,6 +266,8 @@ async def perimeter_auth(request: Request, call_next):
         reserved = await run_in_threadpool(reserved_refusal, name)
         if reserved:
             return JSONResponse(status_code=403, content={"detail": reserved})
+        if not await run_in_threadpool(is_active, name):
+            return JSONResponse(status_code=403, content={"detail": INACTIVE})
         request.state.auth_claims = claims
         return await call_next(request)
     detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN

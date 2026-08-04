@@ -264,6 +264,56 @@ def test_an_oidc_first_sign_in_still_reads_before_any_roster_row_exists(
     assert fresh_db.query_one("SELECT * FROM users WHERE name = 'newcomer'") is None
 
 
+def test_deactivation_closes_every_door_not_only_the_key(client, monkeypatch, fresh_db):
+    """set_active calls itself the offboarding switch for strong identity. It
+    revoked API keys and nothing else, so an offboarded teammate kept strong
+    read AND write through the OIDC door, and full access through the header
+    door, until someone separately disabled the IdP account."""
+    from app.services.users import ensure_user, set_active
+
+    ensure_user("bob")
+    _oidc(monkeypatch, {"tok": {"preferred_username": "bob"}})
+    assert client.get("/api/tasks", headers={"Authorization": "Bearer tok"}).status_code == 200
+
+    set_active("bob", False, actor="admin")
+
+    refused = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+    assert refused.status_code == 403
+    assert "not active" in refused.json()["detail"]
+    assert "bob" not in refused.json()["detail"]  # never echoes the identity back
+    # writes too, not only reads
+    assert (
+        client.post(
+            "/api/lessons", json={"text": "x"}, headers={"Authorization": "Bearer tok"}
+        ).status_code
+        == 403
+    )
+    # and reactivation reopens it, or the switch would be one-way
+    set_active("bob", True, actor="admin")
+    assert client.get("/api/tasks", headers={"Authorization": "Bearer tok"}).status_code == 200
+
+
+def test_deactivation_closes_the_header_door(client, fresh_db):
+    """trusted-header is the dev default, and a bare X-User is a full identity
+    there — deactivation has to mean something on this door too.
+
+    Asserted on a route that RESOLVES a user. In this mode the perimeter
+    short-circuits and the ~45 dependency-less reads (GET /api/tasks among
+    them) carry no identity check at all — a documented property of a mode
+    whose whole premise is a trusted network, not a gap this check introduces.
+    """
+    from app.services.users import ensure_user, set_active
+
+    ensure_user("carol")
+    assert client.get("/api/whoami", headers={"X-User": "carol"}).status_code == 200
+    set_active("carol", False, actor="admin")
+    assert client.get("/api/whoami", headers={"X-User": "carol"}).status_code == 403
+    # a case variant must not walk past the check the exact name fails
+    assert client.get("/api/whoami", headers={"X-User": "CAROL"}).status_code == 403
+    # somebody with no roster row at all is not "inactive" — first sign-in works
+    assert client.get("/api/whoami", headers={"X-User": "newcomer"}).status_code == 200
+
+
 def test_an_oidc_token_is_validated_once_per_request(client, monkeypatch, fresh_db):
     """The twin of the key test above. A signature check is the expensive half
     of oidc mode, and the dependency must reuse what the middleware proved."""
