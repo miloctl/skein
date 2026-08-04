@@ -205,6 +205,19 @@ def is_agent(name: str) -> bool:
     )
 
 
+def is_active(name: str) -> bool:
+    """Is this identity allowed through a door? True when NO row exists — a
+    first-ever sign-in has not been added to the roster yet, and reads never
+    mint rows. Folded like is_agent above, or `ALICE` walks past the check that
+    `alice` fails, and the wall would disagree with the resolver about what two
+    names being equal means."""
+    target = _fold(name)
+    if not target:
+        return True
+    rows = [r for r in db.query("SELECT name, active FROM users") if _fold(r["name"]) == target]
+    return all(r["active"] for r in rows)
+
+
 def resolve_teammate(
     name: str, actor: str = "", label: str = "name", allow_team: bool = True
 ) -> str:
@@ -422,7 +435,12 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     context pack — and every API key they own is revoked, so deactivation
     IS the offboarding switch for strong identity too. Reactivation does
     not resurrect keys (mint fresh ones). Strong identity required at the
-    route."""
+    route.
+
+    The claim above holds because routes/deps.py::_refuse_inactive and the
+    perimeter middleware both consult is_active. Revoking keys alone left the
+    oidc and header doors open, and an offboarded teammate kept strong read and
+    write until someone separately disabled the IdP account."""
     row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
     if not row:
         raise ValueError(f"no user named '{name}'")
