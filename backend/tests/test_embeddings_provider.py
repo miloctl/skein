@@ -339,3 +339,21 @@ def test_backfill_refuses_when_misconfigured(monkeypatch):
     with pytest.raises(SystemExit) as e:
         backfill_embeddings.main()
     assert e.value.code == 2
+
+
+def test_a_corrupt_vector_costs_one_result_not_the_search(monkeypatch, fresh_db, caplog):
+    """JSONDecodeError subclasses ValueError, which main.py maps to 400 — an
+    unguarded json.loads here once answered every /api/search query with
+    "your input is invalid" over a row only we could have corrupted."""
+    calls: list[dict] = []
+    monkeypatch.setattr("openai.OpenAI", _fake_openai(calls))
+    _embed_ready(monkeypatch, model="model-A")
+    search.index_record("note", 90020, "healthy", "body")
+    db.execute(
+        "INSERT OR REPLACE INTO embeddings (entity, entity_id, model, vector)"
+        " VALUES ('note', 90021, 'model-A', 'NOT JSON')"
+    )
+    with caplog.at_level("WARNING", logger="skein"):
+        results = search.semantic_search("q")
+    assert [r["entity_id"] for r in results] == [90020]
+    assert any("unreadable vector" in r.message for r in caplog.records)

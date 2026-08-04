@@ -278,3 +278,15 @@ def test_a_third_party_rename_still_moves_notes_ABOUT_the_person(fresh_db):
         "1:1 notes about Bobby"
     ]
     assert private_notes.list_notes("alice", "Bobby") == []
+
+
+def test_both_list_branches_keep_the_200_cap(fresh_db):
+    """The person branch shipped without the unfiltered branch's LIMIT — a
+    long 1:1 history came back whole. Self-scoped, so the cost is a slow
+    render rather than a leak, but unbounded is unbounded."""
+    from app.services import private_notes
+
+    for i in range(205):
+        private_notes.add_note("manager", "dana", f"entry {i}")
+    assert len(private_notes.list_notes("manager", "dana")) == 200
+    assert len(private_notes.list_notes("manager")) == 200
