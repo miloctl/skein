@@ -63,11 +63,11 @@ export default function ActivityPage() {
   };
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <SectionTabs set="team" />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-ink">Activity</h1>
+          <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Activity</h1>
           <p className="mt-0.5 text-sm text-ink-3">
             What the agents did, what the system did, and what you did — one
             sentence per action. Teammates&apos; rows are not shown here.

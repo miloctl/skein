@@ -154,7 +154,11 @@ const Composer = () => {
         ? []
         : commands.filter((c) => c.name.startsWith(cmdToken));
   const open = !dismissed && matches.length > 0;
-  const active = matches[Math.min(sel, matches.length - 1)];
+  // one clamp for Enter, aria-selected and aria-activedescendant: filtering
+  // can shrink matches below sel, and a raw sel then points activedescendant
+  // at an id that is not in the DOM while Enter runs a different row
+  const activeIdx = Math.min(sel, matches.length - 1);
+  const active = matches[activeIdx];
 
   const run = (c: SlashCommand) => {
     if (c.name.startsWith("as ")) {
@@ -211,7 +215,7 @@ const Composer = () => {
               key={c.name}
               id={`cmd-${i}`}
               role="option"
-              aria-selected={i === sel}
+              aria-selected={i === activeIdx}
               onMouseEnter={() => setSel(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(c)}
@@ -258,7 +262,7 @@ const Composer = () => {
           role="combobox"
           aria-expanded={open}
           aria-controls={open ? "cmd-list" : undefined}
-          aria-activedescendant={open ? `cmd-${sel}` : undefined}
+          aria-activedescendant={open ? `cmd-${activeIdx}` : undefined}
           autoFocus
           placeholder={
             activePersona

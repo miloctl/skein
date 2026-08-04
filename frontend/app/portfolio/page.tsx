@@ -145,7 +145,9 @@ export default function Portfolio() {
             {health.map((h) => (
               <li key={h.id} className="text-sm">
                 <div className="flex items-center gap-2">
-                  <span>{DOT[h.health]}</span>
+                  <span role="img" aria-label={`health ${h.health}`} title={h.health}>
+                    {DOT[h.health]}
+                  </span>
                   <span className="font-medium">{h.name}</span>
                   <span className="text-xs text-ink-3">
                     {h.status} · lead {h.lead || "unset"}
@@ -247,7 +249,7 @@ export default function Portfolio() {
           <ul className="mt-2 space-y-1 text-xs text-ink-3">
             {(draft.skipped_absent ?? []).map((s) => (
               <li key={s.person} className="text-weld">
-                {s.person} skipped — away {s.away_days} weekday(s) that week
+                {s.person} skipped — away {s.away_days} weekday{s.away_days === 1 ? "" : "s"} that week
               </li>
             ))}
             {draft.items.length === 0 && <li>Nothing to draft — assign some tasks first.</li>}

@@ -860,7 +860,7 @@ export default function SettingsPage() {
                     choice beats it.{" "}
                     {strong
                       ? "Fresh browsers and anonymous visitors start here."
-                      : "Needs your API key (step 2 below) and administrator access."}
+                      : "Needs your API key (step 2 above) and administrator access."}
                   </p>
                 </div>
             </div>
@@ -1016,7 +1016,7 @@ export default function SettingsPage() {
             <p className="text-sm text-ink-2">
               The <b>first-week checklist</b> on My Day is hidden in this
               browser. Your progress was never lost — it retires itself for
-              good once all six steps are done.
+              good once every step is done.
             </p>
             <button
               onClick={restoreChecklist}
