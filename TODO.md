@@ -59,9 +59,10 @@ this file is only for accepted trade-offs that must eventually be repaid.
 - **Dependency-update noise is handled by hand.** The `npm audit`
   high-severity in `brace-expansion` is dev-only and pre-existing; triaging
   its successors one by one is a treadmill. Repay with Renovate on the
-  Gitea instance (grouped weekly PRs) and a CI gate on
-  `npm audit --omit=dev`, so production dependencies block and dev-only
-  noise does not. ~an hour.
+  Gitea instance (grouped weekly PRs) — instance configuration, so it is
+  whoever runs the Gitea's to flip on. The CI half landed 2026-08-04:
+  `npm audit --omit=dev` gates pushes, so production dependencies block
+  and dev-only noise does not.
 
 - **`semantic_search` scans the whole embeddings table per request.**
   Deferred at the query site (services/search.py) and genuinely fine at

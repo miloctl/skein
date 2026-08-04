@@ -70,6 +70,11 @@ jobs:
       - name: Test
         working-directory: frontend
         run: npm test
+      - name: Audit production dependencies
+        # --omit=dev on purpose: dev-only advisories (brace-expansion and
+        # kin) are Renovate's business, not a blocked deploy
+        working-directory: frontend
+        run: npm audit --omit=dev
       - name: Build
         working-directory: frontend
         run: npm run build
