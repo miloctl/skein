@@ -8,6 +8,7 @@ import { SkeinMark } from "@/components/mark";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, setUser, subscribeUser } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |
@@ -239,7 +240,10 @@ export function Nav() {
                         signOut();
                         setUser("anonymous");
                       } else {
-                        signIn(pathname).then((m) => m && alert(m));
+                        // signIn resolves to a message only when it could not
+                        // start: an unconfigured deployment, or a config it
+                        // could not read. Never a success path.
+                        signIn(pathname).then((m) => m && reportStatus(m));
                       }
                     }}
                     className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"

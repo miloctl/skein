@@ -37,6 +37,26 @@ function walk(dir: string): string[] {
 
 const files = DIRS.flatMap((d) => walk(join(ROOT, d)));
 
+describe("nothing calls window.alert", () => {
+  it("reports through lib/status.ts instead", () => {
+    // alert() blocks, steals focus, and queues serially — but the reason it
+    // must not come back is that browsers offer "prevent this page from
+    // creating more dialogs" after a few, and once ticked every later failure
+    // is swallowed in silence while the app looks like it is working.
+    const offenders: string[] = [];
+    for (const file of files) {
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          if (/(?<![.\w])alert\s*\(/.test(line) && !line.trimStart().startsWith("//")) {
+            offenders.push(`${file.slice(ROOT.length + 1)}:${i + 1}: ${line.trim()}`);
+          }
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("the error wording lives in lib/api.ts", () => {
   it("has files to check, so a broken walk cannot pass vacuously", () => {
     expect(files.length).toBeGreaterThan(20);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { actionError, api, getApiKey, loadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { SectionTabs } from "@/components/section-tabs";
 import { Card, EmptyState } from "@/components/card";
 
@@ -119,9 +120,20 @@ export default function PeoplePage() {
           <button
             onClick={async () => {
               try {
-                await api("/api/keys/request", { method: "POST" });
+                // reads already_pending, like Settings does for the same call:
+                // ignoring it claimed a fresh request every time, so clicking
+                // twice reported two requests where the backend filed one.
+                // Same wording as Settings — one condition, one wording.
+                const r = await api<{ already_pending: boolean }>("/api/keys/request", {
+                  method: "POST",
+                });
                 setError(null);
-                alert("Asked — the request is now on the team's My Day.");
+                reportStatus(
+                  r.already_pending
+                    ? "Already asked — the request is still on the team's My Day."
+                    : "Asked — the request (with the exact command) is now on the team's My Day.",
+                  "confirmation",
+                );
               } catch (e) {
                 setError(actionError(e));
               }
