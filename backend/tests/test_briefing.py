@@ -151,3 +151,39 @@ def test_standup_suggestion_caps_at_three_items(fresh_db):
     s = briefing.my_day("dana")["your_work"]["standup_suggestion"]
     assert s.count(";") == 2
     assert s.startswith("capture item 4")
+
+
+def test_your_work_lists_are_capped(fresh_db):
+    """The dashboard home path. Unbounded, a team with thousands of stale
+    overdue rows was served every one as SELECT * on every load, for every
+    user. due_soon caps at 50, the task list at 200."""
+    from app.services import briefing
+
+    today = _utc_today().isoformat()
+    for i in range(260):
+        fresh_db.execute(
+            "INSERT INTO tasks (title, assignee, due_date, created_at, updated_at)"
+            " VALUES (?, 'ava', ?, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')",
+            (f"t{i}", today if i < 55 else None),
+        )
+    work = briefing.my_day("ava")["your_work"]
+    assert len(work["due_soon"]) == 50
+    assert len(work["tasks"]) == 200
+
+
+def test_due_soon_reads_the_assignee_index(fresh_db):
+    """Migration 044 exists for this query shape; without the index the plan
+    is SCAN tasks, measured live on the finding this pins. The SQL here
+    mirrors briefing.my_day's due_soon — if that query drifts, this still
+    holds the index to its purpose."""
+    plan = " ".join(
+        r["detail"]
+        for r in fresh_db.query(
+            "EXPLAIN QUERY PLAN SELECT * FROM tasks WHERE status != 'done'"
+            " AND due_date IS NOT NULL AND due_date <= ? AND assignee IN (?, '')"
+            " ORDER BY due_date LIMIT 50",
+            ("2026-01-01", "ava"),
+        )
+    )
+    assert "idx_tasks_assignee_due" in plan
+    assert "SCAN tasks" not in plan

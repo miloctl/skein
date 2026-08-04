@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { bearer, getApiKey } from "@/lib/api";
@@ -37,5 +40,14 @@ describe("the credential ladder", () => {
     // that 401s on every request
     signIn("stale-token", -1_000);
     expect(await bearer()).toBe("");
+  });
+
+  it("is what the chat runtime actually calls", () => {
+    // the ladder tests above prove bearer(); they prove nothing about the one
+    // surface that bypasses api(). Chat regressed exactly there once — a
+    // hand-rolled copy that lost the OIDC rung while these tests stayed green.
+    const source = readFileSync(join(__dirname, "..", "app", "runtime-provider.tsx"), "utf8");
+    expect(source).toContain("await bearer()");
+    expect(source).not.toContain("getApiKey() ||");
   });
 });
