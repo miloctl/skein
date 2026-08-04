@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 
 /** Pins the null-vs-[] initialization in app/portfolio/page.tsx. Initialized
  *  to [], the conflicts and commitments cards rendered their verdicts
@@ -19,10 +20,11 @@ vi.mock("next/navigation", () => ({
 import PortfolioPage from "@/app/portfolio/page";
 
 describe("the portfolio page before any data arrives", () => {
-  it("says Loading, never a verdict about data it does not have", () => {
-    render(<PortfolioPage />);
+  it("says Loading, never a verdict about data it does not have", async () => {
+    const { container } = render(<PortfolioPage />);
     expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
     expect(screen.queryByText("Nobody is over 100%.")).toBeNull();
     expect(screen.queryByText(/None recorded/)).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

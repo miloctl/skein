@@ -45,19 +45,6 @@ this file is only for accepted trade-offs that must eventually be repaid.
   a legitimate fallback append look the same from there. The debt that
   remains is only the missing operation to tell those two apart.
 
-- **No browser-level or automated a11y regression net.** The review's two
-  frontend themes — data-integrity illusions and accessibility — are the
-  classes component tests only catch when someone mocks the right failure;
-  a real browser walking the real app catches them by accident. Accepted
-  2026-08-04 to keep the review wave moving. Repay in two layers:
-  `@playwright/test` + `@axe-core/playwright` (new dev dependencies) —
-  boot backend (mock provider, temp SKEIN_DATA_DIR, seeded) and frontend,
-  walk the five nav destinations plus Settings and one chat turn,
-  asserting no console errors, no failed requests, and a clean axe scan
-  per page; and `vitest-axe` added to the component tests that already
-  render whole pages (portfolio, people, settings). Smoke depth only —
-  five to eight tests; depth stays in component tests. ~1 day.
-
 - **Single-replica posture is implied, not enforced or insured.**
   Process-local rate limits, in-process locks, `claim_job`, and SQLite's
   single writer are one deliberate fact: this design runs as one replica,

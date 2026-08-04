@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 
 /** The brief card used to render "no brief available" for a fetch that was
  *  refused (403 without a key) or still in flight — a claim about data never
@@ -34,5 +35,6 @@ describe("the 1:1 brief when the fetch is refused", () => {
       await screen.findByText(/Could not load this page\. this surface needs your API key/),
     ).toBeTruthy();
     expect(screen.queryByText("no brief available")).toBeNull();
+    expect(await axe(document.body)).toHaveNoViolations();
   });
 });
