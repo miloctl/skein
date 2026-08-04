@@ -258,6 +258,12 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
         return []
     try:
         qv = _embed(q)
+        # the whole table for this model, JSON-parsed and cosine-scored in
+        # Python on every request. Known and DEFERRED, not overlooked:
+        # SQLite has no vector index, so the real fix is a cached matrix
+        # with write invalidation or a bounded candidate set — its own
+        # change. Gated behind EMBED_READY (off by default), so the keyless
+        # deployment never pays it.
         rows = db.query(
             "SELECT entity, entity_id, vector FROM embeddings WHERE model = ?",
             (config.EMBED_MODEL,),

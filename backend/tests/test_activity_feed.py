@@ -133,10 +133,12 @@ def test_limit_is_bounded(fresh_db):
     assert activity.feed("ava", limit=100000)["entries"]  # clamped, not a 500
 
 
-def test_every_registered_verb_is_a_known_action(fresh_db):
-    """The registry must name actions the codebase actually logs — a renamed
-    action with a stale registry entry silently degrades every future row of
-    that verb to the generic form."""
+def test_the_verb_registry_and_the_logged_actions_agree(fresh_db):
+    """Both directions. A renamed action with a stale registry entry silently
+    degrades every future row of that verb to the generic form — and a NEW
+    action nobody registered renders generic from its first day, which for a
+    year meant supersede_decision and set_user_active read as raw slugs in
+    the feed. One check per direction, so the failure names the fix."""
     import re
     from pathlib import Path
 
@@ -146,12 +148,16 @@ def test_every_registered_verb_is_a_known_action(fresh_db):
         text = path.read_text(encoding="utf-8")
         logged |= set(re.findall(r'log_activity\(\s*[^,]+,\s*"([a-z_]+)"', text))
         for m in re.finditer(r"log_activity\(\s*$", text, re.M):
+            # multiline call: the action is the first string AFTER a comma —
+            # the first string outright is often the actor ("system")
             tail = text[m.end() : m.end() + 200]
-            found = re.search(r'"([a-z_]+)"', tail)
+            found = re.search(r',\s*"([a-z_]+)"', tail)
             if found:
                 logged.add(found.group(1))
     stale = set(activity.VERBS) - logged
     assert not stale, f"registry names actions nothing logs: {sorted(stale)}"
+    unregistered = logged - set(activity.VERBS)
+    assert not unregistered, f"actions logged but not registered: {sorted(unregistered)}"
 
 
 def test_the_route_scopes_to_the_header_user(client, fresh_db):
