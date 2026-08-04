@@ -2,7 +2,7 @@
 Lives outside portfolio.py so portfolio and insights never import each other;
 this module is the one place that composes both."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
@@ -12,7 +12,7 @@ from .pulse import season
 
 
 def _today() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def exec_readout(*, actor: str = "system") -> dict:

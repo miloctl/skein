@@ -1,7 +1,7 @@
 """Service-layer smoke suite: the happy path of each service, proving the
 shared write path works. Depth lives in the per-behavior files."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -39,7 +39,7 @@ def test_blocker_escalation_sweep(fresh_db):
     from app.services import blockers
 
     b = blockers.raise_blocker("stuck on CI", impact="high")  # 8h threshold
-    old = (datetime.now(timezone.utc) - timedelta(hours=9)).isoformat(timespec="seconds")
+    old = (datetime.now(UTC) - timedelta(hours=9)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE blockers SET created_at = ? WHERE id = ?", (old, b["id"]))
 
     escalated = blockers.sweep_escalations()

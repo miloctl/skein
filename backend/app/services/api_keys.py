@@ -6,7 +6,7 @@ import hashlib
 import re
 import secrets
 import shlex
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .. import db
 
@@ -79,7 +79,7 @@ def verify_key(key: str) -> str | None:
     # the stamp freezes until the wall clock catches up.
     last = row["last_used_at"]
     try:
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+        age = (datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds()
         fresh = 0 <= age < 60
     except (TypeError, ValueError):
         fresh = False

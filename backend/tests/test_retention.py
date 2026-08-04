@@ -1,10 +1,10 @@
 """Monthly retention pruning. The activity ledger is kept forever."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def _iso_hours_ago(hours: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
 
 
 def test_retention_prune(fresh_db):

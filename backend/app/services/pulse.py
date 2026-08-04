@@ -2,7 +2,7 @@
 no leaderboards, no individual scores. Seasons are 6-week buckets so nothing
 accrues forever."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from .. import db
 
@@ -11,7 +11,7 @@ SEASON_DAYS = 42
 
 
 def _today() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def season() -> dict:

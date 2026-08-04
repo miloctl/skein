@@ -3,7 +3,7 @@ forever; everything pruned here is derivable telemetry or already-consumed
 claims/notifications."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .. import db
 
@@ -13,7 +13,7 @@ JOB_ROW_DAYS = 90
 
 
 def _cutoff(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def prune(*, actor: str = "scheduler") -> dict:

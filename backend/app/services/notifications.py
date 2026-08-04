@@ -10,7 +10,7 @@ import json
 import logging
 import threading
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .. import config, db
 
@@ -96,7 +96,7 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
     """Twice-daily job: batch unsent digest-tier notifications to Slack.
     claim=True makes the run once-only per hour bucket (scheduler path)."""
     if claim:
-        bucket = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        bucket = datetime.now(UTC).strftime("%Y-%m-%dT%H")
         if not db.claim_job("notification-flush", bucket):
             return {"flushed": 0, "skipped": "already flushed this run"}
     pending = db.query(

@@ -4,7 +4,7 @@ output. One row per (day, user, surface); counts only, no content."""
 
 import contextlib
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 
 from .. import db
@@ -44,7 +44,7 @@ def record_use(user: str, surface: str) -> None:
     if not user or user == "anonymous":
         return
     surface = surface if surface in SURFACES else "api"
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = datetime.now(UTC).date().isoformat()
     with _pending_lock:
         key = (day, user, surface)
         _pending[key] = _pending.get(key, 0) + 1
@@ -82,8 +82,8 @@ def adoption(weeks: int = 4) -> dict:
     from the DX panel: >50% of actions should originate outside the web UI."""
     flush()  # buffered counts belong in the numbers this reports
     weeks = max(1, min(int(weeks), 520))
-    cutoff = (datetime.now(timezone.utc).date() - timedelta(weeks=weeks)).isoformat()
-    week_ago = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
+    cutoff = (datetime.now(UTC).date() - timedelta(weeks=weeks)).isoformat()
+    week_ago = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1 AND name != 'anonymous'"
     )
@@ -127,7 +127,7 @@ def snapshot_forecasts() -> dict:
     against actuals later. Idempotent per (day, milestone)."""
     from .portfolio import slip_forecast
 
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = datetime.now(UTC).date().isoformat()
     n = 0
     for f in slip_forecast()["forecasts"]:
         try:

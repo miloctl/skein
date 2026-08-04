@@ -1,10 +1,10 @@
 """Portfolio: engagement health with receipts, slip forecast, and the exec readout artifact."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def _days_ahead(days: int) -> str:
-    return (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat()
+    return (datetime.now(UTC).date() + timedelta(days=days)).isoformat()
 
 
 def _engagement_with_milestone(client, name="Apollo", due=""):
@@ -99,7 +99,7 @@ def test_readout_excludes_team_commitments(client, fresh_db):
 
 
 def test_health_red_on_two_overdue_with_stale_and_silence_receipts(client, fresh_db):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services import portfolio
     from app.services.slas import SILENCE_DAYS, STALE_WIP_DAYS
@@ -112,9 +112,9 @@ def test_health_red_on_two_overdue_with_stale_and_silence_receipts(client, fresh
         ).json()
     t = client.post("/api/tasks", json={"title": "old wip", "milestone_id": m["id"]}).json()
     client.patch(f"/api/tasks/{t['id']}", json={"status": "in_progress"})
-    ancient = (
-        datetime.now(timezone.utc) - timedelta(days=max(STALE_WIP_DAYS, SILENCE_DAYS) + 1)
-    ).isoformat(timespec="seconds")
+    ancient = (datetime.now(UTC) - timedelta(days=max(STALE_WIP_DAYS, SILENCE_DAYS) + 1)).isoformat(
+        timespec="seconds"
+    )
     fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (ancient, t["id"]))
 
     [h] = [e for e in portfolio.engagement_health() if e["name"] == "Slow"]

@@ -1,12 +1,12 @@
 """Capacity: allocations, absences, window awareness, and the what-if projection."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 
 def _utc_today():
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def test_capacity_and_conflicts_ignore_out_of_window_allocations(fresh_db):
@@ -49,7 +49,7 @@ def test_deallocate_removes_row_and_missing_id_404s(client):
 
 
 def test_absences_shape_capacity_and_week_draft(client, fresh_db):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services import absences, engagements, users, weekly, work
 
@@ -58,7 +58,7 @@ def test_absences_shape_capacity_and_week_draft(client, fresh_db):
     engagements.allocate("dana", e["id"], percent=80, actor="mira")
     # UTC, to match capacity()/draft_plan — local date.today() drifts a day at
     # the UTC boundary and the absence window then misses the service's today
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     # anchor to the week's Monday: run on a Friday, today-1..today+7 covers
     # too few weekdays of THIS week to trip the >= 3 skip threshold
     monday_anchor = today - timedelta(days=today.weekday())

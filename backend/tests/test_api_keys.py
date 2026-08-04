@@ -1,5 +1,7 @@
 """Per-teammate API keys: lifecycle, attribution, the admin kill switch, and self-service key requests."""
 
+from datetime import UTC
+
 
 def _bootstrap(owner="tester", label="test"):
     # first key comes from the out-of-band bootstrap (python -m app.bootstrap_key)
@@ -97,23 +99,23 @@ def test_key_request_refiles_after_notification_read(client):
 
 
 def test_verify_key_throttles_the_last_used_stamp(client, fresh_db):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services.api_keys import create_key, verify_key
 
     key = create_key("tester", "probe")["key"]
 
-    recent = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(timespec="seconds")
+    recent = (datetime.now(UTC) - timedelta(seconds=30)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (recent,))
     assert verify_key(key) == "tester"
     assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] == recent
 
-    stale = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat(timespec="seconds")
+    stale = (datetime.now(UTC) - timedelta(seconds=120)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (stale,))
     assert verify_key(key) == "tester"
     assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] != stale
 
-    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+    future = (datetime.now(UTC) + timedelta(hours=1)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE api_keys SET last_used_at = ?", (future,))
     assert verify_key(key) == "tester"  # a clock-step stamp rewrites instead of freezing
     assert fresh_db.query_row("SELECT last_used_at FROM api_keys")["last_used_at"] != future

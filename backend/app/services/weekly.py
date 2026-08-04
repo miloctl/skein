@@ -2,7 +2,7 @@
 Monday job drafts the plan as a pending-changes proposal — the same review
 inbox humans already work, so the plan is approved, not imposed."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .. import db
 from .work import WEEK_RE, update_task
@@ -11,7 +11,7 @@ MAX_PER_PERSON = 5
 
 
 def current_week(offset: int = 0) -> str:
-    iso = (datetime.now(timezone.utc).date() + timedelta(weeks=offset)).isocalendar()
+    iso = (datetime.now(UTC).date() + timedelta(weeks=offset)).isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
 
 

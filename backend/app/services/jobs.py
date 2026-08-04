@@ -8,7 +8,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .. import db
@@ -215,7 +215,7 @@ def job_health() -> list[dict]:
     """Last success per registered job, with a stale flag at 2x the period.
     Never-succeeded jobs count as stale only once they have any recorded
     attempt older than the threshold — a fresh install isn't an incident."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     last_ok = {
         r["job"]: r["ts"]
         for r in db.query(

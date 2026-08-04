@@ -18,7 +18,7 @@ import os
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
@@ -71,7 +71,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def add_note(author: str, person: str, body: str, kind: str = "note") -> dict:
@@ -132,7 +132,7 @@ def feedback_gap_days(author: str, person: str) -> int | None:
     if not row or not row["ts"]:
         return None
     last = datetime.fromisoformat(row["ts"])
-    return (datetime.now(timezone.utc) - last).days
+    return (datetime.now(UTC) - last).days
 
 
 def delete_note(author: str, note_id: int) -> dict:
@@ -205,7 +205,7 @@ def one_on_one_brief(person: str, days: int = 14) -> dict:
     """Deterministic 'since last time' brief from TEAM-VISIBLE platform data
     only. Every section degrades to empty pre-adoption."""
     person = person.strip()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    since = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     return {
         "person": person,
         "since": since,

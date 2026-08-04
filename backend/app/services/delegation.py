@@ -3,6 +3,7 @@ an authority matrix per (agent, entity), a mission-control view, and trust
 scores computed from the review inbox — promotion is suggested, never automatic."""
 
 import json
+from datetime import UTC
 
 from .. import db
 from .users import ensure_user
@@ -328,12 +329,12 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     streak; demotions to review fire on a strong-verdict rejection streak.
     The system only proposes — a human approves, and agents can never
     approve anything, so there is no self-promotion path."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     filed = []
     # don't refile what's pending, and don't nag weekly about what a human
     # just declined — a rejection buys 28 days of silence for that pair
-    recent_cutoff = (datetime.now(timezone.utc) - timedelta(days=28)).isoformat(timespec="seconds")
+    recent_cutoff = (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
     seen = {
         (json.loads(p["payload"]).get("agent"), json.loads(p["payload"]).get("entity"))
         for p in db.query(

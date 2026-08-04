@@ -1,7 +1,7 @@
 """Blocker & escalation register. Escalation is programmatic: a scheduled
 sweep flips open blockers past their escalate_after_hours to 'escalated'."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .. import db
 from .search import index_record
@@ -129,8 +129,8 @@ def resolve_blocker(
 
     created = datetime.fromisoformat(row["created_at"])
     if created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
-    age = datetime.now(timezone.utc) - created
+        created = created.replace(tzinfo=UTC)
+    age = datetime.now(UTC) - created
     if age >= timedelta(days=3):  # the Blocker Funeral
         from .notifications import notify
 
@@ -165,11 +165,11 @@ def list_blockers(status: str = "", owner: str = "") -> list[dict]:
 def sweep_escalations() -> list[dict]:
     """Flip aged open blockers to escalated; called by the scheduler and tests."""
     escalated = []
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
     for b in db.query("SELECT * FROM blockers WHERE status = 'open'"):
         created = datetime.fromisoformat(b["created_at"])
         if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
+            created = created.replace(tzinfo=UTC)
         if now_dt - created >= timedelta(hours=b["escalate_after_hours"]):
             claimed = db.execute_rowcount(
                 "UPDATE blockers SET status = 'escalated', escalated_at = ?, updated_at = ?"

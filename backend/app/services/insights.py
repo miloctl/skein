@@ -7,7 +7,7 @@ individual data is for planning, team aggregates for judging the past).
 All reads go through the same SQL the rest of the platform uses."""
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from .. import db
 from . import stats
@@ -21,7 +21,7 @@ def _n(count: int, word: str) -> str:
 
 
 def _today() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def _iso(d: date) -> str:
@@ -783,7 +783,7 @@ def _r_budget() -> list[dict]:
     # bounded to the CALENDAR month, same bound month_to_date uses — a finding
     # that says August is over budget must not name July's biggest spender as
     # its evidence, and timedelta arithmetic drifts at month edges
-    month_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
+    month_start = datetime.now(UTC).date().replace(day=1).isoformat()
     top = [
         {"engagement": e["engagement"], "cost_usd": e["cost_usd"]}
         for e in engagement_costs(since=month_start)[:3]

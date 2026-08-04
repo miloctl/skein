@@ -2,7 +2,7 @@
 slip forecasting, what-if intake, and the exec readout. All deterministic SQL
 over data the team already records — receipts shown for every verdict."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from .. import db
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS
@@ -10,7 +10,7 @@ from .stats import median as _median
 
 
 def _today() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 # a wait on a resolved/done/kept target is satisfied — it must stop yellowing

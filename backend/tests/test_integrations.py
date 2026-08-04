@@ -4,6 +4,7 @@ MCP gating, and the optional API token."""
 import hashlib
 import hmac
 import time
+from datetime import UTC
 
 import pytest
 
@@ -34,14 +35,14 @@ def test_notification_tiers(fresh_db, monkeypatch):
 
 
 def test_escalation_notifies_owner(fresh_db, monkeypatch):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.services import blockers, notifications, users
 
     users.ensure_user("marcus")
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     b = blockers.raise_blocker("aging", owner="marcus", impact="critical")
-    old = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(timespec="seconds")
+    old = (datetime.now(UTC) - timedelta(hours=3)).isoformat(timespec="seconds")
     fresh_db.execute("UPDATE blockers SET created_at = ? WHERE id = ?", (old, b["id"]))
     blockers.sweep_escalations()
     msgs = [n["message"] for n in notifications.list_notifications("marcus")]
