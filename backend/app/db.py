@@ -152,7 +152,14 @@ def transaction() -> Iterator[None]:
         yield
         conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        # A BEGIN IMMEDIATE that times out on the write lock opened no
+        # transaction, so an unguarded ROLLBACK raises "cannot rollback - no
+        # transaction is active" and REPLACES the real "database is locked".
+        # sqlite3.OperationalError has no handler in main.py, so the caller
+        # gets a 500 and the operator gets the wrong diagnosis. Same guard
+        # log_activity already uses on the identical statement.
+        with contextlib.suppress(sqlite3.DatabaseError):
+            conn.execute("ROLLBACK")
         raise
     finally:
         _on_commit.reset(cb_token)

@@ -131,6 +131,7 @@ def test_chat_provider_does_not_leak_into_embeddings(monkeypatch, restore_config
     cfg = _reload_config(
         monkeypatch,
         SKEIN_MODEL_PROVIDER="anthropic",
+        SKEIN_MODEL_API_KEY="sk-test",  # anthropic degrades to mock without one
         SKEIN_EMBEDDINGS="1",
         SKEIN_EMBED_PROVIDER="ollama",
         SKEIN_EMBED_MODEL="nomic-embed-text",

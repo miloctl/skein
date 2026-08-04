@@ -86,17 +86,25 @@ def deindex_record(entity: str, entity_id: int) -> None:
     orphaned embedding can't leak content (snippets come from search_index),
     but it outranks live records and silently burns a semantic result slot
     per query, forever."""
-    row = db.query_one(
-        "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
-        (entity, entity_id),
-    )
-    if row:
-        db.execute("DELETE FROM search_index WHERE rowid = ?", (row["id"],))
-        db.execute("DELETE FROM search_ids WHERE id = ?", (row["id"],))
-    db.execute(
-        "DELETE FROM embeddings WHERE entity = ? AND entity_id = ?",
-        (entity, entity_id),
-    )
+    # One transaction, matching index_record: unwrapped, a concurrent
+    # index_record commits between the lookup and the DELETEs and re-inserts
+    # the row, leaving the full body of a deleted record queryable through
+    # search forever — nothing reaps it. It also holds the search_ids twin
+    # invariant that index_record's comment above depends on: a half-applied
+    # delete leaves a search_index row whose freed rowid INSERT OR IGNORE
+    # mints next, and the next index_record destroys that bystander.
+    with db.transaction():
+        row = db.query_one(
+            "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
+            (entity, entity_id),
+        )
+        if row:
+            db.execute("DELETE FROM search_index WHERE rowid = ?", (row["id"],))
+            db.execute("DELETE FROM search_ids WHERE id = ?", (row["id"],))
+        db.execute(
+            "DELETE FROM embeddings WHERE entity = ? AND entity_id = ?",
+            (entity, entity_id),
+        )
 
 
 def ask(q: str, limit: int = 5) -> dict:

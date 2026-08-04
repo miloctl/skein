@@ -5,7 +5,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from .. import config
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_user, is_agent, roster_spelling
+from ..services.users import ensure_user, is_agent, refuse_fold_collision
 
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
@@ -121,25 +121,29 @@ def _resolve(
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             if is_agent(name):
                 raise HTTPException(status_code=403, detail=agent_on_signin(name))
-            # the read path skips ensure_user, so the wall is applied here too
+            # the read path skips ensure_user, so the walls it applies are
+            # applied here too
             _refuse_reserved(name)
-            # same rule as the header door: a read never grows the roster, so
-            # a polling service account does not accumulate rows. The claim
-            # still folds to the roster spelling — writes store that spelling,
-            # and a claim differing only by case would scope the viewer's own
-            # feed to a name none of their rows carry.
-            if method in ("GET", "HEAD", "OPTIONS"):
-                return roster_spelling(name), True, groups
             try:
+                if method in ("GET", "HEAD", "OPTIONS"):
+                    # a read never grows the roster, so a polling service
+                    # account does not accumulate rows. It still takes the
+                    # fold wall: resolving the claim onto a fold-equivalent
+                    # roster row would hand `ALICE` (or a zero-width variant)
+                    # every row `alice` owns, private notes included, and
+                    # _is_admin below reads the name this returns.
+                    refuse_fold_collision(name)
+                    return name, True, groups
                 return ensure_user(name)["name"], True, groups
             except ValueError as exc:
-                # a reserved name (bench-persona slug) would otherwise 400 on
-                # EVERY request, and an OIDC caller cannot pick another name
-                # the way the name picker can. Say what the operator must change.
+                # a reserved name (bench-persona slug) or a fold collision
+                # would otherwise refuse EVERY request, and an OIDC caller
+                # cannot pick another name the way the name picker can. Say
+                # what the operator must change.
                 raise HTTPException(
                     status_code=403,
                     detail=f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
-                    " that does not collide with a reserved name.",
+                    " that gives each person one name.",
                 ) from exc
         raise HTTPException(status_code=401, detail=NEED_LOGIN)
     if config.AUTH_MODE == "api-key":

@@ -102,3 +102,23 @@ def test_charter_supersede_keeps_category_and_requires_review_by(client, fresh_d
     by_id = {d["id"]: d for d in charter}
     assert new["id"] in by_id  # the replacement stays on the charter page
     assert by_id[new["id"]]["review_by"] is not None  # 90d default applied
+
+
+def test_a_refused_successor_leaves_the_decision_recoverable(client, fresh_db):
+    """The CAS flip and the successor create are one transaction. Split, a
+    blank title commits the flip and then raises, and the decision leaves the
+    charter pointing at nothing: supersede refuses it as already superseded,
+    reconfirm redirects to a successor that does not exist, and no API call
+    brings it back. The bad-date test above pins the one branch that was
+    pre-validated; this pins the branch that was not."""
+    d = client.post("/api/decisions", json={"title": "Adopt X", "decision": "we adopt X"}).json()
+    r = client.post(f"/api/decisions/{d['id']}/supersede", json={"title": "   ", "decision": "y"})
+    assert r.status_code == 400
+    row = fresh_db.query_one("SELECT * FROM decisions WHERE id = ?", (d["id"],))
+    assert row["status"] == "active" and row["superseded_by"] is None
+    # and the recovery path still works, which is what "recoverable" means
+    ok = client.post(
+        f"/api/decisions/{d['id']}/supersede", json={"title": "Adopt Y", "decision": "y"}
+    )
+    assert ok.status_code == 200
+    assert ok.json()["supersedes"] == d["id"]

@@ -155,7 +155,10 @@ def test_openai_compatible_without_base_url_is_rejected(monkeypatch, restore_con
 
 def test_malformed_model_params_does_not_break_boot(monkeypatch, restore_config):
     cfg = _reload_config(
-        monkeypatch, SKEIN_MODEL_PROVIDER="anthropic", SKEIN_MODEL_PARAMS="{not json"
+        monkeypatch,
+        SKEIN_MODEL_PROVIDER="anthropic",
+        SKEIN_MODEL_API_KEY="sk-test",  # isolate the params fault from the key check
+        SKEIN_MODEL_PARAMS="{not json",
     )
     assert "SKEIN_MODEL_PARAMS" in cfg.MODEL_PROVIDER_ERROR
     assert cfg.MODEL_PARAMS == {}
@@ -252,6 +255,41 @@ def test_base_url_is_refused_where_it_does_not_belong(monkeypatch, restore_confi
     )
     assert "does not accept SKEIN_MODEL_BASE_URL" in cfg.MODEL_PROVIDER_ERROR
     assert cfg.EFFECTIVE_PROVIDER == "mock"
+
+
+@pytest.mark.parametrize(
+    "provider,key_env", [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")]
+)
+def test_a_provider_that_cannot_answer_without_a_key_degrades_to_mock(
+    monkeypatch, restore_config, provider, key_env
+):
+    """Unchecked, the fault surfaces once per chat as raw SDK internals — a 401
+    body with the provider's request id — while /health reports no error at
+    all. Degrading at boot is what makes MODEL_PROVIDER_ERROR the one place to
+    look."""
+    monkeypatch.delenv(key_env, raising=False)
+    cfg = _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER=provider)
+    assert cfg.EFFECTIVE_PROVIDER == "mock"
+    assert key_env in cfg.MODEL_PROVIDER_ERROR
+    # the provider-native env var satisfies it, not only SKEIN_MODEL_API_KEY
+    monkeypatch.setenv(key_env, "sk-test")
+    keyed = _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER=provider)
+    assert provider == keyed.EFFECTIVE_PROVIDER
+
+
+@pytest.mark.parametrize("provider", ["ollama", "openai_compatible", "bedrock"])
+def test_keyless_providers_are_not_degraded_by_the_key_check(monkeypatch, restore_config, provider):
+    """Keyless-first: a local ollama and a local openai_compatible endpoint take
+    no credential, and bedrock resolves the ambient AWS chain. Marking any of
+    them key_required would degrade a working keyless box to mock at boot."""
+    for var in ("OLLAMA_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    extra = {"SKEIN_MODEL_BASE_URL": "http://localhost:1234/v1"} if "compat" in provider else {}
+    cfg = _reload_config(
+        monkeypatch, SKEIN_MODEL_PROVIDER=provider, SKEIN_MODEL_ID="some-model", **extra
+    )
+    assert provider == cfg.EFFECTIVE_PROVIDER
+    assert cfg.MODEL_PROVIDER_ERROR == ""
 
 
 @pytest.mark.parametrize("bad", ["4k", "", "  ", "4096.5"])

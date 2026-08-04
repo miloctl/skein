@@ -373,12 +373,17 @@ def get_whoami(user: CurrentUser, request: Request):
     this to validate a pasted key without the user needing to know anything."""
     from ..services.api_keys import list_keys
 
+    strong = bool(getattr(request.state, "strong_auth", False))
     return {
         "user": user,
-        "strong": bool(getattr(request.state, "strong_auth", False)),
+        "strong": strong,
         # active only — after a revoke-all, Settings must show the bootstrap
-        # command again, not "a key exists, paste it"
-        "keys_minted": sum(1 for k in list_keys(user) if k["active"]),
+        # command again, not "a key exists, paste it". Counted only for a
+        # proven identity: a bare X-User names anyone, and the count is the
+        # same fact GET /keys refuses to weak callers. Zero is also what
+        # Settings must act on here — a caller with no proven key needs the
+        # bootstrap command, whatever the roster holds.
+        "keys_minted": sum(1 for k in list_keys(user) if k["active"]) if strong else 0,
     }
 
 
@@ -421,7 +426,10 @@ def post_key(body: KeyIn, user: StrongUser):
 
 
 @router.get("/keys")
-def get_keys(user: CurrentUser):
+def get_keys(user: StrongUser):
+    # StrongUser, like POST and DELETE below: under trusted-header a bare
+    # X-User names anyone, so CurrentUser here hands out the prefix, label,
+    # and last-used time of another person's credentials for the asking.
     return api_keys.list_keys(user)
 
 

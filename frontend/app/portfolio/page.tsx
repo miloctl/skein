@@ -73,12 +73,14 @@ const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
 
 export default function Portfolio() {
   const [health, setHealth] = useState<Health[] | null>(null);
-  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  // null until loaded, like every other card here: [] renders the verdict
+  // "Nobody is over 100%" during the first paint and after a failed fetch
+  const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [week, setWeek] = useState<Week | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
-  const [commitments, setCommitments] = useState<Commitment[]>([]);
+  const [commitments, setCommitments] = useState<Commitment[] | null>(null);
   const [readout, setReadout] = useState<string | null>(null);
   const [ritualOut, setRitualOut] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -265,7 +267,9 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Capacity conflicts">
-        {conflicts.length === 0 ? (
+        {conflicts === null ? (
+          <p className="text-sm text-ink-3">Loading…</p>
+        ) : conflicts.length === 0 ? (
           <p className="text-sm text-ink-3">Nobody is over 100%.</p>
         ) : (
           <ul className="space-y-2 text-sm">
@@ -284,10 +288,8 @@ export default function Portfolio() {
 
       <Card title="Flow — cycle time from real task history">
         {flow === null ? (
-        <Card title="Flow — cycle time from real task history">
           <p className="text-sm text-ink-3">Loading…</p>
-        </Card>
-      ) : (
+        ) : (
           <div className="space-y-2 text-sm">
             <p>
               {flow.cycle_time.tasks_done} task{flow.cycle_time.tasks_done === 1 ? "" : "s"} done in 8 weeks
@@ -321,10 +323,8 @@ export default function Portfolio() {
 
       <Card title="Slip forecast">
         {forecast === null ? (
-        <Card title="Slip forecast">
           <p className="text-sm text-ink-3">Loading…</p>
-        </Card>
-      ) : (
+        ) : (
           <>
             <p className="mb-2 text-xs text-ink-3">
               Based on {forecast.basis.milestones_measured} completed milestone
@@ -351,13 +351,15 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Commitments — external + yours to the team">
-        {!manage && commitments.some((c) => c.status === "open") && (
+        {!manage && commitments?.some((c) => c.status === "open") && (
           <p className="mb-2 text-xs text-ink-3">
             Marking kept/missed lives behind <b>manager controls</b> (top
             right).
           </p>
         )}
-        {commitments.length === 0 ? (
+        {commitments === null ? (
+          <p className="text-sm text-ink-3">Loading…</p>
+        ) : commitments.length === 0 ? (
           <p className="text-sm text-ink-3">
             None recorded — capture one with “promised: …”.
           </p>

@@ -20,20 +20,6 @@ def _fold(name: str) -> str:
     return "".join(c for c in folded if unicodedata.category(c) != "Cf").casefold()
 
 
-def roster_spelling(name: str) -> str:
-    """The roster row's spelling for a fold-equivalent name, else the name
-    unchanged. For read-path identities (the OIDC GET door skips ensure_user):
-    rows are stored under the roster spelling, so a claim that differs only
-    by case or normalization would scope the viewer's activity feed to a
-    name none of their own rows carry. Fails open to the given name — a read
-    must not refuse a first-ever sign-in."""
-    target = _fold(name)
-    for row in db.query("SELECT name FROM users"):
-        if _fold(row["name"]) == target:
-            return row["name"]
-    return name
-
-
 def refuse_reserved_name(name: str) -> None:
     """One predicate for every identity entry point — ensure_user, rename, and
     the credential doors in routes/deps.py.

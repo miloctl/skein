@@ -9,7 +9,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 
-import { API_URL, api, getApiKey, getUser } from "@/lib/api";
+import { API_URL, api, bearer, getUser } from "@/lib/api";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
 
@@ -31,9 +31,11 @@ function makeAdapter(threadId: string): ChatModelAdapter {
           .join("\n"),
       );
 
-      // same auth ladder as lib/api.ts: personal key first, then the
-      // deployment token — chat was the one surface that skipped the key
-      const auth = getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN;
+      // bearer() itself, not a copy of its ladder: this call site rebuilt the
+      // ladder and lost the OIDC rung, so in oidc mode a signed-in user with
+      // no personal key got a 401 telling them to sign in. Chat is the one
+      // surface that does not go through api(), which is why it drifted.
+      const auth = await bearer();
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: {
