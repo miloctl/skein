@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** A failed /api/chats/folders fetch used to be swallowed whole: groups came
@@ -41,5 +41,31 @@ describe("the sidebar when the folders fetch fails", () => {
     expect(
       await screen.findByText(/Could not load this page\. folder store exploded/),
     ).toBeTruthy();
+  });
+});
+
+describe("the mobile drawer's aria-modal promise", () => {
+  it("wraps Tab at the edges instead of walking the hidden page", async () => {
+    render(
+      <ChatSidebar
+        mobileOpen
+        onMobileClose={() => {}}
+        threadId=""
+        onOpen={() => {}}
+        onNew={() => {}}
+      />,
+    );
+    await screen.findByText("Filed chat");
+    const dialog = screen.getByRole("dialog");
+    const focusables = dialog.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), a[href], input, [tabindex]",
+    );
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    last.focus();
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
   });
 });

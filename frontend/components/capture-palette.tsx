@@ -56,6 +56,12 @@ export function CapturePalette() {
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // mirrors `text` for the once-mounted window listener below, which would
+  // otherwise read the first render's empty string forever
+  const textRef = useRef("");
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
 
@@ -70,7 +76,13 @@ export function CapturePalette() {
         });
         setResult(null);
       }
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        // same rule as the backdrop: never discard typed text. The first
+        // Escape clears the draft, the second closes — one rule for both
+        // gestures instead of a reflex that loses a sentence.
+        if (textRef.current.trim()) setText("");
+        else setOpen(false);
+      }
     };
     // the nav's ⌘K button dispatches this for touch/voice users — keyboard
     // isn't the only door into quick capture

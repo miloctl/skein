@@ -366,7 +366,26 @@ export function ChatSidebar({
         : {})}
       ref={asideRef}
       onKeyDown={(e) => {
-        if (mobileOpen && e.key === "Escape") onMobileClose?.();
+        if (!mobileOpen) return;
+        if (e.key === "Escape") onMobileClose?.();
+        if (e.key === "Tab") {
+          // aria-modal above PROMISES focus stays inside; without this trap
+          // Tab walks the page behind the drawer while the backdrop hides
+          // where focus went (same trap as capture-palette.tsx)
+          const focusables = asideRef.current?.querySelectorAll<HTMLElement>(
+            "button:not([disabled]), a[href], input, [tabindex]",
+          );
+          if (!focusables || focusables.length === 0) return;
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
       }}
       onDragOver={(e) => {
         e.preventDefault();

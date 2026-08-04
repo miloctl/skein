@@ -156,8 +156,6 @@ export default function MyDay() {
     },
     () => false,
   );
-  const waveOnce = shouldWave();
-
   const generation = useRef(0);
   const load = useCallback(() => {
     const g = ++generation.current;
@@ -290,8 +288,11 @@ export default function MyDay() {
         </p>
       )}
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-        Good day, {b.user === "anonymous" ? "there" : b.user}{" "}
-        <span className={waveOnce ? "wave-once" : ""}>👋</span>
+        Good day, {b.user}{" "}
+        {/* called HERE, not in the component body: shouldWave burns the
+            once-per-session wave on first call, and above the early returns
+            a page that never loads still spent it */}
+        <span className={shouldWave() ? "wave-once" : ""}>👋</span>
       </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         {b.date} ·{" "}

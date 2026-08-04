@@ -276,7 +276,7 @@ export default function ReviewPage() {
                 by {c.proposed_by}
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
                 {c.sponsor
-                  ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually)" : ""}`
+                  ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually, with a reason)" : ""}`
                   : ""} ·{" "}
                 <time dateTime={c.created_at} title={c.created_at}>{timeAgo(c.created_at)}</time>
               </span>
