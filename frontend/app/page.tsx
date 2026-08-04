@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, getUser, loadError, setUser } from "@/lib/api";
+import { actionError, api, getUser, loadError, setUser } from "@/lib/api";
 import { StandupComposer } from "@/components/standup-card";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
@@ -224,7 +224,7 @@ export default function MyDay() {
         body: JSON.stringify({ status }),
       });
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
     load();
   };
@@ -236,7 +236,7 @@ export default function MyDay() {
         body: JSON.stringify({ resolution: "resolved from My Day" }),
       });
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
     load();
   };
@@ -456,7 +456,7 @@ export default function MyDay() {
                                       body: JSON.stringify({ notification_id: a.ref_id }),
                                     });
                                   } catch (e) {
-                                    alert(String(e));
+                                    alert(actionError(e));
                                   }
                                   load();
                                 }}
@@ -551,7 +551,7 @@ export default function MyDay() {
                           } catch {}
                           window.dispatchEvent(new Event("storage"));
                         } catch (e) {
-                          alert(String(e));
+                          alert(actionError(e));
                         }
                       }}
                       className="mx-0.5 rounded bg-raised px-1.5 py-0.5 hover:bg-line"

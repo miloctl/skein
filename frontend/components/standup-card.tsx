@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api } from "@/lib/api";
 
 /** The one daily write, so it lives on My Day. `suggestion` prefills the
  *  "yesterday" field from real activity — derived, not asked for. */
@@ -38,7 +38,7 @@ export function StandupComposer({
         onPosted?.();
       }, 700);
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     } finally {
       setBusy(false);
     }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
 
 type IngestResult = {
@@ -31,7 +31,7 @@ export default function IngestPage() {
       const kind = r.proposals[0]?.kind ?? "proposal";
       setFiled((f) => ({ ...f, [key]: kind }));
     } catch (e) {
-      setError(String(e));
+      setError(actionError(e));
     }
   };
 
@@ -49,7 +49,7 @@ export default function IngestPage() {
       setPicks({});
       setText("");
     } catch (e) {
-      setError(String(e));
+      setError(actionError(e));
     } finally {
       setBusy(false);
     }
