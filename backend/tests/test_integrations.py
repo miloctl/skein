@@ -168,3 +168,62 @@ def test_slack_garbage_timestamp_is_401(client, monkeypatch):
         },
     )
     assert r.status_code == 401
+
+
+def test_a_hung_mcp_server_blocks_no_other_agent_build(fresh_db, monkeypatch):
+    """The lock in mcp_tools() guards state, never the connect. Held across
+    the network I/O it queued every concurrent agent build behind one hung
+    MCP server (up to 300s of sse_read_timeout per server) — a dead
+    integration must cost its own tools, not chat for everyone."""
+    import threading
+
+    from app.agents import mcp_tools as m
+
+    monkeypatch.setattr(m, "_tools", None)
+    monkeypatch.setattr(m, "_loading", False)
+    hang = threading.Event()
+    started = threading.Event()
+
+    def slow_connect():
+        started.set()
+        hang.wait(5)
+        return (["fake-tool"], [])
+
+    monkeypatch.setattr(m, "_connect_servers", slow_connect)
+    result: list = []
+    loader = threading.Thread(target=lambda: result.extend(m.mcp_tools()))
+    loader.start()
+    assert started.wait(2)
+    # a second caller while the first is mid-connect: [] now, never a wait
+    assert m.mcp_tools() == []
+    hang.set()
+    loader.join(2)
+    assert result == ["fake-tool"]
+    assert m.mcp_tools() == ["fake-tool"]  # published for every later build
+
+
+def test_a_shutdown_mid_connect_is_not_resurrected(fresh_db, monkeypatch):
+    """shutdown_mcp during an in-flight load: the load's result is stale the
+    moment the clear runs — publishing it would hand later agent builds
+    sessions that shutdown never saw and can never close."""
+    from app.agents import mcp_tools as m
+
+    monkeypatch.setattr(m, "_tools", None)
+    monkeypatch.setattr(m, "_loading", False)
+
+    closed: list = []
+
+    class FakeClient:
+        def __exit__(self, *a):
+            closed.append(self)
+
+    stale = FakeClient()
+
+    def connect_then_race():
+        m.shutdown_mcp()  # fires inside the load window
+        return (["stale-tool"], [stale])
+
+    monkeypatch.setattr(m, "_connect_servers", connect_then_race)
+    assert m.mcp_tools() == []
+    assert closed == [stale]  # the orphaned session was closed, not leaked
+    assert m._tools is None  # nothing published
