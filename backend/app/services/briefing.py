@@ -238,12 +238,19 @@ def my_day(user: str) -> dict:
             "tasks": db.query(
                 "SELECT * FROM tasks WHERE assignee = ? AND status IN ('todo', 'in_progress', 'blocked')"
                 " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-                " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date",
+                " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
                 (user,),
             ),
+            # assignee IN (?, '') is deliberate: an unowned task that is due is
+            # everyone's business, and tasks are team-visible anyway (GET
+            # /api/tasks carries no user dependency). LIMIT is not: unbounded,
+            # a team with thousands of stale overdue rows served every one of
+            # them as SELECT * on every dashboard load, for every user.
+            # ORDER BY due_date puts the most overdue first, so the cap drops
+            # the least urgent. See migration 044 for the index this reads.
             "due_soon": db.query(
                 "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"
-                " AND due_date <= ? AND assignee IN (?, '') ORDER BY due_date",
+                " AND due_date <= ? AND assignee IN (?, '') ORDER BY due_date LIMIT 50",
                 (week, user),
             ),
             "standup_suggestion": _standup_suggestion(user, yesterday),

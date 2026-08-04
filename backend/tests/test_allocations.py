@@ -9,6 +9,33 @@ def _utc_today():
     return datetime.now(UTC).date()
 
 
+def test_listing_engagements_does_not_scale_queries_with_engagements(fresh_db, monkeypatch):
+    """list_engagements ran one allocations lookup PER engagement, up to its
+    200-row cap, against a table that carried no index at all. Counting queries
+    rather than timing them: a reintroduced loop fails here on a 5-row fixture,
+    where a timing assertion would need thousands of rows to be visible."""
+    from app import db
+    from app.services import engagements
+
+    for i in range(5):
+        e = engagements.create_engagement(f"eng-{i}", actor="ava")
+        engagements.allocate("ava", e["id"], 20, actor="ava")
+
+    seen: list[str] = []
+    real = db.query
+    monkeypatch.setattr(
+        db, "query", lambda sql, params=(): (seen.append(sql), real(sql, params))[1]
+    )
+    out = engagements.list_engagements()
+
+    assert len(out) == 5
+    assert all(len(e["allocations"]) == 1 for e in out), "allocations must still be attached"
+    allocation_reads = [s for s in seen if "FROM allocations" in s]
+    assert len(allocation_reads) == 1, (
+        f"{len(allocation_reads)} allocations queries for 5 engagements — the N+1 is back"
+    )
+
+
 def test_capacity_and_conflicts_ignore_out_of_window_allocations(fresh_db):
     from app.services import engagements, portfolio, users
 
