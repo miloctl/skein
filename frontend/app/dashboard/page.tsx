@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { actionError, api, loadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
@@ -190,7 +191,7 @@ function AbsenceForm({
       await onAdd(draft);
       setDraft(empty);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     } finally {
       setAdding(false);
     }
@@ -389,7 +390,7 @@ export default function Dashboard() {
       setDeletingAbsence(null);
       refresh(["absences", "capacity", "activity"]);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -400,7 +401,7 @@ export default function Dashboard() {
       refocusEdit(entity === "tasks" ? "task" : "milestone", id);
       refresh([entity, "activity"]);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -414,7 +415,7 @@ export default function Dashboard() {
       refocusEdit("note", id);
       refresh(["notes", "activity"]);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -424,7 +425,7 @@ export default function Dashboard() {
       setDeletingNote(null);
       refresh(["notes", "activity"]);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -437,7 +438,7 @@ export default function Dashboard() {
       setAssigning(null);
       refresh(["questions", "activity"]);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -618,7 +619,7 @@ export default function Dashboard() {
                         // capacity and ships a recap note — both render here
                         refresh(["engagements", "capacity", "notes", "activity"]);
                       } catch (err) {
-                        alert(actionError(err));
+                        reportStatus(actionError(err));
                       }
                     }}
                     title={CONCLUSION_HINTS[c]}
@@ -885,7 +886,7 @@ export default function Dashboard() {
                           setAnswering(null);
                           refresh(["questions", "activity"]);
                         } catch (e) {
-                          alert(actionError(e));
+                          reportStatus(actionError(e));
                         }
                       }}
                       className="w-64 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"

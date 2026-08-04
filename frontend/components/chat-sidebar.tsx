@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { actionError, api, getUser, loadError as describeLoadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { chatThreads, type ChatThread } from "@/lib/chat-threads";
 import { copyText } from "@/lib/clipboard";
 
@@ -194,7 +195,7 @@ export function ChatSidebar({
     await api("/api/chats/folders", {
       method: "POST",
       body: JSON.stringify({ name: name.trim() }),
-    }).catch((e) => alert(actionError(e)));
+    }).catch((e) => reportStatus(actionError(e)));
     announce();
   };
 
@@ -203,7 +204,7 @@ export function ChatSidebar({
     await api(`/api/chats/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ engagement_id: engagementId }),
-    }).catch((e) => alert(actionError(e)));
+    }).catch((e) => reportStatus(actionError(e)));
     announce();
   };
 
@@ -222,7 +223,7 @@ export function ChatSidebar({
       setEngagements((cur) => (cur ? [...cur, made] : [made]));
       await setEngagement(id, made.id);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
       throw e; // the caller restores the typed name on failure
     }
   };
@@ -232,7 +233,7 @@ export function ChatSidebar({
     await api(`/api/chats/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ folder }),
-    }).catch((e) => alert(actionError(e)));
+    }).catch((e) => reportStatus(actionError(e)));
     announce();
   };
 
@@ -242,7 +243,7 @@ export function ChatSidebar({
     await api(`/api/chats/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ title: title.trim() }),
-    }).catch((e) => alert(actionError(e)));
+    }).catch((e) => reportStatus(actionError(e)));
     announce();
   };
 
@@ -263,7 +264,7 @@ export function ChatSidebar({
         setMenu((m) => (m && m.kind === "thread" && m.id === t.id ? null : m));
       }, 1200);
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -275,7 +276,7 @@ export function ChatSidebar({
       if (t.id === threadId) onNew();
       announce();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -313,7 +314,7 @@ export function ChatSidebar({
       }
       exitSelect();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
       // prune what succeeded so a retry never re-deletes ghosts
       setSelChats((s) => new Set([...s].filter((id) => !doneChats.has(id))));
       setSelFolders((s) => new Set([...s].filter((n) => !doneFolders.has(n))));
@@ -333,7 +334,7 @@ export function ChatSidebar({
     await api(`/api/chats/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ folder }),
-    }).catch((err) => alert(actionError(err)));
+    }).catch((err) => reportStatus(actionError(err)));
     announce();
   };
 

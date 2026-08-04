@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { actionError, api, loadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 
@@ -67,7 +68,7 @@ export default function CharterPage() {
       setText("");
       load();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     } finally {
       setBusy(false);
     }
@@ -159,7 +160,7 @@ export default function CharterPage() {
                         });
                         load();
                       } catch (e) {
-                        alert(actionError(e));
+                        reportStatus(actionError(e));
                       }
                     }}
                     className="rounded bg-ok/15 px-2 py-1 font-medium text-ok hover:bg-ok/20"
@@ -217,7 +218,7 @@ export default function CharterPage() {
                           0,
                         );
                       } catch (e) {
-                        alert(actionError(e));
+                        reportStatus(actionError(e));
                       } finally {
                         setBusy(false);
                       }

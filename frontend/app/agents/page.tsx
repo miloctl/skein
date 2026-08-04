@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { actionError, api } from "@/lib/api";
+import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
@@ -74,7 +75,6 @@ export default function Agents() {
   const [entity, setEntity] = useState("task");
   const [level, setLevel] = useState("review");
   const [targetAgent, setTargetAgent] = useState("agent");
-  const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [memories, setMemories] = useState<
     { id: number; topic: string; content: string; user: string }[]
@@ -94,7 +94,7 @@ export default function Agents() {
   const load = useCallback(() => {
     api<AgentRow[]>("/api/agents")
       .then(setAgents)
-      .catch((e) => setBanner(`Cannot load the agents list. ${actionError(e)}`));
+      .catch((e) => reportStatus(`Cannot load the agents list. ${actionError(e)}`));
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
     api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
     api<Persona[]>("/api/personas").then(setBench).catch(() => {});
@@ -121,17 +121,17 @@ export default function Agents() {
       .then((r) => {
         if (g === inboxGeneration.current) setInbox(r); // last click wins
       })
-      .catch((e) => setBanner(actionError(e)));
+      .catch((e) => reportStatus(actionError(e)));
   };
 
   const changeAuthority = (agent: string, ent: string, lvl: string) => {
     setBusy(true);
-    setBanner(null);
+    dismissStatus();
     api("/api/agents/authority", {
       method: "POST",
       body: JSON.stringify({ agent, entity: ent, level: lvl }),
     })
-      .catch((e) => setBanner(actionError(e)))
+      .catch((e) => reportStatus(actionError(e)))
       .finally(() => {
         setBusy(false);
         load();
@@ -141,7 +141,7 @@ export default function Agents() {
   const setAuthority = () => {
     const agent = targetAgent.trim();
     if (!agent) {
-      setBanner("Agent name is required.");
+      reportStatus("Agent name is required.");
       return;
     }
     changeAuthority(agent, entity, level);
@@ -202,14 +202,6 @@ export default function Agents() {
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {banner && (
-        <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
-          <span>{banner}</span>
-          <button onClick={() => setBanner(null)} className="text-xs underline">
-            dismiss
-          </button>
-        </div>
-      )}
       {bench.length > 0 && (
         <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2">
           <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
@@ -444,7 +436,7 @@ export default function Agents() {
                           await api(`/api/memories/${m.id}`, { method: "DELETE" });
                           setMemories((ms) => ms.filter((x) => x.id !== m.id));
                         } catch (e) {
-                          setBanner(actionError(e));
+                          reportStatus(actionError(e));
                         }
                         setForgetting(null);
                       }}

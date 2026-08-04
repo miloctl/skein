@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { actionError, api } from "@/lib/api";
+import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
@@ -83,15 +84,16 @@ export default function Portfolio() {
   const [commitments, setCommitments] = useState<Commitment[] | null>(null);
   const [readout, setReadout] = useState<string | null>(null);
   const [ritualOut, setRitualOut] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const manage = useManageMode();
 
   const load = useCallback(() => {
-    // every card's failure reaches the banner — a failed fetch rendering
-    // "Nobody is over 100%" would be a confident lie, not an empty state
+    // every card's failure is reported — a failed fetch rendering
+    // "Nobody is over 100%" would be a confident lie, not an empty state.
+    // Last failure wins the region: six loads share one, so a dead backend
+    // names one card rather than all six.
     const fail = (what: string) => (e: Error) =>
-      setBanner(`Cannot load ${what}. ${actionError(e)}`);
+      reportStatus(`Cannot load ${what}. ${actionError(e)}`);
     api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("health"));
     api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("conflicts"));
     api<Flow>("/api/portfolio/flow").then(setFlow).catch(fail("flow"));
@@ -102,14 +104,14 @@ export default function Portfolio() {
 
   useEffect(load, [load]);
 
-  // Mutations: never silent — failures land in the banner, and we always
+  // Mutations: never silent — failures land in the status region, and we always
   // re-fetch so the page shows reality (a teammate may have won the race).
   const mutate = useCallback(
     (p: Promise<unknown>) => {
       setBusy(true);
-      setBanner(null);
+      dismissStatus();
       return p
-        .catch((e) => setBanner(actionError(e)))
+        .catch((e) => reportStatus(actionError(e)))
         .finally(() => {
           setBusy(false);
           load();
@@ -130,14 +132,6 @@ export default function Portfolio() {
         behind every verdict.
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {banner && (
-        <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger md:col-span-2">
-          <span>{banner}</span>
-          <button onClick={() => setBanner(null)} className="text-xs underline">
-            dismiss
-          </button>
-        </div>
-      )}
       <Card title="Engagement health — each rating shows why">
         {health === null ? (
           <p className="text-sm text-ink-3">Loading…</p>
@@ -221,7 +215,7 @@ export default function Portfolio() {
             onClick={() =>
               api<Draft>("/api/week/draft")
                 .then(setDraft)
-                .catch((e) => setBanner(actionError(e)))
+                .catch((e) => reportStatus(actionError(e)))
             }
             className="rounded-lg bg-raised px-3 py-1 text-xs font-medium hover:bg-line"
           >
@@ -434,11 +428,11 @@ export default function Portfolio() {
                 key={r}
                 disabled={busy}
                 onClick={() => {
-                  setBanner(null);
+                  dismissStatus();
                   setBusy(true);
                   api<{ markdown: string }>(`/api/rituals/${r}`, { method: "POST" })
                     .then((res) => setRitualOut(res.markdown))
-                    .catch((e) => setBanner(actionError(e)))
+                    .catch((e) => reportStatus(actionError(e)))
                     .finally(() => setBusy(false));
                 }}
                 className="rounded-lg bg-raised px-3 py-1 text-xs font-medium text-ink-2 hover:bg-line disabled:opacity-50"
@@ -461,11 +455,11 @@ export default function Portfolio() {
           <button
             disabled={busy}
             onClick={() => {
-              setBanner(null);
+              dismissStatus();
               setBusy(true);
               api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
                 .then((r) => setReadout(r.markdown))
-                .catch((e) => setBanner(actionError(e)))
+                .catch((e) => reportStatus(actionError(e)))
                 .finally(() => setBusy(false));
             }}
             className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
