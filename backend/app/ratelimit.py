@@ -7,8 +7,30 @@ import time
 from collections import defaultdict, deque
 from threading import Lock
 
+from . import config
+
 _hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 _lock = Lock()
+
+
+def client_addr(request) -> str:
+    """The caller's address, for the per-address caps (signin, forge_addr).
+
+    X-Forwarded-For is read only to the depth the operator declared in
+    SKEIN_TRUST_PROXY_HOPS. Each trusted proxy APPENDS the peer address it
+    saw, so the rightmost N entries are ours and entry -N is the client as
+    the outermost trusted proxy saw it; everything left of that is
+    caller-typed text. At 0 hops the header is ignored — trusting it on a
+    direct connection lets any caller pick their own bucket key, which
+    unmakes the cap."""
+    hops = config.TRUST_PROXY_HOPS
+    if hops > 0:
+        raw = request.headers.get("x-forwarded-for", "")
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        if len(parts) >= hops:
+            return parts[-hops]
+    return request.client.host if request.client else "unknown"
+
 
 WINDOW_SECONDS = 60.0
 LIMITS = {
@@ -41,8 +63,9 @@ LIMITS = {
 MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
 # What the cap counts, per surface. A signed-out caller has no name, so the
 # signin cap counts addresses — and the refusal must not claim otherwise.
-# Behind a reverse proxy that does not pass the caller's address through,
-# every browser shares one address, and so one signin bucket.
+# Behind a reverse proxy, SKEIN_TRUST_PROXY_HOPS is what makes an address
+# mean a caller: at the default 0 every browser shares the proxy's address,
+# and so one signin bucket for the whole deployment.
 PER = {
     "signin": "per address",
     "forge": "for the whole integration",

@@ -25,3 +25,72 @@ def test_rate_caps(client, fresh_db):
     assert r.status_code == 400 and "slow down" in r.json()["detail"]
     ratelimit.reset()
     assert client.post("/api/capture", json={"text": "note: fine again"}).status_code == 200
+
+
+class _Req:
+    """The two attributes client_addr reads off a Request."""
+
+    def __init__(self, peer, xff=None):
+        self.headers = {"x-forwarded-for": xff} if xff else {}
+        self.client = type("C", (), {"host": peer})() if peer else None
+
+
+def test_client_addr_ignores_the_header_at_zero_hops(monkeypatch):
+    """Trusting X-Forwarded-For on a direct connection lets any caller pick
+    their own bucket key, which unmakes the cap."""
+    from app import config, ratelimit
+
+    monkeypatch.setattr(config, "TRUST_PROXY_HOPS", 0)
+    assert ratelimit.client_addr(_Req("10.0.0.9", xff="6.6.6.6")) == "10.0.0.9"
+
+
+def test_client_addr_reads_the_declared_proxy_depth(monkeypatch):
+    """Behind the OpenShift router (1 hop), the socket peer is the router —
+    one signin bucket for the whole team. Entry -N is the client as the
+    outermost TRUSTED proxy saw it; entries left of that are caller-typed."""
+    from app import config, ratelimit
+
+    monkeypatch.setattr(config, "TRUST_PROXY_HOPS", 1)
+    req = _Req("10.128.0.1", xff="203.0.113.7")
+    assert ratelimit.client_addr(req) == "203.0.113.7"
+    # a caller-crafted prefix does not move the trusted entry
+    spoofed = _Req("10.128.0.1", xff="6.6.6.6, 203.0.113.7")
+    assert ratelimit.client_addr(spoofed) == "203.0.113.7"
+
+
+def test_client_addr_falls_back_when_the_header_is_short(monkeypatch):
+    """An in-cluster caller that bypasses the router sends no header — the
+    socket peer is then the honest answer, not a crash or an empty key."""
+    from app import config, ratelimit
+
+    monkeypatch.setattr(config, "TRUST_PROXY_HOPS", 1)
+    assert ratelimit.client_addr(_Req("10.0.0.9")) == "10.0.0.9"
+    assert ratelimit.client_addr(_Req(None)) == "unknown"
+
+
+def test_signin_buckets_follow_the_forwarded_client(client, monkeypatch):
+    """The end-to-end consequence: with hops declared, two browsers behind
+    one router get two signin buckets, not one shared throttle."""
+    from app import config
+
+    monkeypatch.setattr(config, "TRUST_PROXY_HOPS", 1)
+    monkeypatch.setattr(config, "AUTH_MODE", "oidc")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "skein-web")
+    for _ in range(10):  # exhaust one client's bucket
+        client.post(
+            "/api/auth/token",
+            json={"code": "x", "code_verifier": "v", "redirect_uri": "u"},
+            headers={"X-Forwarded-For": "203.0.113.7"},
+        )
+    r = client.post(
+        "/api/auth/token",
+        json={"code": "x", "code_verifier": "v", "redirect_uri": "u"},
+        headers={"X-Forwarded-For": "203.0.113.7"},
+    )
+    assert r.status_code == 400 and "slow down" in r.json()["detail"]
+    r = client.post(
+        "/api/auth/token",
+        json={"code": "x", "code_verifier": "v", "redirect_uri": "u"},
+        headers={"X-Forwarded-For": "203.0.113.8"},
+    )
+    assert r.status_code != 400 or "slow down" not in r.json().get("detail", "")

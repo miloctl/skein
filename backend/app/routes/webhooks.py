@@ -69,7 +69,7 @@ async def forge_webhook(
         raise forge_webhook_off()
     # by address, BEFORE the read and the HMAC: an unsigned caller has no name
     # to key on, and everything after this point costs real work
-    ratelimit.check("forge_addr", request.client.host if request.client else "unknown")
+    ratelimit.check("forge_addr", ratelimit.client_addr(request))
     # Content-Length is a hint a caller can lie about, so the stream is
     # counted too; the timeout bounds a caller who dribbles bytes instead.
     declared = request.headers.get("content-length") or "0"
