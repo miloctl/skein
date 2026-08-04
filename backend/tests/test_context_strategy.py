@@ -339,6 +339,47 @@ def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
     assert _stored_state("t-bridge")["__name__"] == "SummarizingConversationManager"
 
 
+def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
+    """next_id came from the LAST message on disk, with no lock — two commands
+    on one thread read the same id and wrote message_<n>.json over each other,
+    and both raced to create the session. Measured at 34 of 180 messages
+    surviving before the per-thread lock."""
+    import threading
+
+    from app.agents import session_log
+
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+
+    workers, per_worker = 6, 10
+    failures: list[BaseException] = []
+
+    def hammer(w: int) -> None:
+        try:
+            for i in range(per_worker):
+                session_log.log_exchange("t-race", f"/cmd {w}-{i}", f"reply {w}-{i}")
+        except BaseException as exc:
+            failures.append(exc)  # reported by the assert below, never swallowed
+
+    threads = [threading.Thread(target=hammer, args=(w,)) for w in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+
+    assert not failures, f"bridge raised under contention: {failures[:3]}"
+    files = sorted((config.SESSIONS_DIR).rglob("message_*.json"))
+    # each exchange writes a user message and an assistant message, except
+    # where one folds into a stranded user turn — so the floor is the exchange
+    # count, and the ceiling is twice it. Losing writes lands far below both.
+    assert len(files) >= workers * per_worker, (
+        f"{len(files)} messages on disk for {workers * per_worker} exchanges — writes were lost"
+    )
+    ids = [int(p.stem.removeprefix("message_")) for p in files]
+    assert len(ids) == len(set(ids)), "two writes claimed the same message id"
+
+
 def test_build_agent_reconciles_a_mismatched_session(fresh_db, monkeypatch):
     """The CALL SITE, not just the function. Without the reconcile call in
     build_agent, this raises ValueError('Invalid conversation manager state.')

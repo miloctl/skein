@@ -10,12 +10,31 @@ already streamed, so a session write failure only logs.
 """
 
 import logging
+import threading
 
 from .. import config
 from ..services.private_notes import FB_GUARD
 
 # strands' _DEFAULT_AGENT_ID; build_agent never overrides it
 _AGENT_ID = "default"
+
+# One lock per thread id. Everything below is a read-modify-write over a shared
+# directory: next_id comes from the LAST message on disk, and the session is
+# created when missing. Unserialized, two concurrent commands on one thread
+# both read the same last id and write message_<n>.json over each other, and
+# both try to create the session — measured at 34 of 180 messages surviving.
+#
+# Covers bridge-against-bridge. The agent's own turn writes through strands
+# outside this lock; routes/chat.py::_inflight is what stands between the two.
+# In-process only: a second uvicorn worker races on the same directory, so a
+# multi-worker deployment needs a file lock here instead.
+_thread_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock_for(thread_id: str) -> threading.Lock:
+    with _locks_guard:
+        return _thread_locks.setdefault(thread_id, threading.Lock())
 
 
 def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
@@ -34,45 +53,49 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
 
         from .team_agent import _conversation_manager
 
-        # constructing the manager creates the session when it is missing;
-        # a command-first thread must not lose its opening exchange
-        repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
-        messages: list = []
-        if repo.read_agent(thread_id, _AGENT_ID) is None:
-            repo.create_agent(
-                thread_id,
-                SessionAgent(
-                    agent_id=_AGENT_ID,
-                    state={},
-                    # the CONFIGURED manager's own state, not a hand-rolled
-                    # dict and not a hardcoded class: restore_from_session
-                    # validates the class name on the next turn, so seeding
-                    # sliding state on a summarize deployment would kill a
-                    # command-first thread the moment the agent first replies
-                    conversation_manager_state=_conversation_manager().get_state(),
-                ),
-            )
-        else:
-            messages = repo.list_messages(thread_id, _AGENT_ID)
-        next_id = messages[-1].message_id + 1 if messages else 0
-        if messages and messages[-1].to_message()["role"] == "user":
-            # a failed model call strands its user turn, and bedrock's
-            # Converse rejects non-alternating roles — fold into the
-            # stranded turn instead of stacking a second user message
-            last = messages[-1]
-            target = last.redact_message if last.redact_message is not None else last.message
-            target["content"].append({"text": user_text})
-            repo.update_message(thread_id, _AGENT_ID, last)
-        else:
-            user_msg: Message = {"role": "user", "content": [{"text": user_text}]}
+        # everything below reads the session, derives next_id from it, and
+        # writes back — one lock over the whole read-modify-write, not around
+        # the individual calls
+        with _lock_for(thread_id):
+            # constructing the manager creates the session when it is missing;
+            # a command-first thread must not lose its opening exchange
+            repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+            messages: list = []
+            if repo.read_agent(thread_id, _AGENT_ID) is None:
+                repo.create_agent(
+                    thread_id,
+                    SessionAgent(
+                        agent_id=_AGENT_ID,
+                        state={},
+                        # the CONFIGURED manager's own state, not a hand-rolled
+                        # dict and not a hardcoded class: restore_from_session
+                        # validates the class name on the next turn, so seeding
+                        # sliding state on a summarize deployment would kill a
+                        # command-first thread the moment the agent first replies
+                        conversation_manager_state=_conversation_manager().get_state(),
+                    ),
+                )
+            else:
+                messages = repo.list_messages(thread_id, _AGENT_ID)
+            next_id = messages[-1].message_id + 1 if messages else 0
+            if messages and messages[-1].to_message()["role"] == "user":
+                # a failed model call strands its user turn, and bedrock's
+                # Converse rejects non-alternating roles — fold into the
+                # stranded turn instead of stacking a second user message
+                last = messages[-1]
+                target = last.redact_message if last.redact_message is not None else last.message
+                target["content"].append({"text": user_text})
+                repo.update_message(thread_id, _AGENT_ID, last)
+            else:
+                user_msg: Message = {"role": "user", "content": [{"text": user_text}]}
+                repo.create_message(
+                    thread_id, _AGENT_ID, SessionMessage.from_message(user_msg, next_id)
+                )
+                next_id += 1
+            assistant_msg: Message = {"role": "assistant", "content": [{"text": assistant_text}]}
             repo.create_message(
-                thread_id, _AGENT_ID, SessionMessage.from_message(user_msg, next_id)
+                thread_id, _AGENT_ID, SessionMessage.from_message(assistant_msg, next_id)
             )
-            next_id += 1
-        assistant_msg: Message = {"role": "assistant", "content": [{"text": assistant_text}]}
-        repo.create_message(
-            thread_id, _AGENT_ID, SessionMessage.from_message(assistant_msg, next_id)
-        )
     except Exception:
         logging.getLogger("skein.chat").exception(
             "session bridge write failed (thread=%s)", thread_id
