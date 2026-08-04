@@ -484,6 +484,16 @@ EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(
 # is the one config fault that does NOT degrade to a working default.
 AUTH_MODES = ("trusted-header", "api-key", "oidc")
 AUTH_MODE = os.getenv("SKEIN_AUTH_MODE", "trusted-header").strip().lower() or "trusted-header"
+# how many trusted proxies sit in front of this process and append to
+# X-Forwarded-For (an OpenShift/k8s ingress router = 1). At 0 the header is
+# ignored: per-address rate caps key on the socket peer, which behind a
+# router is the router — one signin bucket for the whole team. Trusting
+# MORE hops than actually exist hands every caller a spoofable bucket key,
+# so a bad value degrades to 0, never up.
+try:
+    TRUST_PROXY_HOPS = max(0, int(os.getenv("SKEIN_TRUST_PROXY_HOPS", "").strip() or 0))
+except ValueError:
+    TRUST_PROXY_HOPS = 0
 AUTH_ERROR = ""
 if AUTH_MODE not in AUTH_MODES:
     # states the fault and the fix, and does NOT echo the rejected value:

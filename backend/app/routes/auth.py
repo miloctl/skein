@@ -70,7 +70,7 @@ def post_token(body: TokenIn, request: Request):
     # this endpoint makes an OUTBOUND request for an unauthenticated caller.
     # The cap is what stops it being used to hammer the identity provider.
     # Keyed by client address because a signed-out caller has no name yet.
-    ratelimit.check("signin", request.client.host if request.client else "anonymous")
+    ratelimit.check("signin", ratelimit.client_addr(request))
 
     if body.refresh_token:
         form = {
