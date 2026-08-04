@@ -48,8 +48,11 @@ ideation and engineering backlog.
   Dates belong in `docs/reviews/`, which holds closed transcripts only.
   Migrations are the one exception: `db.py` records applied migrations by
   filename in `schema_version`, so renaming one re-runs it on every existing
-  database. To rename a migration, add a new migration that UPDATEs
-  `schema_version` in the same change.
+  database. To rename a migration, give the file a number at the end of the
+  order AND add the `schema_version` UPDATE at the number before it — the
+  runner walks in filename order, so a recovery that sorts after the renamed
+  file arrives too late: the rerun bricks the boot first. An in-place rename
+  has no safe recovery. Both pinned in `tests/test_migrations.py`.
 
 ## Commands
 
