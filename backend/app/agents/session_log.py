@@ -37,9 +37,9 @@ def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
         repo = SqliteSessionRepository()
         # everything below reads the session, derives next_id from it, and
         # writes back. BEGIN IMMEDIATE is the lock: the whole read-modify-
-        # write commits atomically, across threads AND processes — the
-        # per-thread lock dict this replaced covered one process only, and
-        # was measured at 34 of 180 messages surviving without it
+        # write commits atomically, across threads AND processes.
+        # Unserialized, concurrent commands read the same last id and write
+        # over each other — measured at 34 of 180 messages surviving.
         with db.transaction():
             messages: list = []
             if repo.read_agent(thread_id, _AGENT_ID) is None:

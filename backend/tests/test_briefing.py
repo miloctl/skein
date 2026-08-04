@@ -173,7 +173,7 @@ def test_your_work_lists_are_capped(fresh_db):
 
 def test_due_soon_reads_the_assignee_index(fresh_db):
     """Migration 044 exists for this query shape; without the index the plan
-    is SCAN tasks, measured live on the finding this pins. The SQL here
+    is SCAN tasks, measured live. The SQL here
     mirrors briefing.my_day's due_soon — if that query drifts, this still
     holds the index to its purpose."""
     plan = " ".join(

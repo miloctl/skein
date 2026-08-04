@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { Card, EmptyState } from "@/components/card";
 
-/** The one card every surface groups content with. The review found two
- *  portfolio sections rendering a <Card> INSIDE an identical <Card> while
- *  loading, so the title painted twice inside two nested bordered boxes on
- *  every page load. A card renders exactly one heading for its title. */
+/** The one card every surface groups content with. Two portfolio sections
+ *  rendered a <Card> INSIDE an identical <Card> while loading — the title
+ *  painted twice inside two nested bordered boxes on every page load. A
+ *  card renders exactly one heading for its title. */
 
 describe("Card", () => {
   it("renders its title as a single heading", () => {

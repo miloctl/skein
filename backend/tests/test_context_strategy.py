@@ -21,8 +21,8 @@ def _restore_config():
     # scrub BEFORE reloading: fixture finalization order can run this while
     # a test's monkeypatch.setenv is still live, and reloading with the env
     # set bakes that test's strategy into the module for whichever test the
-    # worker runs next (caught as a once-in-four xdist flake on the toggle
-    # test). monkeypatch undoes its env afterwards either way.
+    # worker runs next — on xdist, a once-in-four flake on the toggle test.
+    # monkeypatch undoes its env afterwards either way.
     for key in [k for k in os.environ if k.startswith("SKEIN_CONTEXT_")]:
         os.environ.pop(key)
     importlib.reload(config)

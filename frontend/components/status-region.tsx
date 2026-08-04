@@ -7,10 +7,10 @@ import { dismissStatus, getServerStatus, getStatus, subscribeStatus } from "@/li
 /** The single renderer for lib/status.ts, mounted once in the app shell.
  *
  *  role decides how assistive tech treats it, and the two cases genuinely
- *  differ: a failure of something the reader just asked for should interrupt
- *  ("alert" is assertive), a confirmation should wait its turn ("status" is
+ *  differ: a failure of something the reader just asked for must interrupt
+ *  ("alert" is assertive), a confirmation waits its turn ("status" is
  *  polite). window.alert() was announced; a plain styled div is not, so a
- *  replacement without a live role would be a downgrade for a screen-reader
+ *  replacement without a live role is a downgrade for a screen-reader
  *  user, not an upgrade.
  *
  *  key={id} remounts the node per message. Without it, two failures in a row

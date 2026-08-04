@@ -21,9 +21,9 @@ export function ThemeSync() {
     // pack-aware empty-state voice differ from what the server rendered
     markHydrated();
     adoptServerTheme().then((adopted) => {
-      // StatusRegion renders and expires this now — the pill, the role and the
-      // 6s lifetime moved to lib/status.ts wholesale when 36 alert() sites
-      // needed the same thing
+      // StatusRegion renders and expires this: lib/status.ts owns the pill,
+      // the role, and the 6s lifetime. A second renderer here would show
+      // the note twice.
       if (alive && adopted === "profile") {
         reportStatus("Applied the theme saved on your profile.", "confirmation");
       }

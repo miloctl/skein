@@ -2,10 +2,10 @@
 
 Humans mutate via REST, agents via Strands tools, and both must call the shared
 functions in app/services/ — a route or tool that writes its own SQL bypasses
-provenance and the activity ledger with nothing to notice. The review found one
-breach (a SELECT inside tools/schedule.py, added because no service exposed a
-single event) and no test to catch the next one, so this pins the rule rather
-than that instance.
+provenance and the activity ledger with nothing to notice. One breach shipped
+(a SELECT inside tools/schedule.py, added because no service exposed a single
+event) with no test to catch the next, so this pins the rule rather than that
+instance.
 """
 
 import re

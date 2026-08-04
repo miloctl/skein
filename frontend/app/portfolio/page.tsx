@@ -104,8 +104,9 @@ export default function Portfolio() {
 
   useEffect(load, [load]);
 
-  // Mutations: never silent — failures land in the status region, and we always
-  // re-fetch so the page shows reality (a teammate may have won the race).
+  // Mutations: never silent — failures land in the status region, and every
+  // mutation re-fetches so the page shows reality, which can be a teammate's
+  // concurrent edit rather than this tab's own write.
   const mutate = useCallback(
     (p: Promise<unknown>) => {
       setBusy(true);
