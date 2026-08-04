@@ -22,7 +22,7 @@
   --border-strong: light-dark(#d6d0c4, #403a33);
   --text-1: light-dark(#1d1a16, #ede9e2);
   --text-2: light-dark(#5b5549, #ada79b);
-  --text-3: light-dark(#756e60, #8a8375);
+  --text-3: light-dark(#736c5e, #928b7d);
   --thread: light-dark(#3b4dbf, #a7b5f2);
   --thread-solid: light-dark(#3b4dbf, #4e5fd3);
   --weld: light-dark(#935a1c, #d9a15e);
@@ -103,7 +103,7 @@
   --border-strong: light-dark(#c9cfd8, #3d4450);
   --text-1: light-dark(#181a1f, #e9ebef);
   --text-2: light-dark(#525763, #a6abb8);
-  --text-3: light-dark(#6b7180, #848b9b);
+  --text-3: light-dark(#676d7c, #848b9b);
   --warp: light-dark(rgb(24 26 31 / 0.05), rgb(233 235 239 / 0.025));
   --fabric-texture: repeating-linear-gradient(
     0deg,
@@ -178,7 +178,7 @@
   --border-strong: light-dark(#d8ccb6, #453a4e);
   --text-1: light-dark(#231c14, #efe8f0);
   --text-2: light-dark(#5f564a, #b3a8b8);
-  --text-3: light-dark(#786d5e, #90859a);
+  --text-3: light-dark(#74695a, #90859a);
   --fabric-texture: none;
   --shadow-card: 0 2px 10px light-dark(rgb(60 40 20 / 0.06), rgb(0 0 0 / 0.3));
   --shadow-float: 0 12px 36px light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
