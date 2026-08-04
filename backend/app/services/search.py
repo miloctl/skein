@@ -271,12 +271,21 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
         nb = sum(x * x for x in b) ** 0.5
         return dot / (na * nb) if na and nb else 0.0
 
-    scored = [
-        {
-            "entity": r["entity"],
-            "entity_id": r["entity_id"],
-            "score": cos(qv, json.loads(r["vector"])),
-        }
-        for r in rows
-    ]
+    # json.loads INSIDE the guard, not below it. A corrupt embeddings.vector is
+    # our own state, and JSONDecodeError subclasses ValueError, which main.py
+    # maps to 400 — telling the caller their query was invalid when it was not,
+    # with a raw parser message as the fix. Skip the bad row: one unreadable
+    # vector must not take down search and /ask for every query.
+    scored = []
+    for r in rows:
+        try:
+            vector = json.loads(r["vector"])
+        except (json.JSONDecodeError, TypeError):
+            logging.getLogger("skein").warning(
+                "embeddings: unreadable vector for %s #%s", r["entity"], r["entity_id"]
+            )
+            continue
+        scored.append(
+            {"entity": r["entity"], "entity_id": r["entity_id"], "score": cos(qv, vector)}
+        )
     return sorted(scored, key=lambda r: -r["score"])[:limit]

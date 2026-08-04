@@ -106,7 +106,11 @@ def list_notes(author: str, person: str = "") -> list[dict]:
     with closing(_connect()) as conn:
         if person:
             rows = conn.execute(
-                "SELECT * FROM private_notes WHERE author = ? AND person = ? ORDER BY id DESC",
+                # same 200 cap as the unfiltered branch below: self-scoped, so
+                # the risk is a slow render rather than a leak, but a long 1:1
+                # history returned whole is still an unbounded response
+                "SELECT * FROM private_notes WHERE author = ? AND person = ?"
+                " ORDER BY id DESC LIMIT 200",
                 (author, person.strip()),
             ).fetchall()
         else:
