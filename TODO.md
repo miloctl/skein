@@ -45,19 +45,6 @@ this file is only for accepted trade-offs that must eventually be repaid.
   a legitimate fallback append look the same from there. The debt that
   remains is only the missing operation to tell those two apart.
 
-- **No upgrade-path coverage: fresh and upgraded schemas can diverge.**
-  Every test database is born fresh at HEAD, so an edited old migration
-  (they stay hand-editable until first deploy) can leave production
-  databases diverging from fresh ones with no signal — the gutted 040 is
-  the standing example. Accepted 2026-08-04 because the fix is CI shape,
-  not test shape. Repay with `scripts/upgrade-path.sh` + a CI step, no
-  framework and no baseline file: build a database at `origin/main` (git
-  worktree), boot it at HEAD (the upgrade path), init a second fresh
-  database at HEAD, and fail on any diff between their
-  `SELECT sql FROM sqlite_master ORDER BY name`; re-run `verify_chain` on
-  the upgraded copy seeded with chained rows — the behavioral twin of the
-  static ledger scan in tests/test_migrations.py. ~half a day.
-
 - **No browser-level or automated a11y regression net.** The review's two
   frontend themes — data-integrity illusions and accessibility — are the
   classes component tests only catch when someone mocks the right failure;
