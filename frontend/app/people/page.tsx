@@ -35,6 +35,7 @@ export default function PeoplePage() {
   const [person, setPerson] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
   const [brief, setBrief] = useState<Brief | null>(null);
+  const [briefError, setBriefError] = useState("");
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<"note" | "feedback">("note");
   const [error, setError] = useState<string | null>(null);
@@ -68,10 +69,16 @@ export default function PeoplePage() {
       });
     api<Brief>(`/api/private/brief/${encodeURIComponent(p)}`)
       .then((b) => {
-        if (g === generation.current) setBrief(b);
+        if (g !== generation.current) return;
+        setBrief(b);
+        setBriefError("");
       })
-      .catch(() => {
-        if (g === generation.current) setBrief(null);
+      .catch((e) => {
+        // a refused or failed fetch is not an empty brief: null used to
+        // render "no brief available", a claim about data never received
+        if (g !== generation.current) return;
+        setBrief(null);
+        setBriefError(loadError(e));
       });
   }, []);
 
@@ -158,6 +165,7 @@ export default function PeoplePage() {
                 // fetch would leave them there indefinitely
                 setNotes([]);
                 setBrief(null);
+                setBriefError("");
                 setPerson(u.name);
               }}
               className={
@@ -184,7 +192,11 @@ export default function PeoplePage() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card title="Since last time">
             {brief === null ? (
-              <p className="text-sm text-ink-3">no brief available</p>
+              briefError ? (
+                <p className="text-sm text-danger">{briefError}</p>
+              ) : (
+                <p className="text-sm text-ink-3">Loading…</p>
+              )
             ) : (
               <div className="space-y-3 text-sm">
                 {brief.nudge && (

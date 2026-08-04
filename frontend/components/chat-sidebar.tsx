@@ -102,6 +102,7 @@ export function ChatSidebar({
 }) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
+  const [foldersError, setFoldersError] = useState("");
   const [engagements, setEngagements] = useState<EngagementRow[] | null>(null);
   const [engagementsError, setEngagementsError] = useState("");
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -124,7 +125,12 @@ export function ChatSidebar({
         setLoadError("");
       })
       .catch((e) => setLoadError(describeLoadError(e)));
-    api<string[]>("/api/chats/folders").then(setFolders).catch(() => {});
+    api<string[]>("/api/chats/folders")
+      .then((f) => {
+        setFolders(f);
+        setFoldersError("");
+      })
+      .catch((e) => setFoldersError(describeLoadError(e)));
     api<EngagementRow[]>("/api/engagements")
       .then((rows) => {
         setEngagements(rows.filter((e) => e.status !== "closed"));
@@ -338,7 +344,14 @@ export function ChatSidebar({
     announce();
   };
 
-  const groups = ["", ...folders];
+  // union with the threads' own folder fields: rendering only the fetched
+  // list made every filed chat vanish when the folders fetch failed — the
+  // t.folder === folder filter below matched no group. Deriving from the
+  // threads means that failure costs only EMPTY folders.
+  const filed = [...new Set(threads.map((t) => t.folder).filter(Boolean))]
+    .filter((f) => !folders.includes(f))
+    .sort();
+  const groups = ["", ...folders, ...filed];
   const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
     // a panel over the page must take focus, or Tab walks the page behind it
@@ -469,6 +482,11 @@ export function ChatSidebar({
         />
       )}
       {loadError && <p className="px-1 text-xs text-danger">{loadError}</p>}
+      {/* suppressed while loadError shows: a dead backend fails both
+          fetches with the same wording, and one line says it */}
+      {foldersError && !loadError && (
+        <p className="px-1 text-xs text-danger">{foldersError}</p>
+      )}
       {!selectMode && !threads.some((t) => t.id === threadId) && (
         <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
           New chat
