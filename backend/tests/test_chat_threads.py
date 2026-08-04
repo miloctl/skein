@@ -159,3 +159,23 @@ def test_agent_construction_failure_streams_an_error(client, monkeypatch):
     body = client.post("/api/chat", json={"thread_id": "t-err2", "message": "hi"}).text
     assert '"type": "error"' in body
     assert '"type": "done"' in body
+
+
+def test_a_provider_error_reaches_the_ui_as_a_class_name_not_a_body(client, monkeypatch):
+    """A provider SDK error carries its raw HTTP body — request ids, key
+    prefixes — and the SSE error line is served to the chat window and
+    written into the saved transcript. Only the class name may travel; the
+    full detail belongs to the server log."""
+
+    class ExplodingAgent:
+        async def stream_async(self, message):
+            yield {"data": "partial "}
+            raise RuntimeError("401: api key sk-SECRET-abc123, request id req_deadbeef")
+
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: ExplodingAgent())
+    body = client.post("/api/chat", json={"thread_id": "t-leak", "message": "hi"}).text
+    assert "sk-SECRET-abc123" not in body
+    assert "req_deadbeef" not in body
+    assert "RuntimeError" in body
+    msgs = client.get("/api/chats/t-leak/messages").json()
+    assert "sk-SECRET-abc123" not in msgs[-1]["content"]

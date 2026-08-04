@@ -215,7 +215,16 @@ def help_text() -> str:
         for c in COMMANDS
     ]
     if config.EFFECTIVE_PROVIDER == "mock":
-        head = "**Mock agent** (no API key configured) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit control in the UI:"
+        # mock is reached two ways, and only one of them is about a key: an
+        # unconfigured deployment, or a configured provider that degraded
+        # (bad name, missing key, bad SKEIN_MAX_TOKENS). Claiming "no API
+        # key" for the second sends the operator to fix the wrong thing.
+        why = (
+            "the configured model provider is unavailable — /health names the fault"
+            if config.MODEL_PROVIDER_ERROR
+            else "no model provider configured"
+        )
+        head = f"**Mock agent** ({why}) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit control in the UI:"
         rows.append(
             "| *anything else* | Smart-captured as a task, question, note, decision, or blocker |"
         )
