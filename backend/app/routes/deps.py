@@ -5,7 +5,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from .. import config
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_user, is_agent
+from ..services.users import ensure_user, is_agent, roster_spelling
 
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
@@ -124,9 +124,12 @@ def _resolve(
             # the read path skips ensure_user, so the wall is applied here too
             _refuse_reserved(name)
             # same rule as the header door: a read never grows the roster, so
-            # a polling service account does not accumulate rows
+            # a polling service account does not accumulate rows. The claim
+            # still folds to the roster spelling — writes store that spelling,
+            # and a claim differing only by case would scope the viewer's own
+            # feed to a name none of their rows carry.
             if method in ("GET", "HEAD", "OPTIONS"):
-                return name, True, groups
+                return roster_spelling(name), True, groups
             try:
                 return ensure_user(name)["name"], True, groups
             except ValueError as exc:

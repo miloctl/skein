@@ -6,8 +6,8 @@ cd "$(git rev-parse --show-toplevel)"
 
 # prerequisite checks come first: without them a fresh clone gets a raw
 # "command not found" from lint, or a false "tests failed" when no test ran
-if [ ! -x backend/.venv/bin/pytest ]; then
-    echo "pre-push: backend/.venv is missing. Run the install command in README section Setup, then push again." >&2
+if [ ! -x backend/.venv/bin/pytest ] || [ ! -x backend/.venv/bin/ruff ]; then
+    echo "pre-push: backend/.venv is missing or incomplete. Run the install command in README section Setup, then push again." >&2
     exit 1
 fi
 if [ ! -d frontend/node_modules ]; then

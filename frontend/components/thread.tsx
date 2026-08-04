@@ -254,6 +254,7 @@ const Composer = () => {
       )}
       <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
         <ComposerPrimitive.Input
+          name="message"
           role="combobox"
           aria-expanded={open}
           aria-controls={open ? "cmd-list" : undefined}

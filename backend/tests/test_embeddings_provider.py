@@ -296,16 +296,21 @@ def test_backfill_embeds_only_missing_rows(monkeypatch, fresh_db, capsys):
     monkeypatch.setattr(config, "EMBEDDINGS_ERROR", "")
     monkeypatch.setattr(sys, "argv", ["backfill_embeddings"])
 
-    # one covered row, one stale-model row, one bare row
+    # one covered row, one stale-model row, one bare row. The bare/stale rows
+    # go in directly (index_record would embed them, defeating the setup) but
+    # must keep the search_ids twin — search.index_record's invariant: an FTS
+    # row with no twin gets its rowid re-minted and silently clobbered.
     search.index_record("note", 90010, "already covered", "body")  # embeds as model-A
-    db.execute(
-        "INSERT INTO search_index (entity, entity_id, title, body) VALUES (?, ?, ?, ?)",
-        ("note", 90011, "bare", "no vector"),
-    )
-    db.execute(
-        "INSERT INTO search_index (entity, entity_id, title, body) VALUES (?, ?, ?, ?)",
-        ("note", 90012, "stale", "old model"),
-    )
+    for eid, title, body in ((90011, "bare", "no vector"), (90012, "stale", "old model")):
+        db.execute("INSERT INTO search_ids (entity, entity_id) VALUES (?, ?)", ("note", eid))
+        sid = db.query_row(
+            "SELECT id FROM search_ids WHERE entity = 'note' AND entity_id = ?", (eid,)
+        )["id"]
+        db.execute(
+            "INSERT INTO search_index (rowid, entity, entity_id, title, body)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (sid, "note", eid, title, body),
+        )
     db.execute(
         "INSERT OR REPLACE INTO embeddings (entity, entity_id, model, vector) VALUES (?, ?, ?, ?)",
         ("note", 90012, "model-OLD", "[1,0,0]"),

@@ -447,3 +447,16 @@ def test_batch_approve_skips_sponsor_bound_rows_with_a_clear_error(client, fresh
         fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (bound,))["status"]
         == "pending"
     )
+
+
+def test_mark_seen_stamps_only_pending_unseen_rows(fresh_db):
+    from app.services import review, users
+
+    users.ensure_user("hana")
+    approved = review.propose_change("task", "create", {"title": "done deal"}, actor="agent")
+    review.approve_change(approved["id"], actor="hana")
+    pending = review.propose_change("task", "create", {"title": "still open"}, actor="agent")
+
+    assert review.mark_seen([approved["id"], pending["id"]]) == {"seen": 1}
+    row = fresh_db.query_row("SELECT claim_at FROM pending_changes WHERE id = ?", (approved["id"],))
+    assert row["claim_at"] is None  # a verdict already landed — the clock stays honest

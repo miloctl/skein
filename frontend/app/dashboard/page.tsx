@@ -199,6 +199,7 @@ function AbsenceForm({
     <div className="mb-3 flex flex-wrap items-end gap-1.5 text-xs">
       <PersonInput
         aria-label="Who is away"
+        name="person"
         value={draft.person}
         onChange={(e) => setDraft({ ...draft, person: e.target.value })}
         placeholder="who"
@@ -211,6 +212,7 @@ function AbsenceForm({
         <input
           type="date"
           aria-label="Away from"
+          name="starts_on"
           value={draft.starts_on}
           onChange={(e) => setDraft({ ...draft, starts_on: e.target.value })}
           className="rounded-lg border border-line-strong bg-transparent px-2 py-1 outline-none focus:border-thread-solid"
@@ -221,6 +223,7 @@ function AbsenceForm({
         <input
           type="date"
           aria-label="Away until"
+          name="ends_on"
           min={draft.starts_on || undefined}
           value={draft.ends_on}
           onChange={(e) => setDraft({ ...draft, ends_on: e.target.value })}
@@ -229,6 +232,7 @@ function AbsenceForm({
       </label>
       <select
         aria-label="Kind of absence"
+        name="kind"
         value={draft.kind}
         onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
         className="rounded-lg border border-line-strong bg-card px-1.5 py-1"
@@ -350,12 +354,12 @@ export default function Dashboard() {
         if (failedNames.current.size === 0) setError(null);
       })
       .catch((err) => {
-        // release the claims: an older in-flight result may still deliver
-        // these collections, and nothing must stay claimed by a generation
-        // that never delivered. Claims re-taken by a NEWER refresh are that
-        // refresh's to deliver or fail — this failure is then obsolete.
+        // scope the failure to collections still claimed by THIS refresh:
+        // ones a newer refresh re-claimed are that refresh's to deliver or
+        // fail, so this failure is obsolete for them. Stale claims are
+        // harmless to leave — each resolution compares against its own g,
+        // and generations are never reused.
         const mine = names.filter((e) => collectionGen.current[e] === g);
-        for (const e of mine) delete collectionGen.current[e];
         if (mine.length > 0) {
           for (const e of mine) failedNames.current.add(e);
           setError(loadError(err));
