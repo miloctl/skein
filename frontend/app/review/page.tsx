@@ -144,10 +144,9 @@ export default function ReviewPage() {
         "/api/review/approve-batch",
         { method: "POST", body: JSON.stringify({ ids: [...selected] }) },
       );
-      // one row per failure, in the page. A batch of 20 can fail 20 different
-      // ways, each naming a different proposal, and the status region holds
-      // one line — this was a \n-joined string in a native dialog, which is
-      // the shape that says the wording never had anywhere to live.
+      // one row per failure, in the page: a batch of 20 can fail 20
+      // different ways, each naming a different proposal, and the status
+      // region holds one line.
       setBatchFailures(r.results.filter((x) => x.status === "error"));
       setSelected(new Set());
       load();

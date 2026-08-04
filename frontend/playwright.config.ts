@@ -7,8 +7,8 @@ import { defineConfig } from "@playwright/test";
  *  __tests__/; keep this suite at a handful of walks. */
 
 // explicit IPv4, never `localhost`: Node resolves localhost to ::1 first,
-// and on this WSL2 host a connect to an unbound ::1 port HANGS rather than
-// refuses — the health poll then never completes and webServer times out
+// and a host that DROPS connects to unbound ports instead of refusing them
+// (WSL2 networking does this) hangs the health poll until webServer times out
 const API = "http://127.0.0.1:8600";
 const APP = "http://127.0.0.1:3600";
 
@@ -33,18 +33,18 @@ export default defineConfig({
         `SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
         `SKEIN_CORS_ORIGINS=${APP} .venv/bin/uvicorn app.main:app --port 8600'`,
       url: `${API}/health`,
-      // PW_REUSE: this WSL2 host sometimes DROPS connects to unbound ports
-      // instead of refusing them, which wedges playwright's port preflight.
-      // Pre-starting the servers by hand and setting PW_REUSE=1 sidesteps
-      // it; CI never sets it, so CI always gets a fresh seeded stack.
+      // PW_REUSE: on a host that drops connects to unbound ports (the
+      // IPv4 note above), playwright's port preflight hangs too. Pre-start
+      // the servers by hand and set PW_REUSE=1 to skip the preflight. CI
+      // never sets it, so CI always gets a fresh seeded stack.
       reuseExistingServer: !!process.env.PW_REUSE,
       timeout: 60_000,
     },
     {
       // a production build, not `next dev`: Next allows one dev server per
-      // directory, so dev would collide with a running local stack — and the
-      // smoke should walk what ships anyway. NEXT_PUBLIC_API_URL is baked
-      // at build time, which is why the build lives inside this command.
+      // directory, so dev would collide with a running local stack — and
+      // the smoke walks what ships. NEXT_PUBLIC_API_URL is baked at build
+      // time, which is why the build lives inside this command.
       command:
         `bash -c 'NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_URL=${API} npx next build && ` +
         `NEXT_DIST_DIR=.next-e2e npx next start --port 3600'`,

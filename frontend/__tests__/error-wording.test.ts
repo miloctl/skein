@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { actionError, API_URL, backendUnreachable, isUnreachable, loadError } from "@/lib/api";
 
-/** One condition, one wording (CLAUDE.md). The review found ~24 different
- *  phrasings of "the backend is down", most of them `alert(String(e))`, which
+/** One condition, one wording (CLAUDE.md). The single condition "the backend
+ *  is down" shipped in ~24 phrasings, most of them `alert(String(e))`, which
  *  also leaks the "Error: " class-name prefix into user-visible text. These
- *  pin the helpers those surfaces are supposed to call. */
+ *  pin the helpers those surfaces call. */
 
 describe("the backend-unreachable wording", () => {
   it("names the URL, because in a self-hosted deployment that is usually the fault", () => {

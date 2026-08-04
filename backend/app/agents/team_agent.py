@@ -328,7 +328,7 @@ def _reconcile_session_strategy(thread_id: str, manager) -> None:
         repo = SqliteSessionRepository()
         # one transaction over the read-modify-write: a bridge write landing
         # between read_agent and update_agent must not be folded into stale
-        # state (with the file store this window was simply open)
+        # state
         with db.transaction():
             agent = repo.read_agent(thread_id, SESSION_AGENT_ID)
             if agent is None:

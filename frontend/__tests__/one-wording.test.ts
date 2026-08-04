@@ -41,8 +41,8 @@ describe("colors come from the theme, not the Tailwind palette", () => {
 
 describe("one condition, one wording across surfaces", () => {
   it("keeps the key-request reply identical on Settings and 1:1s", () => {
-    // both pages POST /api/keys/request; the People page once said "Asked"
-    // on every click, ignoring already_pending — two behaviors for one
+    // both pages POST /api/keys/request; the People page said "Asked" on
+    // every click, ignoring already_pending — two behaviors for one
     // condition, then two wordings for one outcome
     const strings = [
       "Already asked — the request is still on the team's My Day.",

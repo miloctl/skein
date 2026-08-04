@@ -250,7 +250,7 @@ def check(
     # otherwise vanish from the sweep entirely — the skip below excuses every
     # pack on exactly the pairs the baseline breaks, and Loom never appears
     # as a pack. text-3 on raised shipped at 4.16:1 in dark mode with every
-    # gate green until a browser-level axe scan caught it.
+    # gate green.
     for (mode, token, surface), ok in sorted(passes_baseline.items()):
         if not ok:
             ratio = _contrast(base[mode][token], base[mode][surface])

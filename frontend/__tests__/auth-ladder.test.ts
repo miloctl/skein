@@ -44,8 +44,8 @@ describe("the credential ladder", () => {
 
   it("is what the chat runtime actually calls", () => {
     // the ladder tests above prove bearer(); they prove nothing about the one
-    // surface that bypasses api(). Chat regressed exactly there once — a
-    // hand-rolled copy that lost the OIDC rung while these tests stayed green.
+    // surface that bypasses api() — a hand-rolled copy there loses the OIDC
+    // rung while every test above stays green.
     const source = readFileSync(join(__dirname, "..", "app", "runtime-provider.tsx"), "utf8");
     expect(source).toContain("await bearer()");
     expect(source).not.toContain("getApiKey() ||");
