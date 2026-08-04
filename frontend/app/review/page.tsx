@@ -95,6 +95,7 @@ export default function ReviewPage() {
   const [history, setHistory] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchFailures, setBatchFailures] = useState<{ id: number; detail?: string }[]>([]);
   const [diffs, setDiffs] = useState<Record<number, Diff>>({});
 
   const load = useCallback(() => {
@@ -143,9 +144,11 @@ export default function ReviewPage() {
         "/api/review/approve-batch",
         { method: "POST", body: JSON.stringify({ ids: [...selected] }) },
       );
-      const failed = r.results.filter((x) => x.status === "error");
-      if (failed.length > 0)
-        alert(failed.map((f) => `#${f.id}: ${f.detail}`).join("\n"));
+      // one row per failure, in the page. A batch of 20 can fail 20 different
+      // ways, each naming a different proposal, and the status region holds
+      // one line — this was a \n-joined string in a native dialog, which is
+      // the shape that says the wording never had anywhere to live.
+      setBatchFailures(r.results.filter((x) => x.status === "error"));
       setSelected(new Set());
       load();
     } catch (e) {
@@ -191,6 +194,31 @@ export default function ReviewPage() {
         Skein applies the change and records that a human verified it.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
+
+      {batchFailures.length > 0 && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="font-medium">
+              {batchFailures.length === 1
+                ? "1 proposal was not approved:"
+                : `${batchFailures.length} proposals were not approved:`}
+            </p>
+            <button onClick={() => setBatchFailures([])} className="shrink-0 text-xs underline">
+              dismiss
+            </button>
+          </div>
+          <ul className="mt-1 list-disc pl-5">
+            {batchFailures.map((f) => (
+              <li key={f.id}>
+                #{f.id}: {f.detail || "no reason given"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-line bg-raised px-4 py-2 text-sm">
