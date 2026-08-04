@@ -110,3 +110,20 @@ def test_a_late_receipt_in_a_command_survives_the_stream(client, monkeypatch):
     body = client.post("/api/chat", json={"thread_id": "t-late", "message": "/briefing"}).text
     assert '"kind": "wrote"' in body
     assert "recorded after the last yield" in body
+
+
+def test_help_names_the_right_reason_for_mock(monkeypatch):
+    """Mock is reached two ways, and only one is about configuration being
+    absent: a degraded provider claiming "no API key configured" sends the
+    operator to fix the wrong thing (found live on a bad SKEIN_MAX_TOKENS)."""
+    from app import config
+    from app.agents import commands
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "mock")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    assert "no model provider configured" in commands.help_text()
+
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "SKEIN_MAX_TOKENS is not a number")
+    out = commands.help_text()
+    assert "unavailable" in out
+    assert "no API key" not in out

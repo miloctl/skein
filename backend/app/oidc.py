@@ -284,6 +284,16 @@ def _may_refresh() -> bool:
         return True
 
 
+def _kid(token: str) -> str:
+    try:
+        kid = pyjwt.get_unverified_header(token).get("kid")
+    except pyjwt.PyJWTError as exc:
+        raise OIDCError(_refused(exc)) from exc
+    if not kid:
+        raise OIDCError("the sign-in token names no signing key. Sign in again.")
+    return kid
+
+
 def _signing_key(token: str) -> Any:
     """The JWKS key matching the token's kid.
 
@@ -292,12 +302,7 @@ def _signing_key(token: str) -> Any:
     controlled at this point. The lookup order is the same, the refresh is
     throttled.
     """
-    try:
-        kid = pyjwt.get_unverified_header(token).get("kid")
-    except pyjwt.PyJWTError as exc:
-        raise OIDCError(_refused(exc)) from exc
-    if not kid:
-        raise OIDCError("the sign-in token names no signing key. Sign in again.")
+    kid = _kid(token)
     client = _client()
     key = client.match_kid(_keys(), kid)
     if key is None and _may_refresh():
@@ -305,6 +310,17 @@ def _signing_key(token: str) -> Any:
     if key is None:
         raise OIDCError("the sign-in token is signed by an unknown key. Sign in again.")
     return key
+
+
+def _decode(token: str, key: Any) -> dict[str, Any]:
+    return pyjwt.decode(
+        token,
+        key.key,
+        algorithms=ALGORITHMS,
+        audience=config.OIDC_AUDIENCE,
+        issuer=config.OIDC_ISSUER,
+        options={"require": ["exp", "iss", "aud"]},
+    )
 
 
 def validate(token: str) -> dict[str, Any]:
@@ -320,14 +336,30 @@ def validate(token: str) -> dict[str, Any]:
             f"OIDC key fetch failed ({exc.__class__.__name__}). Check the JWKS endpoint."
         ) from exc
     try:
-        return pyjwt.decode(
-            token,
-            key.key,
-            algorithms=ALGORITHMS,
-            audience=config.OIDC_AUDIENCE,
-            issuer=config.OIDC_ISSUER,
-            options={"require": ["exp", "iss", "aud"]},
-        )
+        return _decode(token, key)
+    except pyjwt.InvalidSignatureError as exc:
+        # a provider that rotates a key but KEEPS its kid leaves the cache
+        # matching the kid with the stale key, and every sign-in fails until
+        # the cache expires. One re-fetch heals that; it shares the unknown-
+        # kid throttle because a forged signature triggers it just as easily.
+        if not _may_refresh():
+            raise OIDCError(_refused(exc)) from exc
+        try:
+            fresh = _client().match_kid(_keys(refresh=True), _kid(token))
+        except OIDCError:
+            raise
+        except Exception as exc2:
+            raise OIDCError(
+                f"OIDC key fetch failed ({exc2.__class__.__name__}). Check the JWKS endpoint."
+            ) from exc2
+        if fresh is None:
+            raise OIDCError(
+                "the sign-in token is signed by an unknown key. Sign in again."
+            ) from exc
+        try:
+            return _decode(token, fresh)
+        except pyjwt.PyJWTError as exc2:
+            raise OIDCError(_refused(exc2)) from exc2
     except pyjwt.PyJWTError as exc:
         raise OIDCError(_refused(exc)) from exc
 

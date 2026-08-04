@@ -424,8 +424,16 @@ async def chat(req: ChatRequest, user: CurrentUser):
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
             )
-            transcript.append(f"\n\n> ⚠️ {str(exc)[:300]}\n")
-            yield _sse({"type": "error", "message": str(exc)})
+            # class name only: a provider SDK error carries its raw HTTP body
+            # — request ids, key prefixes — and this line is served to the
+            # chat window and written into the saved transcript. The full
+            # detail is in the log line above.
+            fault = (
+                f"The agent turn failed ({exc.__class__.__name__})."
+                " Whoever runs the server can read the detail in the server log."
+            )
+            transcript.append(f"\n\n> ⚠️ {fault}\n")
+            yield _sse({"type": "error", "message": fault})
             await run_in_threadpool(_close_turn)
         finally:
             _inflight[thread_id] -= 1

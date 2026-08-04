@@ -311,3 +311,26 @@ def test_discovery_network_fault_is_reported(monkeypatch):
     with pytest.raises(oidc.OIDCError) as e:
         oidc._discover_jwks_url()
     assert "SKEIN_OIDC_ISSUER" in str(e.value)
+
+
+def test_a_rotation_that_keeps_the_kid_heals_on_refresh(jwks, issuer):
+    """The kid matches the CACHED key, so the unknown-kid refresh never fires
+    — before the signature-failure refresh, every sign-in failed for the
+    cache lifetime after a same-kid rotation."""
+    new_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    def rotate(refresh=False):
+        jwks.fetches += 1
+        return [_Key(new_key.public_key(), KID)] if refresh else jwks._keys
+
+    jwks.get_signing_keys = rotate
+    claims = oidc.validate(_token(new_key))
+    assert claims["preferred_username"] == "casey"
+    assert jwks.fetches >= 2  # only the signature failure forced the second look
+
+
+def test_a_forged_signature_still_fails_after_the_refresh(jwks, issuer):
+    attacker = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    with pytest.raises(oidc.OIDCError):
+        oidc.validate(_token(attacker))
+    assert jwks.fetches >= 2  # it looked again, and refused again
