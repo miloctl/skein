@@ -124,6 +124,11 @@ async def lifespan(app: FastAPI):
             " already demands a per-caller credential on every request",
             config.AUTH_MODE,
         )
+    # one-time import of pre-045 file sessions; flagged, so it never
+    # resurrects a deleted chat. Per-session failures log and skip.
+    from .agents.session_store import import_file_sessions
+
+    import_file_sessions()
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises
     for spec in JOBS:

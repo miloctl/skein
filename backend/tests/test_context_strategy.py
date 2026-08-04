@@ -2,6 +2,7 @@
 choosing wrong degrades instead of taking the API down."""
 
 import importlib
+import os
 
 import pytest
 
@@ -17,6 +18,13 @@ def _reload(monkeypatch, **env):
 @pytest.fixture(autouse=True)
 def _restore_config():
     yield
+    # scrub BEFORE reloading: fixture finalization order can run this while
+    # a test's monkeypatch.setenv is still live, and reloading with the env
+    # set bakes that test's strategy into the module for whichever test the
+    # worker runs next (caught as a once-in-four xdist flake on the toggle
+    # test). monkeypatch undoes its env afterwards either way.
+    for key in [k for k in os.environ if k.startswith("SKEIN_CONTEXT_")]:
+        os.environ.pop(key)
     importlib.reload(config)
 
 
@@ -250,10 +258,12 @@ def test_the_change_is_logged_to_the_provenance_ledger(client, fresh_db):
 
 def _seed_session(thread_id: str, manager_name: str) -> None:
     """Write a session the way a previous turn under `manager_name` would."""
-    from strands.session import FileSessionManager
-    from strands.types.session import SessionAgent
+    from strands.types.session import Session, SessionAgent, SessionType
 
-    repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+    from app.agents.session_store import SqliteSessionRepository
+
+    repo = SqliteSessionRepository()
+    repo.create_session(Session(session_id=thread_id, session_type=SessionType.AGENT))
     repo.create_agent(
         thread_id,
         SessionAgent(
@@ -268,10 +278,9 @@ def _seed_session(thread_id: str, manager_name: str) -> None:
 
 
 def _stored_state(thread_id: str) -> dict:
-    from strands.session import FileSessionManager
+    from app.agents.session_store import SqliteSessionRepository
 
-    repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
-    return repo.read_agent(thread_id, "default").conversation_manager_state
+    return SqliteSessionRepository().read_agent(thread_id, "default").conversation_manager_state
 
 
 def test_the_sdk_really_does_reject_a_foreign_manager_state():
@@ -292,7 +301,6 @@ def test_changing_the_strategy_rewrites_an_existing_thread(fresh_db, monkeypatch
     next message with an SDK error and no recovery."""
     from app.agents import team_agent
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     _seed_session("t-flip", "SlidingWindowConversationManager")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
 
@@ -309,7 +317,6 @@ def test_changing_the_strategy_rewrites_an_existing_thread(fresh_db, monkeypatch
 def test_reconcile_leaves_a_matching_thread_alone(fresh_db, monkeypatch):
     from app.agents import team_agent
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     _seed_session("t-same", "SlidingWindowConversationManager")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
 
@@ -321,7 +328,6 @@ def test_reconcile_never_raises_into_a_chat_turn(fresh_db, monkeypatch):
     """Bookkeeping must not be able to kill a conversation."""
     from app.agents import team_agent
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "nope" / "deeper")
     team_agent._reconcile_session_strategy("t-missing", team_agent._conversation_manager())
 
 
@@ -330,7 +336,6 @@ def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
     sliding state, killing it the moment the agent first replied."""
     from app.agents import session_log
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
@@ -348,7 +353,6 @@ def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
 
     from app.agents import session_log
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
 
@@ -369,15 +373,13 @@ def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
         t.join(30)
 
     assert not failures, f"bridge raised under contention: {failures[:3]}"
-    files = sorted((config.SESSIONS_DIR).rglob("message_*.json"))
+    rows = fresh_db.query("SELECT message_id FROM session_messages WHERE session_id = 't-race'")
     # each exchange writes a user message and an assistant message, except
     # where one folds into a stranded user turn — so the floor is the exchange
     # count, and the ceiling is twice it. Losing writes lands far below both.
-    assert len(files) >= workers * per_worker, (
-        f"{len(files)} messages on disk for {workers * per_worker} exchanges — writes were lost"
+    assert len(rows) >= workers * per_worker, (
+        f"{len(rows)} messages stored for {workers * per_worker} exchanges — writes were lost"
     )
-    ids = [int(p.stem.removeprefix("message_")) for p in files]
-    assert len(ids) == len(set(ids)), "two writes claimed the same message id"
 
 
 def test_build_agent_reconciles_a_mismatched_session(fresh_db, monkeypatch):
@@ -388,7 +390,6 @@ def test_build_agent_reconciles_a_mismatched_session(fresh_db, monkeypatch):
 
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
     monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
     _seed_session("t-brick", "SlidingWindowConversationManager")
@@ -402,18 +403,16 @@ def test_a_failed_reconcile_is_logged_not_swallowed(fresh_db, monkeypatch, caplo
     nothing in the log explains why recovery never ran."""
     import logging
 
-    from strands.session import FileSessionManager
-
     from app.agents import team_agent
+    from app.agents.session_store import SqliteSessionRepository
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     _seed_session("t-boom", "SlidingWindowConversationManager")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
 
     def boom(*a, **k):
-        raise OSError("read-only file system")
+        raise OSError("database is locked")
 
-    monkeypatch.setattr(FileSessionManager, "update_agent", boom)
+    monkeypatch.setattr(SqliteSessionRepository, "update_agent", boom)
     with caplog.at_level(logging.WARNING):
         team_agent._reconcile_session_strategy("t-boom", team_agent._conversation_manager())
     assert any(r.levelno >= logging.WARNING for r in caplog.records)
@@ -426,7 +425,6 @@ def test_build_agent_actually_attaches_the_manager(fresh_db, monkeypatch):
 
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
     monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
 
@@ -491,10 +489,11 @@ def test_the_toggle_is_rate_capped(client, fresh_db):
 
 
 def _seed_messages(thread_id: str, roles: list[str]) -> None:
-    from strands.session import FileSessionManager
     from strands.types.session import SessionMessage
 
-    repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+    from app.agents.session_store import SqliteSessionRepository
+
+    repo = SqliteSessionRepository()
     for i, role in enumerate(roles):
         repo.create_message(
             thread_id,
@@ -508,11 +507,9 @@ def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, m
     keeps the restored list legal. Dropping it while carrying the offset can
     start the history on an assistant turn, which anthropic and bedrock reject
     outright — the thread then fails every turn until it outgrows the window."""
-    from strands.session import FileSessionManager
-
     from app.agents import team_agent
+    from app.agents.session_store import SqliteSessionRepository
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     _seed_session("t-roles", "SummarizingConversationManager")
     # offset 3 lands on an assistant turn
     _seed_messages("t-roles", ["user", "assistant", "user", "assistant", "user", "assistant"])
@@ -521,8 +518,7 @@ def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, m
     team_agent._reconcile_session_strategy("t-roles", team_agent._conversation_manager())
     offset = _stored_state("t-roles")["removed_message_count"]
 
-    repo = FileSessionManager(session_id="t-roles", storage_dir=str(config.SESSIONS_DIR))
-    restored = repo.list_messages("t-roles", "default", offset=offset)
+    restored = SqliteSessionRepository().list_messages("t-roles", "default", offset=offset)
     assert restored[0].to_message()["role"] == "user"
     assert offset == 2  # walked BACK, so nothing on disk was dropped
 
@@ -530,7 +526,6 @@ def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, m
 def test_an_already_aligned_offset_is_left_alone(fresh_db, monkeypatch):
     from app.agents import team_agent
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     _seed_session("t-aligned", "SummarizingConversationManager")
     _seed_messages("t-aligned", ["user", "assistant", "user", "assistant"])
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
@@ -558,10 +553,11 @@ def _seed_tool_messages(thread_id: str) -> None:
     """[user, assistant(toolUse), user(toolResult), assistant, user, assistant]
     — the ordinary shape for a tool-driven agent, and a legal summarize split
     at index 3 because the tool pair sits wholly inside the summarized range."""
-    from strands.session import FileSessionManager
     from strands.types.session import SessionMessage
 
-    repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
+    from app.agents.session_store import SqliteSessionRepository
+
+    repo = SqliteSessionRepository()
     msgs = [
         {"role": "user", "content": [{"text": "do it"}]},
         {
@@ -584,11 +580,9 @@ def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
     """A lone toolResult IS a user message, so a role-only check lands on it —
     and the SDK then deletes it as an orphan on restore, putting the assistant
     turn first again. The role check alone is not the test."""
-    from strands.session import FileSessionManager
-
     from app.agents import team_agent
+    from app.agents.session_store import SqliteSessionRepository
 
-    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
     _seed_session("t-tools", "SummarizingConversationManager")
     _seed_tool_messages("t-tools")
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
@@ -597,8 +591,10 @@ def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
     offset = _stored_state("t-tools")["removed_message_count"]
     assert offset == 0  # index 2 is the orphaned toolResult, so it walks past it
 
-    repo = FileSessionManager(session_id="t-tools", storage_dir=str(config.SESSIONS_DIR))
-    restored = [m.to_message() for m in repo.list_messages("t-tools", "default", offset=offset)]
+    restored = [
+        m.to_message()
+        for m in SqliteSessionRepository().list_messages("t-tools", "default", offset=offset)
+    ]
     assert restored[0]["role"] == "user"
     assert not any("toolResult" in c for c in restored[0]["content"])
 

@@ -199,11 +199,16 @@ def update_thread(
 
 
 def delete_thread(thread_id: str, owner: str) -> dict:
-    """Remove the thread, its transcript, AND the model-side session files
+    """Remove the thread, its transcript, AND the model-side sessions
     (including per-persona session variants) — a deleted chat is gone."""
+    from ..agents.session_store import delete_thread_sessions
+
     _own(thread_id, owner)
     db.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
     db.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
+    delete_thread_sessions(thread_id)
+    # the pre-045 file store, until a cleanup release drops the directory:
+    # leftover files must go too, or they linger for a thread that is gone
     for pattern in (f"session_{thread_id}", f"session_{thread_id}--*"):
         for path in config.SESSIONS_DIR.glob(pattern):
             shutil.rmtree(path, ignore_errors=True)

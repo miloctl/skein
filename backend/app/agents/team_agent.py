@@ -5,7 +5,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from .. import config
+from .. import config, db
+from . import session_store
 
 log = logging.getLogger("skein.chat")
 
@@ -321,30 +322,35 @@ def _reconcile_session_strategy(thread_id: str, manager) -> None:
     stood for stay out of the replay. That is a real loss of that condensed
     context, taken knowingly over failing the user's next few turns.
     """
-    from strands.session import FileSessionManager
+    from .session_store import SqliteSessionRepository
 
     try:
-        repo = FileSessionManager(session_id=thread_id, storage_dir=str(config.SESSIONS_DIR))
-        agent = repo.read_agent(thread_id, SESSION_AGENT_ID)
-        if agent is None:
-            return
-        state = agent.conversation_manager_state or {}
-        if state.get("__name__") == type(manager).__name__:
-            return
-        log.info(
-            "thread %s: context strategy changed %s -> %s, rewriting session state",
-            thread_id,
-            state.get("__name__"),
-            type(manager).__name__,
-        )
-        # a live manager's own state, not a hand-rolled dict — only the replay
-        # offset is carried over from the outgoing one, aligned to a user turn
-        fresh = type(manager)().get_state()
-        fresh["removed_message_count"] = _user_aligned_offset(
-            repo, thread_id, state.get("removed_message_count", 0)
-        )
-        agent.conversation_manager_state = fresh
-        repo.update_agent(thread_id, agent)
+        repo = SqliteSessionRepository()
+        # one transaction over the read-modify-write: a bridge write landing
+        # between read_agent and update_agent must not be folded into stale
+        # state (with the file store this window was simply open)
+        with db.transaction():
+            agent = repo.read_agent(thread_id, SESSION_AGENT_ID)
+            if agent is None:
+                return
+            state = agent.conversation_manager_state or {}
+            if state.get("__name__") == type(manager).__name__:
+                return
+            log.info(
+                "thread %s: context strategy changed %s -> %s, rewriting session state",
+                thread_id,
+                state.get("__name__"),
+                type(manager).__name__,
+            )
+            # a live manager's own state, not a hand-rolled dict — only the
+            # replay offset is carried over from the outgoing one, aligned to
+            # a user turn
+            fresh = type(manager)().get_state()
+            fresh["removed_message_count"] = _user_aligned_offset(
+                repo, thread_id, state.get("removed_message_count", 0)
+            )
+            agent.conversation_manager_state = fresh
+            repo.update_agent(thread_id, agent)
     except Exception:
         # a chat must not die over bookkeeping — but silence here means the
         # NEXT turn dies with the SDK's opaque "Invalid conversation manager
@@ -354,7 +360,8 @@ def _reconcile_session_strategy(thread_id: str, manager) -> None:
 
 def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
     """One agent per chat thread. Mock provider needs no keys and no Strands
-    session; real providers persist conversations via FileSessionManager.
+    session; real providers persist conversations in the session tables
+    (agents/session_store.py).
     A persona swaps the head (system prompt + identity) and can narrow the
     tools: a declared allowlist filters what BOTH this agent and its planner
     sub-agent are built with (the planner runs under the persona's identity,
@@ -371,7 +378,6 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
         return MockAgent(thread_id, user, persona=persona)
 
     from strands import Agent, tool
-    from strands.session import FileSessionManager
 
     from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
@@ -451,9 +457,6 @@ def build_agent(thread_id: str, user: str = "anonymous", persona: str = ""):
         conversation_manager=manager,
         system_prompt=system,
         tools=tools,
-        session_manager=FileSessionManager(
-            session_id=thread_id,
-            storage_dir=str(config.SESSIONS_DIR),
-        ),
+        session_manager=session_store.session_manager(thread_id),
         callback_handler=None,
     )

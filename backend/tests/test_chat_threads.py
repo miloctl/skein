@@ -64,15 +64,26 @@ def test_log_message_never_cross_files_on_id_collision(client, fresh_db):
     assert all("bob" not in m["content"] for m in msgs)
 
 
-def test_delete_glob_is_precise(client, fresh_db, tmp_path):
+def test_delete_removes_both_session_stores_precisely(client, fresh_db, tmp_path):
+    """The database rows AND the pre-045 leftover files, persona variants
+    included — and never a thread that merely shares the prefix."""
+    from strands.types.session import Session, SessionType
+
     from app import config
+    from app.agents.session_store import SqliteSessionRepository
     from app.services import chat_threads
 
     chat_threads.log_message("abc", "tester", "user", "mine")
+    repo = SqliteSessionRepository()
+    for sid in ("abc", "abc--growth-mentor", "abc2"):
+        repo.create_session(Session(session_id=sid, session_type=SessionType.AGENT))
     (config.SESSIONS_DIR / "session_abc").mkdir(parents=True, exist_ok=True)
     (config.SESSIONS_DIR / "session_abc--growth-mentor").mkdir(exist_ok=True)
     (config.SESSIONS_DIR / "session_abc2").mkdir(exist_ok=True)  # different thread
     chat_threads.delete_thread("abc", "tester")
+    assert repo.read_session("abc") is None
+    assert repo.read_session("abc--growth-mentor") is None
+    assert repo.read_session("abc2") is not None  # untouched
     assert not (config.SESSIONS_DIR / "session_abc").exists()
     assert not (config.SESSIONS_DIR / "session_abc--growth-mentor").exists()
     assert (config.SESSIONS_DIR / "session_abc2").exists()  # untouched
