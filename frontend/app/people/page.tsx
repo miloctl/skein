@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, getApiKey } from "@/lib/api";
+import { actionError, api, getApiKey, loadError } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
 import { Card, EmptyState } from "@/components/card";
 
@@ -63,7 +63,7 @@ export default function PeoplePage() {
         setError(null);
       })
       .catch((e) => {
-        if (g === generation.current) setError(String(e));
+        if (g === generation.current) setError(loadError(e));
       });
     api<Brief>(`/api/private/brief/${encodeURIComponent(p)}`)
       .then((b) => {
@@ -90,7 +90,7 @@ export default function PeoplePage() {
       setDraft("");
       load(person);
     } catch (e) {
-      setError(String(e));
+      setError(actionError(e));
     } finally {
       setSaving(false);
     }
@@ -123,7 +123,7 @@ export default function PeoplePage() {
                 setError(null);
                 alert("Asked — the request is now on the team's My Day.");
               } catch (e) {
-                setError(String(e));
+                setError(actionError(e));
               }
             }}
             className="mt-2 rounded-lg bg-weld px-3 py-1 text-xs font-medium text-white hover:opacity-90"

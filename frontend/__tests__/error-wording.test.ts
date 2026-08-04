@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { API_URL, backendUnreachable, isUnreachable, loadError } from "@/lib/api";
+import { actionError, API_URL, backendUnreachable, isUnreachable, loadError } from "@/lib/api";
 
 /** One condition, one wording (CLAUDE.md). The review found ~24 different
  *  phrasings of "the backend is down", most of them `alert(String(e))`, which
@@ -26,6 +26,38 @@ describe("the backend-unreachable wording", () => {
     const prefix = (s: string) => s.slice(0, s.indexOf(" ("));
     expect(prefix(a)).toBe(prefix(b));
     expect(prefix(a)).toBe(backendUnreachable());
+  });
+});
+
+describe("the 'Error: ' class-name prefix", () => {
+  it("never reaches the reader, from either helper", () => {
+    // String(new Error("x")) is "Error: x". Every surface that interpolated an
+    // error showed that prefix — JS internals, and nothing to act on.
+    const refusal = new Error("decision #1 is already superseded");
+    expect(actionError(refusal)).toBe("decision #1 is already superseded");
+    expect(loadError(refusal)).not.toContain("Error:");
+    expect(backendUnreachable(new TypeError("Failed to fetch"))).not.toContain("TypeError:");
+  });
+
+  it("still carries a non-Error rejection through readably", () => {
+    expect(actionError("plain string reason")).toBe("plain string reason");
+  });
+});
+
+describe("a failed action versus a failed page load", () => {
+  it("lets the server's own sentence stand on its own", () => {
+    // the backend writes these for this reader; "Could not load this page"
+    // would name the wrong thing after a button press
+    expect(actionError(new Error("person is not an active teammate"))).toBe(
+      "person is not an active teammate",
+    );
+    expect(loadError(new Error("nope"))).toContain("Could not load this page");
+  });
+
+  it("routes an unreachable backend to the one wording, from both", () => {
+    const dead = new TypeError("Failed to fetch");
+    expect(actionError(dead)).toContain("Check that the server is running");
+    expect(loadError(dead)).toContain("Check that the server is running");
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api } from "@/lib/api";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
 // the truth about where a line will land, so the grammar is afforded, not
@@ -124,7 +124,7 @@ export function CapturePalette() {
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
     } catch (err) {
-      setResult(`⚠️ ${String(err)}`);
+      setResult(`⚠️ ${actionError(err)}`);
     } finally {
       setBusy(false);
     }

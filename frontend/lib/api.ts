@@ -8,20 +8,30 @@ export { API_URL };
  *  it is usually the thing that is wrong. */
 export const backendUnreachable = (error?: unknown) =>
   `Cannot reach the backend at ${API_URL}. Check that the server is running, then try again.` +
-  (error ? ` (${String(error)})` : "");
+  (error ? ` (${detail(error)})` : "");
 
 /** True only for a transport failure. `api()` throws a plain Error carrying the
  *  server's own detail for anything the backend actually answered, and calling
  *  that "unreachable" tells the reader to go check a server that is running. */
 export const isUnreachable = (error: unknown) => error instanceof TypeError;
 
-/** What a failed page load says. A refusal the server actually answered is not
+/** The server's own words. String(error) on an Error prepends the class name,
+ *  so every surface that interpolated one showed the reader "Error: Failed to
+ *  fetch" — the "Error: " is JS internals, and nothing the reader can act on. */
+const detail = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** What a failed page LOAD says. A refusal the server actually answered is not
  *  an unreachable backend, and reporting it as one sends the reader to check a
  *  server that is running and replying. */
 export const loadError = (error: unknown) =>
-  isUnreachable(error)
-    ? backendUnreachable(error)
-    : `Could not load this page. ${String(error)}`;
+  isUnreachable(error) ? backendUnreachable(error) : `Could not load this page. ${detail(error)}`;
+
+/** What a failed ACTION says — a write the reader just triggered, where "could
+ *  not load this page" would name the wrong thing. A refusal the server
+ *  answered is already a sentence written for this reader ("decision #1 is
+ *  already superseded"), so it stands on its own. */
+export const actionError = (error: unknown) =>
+  isUnreachable(error) ? backendUnreachable(error) : detail(error);
 
 const USER_KEY = "skein-user";
 const API_KEY_KEY = "skein-key";

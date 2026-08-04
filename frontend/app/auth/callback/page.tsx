@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { completeSignIn, signIn } from "@/lib/auth";
-import { setUser } from "@/lib/api";
+import { actionError, setUser } from "@/lib/api";
 import { signedInUser } from "@/lib/auth";
 
 /** Where the identity provider sends the browser back to.
@@ -28,7 +28,7 @@ export default function AuthCallback() {
         // come back on the Back button
         window.location.replace(returnTo || "/");
       })
-      .catch((e) => !cancelled && setError(String(e.message || e)));
+      .catch((e) => !cancelled && setError(actionError(e)));
     return () => {
       cancelled = true;
     };

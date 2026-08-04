@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { api, loadError } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 
@@ -120,7 +120,7 @@ export default function InsightsPage() {
       setAskValue("");
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 
@@ -132,7 +132,7 @@ export default function InsightsPage() {
       });
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
@@ -37,7 +37,7 @@ export default function IntakePage() {
   const manage = useManageMode();
 
   const load = useCallback(() => {
-    api<Req[]>("/api/intake").then(setReqs).catch((e) => setError(String(e)));
+    api<Req[]>("/api/intake").then(setReqs).catch((e) => setError(loadError(e)));
   }, []);
   useEffect(load, [load]);
 
@@ -50,7 +50,7 @@ export default function IntakePage() {
       setForm({ title: "", detail: "", project_class: "" });
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     } finally {
       setSubmitting(false);
     }
@@ -91,7 +91,7 @@ export default function IntakePage() {
       setPanel(null);
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 
@@ -114,7 +114,7 @@ export default function IntakePage() {
       setPanel(null);
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
@@ -94,7 +94,7 @@ export default function Agents() {
   const load = useCallback(() => {
     api<AgentRow[]>("/api/agents")
       .then(setAgents)
-      .catch((e) => setBanner(`Cannot load the agents list: ${e.message ?? e}`));
+      .catch((e) => setBanner(`Cannot load the agents list. ${actionError(e)}`));
     api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
     api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
     api<Persona[]>("/api/personas").then(setBench).catch(() => {});
@@ -121,7 +121,7 @@ export default function Agents() {
       .then((r) => {
         if (g === inboxGeneration.current) setInbox(r); // last click wins
       })
-      .catch((e) => setBanner(`${e.message ?? e}`));
+      .catch((e) => setBanner(actionError(e)));
   };
 
   const changeAuthority = (agent: string, ent: string, lvl: string) => {
@@ -131,7 +131,7 @@ export default function Agents() {
       method: "POST",
       body: JSON.stringify({ agent, entity: ent, level: lvl }),
     })
-      .catch((e) => setBanner(`${e.message ?? e}`))
+      .catch((e) => setBanner(actionError(e)))
       .finally(() => {
         setBusy(false);
         load();
@@ -444,7 +444,7 @@ export default function Agents() {
                           await api(`/api/memories/${m.id}`, { method: "DELETE" });
                           setMemories((ms) => ms.filter((x) => x.id !== m.id));
                         } catch (e) {
-                          setBanner(String(e));
+                          setBanner(actionError(e));
                         }
                         setForgetting(null);
                       }}

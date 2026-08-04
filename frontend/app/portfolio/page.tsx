@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
+import { actionError, api } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
@@ -91,7 +91,7 @@ export default function Portfolio() {
     // every card's failure reaches the banner — a failed fetch rendering
     // "Nobody is over 100%" would be a confident lie, not an empty state
     const fail = (what: string) => (e: Error) =>
-      setBanner(`Cannot load ${what}: ${e.message ?? e}`);
+      setBanner(`Cannot load ${what}. ${actionError(e)}`);
     api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("health"));
     api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("conflicts"));
     api<Flow>("/api/portfolio/flow").then(setFlow).catch(fail("flow"));
@@ -109,7 +109,7 @@ export default function Portfolio() {
       setBusy(true);
       setBanner(null);
       return p
-        .catch((e) => setBanner(`${e.message ?? e}`))
+        .catch((e) => setBanner(actionError(e)))
         .finally(() => {
           setBusy(false);
           load();
@@ -221,7 +221,7 @@ export default function Portfolio() {
             onClick={() =>
               api<Draft>("/api/week/draft")
                 .then(setDraft)
-                .catch((e) => setBanner(`${e.message ?? e}`))
+                .catch((e) => setBanner(actionError(e)))
             }
             className="rounded-lg bg-raised px-3 py-1 text-xs font-medium hover:bg-line"
           >
@@ -438,7 +438,7 @@ export default function Portfolio() {
                   setBusy(true);
                   api<{ markdown: string }>(`/api/rituals/${r}`, { method: "POST" })
                     .then((res) => setRitualOut(res.markdown))
-                    .catch((e) => setBanner(`${e.message ?? e}`))
+                    .catch((e) => setBanner(actionError(e)))
                     .finally(() => setBusy(false));
                 }}
                 className="rounded-lg bg-raised px-3 py-1 text-xs font-medium text-ink-2 hover:bg-line disabled:opacity-50"
@@ -465,7 +465,7 @@ export default function Portfolio() {
               setBusy(true);
               api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
                 .then((r) => setReadout(r.markdown))
-                .catch((e) => setBanner(`${e.message ?? e}`))
+                .catch((e) => setBanner(actionError(e)))
                 .finally(() => setBusy(false));
             }}
             className="rounded-lg bg-thread-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-import { api, getUser, subscribeUser } from "@/lib/api";
+import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
@@ -121,7 +121,7 @@ export default function ReviewPage() {
         );
         setDiffs(Object.fromEntries(entries));
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(loadError(e)));
     api<Change[]>("/api/review?status=approved").then(setHistory).catch(() => {});
   }, []);
   useEffect(load, [load]);
@@ -148,7 +148,7 @@ export default function ReviewPage() {
       setSelected(new Set());
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 
@@ -165,7 +165,7 @@ export default function ReviewPage() {
       setAsking(null);
       load();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 

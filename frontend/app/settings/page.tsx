@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   API_URL,
+  actionError,
   api,
   backendUnreachable,
   getApiKey,
@@ -144,7 +145,7 @@ export default function SettingsPage() {
       });
       loadRoster();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 
@@ -161,7 +162,7 @@ export default function SettingsPage() {
       setRenaming(null);
       loadRoster();
     } catch (e) {
-      alert(String(e));
+      alert(actionError(e));
     }
   };
 
@@ -199,7 +200,7 @@ export default function SettingsPage() {
       );
       refresh();
     } catch (e) {
-      setKeyStatus(`❌ ${String(e)}`);
+      setKeyStatus(`❌ ${actionError(e)}`);
     }
   };
 
@@ -434,7 +435,7 @@ export default function SettingsPage() {
                           : "Asked — the request (with the exact command) is now on the team's My Day.",
                       );
                     } catch (e) {
-                      setKeyStatus(`❌ ${String(e)}`);
+                      setKeyStatus(`❌ ${actionError(e)}`);
                     }
                   }}
                   className="mb-2 rounded-lg bg-thread-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
@@ -529,7 +530,7 @@ export default function SettingsPage() {
                 setInterestsSaved(interests.trim() ? "Saved." : "Cleared.");
                 setTimeout(() => setInterestsSaved(""), 3000);
               } catch (e) {
-                alert(String(e));
+                alert(actionError(e));
               } finally {
                 setInterestsBusy(false);
               }
@@ -834,7 +835,7 @@ export default function SettingsPage() {
                           "Saved as the team default — fresh browsers and anonymous visitors start here.",
                         );
                       } catch (e) {
-                        setCodeStatus(String(e));
+                        setCodeStatus(actionError(e));
                       }
                     }}
                     className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
@@ -915,7 +916,7 @@ export default function SettingsPage() {
                         setCtxStatus(
                           isUnreachable(e)
                             ? backendUnreachable()
-                            : `Not saved. ${String(e instanceof Error ? e.message : e)}`,
+                            : `Not saved. ${actionError(e)}`,
                         );
                       }
                     }}
@@ -945,7 +946,7 @@ export default function SettingsPage() {
                     setCtxStatus(
                       isUnreachable(e)
                         ? backendUnreachable()
-                        : `Not cleared. ${String(e instanceof Error ? e.message : e)}`,
+                        : `Not cleared. ${actionError(e)}`,
                     );
                   }
                 }}

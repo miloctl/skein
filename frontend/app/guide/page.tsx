@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, getUser, subscribeUser } from "@/lib/api";
+import { api, getUser, loadError, subscribeUser } from "@/lib/api";
 
 type Knot = {
   id: string;
@@ -60,7 +60,7 @@ export default function GuidePage() {
         }
       })
       .catch((e) => {
-        if (g === generation.current) setError(String(e));
+        if (g === generation.current) setError(loadError(e));
       });
   }, [me]);
 
