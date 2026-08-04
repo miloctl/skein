@@ -228,8 +228,10 @@ export default function Agents() {
                       <code className="text-[10px] text-ink-3">/as {p.slug}</code>
                     </span>
                     <span className="block text-xs text-ink-3">{p.description}</span>
+                    {/* no alpha on ink tokens: text-3 is tuned to clear AA
+                        exactly, and /80 undoes that (caught by the axe scan) */}
                     {p.vibe && (
-                      <span className="block text-xs italic text-ink-3/80">{p.vibe}</span>
+                      <span className="block text-xs italic text-ink-3">{p.vibe}</span>
                     )}
                   </span>
                 </Link>

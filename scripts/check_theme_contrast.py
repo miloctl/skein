@@ -246,6 +246,17 @@ def check(
         for token in TEXTS + STATUSES
         for surface in SURFACES
     }
+    # The baseline is NOT grandfathered. A pair Loom itself fails would
+    # otherwise vanish from the sweep entirely — the skip below excuses every
+    # pack on exactly the pairs the baseline breaks, and Loom never appears
+    # as a pack. text-3 on raised shipped at 4.16:1 in dark mode with every
+    # gate green until a browser-level axe scan caught it.
+    for (mode, token, surface), ok in sorted(passes_baseline.items()):
+        if not ok:
+            ratio = _contrast(base[mode][token], base[mode][surface])
+            failures.append(
+                f"{BASE_PACK} {mode} --{token} on --{surface}: {ratio:.2f}:1 is below {TEXT_MIN}:1"
+            )
     for name in sorted(packs):
         if name == BASE_PACK:
             continue

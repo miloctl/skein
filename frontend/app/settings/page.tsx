@@ -692,7 +692,9 @@ export default function SettingsPage() {
                       </span>
                     )}
                   </span>
-                  <span className="block px-0.5 text-xs text-ink-3">{p.subtitle}</span>
+                  {/* ink-2, not ink-3: the SELECTED card tints its background
+                      (bg-thread/10), a surface the ink-3 tuning never covered */}
+                  <span className="block px-0.5 text-xs text-ink-2">{p.subtitle}</span>
                 </button>
               );
             })}
