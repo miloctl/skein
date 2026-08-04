@@ -260,7 +260,7 @@ def dismiss(person: str, knot: str) -> dict:
     """Permanently drop a knot from this person's suggestions. The card stays
     on their guide page; only the unprompted nudge goes quiet."""
     if knot not in PREDICATES:
-        raise ValueError(f"unknown knot '{knot}'")
+        raise ValueError("unknown knot — the guide page lists every valid name")
     if not _is_active_human(person):
         raise ValueError("pick a name first — the guide is per-person")
     db.execute(

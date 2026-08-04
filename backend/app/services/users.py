@@ -33,7 +33,7 @@ def refuse_reserved_name(name: str) -> None:
     from .activity import SYSTEM_ACTORS
 
     if _fold(name) in {_fold(a) for a in SYSTEM_ACTORS}:
-        raise ValueError(f"'{name.strip()}' is reserved for the system — pick another name")
+        raise ValueError("that name is reserved for the system — pick another name")
 
 
 def reserved_refusal(name: str) -> str:
@@ -93,7 +93,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     if existing is None:
         refuse_fold_collision(name)
     if existing is None and kind == "human" and _is_bench_slug(name):
-        raise ValueError(f"'{name}' is reserved for a bench persona — pick another name")
+        raise ValueError("that name is reserved for a bench persona — pick another name")
     if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
         raise ValueError(
             f"'{name}' already exists as a {existing['kind']} — bench persona"
@@ -234,7 +234,7 @@ def resolve_teammate(
     known = {u["name"].lower(): u["name"] for u in list_users()}
     match = known.get(name.lower())
     if not match:
-        raise ValueError(f"{label} '{name}' is not an active teammate")
+        raise ValueError(f"{label} is not an active teammate")
     return match
 
 
@@ -331,7 +331,7 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     if _is_bench_slug(new):
         # unconditional: persona names come from files, never from rename —
         # even agent→agent would fold foreign history into the persona
-        raise ValueError(f"'{new}' is reserved for a bench persona")
+        raise ValueError("the new name is reserved for a bench persona")
     target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
     if target and target["kind"] != row["kind"]:
         raise ValueError(
@@ -443,7 +443,7 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     write until someone separately disabled the IdP account."""
     row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
     if not row:
-        raise ValueError(f"no user named '{name}'")
+        raise ValueError("no user with that name")
     if name == actor and not active:
         raise ValueError("you cannot deactivate yourself")
     db.execute("UPDATE users SET active = ? WHERE name = ?", (1 if active else 0, name))

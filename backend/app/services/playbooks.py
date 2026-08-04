@@ -61,7 +61,7 @@ def list_playbooks() -> list[dict]:
 
 def get_playbook(slug: str) -> dict:
     if not _SLUG.match(slug):  # path traversal guard — slug becomes a filename
-        raise ValueError(f"invalid playbook slug '{slug}'")
+        raise ValueError("playbook slug must be lowercase letters, digits, - or _")
     path = _playbook_files().get(slug)
     if path is None or not path.exists():
         raise ValueError(

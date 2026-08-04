@@ -75,9 +75,9 @@ def propose_change(
 ) -> dict:
     reg = _registry()
     if entity not in reg:
-        raise ValueError(f"unknown entity '{entity}'; one of {sorted(reg)}")
+        raise ValueError(f"unknown entity — one of {sorted(reg)}")
     if action not in ("create", "update") or action not in reg[entity]:
-        raise ValueError(f"unsupported action '{action}' for {entity}")
+        raise ValueError(f"unsupported action for {entity} — create or update")
     if action == "update" and not entity_id:
         raise ValueError("entity_id required for updates")
     # a proposal a reviewer must read is bounded like any other write —
