@@ -46,20 +46,28 @@ def _short_id_hit(q: str) -> dict | None:
 def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
     # by rowid via search_ids, never WHERE entity = ?: entity/entity_id are
     # UNINDEXED in FTS5, so that predicate scans the whole virtual table —
-    # under the write lock, on every service write (migration 043)
-    db.execute(
-        "INSERT OR IGNORE INTO search_ids (entity, entity_id) VALUES (?, ?)",
-        (entity, entity_id),
-    )
-    sid = db.query_row(
-        "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
-        (entity, entity_id),
-    )["id"]
-    db.execute("DELETE FROM search_index WHERE rowid = ?", (sid,))
-    db.execute(
-        "INSERT INTO search_index (rowid, entity, entity_id, title, body) VALUES (?, ?, ?, ?, ?)",
-        (sid, entity, entity_id, title, body),
-    )
+    # under the write lock, on every service write (migration 043).
+    # INVARIANT: every search_index row has a search_ids twin. A row written
+    # to search_index directly occupies a rowid that INSERT OR IGNORE can
+    # mint next, and the DELETE below then destroys the bystander silently.
+    # One transaction: two writers of the same record interleaving these
+    # statements would collide on the explicit rowid insert (IntegrityError);
+    # BEGIN IMMEDIATE serializes them instead.
+    with db.transaction():
+        db.execute(
+            "INSERT OR IGNORE INTO search_ids (entity, entity_id) VALUES (?, ?)",
+            (entity, entity_id),
+        )
+        sid = db.query_row(
+            "SELECT id FROM search_ids WHERE entity = ? AND entity_id = ?",
+            (entity, entity_id),
+        )["id"]
+        db.execute("DELETE FROM search_index WHERE rowid = ?", (sid,))
+        db.execute(
+            "INSERT INTO search_index (rowid, entity, entity_id, title, body)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (sid, entity, entity_id, title, body),
+        )
     # The embed is an HTTP round-trip of up to ~5s. Callers run index_record
     # inside db.transaction() (review.approve_change, playbooks.instantiate,
     # intake.disposition) — inline, the round-trip would hold SQLite's single

@@ -53,6 +53,10 @@ def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "PRIVATE_DB_PATH", tmp_path / "private.db")
+    # SESSIONS_DIR is derived from DATA_DIR at import — left unpatched, session
+    # files persist across tests within a worker while the DB resets, and a
+    # test that restores a reused thread id reads a previous test's session
+    monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")
     db.init_db()
     return db
 

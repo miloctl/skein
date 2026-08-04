@@ -74,3 +74,14 @@ def test_short_id_dedupes_against_fts(fresh_db):
     work.update_task(tid, description=f"task {tid} tracks the slow dashboard")
     hits = search.search(f"task {tid}")
     assert [(h["entity"], h["entity_id"]) for h in hits].count(("task", tid)) == 1
+
+
+def test_deindex_removes_the_row_from_search_results(fresh_db):
+    from app.services import collab, search
+
+    n = collab.save_note(topic="ghost", content="ectoplasm findings", author="a")
+    assert search.search("ectoplasm")
+    collab.delete_note(n["id"], actor="a")
+    # the docstring's promise: search must never cite a record that no
+    # longer exists — the FTS row goes with the record, not only the vector
+    assert search.search("ectoplasm") == []

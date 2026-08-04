@@ -10,6 +10,7 @@ import {
 } from "@assistant-ui/react";
 
 import { API_URL, api, getApiKey, getUser } from "@/lib/api";
+import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
 
 /** Streams from the FastAPI backend, which emits SSE lines of
@@ -119,7 +120,14 @@ function ThreadHydrator({
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    api<StoredMessage[]>(`/api/chats/${threadId}/messages`)
+    // the shared list answers "is this thread saved?" from cache — probing
+    // /messages for a brand-new thread logs a console 404 on every new chat
+    chatThreads()
+      .then((rows) =>
+        rows.some((t) => t.id === threadId)
+          ? api<StoredMessage[]>(`/api/chats/${threadId}/messages`)
+          : ([] as StoredMessage[]),
+      )
       .then((msgs) => {
         if (cancelled) return;
         // never clobber messages that already exist (e.g. a fast send)

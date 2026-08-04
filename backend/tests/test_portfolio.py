@@ -96,3 +96,39 @@ def test_readout_excludes_team_commitments(client, fresh_db):
     )
     md = exec_readout(actor="tester")["markdown"]
     assert "team-only promise" not in md
+
+
+def test_health_red_on_two_overdue_with_stale_and_silence_receipts(client, fresh_db):
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import portfolio
+    from app.services.slas import SILENCE_DAYS, STALE_WIP_DAYS
+
+    client.post("/api/engagements", json={"name": "Slow"})
+    m = None
+    for title in ("m1", "m2"):
+        m = client.post(
+            "/api/milestones", json={"title": title, "project": "Slow", "due_date": "2020-01-01"}
+        ).json()
+    t = client.post("/api/tasks", json={"title": "old wip", "milestone_id": m["id"]}).json()
+    client.patch(f"/api/tasks/{t['id']}", json={"status": "in_progress"})
+    ancient = (
+        datetime.now(timezone.utc) - timedelta(days=max(STALE_WIP_DAYS, SILENCE_DAYS) + 1)
+    ).isoformat(timespec="seconds")
+    fresh_db.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (ancient, t["id"]))
+
+    [h] = [e for e in portfolio.engagement_health() if e["name"] == "Slow"]
+    assert h["health"] == "red"  # two overdue milestones make red without any blocker
+    receipts = " ".join(h["receipts"])
+    assert "overdue since 2020-01-01" in receipts
+    assert f"in progress >{STALE_WIP_DAYS}d" in receipts
+    assert "no task activity since" in receipts
+
+
+def test_wait_satisfied_queries_cover_every_waiting_on_type():
+    from app.services import portfolio, work
+
+    # a type added to work.WAITING_ON_TYPES without a satisfied-query here
+    # KeyErrors _satisfied_targets and 500s /portfolio — the source comments
+    # name the contract; this pins it
+    assert set(portfolio._WAIT_SATISFIED) == set(work.WAITING_ON_TYPES)

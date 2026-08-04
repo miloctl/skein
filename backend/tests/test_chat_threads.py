@@ -131,3 +131,31 @@ def test_chat_thread_id_sanitized(client):
     ) as r:
         assert r.status_code == 200
         assert "Mock agent" in r.read().decode()
+
+
+def test_mid_stream_error_reaches_sse_and_transcript(client, monkeypatch):
+    class ExplodingAgent:
+        async def stream_async(self, message):
+            yield {"data": "partial "}
+            raise RuntimeError("model fell over")
+
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: ExplodingAgent())
+    body = client.post("/api/chat", json={"thread_id": "t-err", "message": "hi"}).text
+    # the SSE protocol must survive the failure: an error event, then done —
+    # a dropped connection here loses the turn with no test failing
+    assert '"type": "error"' in body
+    assert '"type": "done"' in body
+    msgs = client.get("/api/chats/t-err/messages").json()
+    assert msgs[-1]["role"] == "assistant"
+    assert "partial" in msgs[-1]["content"]
+    assert "⚠️" in msgs[-1]["content"]  # the failure is on the record, not vanished
+
+
+def test_agent_construction_failure_streams_an_error(client, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr("app.routes.chat.build_agent", boom)
+    body = client.post("/api/chat", json={"thread_id": "t-err2", "message": "hi"}).text
+    assert '"type": "error"' in body
+    assert '"type": "done"' in body

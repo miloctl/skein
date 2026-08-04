@@ -245,6 +245,15 @@ async def chat(req: ChatRequest, user: CurrentUser):
             closed = False
 
             def _close_turn() -> None:
+                # idempotent: the threadpool call below can be cancelled at
+                # anyio's checkpoint or limiter wait BEFORE its thread starts
+                # (then the finally's sync call writes), and once the thread
+                # HAS started it runs to completion — the flag set here is
+                # what stops the finally from writing the turn a second time
+                nonlocal closed
+                if closed:
+                    return
+                closed = True
                 _log_turn(ui_thread, user, "assistant", "".join(parts))
                 # a follow-up question about this output goes to the agent —
                 # replay the exchange into its session so it has the context
@@ -279,25 +288,19 @@ async def chat(req: ChatRequest, user: CurrentUser):
                     parts.append(line)
                     model_parts.append(line)
                     yield _sse({"type": "receipt", **r})
-                # closed flips BEFORE the await: run_in_threadpool is not
-                # abandoned on cancel, so a disconnect arriving mid-write
-                # still lands it — flipped after, the finally would write
-                # the same turn a second time
-                closed = True
                 await run_in_threadpool(_close_turn)
             except Exception as exc:
                 logging.getLogger("skein.chat").exception("command failed (user=%s)", user)
                 yield _sse({"type": "error", "message": str(exc)})
-                closed = True
                 await run_in_threadpool(_close_turn)
             finally:
-                # sync fallback for the CANCELLED stream only (stop button,
-                # tab close): inside the cancelled scope an await in finally
+                # sync fallback for the CANCELLED stream (stop button, tab
+                # close): inside the cancelled scope an await in finally
                 # raises instead of running — threadpooling this branch would
-                # drop the transcript and the bridge exactly then. Completed
-                # turns already closed through the threadpool above.
-                if not closed:
-                    _close_turn()
+                # drop the transcript and the bridge exactly then. Runs
+                # unconditionally; _close_turn's own flag makes a turn the
+                # threadpool already closed a no-op.
+                _close_turn()
             yield _sse({"type": "done"})
 
         return StreamingResponse(command_stream(), media_type="text/event-stream")
@@ -356,6 +359,15 @@ async def chat(req: ChatRequest, user: CurrentUser):
         closed = False
 
         def _close_turn() -> None:
+            # idempotent: the threadpool call below can be cancelled at
+            # anyio's checkpoint or limiter wait BEFORE its thread starts
+            # (then the finally's sync call writes), and once the thread HAS
+            # started it runs to completion — the flag set here is what
+            # stops the finally from writing the turn a second time
+            nonlocal closed
+            if closed:
+                return
+            closed = True
             # ui_thread, not the session id: persona sessions append --<slug>,
             # which would break the join that lands spend on an engagement.
             # agent_name already records which head spent it.
@@ -407,11 +419,6 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 yield _sse({"type": "receipt", **note})
             elif filed and capture.PREFIX.match(message):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
-            # closed flips BEFORE the await: run_in_threadpool is not
-            # abandoned on cancel, so a disconnect arriving mid-write still
-            # lands it — flipped after, the finally would write the same
-            # turn a second time
-            closed = True
             await run_in_threadpool(_close_turn)
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
@@ -419,7 +426,6 @@ async def chat(req: ChatRequest, user: CurrentUser):
             )
             transcript.append(f"\n\n> ⚠️ {str(exc)[:300]}\n")
             yield _sse({"type": "error", "message": str(exc)})
-            closed = True
             await run_in_threadpool(_close_turn)
         finally:
             _inflight[thread_id] -= 1
@@ -432,13 +438,13 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 reset_requester_identity(req_token)
             except ValueError:
                 pass
-            # sync fallback for the CANCELLED stream only (stop button, tab
+            # sync fallback for the CANCELLED stream (stop button, tab
             # close): inside the cancelled scope an await in finally raises
             # instead of running — threadpooling this branch would drop usage
-            # accounting and the partial transcript exactly then. Completed
-            # turns already closed through the threadpool above.
-            if not closed:
-                _close_turn()
+            # accounting and the partial transcript exactly then. Runs
+            # unconditionally; _close_turn's own flag makes a turn the
+            # threadpool already closed a no-op.
+            _close_turn()
         yield _sse({"type": "done"})
 
     return StreamingResponse(stream(), media_type="text/event-stream")

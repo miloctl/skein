@@ -32,18 +32,31 @@ def test_standup_chain_roster_is_participation_based(fresh_db):
     # nobody has ever posted: no roster, no chain — and no permanent zero
     assert pulse.standup_chain() == {"chain": 0, "humans": 0}
 
-    weekday = datetime.datetime.now(datetime.timezone.utc).date().weekday() < 5
-    collab.post_standup("a", today="x")
+    # posts land on the most recent COMPLETED weekday, so the chain
+    # assertions hold on all 7 days — an `if weekday:` guard here skipped
+    # them on 2 of every 7 CI days
+    def post_on_last_weekday(author: str, text: str) -> None:
+        collab.post_standup(author, today=text)
+        sid = fresh_db.query_row("SELECT MAX(id) AS id FROM standups")["id"]
+        day = datetime.datetime.now(datetime.timezone.utc).date()
+        while True:
+            day -= datetime.timedelta(days=1)
+            if day.weekday() < 5:
+                break
+        fresh_db.execute(
+            "UPDATE standups SET created_at = ? WHERE id = ?",
+            (f"{day.isoformat()}T09:00:00+00:00", sid),
+        )
+
+    post_on_last_weekday("a", "x")
     chain = pulse.standup_chain()
     assert chain["humans"] == 1  # b joins the roster by playing, not by existing
-    if weekday:
-        assert chain["chain"] == 1
+    assert chain["chain"] == 1
 
-    collab.post_standup("b", today="y")
+    post_on_last_weekday("b", "y")
     chain = pulse.standup_chain()
     assert chain["humans"] == 2  # anonymous and the agent never count
-    if weekday:
-        assert chain["chain"] == 1
+    assert chain["chain"] == 1
 
 
 def test_pulse_tally_team_aggregated(client, fresh_db):

@@ -140,3 +140,13 @@ def test_error_bodies_stay_json_and_leak_nothing(client):
         body = json.loads(r.content)  # never a bare text/plain 500
         assert "Traceback" not in r.text and "/home/" not in r.text
         assert body.get("detail")
+
+
+def test_propose_change_rejects_oversized_payload(fresh_db):
+    import pytest
+
+    from app.services import review
+
+    with pytest.raises(ValueError, match="too large"):
+        review.propose_change("task", "create", {"title": "x" * 21_000}, actor="agent")
+    assert fresh_db.query("SELECT * FROM pending_changes") == []
