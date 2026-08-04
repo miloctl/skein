@@ -47,10 +47,11 @@ def standup_chain() -> dict:
     ]
     if not humans:
         return {"chain": 0, "humans": 0}
-    # One range scan instead of a per-day substr() query: substr(created_at)
-    # can never use an index, so the old loop full-scanned standups up to 90
-    # times per call. 130 days covers the 90 loop steps plus the weekend
-    # rewind below; the range predicate rides idx_standups_created.
+    # One range scan, never a per-day substr() query: substr(created_at)
+    # defeats every index, so a per-day probe full-scans standups once per
+    # loop step — up to 90 scans per call. 130 days covers the 90 loop steps
+    # plus the weekend rewind below; the range predicate rides
+    # idx_standups_created.
     lookback = (_today() - timedelta(days=130)).isoformat()
     by_day: dict[str, set[str]] = {}
     for r in db.query(

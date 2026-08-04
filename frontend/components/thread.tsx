@@ -67,7 +67,7 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
 
 // Promise-cached for the life of the page: both catalogs change only on a
 // server restart, and RuntimeProvider's key={threadId} remounts the Composer
-// on every thread switch — uncached, each switch cost two requests. The
+// on every thread switch — uncached, each switch costs two requests. The
 // authConfig() shape (lib/auth.ts): a failed read is not cached, so the
 // next mount retries.
 let commandsCache: Promise<SlashCommand[]> | null = null;

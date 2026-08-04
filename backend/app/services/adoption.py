@@ -12,7 +12,7 @@ from .. import db
 SURFACES = ("web", "cli", "chat", "slack", "mcp", "webhook", "api")
 
 # Buffered, not written per call: every authenticated request lands here, and
-# each upsert took SQLite's single write lock on the hot path. The buffer
+# a per-call upsert takes SQLite's single write lock on the hot path. The buffer
 # drains on the first record_use after FLUSH_SECONDS, when adoption() reads,
 # and at app shutdown — on an idle process the tail sits buffered until one
 # of those. Counts buffered at a crash, and a batch whose write fails, are
