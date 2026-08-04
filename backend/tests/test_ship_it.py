@@ -1,5 +1,31 @@
 """The Ship It moment: recap composition, zero-stat omission, and the team notification."""
 
+import pytest
+
+
+@pytest.mark.parametrize("origin", ["agent", "agent_verified"])
+def test_the_recap_note_carries_the_closers_origin(fresh_db, monkeypatch, origin):
+    """_ship_it and _experiment_lesson are called on adjacent lines from the
+    same `if freshly_closed:` block. _ship_it hardcoded origin="human", so an
+    engagement closed by the agent path wrote the lesson as agent_verified and
+    the recap beside it as human, in one transaction — an auditor filtering
+    notes by origin sees a machine-generated note attributed to a person."""
+    from app.services import engagements, notifications
+
+    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
+    # an experiment, so _experiment_lesson runs beside _ship_it and the two
+    # notes written in one transaction must agree on who wrote them
+    e = engagements.create_engagement(
+        "Threaded", actor="ava", kind="experiment", timebox_end="2099-01-01"
+    )
+    engagements.update_engagement(
+        e["id"], status="closed", conclusion="achieved", actor="scout", origin=origin
+    )
+    notes = fresh_db.query("SELECT topic, origin FROM notes WHERE topic LIKE 'shipped-%'")
+    assert notes, "the close wrote no recap note"
+    for n in notes:
+        assert n["origin"] == origin, f"{n['topic']} recorded origin={n['origin']!r}"
+
 
 def test_ship_it_counts_only_linked_blockers(client, fresh_db, monkeypatch):
     from app.services import notifications
