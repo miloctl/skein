@@ -297,11 +297,23 @@ def list_engagements(status: str = "") -> list[dict]:
         )
     else:
         rows = db.query("SELECT * FROM engagements ORDER BY status = 'closed', id DESC LIMIT 200")
-    for r in rows:
-        r["allocations"] = db.query(
-            "SELECT person, percent, starts_on, ends_on FROM allocations WHERE engagement_id = ?",
-            (r["id"],),
+    # One query for every engagement's allocations, not one per engagement:
+    # this ran up to 201 queries per GET /api/engagements. Placeholders are
+    # generated from the row count, never interpolated from caller input.
+    if not rows:
+        return rows
+    marks = ",".join("?" * len(rows))
+    grouped: dict[int, list[dict]] = {r["id"]: [] for r in rows}
+    for a in db.query(
+        "SELECT engagement_id, person, percent, starts_on, ends_on FROM allocations"  # noqa: S608 — marks below are generated ?s, never caller input
+        f" WHERE engagement_id IN ({marks})",
+        tuple(r["id"] for r in rows),
+    ):
+        grouped[a["engagement_id"]].append(
+            {k: a[k] for k in ("person", "percent", "starts_on", "ends_on")}
         )
+    for r in rows:
+        r["allocations"] = grouped[r["id"]]
     return rows
 
 
