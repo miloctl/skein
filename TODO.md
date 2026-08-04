@@ -53,8 +53,11 @@ this file is only for accepted trade-offs that must eventually be repaid.
   Recreate` + one PVC, with a manifest comment naming every mechanism that
   assumes it; a Litestream sidecar (container, not a code dependency)
   streaming the SQLite WAL to S3-compatible storage, restore drill in the
-  runbook; `SKEIN_TRUST_PROXY_HOPS=1` behind the router; and
-  `SKEIN_AUTH_MODE` oidc or api-key, trusted-header staying dev-only.
+  runbook; `SKEIN_TRUST_PROXY_HOPS=1` behind the router;
+  `SKEIN_AUTH_MODE` oidc or api-key, trusted-header staying dev-only; and
+  a `v*` release tag on the deployed commit — the tag is what activates
+  the upgrade-path CI job (scripts/upgrade-path.sh baselines on the
+  newest one) and is the moment migrations stop being editable.
 
 - **Dependency-update noise is handled by hand.** The `npm audit`
   high-severity in `brace-expansion` is dev-only and pre-existing; triaging

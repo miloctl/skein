@@ -65,6 +65,24 @@ for (const { path, name } of PAGES) {
   });
 }
 
+test("dark mode holds the same bar", async ({ page }) => {
+  // the light-mode walks above never see dark tokens: text-3 on raised
+  // shipped at 4.16:1 in dark with every light scan green. One dense page
+  // in dark keeps that class visible to the browser, not only to the
+  // token-level gate in scripts/check_theme_contrast.py.
+  await pickName(page);
+  await page.emulateMedia({ colorScheme: "dark" });
+  const faults = watch(page);
+  await page.goto("/portfolio");
+  await page.waitForLoadState("networkidle");
+  expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
+  const scan = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .exclude(".pack-tile")
+    .analyze();
+  expect(scan.violations.map((v) => ({ rule: v.id, impact: v.impact }))).toEqual([]);
+});
+
 test("a chat turn round-trips through the mock agent", async ({ page }) => {
   await pickName(page);
   const faults = watch(page);
