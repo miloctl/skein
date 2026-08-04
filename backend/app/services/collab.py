@@ -51,7 +51,7 @@ def assign_question(
         known = {u["name"].lower(): u["name"] for u in list_users()}
         match = known.get(assigned_to.lower())
         if not match:
-            raise ValueError(f"'{assigned_to}' is not an active user")
+            raise ValueError("assigned_to is not an active user")
         assigned_to = match
     db.execute("UPDATE questions SET assigned_to = ? WHERE id = ?", (assigned_to, question_id))
     db.log_activity(
@@ -137,7 +137,7 @@ def record_decision(
         try:
             date.fromisoformat(review_by)
         except ValueError as exc:
-            raise ValueError(f"review_by is not a real date: {review_by}") from exc
+            raise ValueError("review_by must be a real date (YYYY-MM-DD)") from exc
     if review_by and not DATE_RE.match(review_by):
         raise ValueError(
             "review_by must be YYYY-MM-DD. The stale sweep does not read any other format."
@@ -285,7 +285,7 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
         try:
             date.fromisoformat(review_by)
         except ValueError as exc:
-            raise ValueError(f"review_by is not a real date: {review_by}") from exc
+            raise ValueError("review_by must be a real date (YYYY-MM-DD)") from exc
     if review_by and not DATE_RE.match(review_by):
         raise ValueError("review_by must be YYYY-MM-DD")
     if not review_by:

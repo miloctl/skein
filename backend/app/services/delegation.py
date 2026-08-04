@@ -21,7 +21,7 @@ def delegate_task(
     sponsor_row = db.query_one("SELECT kind FROM users WHERE name = ? AND active = 1", (sponsor,))
     if not sponsor_row or sponsor_row["kind"] != "human":
         raise ValueError(
-            f"sponsor '{sponsor}' must be an active human teammate — the sponsor"
+            "sponsor must be an active human teammate — the sponsor"
             " receives the acceptance proposal, so a typo here means nobody does"
         )
     # an agent naming itself is not a delegation, it's a land-grab; the

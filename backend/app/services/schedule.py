@@ -65,7 +65,7 @@ def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
         try:
             date.fromisoformat(head)
         except ValueError as exc:
-            raise ValueError(f"from_date is not a real date: {head}") from exc
+            raise ValueError("from_date must be a real date (YYYY-MM-DD)") from exc
         return db.query(
             "SELECT * FROM events WHERE starts_at >= ? ORDER BY starts_at LIMIT ?",
             (from_date, limit),
