@@ -176,7 +176,7 @@ def update_engagement(
                 "engagement", engagement_id, row["name"], f"{row['summary']} {row['lead']}"
             )
     if freshly_closed:
-        _ship_it(engagement_id, actor=actor)
+        _ship_it(engagement_id, actor=actor, origin=origin)
         if current["kind"] == "experiment":
             _experiment_lesson(engagement_id, actor=actor, origin=origin)
         # closing over live work must be loud, not blocking: orphaned tasks
@@ -223,7 +223,7 @@ def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
     )
 
 
-def _ship_it(engagement_id: int, *, actor: str) -> None:
+def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
     """The Ship It moment: recap card + team notification when an engagement
     closes. Deterministic — all counts from SQL."""
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
@@ -281,7 +281,11 @@ def _ship_it(engagement_id: int, *, actor: str) -> None:
     from .collab import save_note
     from .notifications import notify
 
-    save_note(topic=f"shipped-{name}", content=recap, author=actor, actor=actor, origin="human")
+    # origin threads through, like _experiment_lesson beside the call site:
+    # hardcoded "human", an engagement closed by the agent path writes a
+    # machine-generated note attributed to a person, in the same transaction
+    # where the lesson correctly records agent_verified
+    save_note(topic=f"shipped-{name}", content=recap, author=actor, actor=actor, origin=origin)
     # the note renders markdown; notifications land on plain-text surfaces
     notify("team", recap.replace("**", ""), tier="immediate", link="/dashboard")
 

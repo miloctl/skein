@@ -192,50 +192,51 @@ def supersede_decision(
 ) -> dict:
     """Decisions have a half-life: the record chains rather than mutates, so
     nobody cites a dead decision without seeing what replaced it."""
-    # validate successor inputs BEFORE the CAS claim — a failed create after
-    # the flip would orphan the old decision as superseded-by-nothing
-    if review_by:
-        from datetime import date
-
-        try:
-            date.fromisoformat(review_by)
-        except ValueError as exc:
-            raise ValueError(f"review_by is not a real date: {review_by}") from exc
-    if review_by and not DATE_RE.match(review_by):
-        raise ValueError("review_by must be YYYY-MM-DD")
-    old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
-    if not old:
-        raise db.NotFound(f"decision #{decision_id} not found")
-    # CAS-claim the old decision BEFORE creating the successor — two racing
-    # supersedes must not leave two active contradicting decisions
-    claimed = db.execute_rowcount(
-        "UPDATE decisions SET status = 'superseded' WHERE id = ? AND status != 'superseded'",
-        (decision_id,),
-    )
-    if not claimed:
-        current = db.query_row("SELECT superseded_by FROM decisions WHERE id = ?", (decision_id,))
-        raise ValueError(
-            f"decision #{decision_id} already superseded by #{current['superseded_by']}"
+    # One transaction over the CAS claim AND the successor create. Every
+    # input this rejects is validated inside record_decision, so a partial
+    # run leaves the old decision superseded-by-nothing: supersede then
+    # refuses it as already superseded, reconfirm redirects to a successor
+    # that does not exist, and the decision leaves the charter with no way
+    # back. Do not pre-validate here instead — record_decision's checks grow,
+    # and a copy of them drifts.
+    with db.transaction():
+        old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
+        if not old:
+            raise db.NotFound(f"decision #{decision_id} not found")
+        # CAS-claim the old decision BEFORE creating the successor — two racing
+        # supersedes must not leave two active contradicting decisions
+        claimed = db.execute_rowcount(
+            "UPDATE decisions SET status = 'superseded' WHERE id = ? AND status != 'superseded'",
+            (decision_id,),
         )
-    if old["category"] == "charter" and not review_by:
-        # charter replacements keep riding the sweep — default the 90-day push
-        from datetime import date, timedelta
+        if not claimed:
+            current = db.query_row(
+                "SELECT superseded_by FROM decisions WHERE id = ?", (decision_id,)
+            )
+            raise ValueError(
+                f"decision #{decision_id} already superseded by #{current['superseded_by']}"
+            )
+        if old["category"] == "charter" and not review_by:
+            # charter replacements keep riding the sweep — default the 90-day push
+            from datetime import date, timedelta
 
-        review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
-    new = record_decision(
-        title,
-        decision,
-        context or f"Supersedes #{decision_id}: {old['title']}",
-        decided_by,
-        review_by,
-        category=old["category"],  # a charter entry's replacement stays charter
-        actor=actor,
-        origin=origin,
-    )
-    db.execute("UPDATE decisions SET superseded_by = ? WHERE id = ?", (new["id"], decision_id))
-    db.log_activity(
-        actor or decided_by or "system", "supersede_decision", f"#{decision_id} -> #{new['id']}"
-    )
+            review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
+        new = record_decision(
+            title,
+            decision,
+            context or f"Supersedes #{decision_id}: {old['title']}",
+            decided_by,
+            review_by,
+            category=old["category"],  # a charter entry's replacement stays charter
+            actor=actor,
+            origin=origin,
+        )
+        db.execute("UPDATE decisions SET superseded_by = ? WHERE id = ?", (new["id"], decision_id))
+        db.log_activity(
+            actor or decided_by or "system",
+            "supersede_decision",
+            f"#{decision_id} -> #{new['id']}",
+        )
     return {**new, "supersedes": decision_id}
 
 
@@ -374,45 +375,62 @@ def get_note(note_id: int) -> dict | None:
 def update_note(
     note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
-    row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
-    if not row:
-        raise db.NotFound(f"no note #{note_id}")
-    fields = {k: v for k, v in [("topic", topic), ("content", content)] if v}
-    if not fields:
-        raise ValueError("nothing to update")
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(
-        f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
-        (*fields.values(), note_id),
-    )
-    if topic and topic != row["topic"]:
-        db.log_activity(
-            actor or "system", "update_note", f"#{note_id}: '{row['topic']}' -> '{topic}'"
+    # The existence check and the re-index are one transaction, taking the
+    # same write lock delete_note takes. Split, this reads a live note,
+    # delete_note removes it and clears its index, and then the index_record
+    # below puts the deleted body back — searchable forever.
+    with db.transaction():
+        row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+        if not row:
+            raise db.NotFound(f"no note #{note_id}")
+        fields = {k: v for k, v in [("topic", topic), ("content", content)] if v}
+        if not fields:
+            raise ValueError("nothing to update")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(
+            f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
+            (*fields.values(), note_id),
         )
-    else:
-        db.log_activity(actor or "system", "update_note", f"#{note_id} {row['topic']}")
-    new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
-    if new:
-        index_record("note", note_id, new["topic"], new["content"])
-        from .mentions import scan
+        if topic and topic != row["topic"]:
+            db.log_activity(
+                actor or "system", "update_note", f"#{note_id}: '{row['topic']}' -> '{topic}'"
+            )
+        else:
+            db.log_activity(actor or "system", "update_note", f"#{note_id} {row['topic']}")
+        new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+        if new:
+            index_record("note", note_id, new["topic"], new["content"])
+            from .mentions import scan
 
-        scan("note", note_id, f"{new['topic']} {new['content']}", actor=actor or "system", link="/")
+            scan(
+                "note",
+                note_id,
+                f"{new['topic']} {new['content']}",
+                actor=actor or "system",
+                link="/",
+            )
     return {"id": note_id, "updated": list(fields)}
 
 
 def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict:
-    row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
-    if not row:
-        raise db.NotFound(f"no note #{note_id}")
-    db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
     from .search import deindex_record
 
-    deindex_record("note", note_id)
-    # bounded content snapshot: a note deleted between backups must be
-    # reviewable (and partially recoverable) from the ledger
-    db.log_activity(
-        actor or "system", "delete_note", f"#{note_id} {row['topic']}: {row['content'][:300]}"
-    )
+    # The row delete and the index delete are one transaction, and update_note
+    # takes the same lock: split, a concurrent edit re-indexes the note after
+    # this deindex runs, and the FULL body of a deleted note stays queryable
+    # through search forever. That path also outlives the 300-char ledger
+    # snapshot below, which is deliberately bounded.
+    with db.transaction():
+        row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+        if not row:
+            raise db.NotFound(f"no note #{note_id}")
+        db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        deindex_record("note", note_id)
+        # bounded content snapshot: a note deleted between backups must be
+        # reviewable (and partially recoverable) from the ledger
+        db.log_activity(
+            actor or "system", "delete_note", f"#{note_id} {row['topic']}: {row['content'][:300]}"
+        )
     return {"id": note_id, "deleted": True}
 
 

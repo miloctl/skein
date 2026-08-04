@@ -406,8 +406,11 @@ export default function Agents() {
                 <span className="font-medium">{t.agent}</span> on {t.entity}:{" "}
                 {t.approved}/{t.proposed} approved ({Math.round(t.approval_rate * 100)}%)
                 · streak {t.recent_streak}
+                {/* text-ok, not a raw palette green: scripts/check_theme_contrast.py
+                    sweeps the tokens parsed out of globals.css and theme.ts, so a
+                    hardcoded hex is the one color here proved against no pack */}
                 {t.suggestion && (
-                  <p className="text-xs font-medium text-green-600">💡 {t.suggestion}</p>
+                  <p className="text-xs font-medium text-ok">💡 {t.suggestion}</p>
                 )}
               </li>
             ))}

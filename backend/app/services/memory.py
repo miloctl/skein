@@ -45,14 +45,17 @@ def get_memory(memory_id: int) -> dict | None:
 def forget(memory_id: int, *, actor: str, origin: str = "human") -> dict:
     """Memories steer every future conversation — a wrong or injected one
     must be removable, and the removal itself is on the record."""
-    row = db.query_one("SELECT topic, content FROM memories WHERE id = ?", (memory_id,))
-    if not row:
-        raise db.NotFound(f"no memory #{memory_id}")
-    db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     from .search import deindex_record
 
-    deindex_record("memory", memory_id)
-    db.log_activity(actor, "forget", f"#{memory_id} [{row['topic']}] {row['content'][:200]}")
+    # one transaction: a row delete that commits without its index delete
+    # leaves the memory's full content queryable through search
+    with db.transaction():
+        row = db.query_one("SELECT topic, content FROM memories WHERE id = ?", (memory_id,))
+        if not row:
+            raise db.NotFound(f"no memory #{memory_id}")
+        db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        deindex_record("memory", memory_id)
+        db.log_activity(actor, "forget", f"#{memory_id} [{row['topic']}] {row['content'][:200]}")
     return {"id": memory_id, "deleted": True}
 
 

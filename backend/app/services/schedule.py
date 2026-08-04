@@ -74,14 +74,17 @@ def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
 
 
 def cancel_event(event_id: int, *, actor: str = "system", origin: str = "human") -> dict:
-    row = db.query_one("SELECT title FROM events WHERE id = ?", (event_id,))
-    if not row:
-        raise db.NotFound(f"no event #{event_id}")
-    db.execute("DELETE FROM events WHERE id = ?", (event_id,))
     from .search import deindex_record
 
-    deindex_record("event", event_id)  # search must never cite a cancelled event
-    db.log_activity(actor, "cancel_event", f"#{event_id} {row['title']}")
+    # one transaction: a row delete that commits without its index delete
+    # leaves the cancelled event citable by search and /ask
+    with db.transaction():
+        row = db.query_one("SELECT title FROM events WHERE id = ?", (event_id,))
+        if not row:
+            raise db.NotFound(f"no event #{event_id}")
+        db.execute("DELETE FROM events WHERE id = ?", (event_id,))
+        deindex_record("event", event_id)  # search must never cite a cancelled event
+        db.log_activity(actor, "cancel_event", f"#{event_id} {row['title']}")
     return {"id": event_id, "cancelled": True}
 
 

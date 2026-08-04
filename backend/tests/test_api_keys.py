@@ -31,9 +31,19 @@ def test_api_key_lifecycle_and_attribution(client):
     tasks = client.get("/api/tasks").json()
     assert tasks[0]["created_by"] == "tester"
 
-    keys = client.get("/api/keys").json()
+    # listing needs strong identity too: a bare X-User names anyone, so a weak
+    # caller must not read whose keys exist, their labels, or their last use
+    assert client.get("/api/keys").status_code == 403
+    keys = client.get("/api/keys", headers={"Authorization": f"Bearer {boot['key']}"}).json()
     assert keys[0]["last_used_at"] is not None
     assert "key" not in keys[0]  # full key never re-exposed
+
+    # the same fact via whoami is gated the same way, or the count leaks
+    assert client.get("/api/whoami").json()["keys_minted"] == 0
+    strong_who = client.get(
+        "/api/whoami", headers={"Authorization": f"Bearer {boot['key']}"}
+    ).json()
+    assert strong_who["strong"] and strong_who["keys_minted"] >= 1
 
     # revoking also requires strong identity
     assert client.delete(f"/api/keys/{created['id']}").status_code == 403

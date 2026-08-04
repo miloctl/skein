@@ -205,6 +205,65 @@ def test_an_oidc_sign_in_naming_an_agent_is_refused_at_the_perimeter(client, mon
     assert "agent identity" in r.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "ALICE",  # case
+        # the confusables are the test: each one folds onto "alice" and would
+        # resolve as her without the guard. noqa, or the linter deletes the case.
+        "ａlice",  # noqa: RUF001 — NFKC fullwidth
+        "al‍ice",
+    ],
+)
+def test_an_oidc_claim_folding_onto_a_roster_name_is_refused_on_reads(
+    client, monkeypatch, fresh_db, claim
+):
+    """The read door skips ensure_user, so it must take the fold wall itself.
+    Resolving the claim onto the roster row would hand one IdP principal every
+    row another person owns — private notes included — and _is_admin reads the
+    resolved name, so it escalates to the admin surfaces too."""
+    from app.services.users import ensure_user
+
+    ensure_user("alice")
+    _oidc(monkeypatch, {"tok": {"preferred_username": claim}})
+    r = client.get("/api/private/notes", headers={"Authorization": "Bearer tok"})
+    assert r.status_code == 403
+    assert "one name must mean one identity" in r.json()["detail"]
+    # the write door already refused this claim; the two must agree, or one
+    # credential is "not this person" for writes and "is this person" for reads
+    w = client.post(
+        "/api/lessons",
+        json={"text": "x"},
+        headers={"Authorization": "Bearer tok"},
+    )
+    assert w.status_code == 403
+
+
+def test_an_oidc_claim_folding_onto_an_admin_name_does_not_reach_admin_surfaces(
+    client, monkeypatch, fresh_db
+):
+    """_is_admin matches case-insensitively by design, so the fold wall on the
+    read door is the only thing between a lookalike claim and a full export."""
+    from app import config
+    from app.services.users import ensure_user
+
+    ensure_user("casey")
+    monkeypatch.setattr(config, "ADMINS", ["casey"])
+    _oidc(monkeypatch, {"tok": {"preferred_username": "ｃasey"}})  # noqa: RUF001 — fullwidth c
+    r = client.get("/api/admin/export", headers={"Authorization": "Bearer tok"})
+    assert r.status_code == 403
+
+
+def test_an_oidc_first_sign_in_still_reads_before_any_roster_row_exists(
+    client, monkeypatch, fresh_db
+):
+    """The fold wall must not close the first-ever read: a name that collides
+    with nobody is not a collision, and a read never grows the roster."""
+    _oidc(monkeypatch, {"tok": {"preferred_username": "newcomer"}})
+    assert client.get("/api/tasks", headers={"Authorization": "Bearer tok"}).status_code == 200
+    assert fresh_db.query_one("SELECT * FROM users WHERE name = 'newcomer'") is None
+
+
 def test_an_oidc_token_is_validated_once_per_request(client, monkeypatch, fresh_db):
     """The twin of the key test above. A signature check is the expensive half
     of oidc mode, and the dependency must reuse what the middleware proved."""

@@ -62,14 +62,33 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 #                      NO ambient key is ever read: either none is needed
 #                      (mock, bedrock's AWS chain) or sending one would be a
 #                      leak (openai_compatible — see below).
+#   key_required     — the provider cannot answer at all without a key, so a
+#                      missing one is a config fault that degrades to mock at
+#                      boot. FALSE wherever keyless is a real deployment:
+#                      ollama and openai_compatible both serve local endpoints
+#                      that take no credential, and marking them required
+#                      would degrade a working keyless box to mock. Bedrock
+#                      resolves the ambient AWS chain, which is not readable
+#                      from here.
 PROVIDERS: dict[str, dict] = {
-    "mock": {"default_model": "mock", "base_url": "forbidden", "key_env": ""},
+    "mock": {
+        "default_model": "mock",
+        "base_url": "forbidden",
+        "key_env": "",
+        "key_required": False,
+    },
     "anthropic": {
         "default_model": "claude-opus-4-8",
         "base_url": "forbidden",
         "key_env": "ANTHROPIC_API_KEY",
+        "key_required": True,
     },
-    "openai": {"default_model": "gpt-5", "base_url": "forbidden", "key_env": "OPENAI_API_KEY"},
+    "openai": {
+        "default_model": "gpt-5",
+        "base_url": "forbidden",
+        "key_env": "OPENAI_API_KEY",
+        "key_required": True,
+    },
     # Anything speaking the OpenAI wire format: vLLM, LM Studio, llama.cpp,
     # OpenRouter, Together, Groq, Azure OpenAI, LiteLLM Proxy.
     #
@@ -78,11 +97,20 @@ PROVIDERS: dict[str, dict] = {
     # named — and OPENAI_API_KEY is already set on any box using semantic
     # search. Credentials for a non-OpenAI endpoint must be stated explicitly
     # in SKEIN_MODEL_API_KEY.
-    "openai_compatible": {"default_model": None, "base_url": "required", "key_env": ""},
+    "openai_compatible": {
+        "default_model": None,
+        "base_url": "required",
+        "key_env": "",
+        "key_required": False,
+    },
+    # OLLAMA_API_KEY is for Ollama's hosted cloud models. A local ollama takes
+    # no credential, so this must stay optional or every keyless local box
+    # degrades to mock at boot.
     "ollama": {
         "default_model": "gpt-oss:120b-cloud",
         "base_url": "forbidden",
         "key_env": "OLLAMA_API_KEY",
+        "key_required": False,
     },
     # boto3 is already a strands core dep; credentials come from the ambient
     # AWS chain (instance role, AWS_PROFILE), so there is no key to set.
@@ -90,7 +118,12 @@ PROVIDERS: dict[str, dict] = {
     # geo-prefixed inference profile (us./eu./apac./global.) that depends on
     # the deployment's region, and a bare foundation id is not invocable
     # on-demand. Better to demand SKEIN_MODEL_ID than to ship one that 400s.
-    "bedrock": {"default_model": None, "base_url": "forbidden", "key_env": ""},
+    "bedrock": {
+        "default_model": None,
+        "base_url": "forbidden",
+        "key_env": "",
+        "key_required": False,
+    },
 }
 
 MODEL_PROVIDER = os.getenv("SKEIN_MODEL_PROVIDER", "mock").lower()
@@ -129,6 +162,23 @@ elif PROVIDERS[MODEL_PROVIDER]["base_url"] == "forbidden" and MODEL_BASE_URL:
     MODEL_PROVIDER_ERROR = (
         f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} does not accept SKEIN_MODEL_BASE_URL —"
         " use openai_compatible to point at a custom endpoint"
+    )
+
+# Guarded on MODEL_PROVIDER_ERROR like the SKEIN_MODEL_PARAMS check below,
+# for two reasons: an already-recorded fault (a bad SKEIN_MAX_TOKENS) must not
+# be overwritten by this one, and an unknown provider name has no registry
+# entry to subscript. Caught here or not at all — unchecked, EFFECTIVE_PROVIDER
+# stays on the real provider, /health reports no fault, and the SDK raises per
+# request instead, so every chat reply becomes raw provider internals (a 401
+# body carrying its request id) shown to the user.
+if (
+    not MODEL_PROVIDER_ERROR
+    and PROVIDERS[MODEL_PROVIDER]["key_required"]
+    and not (MODEL_API_KEY or os.getenv(PROVIDERS[MODEL_PROVIDER]["key_env"]))
+):
+    MODEL_PROVIDER_ERROR = (
+        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} needs a key —"
+        f" set {PROVIDERS[MODEL_PROVIDER]['key_env']} or SKEIN_MODEL_API_KEY"
     )
 
 if not MODEL_PROVIDER_ERROR and (_raw := os.getenv("SKEIN_MODEL_PARAMS", "").strip()):
