@@ -73,6 +73,13 @@ def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
     return db.query("SELECT * FROM events ORDER BY starts_at LIMIT ?", (limit,))
 
 
+def get_event(event_id: int) -> dict | None:
+    """One event, or None. Exists so tools/schedule.py can name an event in a
+    proposal summary without writing SQL — it was the only query in app/tools/,
+    and the rule is that SQL lives here."""
+    return db.query_one("SELECT * FROM events WHERE id = ?", (event_id,))
+
+
 def cancel_event(event_id: int, *, actor: str = "system", origin: str = "human") -> dict:
     from .search import deindex_record
 

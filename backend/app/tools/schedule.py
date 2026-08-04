@@ -4,7 +4,6 @@ import json
 
 from strands import tool
 
-from .. import db
 from ..agents.identity import agent_identity
 from ..services import schedule
 from ._gate import gated_write
@@ -57,7 +56,7 @@ def cancel_event(event_id: int) -> str:
     Args:
         event_id: ID of the event to cancel.
     """
-    row = db.query_one("SELECT title, starts_at FROM events WHERE id = ?", (event_id,))
+    row = schedule.get_event(event_id)
     if not row:
         return json.dumps({"error": f"no event #{event_id}"})
     return gated_write(
