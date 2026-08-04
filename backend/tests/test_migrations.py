@@ -113,31 +113,29 @@ def test_a_failing_migration_leaves_no_trace(fresh_db, tmp_path, monkeypatch):
     assert fresh_db.query_one("SELECT 1 AS x FROM sqlite_master WHERE name = 'half_applied'")
 
 
-def test_renaming_a_migration_needs_the_recovery_row_ordered_first(fresh_db, tmp_path, monkeypatch):
+def test_a_renamed_migration_reruns_and_bricks_the_boot(fresh_db, tmp_path, monkeypatch):
     """schema_version records migrations by FILENAME, so a renamed file
-    re-runs on every existing database. The in-place rename CLAUDE.md warns
-    about bricks the boot — and so does the recovery UPDATE if it sorts after
-    the new name, because init_db reaches the renamed file first. The working
-    procedure: the renamed file takes a number at the END of the order, and
-    the schema_version UPDATE takes the number BEFORE it."""
+    re-runs on every existing database — 043's CREATE TABLE is not
+    idempotent, and the boot dies on 'already exists'. This is why CLAUDE.md
+    says a migration keeps its name after first deploy: no recovery
+    MIGRATION can fix it. One numbered after the renamed file runs too late
+    (the runner walks in filename order and hits the rerun first), and
+    moving the renamed file to the end reorders fresh builds, so a later
+    migration that depends on it sees a different world. A pre-deploy
+    rename hand-updates schema_version in every live database instead."""
     staged = _staged(tmp_path, monkeypatch)
-
-    # the trap, in-place: 043's CREATE TABLE is not idempotent, so the rerun
-    # under the new name dies on 'already exists' at boot
     (staged / "043_search_ids.sql").rename(staged / "043_search_id_map.sql")
     with pytest.raises(sqlite3.OperationalError):
         fresh_db.init_db()
 
-    # the working procedure
-    (staged / "043_search_id_map.sql").rename(staged / "999_search_id_map.sql")
-    (staged / "998_rename_search_ids.sql").write_text(
-        "UPDATE schema_version SET version = '999_search_id_map.sql'"
+    # the hand-update IS the recovery: with the record renamed too, the
+    # runner sees the file as applied and the boot is a no-op again
+    fresh_db.execute(
+        "UPDATE schema_version SET version = '043_search_id_map.sql'"
         " WHERE version = '043_search_ids.sql'"
     )
     fresh_db.init_db()
     assert fresh_db.pending_migrations() == []
-    names = {r["version"] for r in fresh_db.query("SELECT version FROM schema_version")}
-    assert "999_search_id_map.sql" in names and "043_search_ids.sql" not in names
 
 
 def test_seed_builds_its_demo_team_on_a_fresh_database(fresh_db, capsys):

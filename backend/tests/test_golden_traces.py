@@ -1,6 +1,6 @@
-"""Golden-trace scenarios (PLAN.md Wave 3): fixture + tool-call sequence →
-expected final DB state + policy compliance, run through the REAL agent tool
-layer (the same gate chat and MCP use). Keyless and deterministic — these
+"""Golden-trace scenarios: fixture + tool-call sequence → expected final DB
+state + policy compliance, run through the REAL agent tool layer (the same
+gate chat and MCP use). Keyless and deterministic — these
 guard the tool registry, the authority gate, and the services underneath
 against prompt/SDK/schema drift. What a model would CHOOSE to call is
 untestable without a model; what happens when it calls is pinned here.
