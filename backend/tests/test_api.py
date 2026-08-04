@@ -8,7 +8,7 @@ def test_health(client):
     assert body["provider"] == "mock"
 
 
-def test_rest_write_paths_record_provenance(client):
+def test_task_create_carries_actor_and_milestone(client):
     m = client.post("/api/milestones", json={"title": "Q3 launch"}).json()
     t = client.post("/api/tasks", json={"title": "Cut release", "milestone_id": m["id"]}).json()
     client.patch(f"/api/tasks/{t['id']}", json={"status": "in_progress"})

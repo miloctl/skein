@@ -258,7 +258,13 @@ async def chat(req: ChatRequest, user: CurrentUser):
                 # a follow-up question about this output goes to the agent —
                 # replay the exchange into its session so it has the context
                 # (unless an agent turn holds the session right now: bridged
-                # indices would race the SDK's cache and clobber files)
+                # indices would race the SDK's cache and clobber files).
+                # The window between this check and the write is ACCEPTED: an
+                # agent turn starting in it still races, but closing that
+                # needs the SDK's own session writes under our lock for a
+                # whole streaming turn. Bridge-vs-bridge is serialized in
+                # session_log; the residue here is one clobbered exchange
+                # when a user message races a command turn's close.
                 if ui_thread in _inflight:
                     logging.getLogger("skein.chat").info(
                         "session bridge skipped, agent turn in flight (thread=%s)", ui_thread
