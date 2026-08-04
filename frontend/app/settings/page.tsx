@@ -15,6 +15,7 @@ import {
   setApiKey,
   setUser,
 } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
 import {
@@ -145,7 +146,7 @@ export default function SettingsPage() {
       });
       loadRoster();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -162,7 +163,7 @@ export default function SettingsPage() {
       setRenaming(null);
       loadRoster();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -530,7 +531,7 @@ export default function SettingsPage() {
                 setInterestsSaved(interests.trim() ? "Saved." : "Cleared.");
                 setTimeout(() => setInterestsSaved(""), 3000);
               } catch (e) {
-                alert(actionError(e));
+                reportStatus(actionError(e));
               } finally {
                 setInterestsBusy(false);
               }

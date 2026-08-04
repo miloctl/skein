@@ -11,6 +11,7 @@ import "./globals.css";
 
 import { CapturePalette } from "@/components/capture-palette";
 import { Nav } from "@/components/nav";
+import { StatusRegion } from "@/components/status-region";
 import { ThemeSync } from "@/components/theme-sync";
 import { themeBootScript } from "@/lib/theme-boot";
 
@@ -108,6 +109,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeSync />
+        {/* one live region for the whole app — every surface reports through
+            lib/status.ts rather than calling window.alert() */}
+        <StatusRegion />
         {/* 9 header stops precede every page — a keyboard user needs a bypass */}
         <a
           href="#content"

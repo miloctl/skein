@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { actionError, api } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 
 /** The conversation's name, as the page's h1. With the sidebar closed this
@@ -50,7 +51,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
       window.dispatchEvent(new Event("skein-chat-activity"));
     } catch (e) {
       load();
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 

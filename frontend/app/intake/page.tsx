@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { actionError, api, loadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
@@ -50,7 +51,7 @@ export default function IntakePage() {
       setForm({ title: "", detail: "", project_class: "" });
       load();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     } finally {
       setSubmitting(false);
     }
@@ -91,7 +92,7 @@ export default function IntakePage() {
       setPanel(null);
       load();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -114,7 +115,7 @@ export default function IntakePage() {
       setPanel(null);
       load();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 

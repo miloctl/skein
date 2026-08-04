@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
@@ -148,7 +149,7 @@ export default function ReviewPage() {
       setSelected(new Set());
       load();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
@@ -165,7 +166,7 @@ export default function ReviewPage() {
       setAsking(null);
       load();
     } catch (e) {
-      alert(actionError(e));
+      reportStatus(actionError(e));
     }
   };
 
