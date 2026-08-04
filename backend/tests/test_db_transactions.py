@@ -139,3 +139,31 @@ def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):
 
     search.index_record("note", 3, "t", "b")  # no transaction: embeds inline
     assert embedded == [("note", 1), ("note", 3)]
+
+
+def test_the_helpers_close_their_connections(fresh_db, monkeypatch):
+    """sqlite3's `with conn:` scopes the transaction and never closes — written
+    that way the three helpers leaked one connection per call into a reference
+    cycle (Connection ↔ cursors) that refcounting cannot free: 84k open fds
+    measured over 30k queries between gc runs, each holding a WAL reader mark
+    that stalls checkpoints."""
+    from app import db
+
+    handed_out = []
+    real_connect = db.connect
+
+    def tracking_connect():
+        conn = real_connect()
+        handed_out.append(conn)
+        return conn
+
+    monkeypatch.setattr(db, "connect", tracking_connect)
+    db.query("SELECT 1 AS one")
+    db.execute(
+        "INSERT INTO job_runs (job, run_key, created_at) VALUES (?, ?, ?)", ("t", "k", db.now())
+    )
+    db.execute_rowcount("UPDATE job_runs SET run_key = run_key WHERE job = ?", ("t",))
+    assert len(handed_out) == 3
+    for conn in handed_out:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
