@@ -255,7 +255,7 @@ def cmd_week(args):
 def cmd_commitments(args):
     if args.action == "settle":
         api("POST", f"/api/commitments/{args.id}/status", {"status": args.status})
-        print(f"commitment #{args.id} {args.status}")
+        print(f"promise #{args.id} {args.status}")
         return
     rows = api("GET", "/api/commitments" + ("" if args.all else "?status=open"))
     for c in rows:

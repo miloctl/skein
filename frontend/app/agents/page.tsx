@@ -68,7 +68,7 @@ const LEVEL_COLOR: Record<string, string> = {
 
 export default function Agents() {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
-  const [trust, setTrust] = useState<Trust[]>([]);
+  const [trust, setTrust] = useState<Trust[] | null>(null);
   const [entities, setEntities] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [bench, setBench] = useState<Persona[]>([]);
@@ -77,8 +77,8 @@ export default function Agents() {
   const [targetAgent, setTargetAgent] = useState("agent");
   const [busy, setBusy] = useState(false);
   const [memories, setMemories] = useState<
-    { id: number; topic: string; content: string; user: string }[]
-  >([]);
+    { id: number; topic: string; content: string; user: string }[] | null
+  >(null);
   const [forgetting, setForgetting] = useState<number | null>(null);
   const [status, setStatus] = useState<{
     provider: string;
@@ -90,11 +90,12 @@ export default function Agents() {
   } | null>(null);
   const manage = useManageMode();
   const inboxGeneration = useRef(0);
-  // Six sections used to swallow their failures. Three of them then rendered
-  // a CLAIM instead — "No reviewed proposals yet", "Nothing remembered yet" —
-  // and the bench simply vanished. On the page whose job is telling you what
-  // the agents may do alone, absence reads as "nothing to see", which is the
-  // most expensive wrong answer in the product. Same shape as portfolio.
+  // Every section here must distinguish "unknown" from "empty". Several
+  // empty states are CLAIMS — "No reviewed proposals yet", "Nothing
+  // remembered yet", "No rules yet — everything needs approval" — and on
+  // the page whose job is telling you what the agents may do alone, a claim
+  // rendered while the data is unknown is the most expensive wrong answer
+  // in the product. Same shape as portfolio.
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
@@ -334,8 +335,12 @@ export default function Agents() {
           Inbox → Approvals). Promote per entity as trust builds. The built-in
           chat agent is “agent”.
         </p>
-        {(() => {
-          const grants = (agents ?? []).flatMap((a) =>
+        {agents === null ? (
+          // grants derive from the agents list: while it is unknown, "No
+          // rules yet" would assert a permissive default nobody has checked
+          errors.agents ? failed("agents") : <p className="text-sm text-ink-3">Loading…</p>
+        ) : (() => {
+          const grants = agents.flatMap((a) =>
             a.authority.map((au) => ({ ...au, agent: a.agent })),
           );
           return grants.length === 0 ? (
@@ -440,6 +445,8 @@ export default function Agents() {
       <Card title="Trust — earned from review verdicts">
         {errors.trust ? (
           failed("trust")
+        ) : trust === null ? (
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : trust.length === 0 ? (
           <p className="text-sm text-ink-3">
             No reviewed proposals yet — trust is earned in Inbox → Approvals.
@@ -466,6 +473,8 @@ export default function Agents() {
       <Card title="Team memory — steers agent conversations (personal ones only their owner's)">
         {errors.memories ? (
           failed("memories")
+        ) : memories === null ? (
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : memories.length === 0 ? (
           <p className="text-sm text-ink-3">
             Nothing remembered yet — /remember in chat adds one.
@@ -489,7 +498,7 @@ export default function Agents() {
                       onClick={async () => {
                         try {
                           await api(`/api/memories/${m.id}`, { method: "DELETE" });
-                          setMemories((ms) => ms.filter((x) => x.id !== m.id));
+                          setMemories((ms) => (ms ?? []).filter((x) => x.id !== m.id));
                         } catch (e) {
                           reportStatus(actionError(e));
                         }

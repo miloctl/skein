@@ -52,7 +52,7 @@ class MockAgent:
                     "Blocker #{id} registered. It has hours to live, not weeks.",
                 ),
                 "commitment": (
-                    "Promise #{id} on the ledger. Promises here get kept on purpose.",
+                    "Promise #{id} on the ledger. It gets kept on purpose.",
                     "Recorded promise #{id}. The exec readout is watching it now.",
                 ),
             }

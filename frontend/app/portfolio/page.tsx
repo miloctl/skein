@@ -193,7 +193,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title={`This week's plan — ${week?.week ?? ""}`}>
+      <Card title={week ? `This week's plan — ${week.week}` : "This week's plan"}>
         <p className="mb-2 text-xs text-ink-3">
           The tasks the team promised to finish this week.
         </p>

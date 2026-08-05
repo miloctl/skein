@@ -43,7 +43,10 @@ export default function IntakePage() {
 
   const load = useCallback(() => {
     api<Req[]>("/api/intake")
-      .then(setReqs)
+      .then((rows) => {
+        setReqs(rows);
+        setError(null); // a recovered backend must not leave the old banner above fresh data
+      })
       .catch((e) => {
         setReqs([]);            // settled, with the error shown above the list
         setError(loadError(e));
