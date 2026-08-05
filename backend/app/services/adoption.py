@@ -79,7 +79,7 @@ def flush() -> None:
 
 def adoption(weeks: int = 4) -> dict:
     """Who touched the platform, how recently, through what. The success bar
-    from the DX panel: >50% of actions should originate outside the web UI."""
+    (docs/INSIGHTS.md): >50% of actions originate outside the web UI."""
     flush()  # buffered counts belong in the numbers this reports
     weeks = max(1, min(int(weeks), 520))
     cutoff = (datetime.now(UTC).date() - timedelta(weeks=weeks)).isoformat()

@@ -117,7 +117,7 @@ def main() -> None:
         actor="seed",
     )
 
-    # ---- the newer surfaces: the demo must show the flagship flows --------
+    # ---- flagship flows the demo must show: commitment, absence, delegation ----
     from app.services import absences, commitments, delegation
 
     commitments.add_commitment(

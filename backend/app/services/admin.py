@@ -17,10 +17,32 @@ from .. import config, db
 
 log = logging.getLogger(__name__)
 
-# everything except: search_index/search_ids/schema_version (derived), api_keys (secret
-# hashes must not travel in portable exports — recreate keys after a restore),
-# and chat_threads/chat_messages (owner-scoped transcripts stay out of
-# portable exports on purpose; sqlite backups still carry them)
+# Every real table is either exported (TABLES) or excluded here with its
+# reason — test_admin_export.py::test_export_accounts_for_every_table walks
+# sqlite_master and fails on a table in neither set, so a new migration
+# cannot silently fall out of the export.
+EXCLUDED = frozenset(
+    {
+        # derived: rebuilt from the exported rows on each record's next write
+        # (search_index_* FTS shadow tables ride with search_index)
+        "search_index",
+        "search_ids",
+        "embeddings",
+        "schema_version",
+        # secret hashes must not travel in portable exports — recreate keys
+        # after a restore
+        "api_keys",
+        # owner-scoped conversation state stays out of portable exports on
+        # purpose; sqlite backups still carry it
+        "chat_threads",
+        "chat_messages",
+        "chat_folders",
+        "sessions",
+        "session_agents",
+        "session_messages",
+        "session_multi_agents",
+    }
+)
 TABLES = (
     "users",
     "milestones",
@@ -54,6 +76,8 @@ TABLES = (
     "app_settings",
     "absences",
     "task_worklog",
+    "feature_unlocks",
+    "mention_log",
 )
 
 

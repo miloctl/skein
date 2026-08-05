@@ -1,7 +1,5 @@
-"""Identity boundaries that a security audit found open.
-
-Each case here was demonstrated against a throwaway database before the fix.
-The theme is one rule with three holes in it: an identity may act only as
+"""Identity boundaries, each demonstrated open against a throwaway database
+before the fix. The theme is one rule with three holes in it: an identity may act only as
 itself, and a surface that writes on someone's behalf must prove which
 someone.
 """

@@ -26,3 +26,23 @@ def test_export_covers_new_tables(fresh_db):
     ):
         assert t in out["tables"]
     assert "api_keys" not in out["tables"]  # hashes must not travel
+
+
+def test_export_accounts_for_every_table(fresh_db):
+    """A migration that adds a table decides its export fate HERE, not by
+    accident: feature_unlocks and mention_log fell out of exports for five
+    migrations because nothing noticed absence. FTS shadow tables
+    (search_index_*) ride with their virtual table's exclusion."""
+    from app.services.admin import EXCLUDED, TABLES
+
+    rows = fresh_db.query(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+        " AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'search_index_%'"
+    )
+    real = {r["name"] for r in rows}
+    unaccounted = real - set(TABLES) - EXCLUDED
+    assert not unaccounted, (
+        f"tables neither exported nor excluded-with-reason: {sorted(unaccounted)}"
+    )
+    ghosts = (set(TABLES) | EXCLUDED) - real
+    assert not ghosts, f"TABLES/EXCLUDED name tables that do not exist: {sorted(ghosts)}"

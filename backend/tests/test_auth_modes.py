@@ -161,8 +161,9 @@ def test_a_key_wins_in_oidc_mode_both_ways(client, monkeypatch, fresh_db):
 
 
 def test_an_agent_key_is_refused_at_the_perimeter(client, monkeypatch):
-    """41 GET routes carry no user dependency, so in the locked modes the
-    middleware is their only gate. The agent wall has to live there too."""
+    """The ~45 GET routes that carry no user dependency have the middleware
+    as their only gate in the locked modes. The agent wall has to live
+    there too."""
     from app import config
     from app.services.api_keys import create_key
     from app.services.users import ensure_user
@@ -194,8 +195,9 @@ def test_a_credential_is_verified_once_per_request(client, monkeypatch):
 
 def test_an_oidc_sign_in_naming_an_agent_is_refused_at_the_perimeter(client, monkeypatch, fresh_db):
     """The twin of the API-key wall above, for the other locked mode. A token
-    whose username claim names an agent row reaches the same 41 dependency-less
-    GET routes, so the wall has to stand in both branches of the middleware."""
+    whose username claim names an agent row reaches the same ~45
+    dependency-less GET routes, so the wall has to stand in both branches
+    of the middleware."""
     from app.services.users import ensure_user
 
     ensure_user("scout", kind="agent")

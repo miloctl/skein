@@ -9,9 +9,10 @@ from app.agents.session_store import SqliteSessionRepository
 
 @pytest.fixture(autouse=True)
 def _own_db(fresh_db):
-    """The strategy work added a DB read (effective_context_strategy) into the
-    bridge; without a fresh DB these tests only passed when an earlier test
-    had initialized the shared one — order-dependence, not verification."""
+    """The bridge seeds conversation-manager state via team_agent.
+    _conversation_manager, which reads effective_context_strategy from the
+    DB; without a fresh DB these tests only pass when an earlier test
+    initialized the shared one — order-dependence, not verification."""
     return fresh_db
 
 

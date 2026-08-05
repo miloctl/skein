@@ -286,7 +286,7 @@ def test_engagement_names_dedupe_case_insensitively(fresh_db):
 
 
 def test_rename_cannot_reopen_the_case_variant_fork(fresh_db):
-    """The create check went NOCASE in 88dadbf; the rename path kept the
+    """The create check went NOCASE; the rename path kept the
     BINARY check, so update_engagement(name="APOLLO") beside "Apollo" forked
     rollups exactly the way the create fix prevents. Re-casing an
     engagement's OWN name stays legal."""

@@ -91,8 +91,12 @@ def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
     calling the create handler with **payload, so the keys here must be the
     handler's own kwargs. A generic {"text": ...} was applicable by nothing:
     every captured proposal failed at apply and reset to pending, wedging the
-    review inbox forever. capture() derives its own call from this function so
-    the two cannot drift apart again.
+    review inbox forever. capture() takes its kind from this function, so the
+    two paths cannot classify the same text differently — but its branch
+    calls mirror these payloads by hand, so a key change here must be made
+    there too. test_authority.py::
+    test_every_classified_capture_kind_produces_an_applicable_proposal pins
+    that every payload above applies through the registry.
     """
     kind = classify(text)
     body = PREFIX.sub("", text).strip() or text

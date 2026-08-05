@@ -38,7 +38,7 @@ def _start_scheduler():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()  # a failed migration SHOULD abort startup — everything else must not
+    db.init_db()  # a failed migration MUST abort startup — everything else must not
     # same rule for the field-guide registry: malformed knots.yaml aborts boot
     # here, instead of 500ing the first /field-guide request at 3pm
     from .services import fieldguide

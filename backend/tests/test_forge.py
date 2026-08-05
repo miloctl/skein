@@ -394,9 +394,9 @@ def test_a_wrong_typed_nested_field_is_never_a_500(signed, fresh_db):
     tid = work.create_task("Fix login")["id"]
     # Gitea types every field correctly, so only a caller holding the secret
     # sends these — and each one reached an AttributeError inside parse_gitea
-    # before the _dict/_str boundary, which main.py maps to no 4xx. The suite's
-    # fixtures are all well-typed; that blind spot is why three rounds of
-    # review missed this.
+    # before the _dict/_str boundary, which main.py maps to no 4xx. The
+    # suite's other fixtures are all well-typed and never reach these
+    # branches — these cases are the only coverage.
     payloads = [
         ("push", {"ref": 1}),
         ("push", {"ref": ["refs/heads/task/1-x"]}),
@@ -585,7 +585,7 @@ def test_a_task_someone_else_closed_keeps_its_branch_link(signed, fresh_db):
     work.update_task(tid, status="done", actor="mira")
     out = signed("pull_request", _pr(f"task/{tid}-x", action="closed", merged=True)).json()
     # no transition left to earn, so nothing is recorded — docs/FEATURES.md
-    # says exactly this, and said the opposite for three rounds
+    # says exactly this, and once claimed the opposite
     assert out["ignored"] == "task is already done"
     assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"].endswith(
         f"/src/branch/task/{tid}-x"

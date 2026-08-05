@@ -1,4 +1,4 @@
-"""Finding dispositions (PLAN.md W1.4): suppression keys on (rule_id,
+"""Finding dispositions: suppression keys on (rule_id,
 subject) because findings re-fire weekly as new rows."""
 
 from datetime import date, timedelta

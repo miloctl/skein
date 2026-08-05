@@ -26,7 +26,7 @@ def create_milestone(
     db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
     # resolve the engagement link at write time — the name join is display
-    # only, the id is what health/forecast/handoff should trust
+    # only, the id is what health/forecast/handoff trust
     eng = db.query_one("SELECT id FROM engagements WHERE name = ?", (project,))
     mid = db.execute(
         "INSERT INTO milestones (project, engagement_id, title, description, owner,"

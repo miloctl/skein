@@ -28,7 +28,7 @@ def _check_id(thread_id: str) -> str:
 
 
 def _title_from(text: str) -> str:
-    # "/as growth-mentor how do I..." should title as the question, not the plumbing
+    # "/as growth-mentor how do I..." titles as the question, not the plumbing
     text = re.sub(r"^/as\s+[a-z0-9-]+\s+", "", text.strip(), flags=re.I)
     line = text.splitlines()[0].strip() if text.strip() else "New chat"
     return line[:TITLE_LEN] + ("…" if len(line) > TITLE_LEN else "")
