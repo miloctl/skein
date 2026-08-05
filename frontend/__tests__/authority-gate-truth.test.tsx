@@ -48,7 +48,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
         });
       if (path === "/api/agents/entities")
         return Promise.resolve({
-          entities: ["task", "note_delete"],
+          entities: [
+            { entity: "task", label: "tasks (add, change)" },
+            { entity: "note_delete", label: "delete a note" },
+          ],
           always_review: ["absence", "event_cancel", "memory_forget", "note_delete"],
         });
       if (path === "/api/agents")
@@ -161,8 +164,23 @@ describe("a destructive entity holding a level the gate ignores", () => {
   it("never renders acts alone", async () => {
     gate.on = false;
     const { container } = render(<AgentsPage />);
-    await waitFor(() => expect(container.textContent).toMatch(/note_delete/));
+    // the row now reads as its capability, so wait on that
+    await waitFor(() => expect(container.textContent).toMatch(/delete a note/));
     expect(container.textContent).toMatch(/needs approval \(always\)/);
     expect(container.textContent).not.toMatch(/acts alone/);
+  });
+});
+
+/** The registry keys are schema words. A matrix row grants every action the
+ *  entity registers, so the row must enumerate them: "a blocker" hid that
+ *  the same grant also resolves blockers (services/lexicon.py). */
+describe("the authority rows", () => {
+  it("name the capability, not the table", async () => {
+    gate.on = false;
+    const { container } = render(<AgentsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(/delete a note/));
+    expect(container.textContent).toMatch(/tasks \(add, change\)/);
+    // the raw key survives only in the tooltip, never as the row text
+    expect(container.textContent).not.toMatch(/ on note_delete/);
   });
 });

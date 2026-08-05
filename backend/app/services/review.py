@@ -5,6 +5,7 @@ rest of the platform uses, stamped origin='agent_verified'."""
 import json
 
 from .. import db
+from . import lexicon
 
 
 def _registry() -> dict:
@@ -438,6 +439,9 @@ def list_changes(status: str = "pending") -> list[dict]:
         rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")
     for r in rows:
         r["payload"] = json.loads(r["payload"])
+        # what this proposal is CALLED, resolved here so the header, the
+        # checkbox label and the notification cannot drift apart
+        r["label"] = lexicon.phrase(r["entity"], r["action"])
         # the UI shows whose verdict this is — acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)

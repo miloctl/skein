@@ -726,13 +726,22 @@ def get_agents_trust():
 @router.get("/agents/entities")
 def get_agent_entities():
     from ..services.delegation import NO_AUTHORITY
-    from ..services.review import _registry
-    from ..tools._gate import ALWAYS_REVIEW
 
     # one set, shared with set_authority: excluding here but validating there
     # let a direct POST store a grant this picker cannot produce
+    from ..services.lexicon import entity_label
+    from ..services.review import _registry
+    from ..tools._gate import ALWAYS_REVIEW
+
     return {
-        "entities": sorted(e for e in _registry() if e not in NO_AUTHORITY),
+        # the label enumerates every capability the grant carries: a matrix
+        # row is keyed on the entity, and "a blocker" hid that the same grant
+        # also resolves them
+        "entities": [
+            {"entity": e, "label": entity_label(e)}
+            for e in sorted(_registry())
+            if e not in NO_AUTHORITY
+        ],
         # the gate takes the review path for these before it reads the level,
         # so the card must not offer or display "acts alone" for them
         "always_review": sorted(ALWAYS_REVIEW),

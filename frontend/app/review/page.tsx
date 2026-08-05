@@ -33,6 +33,7 @@ type Change = {
   requested_by: string | null;
   origin: string;
   created_at: string;
+  label: string; // services/lexicon.py — what this write is called
   sponsor?: string; // task_completion only: whose verdict this is
   reviewed_by?: string | null;
   reviewed_override?: number; // 1: judged by someone other than the sponsor
@@ -281,7 +282,7 @@ export default function ReviewPage() {
                   checked={selected.has(c.id)}
                   onChange={() => toggle(c.id)}
                   disabled={!!forSponsor(c)}
-                  aria-label={`Select #${c.id} ${c.action} ${c.entity} for batch approval`}
+                  aria-label={`Select #${c.id} ${c.label} for batch approval`}
                   title={
                     forSponsor(c)
                       ? `sponsored by ${c.sponsor} — accept individually with a reason`
@@ -289,8 +290,15 @@ export default function ReviewPage() {
                   }
                   className="h-4 w-4 disabled:opacity-40"
                 />
-                #{c.id} · {c.action} {c.entity}
-                {c.entity_id ? ` #${c.entity_id}` : ""}
+                #{c.id} · {c.label}
+                {/* the id after a task_completion names the TASK the sponsor is
+                    accepting, not this proposal — the bare "#10" read as a
+                    second proposal number */}
+                {c.entity_id
+                  ? c.entity === "task_completion"
+                    ? ` on task #${c.entity_id}`
+                    : ` #${c.entity_id}`
+                  : ""}
               </span>
               <span className="text-xs text-ink-3">
                 by {c.proposed_by}

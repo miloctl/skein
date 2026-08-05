@@ -87,7 +87,7 @@ const LEVEL_COLOR: Record<string, string> = {
 export default function Agents() {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [trust, setTrust] = useState<Trust[] | null>(null);
-  const [entities, setEntities] = useState<string[]>([]);
+  const [entities, setEntities] = useState<{ entity: string; label: string }[]>([]);
   // served from tools/_gate.py ALWAYS_REVIEW: the gate takes the review
   // path for these before it reads the level, so the card must never show
   // or offer "acts alone" on them. Hand-typing the list here would let the
@@ -120,6 +120,10 @@ export default function Agents() {
   // stored in the first place; the backend refuses it too (set_authority)
   const levelsFor = (ent: string) =>
     alwaysReview.includes(ent) ? ["review", "forbidden"] : LEVELS;
+  // one name per entity, served from services/lexicon.py. Falling back to the
+  // raw key keeps an unglossed entity LOOKING wrong rather than plausible.
+  const entityLabel = (ent: string) =>
+    entities.find((e) => e.entity === ent)?.label ?? ent;
   const inboxGeneration = useRef(0);
   // Every section here must distinguish "unknown" from "empty". Several
   // empty states are CLAIMS — "No reviewed proposals yet", "Nothing
@@ -149,7 +153,9 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust")
       .then(ok(setTrust, "trust"))
       .catch(fail("trust", "trust scores"));
-    api<{ entities: string[]; always_review: string[] }>("/api/agents/entities")
+    api<{ entities: { entity: string; label: string }[]; always_review: string[] }>(
+      "/api/agents/entities",
+    )
       .then((r) => {
         ok(setEntities, "entities")(r.entities);
         setAlwaysReview(r.always_review);
@@ -349,10 +355,10 @@ export default function Agents() {
                     {a.authority.map((au) => (
                       <span
                         key={au.entity}
-                        title={`${au.entity}: ${au.level}`}
+                        title={`${au.entity}: ${au.level}`} /* raw pair stays in the tooltip */
                         className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level] ?? 'bg-raised text-ink-2'}`}
                       >
-                        {au.entity}:{" "}
+                        {entityLabel(au.entity)}:{" "}
                         {levelLabel(au.level, gateOn, alwaysReview.includes(au.entity))}
                       </span>
                     ))}
@@ -377,9 +383,19 @@ export default function Agents() {
           ) : (
             <>
               The review gate is off, so an agent writes directly and only{" "}
-              <b>not allowed</b> stops it. Four writes still wait for a human:
-              delete a note, forget a memory, cancel an event, record an
-              absence. To make <b>needs approval</b> hold for every entity, set{" "}
+              <b>not allowed</b> stops it.{" "}
+              {/* rendered from the served ALWAYS_REVIEW set, never typed here:
+                  a hand-written list drifts from _gate.py the moment either
+                  the set or a capability phrase changes, and this one already
+                  had — it said "cancel an event" after the phrase became
+                  "delete an event from the calendar" */}
+              {alwaysReview.length > 0 && (
+                <>
+                  These still wait for a human:{" "}
+                  {alwaysReview.map(entityLabel).join(", ")}.{" "}
+                </>
+              )}
+              To make <b>needs approval</b> hold for every entity, set{" "}
               <code>SKEIN_AGENT_REVIEW=1</code> and restart the server. The
               built-in chat agent is “agent”.
             </>
@@ -410,7 +426,10 @@ export default function Agents() {
                 <li key={`${g.agent}-${g.entity}`} className="flex items-center gap-2">
                   <span className="min-w-0 flex-1">
                     <span className="font-medium">{g.agent}</span>
-                    <span className="text-ink-3"> on {g.entity}</span>
+                    {/* "on {entity}" cannot take a verb phrase — the label
+                        names the capability, so the frame supplies no
+                        preposition of its own */}
+                    <span className="text-ink-3"> · {entityLabel(g.entity)}</span>
                   </span>
                   {manage ? (
                     <select
@@ -418,7 +437,7 @@ export default function Agents() {
                       disabled={busy}
                       onChange={(e) => changeAuthority(g.agent, g.entity, e.target.value)}
                       className="rounded border border-line-strong bg-card px-2 py-1 text-xs"
-                      aria-label={`Authority for ${g.agent} on ${g.entity}`}
+                      aria-label={`Authority for ${g.agent}: ${entityLabel(g.entity)}`}
                     >
                       {levelsFor(g.entity).map((l) => (
                         <option key={l} value={l}>
@@ -466,9 +485,13 @@ export default function Agents() {
               onChange={(e) => setEntity(e.target.value)}
               className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
             >
-              {(entities.length ? entities : ["task"]).map((e) => (
-                <option key={e}>{e}</option>
-              ))}
+              {(entities.length ? entities : [{ entity: "task", label: "add or change a task" }]).map(
+                (e) => (
+                  <option key={e.entity} value={e.entity}>
+                    {e.label}
+                  </option>
+                ),
+              )}
             </select>
             <select
               value={level}

@@ -51,6 +51,7 @@ describe("the Approvals diff table", () => {
         action: "create",
         payload: { week: "2026-W32", task_ids: [2, 7] },
         summary: "the weekly line",
+        label: "commit tasks to a week",
         proposed_by: "scheduler",
         requested_by: null,
         origin: "agent",
