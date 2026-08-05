@@ -130,6 +130,14 @@ function shouldWave() {
 export default function MyDay() {
   const [b, setB] = useState<Briefing | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
+  /** Two setup steps happen on THIS page, not at a route (services/
+   *  onboarding.py marks them with a leading "#"). They used to link to
+   *  "/", so the first-run reader clicked the most inviting thing on the
+   *  page and nothing at all happened. */
+  const runStep = (link: string) => {
+    if (link === "#capture") window.dispatchEvent(new Event("skein-capture-open"));
+    if (link === "#standup") document.getElementById("standup-today")?.focus();
+  };
   const [error, setError] = useState<string | null>(null);
   // persisted per ISO week — an accidental reload must not re-ask (votes are
   // anonymous server-side, so the client is the only dedupe there is)
@@ -364,12 +372,21 @@ export default function MyDay() {
                         <span className="text-ink-3">✓ {s.label}</span>
                       ) : (
                         <>
-                          <Link
-                            href={s.link}
-                            className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
-                          >
-                            ○ {s.label}
-                          </Link>
+                          {s.link.startsWith("#") ? (
+                            <button
+                              onClick={() => runStep(s.link)}
+                              className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
+                            >
+                              ○ {s.label}
+                            </button>
+                          ) : (
+                            <Link
+                              href={s.link}
+                              className="font-medium text-ink underline decoration-dotted decoration-line-strong underline-offset-2 hover:text-thread"
+                            >
+                              ○ {s.label}
+                            </Link>
+                          )}
                           <span className="ml-1 block pl-4 text-xs text-ink-3">{s.hint}</span>
                         </>
                       )}

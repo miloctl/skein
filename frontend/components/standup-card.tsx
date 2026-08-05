@@ -57,6 +57,7 @@ export function StandupComposer({
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
       <input
+        id="standup-today"
         name="standup-today"
         aria-label="Standup: what are you on today?"
         value={today}

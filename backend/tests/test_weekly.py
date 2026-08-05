@@ -131,3 +131,20 @@ def test_agent_recorded_promises_surface_in_week_open(fresh_db):
     opened = rituals.week_open(actor="mira", force=True)
     assert "Recorded by agents" in opened["markdown"]
     assert "send the SOW" in opened["markdown"]
+
+
+def test_weekly_summary_agrees_with_its_own_count(fresh_db):
+    """This summary reaches a reader on My Day, on Approvals, and in a
+    notification. It shipped "1 tasks" — CLAUDE.md requires sentence-form
+    text to compute plurals, and a string carrying a number gets no warmth
+    allowance to hide behind."""
+    from app.services import users, weekly, work
+
+    users.ensure_user("solo")
+    work.create_task(title="the only open task", assignee="solo")
+    weekly.propose_weekly_plan(actor="scheduler")
+    summary = fresh_db.query_row(
+        "SELECT summary FROM pending_changes WHERE entity = 'weekly_plan'"
+    )["summary"]
+    assert "1 task (" in summary, summary
+    assert "1 tasks" not in summary

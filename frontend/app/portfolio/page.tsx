@@ -180,12 +180,20 @@ export default function Portfolio() {
                     {h.status} · lead {h.lead || "unset"}
                   </span>
                 </div>
-                {h.receipts.length > 0 && (
+                {h.receipts.length > 0 ? (
                   <ul className="ml-6 mt-1 list-disc text-xs text-ink-3">
                     {h.receipts.map((r, i) => (
                       <li key={i}>{r}</li>
                     ))}
                   </ul>
+                ) : (
+                  /* the card title promises a why for every rating, and an
+                     empty receipt list IS the why: services/portfolio.py
+                     rates green exactly when no signal fired */
+                  <p className="ml-6 mt-1 text-xs text-ink-3">
+                    Nothing flagged: no overdue milestone, no open blocker, no
+                    stalled or waiting task, and no silent stretch.
+                  </p>
                 )}
               </li>
             ))}
@@ -350,9 +358,14 @@ export default function Portfolio() {
         ) : (
           <>
             <p className="mb-2 text-xs text-ink-3">
-              Based on {forecast.basis.milestones_measured} completed milestone
-              {forecast.basis.milestones_measured === 1 ? "" : "s"}, median slip{" "}
-              {forecast.basis.median_slip_days}d.
+              {/* with nothing completed the model has no slip to apply, so
+                  every "likely" date below just repeats the due date — say
+                  that, instead of dressing no information as a prediction */}
+              {forecast.basis.milestones_measured === 0
+                ? "No milestone has been completed yet, so these dates repeat the due date. They become a forecast after the team finishes some work."
+                : `Based on ${forecast.basis.milestones_measured} completed milestone${
+                    forecast.basis.milestones_measured === 1 ? "" : "s"
+                  }, median slip ${forecast.basis.median_slip_days}d.`}
             </p>
             {forecast.forecasts.length === 0 ? (
               <p className="text-sm text-ink-3">No dated open milestones.</p>
@@ -363,7 +376,9 @@ export default function Portfolio() {
                     {f.at_risk ? "⚠️ " : ""}
                     {f.title}
                     <span className="ml-2 text-xs text-ink-3">
-                      due {f.due_date} → likely {f.forecast_date}
+                      due {f.due_date}
+                      {forecast.basis.milestones_measured > 0 &&
+                        ` → likely ${f.forecast_date}`}
                     </span>
                   </li>
                 ))}
