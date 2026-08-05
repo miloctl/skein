@@ -154,6 +154,8 @@ code in slices, with no access to the session that made it.
 - Put the threat next to a security check. A check with no reason reads as
   redundant validation, and a later edit deletes it.
 - If a re-check follows an `await`, name the race that it prevents.
+- State a requirement as `must` or as plain fact, never `should` — a
+  comment's `should` reads as optional, and the next edit treats it that way.
 - Never write narration ("loop over the users"), session history ("added
   in round 3"), hedges ("this should probably..."), or bare markers ("do
   not remove"). A marker with no consequence does not survive the next edit.
