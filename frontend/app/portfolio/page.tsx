@@ -373,10 +373,10 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Commitments — external + yours to the team">
+      <Card title="Promises — external + yours to the team">
         {!manage && commitments?.some((c) => c.status === "open") && (
           <p className="mb-2 text-xs text-ink-3">
-            To mark a commitment kept or missed, turn on <b>manager
+            To mark a promise kept or missed, turn on <b>manager
             controls</b> (top right).
           </p>
         )}

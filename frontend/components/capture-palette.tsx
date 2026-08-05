@@ -22,6 +22,13 @@ const RULES: [string, RegExp][] = [
   ["task", /^\s*(fix|add|update|implement|write|ship|review|schedule)\b/i],
 ];
 
+// The stored kind is the API contract (`commitment`); the word a reader sees
+// is `promise` (docs/LEXICON.md, and the chip below already says promise).
+// Map at the point of display rather than renaming the kind, which tools,
+// tests, and the classifier all key on.
+const KIND_LABEL: Record<string, string> = { commitment: "promise" };
+const label = (kind: string) => KIND_LABEL[kind] ?? kind;
+
 const KNOWN_PREFIX =
   /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|req|request|fb):\s*/i;
 
@@ -131,7 +138,7 @@ export function CapturePalette() {
         method: "POST",
         body: JSON.stringify({ text }),
       });
-      setResult(`Captured as ${r.kind} #${r.id}`);
+      setResult(`Captured as ${label(r.kind)} #${r.id}`);
       setText("");
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
@@ -207,7 +214,7 @@ export function CapturePalette() {
               (kind
                 ? kind.startsWith("⚠")
                   ? kind
-                  : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
+                  : `will file as: ${label(kind)}${kind === "private feedback" ? " (needs your API key)" : ""}`
                 : [
                     <span key="kbd" className="[@media(any-pointer:coarse)]:hidden">
                       Enter to save · Esc to close

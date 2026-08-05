@@ -56,3 +56,33 @@ describe("one condition, one wording across surfaces", () => {
     }
   });
 });
+
+describe("the decided lexicon (docs/LEXICON.md)", () => {
+  it("says promise, not commitment, in user-visible text", () => {
+    // one concept, one word. The user types `promised:`, the capture chip
+    // says promise, and the data model calls the content `promise` — the
+    // pages said "Commitments". Code identifiers are exempt: the table,
+    // the API path, and the classifier kind keep their names, so this
+    // checks rendered text only. "commitment line" is a DIFFERENT concept
+    // (tasks committed to an ISO week) and keeps the word.
+    const offenders: string[] = [];
+    for (const file of files) {
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          if (/commitment line/i.test(line)) return;
+          if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+          const shown = [
+            ...line.matchAll(/["'`]([^"'`\n]*[Cc]ommitment[^"'`\n]*)["'`]/g),
+            ...line.matchAll(/>\s*([^<>{}\n]*[Cc]ommitment[^<>{}\n]*)\s*</g),
+          ].map((m) => m[1]);
+          for (const s of shown) {
+            if (/^[a-z_]+$/.test(s.trim())) continue;
+            if (s.includes("/api/")) continue;
+            offenders.push(`${file.slice(ROOT.length + 1)}:${i + 1}: ${s.trim()}`);
+          }
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
+});

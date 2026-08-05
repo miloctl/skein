@@ -80,7 +80,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "commitment",
                 "ref_id": c["id"],
                 "group": "commit",
-                "label": f"commitment #{c['id']}: {c['promise'][:80]}",
+                "label": f"promise #{c['id']}: {c['promise'][:80]}",
                 "reason": (
                     f"{'OVERDUE since' if overdue else 'due'} {c['due_date']}"
                     + (" — a promise to the team" if c["audience"] == "team" else "")

@@ -113,7 +113,10 @@ def cmd_config(args):
 
 def cmd_capture(args):
     out = api("POST", "/api/capture", {"text": " ".join(args.text)})
-    print(f"captured as {out['kind']} #{out['id']}")
+    # the stored kind is the API contract; `promise` is the word the product
+    # uses for it (docs/LEXICON.md)
+    shown = {"commitment": "promise"}.get(out["kind"], out["kind"])
+    print(f"captured as {shown} #{out['id']}")
 
 
 def cmd_standup(args):
@@ -453,7 +456,7 @@ def main():
 
     c = sub.add_parser("commitments", help="open promises / settle one")
     c.add_argument("action", nargs="?", choices=["list", "settle"], default="list")
-    c.add_argument("id", nargs="?", type=int, help="commitment id (for settle)")
+    c.add_argument("id", nargs="?", type=int, help="promise id (for settle)")
     c.add_argument(
         "status", nargs="?", choices=["kept", "missed", "withdrawn"], help="verdict (for settle)"
     )
