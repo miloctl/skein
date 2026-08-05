@@ -56,9 +56,14 @@ this file is only for accepted trade-offs that must eventually be repaid.
   runbook; `SKEIN_TRUST_PROXY_HOPS=1` behind the router;
   `SKEIN_CORS_ORIGINS` set to the exact browser origin (scheme + host +
   port — the live test showed 127.0.0.1 vs localhost is already a
-  mismatch); memory requests/limits sized for `next start` + uvicorn (the
-  dev frontend OOM-crashed at ~heavy parallel load, which a container
-  limit turns into a clean restart instead of a wedge);
+  mismatch); memory requests/limits sized for `next start` + uvicorn —
+  measure those two, never the dev server: `next dev` idles at ~2.3 GB RSS
+  and crashed twice on Node's default ~4.2 GB old-space cap during bursts
+  of edits, which is why `npm run dev` sets `--max-old-space-size`. That
+  number must NOT be copied into the container: a heap cap above the
+  cgroup limit makes Node grow into an OOM-kill instead of collecting
+  harder. Growth per compile measured at ~3 MB/page, so there is no leak
+  to size around;
   `SKEIN_AUTH_MODE` oidc or api-key, trusted-header staying dev-only; and
   a `v*` release tag on the deployed commit — the tag is what activates
   the upgrade-path CI job (scripts/upgrade-path.sh baselines on the
