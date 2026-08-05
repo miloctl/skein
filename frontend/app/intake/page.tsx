@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
+import { EmptyState } from "@/components/card";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
 
@@ -32,13 +33,21 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function IntakePage() {
-  const [reqs, setReqs] = useState<Req[]>([]);
+  // null until the fetch settles. Starting at [] rendered an empty list for
+  // "still loading", "nothing here", and "the load failed" alike — three
+  // states, one blank screen.
+  const [reqs, setReqs] = useState<Req[] | null>(null);
   const [form, setForm] = useState({ title: "", detail: "", project_class: "" });
   const [error, setError] = useState<string | null>(null);
   const manage = useManageMode();
 
   const load = useCallback(() => {
-    api<Req[]>("/api/intake").then(setReqs).catch((e) => setError(loadError(e)));
+    api<Req[]>("/api/intake")
+      .then(setReqs)
+      .catch((e) => {
+        setReqs([]);            // settled, with the error shown above the list
+        setError(loadError(e));
+      });
   }, []);
   useEffect(load, [load]);
 
@@ -178,18 +187,25 @@ export default function IntakePage() {
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
-      {!manage && reqs.some((r) => r.status === "submitted" || r.status === "scored") && (
+      {!manage && (reqs ?? []).some((r) => r.status === "submitted" || r.status === "scored") && (
         <p className="mb-3 rounded-lg bg-raised px-3 py-2 text-xs text-ink-2">
-          {reqs.filter((r) => r.status === "submitted" || r.status === "scored").length}{" "}
+          {(reqs ?? []).filter((r) => r.status === "submitted" || r.status === "scored").length}{" "}
           request
-          {reqs.filter((r) => r.status === "submitted" || r.status === "scored").length === 1
+          {(reqs ?? []).filter((r) => r.status === "submitted" || r.status === "scored").length === 1
             ? " awaits"
             : "s await"}{" "}
           triage — turn on <b>manager controls</b> (top right) to score and decide.
         </p>
       )}
+      {reqs === null && !error && <p className="text-sm text-ink-3">Loading…</p>}
+      {reqs !== null && reqs.length === 0 && !error && (
+        <EmptyState>
+          No requests yet. Anyone on the team can file one above — it lands
+          here for triage, not in someone&apos;s direct messages.
+        </EmptyState>
+      )}
       <ul className="space-y-3">
-        {reqs.map((r) => (
+        {(reqs ?? []).map((r) => (
           <li
             key={r.id}
             className="rounded-xl border border-line bg-card p-4 shadow-card"

@@ -19,7 +19,10 @@ type Decision = {
 };
 
 export default function CharterPage() {
-  const [decisions, setDecisions] = useState<Decision[]>([]);
+  // null until the fetch settles: an empty charter is a real and meaningful
+  // answer ("nobody has written the working agreements yet"), so it must not
+  // also be what a slow or failed load looks like
+  const [decisions, setDecisions] = useState<Decision[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
@@ -47,7 +50,10 @@ export default function CharterPage() {
   const load = useCallback(() => {
     api<Decision[]>("/api/decisions?category=charter")
       .then(setDecisions)
-      .catch((e) => setError(loadError(e)));
+      .catch((e) => {
+        setDecisions([]);       // settled, with the error shown below
+        setError(loadError(e));
+      });
   }, []);
   useEffect(load, [load]);
 
@@ -126,7 +132,7 @@ export default function CharterPage() {
       </div>
 
       <ul className="space-y-3">
-        {decisions.map((d) => (
+        {(decisions ?? []).map((d) => (
           <li
             key={d.id}
             className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
@@ -238,7 +244,10 @@ export default function CharterPage() {
             )}
           </li>
         ))}
-        {decisions.length === 0 && (
+        {decisions === null && !error && (
+          <p className="text-sm text-ink-3">Loading…</p>
+        )}
+        {decisions !== null && decisions.length === 0 && (
           <li><EmptyState>
             No charter entries yet. Start with: who owns what, how we escalate,
             what quality bar we hold.

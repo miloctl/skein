@@ -91,7 +91,10 @@ function VerdictAsk({
 export default function ReviewPage() {
   // tracks cross-tab identity switches too, like the nav's name chip
   const me = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
-  const [changes, setChanges] = useState<Change[]>([]);
+  // null until the fetch settles: [] is a real answer ("nothing is waiting"),
+  // and starting there flashed that empty state on every navigation and left
+  // it standing after a failed load — an empty queue is a claim, not a blank
+  const [changes, setChanges] = useState<Change[] | null>(null);
   const [history, setHistory] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -123,7 +126,10 @@ export default function ReviewPage() {
         );
         setDiffs(Object.fromEntries(entries));
       })
-      .catch((e) => setError(loadError(e)));
+      .catch((e) => {
+        setChanges([]);           // settled, with the error shown below
+        setError(loadError(e));
+      });
     api<Change[]>("/api/review?status=approved").then(setHistory).catch(() => {});
   }, []);
   useEffect(load, [load]);
@@ -237,7 +243,10 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {changes.length === 0 && !error && (
+      {changes === null && !error && (
+        <p className="text-sm text-ink-3">Loading…</p>
+      )}
+      {changes !== null && changes.length === 0 && !error && (
         <EmptyState>
           {emptyState("review")}
           <span className="mt-1 block text-xs">
@@ -248,7 +257,7 @@ export default function ReviewPage() {
       )}
 
       <ul className="space-y-4">
-        {changes.map((c) => (
+        {(changes ?? []).map((c) => (
           <li
             key={c.id}
             className="rounded-xl border border-line bg-card p-4 shadow-card"

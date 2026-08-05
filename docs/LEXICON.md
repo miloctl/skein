@@ -181,7 +181,7 @@ A wording review needs every state a user can reach, so the states were
 mapped first. Four of them make a false claim. These are defects, not word
 choices, and they outrank every row above: a wrong claim beats a clumsy one.
 
-**T1. A failed card loads forever.** `app/portfolio/page.tsx:90-103` — six
+**T1. A failed card loads forever.** FIXED 2026-08-04. `app/portfolio/page.tsx:90-103` — six
 cards fetch independently and each `.catch` only calls `reportStatus`. State
 is never set, so `health === null` stays true and the card renders
 `Loading…` permanently. With the backend down you get six cards saying
@@ -194,9 +194,13 @@ for a quiet one: the card now claims work is in progress after the work
 stopped. The fix is a third state (error) per card, not a different
 initializer. `app/agents/page.tsx` Mission control has the same shape.
 
-**T2. No loading state at all.** `/review`, `/intake`, `/charter` start
-from `[]`, so a slow or failed load renders the EMPTY state first —
-`/review` flashes its whimsy empty line on every navigation.
+**T2. No loading state at all.** FIXED 2026-08-04. `/review`, `/intake`,
+`/charter` started from `[]`, so a slow or failed load rendered the EMPTY
+state — `/review` flashed its whimsy empty line on every navigation, and
+`/intake` had no empty state at all, making "loading", "none", and "failed"
+one blank list. All three now hold null until the fetch settles, and
+`__tests__/loading-states.test.tsx` pins loading-vs-empty-vs-failed for
+each (verified to fail against the two-state shape).
 
 **T3. Silent catches.** Six `/agents` fetches (trust, entities, personas,
 status, memories, review history) swallow failures and render as "no data".
