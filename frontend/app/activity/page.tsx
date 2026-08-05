@@ -84,6 +84,16 @@ export default function ActivityPage() {
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+      {/* the three-state sweep (review, intake, charter, portfolio, agents)
+          missed this page: before `loaded` it rendered NOTHING — no rows, no
+          empty state, no spinner — and the ledger feed is the largest read
+          in the app, so the blank is longest exactly where it is least
+          explicable */}
+      {!loaded && !error && (
+        <Card>
+          <p className="text-sm text-ink-3">Loading…</p>
+        </Card>
+      )}
       {loaded && !error && entries.length === 0 && (
         <Card>
           <p className="text-sm text-ink-3">
