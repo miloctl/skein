@@ -85,22 +85,48 @@ export default function Portfolio() {
   const [readout, setReadout] = useState<string | null>(null);
   const [ritualOut, setRitualOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Three states per card, not two. A card whose fetch FAILED is still null,
+  // so a null-means-loading check leaves it saying "Loading…" forever — a
+  // claim that work is in progress after the work stopped. The toast alone
+  // does not cover it: six loads share one region, so a dead backend names
+  // one card and leaves five lying.
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const manage = useManageMode();
 
   const load = useCallback(() => {
-    // every card's failure is reported — a failed fetch rendering
-    // "Nobody is over 100%" would be a confident lie, not an empty state.
-    // Last failure wins the region: six loads share one, so a dead backend
-    // names one card rather than all six.
-    const fail = (what: string) => (e: Error) =>
+    const fail = (key: string, what: string) => (e: Error) => {
+      setErrors((cur) => ({ ...cur, [key]: `Cannot load ${what}. ${actionError(e)}` }));
       reportStatus(`Cannot load ${what}. ${actionError(e)}`);
-    api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("engagement health"));
-    api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("capacity conflicts"));
-    api<Flow>("/api/portfolio/flow").then(setFlow).catch(fail("flow"));
-    api<Week>("/api/week").then(setWeek).catch(fail("this week's plan"));
-    api<Forecast>("/api/portfolio/forecast").then(setForecast).catch(fail("the slip forecast"));
-    api<Commitment[]>("/api/commitments").then(setCommitments).catch(fail("commitments"));
+    };
+    const ok = <T,>(set: (v: T) => void, key: string) => (v: T) => {
+      set(v);
+      setErrors((cur) => (key in cur ? { ...cur, [key]: "" } : cur));
+    };
+    api<Health[]>("/api/portfolio/health")
+      .then(ok(setHealth, "health"))
+      .catch(fail("health", "engagement health"));
+    api<Conflict[]>("/api/portfolio/conflicts")
+      .then(ok(setConflicts, "conflicts"))
+      .catch(fail("conflicts", "capacity conflicts"));
+    api<Flow>("/api/portfolio/flow").then(ok(setFlow, "flow")).catch(fail("flow", "flow"));
+    api<Week>("/api/week").then(ok(setWeek, "week")).catch(fail("week", "this week's plan"));
+    api<Forecast>("/api/portfolio/forecast")
+      .then(ok(setForecast, "forecast"))
+      .catch(fail("forecast", "the slip forecast"));
+    api<Commitment[]>("/api/commitments")
+      .then(ok(setCommitments, "commitments"))
+      .catch(fail("commitments", "commitments"));
   }, []);
+
+  /** What a card shows before its data arrives: the failure if there was
+   *  one, otherwise Loading. Never "Loading…" for a fetch that already
+   *  failed. */
+  const pending = (key: string) =>
+    errors[key] ? (
+      <p className="text-sm text-danger">{errors[key]}</p>
+    ) : (
+      <p className="text-sm text-ink-3">Loading…</p>
+    );
 
   useEffect(load, [load]);
 
@@ -135,7 +161,7 @@ export default function Portfolio() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Card title="Engagement health — each rating shows why">
         {health === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          pending("health")
         ) : health.length === 0 ? (
           <p className="text-sm text-ink-3">
             No active engagements — accept a request on Inbox → Requests to
@@ -172,7 +198,7 @@ export default function Portfolio() {
           The tasks the team promised to finish this week.
         </p>
         {week === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          pending("week")
         ) : week.committed > 0 ? (
           <>
             <p className="mb-2 text-sm">
@@ -265,7 +291,7 @@ export default function Portfolio() {
 
       <Card title="Capacity conflicts">
         {conflicts === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          pending("conflicts")
         ) : conflicts.length === 0 ? (
           <p className="text-sm text-ink-3">Nobody is over 100%.</p>
         ) : (
@@ -285,7 +311,7 @@ export default function Portfolio() {
 
       <Card title="Flow — cycle time from real task history">
         {flow === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          pending("flow")
         ) : (
           <div className="space-y-2 text-sm">
             <p>
@@ -320,7 +346,7 @@ export default function Portfolio() {
 
       <Card title="Slip forecast">
         {forecast === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          pending("forecast")
         ) : (
           <>
             <p className="mb-2 text-xs text-ink-3">
@@ -355,7 +381,7 @@ export default function Portfolio() {
           </p>
         )}
         {commitments === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          pending("commitments")
         ) : commitments.length === 0 ? (
           <p className="text-sm text-ink-3">
             None recorded — capture one with “promised: …”.

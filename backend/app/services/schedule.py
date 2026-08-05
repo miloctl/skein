@@ -158,7 +158,7 @@ def ics_feed() -> str:
             "BEGIN:VEVENT",
             f"UID:milestone-{m['id']}@skein",
             *start,
-            f"SUMMARY:{_ics_escape('🎯 due: ' + m['title'])}",
+            f"SUMMARY:{_ics_escape('due: ' + m['title'])}",
             "END:VEVENT",
         ]
     for c in db.query(
@@ -172,7 +172,7 @@ def ics_feed() -> str:
             "BEGIN:VEVENT",
             f"UID:commitment-{c['id']}@skein",
             *start,
-            f"SUMMARY:{_ics_escape('🤝 promised: ' + c['promise'][:80])}",
+            f"SUMMARY:{_ics_escape('promised: ' + c['promise'][:80])}",
             "END:VEVENT",
         ]
     lines.append("END:VCALENDAR")
