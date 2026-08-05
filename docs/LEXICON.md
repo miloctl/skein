@@ -22,7 +22,8 @@ multi-line JSX prose. Counts below are from the corrected pass. No ruling
 changed, but any future count must come from rendered screens (Phase 1),
 not a regex: a static sweep cannot see what a component assembles.
 
-Status: **DRAFT — awaiting decisions.** Nothing here is applied.
+Status: rows 1, 1b and the rule questions R1-R3 are **DECIDED and applied**
+(2026-08-04). Rows 2-7 remain open.
 
 ---
 
@@ -35,7 +36,8 @@ Status: **DRAFT — awaiting decisions.** Nothing here is applied.
 | Words in use | **commitment** (13 visible / 6 files) · **promise** (10 / 5) |
 | Where they split | Pages say "Commitments"; capture chip, prefix `promised:`, DB field, and CLI say "promise" |
 | Code identifiers | `commitments` table, `promise` column, `/api/commitments` — unchanged either way |
-| Recommendation | **promise** |
+| **DECIDED** | **promise** (2026-08-04) — applied, and enforced by
+`one-wording.test.ts`: "commitment" in user-visible text fails CI |
 
 Why: it is the word the user types (`promised: …`), the word the capture chip
 offers, and the word the data model already uses for the content. CLAUDE.md's
@@ -48,7 +50,7 @@ Cost if "promise" wins: ~13 string edits in `portfolio/page.tsx`,
 
 ---
 
-### 1b. CARVE-OUT: "the weekly commitment line" is a different concept
+### 1b. CARVE-OUT (DECIDED, applied): "the weekly commitment line" stays
 
 `skein week draft` (CLI), `weekly.py`, and Insights all use **commitment**
 for the set of tasks a team commits to an ISO week — not a debt owed to a

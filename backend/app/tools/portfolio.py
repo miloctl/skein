@@ -186,7 +186,7 @@ def edit_commitment(
             commitment_id, **payload, actor=agent_identity(), origin="agent"
         ),
         entity_id=commitment_id,
-        summary=f"edit commitment #{commitment_id}",
+        summary=f"edit promise #{commitment_id}",
     )
 
 
@@ -210,7 +210,7 @@ def mark_commitment(commitment_id: int, status: str) -> str:
             commitment_id, **payload, actor=agent_identity(), origin="agent"
         ),
         entity_id=commitment_id,
-        summary=f"mark commitment #{commitment_id} {status}",
+        summary=f"mark promise #{commitment_id} {status}",
     )
 
 

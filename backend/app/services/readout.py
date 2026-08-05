@@ -54,7 +54,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     if findings:
         lines += ["", "## This week's findings"]
         lines += [f"- [{f['severity']}] {f['message']}" for f in findings]
-    lines += ["", "## External commitments due in 14 days"]
+    lines += ["", "## External promises due in 14 days"]
     lines += [
         f"- {c['due_date']}: {c['promise']} (to {c['to_whom'] or 'unspecified'})" for c in due_soon
     ] or ["- none recorded"]

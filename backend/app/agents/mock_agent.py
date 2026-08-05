@@ -52,8 +52,8 @@ class MockAgent:
                     "Blocker #{id} registered. It has hours to live, not weeks.",
                 ),
                 "commitment": (
-                    "Commitment #{id} on the ledger. Promises here get kept on purpose.",
-                    "Recorded commitment #{id}. The exec readout is watching it now.",
+                    "Promise #{id} on the ledger. Promises here get kept on purpose.",
+                    "Recorded promise #{id}. The exec readout is watching it now.",
                 ),
             }
             pool = acks.get(

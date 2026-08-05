@@ -59,9 +59,9 @@ def update_commitment(
         raise ValueError(f"status must be one of {STATUSES}")
     row = db.query_one("SELECT * FROM commitments WHERE id = ?", (commitment_id,))
     if not row:
-        raise db.NotFound(f"commitment #{commitment_id} not found")
+        raise db.NotFound(f"promise #{commitment_id} not found")
     if row["status"] != "open":
-        raise ValueError(f"commitment #{commitment_id} already {row['status']}")
+        raise ValueError(f"promise #{commitment_id} already {row['status']}")
     db.execute(
         "UPDATE commitments SET status = ?, updated_at = ? WHERE id = ?",
         (status, db.now(), commitment_id),
@@ -84,9 +84,9 @@ def edit_commitment(
     db.validate_date("due_date", due_date)
     row = db.query_one("SELECT promise, status FROM commitments WHERE id = ?", (commitment_id,))
     if not row:
-        raise db.NotFound(f"commitment #{commitment_id} not found")
+        raise db.NotFound(f"promise #{commitment_id} not found")
     if row["status"] != "open":
-        raise ValueError(f"commitment #{commitment_id} is {row['status']} — history stays put")
+        raise ValueError(f"promise #{commitment_id} is {row['status']} — history stays put")
     fields = {
         k: v for k, v in [("promise", promise), ("due_date", due_date), ("to_whom", to_whom)] if v
     }

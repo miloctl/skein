@@ -225,7 +225,7 @@ export default function PeoplePage() {
                   items={brief.standups.map((s) => `${s.created_at.slice(0, 10)}: ${s.today}`)}
                 />
                 <BriefList
-                  title="Commitments they made"
+                  title="Promises they made"
                   items={brief.commitments_made.map((c) => `${c.promise} (${c.status})`)}
                 />
               </div>
