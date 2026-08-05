@@ -64,10 +64,17 @@ const LEVEL_LABEL: Record<string, string> = {
  *  forbidden still stops a write. A bare "needs approval" then promises a
  *  checkpoint the deployment does not run. gateOn is null while the status
  *  fetch is unsettled — say nothing rather than guess. */
-const levelLabel = (level: string, gateOn: boolean | null) =>
-  gateOn === false && level === "review"
-    ? "needs approval (gate off)"
-    : (LEVEL_LABEL[level] ?? level);
+const levelLabel = (level: string, gateOn: boolean | null, always = false) => {
+  // "not allowed" is absolute and true in every configuration
+  if (level === "forbidden") return LEVEL_LABEL.forbidden;
+  // _gate.py takes the review path for ALWAYS_REVIEW entities BEFORE it reads
+  // the level, so any other level here means "needs approval" whatever is
+  // stored — and a row that renders "acts alone" over a destructive write is
+  // the worst lie this card can tell
+  if (always) return "needs approval (always)";
+  if (gateOn === false && level === "review") return "needs approval (gate off)";
+  return LEVEL_LABEL[level] ?? level;
+};
 
 const LEVEL_COLOR: Record<string, string> = {
   autonomous: "bg-ok/15 text-ok",
@@ -81,6 +88,11 @@ export default function Agents() {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [trust, setTrust] = useState<Trust[] | null>(null);
   const [entities, setEntities] = useState<string[]>([]);
+  // served from tools/_gate.py ALWAYS_REVIEW: the gate takes the review
+  // path for these before it reads the level, so the card must never show
+  // or offer "acts alone" on them. Hand-typing the list here would let the
+  // label drift from the behaviour it describes.
+  const [alwaysReview, setAlwaysReview] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [bench, setBench] = useState<Persona[]>([]);
   const [entity, setEntity] = useState("task");
@@ -104,6 +116,10 @@ export default function Agents() {
   // rule that INVERTS with this flag, so guessing it tells the reader the
   // opposite of the truth about who can write without asking
   const gateOn: boolean | null = status === null ? null : status.review_gate;
+  // offering a level the gate cannot honour is how the false badge got
+  // stored in the first place; the backend refuses it too (set_authority)
+  const levelsFor = (ent: string) =>
+    alwaysReview.includes(ent) ? ["review", "forbidden"] : LEVELS;
   const inboxGeneration = useRef(0);
   // Every section here must distinguish "unknown" from "empty". Several
   // empty states are CLAIMS — "No reviewed proposals yet", "Nothing
@@ -133,8 +149,11 @@ export default function Agents() {
     api<Trust[]>("/api/agents/trust")
       .then(ok(setTrust, "trust"))
       .catch(fail("trust", "trust scores"));
-    api<string[]>("/api/agents/entities")
-      .then(ok(setEntities, "entities"))
+    api<{ entities: string[]; always_review: string[] }>("/api/agents/entities")
+      .then((r) => {
+        ok(setEntities, "entities")(r.entities);
+        setAlwaysReview(r.always_review);
+      })
       .catch(fail("entities", "the record types an agent can write"));
     api<Persona[]>("/api/personas")
       .then(ok(setBench, "bench"))
@@ -333,7 +352,8 @@ export default function Agents() {
                         title={`${au.entity}: ${au.level}`}
                         className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level] ?? 'bg-raised text-ink-2'}`}
                       >
-                        {au.entity}: {levelLabel(au.level, gateOn)}
+                        {au.entity}:{" "}
+                        {levelLabel(au.level, gateOn, alwaysReview.includes(au.entity))}
                       </span>
                     ))}
                   </p>
@@ -400,15 +420,15 @@ export default function Agents() {
                       className="rounded border border-line-strong bg-card px-2 py-1 text-xs"
                       aria-label={`Authority for ${g.agent} on ${g.entity}`}
                     >
-                      {LEVELS.map((l) => (
+                      {levelsFor(g.entity).map((l) => (
                         <option key={l} value={l}>
-                          {levelLabel(l, gateOn)}
+                          {levelLabel(l, gateOn, alwaysReview.includes(g.entity))}
                         </option>
                       ))}
                     </select>
                   ) : (
                     <span className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.level] ?? 'bg-raised text-ink-2'}`}>
-                      {levelLabel(g.level, gateOn)}
+                      {levelLabel(g.level, gateOn, alwaysReview.includes(g.entity))}
                     </span>
                   )}
                 </li>
@@ -456,9 +476,9 @@ export default function Agents() {
               onChange={(e) => setLevel(e.target.value)}
               className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
             >
-              {LEVELS.map((l) => (
+              {levelsFor(entity).map((l) => (
                 <option key={l} value={l}>
-                  {levelLabel(l, gateOn)}
+                  {levelLabel(l, gateOn, alwaysReview.includes(entity))}
                 </option>
               ))}
             </select>

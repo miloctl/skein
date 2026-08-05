@@ -725,12 +725,18 @@ def get_agents_trust():
 
 @router.get("/agents/entities")
 def get_agent_entities():
+    from ..services.delegation import NO_AUTHORITY
     from ..services.review import _registry
+    from ..tools._gate import ALWAYS_REVIEW
 
-    # internal flows file these; no agent tool passes them to the gate, so
-    # an authority knob for them would be a placebo
-    internal = {"authority", "task_completion", "weekly_plan"}
-    return sorted(e for e in _registry() if e not in internal)
+    # one set, shared with set_authority: excluding here but validating there
+    # let a direct POST store a grant this picker cannot produce
+    return {
+        "entities": sorted(e for e in _registry() if e not in NO_AUTHORITY),
+        # the gate takes the review path for these before it reads the level,
+        # so the card must not offer or display "acts alone" for them
+        "always_review": sorted(ALWAYS_REVIEW),
+    }
 
 
 @router.get("/agents/authority")

@@ -46,6 +46,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
           choices: ["sliding", "summarize"],
           applies: true,
         });
+      if (path === "/api/agents/entities")
+        return Promise.resolve({
+          entities: ["task", "note_delete"],
+          always_review: ["absence", "event_cancel", "memory_forget", "note_delete"],
+        });
       if (path === "/api/agents")
         return Promise.resolve([
           {
@@ -54,7 +59,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
             pending_proposals: 0,
             last_seen: null,
             authority: gate.granted
-              ? [{ agent: "planner-agent", entity: "task", level: "review" }]
+              ? [
+                  { agent: "planner-agent", entity: "task", level: "review" },
+                  { agent: "planner-agent", entity: "note_delete", level: "autonomous" },
+                ]
               : [],
           },
         ]);
@@ -141,5 +149,20 @@ describe("Settings when it explains what a connected agent can do", () => {
     gate.on = true;
     const { container } = render(<SettingsPage />);
     await waitFor(() => expect(container.textContent).toMatch(/becomes a proposal/i));
+  });
+});
+
+/** tools/_gate.py takes the review path for ALWAYS_REVIEW entities before it
+ *  reads the level, so a stored "autonomous" on note_delete rendered
+ *  "acts alone" over a write that always waits for a human. set_authority
+ *  refuses that level now; this pins the display for any row stored before
+ *  the guard existed. */
+describe("a destructive entity holding a level the gate ignores", () => {
+  it("never renders acts alone", async () => {
+    gate.on = false;
+    const { container } = render(<AgentsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(/note_delete/));
+    expect(container.textContent).toMatch(/needs approval \(always\)/);
+    expect(container.textContent).not.toMatch(/acts alone/);
   });
 });

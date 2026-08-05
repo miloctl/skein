@@ -9,6 +9,11 @@ from .. import db
 from .users import ensure_user
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
+
+# Entities the authority matrix must never carry: internal flows file them and
+# no agent tool passes them to the gate, so a grant would be a placebo.
+# routes/api.py::get_agent_entities serves this same set to the picker.
+NO_AUTHORITY = frozenset({"authority", "task_completion", "weekly_plan"})
 TRUST_STREAK = 5  # consecutive approvals before we suggest promotion
 
 
@@ -237,10 +242,24 @@ def set_authority(
     actor_row = db.query_one("SELECT kind FROM users WHERE name = ?", (actor,))
     if (actor_row and actor_row["kind"] == "agent") or actor == agent:
         raise ValueError("authority levels are set by humans, not by the agent itself")
+    from ..tools._gate import ALWAYS_REVIEW
     from .review import _registry
 
     if entity not in _registry():
         raise ValueError(f"unknown entity — one of {sorted(_registry())}")
+    # routes/api.py hides these from the picker because no agent tool passes
+    # them to the gate. Validating there but not here let a direct POST store
+    # a grant the picker cannot produce and the gate never reads — a row on
+    # the authority card naming a power that does not exist.
+    if entity in NO_AUTHORITY:
+        raise ValueError(f"'{entity}' carries no authority level — no agent tool writes it")
+    # _gate.py takes the review path for these BEFORE it reads the level, so
+    # storing autonomous or notify renders "acts alone" on a destructive row
+    # while every such write still waits for a human. Refuse the level rather
+    # than display a correction: an unrepresentable state cannot be displayed
+    # wrongly.
+    if entity in ALWAYS_REVIEW and level in ("autonomous", "notify"):
+        raise ValueError(f"'{entity}' always waits for a human — set it to 'review' or 'forbidden'")
     ensure_user(agent, kind="agent")
     # authority half-life: elevated grants carry a review-by date (90d
     # default) — "nothing in Skein is trusted forever, not decisions, not
