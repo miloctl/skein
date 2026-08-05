@@ -47,7 +47,8 @@ card titles that we control.
 The wire followed the reader (2026-08-04): keeping `commitment` as the
 stored kind required a display-mapping layer on every surface, and the CLI
 missed it once. The rename used the pre-production migration override
-(edits to 008/016/017 in place; existing databases must be recreated) —
+(edits to the pre-squash migrations 008/016/017, since folded into
+001_baseline.sql; existing databases must be recreated) —
 after the first production deploy this is permanent: the ICS UID would
 duplicate calendar events and the activity chain cannot rewrite old verbs.
 What stays `commitment` in source: the typed-input aliases (`commitment:`
