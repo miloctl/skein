@@ -140,24 +140,44 @@ def test_canary_absent_from_every_disk_file(client, fresh_db):
     eng = client.get("/api/engagements").json()[0]
     assert CANARY not in client.get(f"/api/context-pack?engagement={eng['id']}").text
     for f in Path(config.DATA_DIR).rglob("*"):
-        if f.is_file() and "private.db" not in f.name:
+        # private.db and its dated backups are the canary's only legal homes;
+        # everything else under DATA_DIR — platform backups, exports,
+        # artifacts, the ICS cache — must stay clean
+        if f.is_file() and "private" not in f.name:
             assert CANARY.encode() not in f.read_bytes(), f"canary leaked into {f}"
 
 
-def test_private_db_not_in_platform_tables_or_backups(client, fresh_db):
+def test_private_db_backed_up_but_never_mirrored(client, fresh_db, tmp_path, monkeypatch):
+    """Both halves of the private-data durability rule. The backup exists:
+    losing the disk must not lose the 1:1 notes, and the local copy adds no
+    reader — whoever runs the server can read private.db itself. The off-box
+    mirror never carries it: a mirror copy leaves the box, which is the
+    exposure the exclusion from exports exists to prevent."""
     _write_private(client, fresh_db)
+    from app import config
     from app.services import admin
 
     assert not any("private" in t for t in admin.TABLES)
-    # platform DB contains no private tables
     tables = [
         r["name"] for r in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
     ]
     assert not any("private" in t for t in tables)
-    # backups copy platform.db only — never private.db
-    result = admin.backup()
-    backup_dir = Path(result["path"]).parent
-    assert not any("private" in f.name for f in backup_dir.glob("*"))
+
+    # production-shaped data dir, so the mirror actually runs (see the
+    # mirror-guard test above)
+    mirror = tmp_path / "offbox"
+    monkeypatch.setenv("SKEIN_BACKUP_MIRROR", str(mirror))
+    prod_data = tmp_path / "data"
+    prod_data.mkdir()
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "DATA_DIR", prod_data)
+
+    out = admin.backup()
+    assert out["private_path"] and Path(out["private_path"]).exists()
+    assert out["mirrored"] is not None  # the mirror ran for platform
+    assert not any(f.name.startswith("private-") for f in mirror.glob("*")), (
+        "a private backup reached the off-box mirror"
+    )
 
 
 def test_no_agent_or_review_surface_over_private_entities(fresh_db):
