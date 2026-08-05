@@ -4,7 +4,7 @@ same interface."""
 
 import re
 
-from . import blockers, collab, commitments, work
+from . import blockers, collab, promises, work
 
 # explicit prefixes first, content heuristics second — a typed prefix always
 # wins ("req: blocked on X" is a request, not a blocker)
@@ -12,14 +12,14 @@ PATTERNS = [
     ("question", re.compile(r"^\s*(q:|question:)", re.I)),
     ("blocker", re.compile(r"^\s*(blocked|blocker|stuck)\b[:\s]", re.I)),
     ("decision", re.compile(r"^\s*(decision:|decided\b)", re.I)),
-    ("commitment", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
+    ("promise", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
     ("request", re.compile(r"^\s*(req:|request:)", re.I)),
     ("task", re.compile(r"^\s*(todo:|task:)", re.I)),
     ("note", re.compile(r"^\s*(note:|fyi:|til:)", re.I)),
     ("question", re.compile(r"\?\s*$")),
     ("blocker", re.compile(r"\b(blocked (by|on)|waiting on)\b", re.I)),
     ("decision", re.compile(r"\bwe (decided|chose|are going with)\b", re.I)),
-    ("commitment", re.compile(r"\bwe (promised|committed to)\b", re.I)),
+    ("promise", re.compile(r"\bwe (promised|committed to)\b", re.I)),
     ("task", re.compile(r"^\s*(fix|add|update|implement|write|ship|review|schedule)\b", re.I)),
 ]
 
@@ -117,8 +117,8 @@ def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
                 "review_by": review_by,
             },
         )
-    if kind == "commitment":
-        return kind, "commitment", {"promise": body}
+    if kind == "promise":
+        return kind, "promise", {"promise": body}
     if kind == "request":
         return kind, "intake", {"title": body[:120], "detail": body}
     if kind == "task":
@@ -187,8 +187,8 @@ def capture(
             actor=actor,
             origin=origin,
         )
-    elif kind == "commitment":
-        result = commitments.add_commitment(body, actor=actor, origin=origin)
+    elif kind == "promise":
+        result = promises.add_promise(body, actor=actor, origin=origin)
     elif kind == "request":
         # requests arrive where people already type — route them into intake
         # instead of letting them die as notes

@@ -59,12 +59,11 @@ describe("one condition, one wording across surfaces", () => {
 
 describe("the decided lexicon (docs/LEXICON.md)", () => {
   it("says promise, not commitment, in user-visible text", () => {
-    // one concept, one word. The user types `promised:`, the capture chip
-    // says promise, and the data model calls the content `promise` — the
-    // pages said "Commitments". Code identifiers are exempt: the table,
-    // the API path, and the classifier kind keep their names, so this
-    // checks rendered text only. "commitment line" is a DIFFERENT concept
-    // (tasks committed to an ISO week) and keeps the word.
+    // one concept, one word — promise, end to end (the table, kind, and
+    // API path renamed with it). What remains of `commitment` in source is
+    // the typed-input alias regexes, which this sweep does not read.
+    // "commitment line" is a DIFFERENT concept (tasks committed to an ISO
+    // week) and keeps the word.
     const offenders: string[] = [];
     for (const file of files) {
       readFileSync(file, "utf8")

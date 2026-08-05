@@ -1,5 +1,5 @@
 ALTER TABLE tasks ADD COLUMN waiting_on_type TEXT
-    CHECK (waiting_on_type IN ('task', 'blocker', 'commitment'));
+    CHECK (waiting_on_type IN ('task', 'blocker', 'promise'));
 ALTER TABLE tasks ADD COLUMN waiting_on_id INTEGER;
 
 ALTER TABLE decisions ADD COLUMN category TEXT NOT NULL DEFAULT '';

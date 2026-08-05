@@ -25,7 +25,7 @@ milestones:
     tasks:
       - "1:1 with your manager: role contract, decision rights, first-quarter expectations"
       - "Meet each peer manager and note shared dependencies"
-      - "List every standing commitment the team has already made"
+      - "List every standing promise the team has already made"
   - title: "Share back what I learned"
     description: >
       Month-2 ritual: present the themes from the listening tour back to the
@@ -51,7 +51,7 @@ rituals:
   - title: Weekly operating review
     day_offset: 7
     time: "15:00"
-    description: Portfolio health + commitments + findings, 30 minutes, from the readout.
+    description: Portfolio health + promises + findings, 30 minutes, from the readout.
   - title: Share-back session
     day_offset: 45
     time: "14:00"

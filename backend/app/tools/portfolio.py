@@ -1,4 +1,4 @@
-"""Portfolio tools: portfolio reads, commitments, delegation, decision chains,
+"""Portfolio tools: portfolio reads, promises, delegation, decision chains,
 context pack, agent inbox."""
 
 import json
@@ -8,7 +8,7 @@ from strands import tool
 
 from ..agents import receipts
 from ..agents.identity import agent_identity
-from ..services import absences, collab, commitments, context_pack, delegation, portfolio
+from ..services import absences, collab, context_pack, delegation, portfolio, promises
 from ._gate import gated_write
 
 
@@ -43,10 +43,8 @@ def what_if_staffing(request_id: int, people: str, percent: int = 50) -> str:
 
 
 @tool
-def add_commitment(
-    promise: str, to_whom: str = "", due_date: str = "", engagement_id: int = 0
-) -> str:
-    """Record an external commitment (a promise made to someone outside the
+def add_promise(promise: str, to_whom: str = "", due_date: str = "", engagement_id: int = 0) -> str:
+    """Record an external promise (one made to someone outside the
     team) so the exec readout tracks it.
 
     Args:
@@ -62,21 +60,21 @@ def add_commitment(
         "engagement_id": engagement_id,
     }
     return gated_write(
-        "commitment",
+        "promise",
         "create",
         payload,
-        lambda: commitments.add_commitment(**payload, actor=agent_identity(), origin="agent"),
+        lambda: promises.add_promise(**payload, actor=agent_identity(), origin="agent"),
     )
 
 
 @tool
-def list_commitments(status: str = "") -> str:
-    """List external commitments the team has made.
+def list_promises(status: str = "") -> str:
+    """List external promises the team has made.
 
     Args:
         status: open, kept, missed, withdrawn, or empty for all.
     """
-    return json.dumps(commitments.list_commitments(status))
+    return json.dumps(promises.list_promises(status))
 
 
 @tool
@@ -162,15 +160,13 @@ def my_agent_inbox(agent: str = "") -> str:
 
 
 @tool
-def edit_commitment(
-    commitment_id: int, promise: str = "", due_date: str = "", to_whom: str = ""
-) -> str:
+def edit_promise(promise_id: int, promise: str = "", due_date: str = "", to_whom: str = "") -> str:
     """Correct the wording, due date, or recipient of an OPEN promise
-    ('-' clears due_date/to_whom). Settled commitments are history and
+    ('-' clears due_date/to_whom). Settled promises are history and
     refuse edits.
 
     Args:
-        commitment_id: ID of the commitment.
+        promise_id: ID of the promise.
         promise: Corrected promise text.
         due_date: Corrected due date (YYYY-MM-DD, '-' to clear).
         to_whom: Corrected recipient ('-' to clear).
@@ -179,38 +175,38 @@ def edit_commitment(
         k: v for k, v in {"promise": promise, "due_date": due_date, "to_whom": to_whom}.items() if v
     }
     return gated_write(
-        "commitment_edit",
+        "promise_edit",
         "update",
         payload,
-        lambda: commitments.edit_commitment(
-            commitment_id, **payload, actor=agent_identity(), origin="agent"
+        lambda: promises.edit_promise(
+            promise_id, **payload, actor=agent_identity(), origin="agent"
         ),
-        entity_id=commitment_id,
-        summary=f"edit promise #{commitment_id}",
+        entity_id=promise_id,
+        summary=f"edit promise #{promise_id}",
     )
 
 
 @tool
-def mark_commitment(commitment_id: int, status: str) -> str:
-    """Settle an OPEN commitment: kept, missed, or withdrawn. Already-settled
-    commitments are history and refuse changes.
+def mark_promise(promise_id: int, status: str) -> str:
+    """Settle an OPEN promise: kept, missed, or withdrawn. Already-settled
+    promises are history and refuse changes.
 
     Args:
-        commitment_id: ID of the commitment.
+        promise_id: ID of the promise.
         status: One of kept / missed / withdrawn.
     """
     if status not in ("kept", "missed", "withdrawn"):
         return json.dumps({"error": "status must be kept, missed, or withdrawn"})
     payload = {"status": status}
     return gated_write(
-        "commitment_settle",
+        "promise_settle",
         "update",
         payload,
-        lambda: commitments.update_commitment(
-            commitment_id, **payload, actor=agent_identity(), origin="agent"
+        lambda: promises.update_promise(
+            promise_id, **payload, actor=agent_identity(), origin="agent"
         ),
-        entity_id=commitment_id,
-        summary=f"mark promise #{commitment_id} {status}",
+        entity_id=promise_id,
+        summary=f"mark promise #{promise_id} {status}",
     )
 
 

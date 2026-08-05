@@ -5,10 +5,10 @@ from conftest import _ago
 
 
 def test_week_rituals_produce_packets_and_notify(client, fresh_db):
-    from app.services import commitments, rituals, users
+    from app.services import promises, rituals, users
 
     users.ensure_user("mira")
-    commitments.add_commitment("demo to ops", due_date="2020-01-01", actor="mira")
+    promises.add_promise("demo to ops", due_date="2020-01-01", actor="mira")
     close = rituals.week_close(actor="mira", force=True)
     assert close["items"] >= 1 and "Promises due or overdue" in close["markdown"]
     opened = rituals.week_open(actor="mira", force=True)
@@ -123,11 +123,11 @@ def test_stale_wip_nudge_claims_week(client, fresh_db, monkeypatch):
 
 
 def test_agent_recorded_promises_surface_in_week_open(fresh_db):
-    from app.services import commitments, rituals, users
+    from app.services import promises, rituals, users
 
     users.ensure_user("mira")
     users.ensure_user("scribe", kind="agent")
-    commitments.add_commitment("send the SOW", due_date="2020-01-02", actor="scribe")
+    promises.add_promise("send the SOW", due_date="2020-01-02", actor="scribe")
     opened = rituals.week_open(actor="mira", force=True)
     assert "Recorded by agents" in opened["markdown"]
     assert "send the SOW" in opened["markdown"]

@@ -51,7 +51,7 @@ class MockAgent:
                     "Blocker #{id} filed. The escalation clock is ticking.",
                     "Blocker #{id} registered. It has hours to live, not weeks.",
                 ),
-                "commitment": (
+                "promise": (
                     "Promise #{id} on the ledger. It gets kept on purpose.",
                     "Recorded promise #{id}. The exec readout is watching it now.",
                 ),

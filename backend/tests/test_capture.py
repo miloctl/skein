@@ -54,11 +54,9 @@ def test_capture_req_blocked_on_routes_to_intake_not_blockers(client):
     assert client.get("/api/blockers").json() == []
 
 
-def test_mock_agent_commitment_capture_ack(client):
+def test_mock_agent_promise_capture_ack(client):
     out = client.post("/api/chat", json={"thread_id": "t", "message": "promised: report to legal"})
-    body = out.text
-    assert "error" not in body.lower() or "Commitment" in body
-    assert any(
-        "commitment" in m["promise"].lower() or True for m in client.get("/api/commitments").json()
-    )
-    assert len(client.get("/api/commitments").json()) == 1
+    assert "error" not in out.text.lower() or "Promise" in out.text
+    rows = client.get("/api/promises").json()
+    assert len(rows) == 1
+    assert "report to legal" in rows[0]["promise"]

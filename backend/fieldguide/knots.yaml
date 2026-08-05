@@ -114,7 +114,7 @@ knots:
     since: 2026-07-31
 
   - id: promise
-    feature: Commitments
+    feature: Promises
     knot: Anchor Bend
     set: loops
     pitch: Promises with an audience and a due date, ledgered until settled.
@@ -254,11 +254,11 @@ knots:
 
   # ---- Stoppers — the art of finishing --------------------------------
   - id: settle
-    feature: Settle a commitment
+    feature: Settle a promise
     knot: Ashley Stopper
     set: stoppers
     pitch: Open promises are noise until settled — kept, missed, or withdrawn all count.
-    how: Work → Health, commitment ledger. Honest beats pretty.
+    how: Work → Health, the Promises card. Honest beats pretty.
     link: /portfolio
     since: 2026-07-31
 
@@ -305,7 +305,7 @@ knots:
     knot: Flemish Flake
     set: manager
     role: manager
-    pitch: The portfolio coiled for showing — health, ships, risks, commitments.
+    pitch: The portfolio coiled for showing — health, ships, risks, promises.
     how: Work → Health, under manager controls. It lands as an artifact.
     link: /portfolio
     since: 2026-07-31

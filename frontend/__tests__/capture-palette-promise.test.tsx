@@ -1,17 +1,17 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** The stored kind is `commitment` (API contract); the word a reader sees is
- *  `promise` (docs/LEXICON.md row 1). The mapping lives in KIND_LABEL and is
- *  applied at render time, so the source-text sweep in one-wording.test.ts
- *  cannot catch a revert — only a rendered assertion can. */
+/** The kind is `promise` end to end (docs/LEXICON.md row 1) — on the wire,
+ *  in the preview, and in the confirmation. These strings are assembled at
+ *  render time, so the source-text sweep in one-wording.test.ts cannot catch
+ *  a revert — only a rendered assertion can. `promised:` and `commitment:`
+ *  both stay accepted as typed input. */
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    // the API answers with the WIRE kind — the palette must translate it
-    api: async () => ({ kind: "commitment", id: 7 }),
+    api: async () => ({ kind: "promise", id: 7 }),
   };
 });
 

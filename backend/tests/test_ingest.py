@@ -20,7 +20,7 @@ def test_ingest_creates_proposals_not_records(client, fresh_db):
     assert r.status_code == 200
     body = r.json()
     kinds = sorted(p["kind"] for p in body["proposals"])
-    assert kinds == ["blocker", "commitment", "decision", "question", "task"]
+    assert kinds == ["blocker", "decision", "promise", "question", "task"]
     assert body["skipped_private"] == 1
     assert any("ambient chatter" in u for u in body["unclassified"])
     # nothing written directly — everything is a pending proposal

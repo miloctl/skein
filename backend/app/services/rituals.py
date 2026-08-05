@@ -72,8 +72,8 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
 
 def _week_close_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
-    due_commitments = db.query(
-        "SELECT id, promise, to_whom, due_date FROM commitments WHERE status = 'open'"
+    due_promises = db.query(
+        "SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open'"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (horizon,),
     )
@@ -99,7 +99,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
                 f"- #{c['id']} {_clean(c['promise'])}"
                 f" ({'to ' + _clean(c['to_whom'], 40) + ', ' if c['to_whom'] else ''}"
                 f"due {c['due_date']})"
-                for c in due_commitments
+                for c in due_promises
             ],
         ),
         (
@@ -142,7 +142,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         notify(
             "team",
             f"Week close-out: {_n(total, 'item')} need{'s' if total == 1 else ''}"
-            f" a decision before Monday — {_n(len(due_commitments), 'promise')},"
+            f" a decision before Monday — {_n(len(due_promises), 'promise')},"
             f" {_n(len(stuck_closing), 'stuck engagement')},"
             f" {_n(len(stale_proposals), 'stale proposal')},"
             f" {_n(len(open_questions), 'open question')}.",
@@ -179,8 +179,8 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     briefed = 0
     for h in humans:
         name = h["name"]
-        commitments = db.query(
-            "SELECT id, promise, due_date FROM commitments WHERE status = 'open'"
+        promises = db.query(
+            "SELECT id, promise, due_date FROM promises WHERE status = 'open'"
             " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
             (name, horizon),
         )
@@ -198,7 +198,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
             " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
             (name, horizon),
         )
-        n = len(commitments) + len(decisions) + len(questions) + len(tasks)
+        n = len(promises) + len(decisions) + len(questions) + len(tasks)
         if n == 0:
             continue
         briefed += 1
@@ -206,7 +206,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         lines += [
             f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
-            for c in commitments
+            for c in promises
         ]
         lines += [
             f"- stale decision #{d['id']}: {_clean(d['title'], 70)} — reconfirm or supersede"
@@ -218,8 +218,8 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         ]
         lines.append("")
         parts = []
-        if commitments:
-            parts.append(_n(len(commitments), "promise"))
+        if promises:
+            parts.append(_n(len(promises), "promise"))
         if decisions:
             parts.append(_n(len(decisions), "stale decision"))
         if questions:
@@ -233,10 +233,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
             tier="digest",
             link="/",
         )
-    # commitments carry only created_by (the recorder) — a promise an agent
+    # promises carry only created_by (the recorder) — a promise an agent
     # captured belongs to nobody in the loop above and must not go silent
     agent_recorded = db.query(
-        "SELECT c.id, c.promise, c.due_date FROM commitments c"
+        "SELECT c.id, c.promise, c.due_date FROM promises c"
         " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
         " WHERE c.status = 'open' AND (c.due_date IS NULL OR c.due_date <= ?)"
         " ORDER BY c.due_date",

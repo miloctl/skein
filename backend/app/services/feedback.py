@@ -59,7 +59,7 @@ def list_feedback(kind: str = "") -> list[dict]:
     return db.query(f"SELECT {_COLS} FROM feedback ORDER BY id DESC LIMIT 100")  # noqa: S608
 
 
-CAPTURE_KINDS = ("question", "blocker", "decision", "commitment", "task", "note")
+CAPTURE_KINDS = ("question", "blocker", "decision", "promise", "task", "note")
 
 
 def eval_capture() -> dict:

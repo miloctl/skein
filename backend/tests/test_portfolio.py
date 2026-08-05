@@ -70,7 +70,7 @@ def test_slip_forecast_uses_history(client, fresh_db):
 def test_exec_readout_artifact(client):
     _engagement_with_milestone(client, "Read Me", due="2026-01-01")
     client.post(
-        "/api/commitments",
+        "/api/promises",
         json={"promise": "demo to CEO", "to_whom": "CEO", "due_date": _days_ahead(3)},
     )
     out = client.post("/api/portfolio/readout").json()
@@ -87,11 +87,11 @@ def test_exec_readout_same_day_upserts_artifact(client):
     assert len(readouts) == 1
 
 
-def test_readout_excludes_team_commitments(client, fresh_db):
+def test_readout_excludes_team_promises(client, fresh_db):
     from app.services.readout import exec_readout
 
     client.post(
-        "/api/commitments",
+        "/api/promises",
         json={"promise": "team-only promise", "audience": "team", "due_date": "2026-07-30"},
     )
     md = exec_readout(actor="tester")["markdown"]

@@ -188,8 +188,8 @@ def create_task(
 
 # portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
-WAITING_ON_TYPES = ("task", "blocker", "commitment")
-_WAITING_TABLES = {"task": "tasks", "blocker": "blockers", "commitment": "commitments"}
+WAITING_ON_TYPES = ("task", "blocker", "promise")
+_WAITING_TABLES = {"task": "tasks", "blocker": "blockers", "promise": "promises"}
 
 
 def update_task(
@@ -232,7 +232,7 @@ def update_task(
         if kind not in WAITING_ON_TYPES or not ref.strip().lstrip("#").isdecimal():
             raise ValueError(
                 f"waiting_on must look like 'task:12', 'blocker:3', or"
-                f" 'commitment:7' (one of {WAITING_ON_TYPES}), or '-' to clear"
+                f" 'promise:7' (one of {WAITING_ON_TYPES}), or '-' to clear"
             )
         waiting_type, waiting_id = kind, int(ref.strip().lstrip("#"))
         if kind == "task" and waiting_id == task_id:

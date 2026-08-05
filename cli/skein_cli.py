@@ -17,7 +17,7 @@ Examples:
     skein blockers add "staging db down" --impact high
     skein search cutover
     skein week draft          # weekly commitment line
-    skein commitments         # open promises; settle: skein commitments settle 3 kept
+    skein promises         # open promises; settle: skein promises settle 3 kept
     skein absences add mira 2026-08-10 2026-08-14   # PTO by default
     skein review              # pending proposals; approve/reject by id
     skein review approve 12 -m "looks right"
@@ -113,10 +113,7 @@ def cmd_config(args):
 
 def cmd_capture(args):
     out = api("POST", "/api/capture", {"text": " ".join(args.text)})
-    # the stored kind is the API contract; `promise` is the word the product
-    # uses for it (docs/LEXICON.md)
-    shown = {"commitment": "promise"}.get(out["kind"], out["kind"])
-    print(f"captured as {shown} #{out['id']}")
+    print(f"captured as {out['kind']} #{out['id']}")
 
 
 def cmd_standup(args):
@@ -214,7 +211,7 @@ def cmd_eval(args):
     if not out["cases"] and unscored:
         print(
             "warning: nothing machine-checkable — corrections must be a kind label"
-            " (question/blocker/decision/commitment/task/note) to gate regressions"
+            " (question/blocker/decision/promise/task/note) to gate regressions"
         )
     if out["mismatches"]:
         sys.exit(1)
@@ -252,12 +249,12 @@ def cmd_week(args):
         print(f"  [{mark}] #{t['id']} {t['title']} (@{t['assignee'] or 'unassigned'})")
 
 
-def cmd_commitments(args):
+def cmd_promises(args):
     if args.action == "settle":
-        api("POST", f"/api/commitments/{args.id}/status", {"status": args.status})
+        api("POST", f"/api/promises/{args.id}/status", {"status": args.status})
         print(f"promise #{args.id} {args.status}")
         return
-    rows = api("GET", "/api/commitments" + ("" if args.all else "?status=open"))
+    rows = api("GET", "/api/promises" + ("" if args.all else "?status=open"))
     for c in rows:
         due = f" due {c['due_date']}" if c["due_date"] else ""
         who = f" → {c['to_whom']}" if c["to_whom"] else ""
@@ -454,14 +451,14 @@ def main():
     c.add_argument("query", nargs="+")
     c.set_defaults(fn=cmd_search)
 
-    c = sub.add_parser("commitments", help="open promises / settle one")
+    c = sub.add_parser("promises", help="open promises / settle one")
     c.add_argument("action", nargs="?", choices=["list", "settle"], default="list")
     c.add_argument("id", nargs="?", type=int, help="promise id (for settle)")
     c.add_argument(
         "status", nargs="?", choices=["kept", "missed", "withdrawn"], help="verdict (for settle)"
     )
     c.add_argument("--all", action="store_true", help="include settled promises")
-    c.set_defaults(fn=cmd_commitments)
+    c.set_defaults(fn=cmd_promises)
 
     c = sub.add_parser("absences", help="time away: list / add / rm")
     c.add_argument("action", nargs="?", choices=["list", "add", "rm"], default="list")
@@ -525,11 +522,11 @@ def main():
     if args.cmd == "tasks" and args.action == "delegate" and not (args.id and args.agent):
         p.error("tasks delegate requires: id agent")
     if (
-        args.cmd == "commitments"
+        args.cmd == "promises"
         and args.action == "settle"
         and (args.id is None or args.status is None)
     ):
-        p.error("commitments settle requires an id and kept|missed|withdrawn")
+        p.error("promises settle requires an id and kept|missed|withdrawn")
     if args.cmd == "absences":
         if args.action == "add" and not (args.person and args.starts_on and args.ends_on):
             p.error("absences add requires: person starts_on ends_on")

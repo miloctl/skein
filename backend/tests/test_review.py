@@ -68,14 +68,14 @@ def test_agent_history_guard_survives_approval(client, fresh_db, monkeypatch):
     """Approving an edit of a since-settled record must fail the apply and
     reset the proposal — never falsify history."""
     from app import config
-    from app.services import commitments
-    from app.tools.portfolio import edit_commitment
+    from app.services import promises
+    from app.tools.portfolio import edit_promise
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
-    c = commitments.add_commitment("shipp it", actor="ava")
-    out = edit_commitment(commitment_id=c["id"], promise="ship it")
+    c = promises.add_promise("shipp it", actor="ava")
+    out = edit_promise(promise_id=c["id"], promise="ship it")
     assert "pending" in out
-    commitments.update_commitment(c["id"], "kept", actor="ava")  # settles first
+    promises.update_promise(c["id"], "kept", actor="ava")  # settles first
     from app.services.api_keys import create_key
 
     headers = {"Authorization": f"Bearer {create_key('tester', 'p2')['key']}"}
@@ -87,7 +87,7 @@ def test_agent_history_guard_survives_approval(client, fresh_db, monkeypatch):
     )
     assert row["status"] == "pending" and "apply failed" in row["review_note"]
     assert (
-        fresh_db.query_one("SELECT promise FROM commitments WHERE id = ?", (c["id"],))["promise"]
+        fresh_db.query_one("SELECT promise FROM promises WHERE id = ?", (c["id"],))["promise"]
         == "shipp it"
     )
 
@@ -131,12 +131,12 @@ def test_destructive_diff_shows_doomed_content(client, fresh_db, monkeypatch):
 
 def test_edit_diff_shows_current_wording(client, fresh_db, monkeypatch):
     from app import config
-    from app.services import commitments
-    from app.tools.portfolio import edit_commitment
+    from app.services import promises
+    from app.tools.portfolio import edit_promise
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
-    c = commitments.add_commitment("shipp the thing to ops", actor="ava")
-    edit_commitment(commitment_id=c["id"], promise="ship the thing to ops")
+    c = promises.add_promise("shipp the thing to ops", actor="ava")
+    edit_promise(promise_id=c["id"], promise="ship the thing to ops")
     pending = client.get("/api/review?status=pending").json()
     d = client.get(f"/api/review/{pending[0]['id']}/diff").json()
     assert d["diff"]["current"]["promise"] == "shipp the thing to ops"
@@ -145,15 +145,15 @@ def test_edit_diff_shows_current_wording(client, fresh_db, monkeypatch):
 
 def test_edit_tools_refuse_empty_and_invalid_before_proposing(fresh_db, monkeypatch):
     from app import config
-    from app.services import commitments, engagements
+    from app.services import engagements, promises
     from app.tools.collab import edit_note
     from app.tools.platform import update_engagement
-    from app.tools.portfolio import mark_commitment
+    from app.tools.portfolio import mark_promise
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     assert "nothing to change" in edit_note(note_id=1)
-    c = commitments.add_commitment("p", actor="ava")
-    assert "kept, missed, or withdrawn" in mark_commitment(commitment_id=c["id"], status="done")
+    c = promises.add_promise("p", actor="ava")
+    assert "kept, missed, or withdrawn" in mark_promise(promise_id=c["id"], status="done")
     e = engagements.create_engagement("Doomcheck", actor="ava")
     out = update_engagement(engagement_id=e["id"], status="closed")
     assert "conclusion" in out and "pending" not in out

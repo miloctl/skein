@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
 
 /** Pins the null-vs-[] initialization in app/portfolio/page.tsx. Initialized
- *  to [], the conflicts and commitments cards rendered their verdicts
+ *  to [], the conflicts and promises cards rendered their verdicts
  *  ("Nobody is over 100%") during the first paint and again after a failed
  *  fetch — a confident claim about data that never arrived. The api mock
  *  below never resolves, so this renders the page frozen at first paint. */

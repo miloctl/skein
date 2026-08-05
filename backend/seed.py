@@ -117,10 +117,10 @@ def main() -> None:
         actor="seed",
     )
 
-    # ---- flagship flows the demo must show: commitment, absence, delegation ----
-    from app.services import absences, commitments, delegation
+    # ---- flagship flows the demo must show: promise, absence, delegation ----
+    from app.services import absences, delegation, promises
 
-    commitments.add_commitment(
+    promises.add_promise(
         "Send Acme the diligence summary",
         to_whom="Acme PM",
         due_date=(date.today() + timedelta(days=3)).isoformat(),
@@ -157,7 +157,7 @@ def main() -> None:
 
     print(
         "Seeded: 1 engagement (playbook), tasks, standups, blockers,"
-        " intake queue, pending reviews, calendar, lessons, a commitment,"
+        " intake queue, pending reviews, calendar, lessons, a promise,"
         " an absence, a charter entry, and a delegation awaiting acceptance."
     )
 

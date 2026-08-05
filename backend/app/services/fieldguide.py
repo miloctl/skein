@@ -63,7 +63,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "intake": lambda u: _has(
         "SELECT 1 FROM intake_requests WHERE requester = ? OR created_by = ?", (u, u)
     ),
-    "promise": lambda u: _has("SELECT 1 FROM commitments WHERE created_by = ?", (u,)),
+    "promise": lambda u: _has("SELECT 1 FROM promises WHERE created_by = ?", (u,)),
     "growth": lambda u: _act(u, "set_growth_interests"),
     # a chat_threads row means a message or slash command actually landed —
     # tool_usage's 'chat' surface would tie on merely opening the page
@@ -97,9 +97,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         "SELECT 1 FROM standups WHERE author = ? AND TRIM(blockers) != ''", (u,)
     ),
     "finding_converted": lambda u: _act(u, "disposition_finding", "% converted"),
-    # terminal statuses only — update_commitment also logs an open→open no-op
+    # terminal statuses only — update_promise also logs an open→open no-op
     "settle": lambda u: any(
-        _act(u, "update_commitment", f"#% {s}") for s in ("kept", "missed", "withdrawn")
+        _act(u, "update_promise", f"#% {s}") for s in ("kept", "missed", "withdrawn")
     ),
     "resolve_blocker": lambda u: _act(u, "resolve_blocker"),
     "close_engagement": lambda u: _act(u, "update_engagement", "#% closed"),

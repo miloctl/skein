@@ -589,7 +589,7 @@ export default function SettingsPage() {
 
       <Section title="5 · Calendar feed (optional)">
         <p className="mb-2 text-sm text-ink-3">
-          Subscribe your calendar app to team events + milestone/commitment
+          Subscribe your calendar app to team events + milestone/promise
           due dates. Use a local calendar client — hosted clients (Google)
           mirror titles outside your network.
         </p>

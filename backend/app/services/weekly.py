@@ -106,7 +106,7 @@ def apply_plan(
 
 
 def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
-    """Monday job: draft next commitments and queue them for human approval.
+    """Monday job: draft next promises and queue them for human approval.
     Once per week via claim_job — claimed only when there is actually a plan,
     so an empty Monday doesn't lock the week out."""
     week = current_week()

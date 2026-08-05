@@ -57,7 +57,7 @@ ARGS: dict[str, dict] = {
     # gate — the same ordering disturbance the trio's dedicated task avoids
     "edit_blocker": {"blocker_id": 2, "title": "coverage probe edit"},
     "edit_intake_request": {"request_id": 1, "title": "coverage probe edit"},
-    "edit_commitment": {"commitment_id": 1, "promise": "coverage probe edit"},
+    "edit_promise": {"promise_id": 1, "promise": "coverage probe edit"},
     # the delegation trio uses its own task so no earlier tool can disturb it
     "claim_delegated_task": {"task_id": 2},
     "report_progress": {"task_id": 2, "note": "coverage probe progress"},
@@ -69,7 +69,7 @@ ARGS: dict[str, dict] = {
         "starts_on": "2026-08-10",
         "ends_on": "2026-08-11",
     },
-    "mark_commitment": {"commitment_id": 1, "status": "kept"},
+    "mark_promise": {"promise_id": 1, "status": "kept"},
     "supersede_decision": {
         "decision_id": 1,
         "title": "coverage probe successor",
@@ -115,11 +115,11 @@ def _seed(fresh_db):
     from app.services import (
         blockers,
         collab,
-        commitments,
         delegation,
         engagements,
         intake,
         memory,
+        promises,
         schedule,
         users,
         work,
@@ -138,7 +138,7 @@ def _seed(fresh_db):
     schedule.schedule_event("probe event", "2026-08-20T10:00:00", actor="tester")
     blockers.raise_blocker("probe blocker", actor="tester")
     blockers.raise_blocker("probe blocker for editing", actor="tester")  # id 2
-    commitments.add_commitment("probe commitment", actor="tester")
+    promises.add_promise("probe promise", actor="tester")
     memory.remember("probe memory", "probe", actor="tester")
     intake.submit_request("probe request", requester="tester", actor="tester")
     work.create_task("probe delegated task", actor="tester")  # id 2, the trio's own
@@ -221,7 +221,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     # tool declares itself here or fails the suite.
     expected_writers = {
         "add_absence",
-        "add_commitment",
+        "add_promise",
         "answer_question",
         "ask_question",
         "assign_question",
@@ -232,12 +232,12 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "delegate_task",
         "delete_note",
         "edit_blocker",
-        "edit_commitment",
+        "edit_promise",
         "edit_intake_request",
         "edit_note",
         "forget_memory",
         "generate_handoff",
-        "mark_commitment",
+        "mark_promise",
         "post_standup",
         "raise_blocker",
         "record_decision",

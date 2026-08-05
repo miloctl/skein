@@ -27,7 +27,7 @@ def exec_readout(*, actor: str = "system") -> dict:
         (s["start"],),
     )
     due_soon = db.query(
-        "SELECT * FROM commitments WHERE status = 'open' AND audience = 'external'"
+        "SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         ((_today() + timedelta(days=14)).isoformat(),),
     )

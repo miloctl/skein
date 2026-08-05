@@ -76,7 +76,7 @@ TABLES = (
     "artifacts",
     "memories",
     "notifications",
-    "commitments",
+    "promises",
     "agent_authority",
     "feedback",
     "findings",
