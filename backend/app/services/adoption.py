@@ -22,7 +22,12 @@ SURFACES = ("web", "cli", "chat", "slack", "mcp", "webhook", "api")
 FLUSH_SECONDS = 30.0
 _pending: dict[tuple[str, str, str], int] = {}
 _pending_lock = Lock()
-_last_flush = 0.0
+# -inf, never 0.0: time.monotonic()'s reference point is arbitrary (boot on
+# Linux), so 0.0 reads as "flushed at boot" — on a host up for less than
+# FLUSH_SECONDS the first record_use buffers instead of flushing, which is
+# what test_record_use_buffers_between_flushes pins. -inf means "never
+# flushed" at any uptime and for any FLUSH_SECONDS.
+_last_flush = float("-inf")
 
 
 def _write(batch: dict[tuple[str, str, str], int]) -> None:
@@ -62,7 +67,7 @@ def reset() -> None:
     global _last_flush
     with _pending_lock:
         _pending.clear()
-        _last_flush = 0.0
+        _last_flush = float("-inf")
 
 
 def flush() -> None:
