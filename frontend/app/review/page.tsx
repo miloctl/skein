@@ -11,6 +11,9 @@ import { emptyState } from "@/lib/whimsy";
 
 function cell(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
+  // a reviewer reads these values to decide — JSON.stringify put `[2]` in
+  // front of them for the weekly plan's task list
+  if (Array.isArray(v)) return v.length ? v.map(cell).join(", ") : "—";
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 

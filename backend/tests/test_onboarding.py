@@ -31,9 +31,20 @@ def test_onboarding_scopes_personal_steps_first(client):
     assert {s["id"] for s in steps if s["scope"] == "team"} == {"first_engagement", "invite_team"}
 
 
+# in-page actions app/page.tsx::runStep knows how to perform. A step whose
+# link is neither a route nor one of these renders as a dead control.
+IN_PAGE_ACTIONS = {"#capture", "#standup"}
+
+
 def test_onboarding_steps_are_actionable(client, fresh_db):
     steps = client.get("/api/onboarding").json()["steps"]
-    assert all(s["link"].startswith("/") and s["hint"] for s in steps)
+    assert all(s["hint"] for s in steps)
+    for s in steps:
+        assert s["link"].startswith("/") or s["link"] in IN_PAGE_ACTIONS, s
+        # "/" IS My Day, where the checklist renders: capture and standup
+        # pointed there, so the first-run reader clicked the most inviting
+        # control on the page and nothing happened
+        assert s["link"] != "/", f"{s['id']} links to the page it is shown on"
     assert any(s["id"] == "setup_key" and s["link"] == "/settings" for s in steps)
 
 

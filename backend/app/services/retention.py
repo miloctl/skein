@@ -2,10 +2,21 @@
 forever; everything pruned here is derivable telemetry or already-consumed
 claims/notifications."""
 
-import json
 from datetime import UTC, datetime, timedelta
 
 from .. import db
+from . import wording
+
+# every key of `removed` needs an entry: a missing one raises KeyError while
+# building the feed sentence, which is louder and earlier than shipping a
+# table name to a reader
+PRUNE_LABEL = {
+    "forecast_snapshots": "forecast snapshot",
+    "notifications": "read notification",
+    "job_runs": "job run",
+    "job_outcomes": "job outcome",
+    "mention_log": "orphan mention record",
+}
 
 FORECAST_SNAPSHOT_DAYS = 365
 READ_NOTIFICATION_DAYS = 90
@@ -51,5 +62,12 @@ def prune(*, actor: str = "scheduler") -> dict:
             " OR (entity = 'decision' AND entity_id NOT IN (SELECT id FROM decisions))"
         ),
     }
-    db.log_activity(actor, "retention_prune", json.dumps(removed))
+    # this detail renders verbatim in the My Day feed, so it is a sentence,
+    # not a payload — json.dumps put a raw dict in front of every reader
+    gone = [wording.count(n, PRUNE_LABEL[table]) for table, n in removed.items() if n]
+    db.log_activity(
+        actor,
+        "retention_prune",
+        ", ".join(gone) if gone else "nothing old enough to remove",
+    )
     return removed

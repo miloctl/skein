@@ -5,6 +5,7 @@ inbox humans already work, so the plan is approved, not imposed."""
 from datetime import UTC, datetime, timedelta
 
 from .. import db
+from . import wording
 from .work import WEEK_RE, update_task
 
 MAX_PER_PERSON = 5
@@ -128,7 +129,7 @@ def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
         "weekly_plan",
         "create",
         {"week": week, "task_ids": [i["task_id"] for i in draft["items"]]},
-        summary=f"Weekly commitment line {week}: {len(draft['items'])} tasks ({names}){skipped}",
+        summary=f"Weekly commitment line {week}: {wording.count(len(draft['items']), 'task')} ({names}){skipped}",
         actor=actor,
         origin="agent",
     )

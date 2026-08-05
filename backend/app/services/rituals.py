@@ -9,10 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
-
-
-def _n(count: int, word: str) -> str:
-    return f"{count} {word}{'' if count == 1 else 's'}"
+from . import wording
 
 
 def _clean(text: str, width: int = 80) -> str:
@@ -135,17 +132,17 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
 
     markdown = "\n".join(lines)
     path = _write_artifact("week-close", f"Week close-out {today.isoformat()}", markdown, actor)
-    db.log_activity(actor, "week_close", _n(total, "open item"))
+    db.log_activity(actor, "week_close", wording.count(total, "open item"))
     if total:
         from .notifications import notify
 
         notify(
             "team",
-            f"Week close-out: {_n(total, 'item')} need{'s' if total == 1 else ''}"
-            f" a decision before Monday — {_n(len(due_promises), 'promise')},"
-            f" {_n(len(stuck_closing), 'stuck engagement')},"
-            f" {_n(len(stale_proposals), 'stale proposal')},"
-            f" {_n(len(open_questions), 'open question')}.",
+            f"Week close-out: {wording.count(total, 'item')} need{'s' if total == 1 else ''}"
+            f" a decision before Monday — {wording.count(len(due_promises), 'promise')},"
+            f" {wording.count(len(stuck_closing), 'stuck engagement')},"
+            f" {wording.count(len(stale_proposals), 'stale proposal')},"
+            f" {wording.count(len(open_questions), 'open question')}.",
             tier="digest",
             link="/portfolio",
         )
@@ -202,7 +199,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         if n == 0:
             continue
         briefed += 1
-        lines.append(f"## {name} — {_n(n, 'obligation')}")
+        lines.append(f"## {name} — {wording.count(n, 'obligation')}")
         lines += [
             f"- promise #{c['id']}: {_clean(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
@@ -219,13 +216,13 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         lines.append("")
         parts = []
         if promises:
-            parts.append(_n(len(promises), "promise"))
+            parts.append(wording.count(len(promises), "promise"))
         if decisions:
-            parts.append(_n(len(decisions), "stale decision"))
+            parts.append(wording.count(len(decisions), "stale decision"))
         if questions:
-            parts.append(_n(len(questions), "question"))
+            parts.append(wording.count(len(questions), "question"))
         if tasks:
-            parts.append(f"{_n(len(tasks), 'task')} due")
+            parts.append(f"{wording.count(len(tasks), 'task')} due")
         notify(
             name,
             f"Your week: {', '.join(parts)} carr{'ies' if n == 1 else 'y'}"
@@ -244,7 +241,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     )
     if agent_recorded:
         lines.append(
-            f"## Recorded by agents — {_n(len(agent_recorded), 'promise')}"
+            f"## Recorded by agents — {wording.count(len(agent_recorded), 'promise')}"
             f" need{'s' if len(agent_recorded) == 1 else ''} an owner"
         )
         lines += [
@@ -258,5 +255,5 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
 
     markdown = "\n".join(lines)
     path = _write_artifact("week-open", f"Week open {today.isoformat()}", markdown, actor)
-    db.log_activity(actor, "week_open", f"{_n(briefed, 'person')} briefed")
+    db.log_activity(actor, "week_open", f"{wording.count(briefed, 'person')} briefed")
     return {"week": week, "briefed": briefed, "path": path, "markdown": markdown}

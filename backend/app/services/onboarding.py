@@ -6,7 +6,10 @@ from .. import db
 
 # (id, label, link, hint, scope) — every step must be actionable from the UI:
 # the link goes where the step happens, the hint says HOW, so nobody needs to
-# have read the docs to finish setup. Personal steps come first — a new
+# have read the docs to finish setup. A link starting with "#" names an action
+# on the CURRENT page (app/page.tsx runStep) rather than a route: capture and
+# standup both happen on My Day, and pointing them at "/" made the checklist
+# item a dead self-link for the first-run reader it exists to help. Personal steps come first — a new
 # teammate must never be routed into team-level workflows before they have
 # captured a single todo; team facts render as a separate strip.
 STEPS = (
@@ -20,14 +23,14 @@ STEPS = (
     (
         "first_capture",
         "Capture something",
-        "/",
+        "#capture",
         "Press ⌘K anywhere — try 'todo: …', 'blocked on …', or 'decision: …'.",
         "you",
     ),
     (
         "first_standup",
         "Post a standup",
-        "/",
+        "#standup",
         "Open the Standup card on My Day and write one line. Blockers in it are"
         " filed with an escalation clock.",
         "you",
