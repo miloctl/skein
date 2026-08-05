@@ -58,6 +58,17 @@ const LEVEL_LABEL: Record<string, string> = {
   forbidden: "not allowed",
 };
 
+/** With the review gate off, `review` writes apply directly: tools/_gate.py
+ *  takes the direct path on `not config.AGENT_REVIEW` whatever the level, so
+ *  autonomous, notify and review all collapse to "acts alone" and only
+ *  forbidden still stops a write. A bare "needs approval" then promises a
+ *  checkpoint the deployment does not run. gateOn is null while the status
+ *  fetch is unsettled — say nothing rather than guess. */
+const levelLabel = (level: string, gateOn: boolean | null) =>
+  gateOn === false && level === "review"
+    ? "needs approval (gate off)"
+    : (LEVEL_LABEL[level] ?? level);
+
 const LEVEL_COLOR: Record<string, string> = {
   autonomous: "bg-ok/15 text-ok",
   notify: "bg-thread/15 text-thread",
@@ -89,6 +100,10 @@ export default function Agents() {
     context_error: string;
   } | null>(null);
   const manage = useManageMode();
+  // null until the status fetch settles: the authority copy below states a
+  // rule that INVERTS with this flag, so guessing it tells the reader the
+  // opposite of the truth about who can write without asking
+  const gateOn: boolean | null = status === null ? null : status.review_gate;
   const inboxGeneration = useRef(0);
   // Every section here must distinguish "unknown" from "empty". Several
   // empty states are CLAIMS — "No reviewed proposals yet", "Nothing
@@ -318,7 +333,7 @@ export default function Agents() {
                         title={`${au.entity}: ${au.level}`}
                         className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[au.level] ?? 'bg-raised text-ink-2'}`}
                       >
-                        {au.entity}: {LEVEL_LABEL[au.level] ?? au.level}
+                        {au.entity}: {levelLabel(au.level, gateOn)}
                       </span>
                     ))}
                   </p>
@@ -331,9 +346,24 @@ export default function Agents() {
 
       <Card title="Authority — what each agent can do alone">
         <p className="mb-2 text-xs text-ink-3">
-          By default every agent write <b>needs approval</b> (it waits in
-          Inbox → Approvals). Promote per entity as trust builds. The built-in
-          chat agent is “agent”.
+          {gateOn === null ? (
+            "Checking whether the review gate is on…"
+          ) : gateOn ? (
+            <>
+              By default every agent write <b>needs approval</b> (it waits in
+              Inbox → Approvals). Promote per entity as trust builds. The
+              built-in chat agent is “agent”.
+            </>
+          ) : (
+            <>
+              The review gate is off, so an agent writes directly and only{" "}
+              <b>not allowed</b> stops it. Four writes still wait for a human:
+              delete a note, forget a memory, cancel an event, record an
+              absence. To make <b>needs approval</b> hold for every entity, set{" "}
+              <code>SKEIN_AGENT_REVIEW=1</code> and restart the server. The
+              built-in chat agent is “agent”.
+            </>
+          )}
         </p>
         {agents === null ? (
           // grants derive from the agents list: while it is unknown, "No
@@ -345,7 +375,14 @@ export default function Agents() {
           );
           return grants.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No rules yet — everything an agent writes needs approval.
+              {/* what "no rules" MEANS inverts with the gate, same as the
+                  paragraph above — an unqualified "needs approval" here
+                  contradicted it on the same screen */}
+              {gateOn === null
+                ? "No rules yet."
+                : gateOn
+                  ? "No rules yet — everything an agent writes needs approval."
+                  : "No rules yet — so nothing on this page limits an agent."}
             </p>
           ) : (
             <ul className="mb-2 space-y-1 text-sm">
@@ -365,13 +402,13 @@ export default function Agents() {
                     >
                       {LEVELS.map((l) => (
                         <option key={l} value={l}>
-                          {LEVEL_LABEL[l]}
+                          {levelLabel(l, gateOn)}
                         </option>
                       ))}
                     </select>
                   ) : (
                     <span className={`rounded-full px-2 py-0.5 text-xs ${LEVEL_COLOR[g.level] ?? 'bg-raised text-ink-2'}`}>
-                      {LEVEL_LABEL[g.level] ?? g.level}
+                      {levelLabel(g.level, gateOn)}
                     </span>
                   )}
                 </li>
@@ -421,7 +458,7 @@ export default function Agents() {
             >
               {LEVELS.map((l) => (
                 <option key={l} value={l}>
-                  {LEVEL_LABEL[l]}
+                  {levelLabel(l, gateOn)}
                 </option>
               ))}
             </select>
