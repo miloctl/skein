@@ -61,9 +61,12 @@ class SqliteSessionRepository(SessionRepository):
         return Session.from_dict(json.loads(row["payload"])) if row else None
 
     def create_agent(self, session_id: str, session_agent: SessionAgent, **_kwargs: Any) -> None:
+        # upsert, never OR REPLACE: REPLACE deletes the existing row to
+        # resolve the conflict, and session_messages CASCADEs off this PK —
+        # two concurrent first turns would wipe the thread's whole history
         db.execute(
-            "INSERT OR REPLACE INTO session_agents (session_id, agent_id, payload)"
-            " VALUES (?, ?, ?)",
+            "INSERT INTO session_agents (session_id, agent_id, payload) VALUES (?, ?, ?)"
+            " ON CONFLICT (session_id, agent_id) DO UPDATE SET payload = excluded.payload",
             (session_id, session_agent.agent_id, json.dumps(session_agent.to_dict())),
         )
 

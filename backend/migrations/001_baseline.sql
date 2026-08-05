@@ -36,7 +36,10 @@ CREATE TABLE tasks (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 , origin TEXT NOT NULL DEFAULT 'human', created_by TEXT NOT NULL DEFAULT '', committed_week TEXT, delegated_agent TEXT NOT NULL DEFAULT '', sponsor TEXT NOT NULL DEFAULT '', completed_at TEXT, source_finding_id INTEGER REFERENCES findings(id), waiting_on_type TEXT
-    CHECK (waiting_on_type IN ('task', 'blocker', 'promise')), waiting_on_id INTEGER, engagement_id INTEGER REFERENCES engagements(id), forge_url TEXT NOT NULL DEFAULT '');
+    CHECK (waiting_on_type IN ('task', 'blocker', 'promise')), waiting_on_id INTEGER, engagement_id INTEGER REFERENCES engagements(id), forge_url TEXT NOT NULL DEFAULT '',
+-- both halves of the waiting_on pair or neither: a half-set pair renders
+-- "waiting on task #None" receipts and feeds NULL into the settled probe
+    CHECK ((waiting_on_type IS NULL) = (waiting_on_id IS NULL)));
 
 CREATE TABLE questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -526,3 +529,11 @@ CREATE TABLE session_multi_agents (
     payload TEXT NOT NULL,
     PRIMARY KEY (session_id, multi_agent_id)
 );
+
+-- backs the NOCASE duplicate guard in services/engagements.py - the
+-- pre-check and the INSERT are separate statements, so without this index
+-- two concurrent creates of 'Alpha' and 'alpha' both land and fork usage
+-- rollups across two near-identical engagements (ASCII fold, matching the
+-- service check exactly)
+CREATE UNIQUE INDEX ux_engagements_name_nocase ON engagements(name COLLATE NOCASE);
+
