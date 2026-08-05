@@ -71,6 +71,9 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [who, setWho] = useState<WhoAmI | null>(null);
+  // null until known: section 4 tells someone what happens when they
+  // connect an agent, and the answer INVERTS with the review gate
+  const [gateOn, setGateOn] = useState<boolean | null>(null);
   const [whoError, setWhoError] = useState("");
   const [keyStatus, setKeyStatus] = useState<string>("");
   const [interests, setInterests] = useState("");
@@ -124,6 +127,12 @@ export default function SettingsPage() {
       .finally(() => setCtxLoaded(true));
   }, []);
   useEffect(loadCtx, [loadCtx]);
+
+  useEffect(() => {
+    api<{ review_gate: boolean }>("/api/agents/status")
+      .then((s) => setGateOn(s.review_gate))
+      .catch(() => setGateOn(null)); // unknown stays unknown
+  }, []);
 
   const refresh = useCallback(() => {
     api<WhoAmI>("/api/whoami")
@@ -563,15 +572,38 @@ export default function SettingsPage() {
         <p className="mb-2 text-sm text-ink-3">
           Skein is an MCP server — Claude Code or any MCP client can read and
           write the platform natively. New agents start at{" "}
-          <b>needs-approval</b> authority: every write becomes a proposal in{" "}
-          <a href="/review" className="underline">
-            Inbox → Approvals
-          </a>{" "}
-          until a human grants more (see{" "}
-          <a href="/agents" className="underline">
-            /agents
-          </a>
-          ).
+          <b>needs-approval</b> authority.{" "}
+          {gateOn === null ? (
+            <>
+              What that holds back depends on the review gate —{" "}
+              <a href="/agents" className="underline">
+                /agents
+              </a>{" "}
+              states the rule in force.
+            </>
+          ) : gateOn ? (
+            <>
+              Every write becomes a proposal in{" "}
+              <a href="/review" className="underline">
+                Inbox → Approvals
+              </a>{" "}
+              until a human grants more (see{" "}
+              <a href="/agents" className="underline">
+                /agents
+              </a>
+              ).
+            </>
+          ) : (
+            <>
+              The review gate is off in this deployment, so a connected agent
+              writes directly: set an entity to <b>not allowed</b> on{" "}
+              <a href="/agents" className="underline">
+                /agents
+              </a>{" "}
+              to stop it, or set <code>SKEIN_AGENT_REVIEW=1</code> to hold every
+              write for approval.
+            </>
+          )}
         </p>
         <p className="mb-1 text-xs font-medium text-ink-3">Claude Code registration:</p>
         <CopyLine
