@@ -240,7 +240,7 @@ def set_authority(
     from .review import _registry
 
     if entity not in _registry():
-        raise ValueError(f"unknown entity '{entity}'; one of {sorted(_registry())}")
+        raise ValueError(f"unknown entity — one of {sorted(_registry())}")
     ensure_user(agent, kind="agent")
     # authority half-life: elevated grants carry a review-by date (90d
     # default) — "nothing in Skein is trusted forever, not decisions, not

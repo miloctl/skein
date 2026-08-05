@@ -110,7 +110,7 @@ export default function PeoplePage() {
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">1:1s</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Private 1:1 prep and feedback journal. Only you can read what you
-        write here — it lives outside search, digests, packs, exports, and
+        write here — it lives outside search, digests, context packs, exports, and
         every agent surface.
       </p>
 
@@ -118,7 +118,7 @@ export default function PeoplePage() {
         <div className="mb-4 rounded-xl border border-weld/40 bg-weld/10 p-4 text-sm text-weld">
           <p>
             Private notes need your personal API key — so nobody can read or
-            write them by just typing your name.{" "}
+            write them with only your name.{" "}
             <a href="/settings" className="font-medium underline">
               Settings
             </a>{" "}

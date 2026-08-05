@@ -133,7 +133,7 @@ def _validate_theme(theme: str) -> str:
     theme = theme.strip()
     if theme:
         if len(theme) > 400:
-            raise ValueError("theme blob too large")
+            raise ValueError("keep the theme under 400 characters")
         try:
             parsed = json.loads(theme)
         except ValueError as e:
@@ -144,7 +144,10 @@ def _validate_theme(theme: str) -> str:
             "appearance",
             "custom",
         }:
-            raise ValueError("unknown keys in theme")
+            raise ValueError(
+                "theme must be a JSON object with only these keys: pack,"
+                " colorway, appearance, custom"
+            )
     return theme
 
 
@@ -299,7 +302,10 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     if old == new:
         raise ValueError("that is already their name")
     if old == "anonymous" or new == "anonymous":
-        raise ValueError("anonymous is not renamable")
+        raise ValueError(
+            "anonymous cannot be renamed, and no account can be renamed to"
+            " anonymous — pick a real name first"
+        )
     # rename must honor the same identity walls ensure_user enforces —
     # otherwise it's the back door around the bench reservation and the
     # human/agent boundary that trust scores and authority assume

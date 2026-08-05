@@ -43,7 +43,7 @@ export function ManageToggle() {
       {on ? "manager controls on" : "manager controls"}
       <span className="sr-only">
         — shows or hides triage verdicts, readouts, and authority editing in
-        this browser; it does not grant permissions
+        this browser. It does not grant permissions
       </span>
     </button>
   );

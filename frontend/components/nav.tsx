@@ -163,7 +163,7 @@ export function Nav() {
               }}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              title={anonymous ? "Who are you?" : `You — ${user}`}
+              title={anonymous ? "Pick your name" : `You — ${user}`}
               className="relative flex min-h-11 items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink md:min-h-0"
             >
               <span

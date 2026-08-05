@@ -189,7 +189,7 @@ export default function ReviewPage() {
       <SectionTabs set="inbox" />
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Approvals</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Proposed changes from agents (and cautious humans). When you approve,
+        Proposed changes from agents (and careful humans). When you approve,
         Skein applies the change and records that a human verified it.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
@@ -275,7 +275,7 @@ export default function ReviewPage() {
                 by {c.proposed_by}
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
                 {c.sponsor
-                  ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually, with a reason)" : ""}`
+                  ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually with a reason)" : ""}`
                   : ""} ·{" "}
                 <time dateTime={c.created_at} title={c.created_at}>{timeAgo(c.created_at)}</time>
               </span>

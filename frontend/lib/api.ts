@@ -24,7 +24,7 @@ const detail = (error: unknown) => (error instanceof Error ? error.message : Str
  *  an unreachable backend, and reporting it as one sends the reader to check a
  *  server that is running and replying. */
 export const loadError = (error: unknown) =>
-  isUnreachable(error) ? backendUnreachable(error) : `Could not load this page. ${detail(error)}`;
+  isUnreachable(error) ? backendUnreachable(error) : `Could not load this page: ${detail(error)}`;
 
 /** What a failed ACTION says — a write the reader just triggered, where "could
  *  not load this page" would name the wrong thing. A refusal the server

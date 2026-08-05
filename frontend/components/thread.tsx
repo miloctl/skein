@@ -58,11 +58,11 @@ type SlashCommand = { name: string; args: string; description: string };
 // fetch fails; the backend response replaces it and is the source of truth
 const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "help", args: "", description: "List every command" },
-  { name: "briefing", args: "", description: "Your My-Day summary" },
+  { name: "briefing", args: "", description: "Your My Day summary" },
   { name: "search", args: "<query>", description: "Full-text search across the workspace" },
-  { name: "plan", args: "<playbook> <engagement name>", description: "Instantiate a playbook as a new engagement" },
+  { name: "plan", args: "<playbook> <engagement name>", description: "Start a new engagement from a playbook" },
   { name: "playbooks", args: "", description: "List available playbooks" },
-  { name: "remember", args: "<fact>", description: "Save a durable cross-thread memory" },
+  { name: "remember", args: "<fact>", description: "Save a fact that every chat remembers" },
 ];
 
 // Promise-cached for the life of the page: both catalogs change only on a
@@ -267,7 +267,7 @@ const Composer = () => {
           placeholder={
             activePersona
               ? `Message ${activePersona.name}…`
-              : "Message the Chief of Staff… (/help for commands, or just ask)"
+              : "Message the Chief of Staff… (/help for commands, or ask in your own words)"
           }
           className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-ink-3"
           rows={1}
@@ -292,7 +292,7 @@ export function Thread() {
             </p>
             <p className="mt-2 text-sm text-ink-3">
               Track milestones, log questions, record decisions, post standups,
-              and plan projects — just ask.
+              and plan projects — ask in your own words.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((s) => (
@@ -312,7 +312,7 @@ export function Thread() {
               <code>/playbooks</code>, <code>/search</code>,{" "}
               <code>/briefing</code>, <code>/remember</code> — they run
               instantly, no model needed. <code>/personas</code> lists the
-              bench of specialists. Anything else goes to the agent.
+              bench of specialists. Anything else goes to the Chief of Staff.
             </p>
           </div>
         </ThreadPrimitive.Empty>

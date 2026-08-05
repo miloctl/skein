@@ -14,7 +14,7 @@ INVALID_KEY = "invalid or revoked API key"
 NEED_KEY = (
     "SKEIN_AUTH_MODE=api-key: every request needs a personal API key. Get"
     " your first one from whoever runs the server (python -m"
-    " app.bootstrap_key <you>). Then set it with the 🔑 button, or send"
+    " app.bootstrap_key <you>). Then paste it in Settings, step 2, or send"
     " Authorization: Bearer sk-skein-..."
 )
 NEED_LOGIN = (
@@ -267,7 +267,7 @@ def _require_strong(strong: bool) -> None:
             status_code=403,
             detail="this surface requires a personal API key. Get your first"
             " one from whoever runs the server (python -m app.bootstrap_key"
-            " <you>). Then set it with the 🔑 button, or send"
+            " <you>). Then paste it in Settings, step 2, or send"
             " Authorization: Bearer sk-skein-...",
         )
 

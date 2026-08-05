@@ -175,7 +175,7 @@ export default function Agents() {
             {status.provider_error
               ? `Model misconfigured — ${status.provider_error}. Running deterministic until it is fixed.`
               : status.provider === "mock"
-                ? "Deterministic mode — no AI model connected. Chat commands and smart capture still work"
+                ? "Deterministic mode — no AI model connected. Chat commands and quick capture still work."
                 : `Model: ${status.model} (${status.provider})`}
           </span>
           <span>
@@ -210,7 +210,7 @@ export default function Agents() {
           <p className="mb-3 text-xs text-ink-3">
             Specialist personas you can invoke in chat — same tools, same
             review gate, their own name on every proposal. They appear in
-            Mission Control below after their first use.
+            Mission control below after their first use.
           </p>
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {bench.map((p) => (
@@ -298,7 +298,7 @@ export default function Agents() {
           );
           return grants.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No overrides yet — everything an agent writes needs approval.
+              No rules yet — everything an agent writes needs approval.
             </p>
           ) : (
             <ul className="mb-2 space-y-1 text-sm">

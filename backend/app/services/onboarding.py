@@ -28,7 +28,8 @@ STEPS = (
         "first_standup",
         "Post a standup",
         "/",
-        "Blockers mentioned in it are auto-filed with an escalation clock.",
+        "Open the Standup card on My Day and write one line. Blockers in it are"
+        " filed with an escalation clock.",
         "you",
     ),
     (
@@ -50,7 +51,7 @@ STEPS = (
         "invite_team",
         "Get a teammate in",
         "/settings",
-        "Send them the URL. They pick a name in Settings. The platform is a team sport.",
+        "Send them the URL. They pick a name in Settings.",
         "team",
     ),
 )

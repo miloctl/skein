@@ -116,7 +116,7 @@ def update_engagement(
     if freshly_closed and not (conclusion or current["conclusion"]):
         raise ValueError(
             f"closing needs a conclusion — one of {CONCLUSIONS}."
-            " 'invalidated' is a fine outcome for an experiment; 'unmeasured' is honest too."
+            " 'invalidated' is a fine outcome for an experiment. 'unmeasured' is honest too."
         )
     fields = {
         k: v

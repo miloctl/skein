@@ -96,7 +96,7 @@ def apply_plan(
         except ValueError:
             skipped.append(int(tid))
     if not committed:
-        raise ValueError(f"no tasks in the plan still exist: {skipped}")
+        raise ValueError("every task in the plan is gone — draft the week again from current tasks")
     db.log_activity(
         actor,
         "apply_weekly_plan",
@@ -123,7 +123,7 @@ def propose_weekly_plan(*, actor: str = "scheduler") -> dict:
     skipped = ""
     if draft["skipped_absent"]:
         who = ", ".join(f"{s['person']} ({s['away_days']}d)" for s in draft["skipped_absent"])
-        skipped = f"; skipped for absence: {who}"
+        skipped = f" — skipped for absence: {who}"
     return propose_change(
         "weekly_plan",
         "create",
