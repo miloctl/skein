@@ -202,8 +202,14 @@ one blank list. All three now hold null until the fetch settles, and
 `__tests__/loading-states.test.tsx` pins loading-vs-empty-vs-failed for
 each (verified to fail against the two-state shape).
 
-**T3. Silent catches.** Six `/agents` fetches (trust, entities, personas,
-status, memories, review history) swallow failures and render as "no data".
+**T3. Silent catches.** FIXED 2026-08-04. Six `/agents` fetches (trust,
+entities, personas, status, memories, the agents list) swallowed failures.
+Three then rendered a CLAIM — "No reviewed proposals yet", "Nothing
+remembered yet" — while the bench and the status strip vanished, and the
+entity dropdown silently fell back to a one-item list that reads as "these
+are the only record types". Each section now states its own failure, in
+the same wording portfolio uses for a failed card. Pinned by
+`__tests__/agents-silent-catches.test.tsx`.
 
 **T8. Three retry buttons exist in the whole app** (`/dashboard` ×2,
 `/auth/callback`). Everywhere else recovery is a manual reload, which no

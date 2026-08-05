@@ -90,14 +90,39 @@ export default function Agents() {
   } | null>(null);
   const manage = useManageMode();
   const inboxGeneration = useRef(0);
+  // Six sections used to swallow their failures. Three of them then rendered
+  // a CLAIM instead — "No reviewed proposals yet", "Nothing remembered yet" —
+  // and the bench simply vanished. On the page whose job is telling you what
+  // the agents may do alone, absence reads as "nothing to see", which is the
+  // most expensive wrong answer in the product. Same shape as portfolio.
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
+    // one wording for a failed SECTION, matching app/portfolio/page.tsx —
+    // loadError() names the whole page, which is wrong when one card failed
+    const fail = (key: string, what: string) => (e: Error) =>
+      setErrors((cur) => ({ ...cur, [key]: `Cannot load ${what}. ${actionError(e)}` }));
+    const ok = <T,>(set: (v: T) => void, key: string) => (v: T) => {
+      set(v);
+      setErrors((cur) => (key in cur ? { ...cur, [key]: "" } : cur));
+    };
     api<AgentRow[]>("/api/agents")
-      .then(setAgents)
-      .catch((e) => reportStatus(`Cannot load the agents list. ${actionError(e)}`));
-    api<Trust[]>("/api/agents/trust").then(setTrust).catch(() => {});
-    api<string[]>("/api/agents/entities").then(setEntities).catch(() => {});
-    api<Persona[]>("/api/personas").then(setBench).catch(() => {});
+      .then(ok(setAgents, "agents"))
+      .catch((e) => {
+        fail("agents", "the agents list")(e);
+        // the page's headline data: also announce it, so a reader who never
+        // scrolls still learns the page is not telling the truth
+        reportStatus(`Cannot load the agents list. ${actionError(e)}`);
+      });
+    api<Trust[]>("/api/agents/trust")
+      .then(ok(setTrust, "trust"))
+      .catch(fail("trust", "trust scores"));
+    api<string[]>("/api/agents/entities")
+      .then(ok(setEntities, "entities"))
+      .catch(fail("entities", "the record types an agent can write"));
+    api<Persona[]>("/api/personas")
+      .then(ok(setBench, "bench"))
+      .catch(fail("bench", "the bench"));
     api<{
       provider: string;
       model: string;
@@ -106,12 +131,16 @@ export default function Agents() {
       context_strategy: string;
       context_error: string;
     }>("/api/agents/status")
-      .then(setStatus)
-      .catch(() => {});
+      .then(ok(setStatus, "status"))
+      .catch(fail("status", "the model and review-gate status"));
     api<{ id: number; topic: string; content: string; user: string }[]>("/api/memories")
-      .then(setMemories)
-      .catch(() => {});
+      .then(ok(setMemories, "memories"))
+      .catch(fail("memories", "team memory"));
   }, []);
+
+  /** A failed section says so; a section still loading says nothing yet. */
+  const failed = (key: string) =>
+    errors[key] ? <p className="text-sm text-danger">{errors[key]}</p> : null;
 
   useEffect(load, [load]);
 
@@ -158,6 +187,11 @@ export default function Agents() {
         The bench, mission control, authority, and trust — agents earn
         autonomy through review verdicts. Humans hold every switch.
       </p>
+      {errors.status && (
+        <p className="mb-4 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2.5 text-xs text-danger">
+          {errors.status}
+        </p>
+      )}
       {status && (
         <p className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-line bg-card px-4 py-2.5 text-xs text-ink-2 shadow-card">
           <span>
@@ -202,6 +236,14 @@ export default function Agents() {
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      {errors.bench && (
+        <section className="mb-4 rounded-xl border border-line bg-card p-4 shadow-card">
+          <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            The bench
+          </h2>
+          {failed("bench")}
+        </section>
+      )}
       {bench.length > 0 && (
         <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2">
           <h2 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
@@ -243,7 +285,7 @@ export default function Agents() {
       )}
       <Card title="Mission control">
         {agents === null ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          errors.agents ? failed("agents") : <p className="text-sm text-ink-3">Loading…</p>
         ) : agents.length === 0 ? (
           <p className="text-sm text-ink-3">
             No agent identities yet — delegate a task or let the chat agent write something.
@@ -335,6 +377,12 @@ export default function Agents() {
         {manage && (
           <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-sm">
             <span className="text-xs text-ink-3">New rule:</span>
+            {/* the record-type list failed to load, so the select below is
+                showing its fallback — say so, or the reader reads a short
+                list as "these are the only record types" */}
+            {errors.entities && (
+              <span className="w-full text-xs text-danger">{errors.entities}</span>
+            )}
             <input
               value={targetAgent}
               onChange={(e) => setTargetAgent(e.target.value)}
@@ -390,7 +438,9 @@ export default function Agents() {
       </Card>
 
       <Card title="Trust — earned from review verdicts">
-        {trust.length === 0 ? (
+        {errors.trust ? (
+          failed("trust")
+        ) : trust.length === 0 ? (
           <p className="text-sm text-ink-3">
             No reviewed proposals yet — trust is earned in Inbox → Approvals.
           </p>
@@ -414,7 +464,9 @@ export default function Agents() {
       </Card>
 
       <Card title="Team memory — steers agent conversations (personal ones only their owner's)">
-        {memories.length === 0 ? (
+        {errors.memories ? (
+          failed("memories")
+        ) : memories.length === 0 ? (
           <p className="text-sm text-ink-3">
             Nothing remembered yet — /remember in chat adds one.
           </p>
