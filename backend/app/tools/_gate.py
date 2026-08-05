@@ -11,7 +11,7 @@ import json
 from .. import config, ratelimit
 from ..agents import receipts
 from ..agents.identity import agent_identity, requester_identity
-from ..services import review
+from ..services import lexicon, review
 from ..services.delegation import authority_level
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -104,7 +104,7 @@ def gated_write(
             receipts.record("failed", entity, str(exc))
             return json.dumps({"error": str(exc)})
         receipts.record(
-            "wrote", entity, summary or f"{action} {entity}", int(result.get("id") or 0)
+            "wrote", entity, summary or lexicon.phrase(entity, action), int(result.get("id") or 0)
         )
         if level == "notify":
             from ..services.notifications import notify
@@ -130,5 +130,7 @@ def gated_write(
     except ValueError as exc:
         receipts.record("failed", entity, str(exc))
         return json.dumps({"error": str(exc)})
-    receipts.record("queued", entity, summary or f"{action} {entity}", int(result.get("id") or 0))
+    receipts.record(
+        "queued", entity, summary or lexicon.phrase(entity, action), int(result.get("id") or 0)
+    )
     return json.dumps({**result, "note": "queued for human review"})
