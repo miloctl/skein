@@ -460,3 +460,29 @@ def test_mark_seen_stamps_only_pending_unseen_rows(fresh_db):
     assert review.mark_seen([approved["id"], pending["id"]]) == {"seen": 1}
     row = fresh_db.query_row("SELECT claim_at FROM pending_changes WHERE id = ?", (approved["id"],))
     assert row["claim_at"] is None  # a verdict already landed — the clock stays honest
+
+
+def test_batch_approve_returns_one_result_per_id(client, fresh_db):
+    """The model accepts 200 ids (the pending-list LIMIT, so 'select all' on
+    a full queue validates) while the route looped over only the first 100 —
+    so 150 selections produced 100 result rows and 50 proposals were dropped
+    with nothing said. A caller must be able to count the answers."""
+    from app.services import review
+
+    ids = []
+    for i in range(120):
+        c = review.propose_change(
+            "task",
+            "create",
+            {"title": f"batch probe {i}"},
+            summary=f"probe {i}",
+            actor="planner-agent",
+        )
+        ids.append(c["id"])
+
+    r = client.post("/api/review/approve-batch", json={"ids": ids})
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert len(results) == len(ids), "a selection got no answer"
+    assert {x["id"] for x in results} == set(ids)
+    assert all(x["status"] == "approved" for x in results)

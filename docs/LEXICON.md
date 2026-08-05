@@ -215,9 +215,19 @@ the same wording portfolio uses for a failed card. Pinned by
 `/auth/callback`). Everywhere else recovery is a manual reload, which no
 string mentions.
 
-Also flagged, not wording: `/review` has no manage gate (weak identity can
-approve anything except authority), batch selections over 100 rows are
-silently dropped, `/ingest` truncates at 20 unclassified lines with no "and
+Also flagged, not wording: batch selections over 100 rows were silently
+dropped (FIXED 2026-08-04 — `BatchApproveIn` accepted 200 ids while the
+route looped over 100, so 150 selections returned 100 answers and lost 50
+with nothing said; the loop now honors the validated input, pinned by
+`test_batch_approve_returns_one_result_per_id`). `/review` having no
+manage gate was investigated and is NOT a defect: approvals take
+`CurrentUser` by design — "Humans hold every switch" means any identified
+human may verify agent work — and only `authority` changes require a
+strong identity (`services/review.py:204`). Manager controls is a
+per-browser display toggle that "does not grant permissions", so gating
+approvals behind it would hide a permitted action without restricting
+anyone. Intake is gated because triage is a manager function; approving
+is not. `/ingest` truncates at 20 unclassified lines with no "and
 N more", authority `not allowed` fires on `onChange` with no confirmation,
 and the Agents empty state advertises "delegate a task" for which no UI
 exists (already ROADMAP item 3).
