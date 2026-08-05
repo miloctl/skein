@@ -506,7 +506,12 @@ export default function Dashboard() {
             <div>
               <p className="font-display text-[30px]/none font-semibold text-ink">
                 {pulse.standup_chain.chain}{" "}
-                <span className="ml-1 text-sm font-normal text-ink-3">days</span>
+                {/* the unit sits INLINE with the number, so it reads as a
+                    phrase and must agree — the (s) allowance covers standalone
+                    stat labels, not "1 days" set in 30px type */}
+                <span className="ml-1 text-sm font-normal text-ink-3">
+                  {pulse.standup_chain.chain === 1 ? "day" : "days"}
+                </span>
               </p>
               <span
                 aria-hidden

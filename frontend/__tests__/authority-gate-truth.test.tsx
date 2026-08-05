@@ -1,4 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The Agents page answers one question: can an agent write without asking?
@@ -30,6 +33,19 @@ vi.mock("@/lib/api", async (importOriginal) => {
           context_error: "",
         });
       }
+      // Settings reads several endpoints and calls .trim()/.map() on their
+      // fields — [] would crash the render before section 4 ever appears
+      if (path === "/api/users/growth-interests") return Promise.resolve({ interests: "" });
+      if (path === "/api/whoami")
+        return Promise.resolve({ user: "tester", strong: false, mode: "trusted-header" });
+      if (path === "/api/settings/context-strategy")
+        return Promise.resolve({
+          strategy: "sliding",
+          override: "",
+          default: "sliding",
+          choices: ["sliding", "summarize"],
+          applies: true,
+        });
       if (path === "/api/agents")
         return Promise.resolve([
           {
@@ -50,6 +66,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/agents" }));
 
 import AgentsPage from "@/app/agents/page";
+import SettingsPage from "@/app/settings/page";
 
 const GATE_ON_CLAIM = /By default every agent write/;
 const GATE_OFF_CLAIM = /The review gate is off/;
@@ -103,5 +120,26 @@ describe("the Agents page and the review gate", () => {
     expect(screen.queryByText(GATE_ON_CLAIM)).toBeNull();
     expect(screen.queryByText(GATE_OFF_CLAIM)).toBeNull();
     expect(screen.queryByText(/\(gate off\)/)).toBeNull();
+  });
+});
+
+/** Settings section 4 is where someone hands an external MCP agent their
+ *  workspace. It repeated the gate-on rule unconditionally. A source scan
+ *  cannot pin this — it passes even when the condition is inverted — so the
+ *  page is rendered and read. */
+describe("Settings when it explains what a connected agent can do", () => {
+  it("does not promise a proposal queue while the gate is off", async () => {
+    gate.on = false;
+    const { container } = render(<SettingsPage />);
+    await waitFor(() =>
+      expect(container.textContent).toMatch(/The review gate is off in this deployment/),
+    );
+    expect(container.textContent).not.toMatch(/becomes a proposal/i);
+  });
+
+  it("promises the proposal queue when the gate is on", async () => {
+    gate.on = true;
+    const { container } = render(<SettingsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(/becomes a proposal/i));
   });
 });
