@@ -96,6 +96,7 @@ export default function ReviewPage() {
   // it standing after a failed load — an empty queue is a claim, not a blank
   const [changes, setChanges] = useState<Change[] | null>(null);
   const [history, setHistory] = useState<Change[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchFailures, setBatchFailures] = useState<{ id: number; detail?: string }[]>([]);
@@ -105,6 +106,7 @@ export default function ReviewPage() {
     api<Change[]>("/api/review?status=pending")
       .then(async (rows) => {
         setChanges(rows);
+        setError(null); // a recovered backend must not leave the old banner above fresh data
         if (rows.length > 0)
           // a human is now looking — starts the active-review clock
           api("/api/review/seen", {
@@ -130,7 +132,14 @@ export default function ReviewPage() {
         setChanges([]);           // settled, with the error shown below
         setError(loadError(e));
       });
-    api<Change[]>("/api/review?status=approved").then(setHistory).catch(() => {});
+    api<Change[]>("/api/review?status=approved")
+      .then((h) => {
+        setHistory(h);
+        setHistoryError(null);
+      })
+      // swallowing this hid the whole section, and a missing "Recently
+      // approved" list reads as "nothing was approved" — a claim
+      .catch((e) => setHistoryError(`Cannot load the recently approved list. ${actionError(e)}`));
   }, []);
   useEffect(load, [load]);
 
@@ -375,11 +384,12 @@ export default function ReviewPage() {
         ))}
       </ul>
 
-      {history.length > 0 && (
+      {(history.length > 0 || historyError) && (
         <>
           <h2 className="mb-2 mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
             Recently approved
           </h2>
+          {historyError && <p className="text-xs text-danger">{historyError}</p>}
           <ul className="space-y-1">
             {history.slice(0, 10).map((c) => (
               <li key={c.id} className="text-xs text-ink-3">

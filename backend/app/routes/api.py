@@ -1182,11 +1182,10 @@ def post_review_seen(body: SeenIn, user: CurrentUser):
 def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request):
     strong = bool(getattr(request.state, "strong_auth", False))
     results = []
-    # every id the model accepted, not a second undocumented cap. The two
-    # numbers disagreed: BatchApproveIn allows 200 (the pending-list LIMIT,
-    # so "select everything on screen" validates), while this loop stopped
-    # at 100 — the rest were dropped with no result row, so the caller was
-    # told 100 outcomes for 150 selections and never learned about the 50.
+    # BatchApproveIn.max_length is the only cap. A second limit here (a
+    # slice, a break) drops the tail with no result row — the caller counts
+    # the answers, sees fewer than it sent, and never learns which ids were
+    # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
         try:
             r = review.approve_change(cid, actor=user, strong=strong)

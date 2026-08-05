@@ -22,7 +22,7 @@ multi-line JSX prose. Counts below are from the corrected pass. No ruling
 changed, but any future count must come from rendered screens (Phase 1),
 not a regex: a static sweep cannot see what a component assembles.
 
-Status: rows 1, 1b and the rule questions R1-R3 are **DECIDED and applied**
+Status: rows 1, 1b and the rule questions R1-R4 are **DECIDED and applied**
 (2026-08-04). Rows 2-7 remain open.
 
 ---
@@ -270,6 +270,9 @@ what is dangerous", which is shorter and fails in the right direction):
 > a number. The enumerated list stays only for the five places where voice
 > must be MAINTAINED rather than merely permitted.
 
+**Resolved (2026-08-04):** CLAUDE.md now carries this rule verbatim. The
+enumerated list survives only as the five MAINTAIN places.
+
 ### R2. The rhetorical-question ban is scoped to errors — it was applied wider
 
 CLAUDE.md's bullet reads "**Errors** state what happened... No rhetorical
@@ -288,16 +291,25 @@ replacement drops.
 Decide: widen the rule to all functional text (and accept the four
 rewrites), or hold it to errors (and restore what the notification lost).
 
+**Resolved (2026-08-04):** held to errors and refusals — CLAUDE.md scopes
+the bullet and judges a question elsewhere on whether it carries
+information. The dropped fourth option is back as a statement:
+`services/portfolio.py` now ends "…or close it if it no longer matters."
+
 ### R3. Emoji have no rule at all
 
-CLAUDE.md never mentions them, and they are load-bearing: digest section
-headings, chat receipt chips, CLI output, the whole sidebar icon set. A
-compliance pass has no guidance and will strip all or none.
+At audit time CLAUDE.md did not mention them, and they are load-bearing:
+digest section headings, chat receipt chips, CLI output, the whole sidebar
+icon set. A compliance pass with no guidance strips all or none.
 
-One case needs a ruling rather than a preference: `services/schedule.py:161`
-and `:175` put `🎯` and `🤝` into **ICS calendar SUMMARY fields**. Those
-render in Outlook and Google Calendar, in someone else's typography, next
-to real meetings. It is the one emoji use whose cost is not ours to absorb.
+One case needed a ruling rather than a preference: `services/schedule.py`
+put `🎯` and `🤝` into **ICS calendar SUMMARY fields**. Those render in
+Outlook and Google Calendar, in someone else's typography, next to real
+meetings. It is the one emoji use whose cost is not ours to absorb.
+
+**Resolved (2026-08-04):** CLAUDE.md now rules: emoji follow the warmth
+rule, and never in text that leaves Skein's own surfaces. The ICS emoji
+are removed.
 
 ### R4. This file granted an exemption it had no authority to grant
 
@@ -309,6 +321,10 @@ documents disagreed about what the closed list contains.
 Recorded as a precedent question: either the list is not closed (see R1),
 or the lexicon may not grant exemptions. Until R1 is decided, this file
 grants none.
+
+**Resolved (2026-08-04):** by R1. The closed list is gone; the warmth rule
+in CLAUDE.md is the authority, and it already covers "All threads even"
+(an all-clear line). The lexicon records decisions — it grants nothing.
 
 ---
 

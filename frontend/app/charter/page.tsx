@@ -49,7 +49,10 @@ export default function CharterPage() {
 
   const load = useCallback(() => {
     api<Decision[]>("/api/decisions?category=charter")
-      .then(setDecisions)
+      .then((rows) => {
+        setDecisions(rows);
+        setError(null); // a recovered backend must not leave the old banner above fresh data
+      })
       .catch((e) => {
         setDecisions([]);       // settled, with the error shown below
         setError(loadError(e));
@@ -247,7 +250,7 @@ export default function CharterPage() {
         {decisions === null && !error && (
           <p className="text-sm text-ink-3">Loading…</p>
         )}
-        {decisions !== null && decisions.length === 0 && (
+        {decisions !== null && decisions.length === 0 && !error && (
           <li><EmptyState>
             No charter entries yet. Start with: who owns what, how we escalate,
             what quality bar we hold.

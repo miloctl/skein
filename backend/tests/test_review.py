@@ -486,3 +486,28 @@ def test_batch_approve_returns_one_result_per_id(client, fresh_db):
     assert len(results) == len(ids), "a selection got no answer"
     assert {x["id"] for x in results} == set(ids)
     assert all(x["status"] == "approved" for x in results)
+
+
+def test_batch_approve_rejects_more_ids_than_the_model_allows(client, fresh_db):
+    """max_length=200 on BatchApproveIn is the only cap on a batch — the
+    loop trusts it (routes/api.py). If validation loosens, ids beyond the
+    pending-list LIMIT reach the loop unannounced."""
+    r = client.post("/api/review/approve-batch", json={"ids": list(range(1, 202))})
+    assert r.status_code == 422
+
+
+def test_batch_approve_answers_a_duplicated_id_twice(client, fresh_db):
+    """One answer per submitted id, even when two of them are the same id:
+    the first approves, the second reports the error. Collapsing duplicates
+    would break the caller's count of answers against selections."""
+    from app.services import review
+
+    c = review.propose_change(
+        "task", "create", {"title": "dup probe"}, summary="dup", actor="planner-agent"
+    )
+    r = client.post("/api/review/approve-batch", json={"ids": [c["id"], c["id"]]})
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert len(results) == 2
+    assert results[0]["status"] == "approved"
+    assert results[1]["status"] == "error"
