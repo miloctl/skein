@@ -54,6 +54,11 @@ this file is only for accepted trade-offs that must eventually be repaid.
   assumes it; a Litestream sidecar (container, not a code dependency)
   streaming the SQLite WAL to S3-compatible storage, restore drill in the
   runbook; `SKEIN_TRUST_PROXY_HOPS=1` behind the router;
+  `SKEIN_CORS_ORIGINS` set to the exact browser origin (scheme + host +
+  port — the live test showed 127.0.0.1 vs localhost is already a
+  mismatch); memory requests/limits sized for `next start` + uvicorn (the
+  dev frontend OOM-crashed at ~heavy parallel load, which a container
+  limit turns into a clean restart instead of a wedge);
   `SKEIN_AUTH_MODE` oidc or api-key, trusted-header staying dev-only; and
   a `v*` release tag on the deployed commit — the tag is what activates
   the upgrade-path CI job (scripts/upgrade-path.sh baselines on the
