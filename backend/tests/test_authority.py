@@ -146,29 +146,29 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
     import json as j
 
     from app import config
-    from app.tools.portfolio import add_commitment
+    from app.tools.portfolio import add_promise
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     # default 'review' → proposal
-    out = j.loads(add_commitment(promise="p1"))
+    out = j.loads(add_promise(promise="p1"))
     assert out.get("note") == "queued for human review"
 
     # autonomous → direct write even with review mode on
     client.post(
         "/api/agents/authority",
         headers=_strong(),
-        json={"agent": "agent", "entity": "commitment", "level": "autonomous"},
+        json={"agent": "agent", "entity": "promise", "level": "autonomous"},
     )
-    out = j.loads(add_commitment(promise="p2"))
+    out = j.loads(add_promise(promise="p2"))
     assert out.get("status") == "open"
 
     # forbidden → refused
     client.post(
         "/api/agents/authority",
         headers=_strong(),
-        json={"agent": "agent", "entity": "commitment", "level": "forbidden"},
+        json={"agent": "agent", "entity": "promise", "level": "forbidden"},
     )
-    out = j.loads(add_commitment(promise="p3"))
+    out = j.loads(add_promise(promise="p3"))
     assert "forbidden" in out["error"]
 
 
@@ -328,7 +328,7 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
     import json
 
     from app import config, mcp_server
-    from app.services import blockers, collab, commitments, intake, review, users, work
+    from app.services import blockers, collab, intake, promises, review, users, work
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
     users.ensure_user("mcp-agent", kind="agent")
@@ -337,7 +337,7 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
         ("q: who owns dns?", lambda: collab.list_questions()),
         ("blocked on the vendor", lambda: blockers.list_blockers()),
         ("decision: use sqlite", lambda: collab.list_decisions()),
-        ("promised: demo friday", lambda: commitments.list_commitments()),
+        ("promised: demo friday", lambda: promises.list_promises()),
         ("req: dashboards", lambda: intake.list_requests()),
         ("just a plain note", lambda: collab.search_notes("")),
     ]

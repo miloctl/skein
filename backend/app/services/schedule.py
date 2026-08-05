@@ -125,7 +125,7 @@ def _ics_dt_lines(prop: str, iso: str) -> list[str]:
 
 
 def ics_feed() -> str:
-    """Events + open milestone/commitment due dates as an iCalendar feed.
+    """Events + open milestone/promise due dates as an iCalendar feed.
     Team-visible data only; keep the feed inside the trusted network (hosted
     calendar clients would mirror titles off-box — prefer local clients)."""
     lines = [
@@ -162,7 +162,7 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     for c in db.query(
-        "SELECT id, promise, due_date FROM commitments"
+        "SELECT id, promise, due_date FROM promises"
         " WHERE status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
         start = _ics_dt_lines("DTSTART", c["due_date"])
@@ -170,7 +170,7 @@ def ics_feed() -> str:
             continue
         lines += [
             "BEGIN:VEVENT",
-            f"UID:commitment-{c['id']}@skein",
+            f"UID:promise-{c['id']}@skein",
             *start,
             f"SUMMARY:{_ics_escape('promised: ' + c['promise'][:80])}",
             "END:VEVENT",

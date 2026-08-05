@@ -26,7 +26,7 @@ def test_cli_settle_says_promise(monkeypatch, capsys):
     see this surface, so the CLI pins its own wording."""
     cli = _load_cli()
     monkeypatch.setattr(cli, "api", lambda *a, **k: {})
-    cli.cmd_commitments(Namespace(action="settle", id=3, status="kept"))
+    cli.cmd_promises(Namespace(action="settle", id=3, status="kept"))
     out = capsys.readouterr().out
     assert "promise #3 kept" in out
     assert "commitment" not in out

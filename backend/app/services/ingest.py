@@ -40,7 +40,7 @@ def _payload(kind: str, body: str, actor: str) -> dict:
     if kind == "decision":
         review_by, body = split_review_by(body)
         return {"title": body[:80], "decision": body, "decided_by": actor, "review_by": review_by}
-    if kind == "commitment":
+    if kind == "promise":
         return {"promise": body}
     if kind == "task":
         return {"title": body[:120], "description": body if len(body) > 120 else ""}

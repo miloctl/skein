@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS agent_authority (
     UNIQUE (agent, entity)
 );
 
-CREATE TABLE IF NOT EXISTS commitments (
+-- edited pre-production (commitments -> promises): the filename must keep its
+-- name — schema_version tracks migrations by filename, and a rename re-runs
+-- this file on every existing database (tests/test_migrations.py)
+CREATE TABLE IF NOT EXISTS promises (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     promise TEXT NOT NULL,
     to_whom TEXT NOT NULL DEFAULT '',

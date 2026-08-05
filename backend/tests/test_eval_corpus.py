@@ -40,12 +40,12 @@ def test_feedback_and_eval_capture(client):
             "input_text": "remember we owe legal a summary",
             "output": "note",
             "verdict": "corrected",
-            "correction": "commitment",
+            "correction": "promise",
         },
     )
     out = client.get("/api/eval/capture").json()
     assert out["cases"] == 2 and out["passed"] == 1
-    assert out["mismatches"][0]["expected"] == "commitment"
+    assert out["mismatches"][0]["expected"] == "promise"
 
     r = client.post(
         "/api/feedback", json={"kind": "capture", "input_text": "x", "verdict": "corrected"}

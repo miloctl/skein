@@ -235,8 +235,8 @@ def one_on_one_brief(person: str, days: int = 14) -> dict:
             " AND completed_at >= ? ORDER BY completed_at DESC LIMIT 10",
             (person, since),
         ),
-        "commitments_made": db.query(
-            "SELECT * FROM commitments WHERE created_by = ? AND created_at >= ? ORDER BY id DESC",
+        "promises_made": db.query(
+            "SELECT * FROM promises WHERE created_by = ? AND created_at >= ? ORDER BY id DESC",
             (person, since),
         ),
     }

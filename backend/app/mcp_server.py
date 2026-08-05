@@ -48,7 +48,7 @@ def get_my_day(user: str = "") -> str:
 @mcp.tool()
 def capture(text: str) -> str:
     """Quick-capture freeform text; auto-routed to task / question / note /
-    decision / blocker / commitment (e.g. 'todo: ship the API', 'blocked on vendor')."""
+    decision / blocker / promise (e.g. 'todo: ship the API', 'blocked on vendor')."""
     record_use(ACTOR, "mcp")
     ratelimit.check("capture", ACTOR)
     # Route through the SAME gate every other MCP writer uses, on the entity

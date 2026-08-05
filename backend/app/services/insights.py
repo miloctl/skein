@@ -104,7 +104,7 @@ def automation_ratio(months: int = 6) -> list[dict]:
             "blockers",
             "questions",
             "standups",
-            "commitments",
+            "promises",
         )
     )
     rows = db.query(
@@ -344,7 +344,7 @@ def _r_commitment_line() -> list[dict]:
         if last["kept_percent"] < 60:
             return [
                 _finding(
-                    "commitment_slip",
+                    "promise_slip",
                     "medium",
                     f"Last week's commitment line landed at {last['kept_percent']}%"
                     f" ({last['done']}/{last['committed']} committed tasks done).",
@@ -365,7 +365,7 @@ def _r_commitment_line() -> list[dict]:
         ):
             return [
                 _finding(
-                    "commitment_slip",
+                    "promise_slip",
                     "medium",
                     f"Two straight weeks under 75% on the commitment line"
                     f" ({two_ago['kept_percent']}%, then {last['kept_percent']}%).",
@@ -377,19 +377,19 @@ def _r_commitment_line() -> list[dict]:
     return []
 
 
-def _r_commitments_external() -> list[dict]:
+def _r_promises_external() -> list[dict]:
     out = []
     today = _iso(_today())
     soon = _iso(_today() + timedelta(days=7))
     for c in db.query(
-        "SELECT * FROM commitments WHERE status = 'open' AND audience = 'external'"
+        "SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"
         " AND due_date IS NOT NULL AND due_date <= ?",
         (soon,),
     ):
         overdue = c["due_date"] < today
         out.append(
             _finding(
-                "commitment_due",
+                "promise_due",
                 "high" if overdue else "medium",
                 (
                     f"External promise OVERDUE since {c['due_date']}"
@@ -402,25 +402,25 @@ def _r_commitments_external() -> list[dict]:
                     if overdue
                     else ""
                 ),
-                {"commitment_id": c["id"]},
+                {"promise_id": c["id"]},
                 n=1,
                 window="7d",
-                subject=f"commitment-{c['id']}",
+                subject=f"promise-{c['id']}",
             )
         )
     week_ago = _iso(_today() - timedelta(days=7))
     for c in db.query(
-        "SELECT * FROM commitments WHERE status = 'missed' AND updated_at >= ?", (week_ago,)
+        "SELECT * FROM promises WHERE status = 'missed' AND updated_at >= ?", (week_ago,)
     ):
         out.append(
             _finding(
-                "commitment_missed",
+                "promise_missed",
                 "high",
                 f"External promise MISSED: “{c['promise']}” (to {c['to_whom'] or 'unspecified'}).",
-                {"commitment_id": c["id"]},
+                {"promise_id": c["id"]},
                 n=1,
                 window="7d",
-                subject=f"commitment-{c['id']}",
+                subject=f"promise-{c['id']}",
             )
         )
     return out
@@ -814,7 +814,7 @@ RULES = (
     _r_escalation_spike,
     _r_aging_wip,
     _r_commitment_line,
-    _r_commitments_external,
+    _r_promises_external,
     _r_review_stall,
     _r_rejection_spike,
     _r_intake_stall,

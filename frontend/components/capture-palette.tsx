@@ -11,24 +11,20 @@ const RULES: [string, RegExp][] = [
   ["question", /^\s*(q:|question:)/i],
   ["blocker", /^\s*(blocked|blocker|stuck)\b[:\s]/i],
   ["decision", /^\s*(decision:|decided\b)/i],
-  ["commitment", /^\s*(promised?:|commitment:)/i],
+  ["promise", /^\s*(promised?:|commitment:)/i],
   ["request", /^\s*(req:|request:)/i],
   ["task", /^\s*(todo:|task:)/i],
   ["note", /^\s*(note:|fyi:|til:)/i],
   ["question", /\?\s*$/],
   ["blocker", /\b(blocked (by|on)|waiting on)\b/i],
   ["decision", /\bwe (decided|chose|are going with)\b/i],
-  ["commitment", /\bwe (promised|committed to)\b/i],
+  ["promise", /\bwe (promised|committed to)\b/i],
   ["task", /^\s*(fix|add|update|implement|write|ship|review|schedule)\b/i],
 ];
 
-// The stored kind is the API contract (`commitment`); the word a reader sees
-// is `promise` (docs/LEXICON.md, and the chip below already says promise).
-// Map at the point of display rather than renaming the kind, which tools,
-// tests, and the classifier all key on.
-const KIND_LABEL: Record<string, string> = { commitment: "promise" };
-const label = (kind: string) => KIND_LABEL[kind] ?? kind;
-
+// `commitment:` in the regexes above is an INPUT alias only (typed muscle
+// memory keeps working); the kind on the wire and on screen is promise
+// (docs/LEXICON.md row 1)
 const KNOWN_PREFIX =
   /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|req|request|fb):\s*/i;
 
@@ -138,7 +134,7 @@ export function CapturePalette() {
         method: "POST",
         body: JSON.stringify({ text }),
       });
-      setResult(`Captured as ${label(r.kind)} #${r.id}`);
+      setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
@@ -214,7 +210,7 @@ export function CapturePalette() {
               (kind
                 ? kind.startsWith("⚠")
                   ? kind
-                  : `will file as: ${label(kind)}${kind === "private feedback" ? " (needs your API key)" : ""}`
+                  : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
                 : [
                     <span key="kbd" className="[@media(any-pointer:coarse)]:hidden">
                       Enter to save · Esc to close

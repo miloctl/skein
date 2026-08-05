@@ -60,7 +60,7 @@ type Forecast = {
   }[];
 };
 
-type Commitment = {
+type PromiseRow = {
   id: number;
   promise: string;
   to_whom: string;
@@ -81,7 +81,7 @@ export default function Portfolio() {
   const [week, setWeek] = useState<Week | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
-  const [commitments, setCommitments] = useState<Commitment[] | null>(null);
+  const [promises, setPromises] = useState<PromiseRow[] | null>(null);
   const [readout, setReadout] = useState<string | null>(null);
   const [ritualOut, setRitualOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,9 +113,9 @@ export default function Portfolio() {
     api<Forecast>("/api/portfolio/forecast")
       .then(ok(setForecast, "forecast"))
       .catch(fail("forecast", "the slip forecast"));
-    api<Commitment[]>("/api/commitments")
-      .then(ok(setCommitments, "commitments"))
-      .catch(fail("commitments", "commitments"));
+    api<PromiseRow[]>("/api/promises")
+      .then(ok(setPromises, "promises"))
+      .catch(fail("promises", "promises"));
   }, []);
 
   /** What a card shows before its data arrives: the failure if there was
@@ -374,21 +374,21 @@ export default function Portfolio() {
       </Card>
 
       <Card title="Promises — external + yours to the team">
-        {!manage && commitments?.some((c) => c.status === "open") && (
+        {!manage && promises?.some((c) => c.status === "open") && (
           <p className="mb-2 text-xs text-ink-3">
             To mark a promise kept or missed, turn on <b>manager
             controls</b> (top right).
           </p>
         )}
-        {commitments === null ? (
-          pending("commitments")
-        ) : commitments.length === 0 ? (
+        {promises === null ? (
+          pending("promises")
+        ) : promises.length === 0 ? (
           <p className="text-sm text-ink-3">
             None recorded — capture one with “promised: …”.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">
-            {commitments.map((c) => (
+            {promises.map((c) => (
               <li key={c.id} className="flex items-center justify-between gap-2">
                 <span className={c.status !== "open" ? "text-ink-3 line-through" : ""}>
                   {c.audience === "team" ? "🤝 " : ""}
@@ -407,7 +407,7 @@ export default function Portfolio() {
                           disabled={busy}
                           onClick={() =>
                             mutate(
-                              api(`/api/commitments/${c.id}/status`, {
+                              api(`/api/promises/${c.id}/status`, {
                                 method: "POST",
                                 body: JSON.stringify({ status: s }),
                               }),

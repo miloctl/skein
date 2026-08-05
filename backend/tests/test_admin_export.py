@@ -17,7 +17,7 @@ def test_export_covers_new_tables(fresh_db):
 
     out = admin.export()
     for t in (
-        "commitments",
+        "promises",
         "agent_authority",
         "findings",
         "tool_usage",

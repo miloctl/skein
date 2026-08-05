@@ -29,7 +29,7 @@ def test_due_soon_excludes_other_peoples_tasks(fresh_db):
 def test_attention_groups_and_reasons(client, fresh_db):
     client.post("/api/questions", json={"question": "who owns infra?", "assigned_to": "tester"})
     client.post("/api/blockers", json={"title": "stuck on vendor", "owner": "tester"})
-    client.post("/api/commitments", json={"promise": "beta date", "due_date": "2020-01-01"})
+    client.post("/api/promises", json={"promise": "beta date", "due_date": "2020-01-01"})
     b = client.get("/api/briefing").json()
     groups = {a["group"] for a in b["attention"]}
     assert {"unblock", "commit"} <= groups

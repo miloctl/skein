@@ -262,7 +262,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "notes": ("created_by", "author"),
     "events": ("created_by",),
     "blockers": ("created_by", "owner"),
-    "commitments": ("created_by",),
+    "promises": ("created_by",),
     "engagements": ("created_by", "lead"),
     "allocations": ("created_by", "person"),
     "intake_requests": ("created_by", "requester"),

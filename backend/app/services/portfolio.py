@@ -20,7 +20,7 @@ def _today() -> date:
 _WAIT_SATISFIED = {
     "task": "SELECT id FROM tasks WHERE status = 'done' AND id IN ({marks})",
     "blocker": "SELECT id FROM blockers WHERE status = 'resolved' AND id IN ({marks})",
-    "commitment": "SELECT id FROM commitments WHERE status != 'open' AND id IN ({marks})",
+    "promise": "SELECT id FROM promises WHERE status != 'open' AND id IN ({marks})",
 }
 
 

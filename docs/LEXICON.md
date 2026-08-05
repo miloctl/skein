@@ -35,18 +35,23 @@ Status: rows 1, 1b and the rule questions R1-R4 are **DECIDED and applied**
 |---|---|
 | Words in use | **commitment** (13 visible / 6 files) · **promise** (10 / 5) |
 | Where they split | Pages say "Commitments"; capture chip, prefix `promised:`, DB field, and CLI say "promise" |
-| Code identifiers | `commitments` table, `promise` column, `/api/commitments` — unchanged either way |
-| **DECIDED** | **promise** (2026-08-04) — applied, and enforced by
+| Code identifiers | standardized too (2026-08-04, pre-production): `promises` table, `/api/promises`, kind `promise`, verbs `add_promise`/`update_promise`/`edit_promise`, insight rules `promise_due`/`promise_slip`/`promise_missed`, ICS UID `promise-{id}@skein` |
+| **DECIDED** | **promise** (2026-08-04) — applied end to end, wire included, and enforced by
 `one-wording.test.ts`: "commitment" in user-visible text fails CI |
 
 Why: it is the word the user types (`promised: …`), the word the capture chip
 offers, and the word the data model already uses for the content. CLAUDE.md's
 own agreement example is "1 promise carries". "Commitment" appears mainly in
-card titles that we control. Changing card titles is cheap; changing the verb
-people type is not.
+card titles that we control.
 
-Cost if "promise" wins: ~13 string edits in `portfolio/page.tsx`,
-`people/page.tsx`, CLI help, two knot cards. `/api/commitments` stays.
+The wire followed the reader (2026-08-04): keeping `commitment` as the
+stored kind required a display-mapping layer on every surface, and the CLI
+missed it once. The rename used the pre-production migration override
+(edits to 008/016/017 in place; existing databases must be recreated) —
+after the first production deploy this is permanent: the ICS UID would
+duplicate calendar events and the activity chain cannot rewrite old verbs.
+What stays `commitment` in source: the typed-input aliases (`commitment:`
+prefix, "we committed to") and the weekly commitment line (1b).
 
 ---
 

@@ -48,13 +48,13 @@ def test_organic_unlock_shows_once_then_settles(fresh_db):
 
 
 def test_terminal_verb_predicates_pin_activity_wording(fresh_db):
-    from app.services import commitments, engagements, fieldguide, work
+    from app.services import engagements, fieldguide, promises, work
 
     _mint(fresh_db, "ava")
     t = work.create_task(title="t", actor="ava")
     work.update_task(t["id"], status="done", actor="ava")
-    c = commitments.add_commitment(promise="demo Friday", actor="ava")
-    commitments.update_commitment(c["id"], "kept", actor="ava")
+    c = promises.add_promise(promise="demo Friday", actor="ava")
+    promises.update_promise(c["id"], "kept", actor="ava")
     e = engagements.create_engagement(name="probe", project_class="prototype", actor="ava")
     engagements.update_engagement(e["id"], status="closed", conclusion="unmeasured", actor="ava")
     tied = {
@@ -158,11 +158,11 @@ def test_more_activity_wordings_are_pinned(fresh_db):
     _mint(fresh_db, "ava")
     fresh_db.log_activity("ava", "disposition_finding", "#7 converted")
     fresh_db.log_activity("ava", "complete_task", "#9 ship it")
-    fresh_db.log_activity("ava", "update_commitment", "#3 open")  # no-op, not a settle
+    fresh_db.log_activity("ava", "update_promise", "#3 open")  # no-op, not a settle
     assert fieldguide.PREDICATES["finding_converted"]("ava")
     assert fieldguide.PREDICATES["task_done"]("ava")
     assert not fieldguide.PREDICATES["settle"]("ava")
-    fresh_db.log_activity("ava", "update_commitment", "#3 kept")
+    fresh_db.log_activity("ava", "update_promise", "#3 kept")
     assert fieldguide.PREDICATES["settle"]("ava")
 
 

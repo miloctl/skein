@@ -70,14 +70,14 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
             }
         )
     for c in db.query(
-        "SELECT id, promise, due_date, audience FROM commitments WHERE status = 'open'"
+        "SELECT id, promise, due_date, audience FROM promises WHERE status = 'open'"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (week,),
     ):
         overdue = c["due_date"] < today
         items.append(
             {
-                "kind": "commitment",
+                "kind": "promise",
                 "ref_id": c["id"],
                 "group": "commit",
                 "label": f"promise #{c['id']}: {c['promise'][:80]}",
@@ -278,7 +278,7 @@ def my_day(user: str) -> dict:
 def attention_count(user: str) -> int:
     """Nav badge on Inbox. Counts ONLY what actually lives there — proposals
     awaiting a verdict and requests awaiting triage. Blockers, questions, and
-    commitments render on My Day; counting them here made the badge promise
+    promises render on My Day; counting them here made the badge promise
     things the destination doesn't show (a 3 that lands on an empty page)."""
     row = db.query_one(
         "SELECT"

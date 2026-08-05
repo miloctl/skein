@@ -78,14 +78,14 @@ def test_events_from_date_filter(client):
 
 
 def test_dates_are_validated_and_ics_survives_bad_legacy_rows(client, fresh_db):
-    from app.services import commitments, engagements, users, work
+    from app.services import engagements, promises, users, work
 
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         work.create_task(title="t", due_date="soon")
     with pytest.raises(ValueError, match="real date"):
         work.create_milestone("m", due_date="2026-02-31")
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
-        commitments.add_commitment("p", due_date="07/30/2026")
+        promises.add_promise("p", due_date="07/30/2026")
     users.ensure_user("mira")
     e = engagements.create_engagement("Dated")
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
@@ -95,7 +95,7 @@ def test_dates_are_validated_and_ics_survives_bad_legacy_rows(client, fresh_db):
     work.update_task(t["id"], due_date="-", actor="mira")
     # a bad date already in the DB (pre-validation rows) must not sink the feed
     fresh_db.execute(
-        "INSERT INTO commitments (promise, due_date, status, audience, created_by,"
+        "INSERT INTO promises (promise, due_date, status, audience, created_by,"
         " created_at, updated_at) VALUES ('legacy', 'soon', 'open', 'external', 'mira', ?, ?)",
         (fresh_db.now(), fresh_db.now()),
     )

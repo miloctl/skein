@@ -85,23 +85,23 @@ def test_review_stall_and_question_aging(client, fresh_db):
     assert qf and qf[0]["subject"] == f"question-{q['id']}"
 
 
-def test_commitment_rules(client, fresh_db):
+def test_promise_rules(client, fresh_db):
     from app.services import insights
 
     c = client.post(
-        "/api/commitments",
+        "/api/promises",
         json={
             "promise": "board demo",
             "to_whom": "CEO",
             "due_date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat(),
         },
     ).json()
-    out = insights._r_commitments_external()
-    assert any(f["rule_id"] == "commitment_due" for f in out)
+    out = insights._r_promises_external()
+    assert any(f["rule_id"] == "promise_due" for f in out)
 
-    client.post(f"/api/commitments/{c['id']}/status", json={"status": "missed"})
-    out = insights._r_commitments_external()
-    assert any(f["rule_id"] == "commitment_missed" and f["severity"] == "high" for f in out)
+    client.post(f"/api/promises/{c['id']}/status", json={"status": "missed"})
+    out = insights._r_promises_external()
+    assert any(f["rule_id"] == "promise_missed" and f["severity"] == "high" for f in out)
 
 
 def test_decision_decay_rule(client, fresh_db):

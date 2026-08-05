@@ -23,7 +23,7 @@ type Brief = {
   open_questions: { id: number; question: string }[];
   in_progress: { id: number; title: string; updated_at: string }[];
   recently_done: { id: number; title: string; completed_at: string }[];
-  commitments_made: { id: number; promise: string; status: string }[];
+  promises_made: { id: number; promise: string; status: string }[];
   feedback_gap_days: number | null;
   nudge: string;
 };
@@ -226,7 +226,7 @@ export default function PeoplePage() {
                 />
                 <BriefList
                   title="Promises they made"
-                  items={brief.commitments_made.map((c) => `${c.promise} (${c.status})`)}
+                  items={brief.promises_made.map((c) => `${c.promise} (${c.status})`)}
                 />
               </div>
             )}

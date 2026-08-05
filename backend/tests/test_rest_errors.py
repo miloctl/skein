@@ -83,12 +83,12 @@ def test_api_tester_regressions(client):
 
 
 def test_clear_sentinel_rejected_on_create_paths(fresh_db):
-    from app.services import commitments, engagements, users, work
+    from app.services import engagements, promises, users, work
 
     with pytest.raises(ValueError, match="only clears"):
         work.create_task(title="t", due_date="-")
     with pytest.raises(ValueError, match="only clears"):
-        commitments.add_commitment("p", due_date="-")
+        promises.add_promise("p", due_date="-")
     users.ensure_user("mira")
     e = engagements.create_engagement("SentinelCheck")
     with pytest.raises(ValueError, match="only clears"):

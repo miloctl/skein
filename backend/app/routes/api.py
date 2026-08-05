@@ -16,7 +16,6 @@ from ..services import (
     briefing,
     capture,
     collab,
-    commitments,
     context_pack,
     delegation,
     digest,
@@ -31,6 +30,7 @@ from ..services import (
     personas,
     playbooks,
     portfolio,
+    promises,
     pulse,
     readout,
     review,
@@ -540,12 +540,12 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
     return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids, actor=user)
 
 
-@router.get("/commitments")
-def get_commitments(status: str = "", audience: str = ""):
-    return commitments.list_commitments(status, audience)
+@router.get("/promises")
+def get_promises(status: str = "", audience: str = ""):
+    return promises.list_promises(status, audience)
 
 
-class CommitmentIn(BaseModel):
+class PromiseIn(BaseModel):
     promise: str = Field(max_length=500)
     to_whom: str = Field("", max_length=120)
     due_date: str = Field("", max_length=10)
@@ -553,27 +553,27 @@ class CommitmentIn(BaseModel):
     audience: str = Field("external", max_length=20)
 
 
-@router.post("/commitments")
-def post_commitment(body: CommitmentIn, user: CurrentUser):
+@router.post("/promises")
+def post_promise(body: PromiseIn, user: CurrentUser):
     ratelimit.check("write", user)
-    return commitments.add_commitment(**body.model_dump(), actor=user)
+    return promises.add_promise(**body.model_dump(), actor=user)
 
 
-class CommitmentStatusIn(BaseModel):
+class PromiseStatusIn(BaseModel):
     status: str = Field(max_length=20)
 
 
-class CommitmentEditIn(BaseModel):
+class PromiseEditIn(BaseModel):
     promise: str = Field("", max_length=500)
     due_date: str = Field("", max_length=10)
     to_whom: str = Field("", max_length=120)
 
 
-@router.patch("/commitments/{commitment_id}")
-def patch_commitment(commitment_id: int, body: CommitmentEditIn, user: CurrentUser):
+@router.patch("/promises/{promise_id}")
+def patch_promise(promise_id: int, body: PromiseEditIn, user: CurrentUser):
     try:
-        return commitments.edit_commitment(
-            commitment_id, body.promise, body.due_date, body.to_whom, actor=user
+        return promises.edit_promise(
+            promise_id, body.promise, body.due_date, body.to_whom, actor=user
         )
     except db.NotFound:
         raise
@@ -581,9 +581,9 @@ def patch_commitment(commitment_id: int, body: CommitmentEditIn, user: CurrentUs
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/commitments/{commitment_id}/status")
-def post_commitment_status(commitment_id: int, body: CommitmentStatusIn, user: CurrentUser):
-    return commitments.update_commitment(commitment_id, body.status, actor=user)
+@router.post("/promises/{promise_id}/status")
+def post_promise_status(promise_id: int, body: PromiseStatusIn, user: CurrentUser):
+    return promises.update_promise(promise_id, body.status, actor=user)
 
 
 class SupersedeIn(BaseModel):
