@@ -139,6 +139,53 @@ def test_a_renamed_migration_reruns_and_bricks_the_boot(fresh_db, tmp_path, monk
     assert fresh_db.pending_migrations() == []
 
 
+def test_a_rebuild_migration_keeps_child_foreign_keys(fresh_db, tmp_path, monkeypatch):
+    """The 12-step table rebuild is the only way to widen a CHECK, and with
+    foreign_keys ON the DROP fires ON DELETE actions: rebuilding milestones
+    nulled every task's milestone_id. The runner turns enforcement off (a
+    migration cannot — the pragma is a silent no-op inside a transaction)
+    and relies on foreign_key_check instead."""
+    from app.services import work
+
+    m = work.create_milestone(title="anchor")
+    t = work.create_task(title="linked")
+    fresh_db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (m["id"], t["id"]))
+
+    staged = _staged(tmp_path, monkeypatch)
+    # a real rebuild recreates the DDL — CREATE ... AS SELECT would drop the
+    # primary key, and foreign_key_check refuses the missing parent key
+    ddl = fresh_db.query_one(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'milestones'"
+    )["sql"].replace("CREATE TABLE milestones", "CREATE TABLE milestones_new", 1)
+    (staged / "998_rebuild.sql").write_text(
+        f"{ddl};\n"  # noqa: S608 — DDL from sqlite_master, not user input
+        "INSERT INTO milestones_new SELECT * FROM milestones;\n"
+        "DROP TABLE milestones;\n"
+        "ALTER TABLE milestones_new RENAME TO milestones"
+    )
+    fresh_db.init_db()
+    row = fresh_db.query_one("SELECT milestone_id FROM tasks WHERE id = ?", (t["id"],))
+    assert row["milestone_id"] == m["id"], "the rebuild fired ON DELETE SET NULL"
+
+
+def test_a_migration_that_breaks_a_foreign_key_is_refused(fresh_db, tmp_path, monkeypatch):
+    """Enforcement is off during migrations (see above), so foreign_key_check
+    before commit is the only thing standing between a buggy migration and
+    committed orphans."""
+    staged = _staged(tmp_path, monkeypatch)
+    (staged / "999_orphan.sql").write_text(
+        "INSERT INTO tasks (title, milestone_id, created_at, updated_at)"
+        " VALUES ('orphan', 4242, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="999_orphan"):
+        fresh_db.init_db()
+    assert fresh_db.query_one("SELECT 1 AS x FROM tasks WHERE title = 'orphan'") is None
+    assert (
+        fresh_db.query_one("SELECT 1 AS x FROM schema_version WHERE version = '999_orphan.sql'")
+        is None
+    )
+
+
 def test_the_baseline_contains_no_data_statements():
     """The baseline is DDL only: on an empty database every backfill in the
     pre-squash corpus was a no-op, so nothing carried forward. A data

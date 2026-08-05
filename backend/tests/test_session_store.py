@@ -144,3 +144,20 @@ def test_deleting_a_thread_takes_its_persona_sessions(fresh_db):
     assert repo.read_session("t-del") is None
     assert repo.read_session("t-del--muse") is None
     assert repo.read_session("t-delta") is not None  # shares a prefix, not a variant
+
+
+def test_create_agent_twice_keeps_the_thread_history(fresh_db):
+    """create_agent is last-writer-wins on the AGENT payload only. An OR
+    REPLACE here deletes the old row to resolve the conflict, and
+    session_messages CASCADEs off that PK — so the second concurrent first
+    turn on a thread wiped the whole conversation the first one saved."""
+    repo = SqliteSessionRepository()
+    _seed_session(repo)
+    _seed_agent(repo)
+    for i in range(3):
+        repo.create_message("s1", "default", _msg(i, f"turn {i}"))
+
+    _seed_agent(repo)  # the losing racer re-creates the same agent
+
+    msgs = repo.list_messages("s1", "default")
+    assert len(msgs) == 3, "re-creating the agent destroyed the history"

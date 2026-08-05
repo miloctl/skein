@@ -102,10 +102,19 @@ def init_db() -> None:
     Each migration runs inside ONE transaction (BEGIN IMMEDIATE) together with
     its schema_version insert, so a crash mid-migration rolls back cleanly and
     concurrent workers serialize on the write lock instead of double-applying.
+
+    Migrations run with foreign_keys OFF and a foreign_key_check before every
+    commit. With enforcement ON, the 12-step table rebuild (the only way to
+    widen a CHECK in SQLite) destroys data: DROP TABLE on a parent performs an
+    implicit DELETE that fires ON DELETE actions, nulling or cascading every
+    child row — and PRAGMA foreign_keys is a silent no-op inside a
+    transaction, so a migration cannot opt itself out. OFF makes rebuilds
+    safe; the check keeps a buggy migration from committing orphans.
     """
     conn = connect()
     conn.isolation_level = None  # sqlite3's implicit BEGIN breaks BEGIN IMMEDIATE below
     try:
+        conn.execute("PRAGMA foreign_keys = OFF")  # before BEGIN, where it still works
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_version"
             " (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
@@ -121,6 +130,12 @@ def init_db() -> None:
                     continue
                 for stmt in _statements(path.read_text()):
                     conn.execute(stmt)
+                broken = conn.execute("PRAGMA foreign_key_check").fetchmany(5)
+                if broken:
+                    raise sqlite3.IntegrityError(
+                        f"{path.name} leaves broken foreign keys: "
+                        + ", ".join(f"{r[0]} row {r[1]} -> {r[2]}" for r in broken)
+                    )
                 conn.execute(
                     "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
                     (path.name, now()),
