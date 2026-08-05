@@ -242,7 +242,12 @@ def nudge_stale_wip() -> dict:
             person,
             f"{len(ts)} task{'' if len(ts) == 1 else 's'} in progress more than"
             f" {STALE_WIP_DAYS} days: {titles}."
-            " Split, unblock, or put back in the pool.",
+            # four options, not three: the question this replaced ("Still
+            # real?") carried "the task may no longer matter", which a bare
+            # list of actions drops. Stated, because the string carries a
+            # number and a count is never phrased as a question.
+            " Split it, unblock it, put it back in the pool, or close it if"
+            " it no longer matters.",
             tier="digest",
             link="/",
         )

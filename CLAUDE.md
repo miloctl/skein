@@ -115,15 +115,36 @@ that hasn't passed it will fail on push-to-main.
 
 Functional text — errors, helper copy, instructions, refusals, notifications,
 command replies — follows ASD-STE100 Simplified Technical English (the
-`simple-english` skill, pragmatic mode). Brand voice is exempt and stays as
-written: `lib/whimsy.ts` pools, digest openers, mock-agent replies, theme pack
-names, and the field guide's `pitch:` lines. In `fieldguide/knots.yaml` the
-split is by key, not by feel: `pitch:` says why a knot exists and stays warm,
-`how:` tells the reader what to do and follows STE. Code, identifiers,
-commands, and quoted errors are never rewritten.
+`simple-english` skill, pragmatic mode). Code, identifiers, commands, and
+quoted errors are never rewritten.
+
+**Warmth is allowed where nothing is being asked of the reader.** Copy may
+carry the product's voice when the system is idle, empty, or finished and
+the user has nothing they must do — all-clear lines, empty states, ritual
+closers, the goose, the colorway names. Everywhere else the standard
+applies. This replaced an enumerated exemption list, which named five
+things while roughly 200 strings carried deliberate voice: a list protects
+what someone remembered to write down and silently condemns the rest.
+
+Never warm, no exceptions: destructive confirmations, permission refusals,
+data-loss warnings, anything shown during an incident, and any string that
+carries a number.
+
+Five places must MAINTAIN the voice rather than merely permit it — a
+future author is expected to keep feeding them: `lib/whimsy.ts` pools,
+digest openers, mock-agent replies, theme pack names, and the field guide's
+`pitch:` lines. In `fieldguide/knots.yaml` the split is by key, not by
+feel: `pitch:` says why a knot exists and stays warm, `how:` tells the
+reader what to do and follows STE.
+
+Emoji follow the same rule, with one hard limit: never in text that leaves
+Skein's own surfaces. Calendar feeds render inside someone's mail client,
+next to real meetings, in typography we do not control.
 
 - Errors state what happened, then the fix as an imperative. No rhetorical
-  questions ("is it running?"), no apologies, no "Please".
+  questions ("is it running?"), no apologies, no "Please". This bullet is
+  scoped to errors and refusals: a question elsewhere is judged on whether
+  it carries information the statement would lose.
 - No contractions, no semicolons, no `e.g.`/`i.e.`, no `should`/`would`/`may`
   (write `must` or `can`, or restructure). Conditions come first: "If the
   build fails, read the log."
