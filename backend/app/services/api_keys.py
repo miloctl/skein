@@ -32,7 +32,7 @@ _SAFE_NAME = re.compile(r"[\w .\-]{1,64}")
 
 def request_key(user: str) -> dict:
     """Self-serve ask: a key can only be minted at the server, but requesting
-    one shouldn't require finding the operator — this files a team-visible
+    one must not require finding the operator — this files a team-visible
     nudge with the exact command. Idempotent per requester while one is still
     unread. The name is validated and quoted because the message is designed
     to be copy-pasted into a root shell — the one place spoofable X-User text

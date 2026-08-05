@@ -14,7 +14,8 @@ import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
 // five destinations, grouped by job: my work | team work | needs a verdict |
 // people & rules. Former top-level pages live on as tabs inside Work
 // (Health/Browse/Insights), Inbox (Approvals/Requests/Paste notes), and Team
-// (Agents/1:1s/Charter) — their URLs are unchanged.
+// (1:1s/Charter beside Agents and the Activity feed, which was born a tab)
+// — their URLs are unchanged.
 const GROUPS: { href: string; label: string; paths: string[] }[][] = [
   [
     { href: "/", label: "My Day", paths: ["/"] },

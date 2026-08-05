@@ -7,7 +7,7 @@ from .. import db
 # (id, label, link, hint, scope) — every step must be actionable from the UI:
 # the link goes where the step happens, the hint says HOW, so nobody needs to
 # have read the docs to finish setup. Personal steps come first — a new
-# teammate should never be routed into team-level workflows before they've
+# teammate must never be routed into team-level workflows before they have
 # captured a single todo; team facts render as a separate strip.
 STEPS = (
     (

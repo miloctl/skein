@@ -1,4 +1,5 @@
-"""A 4xx body never echoes the rejected value (CLAUDE.md, constraint 3).
+"""A 4xx body never echoes the rejected value (CLAUDE.md, "Input errors
+are 4xx").
 
 The boundary these pin: an error may name server-held state — a roster row,
 a registry entry, our own constants — but never a value that matched

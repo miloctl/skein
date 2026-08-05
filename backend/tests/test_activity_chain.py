@@ -378,7 +378,7 @@ def test_a_break_is_never_anchored(fresh_db):
 
 
 def test_a_full_reforge_with_every_mark_rewritten_is_caught_by_the_anchor_log(fresh_db):
-    """THE case B1 could not catch. The chain, the anchor, the high-water mark
+    """THE case no in-DB check can catch. The chain, the anchor, the high-water mark
     and the baseline all live in platform.db; rewrite them together and the
     full walk passes. The anchor log line was written on an earlier day, and
     the re-forge changed every anchored row's digest — content or lineage."""

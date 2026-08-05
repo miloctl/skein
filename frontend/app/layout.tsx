@@ -25,9 +25,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// preload: false on the four theme-pack faces below: only the active pack
-// renders one of them (globals.css maps --font-heading/--font-body per
-// pack), and preloading all six makes every cold load pay for four fonts it
+// preload: false on the four theme-pack faces below: the active pack
+// renders at most two of them (globals.css maps --font-heading/--font-body
+// per pack), and preloading all six makes every cold load pay for fonts it
 // never draws. Geist sans/mono stay preloaded — every pack uses them.
 // The cost: a pack whose heading face is here (Bricolage on the default
 // loom pack included) swaps in after first paint instead of before.
@@ -79,10 +79,10 @@ export const metadata: Metadata = {
   // produces duplicate, conflicting <link rel="icon"> tags.
 };
 
-// The address bar on mobile takes its colour from this. A static pair would be
-// wrong for four of the five packs (loom #faf9f6, phosphor #f2f5ef, contrast
-// #ffffff, ...), so lib/theme.ts overwrites the tag from the resolved page
-// colour after applying prefs; this is only the pre-hydration fallback.
+// The address bar on mobile takes its colour from this. A static pair would
+// be wrong for every pack but loom (phosphor #f2f5ef, contrast #ffffff, ...),
+// so lib/theme.ts overwrites the tag from the resolved page colour after
+// applying prefs; this is only the pre-hydration fallback.
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf9f6" },
@@ -112,7 +112,8 @@ export default function RootLayout({
         {/* one live region for the whole app — every surface reports through
             lib/status.ts rather than calling window.alert() */}
         <StatusRegion />
-        {/* 9 header stops precede every page — a keyboard user needs a bypass */}
+        {/* every header control precedes the page content — a keyboard user
+            tabs through all of them on every page without a bypass */}
         <a
           href="#content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:border focus:border-line-strong focus:bg-card focus:px-3 focus:py-2 focus:text-sm"

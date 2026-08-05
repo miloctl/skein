@@ -1,4 +1,4 @@
-"""Round-3 tools: portfolio reads, commitments, delegation, decision chains,
+"""Portfolio tools: portfolio reads, commitments, delegation, decision chains,
 context pack, agent inbox."""
 
 import json

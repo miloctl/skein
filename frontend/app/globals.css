@@ -3,7 +3,7 @@
 /* Skein design language — "The Loom".
    Warm loom-neutral surfaces, indigo-dye thread accent, weld-ochre signature.
    Borders carry structure, lightness carries elevation; shadows only on
-   things that float. Docs: docs/reviews/ design pass 2026-07-25. */
+   things that float. */
 
 /* Tokens resolve through light-dark(): appearance is a one-line color-scheme
    switch, and each colorway only re-dyes the two accent threads. Every pair

@@ -91,7 +91,7 @@ def test_satisfied_waits_stop_yellowing(client, fresh_db):
     assert not any("waiting" in r for r in health["receipts"])
 
 
-def test_agent_tools_cover_wave2_fields(fresh_db, monkeypatch):
+def test_agent_tools_cover_waiting_on_and_charter_fields(fresh_db, monkeypatch):
     from app import config
     from app.services import blockers as blockers_svc
     from app.services import work as work_svc

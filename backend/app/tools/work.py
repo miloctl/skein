@@ -1,7 +1,8 @@
 """Milestone/task tools — thin wrappers over app.services.work.
 
-Mutations respect the review gate: with SKEIN_AGENT_REVIEW=1 the agent's
-writes become pending_changes proposals a human approves in the review inbox.
+Every mutation routes through tools/_gate.py: the (agent, entity) authority
+level decides direct write vs review proposal, and SKEIN_AGENT_REVIEW=1
+governs only the default "review" level.
 """
 
 import json

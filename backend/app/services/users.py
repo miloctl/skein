@@ -58,9 +58,9 @@ def reserved_name_rows() -> list[str]:
 
 def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
     """One folded name, one roster row — checked wherever a row is created OR
-    moved. It lived inside ensure_user for one round, which left rename_user
-    as the back door: renaming a human onto an agent's name bricks them at
-    every door, including the rename route itself. Kind does not soften it:
+    moved. Checked only in ensure_user, rename_user is the back door:
+    renaming a human onto an agent's name bricks them at every door,
+    including the rename route itself. Kind does not soften it:
     authority_level and trust key on the EXACT name, so a second agent row
     folding onto the first would answer to neither's kill switch.
 
@@ -240,7 +240,7 @@ def resolve_teammate(
 
 def list_users(active_only: bool = True) -> list[dict]:
     """'anonymous' is the pre-name-pick fallback identity, not a teammate —
-    no listing surface (roster, People, staffing) should show it."""
+    no listing surface (roster, People, staffing) shows it."""
     if active_only:
         return db.query(
             "SELECT * FROM users WHERE active = 1 AND name != 'anonymous' ORDER BY kind, name"

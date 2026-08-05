@@ -236,7 +236,7 @@ def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
 
 def test_approve_survives_unexpected_exceptions(fresh_db, monkeypatch):
     """ANY apply failure must reset the claim — an approved-but-never-applied
-    proposal would vanish from the queue (correctness blocker #1)."""
+    proposal would vanish from the queue."""
     from app.services import review, work
 
     p = review.propose_change("task", "create", {"title": "t"}, actor="agent")

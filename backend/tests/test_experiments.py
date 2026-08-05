@@ -1,4 +1,5 @@
-"""Experiments + close conclusions (PLAN.md W1.3)."""
+"""Experiments: the required timebox, close-requires-a-conclusion, the
+drafted lesson and honest recap, and the slip-forecast exclusion."""
 
 import pytest
 

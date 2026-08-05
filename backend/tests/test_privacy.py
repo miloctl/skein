@@ -1,4 +1,4 @@
-"""Canary tests for the private-record boundary (PLAN.md W1.1).
+"""Canary tests for the private-record boundary.
 
 A canary string is written into private notes; every egress surface is then
 asserted canary-free. If any of these fail, private data is leaking."""

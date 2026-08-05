@@ -1,4 +1,4 @@
-"""Meeting-notes ingestion (PLAN.md W1.2): deterministic pass → review
+"""Meeting-notes ingestion: deterministic pass → review
 proposals, fb: lines flagged and never stored, batch approve."""
 
 import pytest
