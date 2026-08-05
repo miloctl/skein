@@ -480,6 +480,15 @@ export default function Agents() {
       </Card>
 
       <Card title="Trust — earned from review verdicts">
+        {/* without this the card contradicts itself: services/delegation.py
+            counts a streak only from reviewed_strong verdicts, so an agent
+            reads "1/1 approved (100%) · streak 0" and the manager has no way
+            to learn why it never gets promoted */}
+        <p className="mb-2 text-xs text-ink-3">
+          A streak counts only approvals made with a personal API key. A name
+          from the header alone can be set by anyone, so it must not walk an
+          agent toward acting alone.
+        </p>
         {errors.trust ? (
           failed("trust")
         ) : trust === null ? (

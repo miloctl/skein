@@ -68,6 +68,9 @@ export default function IngestPage() {
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
+        // placeholder is not a label: it vanishes on the first keystroke and
+        // leaves a screen reader with an unnamed field
+        aria-label="Paste your notes, one item per line"
         rows={12}
         placeholder={
           "- todo: update the runbook\n- q: who owns the staging cluster?\n- decided: we ship Fridays\n- blocked on the API key from vendor\n- promised: revised beta date to ops by Friday\n- note: retro moved to Thursdays"
@@ -163,6 +166,17 @@ export default function IngestPage() {
                   </li>
                 ); })}
               </ul>
+              {result.unclassified.length > 20 && (
+                <p className="mt-1 text-xs text-ink-3">
+                  {result.unclassified.length - 20} more{" "}
+                  {result.unclassified.length - 20 === 1 ? "line is" : "lines are"} not
+                  shown. Paste a smaller batch to file them here, or capture them
+                  with ⌘K.
+                </p>
+              )}
+              {/* the heading above counts every line, the list renders 20:
+                  without this the reader counts twenty rows under a heading
+                  that says thirty-five and cannot tell which is wrong */}
             </div>
           )}
         </div>
