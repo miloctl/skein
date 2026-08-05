@@ -1,6 +1,8 @@
 """Engagement intake & triage. Scoring is programmatic RICE-lite:
 score = reach * impact * confidence / effort (each 1-5, effort >= 1)."""
 
+import sqlite3
+
 from .. import db
 from .search import index_record
 
@@ -189,8 +191,13 @@ def _disposition(
                 actor=actor,
                 origin=origin,
             )
-        except ValueError as exc:
-            # a name collision must not read as "work has started" — say so
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            # a name collision must not read as "work has started" — say so.
+            # IntegrityError is the RACE: create_engagement pre-checks the
+            # name NOCASE and raises ValueError, but two accepts landing
+            # together both pass that read and the loser hits
+            # ux_engagements_name_nocase. Uncaught it is a 500 for a
+            # caller-supplied name, which the 4xx rule forbids.
             db.log_activity(actor, "accept_without_engagement", f"#{request_id}: {exc}")
             return {
                 "id": request_id,

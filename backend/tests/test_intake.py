@@ -99,3 +99,27 @@ def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
     assert findings, "the stall rule missed dispositions that took ~50 days"
     assert findings[0]["n"] == 5
     assert findings[0]["receipt"]["median_days"] > 7
+
+
+def test_accept_degrades_when_the_engagement_name_collides_in_a_race(fresh_db, monkeypatch):
+    """create_engagement pre-checks the name NOCASE, so the normal
+    collision is a ValueError. Two accepts landing together both pass that
+    read and the loser hits ux_engagements_name_nocase instead — uncaught
+    that is a 500 for a caller-supplied name. Accept must degrade the same
+    way either route."""
+    import sqlite3
+
+    from app.services import engagements, intake
+
+    r = intake.submit_request("Ship the audit tool", requester="dana", actor="dana")
+    intake.score_request(r["id"], 3, 3, 3, 3, actor="mgr")
+
+    def racing_create(*_a, **_k):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed: engagements.name")
+
+    monkeypatch.setattr(engagements, "create_engagement", racing_create)
+    out = intake.disposition_request(r["id"], "accepted", "worth doing", actor="mgr")
+    assert out["engagement_created"] is False
+    assert "no new engagement" in out["note"]
+    # the request itself still settled — the verdict is not lost
+    assert intake.list_requests()[0]["status"] == "accepted"
