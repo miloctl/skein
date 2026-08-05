@@ -1,9 +1,22 @@
 """Backups and export. SQLite's .backup API gives consistent copies even
 mid-write; exports are JSON snapshots for portability.
 
-Ops note: backups default to the same volume as the live DB. Copy them off-box
-(host cron: `docker cp` / rsync of /data/backups) or set SKEIN_BACKUP_DIR to
-a bind mount — losing the volume otherwise loses DB and backups together.
+Ops note: backups default to the same volume as the live databases, so
+losing that volume loses both together. Put them elsewhere: on OpenShift,
+mount a second PVC and point SKEIN_BACKUP_DIR (or SKEIN_BACKUP_MIRROR) at
+it, or run the Litestream sidecar (TODO.md, deploy entry) for streaming
+off-cluster copies. On a host deployment, a cron rsync of the backups
+directory does the same job.
+
+Restore procedure (drilled in tests/test_admin_backup.py::
+test_restore_drill_brings_both_databases_back):
+1. Scale the deployment to zero replicas — SQLite must have no writer.
+2. Copy platform-<date>.db over <data>/platform.db and private-<date>.db
+   over <data>/private.db (oc cp into the PVC via a debug pod, or plain cp
+   on a host). BOTH files, from the SAME date: they reference each other's
+   people.
+3. Scale back to one replica. Boot applies any migrations newer than the
+   backup; the activity chain verifies from its anchor on /health.
 """
 
 import json
@@ -91,12 +104,8 @@ def _today() -> str:
     return datetime.now(UTC).date().isoformat()
 
 
-def backup(*, keep: int = 14) -> dict:
-    backups_dir = _backups_dir()
-    dest = backups_dir / f"platform-{_today()}.db"
+def _backup_one(src: sqlite3.Connection, dest: Path, keep: int) -> None:
     tmp = dest.with_suffix(".db.tmp")
-
-    src = db.connect()
     try:
         target = sqlite3.connect(tmp)
         with target:
@@ -106,13 +115,40 @@ def backup(*, keep: int = 14) -> dict:
     finally:
         src.close()
         tmp.unlink(missing_ok=True)
-
-    existing = sorted(backups_dir.glob("platform-*.db"))
-    for old in existing[:-keep]:
+    prefix = dest.name.split("-", 1)[0]
+    for old in sorted(dest.parent.glob(f"{prefix}-*.db"))[:-keep]:
         old.unlink()
     log.info("backup written: %s", dest)
+
+
+def backup(*, keep: int = 14) -> dict:
+    """Both databases, or the backup is not one: platform.db holds the
+    workspace, private.db holds the 1:1 notes — the one store that exists
+    nowhere else (deliberately outside exports), so a backup that skips it
+    silently loses the most personal data on the first disk loss. The
+    private backup stays out of the off-box mirror — see the note below."""
+    backups_dir = _backups_dir()
+    dest = backups_dir / f"platform-{_today()}.db"
+    _backup_one(db.connect(), dest, keep)
     mirrored = _mirror(dest)
-    return {"path": str(dest), "kept": min(len(existing), keep), "mirrored": mirrored}
+
+    private_path = None
+    if Path(config.PRIVATE_DB_PATH).exists():
+        private_dest = backups_dir / f"private-{_today()}.db"
+        _backup_one(sqlite3.connect(config.PRIVATE_DB_PATH), private_dest, keep)
+        # deliberately NOT mirrored: SKEIN_BACKUP_MIRROR is an off-box copy,
+        # and 1:1 notes stay on the box — the local backup adds no reader
+        # (whoever runs the server can read private.db itself), the mirror
+        # would. tests/test_privacy.py pins both halves.
+        private_path = str(private_dest)
+
+    kept = len(sorted(backups_dir.glob("platform-*.db")))
+    return {
+        "path": str(dest),
+        "private_path": private_path,
+        "kept": min(kept, keep),
+        "mirrored": mirrored,
+    }
 
 
 def mirror_dir() -> Path | None:
@@ -145,7 +181,8 @@ def _mirror(dest: Path) -> str | None:
         tmp = mdir / (dest.name + ".tmp")
         shutil.copy2(dest, tmp)
         os.replace(tmp, mdir / dest.name)
-        for old in sorted(mdir.glob("platform-*.db"))[:-30]:
+        prefix = dest.name.split("-", 1)[0]
+        for old in sorted(mdir.glob(f"{prefix}-*.db"))[:-30]:
             old.unlink()
         return str(mdir / dest.name)
     except Exception as exc:
@@ -155,8 +192,14 @@ def _mirror(dest: Path) -> str | None:
 
 def backup_if_stale() -> dict | None:
     """Daily hook, multi-process safe via the job_runs claim."""
-    dest = _backups_dir() / f"platform-{_today()}.db"
-    if dest.exists():
+    backups_dir = _backups_dir()
+    done = (backups_dir / f"platform-{_today()}.db").exists() and (
+        # private.db appears with the first 1:1 note — the day it does, the
+        # platform file existing must not skip the first private backup
+        not Path(config.PRIVATE_DB_PATH).exists()
+        or (backups_dir / f"private-{_today()}.db").exists()
+    )
+    if done:
         return None
     if not db.claim_job("backup", _today()):
         return None

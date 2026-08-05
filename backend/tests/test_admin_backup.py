@@ -28,3 +28,51 @@ def test_backup_mirror_guarded_to_production_data_dir(fresh_db, tmp_path, monkey
 
     monkeypatch.delenv("SKEIN_BACKUP_MIRROR")
     assert admin.backup()["mirrored"] is None
+
+
+def test_backup_carries_private_notes(fresh_db):
+    """private.db is the one store that exists nowhere else — deliberately
+    outside exports — so a backup that skips it loses every 1:1 note on the
+    first disk loss. That was the shipped behavior until 2026-08-04."""
+    from app import config
+    from app.services import admin, private_notes
+
+    private_notes.add_note("manager", "dana", "irreplaceable 1:1 note")
+    out = admin.backup()
+    assert out["private_path"] and os.path.exists(out["private_path"])
+    # a database with no private notes yet has nothing to back up
+    os.unlink(config.PRIVATE_DB_PATH)
+    assert admin.backup()["private_path"] is None
+
+
+def test_restore_drill_brings_both_databases_back(fresh_db):
+    """The documented restore procedure, executed: an untested backup is a
+    hope. Back up both databases, destroy the live ones, copy the backups
+    over them, and verify the workspace, the private notes, AND the activity
+    chain all survive the ride."""
+    import shutil
+
+    from app import config, db
+    from app.services import activity, admin, private_notes, work
+
+    task = work.create_task(title="survives the restore", actor="tester")
+    private_notes.add_note("manager", "dana", "the private note that must survive")
+    for i in range(2):
+        db.log_activity("tester", "probe", f"chained row {i}")
+    assert activity.verify_chain()["ok"] is True
+
+    out = admin.backup()
+
+    # the disaster: both live databases are gone
+    os.unlink(db.DB_PATH)
+    os.unlink(config.PRIVATE_DB_PATH)
+
+    # the documented procedure: copy the same-date pair back
+    shutil.copy2(out["path"], db.DB_PATH)
+    shutil.copy2(out["private_path"], config.PRIVATE_DB_PATH)
+
+    restored = db.query_one("SELECT title FROM tasks WHERE id = ?", (task["id"],))
+    assert restored and restored["title"] == "survives the restore"
+    notes = private_notes.list_notes("manager", "dana")
+    assert [n["body"] for n in notes] == ["the private note that must survive"]
+    assert activity.verify_chain()["ok"] is True
