@@ -382,3 +382,46 @@ def test_every_registry_mutator_has_a_family_entry():
     )
     # every declared family root must itself be a real registry entity
     assert not set(_FAMILY.values()) - roots
+
+
+def test_a_level_the_gate_cannot_honour_is_refused(fresh_db):
+    """_gate.py takes the review path for ALWAYS_REVIEW entities BEFORE it
+    reads the level, so a stored 'autonomous' rendered "delete a note: acts
+    alone" on the authority card while every such write still waited for a
+    human — a false badge on the destructive rows. The level is refused now,
+    so the lie has no way to be stored."""
+    import pytest
+
+    from app.services import delegation
+    from app.tools._gate import ALWAYS_REVIEW
+
+    for entity in sorted(ALWAYS_REVIEW):
+        for level in ("autonomous", "notify"):
+            with pytest.raises(ValueError, match="always waits for a human"):
+                delegation.set_authority("planner-agent", entity, level, actor="mgr")
+        # the two honest levels still work
+        for level in ("review", "forbidden"):
+            delegation.set_authority("planner-agent", entity, level, actor="mgr")
+
+
+def test_entities_with_no_authority_are_refused_everywhere(client, fresh_db):
+    """The picker hid these and set_authority did not, so a direct POST stored
+    a grant the picker could not produce, for a power no agent tool reads."""
+    import pytest
+
+    from app.services import delegation
+
+    served = client.get("/api/agents/entities").json()
+    for entity in delegation.NO_AUTHORITY:
+        assert entity not in served["entities"]
+        with pytest.raises(ValueError, match="carries no authority level"):
+            delegation.set_authority("planner-agent", entity, "autonomous", actor="mgr")
+
+
+def test_the_card_learns_which_entities_always_wait(client, fresh_db):
+    """The "(always)" marker must come from _gate.py, never a hand-typed
+    frontend list, or the label drifts from the behaviour it describes."""
+    from app.tools._gate import ALWAYS_REVIEW
+
+    served = client.get("/api/agents/entities").json()
+    assert set(served["always_review"]) == set(ALWAYS_REVIEW)
