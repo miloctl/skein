@@ -9,19 +9,22 @@ from pathlib import Path
 
 import pytest
 
+MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+BASELINE = "001_baseline.sql"
+
 
 def test_pending_migrations_empty_after_init(fresh_db):
     from app import db
 
     assert db.pending_migrations() == []
-    db.execute("DELETE FROM schema_version WHERE version LIKE '013%'")
-    assert db.pending_migrations() == ["013_job_outcomes.sql"]
+    db.execute("DELETE FROM schema_version WHERE version = ?", (BASELINE,))
+    assert db.pending_migrations() == [BASELINE]
 
 
 def test_mcp_main_refuses_pending_migrations(fresh_db, monkeypatch):
     from app import mcp_server
 
-    monkeypatch.setattr(mcp_server.db, "pending_migrations", lambda: ["013_job_outcomes.sql"])
+    monkeypatch.setattr(mcp_server.db, "pending_migrations", lambda: ["002_example.sql"])
     with pytest.raises(SystemExit):
         mcp_server.main()
 
@@ -29,13 +32,13 @@ def test_mcp_main_refuses_pending_migrations(fresh_db, monkeypatch):
 def test_migrations_idempotent_and_atomic(fresh_db):
     fresh_db.init_db()  # second run must be a clean no-op
     versions = [r["version"] for r in fresh_db.query("SELECT version FROM schema_version")]
-    assert len(versions) == len(set(versions)) >= 4
+    assert len(versions) == len(set(versions)) >= 1
 
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
-# once 036 chains the ledger, a later migration that rewrites activity breaks
-# verification permanently at its earliest touched row (CLAUDE.md)
-CHAIN_MIGRATION = "036_activity_chain.sql"
+# the activity chain is born in the baseline, so NO migration may ever
+# rewrite a chained row — verification breaks permanently at the earliest
+# touched row (CLAUDE.md). Before the 2026-08-04 squash this rule was
+# "nothing after 036"; the baseline swallowed 036, so it is now absolute.
 REWRITES_ACTIVITY = re.compile(r"\b(?:UPDATE\s+activity\b|DELETE\s+FROM\s+activity\b)", re.I)
 
 
@@ -43,19 +46,17 @@ def _sql_only(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("--"))
 
 
-def test_no_migration_after_the_chain_rewrites_the_ledger():
+def test_no_migration_rewrites_the_ledger():
     """CI databases are born empty, so a destructive migration hits 0 chained
     rows here and every row in production — the suite alone can never catch
-    one. This scan can. Ordering, not an allowlist, is what makes 020 safe:
-    on any database it runs before 036 exists, so no row it touches carries
-    a seq."""
-    # positive control: 020 really does rewrite activity, so a broken pattern
-    # fails loudly instead of passing forever
-    assert REWRITES_ACTIVITY.search(_sql_only((MIGRATIONS / "020_pulse_anonymize.sql").read_text()))
+    one. This scan can."""
+    # positive control: a broken pattern fails loudly instead of passing forever
+    assert REWRITES_ACTIVITY.search("UPDATE activity SET detail = 'x'")
+    assert REWRITES_ACTIVITY.search("DELETE FROM activity WHERE seq = 1")
     offenders = [
         p.name
         for p in sorted(MIGRATIONS.glob("*.sql"))
-        if p.name > CHAIN_MIGRATION and REWRITES_ACTIVITY.search(_sql_only(p.read_text()))
+        if REWRITES_ACTIVITY.search(_sql_only(p.read_text()))
     ]
     assert offenders == []
 
@@ -115,7 +116,7 @@ def test_a_failing_migration_leaves_no_trace(fresh_db, tmp_path, monkeypatch):
 
 def test_a_renamed_migration_reruns_and_bricks_the_boot(fresh_db, tmp_path, monkeypatch):
     """schema_version records migrations by FILENAME, so a renamed file
-    re-runs on every existing database — 043's CREATE TABLE is not
+    re-runs on every existing database — the baseline's CREATE TABLE is not
     idempotent, and the boot dies on 'already exists'. This is why CLAUDE.md
     says a migration keeps its name after first deploy: no recovery
     MIGRATION can fix it. One numbered after the renamed file runs too late
@@ -124,18 +125,30 @@ def test_a_renamed_migration_reruns_and_bricks_the_boot(fresh_db, tmp_path, monk
     migration that depends on it sees a different world. A pre-deploy
     rename hand-updates schema_version in every live database instead."""
     staged = _staged(tmp_path, monkeypatch)
-    (staged / "043_search_ids.sql").rename(staged / "043_search_id_map.sql")
+    (staged / BASELINE).rename(staged / "001_v1_schema.sql")
     with pytest.raises(sqlite3.OperationalError):
         fresh_db.init_db()
 
     # the hand-update IS the recovery: with the record renamed too, the
     # runner sees the file as applied and the boot is a no-op again
     fresh_db.execute(
-        "UPDATE schema_version SET version = '043_search_id_map.sql'"
-        " WHERE version = '043_search_ids.sql'"
+        "UPDATE schema_version SET version = '001_v1_schema.sql' WHERE version = ?",
+        (BASELINE,),
     )
     fresh_db.init_db()
     assert fresh_db.pending_migrations() == []
+
+
+def test_the_baseline_contains_no_data_statements():
+    """The baseline is DDL only: on an empty database every backfill in the
+    pre-squash corpus was a no-op, so nothing carried forward. A data
+    statement appearing here means someone edited the baseline instead of
+    adding a numbered migration."""
+    sql = _sql_only((MIGRATIONS / BASELINE).read_text())
+    # per-statement leading verb: `ON DELETE SET NULL` inside a foreign key
+    # is DDL, not a data statement
+    verbs = [s.split(None, 1)[0].upper() for s in sql.split(";") if s.strip()]
+    assert not {"INSERT", "UPDATE", "DELETE"} & set(verbs)
 
 
 def test_seed_builds_its_demo_team_on_a_fresh_database(fresh_db, capsys):

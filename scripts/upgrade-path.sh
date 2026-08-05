@@ -4,7 +4,8 @@
 # from HEAD alone — and the activity hash chain must survive the ride.
 # Every test database is born fresh at HEAD, so this class (an edited or
 # renamed migration leaving upgraded production diverging from fresh CI)
-# has no other net; the gutted migration 040 is the standing example.
+# has no other net; a gutted migration in the pre-squash corpus was the
+# founding example.
 #
 # Baseline: the newest v* tag — the thing a deployment can actually be
 # running. Before the first release tag nothing is deployed, so there is

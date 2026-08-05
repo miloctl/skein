@@ -92,7 +92,7 @@ def _statements(sql: str) -> list[str]:
     """Split a migration into statements. Convention: migrations contain no
     semicolons inside string literals, trigger bodies, OR COMMENTS — a
     semicolon in comment prose splits mid-comment and the tail half is a
-    syntax error at startup (bit migration 034)."""
+    syntax error at startup (bit a pre-squash migration)."""
     return [s.strip() for s in sql.split(";") if s.strip()]
 
 
