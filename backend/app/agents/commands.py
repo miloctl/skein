@@ -161,7 +161,7 @@ COMMANDS: list[dict] = [
     {
         "name": "briefing",
         "args": "",
-        "description": "Your My-Day summary",
+        "description": "Your My Day summary",
         "handler": _briefing,
     },
     {

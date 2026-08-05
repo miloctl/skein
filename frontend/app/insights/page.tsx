@@ -319,7 +319,7 @@ export default function InsightsPage() {
                   ` · median ${r.median_days_to_disposition}d to act`}
                 {r.fired >= 3 && r.dismissed === r.dispositioned && r.dismissed > 0 && (
                   <span className="ml-1 text-weld">
-                    · mostly dismissed — retire this rule?
+                    · mostly dismissed — a candidate to retire
                   </span>
                 )}
               </li>
@@ -357,7 +357,7 @@ export default function InsightsPage() {
           {d.adoption.non_web_share !== null && (
             <span className="ml-2 text-xs text-ink-3">
               · {Math.round(d.adoption.non_web_share * 100)}% of actions outside
-              the web UI (bar: &gt;50%)
+              the web UI (target: more than 50%)
             </span>
           )}
         </p>
@@ -367,7 +367,7 @@ export default function InsightsPage() {
               {s.surface}: {s.actions} actions · {s.users} user(s)
             </li>
           ))}
-          {d.adoption.by_surface.length === 0 && <li>no telemetry yet</li>}
+          {d.adoption.by_surface.length === 0 && <li>No activity recorded yet.</li>}
         </ul>
       </Card>
 

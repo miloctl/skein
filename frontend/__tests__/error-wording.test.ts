@@ -51,7 +51,7 @@ describe("a failed action versus a failed page load", () => {
     expect(actionError(new Error("person is not an active teammate"))).toBe(
       "person is not an active teammate",
     );
-    expect(loadError(new Error("nope"))).toContain("Could not load this page");
+    expect(loadError(new Error("nope"))).toContain("Could not load this page:");
   });
 
   it("routes an unreachable backend to the one wording, from both", () => {

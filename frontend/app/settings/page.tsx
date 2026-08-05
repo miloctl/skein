@@ -473,9 +473,9 @@ export default function SettingsPage() {
               </>
             ) : (
               <p>
-                A key exists for {who.user} — paste it below. Lost it? Keys
-                show only once. Ask whoever runs the server to mint a new one
-                (same command), or revoke old ones from the CLI.
+                A key exists for {who.user} — paste it below. A key shows
+                only once. If you lost it, ask whoever runs the server to mint
+                a new one (same command), or revoke old ones from the CLI.
               </p>
             )}
           </div>

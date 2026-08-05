@@ -19,9 +19,9 @@ def test_theme_unknown_user_gets_empty(client):
 def test_theme_service_rejects_oversize_and_non_object(fresh_db):
     from app.services import users
 
-    with pytest.raises(ValueError, match="too large"):
+    with pytest.raises(ValueError, match="under 400 characters"):
         users.set_theme("tester", "{" + '"pack":"' + "x" * 400 + '"}')
-    with pytest.raises(ValueError, match="unknown keys"):
+    with pytest.raises(ValueError, match="JSON object with only these keys"):
         users.set_theme("tester", '["pack"]')  # JSON but not an object
 
 

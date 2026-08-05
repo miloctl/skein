@@ -32,7 +32,7 @@ describe("the 1:1 brief when the fetch is refused", () => {
     render(<PeoplePage />);
     fireEvent.click(await screen.findByRole("button", { name: "dana" }));
     expect(
-      await screen.findByText(/Could not load this page\. this surface needs your API key/),
+      await screen.findByText(/Could not load this page: this surface needs your API key/),
     ).toBeTruthy();
     expect(screen.queryByText("no brief available")).toBeNull();
     expect(await axe(document.body)).toHaveNoViolations();

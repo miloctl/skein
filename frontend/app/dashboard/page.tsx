@@ -733,7 +733,7 @@ export default function Dashboard() {
       <Section
         title="Milestones"
         rows={data.milestones ?? []}
-        empty="No milestones yet — ask the agent to plan a project."
+        empty="No milestones yet — ask the Chief of Staff in Chat to plan a project."
         render={(m) =>
           editing?.kind === "milestone" && editing.id === m.id ? (
             <EditRow
@@ -771,7 +771,7 @@ export default function Dashboard() {
       <Section
         title="Tasks"
         rows={(data.tasks ?? []).filter((t) => t.status !== "done")}
-        empty="No open tasks — press ⌘K and type 'todo: …'."
+        empty="No open tasks — open quick capture and type 'todo: …'."
         render={(t) =>
           editing?.kind === "task" && editing.id === t.id ? (
             <EditRow
@@ -940,7 +940,7 @@ export default function Dashboard() {
       <Section
         title="Calendar"
         rows={data.events ?? []}
-        empty="Nothing scheduled — ask the chat agent to schedule an event."
+        empty="Nothing scheduled — ask the Chief of Staff in Chat to schedule an event."
         render={(e) => (
           <li key={e.id} className="flex items-center justify-between text-sm">
             <span>{e.title}</span>

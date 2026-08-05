@@ -237,12 +237,12 @@ def nudge_stale_wip() -> dict:
     from .notifications import notify
 
     for person, ts in by_person.items():
-        titles = "; ".join(f"#{t['id']} {t['title']}" for t in ts[:3])
+        titles = ", ".join(f"#{t['id']} {t['title']}" for t in ts[:3])
         notify(
             person,
             f"{len(ts)} task{'' if len(ts) == 1 else 's'} in progress more than"
             f" {STALE_WIP_DAYS} days: {titles}."
-            " Still real? Split it, unblock it, or put it back in the pool.",
+            " Split, unblock, or put back in the pool.",
             tier="digest",
             link="/",
         )

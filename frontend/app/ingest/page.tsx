@@ -87,11 +87,17 @@ export default function IngestPage() {
       {result && (
         <div className="mt-6 space-y-4 text-sm">
           <p>
-            ✅ {result.proposals.length} proposal
-            {result.proposals.length === 1 ? "" : "s"} created —{" "}
-            <Link href="/review" className="font-medium underline">
-              review them
-            </Link>
+            {result.proposals.length === 0 ? (
+              "No proposals — nothing in the notes matched a known line type."
+            ) : (
+              <>
+                ✅ {result.proposals.length} proposal
+                {result.proposals.length === 1 ? "" : "s"} created —{" "}
+                <Link href="/review" className="font-medium underline">
+                  review them
+                </Link>
+              </>
+            )}
             {result.skipped_private > 0 && (
               <span className="ml-2 text-weld">
                 · {result.skipped_private} fb: line

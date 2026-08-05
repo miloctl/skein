@@ -65,7 +65,7 @@ def get_playbook(slug: str) -> dict:
     path = _playbook_files().get(slug)
     if path is None or not path.exists():
         raise ValueError(
-            f"no playbook '{slug}'; available: {[p['slug'] for p in list_playbooks()]}"
+            f"no playbook '{slug}' — available: {[p['slug'] for p in list_playbooks()]}"
         )
     try:
         pb = yaml.safe_load(path.read_text())

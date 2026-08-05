@@ -158,8 +158,9 @@ def capture(
             raise ValueError("feedback notes are human-only — agents cannot write them")
         if not strong_auth:
             raise ValueError(
-                "feedback notes require a personal API key"
-                " (bootstrap: python -m app.bootstrap_key <you>; then 🔑 in the UI)"
+                "feedback notes require a personal API key. Get your first one from"
+                " whoever runs the server (python -m app.bootstrap_key <you>)."
+                " Then paste it in Settings, step 2."
             )
         person, body = private_notes.parse_feedback(text)  # raises on bad format
         result = private_notes.add_note(actor, person, body, kind="feedback")

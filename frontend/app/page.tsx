@@ -104,9 +104,9 @@ function WhoAreYou() {
         </div>
       )}
       <p className="mt-5 text-xs text-ink-3">
-        Just looking?{" "}
+        You can also{" "}
         <Link href="/dashboard" className="underline hover:text-ink-2">
-          Browse the team&apos;s work
+          browse the team&apos;s work
         </Link>{" "}
         without picking a name — nothing is attributed to you until you do.
       </p>

@@ -94,11 +94,11 @@ export default function Portfolio() {
     // names one card rather than all six.
     const fail = (what: string) => (e: Error) =>
       reportStatus(`Cannot load ${what}. ${actionError(e)}`);
-    api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("health"));
-    api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("conflicts"));
+    api<Health[]>("/api/portfolio/health").then(setHealth).catch(fail("engagement health"));
+    api<Conflict[]>("/api/portfolio/conflicts").then(setConflicts).catch(fail("capacity conflicts"));
     api<Flow>("/api/portfolio/flow").then(setFlow).catch(fail("flow"));
-    api<Week>("/api/week").then(setWeek).catch(fail("week"));
-    api<Forecast>("/api/portfolio/forecast").then(setForecast).catch(fail("forecast"));
+    api<Week>("/api/week").then(setWeek).catch(fail("this week's plan"));
+    api<Forecast>("/api/portfolio/forecast").then(setForecast).catch(fail("the slip forecast"));
     api<Commitment[]>("/api/commitments").then(setCommitments).catch(fail("commitments"));
   }, []);
 
@@ -129,8 +129,8 @@ export default function Portfolio() {
       </div>
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Health</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Engagement health, this week&apos;s plan, flow, and forecasts — a receipt
-        behind every verdict.
+        Engagement health, this week&apos;s plan, flow, and forecasts — evidence
+        behind every rating.
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Card title="Engagement health — each rating shows why">
@@ -350,8 +350,8 @@ export default function Portfolio() {
       <Card title="Commitments — external + yours to the team">
         {!manage && commitments?.some((c) => c.status === "open") && (
           <p className="mb-2 text-xs text-ink-3">
-            Marking kept/missed lives behind <b>manager controls</b> (top
-            right).
+            To mark a commitment kept or missed, turn on <b>manager
+            controls</b> (top right).
           </p>
         )}
         {commitments === null ? (
@@ -423,7 +423,7 @@ export default function Portfolio() {
           <p className="mb-2 text-xs text-ink-3">
             Monday brief (everyone gets their own obligations) and Friday
             close-out (what the week leaves dangling). The scheduler runs
-            these weekly. Run one now to see the packet.
+            these weekly. Run one now to send it and read the summary.
           </p>
           <div className="flex gap-2">
             {(["week-open", "week-close"] as const).map((r) => (

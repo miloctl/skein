@@ -39,7 +39,7 @@ describe("the sidebar when the folders fetch fails", () => {
     expect(await screen.findByText("Filed chat")).toBeTruthy();
     expect(await screen.findByText(/📁 ops/)).toBeTruthy();
     expect(
-      await screen.findByText(/Could not load this page\. folder store exploded/),
+      await screen.findByText(/Could not load this page: folder store exploded/),
     ).toBeTruthy();
   });
 });

@@ -54,7 +54,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "ref_id": r["id"],
                 "group": "decide",
                 "label": f"intake #{r['id']}: {r['title']}",
-                "reason": "awaiting a disposition — the requester sees the reason you give",
+                "reason": "awaiting your accept, defer, or decline — the requester sees the reason you give",
                 "link": "/intake",
             }
         )
