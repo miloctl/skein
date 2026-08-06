@@ -308,6 +308,112 @@ test("every fabric pack reflows at 360px without breaking the page", async ({
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
+/** Every colorway re-dyes --thread and --weld, and the -solid fill halves
+ *  derived from them carry white text on the destructive and approving
+ *  buttons. check_theme_contrast.py proves the RATIOS; this proves the tokens
+ *  actually resolve per colorway in a browser, which a stylesheet parse
+ *  cannot — a mistyped hex in one colorway block computes to nothing and the
+ *  button renders transparent with white text on the page beneath. */
+test("every colorway resolves its fill tokens", async ({ page }) => {
+  test.setTimeout(120_000);
+  const problems: Problem[] = [];
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  for (const way of [
+    "indigo",
+    "madder",
+    "verdigris",
+    "graphite",
+    "coral",
+    "bone",
+  ]) {
+    for (const appearance of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme: appearance as "light" | "dark" });
+      await page.evaluate(
+        (w) => window.localStorage.setItem("skein-theme", w),
+        way,
+      );
+      await page.reload();
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const bad = await page.evaluate(() => {
+        const cs = getComputedStyle(document.documentElement);
+        return [
+          "--thread",
+          "--thread-solid",
+          "--weld",
+          "--weld-solid",
+          "--ok-solid",
+          "--danger-solid",
+        ].filter((t) => !cs.getPropertyValue(t).trim());
+      });
+      for (const token of bad)
+        problems.push({
+          page: `${way}/${appearance}`,
+          what: "token",
+          detail: `${token} resolves to nothing`,
+        });
+    }
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.evaluate(() => window.localStorage.removeItem("skein-theme"));
+  expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
+});
+
+/** Content extremes beyond the long name: the header bug hid behind a
+ *  3-character user, and these are the other inputs a real workspace grows. */
+test("extreme content does not break the shell", async ({ page }) => {
+  test.setTimeout(120_000);
+  const problems: Problem[] = [];
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/");
+  await page.evaluate(
+    (n) => window.localStorage.setItem("skein-user", n),
+    LONG_NAME,
+  );
+  // a four-digit verdict count in the nav badge, which is tabular-nums inside
+  // a rounded-full pill sized by padding alone
+  await page.route("**/api/attention", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: '{"count":9999}',
+    }),
+  );
+  await page.goto("/dashboard");
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page
+    .waitForFunction(
+      (n) => document.querySelector("header")?.innerText.includes(n),
+      LONG_NAME,
+      { timeout: 10_000 },
+    )
+    .catch(() => {});
+  const p = await probe(page);
+  if (p.overflowPx > 1)
+    problems.push({
+      page: "/dashboard",
+      what: "overflow",
+      detail: `${p.overflowPx}px · ${p.overflowCulprit}`,
+    });
+  if (Math.abs(p.headerDrift) > 1)
+    problems.push({
+      page: "/dashboard",
+      what: "header",
+      detail: `${p.headerDrift}px off --nav-h`,
+    });
+  const badge = await page.evaluate(() =>
+    document.body.innerText.includes("9999"),
+  );
+  if (!badge)
+    problems.push({
+      page: "/dashboard",
+      what: "badge",
+      detail: "9999 never rendered",
+    });
+  await page.unroute("**/api/attention");
+  expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
+});
+
 /** The three answers a screen owes: loading, empty, error — and never two at
  *  once. The repo treats a false empty state as its most expensive defect
  *  (__tests__/agents-silent-catches.test.tsx, false-claims.test.tsx), but
@@ -347,6 +453,109 @@ test("a dead backend says so, and claims nothing", async ({ page }) => {
         page: path,
         what: "false claim",
         detail: `said "${claimed[0]}" with no data`,
+      });
+  }
+  await page.unroute("**/api/**");
+  expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
+});
+
+/** Loading, and TRUE empty — the two states the dead-backend walk cannot
+ *  reach. Empty needs a SHAPED body, not []: __tests__/no-raw-payloads.test.tsx
+ *  records that returning a bare array where an object is expected makes a
+ *  page render nothing at all, which passes an "is the claim absent" check for
+ *  entirely the wrong reason. */
+test("a page that is still loading claims nothing yet", async ({ page }) => {
+  test.setTimeout(120_000);
+  const problems: Problem[] = [];
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  // hold every API call open forever: the page is permanently mid-load
+  await page.route("**/api/**", () => {});
+
+  for (const [path, claim] of Object.entries(CLAIMS)) {
+    await page.goto(path).catch(() => {});
+    await page.waitForTimeout(600);
+    const text = await page.evaluate(() => document.body.innerText);
+    const claimed = text.match(claim);
+    if (claimed)
+      problems.push({
+        page: path,
+        what: "false claim",
+        detail: `said "${claimed[0]}" before the answer arrived`,
+      });
+    // and it must not report a failure that has not happened
+    if (text.includes("Check that the server is running"))
+      problems.push({
+        page: path,
+        what: "premature error",
+        detail: "unreachable while loading",
+      });
+  }
+  await page.unroute("**/api/**");
+  expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
+});
+
+test("a truly empty workspace says so without breaking", async ({ page }) => {
+  test.setTimeout(120_000);
+  const problems: Problem[] = [];
+  page.on("pageerror", (e) =>
+    problems.push({
+      page: page.url(),
+      what: "pageerror",
+      detail: String(e).slice(0, 160),
+    }),
+  );
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  // shaped-empty, never []: a list endpoint answers [], an object endpoint
+  // answers its own keys emptied
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const OBJECTS: Record<string, unknown> = {
+      "/api/attention": { count: 0 },
+      "/api/agents/entities": { entities: [], always_review: [] },
+      "/api/agents/status": {
+        provider: "mock",
+        model: "m",
+        provider_error: "",
+        review_gate: false,
+        context_strategy: "sliding",
+        context_error: "",
+      },
+      "/api/whoami": { user: "ava", strong: false, keys_minted: 0 },
+      "/api/users/growth-interests": { interests: "" },
+      "/api/field-guide/hint": { tied_count: 0, total: 0 },
+      "/api/auth/config": { mode: "trusted-header" },
+      // an OBJECT endpoint, and the reason this map exists: answering [] here
+      // made /activity throw on f.entries. Copy the real shape, never []
+      // (__tests__/no-raw-payloads.test.tsx records the same trap).
+      "/api/activity/feed": { entries: [], next_before: null },
+    };
+    const body = path in OBJECTS ? OBJECTS[path] : [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+
+  for (const path of Object.keys(CLAIMS)) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    const text = await page.evaluate(() => document.body.innerText);
+    // an empty workspace is allowed to claim emptiness — what it may NOT do
+    // is render a machine payload or an error it did not receive
+    if (/\[object Object\]|\bundefined\b|\bNaN\b/.test(text))
+      problems.push({
+        page: path,
+        what: "raw payload",
+        detail: text.slice(0, 80),
+      });
+    if (text.includes("Check that the server is running"))
+      problems.push({
+        page: path,
+        what: "false error",
+        detail: "unreachable on a 200",
       });
   }
   await page.unroute("**/api/**");

@@ -4,9 +4,16 @@ from .. import db
 
 
 def _is_bench_slug(name: str) -> bool:
-    from . import personas
+    """Names the agent layer owns: a persona slug, and a FLOCK slug.
 
-    return name in personas.bench_slugs()
+    A flock never writes as itself, but the merge step logs its spend under
+    the flock slug (routes/chat.py::_log_usage), so a human holding that name
+    collects a bill for model calls they did not make. Both sets are computed
+    live from the files, so a slug added to an overlay is reserved with it.
+    """
+    from . import flocks, personas
+
+    return name in personas.bench_slugs() or name in {f["slug"] for f in flocks.list_flocks()}
 
 
 def _fold(name: str) -> str:

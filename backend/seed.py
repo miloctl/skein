@@ -155,10 +155,45 @@ def main() -> None:
         dt["id"], "summary drafted for all 6 competitors", actor="research-agent"
     )
 
+    # One flock turn, so /agents renders the DIAMOND rather than its empty
+    # state. Without a trace the e2e walk scans the empty branch and the
+    # component — its aria-label, its text nodes, its strokes in dark — is
+    # never seen by axe at all.
+    from app.services import flocks
+
+    eng = flocks.get_flock("engineering")
+    flocks.record_trace(
+        "seed-flock",
+        "mario",
+        eng["slug"],
+        [
+            {
+                "slug": card["slug"],
+                "name": card["name"],
+                "emoji": card["emoji"],
+                "status": status,
+                "ms": ms,
+                "receipts": receipts,
+                "tokens_in": 0,
+                "tokens_out": 0,
+            }
+            # one of each status: the diamond colours and words them
+            # differently, and only a mixed row exercises all three
+            for card, status, ms, receipts in zip(
+                flocks.member_cards(eng["members"]),
+                ("ok", "ok", "failed"),
+                (5834, 7524, 1102),
+                (0, 1, 0),
+                strict=True,
+            )
+        ],
+    )
+
     print(
         "Seeded: 1 engagement (playbook), tasks, standups, blockers,"
         " intake queue, pending reviews, calendar, lessons, a promise,"
-        " an absence, a charter entry, and a delegation awaiting acceptance."
+        " an absence, a charter entry, a delegation awaiting acceptance,"
+        " and one flock turn."
     )
 
 

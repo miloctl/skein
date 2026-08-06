@@ -45,6 +45,11 @@ export default defineConfig({
       // directory, so dev would collide with a running local stack — and
       // the smoke walks what ships. NEXT_PUBLIC_API_URL is baked at build
       // time, which is why the build lives inside this command.
+      // THE TRAP: this builds .next-e2e, and `npm run build` builds .next.
+      // Editing a component and running `npm run build` does NOT change what
+      // these walks see — with PW_REUSE=1 against an already-started server
+      // they will keep testing the previous build, and a fix that landed
+      // reads as still broken. Drop PW_REUSE to rebuild.
       command:
         `bash -c 'NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_URL=${API} npx next build && ` +
         `NEXT_DIST_DIR=.next-e2e npx next start --port 3600'`,

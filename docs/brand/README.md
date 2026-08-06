@@ -56,6 +56,25 @@ Two rules that follow:
   `scripts/check_theme_contrast.py` in `lint.sh`, which prints the current
   sweep floor on every run.
 
+## Ink and fill are two tokens, not one
+
+Every accent that carries white text has a `-solid` half. `--thread` is the
+ink, `--thread-solid` the fill; the status hues follow — `--ok-solid`,
+`--danger-solid`, `--weld-solid`. The ink halves are tuned to sit ON a surface
+at 8–10:1, which makes them far too light for white text in dark mode: `--ok`
+measured **1.87:1** under white on the Approve button before the pair existed,
+and `--danger` 2.18. The fill halves do not vary by appearance, because white
+sits on them in both.
+
+The rule is one line: **`text-white` belongs only on a `-solid` token.** A
+token declares itself safe under white by carrying `on: "white"` in
+`theme.ts::CUSTOM_LC`, and `check_theme_contrast.py` reads that declaration
+from both ends — it refuses `text-{fill}` used as ink, and refuses
+`bg-{ink}` beside `text-white`. Neither check keeps a list of call sites, so
+a new one is gated the day it ships. Adding a fill for a hue that has none
+means three edits: the token in `globals.css` (per colorway, if the hue is
+re-dyed), an `on: "white"` row in `theme.ts`, and nothing else.
+
 ## Why the icon is a plate
 
 A favicon sits on browser chrome we do not control, and no single ink clears
