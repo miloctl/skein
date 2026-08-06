@@ -139,6 +139,23 @@ async def lifespan(app: FastAPI):
     from .agents.narrator import register_narrator
 
     register_narrator()  # composition root: agents plug into services here
+    # Two SEPARATE thread pools, sized here so the numbers are chosen rather
+    # than inherited (config.py documents the measurement). anyio's limiter
+    # carries every sync route handler and run_in_threadpool call; the loop's
+    # default executor carries every sync @tool via asyncio.to_thread — left
+    # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    import anyio.to_thread
+
+    anyio.to_thread.current_default_thread_limiter().total_tokens = config.THREAD_POOL
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=config.TOOL_THREADS, thread_name_prefix="skein-tool")
+    )
+    # held for the process lifetime so writes stop paying WAL
+    # checkpoint-on-close — 42x per write when idle, measured (db.py)
+    db.open_keepalive()
     scheduler = _start_scheduler() if config.SCHEDULER_ENABLED else None
     yield
     if scheduler:
@@ -149,6 +166,7 @@ async def lifespan(app: FastAPI):
     from .services import adoption
 
     adoption.flush()
+    db.close_keepalive()
 
 
 # /docs, /redoc and /openapi.json sit OUTSIDE /api, so the perimeter
@@ -280,8 +298,12 @@ async def perimeter_auth(request: Request, call_next):
     return JSONResponse(status_code=401, content={"detail": detail})
 
 
-# JSON payloads compress ~77%; added before CORS so CORS stays outermost
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# JSON payloads compress well at any level; added before CORS so CORS stays
+# outermost. compresslevel=1, not the default 9: gzip runs ON THE EVENT LOOP,
+# and a 251 KB /api/tasks response measured 1.37 ms at level 9 against
+# 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire — on an
+# internal deployment the loop time is the scarce resource, not the bytes.
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
 
 
 # added AFTER perimeter_auth so CORS is the OUTERMOST layer — a 401 short-circuit

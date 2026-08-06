@@ -497,6 +497,28 @@ try:
     TRUST_PROXY_HOPS = max(0, int(os.getenv("SKEIN_TRUST_PROXY_HOPS", "").strip() or 0))
 except ValueError:
     TRUST_PROXY_HOPS = 0
+
+# Thread-pool sizes, applied at startup (main.py lifespan). Measured, not
+# guessed: GIL handoff between threads parked on sqlite3's C boundary makes
+# throughput ANTI-scale with pool width — GET /api/tasks at 40 concurrent
+# callers measured 97 req/s with 8 threads against 68 with the default 40
+# (4 cores). Smaller is faster until requests queue on genuinely-blocking
+# work (a 5s embedding call), which is what raising this is for.
+#
+# THREAD_POOL is anyio's limiter: every sync route handler and every
+# run_in_threadpool call. TOOL_THREADS is the event loop's default executor:
+# every sync @tool via asyncio.to_thread — unset, it sizes itself
+# min(32, cpu + 4), so the ceiling was 8 on a 4-vCPU deploy VM and 32 on a
+# dev box, and nobody chose either. The floor is 2, never 0 or 1: a
+# single-thread pool deadlocks the first tool that itself waits on the pool.
+try:
+    THREAD_POOL = max(2, int(os.getenv("SKEIN_THREAD_POOL", "").strip() or 8))
+except ValueError:
+    THREAD_POOL = 8
+try:
+    TOOL_THREADS = max(2, int(os.getenv("SKEIN_TOOL_THREADS", "").strip() or 16))
+except ValueError:
+    TOOL_THREADS = 16
 AUTH_ERROR = ""
 if AUTH_MODE not in AUTH_MODES:
     # states the fault and the fix, and does NOT echo the rejected value:
