@@ -465,6 +465,18 @@ body {
   outline-offset: 2px;
 }
 
+/* Draw the ring INSIDE, for a control whose own clipping ancestor would eat
+   an outset one: the appearance segmented control (overflow-hidden, to round
+   its buttons' corners) and the flock diagram (inside the traces scroll box).
+   Both clipped the ring entirely, so a keyboard user could not see where they
+   were. This must live HERE, not as a Tailwind utility on the element: the
+   rule above is unlayered, and unlayered CSS beats every @layer utilities
+   rule regardless of specificity — an outline-offset-[-2px] class silently
+   loses to it. */
+[data-ring="inset"]:focus-visible {
+  outline-offset: -2px;
+}
+
 /* The header is sticky, so anything scrolled to the TOP of the viewport lands
    underneath it. The skip link was the worst case: it exists to put a keyboard
    user on the content, and it put #content at y=0 under 110px of header, so the
