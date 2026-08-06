@@ -365,3 +365,45 @@ def test_a_flock_turn_logs_spend_per_member_via_the_close(client, fresh_db, monk
         "minimal-change-engineer",
     ]
     assert all(r["thread_id"] == "fm" for r in rows)
+
+
+def test_a_stopped_flock_turn_still_records_what_it_spent(client, fresh_db, monkeypatch):
+    """services/flocks.py::record_trace exists because a stopped turn still
+    produced spend. Moving the spend row onto the member queue broke that for
+    usage_log: a cancelled member reaches its finally on a LATER loop
+    iteration, so cancel-and-move-on left every row on a queue nobody would
+    read again, and three members that had already burned tokens recorded
+    zero."""
+    import asyncio
+
+    from app.routes import chat as chat_route
+    from app.services import flocks
+
+    class Slow(_MeteredAgent):
+        async def stream_async(self, message):
+            # spend FIRST, then hang: a member cancelled before build_agent
+            # returns has genuinely nothing to record, and testing that shape
+            # proves nothing about the row this test is about
+            yield {"data": "spent"}
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: Slow("m"))
+    fdef = flocks.get_flock("engineering")
+
+    async def drive():
+        agen = chat_route._flock_stream(fdef, "stopped-spend", "tester", "hi", "/flock x hi")
+        # exactly two: the masthead and the member's one chunk. A third
+        # __anext__ blocks on the reader's queue forever, because the member
+        # is asleep — the test would hang before it ever reached aclose
+        for _ in range(2):
+            await agen.__anext__()
+        await asyncio.create_task(agen.aclose())
+
+    asyncio.run(drive())
+    # The FIRST member specifically, not a count: the reader consumed its
+    # chunk, so it provably built an agent and spent. Members 2 and 3 race —
+    # cancellation can land while they are still inside build_agent, and a
+    # member that never built one has honestly nothing to record. Asserting
+    # three made this pass or fail on scheduling.
+    spent = [r["agent_name"] for r in db.query("SELECT agent_name FROM usage_log")]
+    assert fdef["members"][0] in spent, spent

@@ -1,7 +1,17 @@
 """Tiny in-process, per-user sliding-window rate caps for flood-prone write
 endpoints (capture, ingest). Not a security control — a DoS-annoyance guard
-for a single-process trusted-network deployment. Deliberately process-local:
-restarting resets it, multi-worker deployments each get their own window."""
+for a single-process trusted-network deployment.
+
+The WINDOWS are process-local: restarting resets them, and multi-worker
+deployments each get their own. The LIMITS are not — three of them are stored
+in app_settings and shared across every process (see TUNED below, and
+services/tuning.py). Do not read the process-local note as covering both.
+
+Not a security control, with one exception that decides what may be tuned:
+`signin`, `forge_addr` and `verify` bound an UNAUTHENTICATED caller or a
+whole-deployment cost, so they are withheld from the admin surface and stay
+env-only. Adding one of them to TUNED hands an administrator the dial that
+holds an unsigned caller off the identity provider."""
 
 import math
 import time
@@ -76,24 +86,37 @@ LIMITS = {
     # credential buys an HMAC over the whole body at line rate.
     "forge_addr": 600,
 }
-# X-User is client-supplied — bound the key space. 4096, not 1024: the write
-# bucket keys on (agent, requester) pairs (tools/_gate.py), so active keys
-# scale with people x agent identities rather than people alone.
+# X-User is client-supplied — bound the key space. 4096 rather than the
+# original 1024 leaves room for a team plus every agent identity that writes
+# without a requester behind it (MCP, the scheduler).
 MAX_KEYS = 4096
 # What the cap counts, per surface. A signed-out caller has no name, so the
 # signin cap counts addresses — and the refusal must not claim otherwise.
 # Behind a reverse proxy, SKEIN_TRUST_PROXY_HOPS is what makes an address
 # mean a caller: at the default 0 every browser shares the proxy's address,
 # and so one signin bucket for the whole deployment.
-# `write` has no entry ON PURPOSE: REST creates key it on the person and the
-# agent gate keys it on the (agent, requester) pair, and the "per person"
-# fallback is now true for both — every bucket belongs to one person. Before
-# the pair key it was false on the gate path, where one shared "agent"
-# bucket refused person B for person A's work.
+# `write` has no entry ON PURPOSE, and the "per person" fallback is what it
+# needs: REST creates key on the caller, and tools/_gate.py keys on the human
+# who asked. The one path where that is not a person is MCP and the scheduler,
+# where no human stands behind the write and the key falls back to the agent
+# name — the refusal is read there by a model, not by the person it names.
 PER = {
     "signin": "per address",
     "forge": "for the whole integration",
     "forge_addr": "per address",
+}
+# What to CALL each surface in a refusal. The dict keys above are bucket
+# names, and a reader who trips the cap was shown one verbatim: "The limit
+# for keys_request is 3 per minute." A surface with no entry here reads
+# acceptably as itself (chat, write, capture, ingest, memory, delete).
+NAMED = {
+    "keys_request": "key requests",
+    "forge_addr": "webhook deliveries",
+    "signin": "sign-ins",
+    "verify": "chain checks",
+    "artifact": "digests and readouts",
+    "ritual": "rituals",
+    "absence": "absences",
 }
 
 
@@ -168,14 +191,16 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             if not window:
                 del _hits[key]
             scope = PER.get(surface, "per person")
+            named = NAMED.get(surface, surface)
             if cost > limit:
                 # unreachable today (the flock cost caps at MAX_MEMBERS + 1,
                 # below every limit) — but window[need - 1] below indexes past
                 # the deque the moment that stops being true, and a full
                 # window of waiting never makes room for this request
                 raise RateLimited(
-                    f"One request cannot use {cost} {surface} slots — the limit"
-                    f" is {limit} per minute {scope}. Send a smaller request.",
+                    f"Skein refused this request. One request cannot use {cost}"
+                    f" {named} slots, and the limit is {limit} per minute"
+                    f" {scope}. Send a smaller request.",
                     retry_after=int(WINDOW_SECONDS),
                 )
             # window[need - 1] is the timestamp whose expiry first makes room
@@ -183,9 +208,13 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             need = len(window) + cost - limit
             wait = max(1, math.ceil(WINDOW_SECONDS - (now - window[need - 1])))
             unit = "second" if wait == 1 else "seconds"
-            uses = f" This request uses {cost} of them." if cost > 1 else ""
+            # "of them" pointed at the LIMIT, the nearest number — name the
+            # noun instead, because the word `slots` appears nowhere a reader
+            # of this sentence has been
+            uses = f" This request uses {cost} slots." if cost > 1 else ""
             raise RateLimited(
-                f"The limit for {surface} is {limit} per minute {scope}.{uses}"
+                f"Skein refused this request. The limit for {named} is {limit}"
+                f" per minute {scope}.{uses}"
                 f" Wait {wait} {unit}, then send the request again.",
                 retry_after=wait,
             )

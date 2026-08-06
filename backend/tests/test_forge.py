@@ -556,7 +556,7 @@ def test_the_address_meter_runs_before_the_signature_check(signed, fresh_db, mon
         assert signed("push", _push("task/1-x"), secret="wrong").status_code == 401
     r = signed("push", _push("task/1-x"), secret="wrong")
     assert r.status_code == 429
-    assert "forge_addr" in r.json()["detail"]
+    assert "webhook deliveries" in r.json()["detail"]
 
 
 def test_the_link_rides_the_transition_that_earns_it(signed, fresh_db):

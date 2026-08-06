@@ -69,7 +69,7 @@ def test_a_multi_slot_charge_names_its_cost(client, fresh_db):
     from app import ratelimit
 
     ratelimit.reset()
-    with pytest.raises(ratelimit.RateLimited, match="This request uses 5 of them"):
+    with pytest.raises(ratelimit.RateLimited, match="This request uses 5 slots"):
         for _ in range(5):
             ratelimit.check("chat", "someone", cost=5)
     ratelimit.reset()

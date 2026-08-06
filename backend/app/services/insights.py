@@ -773,12 +773,11 @@ def _r_ledger_adoptions() -> list[dict]:
         _finding(
             "ledger_rows_adopted",
             "medium",
-            f"The nightly job adopted rows into the activity chain ({r['detail']})."
-            " If the server log has an 'activity chain append failed' warning near"
-            f" {r['created_at']}, the cause is a busy ledger and no action is"
-            " needed. If it does not, a row was inserted into the database"
-            " outside the service layer — treat this as tampering and compare"
-            " platform.db against the most recent backup in data/backups.",
+            f"The nightly job {r['detail']}."
+            " Compare the two counts. If the rows adopted are more than the rows"
+            " expected, a row reached the database outside the service layer."
+            " Treat that as tampering and compare platform.db against the most"
+            " recent backup in data/backups.",
             {"seq": r["seq"], "detail": r["detail"], "created_at": r["created_at"]},
             subject=f"adopt:{r['seq']}",
             window="point-in-time",
@@ -983,6 +982,15 @@ def _suppressed(rule_id: str, subject: str) -> bool:
 
 
 DISPOSITIONS = ("dismissed", "deferred", "converted", "resolved")
+
+
+def finding_rule(finding_id: int) -> str:
+    """Which rule raised a finding, for a caller that must decide the identity
+    bar BEFORE dispositioning it (routes/api.py). A missing row returns "" and
+    lets disposition_finding raise the NotFound — two 404s for one id would
+    otherwise disagree about whether it exists."""
+    row = db.query_one("SELECT rule_id FROM findings WHERE id = ?", (finding_id,))
+    return row["rule_id"] if row else ""
 
 
 def disposition_finding(

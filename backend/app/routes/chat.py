@@ -41,12 +41,12 @@ router = APIRouter()
 # so the bridge stands down while an agent turn owns the session.
 _inflight: Counter[str] = Counter()
 
-# How long one flock member — and the merge step that follows them — may take
-# before the turn gives up on it. Generous: a member is an agent LOOP (tool
-# calls, then a synthesis of them) and a measured 3-member turn on a cloud
-# model ran 9 model calls in ~16s. This is a hang guard, not a latency budget.
-# A member that trips it is reported failed in its own section, and the rest of
-# the turn continues.
+# The DEFAULT deadline for one flock member, and for the merge step after
+# them — _member_deadline() below is what a turn actually uses. Generous: a
+# member is an agent LOOP (tool calls, then a synthesis of them) and a measured
+# 3-member turn on a cloud model ran 9 model calls in ~16s. This is a hang
+# guard, not a latency budget. A member that trips it is reported failed in its
+# own section, and the rest of the turn continues.
 #
 # Do NOT tune this down against observed durations. Every measurement we have
 # is of a WARM model; a cold load into VRAM produces no bytes for far longer
@@ -56,8 +56,10 @@ _inflight: Counter[str] = Counter()
 # calls. Err high.
 #
 # It is not the only bound: agents/team_agent.py::READ_TIMEOUT_S guards the
-# socket underneath, and is deliberately larger so that this deadline is the
-# one that fires on a live-but-slow provider.
+# socket underneath and must stay larger, so that THIS deadline is the one
+# that fires on a live-but-slow provider. Both are admin-tunable, so the
+# ordering is enforced at write time by services/tuning.py::_check_pairs
+# rather than by these two literals agreeing.
 MEMBER_TIMEOUT_S = 180.0
 
 
@@ -304,12 +306,22 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
                 usage = dict(getattr(agent.event_loop_metrics, "accumulated_usage", {}) or {})
                 entry["tokens_in"] = int(usage.get("inputTokens", 0))
                 entry["tokens_out"] = int(usage.get("outputTokens", 0))
-            # extraction only, cancelled-safe (no await, no DB): the INSERT
-            # runs in _close_turn's threadpool. Queued BEFORE member-end, or
-            # the reader stops reading this queue without it.
             row = _usage_row(agent, thread_id, agent_name=slug)
-            if row:
+            if row and entry["status"] != "cancelled":
+                # the normal path hands the row to _close_turn, which runs in
+                # a threadpool. Queued BEFORE member-end, or the reader stops
+                # reading this queue without it.
                 out.put_nowait({"type": "usage", "row": row})
+            elif row:
+                # A CANCELLED member reaches this line AFTER _close_turn has
+                # already run — the reader stopped, and nothing will drain
+                # this queue again. So it writes its own row, inline and sync,
+                # exactly as this did before the queue existed. The route's
+                # no-blocking-on-the-loop rule yields here for the same reason
+                # _close_turn's sync fallback does: the alternative is losing
+                # the spend of a turn that really did burn tokens.
+                with contextlib.suppress(Exception):
+                    record_chat_usage(**row)
         out.put_nowait({"type": "member-end", "entry": entry})
 
 
@@ -376,15 +388,19 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
             }
             for c in cards
         ]
-        _log_turn(ui_thread, user, "assistant", "".join(transcript))
-        # the members' spend rows, deferred here from their finallys: on the
-        # success path this whole function runs in a threadpool, and on the
-        # cancelled path it is the one sync call the route already accepts
+        # SPEND FIRST, and each write isolated. _log_turn is the one call here
+        # that can raise (a busy transcript write), and everything after a
+        # raise is skipped while `closed` above already swallowed the retry —
+        # ordered the other way, one lock timeout on the transcript discarded
+        # the whole turn's spend AND its trace. The /as path has the same
+        # ordering for the same reason.
         for row in usage_rows:
             with contextlib.suppress(Exception):
                 record_chat_usage(**row)
         with contextlib.suppress(Exception):
             flocks.record_trace(ui_thread, user, fdef["slug"], entries, synth_entry)
+        with contextlib.suppress(Exception):
+            _log_turn(ui_thread, user, "assistant", "".join(transcript))
         # a follow-up ("what did the reviewer say?") goes to the Chief of
         # Staff, which never saw these sections — no member ran on the shared
         # session. Bridge them in, the way the command path does.
@@ -486,7 +502,7 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
             except Exception as exc:
                 synth_entry["status"] = "failed"
                 # class name only, for the reason the member branch above gives
-                text = f"The merge step did not run ({exc.__class__.__name__})."
+                text = f"The merge step did not finish ({exc.__class__.__name__})."
                 transcript.append(text)
                 model_parts.append(text)
                 yield _sse({"type": "text", "text": text})
@@ -511,21 +527,27 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         # after the reader stops, so cancel before the close
         for t in tasks:
             t.cancel()
-        # then take the entries already sitting unread. A member that FINISHED
-        # before the reader reached its section has its real timings, receipts
-        # and token counts on its queue; without this drain _close_turn
-        # rewrites it as cancelled with zero tokens, which is a worse lie than
-        # the one the cancelled fallback exists to fix. get_nowait never
-        # awaits, so it is safe in the cancelled path.
+        # NOT awaited. Awaiting the cancelled tasks here deadlocks: this
+        # finally runs while the generator is being closed, and the members
+        # cannot complete until that close returns. A cancelled member writes
+        # its own spend row instead (see _run_member's finally).
+        #
+        # Then take everything still unread. A member that FINISHED before the
+        # reader reached its section has its real timings, receipts and token
+        # counts on its queue; without this drain _close_turn rewrites it as
+        # cancelled with zero tokens, which is a worse lie than the one the
+        # cancelled fallback exists to fix. get_nowait never awaits, so it is
+        # safe in the cancelled path. Drained WHOLE, not until member-end: the
+        # spend row rides the same queue, and stopping early dropped it.
         for card in cards:
             q = queues[card["slug"]]
-            while card["slug"] not in done and not q.empty():
+            while not q.empty():
                 event = q.get_nowait()
                 if event["type"] == "member-end":
-                    done[card["slug"]] = event["entry"]
+                    # setdefault: the reader's own record wins, since it saw
+                    # the member before anything was cancelled
+                    done.setdefault(card["slug"], event["entry"])
                 elif event["type"] == "usage":
-                    # a finished member's spend row is sitting unread with its
-                    # entry — dropping it here loses the turn's accounting
                     usage_rows.append(event["row"])
         # close BEFORE the reset, and never let the reset speak: an abandoned
         # stream is finalized in a foreign context, where reset raises
