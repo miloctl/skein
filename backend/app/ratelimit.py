@@ -73,11 +73,23 @@ PER = {
 }
 
 
-def check(surface: str, user: str) -> None:
-    """Raise ValueError (→ 400) when user exceeded the per-minute cap."""
+def check(surface: str, user: str, cost: int = 1) -> None:
+    """Raise ValueError (→ 400) when user exceeded the per-minute cap.
+
+    cost > 1 charges one request for several slots, for a surface where ONE
+    call does the work of many. A flock turn is one agent loop per member plus
+    the merge (routes/chat.py), so charging it as a single chat turn let one
+    message buy several turns of model spend inside the same cap. THIS CALL is
+    all-or-nothing: an over-budget one takes no slots. That is not a claim
+    about a whole request — the flock path already spent one slot at the top of
+    the route before it knew the flock's size, and that slot stays spent.
+    """
     limit = LIMITS.get(surface)
     if limit is None:
         return
+    # a caller computing cost from data (a member count) must never reach zero
+    # by arithmetic accident and turn the cap into a no-op
+    cost = max(1, cost)
     now = time.monotonic()
     key = (surface, user)
     with _lock:
@@ -93,10 +105,19 @@ def check(surface: str, user: str) -> None:
         window = _hits[key]
         while window and now - window[0] > WINDOW_SECONDS:
             window.popleft()
-        if len(window) >= limit:
+        if len(window) + cost > limit:
+            # _hits is a defaultdict, so the line above MATERIALIZED this key.
+            # An empty window is unreachable for cost=1 (len 0 never exceeds a
+            # limit of 1 or more) but reachable the moment cost > limit, and it
+            # is permanent: the shed loop skips empty windows, it counts toward
+            # MAX_KEYS, and the eviction below reads _hits[k][-1] on every
+            # surface's key — which is an IndexError on an empty one, surfacing
+            # as a 500 somewhere unrelated.
+            if not window:
+                del _hits[key]
             scope = PER.get(surface, "per person")
             raise ValueError(f"slow down — {surface} is capped at {limit}/minute {scope}")
-        window.append(now)
+        window.extend([now] * cost)
 
 
 def reset() -> None:

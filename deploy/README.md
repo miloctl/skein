@@ -13,6 +13,7 @@ your-skein-deploy/
 ├── docker-compose.override.yml # overlay mounts, ports, mirror volume
 ├── playbooks/                  # your playbooks (*.yaml) — SKEIN_PLAYBOOKS_DIR
 ├── personas/                   # your bench (*.md, pack.json) — SKEIN_PERSONAS_DIR
+├── flocks/                     # your flocks (*.yaml) — SKEIN_FLOCKS_DIR
 └── README.md                   # box facts: ports in use, mirror target,
                                 # runner name, bridge services
 ```
@@ -30,10 +31,12 @@ services:
     volumes:
       - ./playbooks:/overlay/playbooks:ro
       - ./personas:/overlay/personas:ro
+      - ./flocks:/overlay/flocks:ro
       - /mnt/nas-backups/skein:/backup-mirror
     environment:
       SKEIN_PLAYBOOKS_DIR: /overlay/playbooks
       SKEIN_PERSONAS_DIR: /overlay/personas
+      SKEIN_FLOCKS_DIR: /overlay/flocks
       SKEIN_BACKUP_MIRROR: /backup-mirror
 ```
 

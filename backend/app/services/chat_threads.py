@@ -199,13 +199,18 @@ def update_thread(
 
 
 def delete_thread(thread_id: str, owner: str) -> dict:
-    """Remove the thread, its transcript, AND the model-side sessions
-    (including per-persona session variants) — a deleted chat is gone."""
+    """Remove the thread, its transcript, the model-side sessions (including
+    per-persona session variants) AND its flock traces — a deleted chat is
+    gone."""
     from ..agents.session_store import delete_thread_sessions
 
     _own(thread_id, owner)
     db.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
     db.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
+    # a trace names the person, the thread, every member and what each spent,
+    # and GET /api/flocks/traces?thread=<id> keeps serving it. Left behind, the
+    # docstring above is false for every chat that ever called a flock.
+    db.execute("DELETE FROM flock_traces WHERE thread_id = ?", (thread_id,))
     delete_thread_sessions(thread_id)
     # the pre-045 file store, until a cleanup release drops the directory:
     # leftover files must go too, or they linger for a thread that is gone

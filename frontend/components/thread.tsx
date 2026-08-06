@@ -59,10 +59,43 @@ type SlashCommand = { name: string; args: string; description: string };
 const FALLBACK_COMMANDS: SlashCommand[] = [
   { name: "help", args: "", description: "List every command" },
   { name: "briefing", args: "", description: "Your My Day summary" },
-  { name: "search", args: "<query>", description: "Full-text search across the workspace" },
-  { name: "plan", args: "<playbook> <engagement name>", description: "Start a new engagement from a playbook" },
+  {
+    name: "search",
+    args: "<query>",
+    description: "Full-text search across the workspace",
+  },
+  {
+    name: "plan",
+    args: "<playbook> <engagement name>",
+    description: "Instantiate a playbook as a new engagement",
+  },
   { name: "playbooks", args: "", description: "List available playbooks" },
-  { name: "remember", args: "<fact>", description: "Save a fact that every chat remembers" },
+  {
+    name: "remember",
+    args: "<fact>",
+    description: "Save a durable cross-thread memory",
+  },
+  {
+    name: "personas",
+    args: "",
+    description: "List the bench of invokable specialist personas",
+  },
+  {
+    name: "flocks",
+    args: "",
+    description:
+      "List the flocks — groups of personas you can call at one time",
+  },
+  {
+    name: "as",
+    args: "<persona> <message>",
+    description: "Ask a bench persona instead of the Chief of Staff",
+  },
+  {
+    name: "flock",
+    args: "<flock> <message>",
+    description: "Ask a flock of personas at one time",
+  },
 ];
 
 // Promise-cached for the life of the page: both catalogs change only on a
@@ -108,7 +141,9 @@ const Composer = () => {
   );
 
   useEffect(() => {
-    chatCommands().then(setCommands).catch(() => {});
+    chatCommands()
+      .then(setCommands)
+      .catch(() => {});
     personaList()
       .then((list) => {
         setPersonas(list);
@@ -131,8 +166,11 @@ const Composer = () => {
 
   // two popup modes: the command token ("/bri"), and the persona slug
   // right after "/as " — the hard-to-recall half of the invocation
-  const cmdToken = /^\/[a-z]*$/i.test(text) ? text.slice(1).toLowerCase() : null;
-  const asToken = /^\/as\s+([a-z0-9-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
+  const cmdToken = /^\/[a-z]*$/i.test(text)
+    ? text.slice(1).toLowerCase()
+    : null;
+  const asToken =
+    /^\/as\s+([a-z0-9-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
   const resetKey = asToken !== null ? `as:${asToken}` : cmdToken;
   const [prevToken, setPrevToken] = useState(resetKey);
   if (prevToken !== resetKey) {
@@ -152,7 +190,17 @@ const Composer = () => {
           }))
       : cmdToken === null
         ? []
-        : commands.filter((c) => c.name.startsWith(cmdToken));
+        : // an exact match leads, whatever the catalog order. `flock` is a
+          // strict prefix of `flocks`, so prefix order alone put `/flocks`
+          // first for someone who had typed `/flock` in full — Tab rewrote it
+          // and Enter SENT the wrong command. agents/commands.py carries the
+          // same note for the backend did-you-mean, which has the same hazard.
+          commands
+            .filter((c) => c.name.startsWith(cmdToken))
+            .sort(
+              (a, b) =>
+                Number(b.name === cmdToken) - Number(a.name === cmdToken),
+            );
   const open = !dismissed && matches.length > 0;
   // one clamp for Enter, aria-selected and aria-activedescendant: filtering
   // can shrink matches below sel, and a raw sel then points activedescendant
@@ -223,11 +271,15 @@ const Composer = () => {
                 i === sel ? "bg-thread/10" : ""
               }`}
             >
-              <code className="shrink-0 font-medium text-thread">/{c.name}</code>
+              <code className="shrink-0 font-medium text-thread">
+                /{c.name}
+              </code>
               {c.args && (
                 <code className="shrink-0 text-xs text-ink-3">{c.args}</code>
               )}
-              <span className="truncate text-xs text-ink-3">{c.description}</span>
+              <span className="truncate text-xs text-ink-3">
+                {c.description}
+              </span>
               {i === sel && (
                 <kbd className="ml-auto shrink-0 rounded border border-line-strong px-1 font-mono text-[10px] text-ink-3">
                   ↵
@@ -281,6 +333,16 @@ const Composer = () => {
 };
 
 export function Thread() {
+  // the same store the Composer reads: a sticky persona (set by /agents'
+  // bench cards via ?as=, and restored from sessionStorage for every new
+  // thread) prefixes freeform messages with `/as <slug>`, so the empty
+  // state's "goes to the Chief of Staff" is false exactly then — while the
+  // chip above the composer says so on the same screen
+  const activePersona = useSyncExternalStore(
+    subscribePersona,
+    getActivePersona,
+    () => null,
+  );
   return (
     <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
       <ThreadPrimitive.Viewport className="flex flex-1 flex-col overflow-y-auto px-4 pt-4 lg:px-8">
@@ -311,10 +373,13 @@ export function Thread() {
               Type <code>/help</code> for commands — <code>/plan</code>,{" "}
               <code>/playbooks</code>, <code>/search</code>,{" "}
               <code>/briefing</code>, <code>/remember</code> — they run
-              instantly, no model needed. <code>/personas</code> lists the
-              bench of specialists, and <code>/flocks</code> lists the groups
-              you can ask at one time. Anything else goes to the Chief of
-              Staff.
+              instantly, no model needed. <code>/personas</code> lists the bench
+              of specialists, and <code>/as</code> calls one.{" "}
+              <code>/flocks</code> lists the groups of them, and{" "}
+              <code>/flock</code> asks a whole group at one time.{" "}
+              {activePersona
+                ? `Every other message goes to ${activePersona.name}, the persona above the composer.`
+                : "Every other message goes to the Chief of Staff."}
             </p>
           </div>
         </ThreadPrimitive.Empty>

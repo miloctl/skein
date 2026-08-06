@@ -35,6 +35,11 @@ def prune(*, actor: str = "scheduler") -> dict:
     # cost history (spend per thread and engagement over time), it is not
     # derivable from anything else, and its ranged reads ride
     # idx_usage_log_created — kept forever, like activity.
+    # flock_traces is absent for the same reason: it carries the per-turn token
+    # counts that usage_log cannot reconstruct (usage rows key on thread +
+    # agent, so two flock turns in one thread are indistinguishable there). It
+    # is bounded in practice by the chat cap, and chat_threads.delete_thread
+    # removes a thread's traces with the thread.
     removed = {
         "forecast_snapshots": db.execute_rowcount(
             "DELETE FROM forecast_snapshots WHERE created_at < ?",

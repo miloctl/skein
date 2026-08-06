@@ -175,6 +175,11 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     labeled trust signal for this agent."""
     if not summary.strip():
         raise ValueError("say what was done — the sponsor reads this summary")
+    # guarded like the rest of the trio even though the outcome is already a
+    # proposal: this one pings the sponsor at `immediate` tier and takes the
+    # one-pending-proposal slot below, so a member asked for an opinion would
+    # interrupt a human mid-consultation over work nobody requested
+    refuse_in_flock("submit work for acceptance")
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:

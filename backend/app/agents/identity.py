@@ -50,7 +50,8 @@ def force_review() -> bool:
     the authority matrix says. Set per flock member task (docs/FLOCKS.md): a
     flock turn is consultative, and one human message must not become N
     unreviewed writes because the members earned autonomy one at a time.
-    tools/_gate.py is the only reader."""
+    tools/_gate.py and refuse_in_flock below are the only readers — a write
+    path that reaches neither is ungoverned in a flock."""
     return _force_review.get()
 
 

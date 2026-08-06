@@ -82,6 +82,41 @@ def test_identity_contextvar_signs_proposals(fresh_db, monkeypatch):
     assert row["proposed_by"] == "code-reviewer"
 
 
+def test_slack_refuses_route_level_commands_without_eating_prose(client, monkeypatch):
+    """Every handler-None command is refused by name, and ONLY by name. An
+    earlier guard stripped the slash before matching, so "as discussed, the
+    vendor slipped" was refused instead of captured — a working write path,
+    silently removed. Unrefused, the raw slash command is smart-captured as a
+    note against whoever typed it."""
+    import hashlib
+    import hmac
+    import time
+    import urllib.parse
+
+    from app import config
+
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "s3cret")
+
+    def ask(text):
+        body = urllib.parse.urlencode({"text": text, "user_name": "mira"})
+        ts = str(int(time.time()))
+        sig = "v0=" + hmac.new(b"s3cret", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+        return client.post(
+            "/api/slack/command",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-Slack-Request-Timestamp": ts,
+                "X-Slack-Signature": sig,
+            },
+        ).json()["text"]
+
+    for cmd in ("/as", "/flock", "/FLOCK"):
+        assert "web chat only" in ask(f"{cmd} engineering hello"), cmd
+    for prose in ("as discussed, the vendor slipped", "flock behaviour is odd"):
+        assert "web chat only" not in ask(prose), prose
+
+
 def test_dispatch_passes_as_through_to_route():
     assert commands.dispatch("/as code-reviewer hello", "tester") is None
 

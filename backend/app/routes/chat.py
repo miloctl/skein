@@ -205,10 +205,19 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
                 if name:
                     out.put_nowait({"type": "tool", "name": name})
             for r in receipts.drain():
-                entry["receipts"] += 1
+                # `queued` only: the diamond labels this number "proposal(s)",
+                # and drain() also yields `refused` and `failed`. Counting
+                # those made a member whose write was REFUSED report a
+                # proposal, on the surface built to show the review guarantee.
+                # `wrote` is excluded on purpose and is NOT a gap: a member
+                # cannot reach the direct path (force_review, tools/_gate.py),
+                # so a `wrote` here means that guarantee already failed, and
+                # the receipt chip in the transcript is where it must be read
+                # — silently folding it into "proposals" would hide it.
+                entry["receipts"] += r["kind"] == "queued"
                 out.put_nowait({"type": "receipt", **r})
         for r in receipts.drain():
-            entry["receipts"] += 1
+            entry["receipts"] += r["kind"] == "queued"
             out.put_nowait({"type": "receipt", **r})
     except asyncio.CancelledError:
         entry["status"] = "cancelled"
@@ -260,6 +269,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
     # section, so a `cards` list built anywhere but get_flock re-opens that
     queues: dict[str, asyncio.Queue] = {c["slug"]: asyncio.Queue() for c in cards}
     tasks: list[asyncio.Task] = []
+    # started next to task creation, not at the top: the transcript write above
+    # runs in a threadpool, and counting it would over-report every cancelled
+    # member by however long that write took
+    turn_started = time.monotonic()
 
     def _close_turn() -> None:
         # idempotent for the same reason the agent turn's is: the cancelled
@@ -272,6 +285,12 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         # on a later loop iteration and nothing drains its queue once the
         # reader stops. Rebuilt in declared order so the trace always carries
         # every member — dropping one hides a member that ran and spent.
+        # ms is the turn's elapsed time, not 0: the member ran from task
+        # creation until the cancel, and services/flocks.py::record_trace
+        # exists because a stopped turn still produced spend. A hardcoded 0
+        # makes the diamond report "the slowest member took 0 ms" for a turn
+        # that burned real tokens.
+        stopped_ms = int((time.monotonic() - turn_started) * 1000)
         entries = [
             done.get(c["slug"])
             or {
@@ -279,7 +298,7 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                 "name": c["name"],
                 "emoji": c["emoji"],
                 "status": "cancelled",
-                "ms": 0,
+                "ms": stopped_ms,
                 "receipts": 0,
                 "tokens_in": 0,
                 "tokens_out": 0,
@@ -400,6 +419,18 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         # after the reader stops, so cancel before the close
         for t in tasks:
             t.cancel()
+        # then take the entries already sitting unread. A member that FINISHED
+        # before the reader reached its section has its real timings, receipts
+        # and token counts on its queue; without this drain _close_turn
+        # rewrites it as cancelled with zero tokens, which is a worse lie than
+        # the one the cancelled fallback exists to fix. get_nowait never
+        # awaits, so it is safe in the cancelled path.
+        for card in cards:
+            q = queues[card["slug"]]
+            while card["slug"] not in done and not q.empty():
+                event = q.get_nowait()
+                if event["type"] == "member-end":
+                    done[card["slug"]] = event["entry"]
         # close BEFORE the reset, and never let the reset speak: an abandoned
         # stream is finalized in a foreign context, where reset raises
         # ValueError — raised first, it took the whole turn record with it
@@ -604,6 +635,22 @@ async def chat(req: ChatRequest, user: CurrentUser):
         return StreamingResponse(command_stream(), media_type="text/event-stream")
 
     if flock_def:
+        # Charged HERE, and on the `chat` bucket rather than a bucket of its
+        # own: one turn runs an agent loop per member plus the merge, so a
+        # single chat slot bought several turns of model spend. ONE slot is
+        # already spent by this point — the top-of-route check above — hence
+        # the -1. That slot stays spent even when this call refuses.
+        # Placement is load-bearing twice over. Inside the /flock parse `try`
+        # above, its `except ValueError` would render the cap as an SSE text
+        # line while the identical `chat` cap on this route answers 400
+        # (routes/api.py::delete_note carries the same warning). Before
+        # get_flock, the member count is not known yet. Nothing has run a
+        # model by now, so a refusal here costs the caller nothing.
+        ratelimit.check(
+            "chat",
+            user,
+            cost=len(flock_def["members"]) + int(flock_def["synthesis"]) - 1,
+        )
         # the turn guard is skipped on purpose: it re-prompts ONE agent to file
         # what a filing-shaped message asked for, and a flock turn has N heads
         # and no write path of its own (docs/FLOCKS.md)
