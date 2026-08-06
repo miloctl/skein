@@ -735,7 +735,7 @@ def _r_activity_chain() -> list[dict]:
         ]
     anchors = check_anchor_log()
     if anchors["ok"]:
-        return []
+        return _r_ledger_adoptions()
     return [
         _finding(
             "activity_chain_broken",
@@ -750,6 +750,40 @@ def _r_activity_chain() -> list[dict]:
             subject=f"anchor:{anchors['seq']}",
             window="point-in-time",
         )
+    ]
+
+
+def _r_ledger_adoptions() -> list[dict]:
+    """An adopt_unchained receipt landed since the last daily run. Adoption heals
+    the chain instead of alarming forever (activity.adopt_unchained), so the
+    smuggled-row case no longer keeps verify_chain failing — this finding is
+    the push signal that replaces that permanent alarm. One finding per
+    receipt: the subject is the receipt's seq, so the dedupe on
+    (rule_id, subject, week) fires each adoption exactly once and a benign
+    fallback does not nag beyond its day.
+
+    Two-day window, not one: the findings job can miss a morning, and the
+    week-scoped dedupe absorbs the overlap when it does not."""
+    receipts = db.query(
+        "SELECT seq, detail, created_at FROM activity WHERE action = 'adopt_unchained'"
+        " AND created_at > ? ORDER BY seq",
+        (_iso(_today() - timedelta(days=2)),),
+    )
+    return [
+        _finding(
+            "ledger_rows_adopted",
+            "medium",
+            f"The nightly job adopted rows into the activity chain ({r['detail']})."
+            " If the server log has an 'activity chain append failed' warning near"
+            f" {r['created_at']}, the cause is a busy ledger and no action is"
+            " needed. If it does not, a row was inserted into the database"
+            " outside the service layer — treat this as tampering and compare"
+            " platform.db against the most recent backup in data/backups.",
+            {"seq": r["seq"], "detail": r["detail"], "created_at": r["created_at"]},
+            subject=f"adopt:{r['seq']}",
+            window="point-in-time",
+        )
+        for r in receipts
     ]
 
 
