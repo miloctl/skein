@@ -555,7 +555,7 @@ def test_the_address_meter_runs_before_the_signature_check(signed, fresh_db, mon
     for _ in range(3):
         assert signed("push", _push("task/1-x"), secret="wrong").status_code == 401
     r = signed("push", _push("task/1-x"), secret="wrong")
-    assert r.status_code == 400
+    assert r.status_code == 429
     assert "forge_addr" in r.json()["detail"]
 
 

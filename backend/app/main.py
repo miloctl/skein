@@ -1,5 +1,6 @@
 import logging
 import os
+import sqlite3
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import config, db
+from . import config, db, ratelimit
 from .routes import api, auth, chat, private, slack, webhooks
 from .services.activity import chain_health
 from .services.jobs import JOBS, job_health, run_job
@@ -300,10 +301,13 @@ app.add_middleware(
 # Malformed input is the caller's error. The rule is the classification, not
 # this list of handlers: if a request body, path, or query can produce the
 # exception, it maps to a 4xx here. If only our own state can produce it, it
-# stays a 500. Add a handler when a 500 traces back to something a caller
-# sent. Add it for that reason, never because an exception class looked
-# familiar. A handler never echoes the rejected value back. The caller already
-# has it, and rendering it turned a 50 MB body into a 50 MB response.
+# stays a 500. Load is the third class: if the identical request succeeds on
+# a retry with nothing changed (a rate cap, a held write lock), it maps to
+# 429 or 503 with Retry-After. Add a handler when a 500 traces back to
+# something a caller sent. Add it for that reason, never because an exception
+# class looked familiar. A handler never echoes the rejected value back. The
+# caller already has it, and rendering it turned a 50 MB body into a 50 MB
+# response.
 @app.exception_handler(db.NotFound)
 async def not_found_handler(request: Request, exc: db.NotFound):
     # one rule for the surface: entity-lookup failures are 404, everywhere
@@ -314,6 +318,35 @@ async def not_found_handler(request: Request, exc: db.NotFound):
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(ratelimit.RateLimited)
+async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
+    # starlette matches handlers by walking the exception's MRO, so this wins
+    # over the ValueError handler above even though RateLimited subclasses it
+    return JSONResponse(
+        status_code=429,
+        content={"detail": str(exc)},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
+@app.exception_handler(sqlite3.OperationalError)
+async def database_busy_handler(request: Request, exc: sqlite3.OperationalError):
+    # A held write lock past busy_timeout (db.py) is LOAD, not fault: the same
+    # request succeeds on a retry with nothing changed, which is the 503 +
+    # Retry-After contract. A 500 here told the operator "bug" and the client
+    # "do not retry" — both wrong. Every OTHER OperationalError (bad SQL) IS
+    # our own fault: re-raising hands it to the default 500 path unchanged.
+    if "locked" not in str(exc):
+        raise exc
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "The database is busy. Wait a few seconds, then send the request again."
+        },
+        headers={"Retry-After": "5"},
+    )
 
 
 @app.exception_handler(OverflowError)

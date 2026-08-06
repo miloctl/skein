@@ -33,9 +33,13 @@ ideation and engineering backlog.
   (`human|agent|agent_verified`) and `created_by`, and log to `activity`.
 - **Input errors are 4xx, by classification.** If a request can produce an
   exception, `app/main.py` maps it to a 4xx. If only our own state can produce
-  it, it stays a 500. Add an exception handler when a 500 traces back to
-  something a caller sent, not when a new exception class appears. An error
-  response is always JSON, and it never echoes the rejected value back.
+  it, it stays a 500. Load is the third class: if the identical request
+  succeeds on a retry with nothing changed (a rate cap, a held write lock), it
+  maps to 429 or 503 with a Retry-After header — a 500 there tells the client
+  "bug, do not retry", which is the opposite of the truth. Add an exception
+  handler when a 500 traces back to something a caller sent, not when a new
+  exception class appears. An error response is always JSON, and it never
+  echoes the rejected value back.
 - **Migrations are append-only.** Schema changes go in a new numbered file in
   `backend/migrations/`; never edit an applied migration or `db.py` schema
   inline. A migration must never UPDATE or DELETE an `activity` row that

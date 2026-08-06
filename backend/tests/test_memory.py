@@ -121,7 +121,7 @@ def test_memory_rate_cap_and_human_provenance(fresh_db):
 
     for i in range(10):
         memory.remember(f"fact {i}", actor="mira")
-    with pytest.raises(ValueError, match="capped at 10/minute"):
+    with pytest.raises(ValueError, match="The limit for memory is 10 per minute"):
         memory.remember("fact 11", actor="mira")
     row = fresh_db.query_one("SELECT origin, created_by FROM memories WHERE id = 1")
     assert row["origin"] == "human" and row["created_by"] == "mira"

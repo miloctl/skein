@@ -476,7 +476,7 @@ def test_health_follows_the_toggle(client, fresh_db):
 def test_the_toggle_is_rate_capped(client, fresh_db):
     """Each call appends to the activity ledger, which is never pruned — an
     uncapped write permanently inflates the chain the integrity check walks.
-    Skein surfaces a spent cap as 400 (ratelimit.check raises ValueError)."""
+    Skein surfaces a spent cap as 429 (ratelimit.RateLimited, main.py)."""
     headers = _key()
     codes = [
         client.post(
@@ -485,7 +485,7 @@ def test_the_toggle_is_rate_capped(client, fresh_db):
         for _ in range(40)
     ]
     assert codes[0] == 200
-    assert 400 in codes
+    assert 429 in codes
 
 
 def _seed_messages(thread_id: str, roles: list[str]) -> None:

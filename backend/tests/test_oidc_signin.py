@@ -239,7 +239,7 @@ def test_token_is_rate_capped_for_anonymous_callers(client, monkeypatch, fresh_d
     codes = {
         client.post("/api/auth/token", json={"refresh_token": "r"}).status_code for _ in range(15)
     }
-    assert 400 in codes  # the cap answers before the IdP is called again
+    assert 429 in codes  # the cap answers before the IdP is called again
 
 
 def test_a_non_web_endpoint_from_the_discovery_document_is_refused(monkeypatch):

@@ -48,8 +48,9 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         signal: abortSignal,
       });
       if (!res.ok || !res.body) {
-        // the body carries the usable message ("slow down — chat is capped
-        // at 20/minute", length caps) — surface it, not just the code
+        // the body carries the usable message ("The limit for chat is 20 per
+        // minute per person. Wait 34 seconds, then send the request again.",
+        // length caps) — surface it, not just the code
         let detail = "";
         try {
           const parsed = await res.json();

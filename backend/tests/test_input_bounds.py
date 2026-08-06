@@ -93,7 +93,7 @@ def test_allocation_writes_are_rate_capped(client, fresh_db):
     # `400 in codes` alone would also pass if EVERY call failed for an
     # unrelated reason, so pin the happy path and the transition too
     assert codes[0] == 200, "allocate is broken, not rate-capped"
-    assert codes[-1] == 400
+    assert codes[-1] == 429
     assert 20 < codes.count(200) < 40
 
 
