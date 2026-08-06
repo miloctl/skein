@@ -87,8 +87,8 @@ def connect() -> sqlite3.Connection:
     # against a BRAND NEW database race here and all but one die on "database
     # is locked". Once WAL is established the pragma is a no-op read and the
     # race is gone, which is why only a fresh volume or a restore into an
-    # empty one ever sees it. The timeout two lines down covers everything
-    # after this point, not this line.
+    # empty one ever sees it. The busy_timeout pragma below covers every
+    # statement after it, never this one.
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")

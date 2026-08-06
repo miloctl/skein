@@ -56,8 +56,8 @@ router = APIRouter(prefix="/api")
 # Every read that returns a row takes CurrentUser, including the ones whose
 # handler never spends it. It buys ONE thing, and it is not access control:
 # a read with no caller cannot be given a visibility filter later without
-# changing its signature, and 45 of the 76 GET routes had none
-# (docs/VISIBILITY.md). The walls `_resolve` applies are already applied at
+# changing its signature (docs/VISIBILITY.md). The walls `_resolve` applies
+# are already applied at
 # the perimeter in api-key and oidc mode, and in trusted-header mode a caller
 # refused under one name reaches every read by picking another.
 #

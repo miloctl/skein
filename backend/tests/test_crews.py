@@ -85,7 +85,7 @@ def test_the_last_steward_cannot_leave(fresh_db):
 
 
 def test_crews_of_survives_deactivation(fresh_db):
-    """A row scoped to a retired crew must stay readable by the people who
+    """A row scoped to a deactivated crew must stay readable by the people who
     could always read it, or deactivating a crew hides their own work."""
     users.ensure_user("ava")
     crew = crews.create_crew("Platform", actor="ava")
@@ -233,9 +233,9 @@ def test_assert_writable_is_the_phase_three_write_guard(fresh_db):
     with pytest.raises(db.NotFound):
         crews.assert_writable(999, "ava")
 
-    # a retired crew keeps its old rows readable and takes no new ones
+    # a deactivated crew keeps its old rows readable and takes no new ones
     crews.update_crew(crew["id"], active=False, actor="ava")
-    with pytest.raises(ValueError, match="retired"):
+    with pytest.raises(ValueError, match="not active"):
         crews.assert_writable(crew["id"], "ava")
     assert crews.crews_of("ava") == [crew["id"]]
 
@@ -294,8 +294,8 @@ def test_crew_membership_records_provenance(fresh_db):
     ]
 
 
-def test_a_retired_crew_takes_nobody_new(fresh_db):
-    """crews_of keeps returning a retired crew so its rows stay readable, so
+def test_a_deactivated_crew_takes_nobody_new(fresh_db):
+    """crews_of keeps returning a deactivated crew so its rows stay readable, so
     adding a member to one would hand them every row already scoped to it —
     the opposite of what retiring means."""
     users.ensure_user("ava")
@@ -305,15 +305,15 @@ def test_a_retired_crew_takes_nobody_new(fresh_db):
     crews.update_crew(crew["id"], active=False, actor="ava")
 
     users.ensure_user("cass")
-    with pytest.raises(ValueError, match="retired"):
+    with pytest.raises(ValueError, match="not active"):
         crews.add_member(crew["id"], "cass", actor="ava")
-    # an existing member's role still changes, so a retired crew can be tidied
+    # an existing member's role still changes, so a deactivated crew can be tidied
     assert crews.add_member(crew["id"], "bo", role="steward", actor="ava")
 
 
 def test_assert_writable_names_no_crew_to_a_non_member(fresh_db):
-    """The retired refusal names the crew. Checked before membership, it told
-    a stranger that a crew by that id exists and what it is called."""
+    """The not-active refusal names the crew. Checked before membership, it
+    told a stranger that a crew by that id exists and what it is called."""
     users.ensure_user("ava")
     users.ensure_user("bo")
     crew = crews.create_crew("Platform", actor="ava")

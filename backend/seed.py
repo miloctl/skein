@@ -199,9 +199,9 @@ def main() -> None:
         ],
     )
 
-    # two crews, one of them retired: the retired branch is a different
-    # render path (dashed border, "retired" badge) and the e2e axe walk is the
-    # only thing that sees it
+    # two crews, one of them deactivated: that branch is a different render
+    # path (dashed border, "inactive" badge) and the e2e axe walk is the only
+    # thing that sees it
     platform = crews.create_crew("Platform", summary="the backend half", actor="ava")
     crews.add_member(platform["id"], "marcus", actor="ava")
     crews.update_crew(
@@ -212,7 +212,7 @@ def main() -> None:
         "Seeded: 1 engagement (playbook), tasks, standups, blockers,"
         " intake queue, pending reviews, calendar, lessons, a promise,"
         " an absence, a charter entry, a delegation awaiting acceptance,"
-        " one flock turn, and two crews (one retired)."
+        " one flock turn, and two crews (one deactivated)."
     )
 
 

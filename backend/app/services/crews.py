@@ -11,7 +11,7 @@ one expires the moment the work ships. Membership here is durable and binary.
 There is deliberately no delete. `crew_members.crew_id` cascades, so dropping
 a crew would strip every membership while content rows kept naming the crew
 id — those rows become invisible to everyone but their author, with nothing
-to restore the scope from. Retiring a crew is `update_crew(active=False)`,
+to restore the scope from. Deactivating a crew is `update_crew(active=False)`,
 which stops new rows being scoped to it and leaves the old ones readable.
 """
 
@@ -22,15 +22,16 @@ NAME_LEN = 60
 SUMMARY_LEN = 280
 ROLES = ("member", "steward")
 
-# crews_of is ONE indexed SELECT and is deliberately not memoized. A
-# ContextVar cache was written here and removed: a job thread runs on
+# crews_of is ONE indexed SELECT and is deliberately not memoized. Two
+# things make the obvious cache wrong here, and both fail silently:
+# a ContextVar copies the MAPPING and not the value, so one mutable dict set
+# in an outer context is shared process-wide; and a job thread runs on
 # APScheduler's plain ThreadPoolExecutor, which neither copies nor resets
-# contexts, so its worker cached a membership no request-side invalidation
-# could ever reach — and because a ContextVar copies the mapping and not the
-# value, one mutable dict set in an outer context was shared process-wide.
-# A correct cache needs db.on_commit (db.py) for invalidation, an immutable
-# value per context, and no caching at all outside a request scope. Phase 3
-# adds it if the query ever measures, and not before.
+# contexts, so its worker holds a membership no request-side invalidation can
+# reach. A correct cache needs db.on_commit (db.py) for invalidation, an
+# immutable value per context, and no caching outside a request scope.
+# scope.Viewer resolves the list once per request instead, which is where the
+# repetition actually was.
 
 
 def _row(crew_id: int) -> dict:
@@ -158,14 +159,15 @@ def crews_of(person: str) -> list[int]:
     rather than emit an empty one.
 
     Deactivated crews are INCLUDED: a row scoped to a crew that was later
-    retired must stay readable by the people who could always read it, or
-    deactivating a crew silently hides their own work from them.
+    switched off must stay readable by the people who could always read it,
+    or deactivating a crew silently hides their own work from them.
     """
     if not person:
         return []
-    # ORDER BY, because insertion order is not stable and the filter
-    # interpolates this list into a SQL string — an unordered list makes the
-    # same query text differ run to run, which the planner caches separately
+    # ORDER BY so the params scope.visible_filter emits are deterministic —
+    # two callers with the same membership must produce the same query, and
+    # a test that asserts on it must not depend on insert order. Free: the
+    # index is (person, crew_id), so this is served without a sort.
     rows = db.query("SELECT crew_id FROM crew_members WHERE person = ? ORDER BY crew_id", (person,))
     return [r["crew_id"] for r in rows]
 
@@ -189,19 +191,19 @@ def assert_writable(crew_id: int, person: str) -> int:
 
     Without it a writer can scope a row into a crew they are not in — either
     injecting it into that crew's reading list, or hiding it from everyone
-    including themselves. A retired crew is refused for new rows, which is the
-    other half of the rule crews_of documents: old rows stay readable, no new
-    ones arrive.
+    including themselves. A deactivated crew is refused for new rows, which
+    is the other half of the rule crews_of documents: old rows stay readable,
+    no new ones arrive.
     """
     crew = _row(crew_id)
-    # membership FIRST: the retired refusal below names the crew, and checking
+    # membership FIRST: the not-active refusal names the crew, and checking
     # it first told a non-member that a crew by that id exists and what it is
     # called. An error never confirms the existence of something the caller
     # cannot see.
     if crew_id not in crews_of(person):
         raise db.NotFound(f"no crew #{crew_id} for {person}")
     if not crew["active"]:
-        raise ValueError(f"crew '{crew['name']}' is retired. Pick an active crew.")
+        raise ValueError(f"crew '{crew['name']}' is not active. Pick an active crew.")
     return crew_id
 
 
@@ -219,9 +221,9 @@ def add_member(
 ) -> dict:
     """Add someone, or change the role of someone already in the crew.
 
-    A retired crew takes nobody new. crews_of keeps returning a retired crew,
-    so adding a member to one would hand them every row already scoped to it —
-    the opposite of what retiring a crew means.
+    A deactivated crew takes nobody new. crews_of keeps returning one, so
+    adding a member would hand them every row already scoped to it — the
+    opposite of what deactivating a crew means.
     """
     if role not in ROLES:
         raise ValueError(f"role must be one of {', '.join(ROLES)}")
@@ -240,10 +242,10 @@ def add_member(
                 "SELECT 1 FROM crew_members WHERE crew_id = ? AND person = ?", (crew_id, person)
             )
         )
-        # a role change on an existing member still works, so a retired crew
-        # can be tidied. Only a NEW member is refused.
+        # a role change on an existing member still works, so a deactivated
+        # crew can be tidied. Only a NEW member is refused.
         if not crew["active"] and not already:
-            raise ValueError(f"crew '{crew['name']}' is retired. Put it back in use first.")
+            raise ValueError(f"crew '{crew['name']}' is not active. Reactivate it first.")
         # demotion is a role CHANGE, so the steward floor belongs here too.
         # Guarding only remove_member let a sole steward set their own role to
         # member and lock the crew: nobody could then edit it, including them.

@@ -40,7 +40,7 @@ export function CrewsCard({
   const [error, setError] = useState("");
   const [newName, setNewName] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
-  // keyed per crew: one shared flag disabled the Add and Retire buttons of
+  // keyed per crew: one shared flag disabled the Add and deactivate buttons of
   // every OTHER crew mid-write, pulling them out of the tab order
   const [busy, setBusy] = useState("");
   // Chrome blurs a focused element the moment it is disabled, so every write
@@ -176,8 +176,9 @@ export function CrewsCard({
                 // NOT opacity: dimming the container composites every token at
                 // 60% AFTER the theme system has done its work, and measured
                 // 2.3:1 to 3.1:1 in every pack — including `contrast`, the
-                // high-contrast one. A retired crew keeps working controls, so
-                // the 1.4.3 inactive-component exception does not apply.
+                // high-contrast one. A deactivated crew keeps working
+                // controls, so the 1.4.3 inactive-component exception does
+                // not apply.
                 (crew.active
                   ? "border-line"
                   : "border-dashed border-line-strong bg-raised")
@@ -185,14 +186,15 @@ export function CrewsCard({
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 {/* the badge sits OUTSIDE the heading: inside, the accessible
-                    name of the heading becomes "Platform inactive" */}
+                    name of the heading becomes "Platform inactive" — the
+                    badge is a state, not part of what the crew is called */}
                 <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
                   {crew.name}
                 </h3>
                 <span className="font-mono text-[10px] text-ink-3">
                   {/* a space, not only a margin: an accname computation reads
-                      these as one run and announced "retired1 member" */}
-                  {!crew.active && <span className="mr-1.5">retired </span>}
+                      these as one run and announced "inactive1 member" */}
+                  {!crew.active && <span className="mr-1.5">inactive </span>}
                   {crew.members.length} member
                   {crew.members.length === 1 ? "" : "s"}
                 </span>
@@ -324,18 +326,18 @@ export function CrewsCard({
                             body: JSON.stringify({ active: !crew.active }),
                           }),
                         crew.active
-                          ? `${crew.name} retired.`
-                          : `${crew.name} back in use.`,
+                          ? `${crew.name} deactivated.`
+                          : `${crew.name} reactivated.`,
                       )
                     }
                     aria-label={
                       crew.active
-                        ? `Retire ${crew.name}`
-                        : `Put ${crew.name} back in use`
+                        ? `Deactivate ${crew.name}`
+                        : `Reactivate ${crew.name}`
                     }
                     className="ml-auto rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:bg-raised disabled:opacity-50"
                   >
-                    {crew.active ? "Retire" : "Put back in use"}
+                    {crew.active ? "deactivate" : "reactivate"}
                   </button>
                 </form>
               )}
