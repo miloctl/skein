@@ -271,3 +271,48 @@ def test_a_member_keeps_the_delegation_tools_outside_a_flock(client, fresh_db):
     delegation.delegate_task(task["id"], "code-reviewer", "tester", actor="tester")
     assert delegation.claim_task(task["id"], actor="code-reviewer")["status"] == "in_progress"
     assert delegation.report_progress(task["id"], "made progress", actor="code-reviewer")["id"]
+
+
+def test_a_flock_slug_is_reserved_like_a_persona_slug(fresh_db):
+    """Synthesis logs its spend under the FLOCK slug, so a human holding that
+    name collects a bill for model calls they never made."""
+    from app.services import users
+
+    with pytest.raises(ValueError, match="reserved"):
+        users.ensure_user("engineering", kind="human")
+    # and the reverse direction still holds for personas
+    with pytest.raises(ValueError, match="reserved"):
+        users.ensure_user("code-reviewer", kind="human")
+
+
+def test_a_hung_member_does_not_hold_the_turn(client, fresh_db, monkeypatch):
+    """No deadline meant a provider that accepts and never answers pinned the
+    task, a threadpool worker and the SSE stream — four of them per flock."""
+    import asyncio as aio
+
+    from app.routes import chat as chat_route
+
+    class Hung:
+        async def stream_async(self, message):
+            await aio.sleep(3600)
+            yield {"data": "never"}
+
+    real = chat_route.build_agent
+
+    def maybe_hang(thread_id, user="anonymous", persona="", stateless=False):
+        if persona == "code-reviewer":
+            return Hung()
+        return real(thread_id, user, persona=persona, stateless=stateless)
+
+    monkeypatch.setattr(chat_route, "build_agent", maybe_hang)
+    monkeypatch.setattr(chat_route, "MEMBER_TIMEOUT_S", 0.4)
+    out = _read_chat(client, "/flock engineering who is slow", thread="hung")
+    assert "Code Reviewer did not answer" in out
+    # the members that DID answer are still delivered
+    assert "Backend Architect" in out and "Minimal Change Engineer" in out
+    members = json.loads(
+        fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")["members"]
+    )
+    by_slug = {m["slug"]: m["status"] for m in members}
+    assert by_slug["code-reviewer"] == "failed"
+    assert by_slug["backend-architect"] == "ok"

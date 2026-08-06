@@ -41,6 +41,13 @@ router = APIRouter()
 # so the bridge stands down while an agent turn owns the session.
 _inflight: Counter[str] = Counter()
 
+# How long one flock member may take before the turn gives up on it. Generous:
+# a member is an agent LOOP — tool calls, then a synthesis of them — and a
+# measured 3-member turn on a cloud model ran 9 model calls in ~16s. This is a
+# hang guard, not a latency budget. A member that trips it is reported failed
+# in its own section, and the rest of the turn continues.
+MEMBER_TIMEOUT_S = 180.0
+
 
 class ChatRequest(BaseModel):
     thread_id: str = Field("default", max_length=100)
@@ -197,25 +204,32 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
         # claimed raises here, which is this member's failure alone.
         await run_in_threadpool(ensure_user, slug, kind="agent")
         agent = await run_in_threadpool(build_agent, thread_id, user, persona=slug, stateless=True)
-        async for event in agent.stream_async(message):
-            if "data" in event:
-                out.put_nowait({"type": "text", "text": event["data"]})
-            elif "current_tool_use" in event:
-                name = event["current_tool_use"].get("name", "")
-                if name:
-                    out.put_nowait({"type": "tool", "name": name})
-            for r in receipts.drain():
-                # `queued` only: the diamond labels this number "proposal(s)",
-                # and drain() also yields `refused` and `failed`. Counting
-                # those made a member whose write was REFUSED report a
-                # proposal, on the surface built to show the review guarantee.
-                # `wrote` is excluded on purpose and is NOT a gap: a member
-                # cannot reach the direct path (force_review, tools/_gate.py),
-                # so a `wrote` here means that guarantee already failed, and
-                # the receipt chip in the transcript is where it must be read
-                # — silently folding it into "proposals" would hide it.
-                entry["receipts"] += r["kind"] == "queued"
-                out.put_nowait({"type": "receipt", **r})
+        # a member gets a deadline for its WHOLE turn. Without one, a provider
+        # that accepts the connection and never answers holds this task, a
+        # threadpool worker, and the reader's SSE stream open forever — and a
+        # flock opens four of them. The reader is blocked on this member's
+        # section, so one hung member also hides the ones that did answer.
+        async with asyncio.timeout(MEMBER_TIMEOUT_S):
+            async for event in agent.stream_async(message):
+                if "data" in event:
+                    out.put_nowait({"type": "text", "text": event["data"]})
+                elif "current_tool_use" in event:
+                    name = event["current_tool_use"].get("name", "")
+                    if name:
+                        out.put_nowait({"type": "tool", "name": name})
+                for r in receipts.drain():
+                    # `queued` only: the diamond labels this number
+                    # "proposal(s)", and drain() also yields `refused` and
+                    # `failed`. Counting those made a member whose write was
+                    # REFUSED report a proposal, on the surface built to show
+                    # the review guarantee. `wrote` is excluded on purpose and
+                    # is NOT a gap: a member cannot reach the direct path
+                    # (force_review, tools/_gate.py), so a `wrote` here means
+                    # that guarantee already failed, and the receipt chip in
+                    # the transcript is where it must be read — folding it
+                    # into "proposals" would hide it.
+                    entry["receipts"] += r["kind"] == "queued"
+                    out.put_nowait({"type": "receipt", **r})
         for r in receipts.drain():
             entry["receipts"] += r["kind"] == "queued"
             out.put_nowait({"type": "receipt", **r})
