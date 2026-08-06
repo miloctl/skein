@@ -97,6 +97,32 @@ PER = {
 }
 
 
+# Surfaces an administrator can retune at runtime, mapped to their knob
+# (services/tuning.py). Every OTHER surface stays code-only on purpose: the
+# ones left out bound an unauthenticated caller (signin, forge_addr) or a
+# whole-deployment cost (verify), and those are the operator's to set in the
+# environment, not an admin's to raise from a form.
+TUNED = {"chat": "chat_limit", "write": "write_limit", "capture": "capture_limit"}
+
+
+def _tuned(surface: str, fallback: int) -> int:
+    knob = TUNED.get(surface)
+    if knob is None:
+        return fallback
+    try:
+        # imported here, not at module scope: services/tuning.py reads the
+        # LIMITS above for its defaults, and a top-level import is a cycle
+        from .services.tuning import override_of
+
+        got = override_of(knob)
+        return got if got is not None else fallback
+    except Exception:
+        # the cap must survive a database that cannot answer — degrading to
+        # the code default keeps the guard ON, where raising would 500 a
+        # write because a SETTINGS lookup failed
+        return fallback
+
+
 def check(surface: str, user: str, cost: int = 1) -> None:
     """Raise RateLimited (→ 429 + Retry-After, main.py) when user exceeded
     the per-minute cap.
@@ -112,6 +138,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
     limit = LIMITS.get(surface)
     if limit is None:
         return
+    limit = _tuned(surface, limit)
     # a caller computing cost from data (a member count) must never reach zero
     # by arithmetic accident and turn the cap into a no-op
     cost = max(1, cost)

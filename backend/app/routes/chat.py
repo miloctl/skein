@@ -61,6 +61,20 @@ _inflight: Counter[str] = Counter()
 MEMBER_TIMEOUT_S = 180.0
 
 
+def _member_deadline() -> float:
+    """The deadline in force for THIS turn. Read through per turn so an
+    administrator's change applies to the next message rather than the next
+    restart (services/tuning.py). Falls back to the constant above when the
+    settings read fails: a turn must not die because a lookup did."""
+    try:
+        from ..services.tuning import override_of
+
+        got = override_of("member_timeout_s")
+        return float(got) if got is not None else MEMBER_TIMEOUT_S
+    except Exception:
+        return MEMBER_TIMEOUT_S
+
+
 class ChatRequest(BaseModel):
     thread_id: str = Field("default", max_length=100)
     # the biggest sink gets the same bounds as its siblings: the message
@@ -236,7 +250,7 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
         # threadpool worker, and the reader's SSE stream open forever — and a
         # flock opens four of them. The reader is blocked on this member's
         # section, so one hung member also hides the ones that did answer.
-        async with asyncio.timeout(MEMBER_TIMEOUT_S):
+        async with asyncio.timeout(_member_deadline()):
             async for event in agent.stream_async(message):
                 if "data" in event:
                     out.put_nowait({"type": "text", "text": event["data"]})
@@ -462,7 +476,7 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                 # the reader has nothing left to render and never finishes.
                 # TimeoutError is an Exception, so the handler below reports it
                 # as a failed merge with no extra branch.
-                async with asyncio.timeout(MEMBER_TIMEOUT_S):
+                async with asyncio.timeout(_member_deadline()):
                     async for event in synth.stream_async(f"Question: {message}\n{merged}"):
                         if "data" in event:
                             transcript.append(event["data"])

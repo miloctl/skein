@@ -39,6 +39,7 @@ from ..services import (
     schedule,
     search,
     settings,
+    tuning,
     usage,
     users,
     weekly,
@@ -728,6 +729,36 @@ def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
     ratelimit.check("write", user)
     try:
         return settings.set_context_strategy(body.strategy, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class TuningIn(BaseModel):
+    # extra=forbid, and `value` has NO default: a mistyped field would fall
+    # through to None, which is the CLEAR sentinel, silently returning a knob
+    # to its default while answering 200. Same trap ContextStrategyIn names.
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=64)
+    # null clears the override; the service range-checks the number
+    value: int | None
+
+
+@router.get("/settings/tuning")
+def get_tuning(user: AdminUser):
+    """AdminUser for the READ too, unlike the context strategy above. These
+    numbers are the deployment's capacity limits, and listing them tells an
+    ordinary caller exactly how much room is left before a cap refuses —
+    which is reconnaissance, not a preference anyone needs to see."""
+    return tuning.list_tunables()
+
+
+@router.post("/settings/tuning")
+def post_tuning(body: TuningIn, user: AdminUser):
+    """Rate-capped for the reason the context strategy is: each call appends
+    to the activity ledger, which is never pruned."""
+    ratelimit.check("write", user)
+    try:
+        return tuning.set_tunable(body.name, body.value, actor=user)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
