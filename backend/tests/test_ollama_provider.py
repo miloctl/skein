@@ -21,7 +21,11 @@ def test_ollama_local_daemon_no_auth(monkeypatch):
     model = _build(monkeypatch, "http://localhost:11434", "")
     assert type(model).__name__ == "OllamaModel"
     assert model.host == "http://localhost:11434"
-    assert model.client_args == {}
+    # no Authorization header at all, rather than an empty one. Asserted by
+    # absence of the key, not client_args == {}: every provider also carries a
+    # socket timeout now (test_model_providers.py), and an equality check here
+    # reads as "a local daemon takes no timeout either", which is false.
+    assert "headers" not in model.client_args
     assert model.config["model_id"] == "gpt-oss:120b-cloud"
 
 

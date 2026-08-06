@@ -43,6 +43,50 @@ def test_registry_and_dispatch_agree():
     assert set(config.PROVIDERS) == set(EXPECTED_CLASS) | {"mock"}
 
 
+# ---- every provider socket is bounded, because a deadline cannot reach it ----
+
+# bedrock alone passes no timeout, and it is NOT an oversight: strands applies
+# its own read_timeout (120s) while no boto_client_config is passed, and
+# passing one replaces that default. Recorded at the branch in _model() too. A
+# NEW provider joins this set only by someone editing this line and saying why.
+TIMEOUT_EXEMPT = {"bedrock"}
+
+
+def _socket_timeout(model):
+    """Where each SDK parks the timeout _model() handed it. openai and ollama
+    keep client_args verbatim; anthropic builds its client in __init__ and
+    keeps only that."""
+    if hasattr(model, "client_args"):
+        return model.client_args.get("timeout")
+    return model.client.timeout
+
+
+@pytest.mark.parametrize("provider", sorted(set(EXPECTED_CLASS) - TIMEOUT_EXEMPT))
+def test_every_provider_bounds_its_socket(monkeypatch, provider):
+    """An unbounded socket outlives the deadline in routes/chat.py. plan_project
+    is a sync @tool, so strands runs it via asyncio.to_thread, and cancelling
+    that await orphans the THREAD — it keeps reading a stalled socket while
+    holding a slot in the event loop's default executor (min(32, cpu+4), so
+    eight on a 4-vCPU box). Ollama's own default is None, so for the keyless
+    default provider this is the only bound its socket will ever have."""
+    _configure(monkeypatch, provider, base_url="http://x/v1" if "compatible" in provider else "")
+    timeout = _socket_timeout(team_agent._model())
+    assert timeout is not None, f"{provider} builds an unbounded client"
+    assert timeout.read == team_agent.READ_TIMEOUT_S
+    assert timeout.connect == team_agent.CONNECT_TIMEOUT_S
+
+
+def test_the_socket_outlives_the_turn_deadline():
+    """Ordering invariant, and the whole reason READ_TIMEOUT_S is the larger
+    number. MEMBER_TIMEOUT_S must be what fires on a live-but-slow provider. If
+    the socket bound were smaller, a cold model load — which sends no bytes for
+    as long as it takes to page the weights in — would die as a failed member
+    on every first request after a restart."""
+    from app.routes.chat import MEMBER_TIMEOUT_S
+
+    assert team_agent.READ_TIMEOUT_S > MEMBER_TIMEOUT_S
+
+
 # ---- openai-compatible: the actual point of the feature ----
 
 

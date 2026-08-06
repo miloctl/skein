@@ -41,11 +41,23 @@ router = APIRouter()
 # so the bridge stands down while an agent turn owns the session.
 _inflight: Counter[str] = Counter()
 
-# How long one flock member may take before the turn gives up on it. Generous:
-# a member is an agent LOOP — tool calls, then a synthesis of them — and a
-# measured 3-member turn on a cloud model ran 9 model calls in ~16s. This is a
-# hang guard, not a latency budget. A member that trips it is reported failed
-# in its own section, and the rest of the turn continues.
+# How long one flock member — and the merge step that follows them — may take
+# before the turn gives up on it. Generous: a member is an agent LOOP (tool
+# calls, then a synthesis of them) and a measured 3-member turn on a cloud
+# model ran 9 model calls in ~16s. This is a hang guard, not a latency budget.
+# A member that trips it is reported failed in its own section, and the rest of
+# the turn continues.
+#
+# Do NOT tune this down against observed durations. Every measurement we have
+# is of a WARM model; a cold load into VRAM produces no bytes for far longer
+# and is exactly the run this must survive. Too high costs a wait the user can
+# end with the stop button, and _close_turn still saves the partial transcript.
+# Too low destroys a finished answer, and re-running the flock costs N model
+# calls. Err high.
+#
+# It is not the only bound: agents/team_agent.py::READ_TIMEOUT_S guards the
+# socket underneath, and is deliberately larger so that this deadline is the
+# one that fires on a live-but-slow provider.
 MEMBER_TIMEOUT_S = 180.0
 
 
@@ -247,6 +259,16 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
             {"type": "text", "text": f"{card['name']} did not answer ({exc.__class__.__name__})."}
         )
     finally:
+        # a member that died mid-loop reaches NEITHER drain above: the in-loop
+        # one runs on the next stream event, which never comes, and the one
+        # after the loop is skipped by the raise. These receipts are for tool
+        # calls that already COMPLETED — they exist, and would otherwise be
+        # left in the box for nobody. Queued before member-end below, so the
+        # reader still takes them. drain() clears, so the success path (which
+        # already drained) yields nothing here.
+        for r in receipts.drain():
+            entry["receipts"] += r["kind"] == "queued"
+            out.put_nowait({"type": "receipt", **r})
         entry["ms"] = int((time.monotonic() - started) * 1000)
         if agent is not None:
             with contextlib.suppress(Exception):
@@ -401,11 +423,19 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                 # position, and feeding the merge its own masthead as content
                 # asks it to reconcile UI chrome
                 merged = "".join(_masthead(c) + "".join(sections[c["slug"]]) for c in answered)
-                async for event in synth.stream_async(f"Question: {message}\n{merged}"):
-                    if "data" in event:
-                        transcript.append(event["data"])
-                        model_parts.append(event["data"])
-                        yield _sse({"type": "text", "text": event["data"]})
+                # the same deadline a member gets, for the same reason: the
+                # merge is one more agent turn on a provider that can accept
+                # the connection and never answer. Unbounded, it holds the SSE
+                # stream open forever AFTER every member has already answered —
+                # the reader has nothing left to render and never finishes.
+                # TimeoutError is an Exception, so the handler below reports it
+                # as a failed merge with no extra branch.
+                async with asyncio.timeout(MEMBER_TIMEOUT_S):
+                    async for event in synth.stream_async(f"Question: {message}\n{merged}"):
+                        if "data" in event:
+                            transcript.append(event["data"])
+                            model_parts.append(event["data"])
+                            yield _sse({"type": "text", "text": event["data"]})
                 synth_entry["status"] = "ok"
             except Exception as exc:
                 synth_entry["status"] = "failed"
