@@ -603,6 +603,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "rename_user": ("renamed a teammate", "loud"),
     "set_user_active": ("changed whether a teammate is active", "loud"),
     "set_context_strategy": ("changed the long-chat strategy", "loud"),
+    # loud for the reason above it: a capacity limit moved for the whole team
+    "set_tuning": ("changed a deployment limit", "loud"),
     "set_team_theme": ("set the team default theme", "quiet"),
     "set_growth_interests": ("updated growth interests", "quiet"),
     "record_lesson": ("recorded a lesson", "normal"),
