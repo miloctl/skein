@@ -13,7 +13,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  unconditionally — a false reassurance about a safety control, in the
  *  configuration that is the default. */
 
-const gate: { on: boolean | "never"; granted: boolean } = { on: false, granted: true };
+const gate: { on: boolean | "never"; granted: boolean; entitiesFail: boolean } =
+  {
+    on: false,
+    granted: true,
+    entitiesFail: false,
+  };
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -35,9 +40,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
       }
       // Settings reads several endpoints and calls .trim()/.map() on their
       // fields — [] would crash the render before section 4 ever appears
-      if (path === "/api/users/growth-interests") return Promise.resolve({ interests: "" });
+      if (path === "/api/users/growth-interests")
+        return Promise.resolve({ interests: "" });
       if (path === "/api/whoami")
-        return Promise.resolve({ user: "tester", strong: false, mode: "trusted-header" });
+        return Promise.resolve({
+          user: "tester",
+          strong: false,
+          mode: "trusted-header",
+        });
       if (path === "/api/settings/context-strategy")
         return Promise.resolve({
           strategy: "sliding",
@@ -46,14 +56,22 @@ vi.mock("@/lib/api", async (importOriginal) => {
           choices: ["sliding", "summarize"],
           applies: true,
         });
-      if (path === "/api/agents/entities")
+      if (path === "/api/agents/entities") {
+        if (gate.entitiesFail)
+          return Promise.reject(new Error("backend is unreachable"));
         return Promise.resolve({
           entities: [
             { entity: "task", label: "tasks (add, change)" },
             { entity: "note_delete", label: "delete a note" },
           ],
-          always_review: ["absence", "event_cancel", "memory_forget", "note_delete"],
+          always_review: [
+            "absence",
+            "event_cancel",
+            "memory_forget",
+            "note_delete",
+          ],
         });
+      }
       if (path === "/api/agents")
         return Promise.resolve([
           {
@@ -64,7 +82,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
             authority: gate.granted
               ? [
                   { agent: "planner-agent", entity: "task", level: "review" },
-                  { agent: "planner-agent", entity: "note_delete", level: "autonomous" },
+                  {
+                    agent: "planner-agent",
+                    entity: "note_delete",
+                    level: "autonomous",
+                  },
                 ]
               : [],
           },
@@ -83,11 +105,13 @@ const GATE_ON_CLAIM = /By default every agent write/;
 const GATE_OFF_CLAIM = /The review gate is off/;
 // the grants empty state carries the same rule, and said "everything an
 // agent writes needs approval" directly under the corrected paragraph
-const EMPTY_STATE_CLAIM = /No rules yet — everything an agent writes needs approval/;
+const EMPTY_STATE_CLAIM =
+  /No rules yet — everything an agent writes needs approval/;
 
 beforeEach(() => {
   gate.on = false;
   gate.granted = true;
+  gate.entitiesFail = false;
 });
 
 describe("the Agents page and the review gate", () => {
@@ -98,7 +122,9 @@ describe("the Agents page and the review gate", () => {
     expect(screen.queryByText(GATE_ON_CLAIM)).toBeNull();
     // and the level label must not promise the checkpoint either — in BOTH
     // places it renders (the Mission control chip and the Authority grant)
-    expect((await screen.findAllByText(/needs approval \(gate off\)/)).length).toBe(2);
+    expect(
+      (await screen.findAllByText(/needs approval \(gate off\)/)).length,
+    ).toBe(2);
   });
 
   it("says writes need approval when the gate is on", async () => {
@@ -134,6 +160,47 @@ describe("the Agents page and the review gate", () => {
   });
 });
 
+/** identity.force_review (backend/app/agents/identity.py) outranks the matrix
+ *  AND SKEIN_AGENT_REVIEW for a flock member, so the levels this card renders
+ *  do not describe a flock turn. refuse_in_flock REFUSES the four write paths
+ *  that skip tools/_gate.py — those never reach the inbox, so a card promising
+ *  only a queue would be false in a new direction. Neither fact depends on the
+ *  gate, so the card states them in every configuration. */
+describe("the authority card and a flock member", () => {
+  // BOTH clauses, always. "every other level becomes a wait" is false on its
+  // own — forbidden still refuses (_gate.py checks it before force_review) —
+  // so the not-allowed carve-out is what makes the sentence true, and the
+  // refusal clause is what keeps it from promising an inbox entry that the
+  // four refuse_in_flock paths never produce.
+  const FLOCK_CARVE_OUT =
+    /only\s+not allowed\s+still applies from the levels\s+below/i;
+  const FLOCK_CLAIM = /every other level becomes a wait in Inbox → Approvals/i;
+  const FLOCK_REFUSAL = /work a delegated task or make\s+a handoff/i;
+
+  it.each([
+    ["off", false],
+    ["on", true],
+    ["unknown", "never"],
+  ])("states the flock rule while the gate is %s", async (_label, on) => {
+    gate.on = on as boolean | "never";
+    const { container } = render(<AgentsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(FLOCK_CLAIM));
+    // the wait claim never ships without EITHER clause that makes it true
+    expect(container.textContent).toMatch(FLOCK_CARVE_OUT);
+    expect(container.textContent).toMatch(FLOCK_REFUSAL);
+  });
+
+  it("keeps the flock rule when the record-type fetch fails", async () => {
+    gate.entitiesFail = true;
+    const { container } = render(<AgentsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(GATE_OFF_CLAIM));
+    // ALWAYS_REVIEW comes from /api/agents/entities; the flock rule does not,
+    // and a flock clause folded into that sentence would vanish with it
+    expect(container.textContent).not.toMatch(/These still wait for a human/);
+    expect(container.textContent).toMatch(FLOCK_CLAIM);
+  });
+});
+
 /** Settings section 4 is where someone hands an external MCP agent their
  *  workspace. It repeated the gate-on rule unconditionally. A source scan
  *  cannot pin this — it passes even when the condition is inverted — so the
@@ -143,7 +210,9 @@ describe("Settings when it explains what a connected agent can do", () => {
     gate.on = false;
     const { container } = render(<SettingsPage />);
     await waitFor(() =>
-      expect(container.textContent).toMatch(/The review gate is off in this deployment/),
+      expect(container.textContent).toMatch(
+        /The review gate is off in this deployment/,
+      ),
     );
     expect(container.textContent).not.toMatch(/becomes a proposal/i);
   });
@@ -151,7 +220,9 @@ describe("Settings when it explains what a connected agent can do", () => {
   it("promises the proposal queue when the gate is on", async () => {
     gate.on = true;
     const { container } = render(<SettingsPage />);
-    await waitFor(() => expect(container.textContent).toMatch(/becomes a proposal/i));
+    await waitFor(() =>
+      expect(container.textContent).toMatch(/becomes a proposal/i),
+    );
   });
 });
 

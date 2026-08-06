@@ -81,7 +81,9 @@ npm run build   # verify compile (run before committing frontend changes)
 # app lifecycle (repo root)
 ./scripts/skein.sh start|stop|restart|status|logs   # detached; survives the terminal
 ./scripts/skein.sh dev                              # both in the foreground, Ctrl-C stops
-./scripts/lint.sh   # all lint gates CI runs: ruff + mypy + vulture + eslint + knip
+./scripts/lint.sh   # all lint gates CI runs: ruff (check + format) + mypy +
+                    # vulture + persona and flock validators + theme contrast
+                    # + tsc + eslint + knip
 ```
 
 Run `./scripts/lint.sh` before every commit — it is the exact gate CI runs; a commit
@@ -95,6 +97,8 @@ that hasn't passed it will fail on push-to-main.
 - `backend/app/agents/` — Chief-of-Staff orchestrator, planner sub-agent, mock provider
 - `backend/migrations/` — numbered SQL, applied at startup, tracked in `schema_version`
 - `backend/playbooks/*.yaml` — project-class templates (edited like code)
+- `backend/personas/*.md`, `backend/flocks/*.yaml` — the bench, and the groups
+  of it that answer one message together (both edited like code)
 - `backend/data/` — gitignored: platform.db, artifacts/, backups/, exports/, and
   sessions/ (pre-045 files, kept only until a cleanup release — live sessions
   are database rows via `agents/session_store.py`)

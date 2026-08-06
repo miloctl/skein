@@ -28,7 +28,12 @@ export type FlockTrace = {
   user: string;
   flock: string;
   members: FlockMember[];
-  synthesis: { status: string; ms: number; tokens_in: number; tokens_out: number } | null;
+  synthesis: {
+    status: string;
+    ms: number;
+    tokens_in: number;
+    tokens_out: number;
+  } | null;
   created_at: string;
 };
 
@@ -50,7 +55,13 @@ const width = (members: number) => Math.max(560, (members + 1) * (NODE_W + 12));
  *  gate (scripts/check_theme_contrast.py) proves `--thread-solid` only as a
  *  solid fill under white text, never as a stroke on a raised surface. */
 const statusWord = (s: string) =>
-  s === "ok" ? "answered" : s === "failed" ? "did not answer" : s === "cancelled" ? "stopped" : s;
+  s === "ok"
+    ? "answered"
+    : s === "failed"
+      ? "did not answer"
+      : s === "cancelled"
+        ? "stopped"
+        : s;
 
 /** var() names, NOT Tailwind utility names. `--line-strong` and `--ink-3` are
  *  the utility spellings (`border-line-strong`, `text-ink-3`); the custom
@@ -93,7 +104,12 @@ function Node({
         stroke={stroke}
         strokeWidth="1.5"
       />
-      <text x={x} y={y - 10} textAnchor="middle" className="fill-ink text-[11px] font-medium">
+      <text
+        x={x}
+        y={y - 10}
+        textAnchor="middle"
+        className="fill-ink text-[11px] font-medium"
+      >
         {label}
       </text>
       {sub.map((line, i) => (
@@ -154,9 +170,14 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
     <figure className="m-0">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        // min-w: without a floor the SVG shrinks to its container instead of
-        // scrolling, and on a 360px phone the 11px labels render at under 6px
-        className="h-auto w-full min-w-[420px]"
+        // EXACTLY its own width, never `w-full`. A viewBox keeps its aspect
+        // ratio, so a stretched diagram grows taller too: at 1070px of card
+        // this 656x240 drawing rendered 1070x391, and three of them made a
+        // card taller than the viewport. Fixed at W it also never scales its
+        // 11px labels down (a 4-member diagram hit 5.6px on a phone once), and
+        // the overflow-x-auto wrapper on /agents does the scrolling instead.
+        style={{ width: W }}
+        className="h-auto"
         role="img"
         aria-label={label}
       >
@@ -167,8 +188,20 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
         <g aria-hidden="true">
           {xs.map((x, i) => (
             <g key={`edge-${members[i].slug}`}>
-              <line x1={W / 2} y1={topY + NODE_H / 2} x2={x} y2={midY - NODE_H / 2} stroke={STROKE_EDGE} />
-              <line x1={x} y1={midY + NODE_H / 2} x2={W / 2} y2={botY - NODE_H / 2} stroke={STROKE_EDGE} />
+              <line
+                x1={W / 2}
+                y1={topY + NODE_H / 2}
+                x2={x}
+                y2={midY - NODE_H / 2}
+                stroke={STROKE_EDGE}
+              />
+              <line
+                x1={x}
+                y1={midY + NODE_H / 2}
+                x2={W / 2}
+                y2={botY - NODE_H / 2}
+                stroke={STROKE_EDGE}
+              />
             </g>
           ))}
           <Node
@@ -186,7 +219,10 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
               y={midY}
               w={NODE_W}
               label={`${m.emoji} ${m.name}`}
-              sub={[statusWord(m.status), `${m.ms} ms · ${m.receipts} proposal(s)`]}
+              sub={[
+                statusWord(m.status),
+                `${m.ms} ms · ${m.receipts} proposal(s)`,
+              ]}
               stroke={STATUS_STROKE[m.status] ?? "var(--text-3)"}
             />
           ))}
@@ -195,14 +231,21 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
             y={botY}
             w={NODE_W}
             label={mergeLabel}
-            sub={synth ? [`${synth.ms} ms`] : [`${answered} of ${members.length} answered`]}
-            stroke={synth && synth.status !== "ok" ? "var(--danger)" : STROKE_EDGE}
+            sub={
+              synth
+                ? [`${synth.ms} ms`]
+                : [`${answered} of ${members.length} answered`]
+            }
+            stroke={
+              synth && synth.status !== "ok" ? "var(--danger)" : STROKE_EDGE
+            }
           />
         </g>
       </svg>
       <figcaption className="mt-1 text-xs text-ink-3">
-        The slowest member took {slowest} ms. The members ran at the same time. The turn took
-        approximately {slowest} ms, not the total of all the members.
+        The slowest member took {slowest} ms. The members ran at the same time.
+        The turn took approximately {slowest} ms, not the total of all the
+        members.
       </figcaption>
     </figure>
   );

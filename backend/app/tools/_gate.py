@@ -4,7 +4,13 @@ Per (agent, entity) the authority matrix grants: autonomous (direct write),
 notify (direct write + team notification), review (proposal when
 SKEIN_AGENT_REVIEW=1, direct otherwise — the pre-matrix behavior), or
 forbidden (always refused). Default is review — agents earn autonomy through
-approved proposals, they don't start with it."""
+approved proposals, they don't start with it.
+
+One thing outranks the matrix: agents/identity.py::force_review, set for the
+duration of a flock member's turn. It forces the proposal path whatever the
+level says and whatever SKEIN_AGENT_REVIEW is, and forbidden still outranks
+IT. Write paths that skip this gate by design carry their own guard
+(refuse_in_flock); tests/test_gate_coverage.py::UNGATED_WRITERS is the list."""
 
 import json
 

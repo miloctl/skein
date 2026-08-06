@@ -68,6 +68,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # a chat_threads row means a message or slash command actually landed —
     # tool_usage's 'chat' surface would tie on merely opening the page
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
+    # one row per flock turn, written when the turn closes — a cancelled turn
+    # ties it too, which is right: the person called a flock and it flew
+    "flocks": lambda u: _has("SELECT 1 FROM flock_traces WHERE user = ?", (u,)),
     # tied by the chat route when a capture-prefixed turn actually writes —
     # the write lands under the AGENT's name, so no actor predicate can find it
     "chat_capture": None,

@@ -12,6 +12,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 
 from .. import config
+from ..agents import commands
 from ..agents.mock_agent import MockAgent
 
 router = APIRouter()
@@ -73,10 +74,21 @@ async def slack_command(request: Request):
                 " tool surface, not Slack. Ask whoever runs the server for a different name."
             ),
         }
-    if text.lower().split(maxsplit=1)[:1] == ["/as"]:
+    # EVERY route-level command, not a hardcoded list: a handler-None entry is
+    # resolved by routes/chat.py, so commands.dispatch returns None for it and
+    # the MockAgent below would smart-capture the raw slash command as a note
+    # attributed to this person. That is what `/flock ...` did in Slack until
+    # this loop replaced a literal `/as` check.
+    # the token exactly as typed, slash included. lstrip("/") here matched a
+    # plain note that merely STARTS with a command word — "as discussed, the
+    # vendor slipped" came back refused and was never captured — and matched
+    # "//flock" too.
+    first = text.split(maxsplit=1)[:1]
+    route_level = {"/" + c["name"] for c in commands.COMMANDS if c["handler"] is None}
+    if first and first[0].lower() in route_level:
         return {
             "response_type": "ephemeral",
-            "text": "Bench personas live in the web chat — open /chat and use /as there.",
+            "text": f"{first[0].lower()} runs in the web chat only — open /chat and use it there.",
         }
     agent = MockAgent(thread_id="slack", user=user)
     chunks = []

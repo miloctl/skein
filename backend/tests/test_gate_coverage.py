@@ -180,6 +180,32 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     monkeypatch.setattr(db, "execute", spy_execute)
     monkeypatch.setattr(db, "execute_rowcount", spy_rowcount)
 
+    # which tools reached the gate at all. UNGATED_WRITERS is asserted against
+    # this below, so the list stops being a claim someone has to remember to
+    # update: a new writer that skips gated_write needs a flock guard too
+    # (identity.refuse_in_flock), and tests/test_flock_turns.py derives its
+    # cases from the same map.
+    # patched per importing module, not on _gate: each tool module does
+    # `from ._gate import gated_write`, so it holds its own reference and a
+    # patch on the source module would never be seen
+    import importlib
+
+    from app.tools import _gate
+
+    gated: set[str] = set()
+    real_gated_write = _gate.gated_write
+    current: list[str] = []
+
+    def spy_gate(*a, **kw):
+        if current:
+            gated.add(current[0])
+        return real_gated_write(*a, **kw)
+
+    for name in ("collab", "memory", "platform", "portfolio", "schedule", "work"):
+        mod = importlib.import_module(f"app.tools.{name}")
+        assert hasattr(mod, "gated_write"), f"app.tools.{name} no longer imports gated_write"
+        monkeypatch.setattr(mod, "gated_write", spy_gate)
+
     silent_writers = []
     uncallable = []
     covered = set()
@@ -193,6 +219,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         ratelimit.reset()
         receipts.start()
         writes.clear()
+        current[:] = [fn.__name__]
         try:
             out = fn(**kwargs)
         except Exception as exc:  # a tool must never raise into the agent loop
@@ -259,6 +286,15 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         f"degraded to error paths: {sorted(expected_writers - covered)};"
         f" new unlisted writers: {sorted(covered - expected_writers)}"
     )
+    # DERIVED, not declared: every writer that never reached gated_write also
+    # never sees identity.force_review, so it owes its own refuse_in_flock
+    # guard. Adding one here without that guard is how a flock member gets an
+    # ungoverned write path back.
+    assert covered - gated == set(UNGATED_WRITERS), (
+        "the set of writers that bypass the gate changed —"
+        f" derived {sorted(covered - gated)}, declared {sorted(UNGATED_WRITERS)}."
+        " Give the new one a refuse_in_flock guard, then list it."
+    )
 
 
 def test_the_registry_is_the_only_inclusion_source():
@@ -269,15 +305,18 @@ def test_the_registry_is_the_only_inclusion_source():
     assert not stale, f"ARGS names tools that are not in the registry: {sorted(stale)}"
 
 
-@pytest.mark.parametrize(
-    ("tool_name", "expected_kind"),
-    [
-        ("claim_delegated_task", "wrote"),
-        ("report_progress", "wrote"),
-        ("submit_for_acceptance", "queued"),
-        ("generate_handoff", "wrote"),
-    ],
-)
+# The writers that bypass gated_write on purpose. Shared, not repeated: every
+# one of them also needs a refuse_in_flock guard (tests/test_flock_turns.py
+# derives its cases from this map), because force_review only reaches the gate.
+UNGATED_WRITERS = {
+    "claim_delegated_task": "wrote",
+    "report_progress": "wrote",
+    "submit_for_acceptance": "queued",
+    "generate_handoff": "wrote",
+}
+
+
+@pytest.mark.parametrize(("tool_name", "expected_kind"), sorted(UNGATED_WRITERS.items()))
 def test_the_ungated_writers_report_themselves(fresh_db, monkeypatch, tool_name, expected_kind):
     """The delegation loop and the handoff generator bypass the generic gate
     on purpose — sponsor-bound verdicts and artifact projection have their own

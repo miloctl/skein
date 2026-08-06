@@ -130,8 +130,11 @@ Everything above works with `SKEIN_MODEL_PROVIDER=mock` and no keys.
   `commands.COMMANDS` with `handler: None`: `dispatch` answers any
   unregistered `/word` with a did-you-mean generator before the route sees
   it, so an unregistered `/flock` would be intercepted (and offered
-  `/flocks`). Like `/as`, the command is unreachable from Slack and the
-  CLI, where handler-None commands do not run.
+  `/flocks`). It does not run in Slack or the CLI. Slack refuses it by
+  name: `routes/slack.py` matches EVERY handler-None command, because
+  `dispatch` returns None for one and Slack's MockAgent would then
+  smart-capture the raw slash command as a note against the person who
+  typed it. The CLI has no chat command at all.
 - Unknown slug streams an SSE error. When the argument matches the slug
   charset: `Flock '<slug>' is not defined. Run /flocks to list them.`
   When it does not, the rejected value is never echoed: `That is not a
@@ -146,7 +149,10 @@ Execution of a flock turn:
    the session manager and conversation-manager state (today it always
    attaches one for real providers, `team_agent.py:460`). No `--<slug>`
    thread suffix, prompt is the user's message only. The persona's own
-   `tools` allowlist applies as usual.
+   `tools` allowlist applies as usual, and a member gets NO MCP tools: a
+   remote call reaches neither the gate nor the receipt box, so a member
+   holding one would write to a third party while its trace row reported it
+   proposed nothing.
 2. Run members concurrently (asyncio tasks). Identity is set per task with
    `set_agent_identity(member)` inside each task — contextvars are
    task-local, so member identities cannot bleed into each other's writes.
@@ -172,6 +178,13 @@ Execution of a flock turn:
    member construction passes a flag so the persona system prompt states
    review is ON — the stock prompt would otherwise claim writes apply
    directly, and the model would misreport its own writes.
+   Four writers skip `tools/_gate.py` BY DESIGN (the delegation trio and the
+   handoff generator — `tests/test_gate_coverage.py::UNGATED_WRITERS` holds
+   the list, derived from a gate spy rather than declared). force_review
+   cannot reach them, so each carries `identity.refuse_in_flock` and REFUSES
+   in a flock rather than queuing: status motion and a projected artifact
+   have no proposal shape, and the member was asked for an opinion, not for
+   work. A new ungated writer fails that test until it decides.
 5. Receipts: each member task calls `receipts.start()` and drains INSIDE
    the task, forwarding drained receipts through its own event queue
    tagged with the member slug. The receipt box is a plain list in the
@@ -206,10 +219,24 @@ Execution of a flock turn:
 11. Trace: one `flock_traces` row written when the turn closes, in the
     same close path that logs usage.
 
-Rate limiting: the chat bucket is checked once per turn; the write bucket
-is per-actor, so a 4-member flock carries 4x the per-turn write budget of
-a single persona. Accepted — every write is review-gated (step 4), so the
-amplification fills an inbox, not the database.
+Rate limiting: a flock turn charges the `chat` bucket ONE SLOT PER MEMBER,
+plus one more when the flock synthesizes (`ratelimit.check(..., cost=...)`),
+not the single
+slot a turn used to cost. A member is an agent loop, not one call — a
+measured 3-member turn ran 9 model calls — so a per-turn charge let one
+message buy several turns of model spend. The charge is all-or-nothing and
+happens after the flock resolves and before the stream opens, so no model
+runs. THAT CALL spends nothing when it refuses — the turn's own top-of-route
+chat slot is already spent by then and stays spent. It is deliberately the chat bucket and not a bucket of
+its own: two buckets would let a refused flock silently consume chat slots,
+and the operator would have no single number for a person's model budget.
+
+The per-actor buckets are NOT covered by that and stay accepted: the `write`
+bucket (`tools/_gate.py`) and the `memory` bucket (`services/memory.py`) key
+on the member slug, so a 4-member flock carries 4x either budget, and two
+people flocking the same persona share it. Every member write is
+review-gated (step 4), so the amplification fills an inbox, not the database.
+`SKEIN_MONTHLY_BUDGET_USD` reports overspend and never refuses.
 
 Mock mode: each member yields a deterministic reply from a flock-specific
 pool — NOT the MockAgent freeform path, whose smart-capture writes to the

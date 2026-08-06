@@ -29,6 +29,7 @@ const CLAIMS = [
   /Nothing remembered yet/,
   /No rules yet/,
   /No agent identities yet/,
+  /No flock has flown yet/,
 ];
 
 describe("the Agents page when every fetch fails", () => {
@@ -42,6 +43,7 @@ describe("the Agents page when every fetch fails", () => {
       /Cannot load the bench/,
       /Cannot load the model and review-gate status/,
       /Cannot load team memory/,
+      /Cannot load flock traces/,
     ]) {
       expect(screen.getByText(what)).toBeTruthy();
     }

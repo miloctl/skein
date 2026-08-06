@@ -60,9 +60,11 @@ validator covers overlay files and labels them `(overlay)`.
 - **Invocation** — `/as <persona> <message>` in chat (autocompletes like
   every command; `/personas` lists the bench). The route resolves the
   persona BEFORE the model: unknown slug is a deterministic error listing
-  the bench. Each persona gets its own session thread
-  (`{thread}--{slug}`), so switching personas doesn't cross-contaminate
-  conversation memory. Invocation registers the persona (idempotently) as a
+  the bench. `/flock` resolves a whole group the same way. Under `/as` each
+  persona gets its own session thread (`{thread}--{slug}`), so switching
+  personas doesn't cross-contaminate conversation memory. A flock member
+  keeps no session at all — a flock turn is a one-shot consultation, not a
+  conversation. Invocation registers the persona (idempotently) as a
   `kind=agent` user (deliberate, from the curated registry — not the
   typo-minting path that was removed).
 - **Mock provider** — `/as` works keyless: the route emits the persona's
@@ -76,6 +78,9 @@ validator covers overlay files and labels them `(overlay)`.
   authority like any agent; their writes become proposals; `forbidden`
   works per persona per entity. A persona can't do anything the Chief of
   Staff couldn't — it just thinks differently and signs its own name.
+  IN A FLOCK the same persona is strictly more constrained: every write
+  becomes a proposal whatever its level says, it holds no MCP tools, and the
+  four writers that skip the gate refuse outright (docs/FLOCKS.md).
 
 ## UI
 

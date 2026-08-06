@@ -200,25 +200,37 @@ def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, mon
     assert by_slug["backend-architect"] == "ok" and by_slug["minimal-change-engineer"] == "ok"
 
 
-def test_a_flock_member_cannot_work_a_delegation(client, fresh_db):
-    """The delegation trio and the handoff generator skip tools/_gate.py by
-    design, so force_review never reaches them. Without their own guard, a
-    member claims tasks and writes the worklog its sponsor judges on — during
-    a turn that promises every member write is reviewed."""
+def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
+    """Derived from test_gate_coverage.py's list, NOT hand-written: those four
+    tools skip tools/_gate.py by design, so force_review never reaches them and
+    each needs its own guard. A hand-written list here passed while
+    submit_for_acceptance was missing one, which is the drift the shared list
+    exists to catch. A fifth ungated writer fails this test until it decides."""
+    from test_gate_coverage import UNGATED_WRITERS
+
     from app.services import delegation, handoff
 
     task = client.post("/api/tasks", json={"title": "delegated work"}).json()
     delegation.delegate_task(task["id"], "code-reviewer", "tester", actor="tester")
+    calls = {
+        "claim_delegated_task": lambda: delegation.claim_task(task["id"], actor="code-reviewer"),
+        "report_progress": lambda: delegation.report_progress(
+            task["id"], "note", actor="code-reviewer"
+        ),
+        "submit_for_acceptance": lambda: delegation.submit_completion(
+            task["id"], "done", actor="code-reviewer"
+        ),
+        "generate_handoff": lambda: handoff.generate_handoff(1, actor="code-reviewer"),
+    }
+    assert set(calls) == set(UNGATED_WRITERS), "an ungated writer has no flock case here"
 
     set_force_review(True)
     try:
-        for call in (
-            lambda: delegation.claim_task(task["id"], actor="code-reviewer"),
-            lambda: delegation.report_progress(task["id"], "note", actor="code-reviewer"),
-            lambda: handoff.generate_handoff(1, actor="code-reviewer"),
-        ):
-            with pytest.raises(ValueError, match="flock member"):
+        for name, call in calls.items():
+            with pytest.raises(ValueError, match="flock member") as exc:
                 call()
+            assert name  # the failing case is identifiable in the report
+            assert "ask this agent directly" in str(exc.value)
     finally:
         set_force_review(False)
     assert (
@@ -226,6 +238,28 @@ def test_a_flock_member_cannot_work_a_delegation(client, fresh_db):
         == "todo"
     )
     assert fresh_db.query_row("SELECT COUNT(*) AS n FROM task_worklog")["n"] == 0
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM pending_changes")["n"] == 0
+
+
+def test_a_flock_turn_costs_one_chat_slot_per_member(client, monkeypatch):
+    """One turn is an agent loop per member plus the merge. Charged as a single
+    chat turn, one message bought several turns of model spend."""
+    from app import ratelimit
+
+    ratelimit.reset()
+    monkeypatch.setitem(ratelimit.LIMITS, "chat", 6)
+    # engineering: 3 members, no synthesis -> 3 slots
+    assert "Backend Architect" in _read_chat(client, "/flock engineering one", thread="c1")
+    # delivery: 3 members + synthesis -> 4 slots, over the remaining 3
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "c2", "message": "/flock delivery two"}
+    ) as resp:
+        assert resp.status_code == 400
+        assert "chat is capped" in resp.read().decode()
+    # the refused CALL took no slots, but the turn's top-of-route charge
+    # already landed, so 2 remain — enough for a plain turn
+    assert _read_chat(client, "hello", thread="c3")
+    ratelimit.reset()
 
 
 def test_a_member_keeps_the_delegation_tools_outside_a_flock(client, fresh_db):

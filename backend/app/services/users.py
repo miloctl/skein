@@ -287,6 +287,10 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "chat_folders": ("owner",),
     "absences": ("created_by", "person"),
     "task_worklog": ("author",),
+    # the member slugs inside members-JSON are agent identities, not roster
+    # names, and rename_user moves an agent row too — but a slug rename would
+    # need a JSON rewrite, so only the asking human moves here
+    "flock_traces": ("user",),
 }
 
 

@@ -155,7 +155,7 @@ Loops · Hitches · Bends · Stoppers, then labels cards in the **Loops** set
 with `Clove Hitch`, `Cow Hitch`, `Lark's Head`, `Cleat Hitch`, `Buntline`,
 `Cat's Paw`, `Highwayman's Hitch`, `Marlinspike`, `Anchor Bend`,
 `Monkey's Fist`, `Thief Knot`, `Figure Eight` — and one Bend set card with
-`Timber Hitch`. **13 of 31 cards carry a knot from the wrong class**
+`Timber Hitch`. **13 of 32 cards carry a knot from the wrong class**
 (measured). The reader best equipped to enjoy the metaphor is the one
 guaranteed to see it break.
 
@@ -178,6 +178,28 @@ throughout; "person"/"user" appear only where they name a field
 ("person is not an active teammate"), which the lowercase-fragment
 convention requires; "human" is a genuinely different concept (human vs
 agent). Listed to close it.
+
+---
+
+### 8. Flock
+
+| | |
+|---|---|
+| Words in use | **flock** (the product noun: a named group of bench personas, `/flock`, `backend/flocks/*.yaml`) · **flock** (the brand metaphor: a flock of geese in flight is a skein) |
+| Recommendation | no change — the collision is the point |
+
+Why: the metaphor is where the feature name came from, and both readings
+land on the same idea (several strands called into one formation). Nothing
+is ambiguous in use: the brand sense appears in `docs/brand/`, in
+`docs/ROADMAP.md` prose, and in the /agents flock empty state ("No flock
+has flown yet", "who is on the wing") — never inside a functional string,
+which is exactly the warmth carve-out CLAUDE.md draws. The product sense is
+always adjacent to a slug or a command. Listed to close it, so the next
+wording pass does not file it as drift.
+
+The member word is **member**, not "persona", inside flock copy — a persona
+is what the thing IS on the bench, a member is the role it plays in a
+flock. `docs/FLOCKS.md` and `services/flocks.py` hold that line.
 
 ---
 

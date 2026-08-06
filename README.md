@@ -32,7 +32,7 @@ URL is directly linkable.
 | Nav | Routes | What it is |
 |---|---|---|
 | **My Day** | `/` | What changed and what needs *you*, in under 30 seconds |
-| **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) |
+| **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) — or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
 | **Work** | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
@@ -57,6 +57,8 @@ backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
+  ├─ personas/       the bench: one markdown file per specialist persona
+  ├─ flocks/         YAML groups of personas, called with one message
   └─ data/           gitignored: platform.db, sessions/, artifacts/, backups/, exports/
 
 frontend/  Next.js 16 + @assistant-ui/react + Tailwind
@@ -334,6 +336,7 @@ feed, turn guard, persona bench, per-turn cost and a budget rule).
 | [docs/INSIGHTS.md](docs/INSIGHTS.md) | The findings rules and the small-n discipline behind them |
 | [docs/FIELD-GUIDE.md](docs/FIELD-GUIDE.md) | The field guide ("knots") and its design constraints |
 | [docs/PERSONAS.md](docs/PERSONAS.md) | The Bench — the persona spec |
+| [docs/FLOCKS.md](docs/FLOCKS.md) | Flocks — calling several personas with one message |
 | [docs/SPEC.md](docs/SPEC.md) | The original phase plan. Superseded, kept for the data model |
 | [docs/PLAN.md](docs/PLAN.md) | The 2026-07-24 wave plan, executed. Kept for the recorded deviations |
 | [docs/reviews/](docs/reviews/) | Design rationale — the alternatives that lost, and why |

@@ -140,6 +140,18 @@ knots:
     link: /chat
     since: 2026-07-31
 
+  - id: flocks
+    feature: Flocks
+    # a LOOP knot, matching the loops set — docs/LEXICON.md #6 counts the
+    # cards carrying a name from the wrong class, and this must not join them.
+    # Bowline on a Bight also earns it: one rope, two loops at one time.
+    knot: Bowline on a Bight
+    set: loops
+    pitch: One question, several specialists, one turn — the disagreement is the point.
+    how: "Open Chat. Run `/flocks` to see the groups, then `/flock engineering …`."
+    link: /chat
+    since: 2026-08-05
+
   - id: chat_capture
     feature: File it from chat
     knot: Highwayman's Hitch
