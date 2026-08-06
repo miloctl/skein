@@ -140,8 +140,15 @@ def _receipt_line(r: dict) -> str:
     return f"\n\n> **{label}** — {r['detail']}\n\n"
 
 
-def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
-    """Best-effort token accounting from strands event-loop metrics."""
+def _usage_row(agent, thread_id: str, agent_name: str = "chief-of-staff") -> dict | None:
+    """Token accounting from strands event-loop metrics, EXTRACTED only — all
+    in-memory reads, no DB. The INSERT is the caller's problem, and where the
+    caller runs matters: the flock path extracts on the event loop in a
+    cancelled-safe finally, then hands the row to _close_turn's threadpool.
+    Written inline where it was extracted, one INSERT per member ran on the
+    loop that carries every open SSE stream, against SQLite's single write
+    lock — one lost lock race froze every chat in the process for up to
+    busy_timeout."""
     try:
         metrics = agent.event_loop_metrics
         usage = dict(getattr(metrics, "accumulated_usage", {}) or {})
@@ -149,24 +156,32 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
         input_t = int(usage.get("inputTokens", 0))
         output_t = int(usage.get("outputTokens", 0))
         if not (input_t or output_t):
-            return
+            return None
         # the AGENT's model, not the deployment default: a persona override
         # runs a different model, and pricing its turns at the deployment
         # model's rate misattributes and miscosts every overridden turn
         model_id = config.MODEL_ID
         with contextlib.suppress(Exception):
             model_id = agent.model.get_config().get("model_id") or model_id
-        record_chat_usage(
-            thread_id=thread_id,
-            agent_name=agent_name,
-            model_id=model_id,
-            input_tokens=input_t,
-            output_tokens=output_t,
-            cycles=int(getattr(metrics, "cycle_count", 0)),
-            latency_ms=int(latency.get("latencyMs", 0)),
-        )
+        return {
+            "thread_id": thread_id,
+            "agent_name": agent_name,
+            "model_id": model_id,
+            "input_tokens": input_t,
+            "output_tokens": output_t,
+            "cycles": int(getattr(metrics, "cycle_count", 0)),
+            "latency_ms": int(latency.get("latencyMs", 0)),
+        }
     except Exception:
-        pass
+        return None
+
+
+def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
+    """Best-effort token accounting from strands event-loop metrics."""
+    row = _usage_row(agent, thread_id, agent_name)
+    if row:
+        with contextlib.suppress(Exception):
+            record_chat_usage(**row)
 
 
 def _masthead(card: dict) -> str:
@@ -275,9 +290,12 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
                 usage = dict(getattr(agent.event_loop_metrics, "accumulated_usage", {}) or {})
                 entry["tokens_in"] = int(usage.get("inputTokens", 0))
                 entry["tokens_out"] = int(usage.get("outputTokens", 0))
-            # sync, not threadpooled: this runs in the cancelled path too, and
-            # _log_usage already swallows its own errors
-            _log_usage(agent, thread_id, agent_name=slug)
+            # extraction only, cancelled-safe (no await, no DB): the INSERT
+            # runs in _close_turn's threadpool. Queued BEFORE member-end, or
+            # the reader stops reading this queue without it.
+            row = _usage_row(agent, thread_id, agent_name=slug)
+            if row:
+                out.put_nowait({"type": "usage", "row": row})
         out.put_nowait({"type": "member-end", "entry": entry})
 
 
@@ -305,6 +323,9 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
     # section, so a `cards` list built anywhere but get_flock re-opens that
     queues: dict[str, asyncio.Queue] = {c["slug"]: asyncio.Queue() for c in cards}
     tasks: list[asyncio.Task] = []
+    # usage rows extracted by members and the merge, written by _close_turn —
+    # never inline where they were extracted (see _usage_row)
+    usage_rows: list[dict] = []
     # started next to task creation, not at the top: the transcript write above
     # runs in a threadpool, and counting it would over-report every cancelled
     # member by however long that write took
@@ -342,6 +363,12 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
             for c in cards
         ]
         _log_turn(ui_thread, user, "assistant", "".join(transcript))
+        # the members' spend rows, deferred here from their finallys: on the
+        # success path this whole function runs in a threadpool, and on the
+        # cancelled path it is the one sync call the route already accepts
+        for row in usage_rows:
+            with contextlib.suppress(Exception):
+                record_chat_usage(**row)
         with contextlib.suppress(Exception):
             flocks.record_trace(ui_thread, user, fdef["slug"], entries, synth_entry)
         # a follow-up ("what did the reviewer say?") goes to the Chief of
@@ -382,7 +409,12 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                 if event["type"] == "member-end":
                     done[slug] = event["entry"]
                     break
-                if event["type"] == "text":
+                if event["type"] == "usage":
+                    # bookkeeping, not a frame — held for _close_turn, and
+                    # never yielded: the else branch below renders anything
+                    # unrecognized as a receipt line
+                    usage_rows.append(event["row"])
+                elif event["type"] == "text":
                     transcript.append(event["text"])
                     model_parts.append(event["text"])
                     sections[slug].append(event["text"])
@@ -455,8 +487,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                         synth_entry["tokens_out"] = int(usage.get("outputTokens", 0))
                     # OUTSIDE the suppress: a failed metrics read must not also
                     # drop the spend row, and a partial merge is still spend.
-                    # _log_usage swallows its own errors.
-                    _log_usage(synth, ui_thread, agent_name=fdef["slug"])
+                    # Extraction only — _close_turn's threadpool writes it.
+                    row = _usage_row(synth, ui_thread, agent_name=fdef["slug"])
+                    if row:
+                        usage_rows.append(row)
         await run_in_threadpool(_close_turn)
     finally:
         # an unfinished member keeps running — and keeps filing proposals —
@@ -475,6 +509,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                 event = q.get_nowait()
                 if event["type"] == "member-end":
                     done[card["slug"]] = event["entry"]
+                elif event["type"] == "usage":
+                    # a finished member's spend row is sitting unread with its
+                    # entry — dropping it here loses the turn's accounting
+                    usage_rows.append(event["row"])
         # close BEFORE the reset, and never let the reset speak: an abandoned
         # stream is finalized in a foreign context, where reset raises
         # ValueError — raised first, it took the whole turn record with it

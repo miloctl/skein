@@ -61,6 +61,9 @@ ignore_names = [
     # read only by test_admin_export.py's completeness sweep, which vulture
     # does not scan
     "EXCLUDED",
+    # the strands SDK calls register_hooks on every session manager it is
+    # handed (Agent.__init__); the kwargs are its signature, not ours
+    "register_hooks",
 ]
 min_confidence = 60
 sort_by_size = true

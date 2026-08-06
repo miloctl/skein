@@ -3,6 +3,7 @@ import json
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from .. import config, ratelimit
 from ..services import ci, forge
@@ -80,7 +81,11 @@ async def forge_webhook(
             body = await _read_bounded(request)
     except TimeoutError as exc:
         raise HTTPException(400, "the webhook payload did not arrive in time") from exc
-    verify_forge_signature(body, x_gitea_signature or x_hub_signature_256)
+    # threadpooled: an HMAC over a body up to MAX_FORGE_BODY is real CPU, this
+    # route sits outside the perimeter middleware, and the forge_addr cap
+    # admits 600 of these a minute — inline, a busy monorepo's push traffic
+    # ran on the loop that carries every open chat stream
+    await run_in_threadpool(verify_forge_signature, body, x_gitea_signature or x_hub_signature_256)
     # RecursionError, not just ValueError: deeply nested JSON raises it, and
     # this route hand-rolls the parse instead of taking a pydantic model, so
     # main.py's RequestValidationError handler never sees the payload
@@ -101,4 +106,6 @@ async def forge_webhook(
     # keyed to the integration: keying on the pusher's name would let a
     # signed caller drain a named teammate's REST write budget.
     ratelimit.check("forge", "forge")
-    return forge.forge_event(**mapped)
+    # threadpooled for the reason the HMAC above is: this is the full service
+    # write chain — task moves, activity, notifications, the search index
+    return await run_in_threadpool(forge.forge_event, **mapped)

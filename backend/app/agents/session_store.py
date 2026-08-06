@@ -17,6 +17,9 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from starlette.concurrency import run_in_threadpool
+from strands.hooks import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
+from strands.hooks.registry import HookRegistry
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.session.session_repository import SessionRepository
 from strands.types.exceptions import SessionException
@@ -32,11 +35,46 @@ log = logging.getLogger("skein.chat")
 IMPORTED_FLAG = "sessions_imported_to_db"
 
 
+class OffLoopSessionManager(RepositorySessionManager):
+    """RepositorySessionManager whose per-message writes run in a worker
+    thread.
+
+    The base register_hooks registers PLAIN lambdas, and the SDK invokes a
+    non-coroutine callback inline (strands/hooks/registry.py) — inside
+    stream_async, on the event loop. Every session INSERT (one message plus a
+    sync per message, so 2 + 2 per tool cycle each turn) then contended for
+    SQLite's single write lock on the loop that carries every open SSE
+    stream: one lost lock race froze every chat in the process for up to
+    busy_timeout (db.py). invoke_callbacks_async AWAITS a coroutine callback,
+    and the message events are dispatched through it and nowhere else, so an
+    async wrapper moves the writes off the loop without changing their order
+    — callbacks for one event are awaited sequentially in registration order.
+
+    AgentInitializedEvent stays a plain lambda: Agent.__init__ dispatches it
+    through the SYNC invoke_callbacks (strands/agent/agent.py), which raises
+    RuntimeError on an async callback. The base class also registers
+    multiagent and bidi hooks — omitted here on purpose: build_agent only
+    ever constructs Agent, and a future MultiAgent handed this manager would
+    persist nothing, which is this comment's warning.
+    """
+
+    def register_hooks(self, registry: HookRegistry, **_kwargs: Any) -> None:
+        registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
+
+        async def append(event) -> None:
+            await run_in_threadpool(self.append_message, event.message, event.agent)
+
+        async def sync_agent(event) -> None:
+            await run_in_threadpool(self.sync_agent, event.agent)
+
+        registry.add_callback(MessageAddedEvent, append)
+        registry.add_callback(MessageAddedEvent, sync_agent)
+        registry.add_callback(AfterInvocationEvent, sync_agent)
+
+
 def session_manager(thread_id: str) -> RepositorySessionManager:
     """The one constructor every agent-turn consumer uses (see build_agent)."""
-    return RepositorySessionManager(
-        session_id=thread_id, session_repository=SqliteSessionRepository()
-    )
+    return OffLoopSessionManager(session_id=thread_id, session_repository=SqliteSessionRepository())
 
 
 class SqliteSessionRepository(SessionRepository):

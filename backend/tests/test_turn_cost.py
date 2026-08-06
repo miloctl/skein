@@ -344,3 +344,24 @@ def test_record_chat_usage(fresh_db):
     record_chat_usage("thread-1", "chief-of-staff", "mock", 10, 20, cycles=2, latency_ms=5)
     row = fresh_db.query_row("SELECT * FROM usage_log")
     assert row["input_tokens"] == 10 and row["output_tokens"] == 20
+
+
+def test_a_flock_turn_logs_spend_per_member_via_the_close(client, fresh_db, monkeypatch):
+    """Member spend used to INSERT inline in each member's finally — on the
+    event loop, once per member, against SQLite's single write lock, so one
+    lost lock race froze every open SSE stream in the process for up to
+    busy_timeout. The rows now ride the member queues into _close_turn, which
+    runs in a threadpool on the success path. Same rows, off the loop."""
+    monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: _MeteredAgent("m"))
+    with client.stream(
+        "POST", "/api/chat", json={"thread_id": "fm", "message": "/flock engineering hello"}
+    ) as resp:
+        assert resp.status_code == 200
+        resp.read()
+    rows = db.query("SELECT agent_name, thread_id FROM usage_log ORDER BY id")
+    assert [r["agent_name"] for r in rows] == [
+        "backend-architect",
+        "code-reviewer",
+        "minimal-change-engineer",
+    ]
+    assert all(r["thread_id"] == "fm" for r in rows)

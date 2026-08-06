@@ -10,6 +10,7 @@ import hmac
 import time
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from .. import config
 from ..agents import commands
@@ -52,7 +53,10 @@ async def slack_command(request: Request):
     from ..services.adoption import record_use
     from ..services.users import ensure_user
 
-    record_use(user, "slack")
+    # threadpooled, all three: this is an async route on the loop that
+    # carries every open chat stream, and each of these opens a SQLite
+    # connection — the same rule routes/chat.py states at its top
+    await run_in_threadpool(record_use, user, "slack")
     # every other write surface registers its writer (deps.py does it for
     # REST); without this, Slack captures logged under an unrostered name
     # were invisible to the scoped activity surfaces.
@@ -63,10 +67,10 @@ async def slack_command(request: Request):
     # Slack had no equivalent, so a workspace member whose user_name matched an
     # agent wrote as that agent with origin=human.
     try:
-        ensure_user(user)
+        await run_in_threadpool(ensure_user, user)
     except ValueError as exc:
         return {"response_type": "ephemeral", "text": str(exc)}
-    if users_svc.is_agent(user):
+    if await run_in_threadpool(users_svc.is_agent, user):
         return {
             "response_type": "ephemeral",
             "text": (
