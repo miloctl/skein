@@ -17,6 +17,7 @@ from ..services import (
     capture,
     collab,
     context_pack,
+    crews,
     delegation,
     digest,
     engagements,
@@ -51,20 +52,32 @@ router = APIRouter(prefix="/api")
 
 
 # ---- reads -----------------------------------------------------------------
+#
+# Every read that returns a row takes CurrentUser, including the ones whose
+# handler never spends it. It buys ONE thing, and it is not access control:
+# a read with no caller cannot be given a visibility filter later without
+# changing its signature, and 45 of the 76 GET routes had none
+# (docs/VISIBILITY.md). The walls `_resolve` applies are already applied at
+# the perimeter in api-key and oidc mode, and in trusted-header mode a caller
+# refused under one name reaches every read by picking another.
+#
+# The file-backed catalogs are the exception, enumerated with a reason each
+# in tests/test_route_identity.py::OPEN_READS. Adding an open GET without a
+# line there fails CI.
 
 
 @router.get("/milestones")
-def get_milestones(project: str = "", status: str = ""):
+def get_milestones(user: CurrentUser, project: str = "", status: str = ""):
     return work.list_milestones(project, status)
 
 
 @router.get("/tasks")
-def get_tasks():
+def get_tasks(user: CurrentUser):
     return work.list_tasks_joined()
 
 
 @router.get("/tasks/{task_id}/worklog")
-def get_task_worklog(task_id: int):
+def get_task_worklog(user: CurrentUser, task_id: int):
     try:
         return delegation.list_worklog(task_id)
     except ValueError as e:
@@ -72,22 +85,22 @@ def get_task_worklog(task_id: int):
 
 
 @router.get("/questions")
-def get_questions(status: str = ""):
+def get_questions(user: CurrentUser, status: str = ""):
     return collab.list_questions(status)
 
 
 @router.get("/decisions")
-def get_decisions(status: str = "", category: str = ""):
+def get_decisions(user: CurrentUser, status: str = "", category: str = ""):
     return collab.list_decisions(status=status, category=category)
 
 
 @router.get("/standups")
-def get_standups():
+def get_standups(user: CurrentUser):
     return collab.list_standups()
 
 
 @router.get("/events")
-def get_events(from_date: str = ""):
+def get_events(user: CurrentUser, from_date: str = ""):
     return schedule.list_events(from_date)
 
 
@@ -115,7 +128,7 @@ def get_flock_traces(user: CurrentUser, thread: str = "", flock: str = "", limit
 
 
 @router.get("/notes")
-def get_notes(q: str = ""):
+def get_notes(user: CurrentUser, q: str = ""):
     return collab.search_notes(q)
 
 
@@ -182,27 +195,27 @@ def get_activity_verify(user: CurrentUser, tail: int = 0):
 
 
 @router.get("/blockers")
-def get_blockers(status: str = "", owner: str = ""):
+def get_blockers(user: CurrentUser, status: str = "", owner: str = ""):
     return blockers.list_blockers(status, owner)
 
 
 @router.get("/intake")
-def get_intake(status: str = ""):
+def get_intake(user: CurrentUser, status: str = ""):
     return intake.list_requests(status)
 
 
 @router.get("/review")
-def get_review(status: str = "pending"):
+def get_review(user: CurrentUser, status: str = "pending"):
     return review.list_changes(status)
 
 
 @router.get("/engagements")
-def get_engagements(status: str = ""):
+def get_engagements(user: CurrentUser, status: str = ""):
     return engagements.list_engagements(status)
 
 
 @router.get("/allocations")
-def get_allocations(engagement_id: int = 0):
+def get_allocations(user: CurrentUser, engagement_id: int = 0):
     return engagements.list_allocations(engagement_id)
 
 
@@ -224,7 +237,7 @@ class AbsenceIn(BaseModel):
 
 
 @router.get("/absences")
-def get_absences(person: str = ""):
+def get_absences(user: CurrentUser, person: str = ""):
     return absences.list_absences(person)
 
 
@@ -251,12 +264,12 @@ def delete_absence(absence_id: int, user: CurrentUser):
 
 
 @router.get("/capacity")
-def get_capacity():
+def get_capacity(user: CurrentUser):
     return engagements.capacity()
 
 
 @router.get("/lessons")
-def get_lessons(project_class: str = ""):
+def get_lessons(user: CurrentUser, project_class: str = ""):
     return engagements.list_lessons(project_class)
 
 
@@ -266,12 +279,12 @@ def get_playbooks():
 
 
 @router.get("/artifacts")
-def get_artifacts(engagement_id: int = 0):
+def get_artifacts(user: CurrentUser, engagement_id: int = 0):
     return handoff.list_artifacts(engagement_id)
 
 
 @router.get("/users")
-def get_users(all: bool = False):
+def get_users(user: CurrentUser, all: bool = False):
     # all=1 includes deactivated rows — the Settings roster needs them so
     # deactivation stays reversible from the UI
     return users.list_users(active_only=not all)
@@ -296,6 +309,120 @@ def post_user_active(name: str, body: UserActiveIn, user: AdminUser):
     # roster edits are admin surface — one teammate must not be able to
     # deactivate another
     return users.set_active(name, body.active, actor=user)
+
+
+# ---- crews -----------------------------------------------------------------
+#
+# A crew is membership only (docs/VISIBILITY.md) — it grants nothing until the
+# tier columns land. Editing one is a STEWARD's job or an administrator's, and
+# _crew_steward below is the only place that pair is decided.
+
+
+class CrewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=crews.NAME_LEN)
+    summary: str = Field("", max_length=crews.SUMMARY_LEN)
+
+
+class CrewPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field("", max_length=crews.NAME_LEN)
+    summary: str | None = Field(None, max_length=crews.SUMMARY_LEN)
+    active: bool | None = None
+
+
+class CrewMemberIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person: str = Field(min_length=1, max_length=64)
+    role: str = Field("member", max_length=16)
+
+
+class CrewMemberOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person: str = Field(min_length=1, max_length=64)
+
+
+def _crew_steward(crew_id: int, user: str, request: Request) -> None:
+    """A steward of THIS crew, or an administrator.
+
+    Not AdminUser on the route: a crew whose membership only an administrator
+    can edit is a crew nobody maintains. Not CurrentUser alone either — in
+    trusted-header mode that is a self-asserted header, and membership is
+    about to decide what a person reads. Strong identity is the same bar
+    routes/private.py holds for the other surface that answers per person.
+    """
+    from .deps import _require_strong, is_named_admin
+
+    _require_strong(getattr(request.state, "strong_auth", False))
+    # the groups current_user stashed, not []: an administrator named only by
+    # SKEIN_OIDC_ADMIN_GROUP is refused by an empty list, while the same person
+    # can rename roster rows and revoke every key through AdminUser.
+    groups = getattr(request.state, "auth_groups", [])
+    # is_named_admin, NOT _is_admin: the scarcity fallback makes every key
+    # holder an administrator in the default deployment, and that would let
+    # any of them take a crew from its steward in one call.
+    if crews.is_steward(crew_id, user) or is_named_admin(user, groups):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="only a steward of this crew can change it. Ask a steward to add you.",
+    )
+
+
+@router.get("/crews")
+def get_crews(user: CurrentUser, all: bool = False):
+    return crews.list_crews(active_only=not all)
+
+
+@router.get("/crews/mine")
+def get_my_crews(user: CurrentUser):
+    """Self-scoped by construction: the only person parameter is the caller.
+    There is deliberately no way to read another person's crew list."""
+    return crews.crews_of(user)
+
+
+@router.get("/crews/{crew_id}")
+def get_crew(crew_id: int, user: CurrentUser):
+    return crews.get_crew(crew_id)
+
+
+@router.post("/crews")
+def post_crew(body: CrewIn, user: StrongUser):
+    # StrongUser: the creator becomes the first steward, so a self-asserted
+    # header would mint a crew someone else appears to steward
+    ratelimit.check("write", user)
+    return crews.create_crew(body.name, summary=body.summary, actor=user)
+
+
+@router.patch("/crews/{crew_id}")
+def patch_crew(crew_id: int, body: CrewPatch, user: CurrentUser, request: Request):
+    _crew_steward(crew_id, user, request)
+    ratelimit.check("write", user)
+    return crews.update_crew(
+        crew_id, name=body.name, summary=body.summary, active=body.active, actor=user
+    )
+
+
+@router.post("/crews/{crew_id}/members")
+def post_crew_member(crew_id: int, body: CrewMemberIn, user: CurrentUser, request: Request):
+    _crew_steward(crew_id, user, request)
+    ratelimit.check("write", user)
+    return crews.add_member(crew_id, body.person, role=body.role, actor=user)
+
+
+@router.post("/crews/{crew_id}/members/remove")
+def post_crew_member_remove(crew_id: int, body: CrewMemberOut, user: CurrentUser, request: Request):
+    """The person travels in the BODY, not the path.
+
+    A roster name may contain any character (ensure_user caps length and
+    nothing else), and starlette's router does not match a path segment
+    holding `/` even percent-encoded — `a/b` could be added to a crew and
+    then never removed by any request the client could form. Removal is the
+    only way out of a crew, so it must not be shaped by what the name is.
+    """
+    _crew_steward(crew_id, user, request)
+    ratelimit.check("delete", user)
+    return crews.remove_member(crew_id, body.person, actor=user)
 
 
 class GrowthIn(BaseModel):
@@ -387,11 +514,19 @@ def get_whoami(user: CurrentUser, request: Request):
     """Who the API thinks you are and how strongly — the Settings page uses
     this to validate a pasted key without the user needing to know anything."""
     from ..services.api_keys import list_keys
+    from .deps import is_named_admin
 
     strong = bool(getattr(request.state, "strong_auth", False))
     return {
         "user": user,
         "strong": strong,
+        # Administrator by CONFIGURATION (SKEIN_ADMINS or the OIDC group), not
+        # the scarcity fallback that makes every key holder one in a default
+        # trusted-header deployment. This is the test _crew_steward applies, so
+        # a surface that shows the crew controls on this flag shows exactly the
+        # ones the server will accept. Gated on strong for the same reason
+        # keys_minted is: an unproven identity is whatever the caller typed.
+        "admin": strong and is_named_admin(user, getattr(request.state, "auth_groups", [])),
         # active only — after a revoke-all, Settings must show the bootstrap
         # command again, not "a key exists, paste it". Counted only for a
         # proven identity: a bare X-User names anyone, and the count is the
@@ -486,7 +621,7 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 
 
 @router.get("/memories")
-def get_memories(q: str = ""):
+def get_memories(user: CurrentUser, q: str = ""):
     return memory.recall(q)
 
 
@@ -500,27 +635,27 @@ def delete_memory(memory_id: int, user: CurrentUser):
 
 
 @router.get("/pulse")
-def get_pulse():
+def get_pulse(user: CurrentUser):
     return pulse.pulse()
 
 
 @router.get("/portfolio/health")
-def get_portfolio_health():
+def get_portfolio_health(user: CurrentUser):
     return portfolio.engagement_health()
 
 
 @router.get("/portfolio/conflicts")
-def get_portfolio_conflicts():
+def get_portfolio_conflicts(user: CurrentUser):
     return portfolio.allocation_conflicts()
 
 
 @router.get("/portfolio/flow")
-def get_portfolio_flow():
+def get_portfolio_flow(user: CurrentUser):
     return portfolio.flow_metrics()
 
 
 @router.get("/portfolio/forecast")
-def get_portfolio_forecast():
+def get_portfolio_forecast(user: CurrentUser):
     return portfolio.slip_forecast()
 
 
@@ -541,12 +676,12 @@ def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser):
 
 
 @router.get("/week")
-def get_week(week: str = ""):
+def get_week(user: CurrentUser, week: str = ""):
     return weekly.week_view(week)
 
 
 @router.get("/week/draft")
-def get_week_draft(week: str = ""):
+def get_week_draft(user: CurrentUser, week: str = ""):
     return weekly.draft_plan(week)
 
 
@@ -561,7 +696,7 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
 
 
 @router.get("/promises")
-def get_promises(status: str = "", audience: str = ""):
+def get_promises(user: CurrentUser, status: str = "", audience: str = ""):
     return promises.list_promises(status, audience)
 
 
@@ -628,7 +763,7 @@ def post_reconfirm(decision_id: int, body: ReconfirmIn, user: CurrentUser):
 
 
 @router.get("/review/stats")
-def get_review_stats():
+def get_review_stats(user: CurrentUser):
     return review.review_stats()
 
 
@@ -658,7 +793,7 @@ def get_feedback(user: CurrentUser, kind: str = ""):
 
 
 @router.get("/eval/capture")
-def get_eval_capture():
+def get_eval_capture(user: CurrentUser):
     return feedback.eval_capture()
 
 
@@ -675,7 +810,7 @@ def post_week_close(user: CurrentUser):
 
 
 @router.get("/agents")
-def get_agents():
+def get_agents(user: CurrentUser):
     return delegation.mission_control()
 
 
@@ -765,12 +900,12 @@ def post_tuning(body: TuningIn, user: AdminUser):
 
 
 @router.get("/agents/trust")
-def get_agents_trust():
+def get_agents_trust(user: CurrentUser):
     return delegation.trust_scores()
 
 
 @router.get("/agents/entities")
-def get_agent_entities():
+def get_agent_entities(user: CurrentUser):
     from ..services.delegation import NO_AUTHORITY
 
     # one set, shared with set_authority: excluding here but validating there
@@ -795,7 +930,7 @@ def get_agent_entities():
 
 
 @router.get("/agents/authority")
-def get_agents_authority(agent: str = ""):
+def get_agents_authority(user: CurrentUser, agent: str = ""):
     return delegation.authority_matrix(agent)
 
 
@@ -849,21 +984,21 @@ def get_onboarding(user: CurrentUser):
 
 
 @router.get("/adoption")
-def get_adoption(weeks: int = 4):
+def get_adoption(user: CurrentUser, weeks: int = 4):
     from ..services import adoption as adoption_svc
 
     return adoption_svc.adoption(weeks)
 
 
 @router.get("/insights")
-def get_insights():
+def get_insights(user: CurrentUser):
     from ..services import insights as insights_svc
 
     return insights_svc.insights()
 
 
 @router.get("/findings")
-def get_findings(weeks: int = 4):
+def get_findings(user: CurrentUser, weeks: int = 4):
     from ..services import insights as insights_svc
 
     return insights_svc.list_findings(weeks)
@@ -919,7 +1054,7 @@ def post_findings_run(user: CurrentUser):
 
 
 @router.get("/usage")
-def get_usage():
+def get_usage(user: CurrentUser):
     """Token and estimated-cost accounting. Costs are estimates from the
     operator's price table; unpriced_calls says how much each sum cannot see."""
     return {

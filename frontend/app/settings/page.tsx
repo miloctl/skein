@@ -18,6 +18,7 @@ import {
 import { reportStatus } from "@/lib/status";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
+import { CrewsCard } from "@/components/crews-card";
 import {
   APPEARANCES,
   applyThemeCode,
@@ -40,7 +41,12 @@ function subscribeStorage(cb: () => void) {
   return () => window.removeEventListener("storage", cb);
 }
 
-type WhoAmI = { user: string; strong: boolean; keys_minted: number };
+type WhoAmI = {
+  user: string;
+  strong: boolean;
+  admin: boolean;
+  keys_minted: number;
+};
 
 function CopyLine({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -149,7 +155,13 @@ export default function SettingsPage() {
       })
       .finally(() => setTuneLoaded(true));
   }, []);
-  useEffect(loadTunables, [loadTunables]);
+  // Gated on strong identity: this read is AdminUser, so firing it for
+  // every visitor put a 403 in the console on every settings load, and the
+  // e2e no-4xx sweep counted it on all six fabric packs. `who` arrives
+  // asynchronously, so this runs when identity resolves, not on mount.
+  useEffect(() => {
+    if (who?.strong) loadTunables();
+  }, [loadTunables, who?.strong]);
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
     // the GET fails, the empty field must NOT be saveable — an empty save
@@ -307,7 +319,10 @@ export default function SettingsPage() {
         key={u.name}
         className={
           "flex items-center justify-between text-sm" +
-          (u.active ? "" : " opacity-60")
+          // NOT opacity: it composites every token at 60% after the theme
+          // system has resolved them, measuring 2.3:1 to 3.1:1 in every pack
+          // including `contrast`. The badge beside the name already says it.
+          (u.active ? "" : " text-ink-3")
         }
       >
         <span>
@@ -1139,9 +1154,17 @@ export default function SettingsPage() {
           change them, with a personal API key (step 2). If you clear a limit,
           Skein uses the server default.
         </p>
-        {tuneLoaded && !tunables && tuneLoadError && (
-          <p className="text-sm text-ink-3">{tuneLoadError}</p>
-        )}
+        {/* role=status on an always-mounted node: the refusal arrives after
+            first paint, and a live region inserted with its own text is not
+            announced. The final branch is not dead — a load that returns
+            nothing with no error must still say why the section is empty. */}
+        <p role="status" className="text-sm text-ink-3 empty:hidden">
+          {!strong
+            ? "Needs your API key (step 2 above) and administrator access."
+            : tuneLoaded && !tunables
+              ? tuneLoadError || "Needs administrator access."
+              : ""}
+        </p>
         {tunables && (
           <div className="space-y-3">
             {tunables.map((t) => {
@@ -1200,7 +1223,10 @@ export default function SettingsPage() {
                       <span className="text-xs text-ink-3">{t.unit}</span>
                     </div>
                   </div>
-                  <p id={`tune-${t.name}-help`} className="mt-1 text-xs text-ink-3">
+                  <p
+                    id={`tune-${t.name}-help`}
+                    className="mt-1 text-xs text-ink-3"
+                  >
                     {t.detail} Allowed: {t.floor} to {t.ceiling}. Default:{" "}
                     {t.default}.
                     {!t.live &&
@@ -1314,6 +1340,12 @@ export default function SettingsPage() {
           {tuneStatus}
         </p>
       </Section>
+
+      <CrewsCard
+        strong={strong}
+        me={who?.user ?? ""}
+        admin={who?.admin ?? false}
+      />
 
       <Section title="Team roster">
         <p className="mb-2 text-sm text-ink-3">

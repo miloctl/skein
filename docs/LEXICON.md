@@ -356,6 +356,24 @@ in CLAUDE.md is the authority, and it already covers "All threads even"
 
 ---
 
+## Already settled (2026-08-06)
+
+### crew
+
+A durable group of **people**. Pairs with **flock**, which is a named group of
+**personas**. The member word is `member` in both.
+
+`team` was the obvious name and is taken five ways: a `SYSTEM_ACTORS` entry, the
+notifications broadcast address whose rows the first reader clears for everyone,
+a `promises.audience` value, a `resolve_teammate` passthrough, and
+`app_settings['team_theme']`. A table of things people can name would collide
+with all five. `teammate` stays the word for one person.
+
+A crew is not an **engagement**. An engagement joins people to work, reaches
+`closed`, allocates a percent, and carries a date window. Crew membership is
+durable and binary, because it is what a visibility tier reads
+(`docs/VISIBILITY.md`).
+
 ## Already settled (2026-08-04, enforced or applied)
 
 | Concept | Winner | Note |

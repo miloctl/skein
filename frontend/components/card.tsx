@@ -1,6 +1,14 @@
+"use client";
+
+import { useId } from "react";
+
 /** The one card. Every surface that groups content uses this — six pages had
  *  byte-identical private copies, which is how a design system quietly drifts.
- *  `className` carries the two legitimate modifiers: md:col-span-2 and loom-band. */
+ *  `className` carries the two legitimate modifiers: md:col-span-2 and loom-band.
+ *
+ *  A titled card is a NAMED region. `<section>` maps to `region` only with an
+ *  accessible name, so without this the whole app exposed zero landmarks and a
+ *  screen-reader user navigating by region found nothing at all. */
 export function Card({
   title,
   className = "",
@@ -12,10 +20,15 @@ export function Card({
   titleClassName?: string;
   children: React.ReactNode;
 }) {
+  const headingId = useId();
   return (
-    <section className={`rounded-xl border border-line bg-card p-4 shadow-card ${className}`}>
+    <section
+      aria-labelledby={title ? headingId : undefined}
+      className={`rounded-xl border border-line bg-card p-4 shadow-card ${className}`}
+    >
       {title && (
         <h2
+          id={headingId}
           className={`mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3 ${titleClassName}`}
         >
           {title}

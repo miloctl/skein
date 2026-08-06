@@ -43,8 +43,18 @@ def _write(batch: dict[tuple[str, str, str], int]) -> None:
             )
 
 
-def record_use(user: str, surface: str) -> None:
-    """Fire-and-forget count; must never break the request it rides on."""
+def record_use(user: str, surface: str, *, counts: bool = True) -> None:
+    """Fire-and-forget count. Must never break the request it rides on.
+
+    counts=False records that the person was HERE without adding to the
+    action tally: the row is created or touched at +0, so
+    weekly_active_users still sees them and by_surface does not. The web UI
+    fans one page out into eight or more reads while a CLI invocation is one
+    request, so counting reads made non_web_share — the >50% success bar in
+    adoption() below — a measure of how many cards a page renders. Every
+    read resolves a caller now (tests/test_route_identity.py), which took
+    that from a lean to a landslide.
+    """
     global _last_flush
     if not user or user == "anonymous":
         return
@@ -52,7 +62,7 @@ def record_use(user: str, surface: str) -> None:
     day = datetime.now(UTC).date().isoformat()
     with _pending_lock:
         key = (day, user, surface)
-        _pending[key] = _pending.get(key, 0) + 1
+        _pending[key] = _pending.get(key, 0) + (1 if counts else 0)
         if time.monotonic() - _last_flush < FLUSH_SECONDS:
             return
         batch = dict(_pending)

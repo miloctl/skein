@@ -619,6 +619,12 @@ VERBS: dict[str, tuple[str, str]] = {
     "create_milestone": ("created a milestone", "normal"),
     "update_milestone": ("updated a milestone", "normal"),
     "create_engagement": ("created an engagement", "normal"),
+    "create_crew": ("created a crew", "normal"),
+    "update_crew": ("changed a crew", "normal"),
+    # loud: membership is about to decide what a person reads
+    # (docs/VISIBILITY.md), so a change to it is not ordinary bookkeeping
+    "crew_member_add": ("added someone to a crew", "loud"),
+    "crew_member_remove": ("removed someone from a crew", "loud"),
     "update_engagement": ("updated an engagement", "normal"),
     "raise_blocker": ("raised a blocker", "normal"),
     "resolve_blocker": ("resolved a blocker", "normal"),

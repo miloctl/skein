@@ -12,6 +12,7 @@ refusing fb: lines before any logging. When OIDC lands, these routes
 are first in line for strong identity.
 """
 
+import hashlib
 import re
 import shutil
 
@@ -27,6 +28,74 @@ def _check_id(thread_id: str) -> str:
     return thread_id
 
 
+DEFAULT_PREFIX = "default-"
+# ":" is outside _THREAD_ID's charset, so routes/chat.py's sanitizer strips it
+# from anything a caller sends. That is the whole guarantee: a persona session
+# id cannot be typed, only minted here from a base the caller already owns.
+# "--" held this role and was forgeable — `abc--growth-mentor` sanitized clean,
+# named no thread row, and claim_thread waved it through to the session of
+# whoever owned `abc`.
+PERSONA_SEP = ":"
+_LEGACY_PERSONA_SEP = "--"
+
+
+def persona_session_id(thread_id: str, persona: str) -> str:
+    return f"{thread_id}{PERSONA_SEP}{persona}"
+
+
+def default_thread_id(owner: str) -> str:
+    """The thread a caller that names none gets — one per person.
+
+    The literal 'default' was ONE row shared by every caller that omitted a
+    thread id (the ChatRequest field default, so an omitted id and an explicit
+    'default' are indistinguishable). Each of them restored the same
+    model-side session, so a scripted client answered out of whoever posted
+    last. Hashed rather than the name itself: two roster names that differ
+    only in characters the thread-id charset strips would collide on one row.
+    The hash is derived, not secret — claim_thread refuses a mismatched
+    claim on this shape, because the roster is readable and a guessable id
+    that the first caller owns is a squat.
+    """
+    return f"{DEFAULT_PREFIX}{hashlib.sha256(owner.encode()).hexdigest()[:16]}"
+
+
+def claim_thread(thread_id: str, owner: str) -> str:
+    """Take the thread for this owner, or refuse. Must run BEFORE the id
+    reaches build_agent.
+
+    log_message below refuses to cross-file a transcript, but it runs after
+    build_agent has already restored the model-side conversation, and
+    agents/session_store.py keys on session_id alone with no owner column.
+    So naming another person's thread id answered the caller out of that
+    person's history: the transcript write was refused and their sidebar
+    stayed empty, which is why nothing on any surface showed what had gone
+    out. Claiming here is also what makes an orphaned session unreachable —
+    a stream cancelled between build_agent and the first log_message leaves
+    session rows behind with no thread row to guard them.
+
+    NotFound, not a refusal that names the owner: main.py's rule is that an
+    owner-scoped miss is a 404 everywhere, because any other status confirms
+    the row exists.
+    """
+    _check_id(thread_id)
+    # A default- id is derived from a name every caller can read off the
+    # roster, and first claim wins. Without this wall, one POST to a
+    # teammate's computed id took their unnamed thread for good: every later
+    # message of theirs 404s, and they cannot delete it to take it back.
+    if thread_id.startswith(DEFAULT_PREFIX) and thread_id != default_thread_id(owner):
+        raise db.NotFound(f"no chat '{thread_id}' for {owner}")
+    now = db.now()
+    db.execute(
+        "INSERT OR IGNORE INTO chat_threads (id, owner, title, created_at, updated_at)"
+        " VALUES (?, ?, 'New chat', ?, ?)",
+        (thread_id, owner, now, now),
+    )
+    row = db.query_one("SELECT owner FROM chat_threads WHERE id = ?", (thread_id,))
+    if not row or row["owner"] != owner:
+        raise db.NotFound(f"no chat '{thread_id}' for {owner}")
+    return thread_id
+
+
 def _title_from(text: str) -> str:
     # "/as growth-mentor how do I..." titles as the question, not the plumbing
     text = re.sub(r"^/as\s+[a-z0-9-]+\s+", "", text.strip(), flags=re.I)
@@ -35,8 +104,9 @@ def _title_from(text: str) -> str:
 
 
 def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
-    """Append to the transcript, creating/touching the thread row. Rows are
-    only born here — an opened-but-never-used chat leaves no residue."""
+    """Append to the transcript, creating/touching the thread row. Opening a
+    chat in the UI leaves no residue: a row is born only when a turn is
+    logged here, or when POST /api/chat claims the id above."""
     _check_id(thread_id)
     if role not in ("user", "assistant"):
         raise ValueError("role must be user or assistant")
@@ -213,8 +283,10 @@ def delete_thread(thread_id: str, owner: str) -> dict:
     db.execute("DELETE FROM flock_traces WHERE thread_id = ?", (thread_id,))
     delete_thread_sessions(thread_id)
     # the pre-045 file store, until a cleanup release drops the directory:
-    # leftover files must go too, or they linger for a thread that is gone
-    for pattern in (f"session_{thread_id}", f"session_{thread_id}--*"):
+    # leftover files must go too, or they linger for a thread that is gone.
+    # Only the legacy separator here — the file store predates PERSONA_SEP,
+    # so no file on disk carries the new one.
+    for pattern in (f"session_{thread_id}", f"session_{thread_id}{_LEGACY_PERSONA_SEP}*"):
         for path in config.SESSIONS_DIR.glob(pattern):
             shutil.rmtree(path, ignore_errors=True)
     db.log_activity(owner, "delete_chat", f"thread {thread_id}")

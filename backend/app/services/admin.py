@@ -94,6 +94,8 @@ TABLES = (
     "task_worklog",
     "feature_unlocks",
     "mention_log",
+    "crews",
+    "crew_members",
 )
 
 
@@ -215,6 +217,12 @@ def export(*, keep: int = 14) -> dict:
         try:
             dump[table] = db.query(f"SELECT * FROM {table}")  # noqa: S608 — TABLES constant
         except Exception:
+            # LOGGED, not swallowed. One table left empty is indistinguishable
+            # from one table that is empty, and the completeness test only
+            # checks the key exists — so an export missing crew_members
+            # restores a workspace where nobody can read anything crew-scoped,
+            # and nothing anywhere said so.
+            log.exception("export skipped table %s — the dump is INCOMPLETE", table)
             dump[table] = []
     exports_dir = Path(config.DATA_DIR) / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)

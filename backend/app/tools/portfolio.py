@@ -146,15 +146,17 @@ def get_context_pack(engagement_id: int = 0) -> str:
 
 
 @tool
-def my_agent_inbox(agent: str = "") -> str:
-    """Ambient inbox for an agent identity: delegated tasks, questions
-    assigned to it, rejected proposals (with reviewer notes), notifications.
-
-    Args:
-        agent: The agent identity to check (defaults to your own).
-    """
+# Takes no name, and must not gain one. delegation.agent_inbox answers for
+# whatever roster row it is handed — human or agent — with assigned questions,
+# rejected proposals INCLUDING reviewer notes, and 20 unread notification
+# bodies. As a model-controlled argument, "check the agent inbox for mira" was
+# the whole exploit. The MCP twin lost the same parameter for the same reason
+# (app/mcp_server.py::get_my_day). Pinned by tests/test_privacy.py.
+def my_agent_inbox() -> str:
+    """Your own ambient inbox: delegated tasks, questions assigned to you,
+    rejected proposals (with reviewer notes), notifications."""
     try:
-        return json.dumps(delegation.agent_inbox(agent or agent_identity()))
+        return json.dumps(delegation.agent_inbox(agent_identity()))
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 

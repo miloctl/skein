@@ -16,8 +16,9 @@ def _is_bench_slug(name: str) -> bool:
     return name in personas.bench_slugs() or name in {f["slug"] for f in flocks.list_flocks()}
 
 
-def _fold(name: str) -> str:
-    """The one normalization every identity comparison uses. NFKC because
+def fold(name: str) -> str:
+    """The one normalization every identity comparison uses — roster names
+    here, and crew names in services/crews.py. NFKC because
     a fullwidth `TEAM` renders as `team`, and category Cf is stripped
     because a zero-width joiner inside `team` does too — a name that reads as a system actor in every
     surface must not be a different identity from the system actor."""
@@ -39,7 +40,7 @@ def refuse_reserved_name(name: str) -> None:
     header value that nothing else has touched."""
     from .activity import SYSTEM_ACTORS
 
-    if _fold(name) in {_fold(a) for a in SYSTEM_ACTORS}:
+    if fold(name) in {fold(a) for a in SYSTEM_ACTORS}:
         raise ValueError("that name is reserved for the system — pick another name")
 
 
@@ -59,8 +60,8 @@ def reserved_name_rows() -> list[str]:
     knows every attribution column and the private notes DB."""
     from .activity import SYSTEM_ACTORS
 
-    reserved = {_fold(a) for a in SYSTEM_ACTORS}
-    return [r["name"] for r in db.query("SELECT name FROM users") if _fold(r["name"]) in reserved]
+    reserved = {fold(a) for a in SYSTEM_ACTORS}
+    return [r["name"] for r in db.query("SELECT name FROM users") if fold(r["name"]) in reserved]
 
 
 def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
@@ -75,7 +76,7 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
     `SCOÜT` and `scoüt` as different names while resolve_teammate and
     mentions.scan read them as the same one — the collision then arrives
     through the very guard meant to stop it."""
-    target = _fold(name)
+    target = fold(name)
     for row in db.query("SELECT name, kind FROM users"):
         # the EXACT-name case belongs to the callers: ensure_user reads it as
         # `existing`, and rename_user's target lookup explains the human/agent
@@ -83,7 +84,7 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
         # variants those exact lookups cannot see.
         if row["name"] in (ignore, name):
             continue
-        if _fold(row["name"]) == target:
+        if fold(row["name"]) == target:
             article = "an" if row["kind"] == "agent" else "a"
             raise ValueError(
                 f"'{row['name']}' already exists as {article} {row['kind']} —"
@@ -203,7 +204,7 @@ def is_agent(name: str) -> bool:
     routes/deps.py, and a first-row match let it walk through the forge's.
     resolve_teammate already matches this way, so the question every surface
     asks about a name is now the same question."""
-    target = _fold(name)
+    target = fold(name)
     if not target:
         return False
     # folded in PYTHON, not in SQL. sqlite's lower() is ASCII-only, so it
@@ -211,7 +212,7 @@ def is_agent(name: str) -> bool:
     # mentions.scan read them as the same one — the wall and the resolver must
     # not disagree about what two names being equal means.
     return any(
-        _fold(r["name"]) == target for r in db.query("SELECT name FROM users WHERE kind = 'agent'")
+        fold(r["name"]) == target for r in db.query("SELECT name FROM users WHERE kind = 'agent'")
     )
 
 
@@ -221,10 +222,10 @@ def is_active(name: str) -> bool:
     mint rows. Folded like is_agent above, or `ALICE` walks past the check that
     `alice` fails, and the wall would disagree with the resolver about what two
     names being equal means."""
-    target = _fold(name)
+    target = fold(name)
     if not target:
         return True
-    rows = [r for r in db.query("SELECT name, active FROM users") if _fold(r["name"]) == target]
+    rows = [r for r in db.query("SELECT name, active FROM users") if fold(r["name"]) == target]
     return all(r["active"] for r in rows)
 
 
@@ -291,6 +292,10 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "context_packs": ("created_by",),
     "finding_dispositions": ("created_by",),
     "chat_threads": ("owner",),
+    # crew membership keys on the roster name, and a rename that leaves it
+    # behind silently drops the person out of every crew they could read
+    "crew_members": ("person", "created_by"),
+    "crews": ("created_by",),
     "chat_folders": ("owner",),
     "absences": ("created_by", "person"),
     "task_worklog": ("author",),
@@ -386,6 +391,32 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
             "DELETE FROM agent_authority WHERE agent = ? AND EXISTS"
             " (SELECT 1 FROM agent_authority n WHERE n.entity = agent_authority.entity"
             " AND n.agent = ?)",
+            (old, new),
+        )
+        # crew_members (crew_id, person): the target's row wins, but a STEWARD
+        # row is kept over a member one — merging two halves of one person
+        # must not quietly demote them out of a crew they steward. Two rows
+        # that are the same person almost always share a crew, so without this
+        # the whole merge raised IntegrityError and answered 500.
+        db.execute(
+            "UPDATE crew_members SET role = 'steward' WHERE person = ?"
+            " AND EXISTS (SELECT 1 FROM crew_members o WHERE o.crew_id = crew_members.crew_id"
+            " AND o.person = ? AND o.role = 'steward')",
+            (new, old),
+        )
+        db.execute(
+            "DELETE FROM crew_members WHERE person = ? AND EXISTS"
+            " (SELECT 1 FROM crew_members n WHERE n.crew_id = crew_members.crew_id"
+            " AND n.person = ?)",
+            (old, new),
+        )
+        # chat_folders (owner, name): the target's folder wins. Same shape and
+        # the same 500 — a rename where both halves made a folder of the same
+        # name could not complete.
+        db.execute(
+            "DELETE FROM chat_folders WHERE owner = ? AND EXISTS"
+            " (SELECT 1 FROM chat_folders n WHERE n.name = chat_folders.name"
+            " AND n.owner = ?)",
             (old, new),
         )
         for table, cols in _ATTRIBUTION.items():

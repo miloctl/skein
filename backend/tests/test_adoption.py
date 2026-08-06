@@ -39,9 +39,25 @@ def test_adoption_ignores_anonymous(client, fresh_db):
 
 def test_adoption_upserts_daily_row(client, fresh_db):
     for _ in range(3):
+        client.post("/api/standups", json={"yesterday": "a", "today": "b"})
+    rows = fresh_db.query("SELECT * FROM tool_usage WHERE user = 'tester' AND surface = 'api'")
+    assert len(rows) == 1 and rows[0]["actions"] == 3
+
+
+def test_a_read_registers_the_person_without_counting_an_action(client, fresh_db):
+    """One web page fans out into eight or more reads and one CLI invocation
+    is one request, so counting reads made non_web_share a measure of how
+    many cards a page renders. The row must still exist, or a teammate who
+    only reads drops out of weekly_active_users."""
+    from app.services import users
+
+    users.ensure_user("tester")
+    for _ in range(3):
         client.get("/api/briefing", headers={"X-Client": "web"})
     rows = fresh_db.query("SELECT * FROM tool_usage WHERE user = 'tester' AND surface = 'web'")
-    assert len(rows) == 1 and rows[0]["actions"] == 3
+    assert len(rows) == 1 and rows[0]["actions"] == 0
+    # the +0 row is what keeps a teammate who only reads in the reach count
+    assert client.get("/api/adoption").json()["weekly_active_users"] == 1
 
 
 def test_record_use_buffers_between_flushes(fresh_db, monkeypatch):

@@ -30,6 +30,11 @@ export default defineConfig({
         `cd ../backend && ` +
         `SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
         `.venv/bin/python seed.py && ` +
+        // a key for the walks that need STRONG identity: several surfaces
+        // render nothing without one, and a walk that scans them empty
+        // reports them clean
+        `SKEIN_DATA_DIR=/tmp/skein-e2e ` +
+        `.venv/bin/python -m app.bootstrap_key ava > /tmp/skein-e2e/ava.key && ` +
         `SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 ` +
         `SKEIN_CORS_ORIGINS=${APP} .venv/bin/uvicorn app.main:app --port 8600'`,
       url: `${API}/health`,

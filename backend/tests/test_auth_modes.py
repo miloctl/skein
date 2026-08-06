@@ -161,9 +161,12 @@ def test_a_key_wins_in_oidc_mode_both_ways(client, monkeypatch, fresh_db):
 
 
 def test_an_agent_key_is_refused_at_the_perimeter(client, monkeypatch):
-    """The ~45 GET routes that carry no user dependency have the middleware
-    as their only gate in the locked modes. The agent wall has to live
-    there too."""
+    """The catalog reads that resolve no caller have the middleware as their
+    only gate in the locked modes, so the agent wall has to live there too.
+    Asserted on /api/playbooks: every content read gained a CurrentUser
+    (tests/test_route_identity.py), and against one of those the dependency
+    would refuse the key too — the perimeter could be deleted and this test
+    would stay green."""
     from app import config
     from app.services.api_keys import create_key
     from app.services.users import ensure_user
@@ -171,7 +174,7 @@ def test_an_agent_key_is_refused_at_the_perimeter(client, monkeypatch):
     ensure_user("scout", kind="agent")
     hdr = {"Authorization": f"Bearer {create_key('scout', 'k')['key']}"}
     monkeypatch.setattr(config, "AUTH_MODE", "api-key")
-    r = client.get("/api/tasks", headers=hdr)  # no CurrentUser dependency
+    r = client.get("/api/playbooks", headers=hdr)  # resolves no caller of its own
     assert r.status_code == 403
     assert "agent identity" in r.json()["detail"]
 
@@ -195,14 +198,14 @@ def test_a_credential_is_verified_once_per_request(client, monkeypatch):
 
 def test_an_oidc_sign_in_naming_an_agent_is_refused_at_the_perimeter(client, monkeypatch, fresh_db):
     """The twin of the API-key wall above, for the other locked mode. A token
-    whose username claim names an agent row reaches the same ~45
-    dependency-less GET routes, so the wall has to stand in both branches
-    of the middleware."""
+    whose username claim names an agent row reaches the same catalog reads,
+    so the wall has to stand in both branches of the middleware. Same reason
+    as above for asserting on a route that resolves no caller."""
     from app.services.users import ensure_user
 
     ensure_user("scout", kind="agent")
     _oidc(monkeypatch, {"tok": {"preferred_username": "scout"}})
-    r = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+    r = client.get("/api/playbooks", headers={"Authorization": "Bearer tok"})
     assert r.status_code == 403
     assert "agent identity" in r.json()["detail"]
 
@@ -300,9 +303,9 @@ def test_deactivation_closes_the_header_door(client, fresh_db):
     there — deactivation has to mean something on this door too.
 
     Asserted on a route that RESOLVES a user. In this mode the perimeter
-    short-circuits and the ~45 dependency-less reads (GET /api/tasks among
-    them) carry no identity check at all — a documented property of a mode
-    whose whole premise is a trusted network, not a gap this check introduces.
+    short-circuits, and a caller refused under one name reaches every read
+    by picking another — a documented property of a mode whose whole premise
+    is a trusted network, not a gap this check introduces.
     """
     from app.services.users import ensure_user, set_active
 
@@ -490,3 +493,22 @@ def test_oidc_admin_group_grants_admin(client, monkeypatch, fresh_db):
     assert (
         client.get("/api/admin/keys", headers={"Authorization": "Bearer lead"}).status_code == 200
     )
+
+
+def test_every_door_stashes_the_group_claims(client, monkeypatch, fresh_db):
+    """A route that re-derives admin-ness in its own body reads these off
+    request.state. Stashed by one dependency and not the others, whether an
+    OIDC administrator is refused depends on which one the route picked."""
+    from app import config
+    from app.services.users import ensure_user
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "casey", "groups": ["skein-admins"]}})
+    monkeypatch.setattr(config, "OIDC_ADMIN_GROUP", "skein-admins")
+    ensure_user("casey")
+    hdr = {"Authorization": "Bearer tok"}
+
+    # CurrentUser (whoami), StrongUser (keys), AdminUser (admin keys) — all
+    # three must agree that this caller is an administrator
+    assert client.get("/api/whoami", headers=hdr).json()["admin"] is True
+    assert client.get("/api/keys", headers=hdr).status_code == 200
+    assert client.get("/api/admin/keys", headers=hdr).status_code == 200

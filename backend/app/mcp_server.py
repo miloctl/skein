@@ -39,10 +39,16 @@ mcp = FastMCP("skein")
 
 
 @mcp.tool()
-def get_my_day(user: str = "") -> str:
-    """The team briefing: what needs attention, tasks, blockers, today's events."""
+# Takes no person parameter, and must not gain one: briefing.my_day answers
+# for whatever name it is handed — assigned questions, owned blockers, tasks,
+# and the BODIES of unread notifications. One model-controlled argument
+# enumerated any teammate's inbox over a surface whose whole identity is an
+# environment variable. Pinned by tests/test_privacy.py.
+def get_my_day() -> str:
+    """The briefing for this agent identity: what needs attention, tasks,
+    blockers, today's events."""
     record_use(ACTOR, "mcp")
-    return json.dumps(briefing_svc.my_day(user or ACTOR))
+    return json.dumps(briefing_svc.my_day(ACTOR))
 
 
 @mcp.tool()
