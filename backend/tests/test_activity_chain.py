@@ -668,9 +668,10 @@ def test_a_reset_baseline_contradicts_the_anchor_log(fresh_db):
 
 def test_a_legitimate_unchained_row_reports_the_same_way(fresh_db):
     """Honest about what it cannot tell apart: a real fallback append raises
-    the baseline too, and TODO.md records why no re-baseline operation exists
-    to distinguish them. The check reports the fact and its date, never a
-    verdict about intent."""
+    the baseline the same way a laundering does, so the anchor-log check
+    reports the fact and its date, never a verdict about intent. The verdict
+    comes from adoption: the adopt_unchained receipt checked against the server
+    log is where the two cases separate."""
     from app.services import activity
 
     _log(2)
@@ -688,10 +689,14 @@ def test_a_legitimate_unchained_row_reports_the_same_way(fresh_db):
     assert "baseline" in out["reason"]
 
 
-def test_the_baseline_contradiction_survives_later_anchor_runs(fresh_db):
+def test_the_baseline_contradiction_survives_until_adoption_records_it(fresh_db):
     """record_anchor wrote the CURRENT baseline, so one night after a
     laundering the elevated value became the new max() and the contradiction
-    erased itself — the check held for under 24 hours, then went quiet."""
+    erased itself — the check held for under 24 hours, then went quiet WITH NO
+    RECORD. Adoption is allowed to quiet it, because adoption is not silence:
+    the smuggled row is chained where it can never again be edited or deleted
+    unseen, a loud adopt_unchained receipt names it, and the receipt itself is
+    anchored that same night. The alarm converts into a permanent record."""
     from app.services import activity
 
     _log(3)
@@ -703,12 +708,21 @@ def test_the_baseline_contradiction_survives_later_anchor_runs(fresh_db):
     )
     db.execute("DELETE FROM app_settings WHERE key = 'activity_chain_legacy'")
     activity.verify_chain()  # re-baselines
+    # the contradiction holds until a night runs — no silent wash-out window
     assert activity.check_anchor_log()["ok"] is False
 
-    for _ in range(3):  # three more nights must not wash it out
-        _log(1)
-        activity.nightly_verify()
-        assert activity.check_anchor_log()["ok"] is False
+    result = activity.nightly_verify()
+    assert result["adopted"] == 1
+    # quiet again, but on the record: the receipt is chained AND anchored,
+    # and the smuggled row is now tamper-evident like every other row
+    assert activity.check_anchor_log()["ok"] is True
+    receipt = db.query_row("SELECT seq FROM activity WHERE action = 'adopt_unchained'")
+    assert receipt["seq"] is not None
+    assert result["anchor"]["anchored"] == receipt["seq"]
+    smuggled = db.query_row("SELECT id, seq FROM activity WHERE actor = 'mallory'")
+    assert smuggled["seq"] is not None
+    db.execute("UPDATE activity SET detail = 'laundered' WHERE id = ?", (smuggled["id"],))
+    assert activity.verify_chain()["ok"] is False
 
 
 def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
@@ -733,3 +747,124 @@ def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
     # finding — the replay is this function's primary job
     assert out["seq"] == 4
     assert "no longer in the ledger" in out["reason"]
+
+
+# ---- adoption: the heal that replaced the permanent unchained alarm ----------
+
+
+def test_a_fallback_row_is_adopted_into_the_chain(fresh_db):
+    """db.log_activity records a row UNCHAINED when the write lock cannot be
+    taken. Before adoption, one such row flipped every later verification to
+    "tampered" forever — an alarm with no recovery path, caused by nothing
+    but load, aimed at whoever runs the server."""
+    _log(3)
+    assert activity.verify_chain()["ok"]  # records the baseline (0)
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("tester", "test_action", "written under contention", db.now()),
+    )
+    assert not activity.verify_chain()["ok"]  # visible while pending
+
+    result = activity.nightly_verify()
+    assert result["adopted"] == 1
+    assert result["ok"]
+    after = activity.verify_chain()
+    assert after["ok"]
+    assert after["unchained_rows"] == 0
+    receipt = db.query_row("SELECT seq, detail FROM activity WHERE action = 'adopt_unchained'")
+    assert receipt["seq"] is not None  # the receipt is itself chained
+    assert "1 row" in receipt["detail"]
+
+
+def test_an_adopted_row_is_tamper_evident_afterwards(fresh_db):
+    """The point of adopting rather than counting: an unchained row can be
+    edited or deleted silently forever — it is structurally exempt from every
+    link check, and a deletion even LOWERS the count below the baseline.
+    Adoption ends both."""
+    _log(2)
+    rid = db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("tester", "test_action", "orphan", db.now()),
+    )
+    activity.nightly_verify()
+    db.execute("UPDATE activity SET detail = 'rewritten' WHERE id = ?", (rid,))
+    assert not activity.verify_chain()["ok"]
+
+
+def test_adoption_with_nothing_to_adopt_writes_no_receipt(fresh_db):
+    """A nightly receipt on a clean chain is noise that teaches the feed's
+    readers to skim past the one receipt that matters."""
+    _log(2)
+    result = activity.nightly_verify()
+    assert result["adopted"] == 0
+    assert db.query_one("SELECT id FROM activity WHERE action = 'adopt_unchained'") is None
+
+
+def test_the_same_nights_anchor_covers_adopted_rows(fresh_db):
+    """Adoption runs before verify and anchor inside nightly_verify, so the
+    receipt and the adopted rows are blessed the same night — ordered the
+    other way, the 06:50 findings walk fired a false HIGH tamper finding in
+    the gap."""
+    _log(2)
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("tester", "test_action", "", db.now()),
+    )
+    result = activity.nightly_verify()
+    assert result["ok"]
+    # 2 chained + 1 adopted + 1 receipt: the anchor blesses through the receipt
+    assert result["anchor"]["anchored"] == 4
+
+
+def test_adoption_lowers_the_baseline_so_it_is_not_an_allowance(fresh_db):
+    """With legacy rows adopted but the baseline left standing, `unchained >
+    legacy` admits that many smuggled rows silently. Lowering is also the one
+    direction check_anchor_log permits — its alarm is a baseline above the
+    lowest ever anchored."""
+    for _ in range(3):
+        db.execute(
+            "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+            ("old", "legacy", "", db.now()),
+        )
+    _log(2)
+    assert activity.verify_chain()["unchained_baseline"] == 3
+    activity.nightly_verify()
+    assert db.query_row("SELECT COUNT(*) AS n FROM activity WHERE seq IS NULL")["n"] == 0
+
+    # one smuggled row must alarm again — a standing baseline of 3 absorbs it
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("mallory", "smuggled", "", db.now()),
+    )
+    result = activity.verify_chain()
+    assert not result["ok"]
+    assert result["unchained_baseline"] == 0
+    assert activity.check_anchor_log()["ok"] is True  # lowering never trips the log
+
+
+def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
+    """The finding is the push signal that replaced the permanent alarm: the
+    feed line alone is skimmable, and after adoption verify_chain goes green
+    again, so without this rule a smuggled row never reached the findings
+    surface at all."""
+    from datetime import date
+
+    from app.services import insights
+
+    _log(2)
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("mallory", "smuggled", "", db.now()),
+    )
+    activity.nightly_verify()
+    found = insights._r_activity_chain()
+    assert len(found) == 1
+    assert found[0]["rule_id"] == "ledger_rows_adopted"
+    assert found[0]["severity"] == "medium"
+    assert "activity chain append failed" in found[0]["message"]
+    receipt = db.query_row("SELECT seq FROM activity WHERE action = 'adopt_unchained'")
+    assert found[0]["subject"] == f"adopt:{receipt['seq']}"
+    # once the two-day window passes, the rule is quiet again — the receipt is
+    # not editable (it is chained), so the window is moved, not the row
+    monkeypatch.setattr(insights, "_today", lambda: date(2030, 1, 1))
+    assert insights._r_activity_chain() == []

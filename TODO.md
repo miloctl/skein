@@ -27,23 +27,15 @@ this file is only for accepted trade-offs that must eventually be repaid.
   only, and repays fully when the frontend sign-in flow (docs/ROADMAP.md)
   lets a team leave that mode.
 
-- **No re-baseline path for a legitimate unchained activity row.** When
-  log_activity's standalone append fails, the row is recorded unchained (a
-  write must not 500 over bookkeeping) — and an unchained row above the
-  pre-036 baseline fires `activity_chain_broken` on every weekly re-fire,
-  indistinguishable from a smuggled row. Dismissal only suppresses 28 days;
-  the sole true fix is hand-editing the baseline in app_settings. Accepted
-  2026-08-02 because the fallback has never fired outside tests and a
-  re-baseline operation is attacker-usable machinery we should not build
-  speculatively. Repay when the first real fallback fires in production:
-  add a logged, StrongUser re-baseline that records the reason in the
-  ledger itself.
-
-  Narrowed 2026-08-02: the baseline now rides on every anchor-log line, so
-  the hand-edit is no longer SILENT — `check_anchor_log` reports a baseline
-  above the highest ever anchored, and says plainly that a smuggled row and
-  a legitimate fallback append look the same from there. The debt that
-  remains is only the missing operation to tell those two apart.
+- ~~No re-baseline path for a legitimate unchained activity row.~~ Repaid
+  2026-08-05, in the opposite direction from the sketch above it: instead of
+  a re-baseline (which raises the baseline — the attacker-usable machinery
+  the entry itself warned against), `activity.adopt_unchained` chains the
+  orphaned rows at the tail, appends a chained `adopt_unchained` receipt naming
+  them, and only ever LOWERS the baseline. Runs nightly before verify and
+  anchor. The receipt in the feed, checked against the server log's
+  'activity chain append failed' warnings, is the operation that tells a
+  fallback from a smuggle.
 
 - **Single-replica posture is implied, not enforced or insured.**
   Process-local rate limits, in-process locks, `claim_job`, and SQLite's

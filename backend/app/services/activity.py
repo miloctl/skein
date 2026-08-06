@@ -10,9 +10,18 @@ Two verifications, on purpose:
   daily findings rule therefore pays for the full walk — that is the run that
   answers "is the ledger intact", and it is the one an operator acts on.
 
-Rows written before migration 036 carry no seq. They are counted as UNCHAINED
-and never as verified: the chain covers what it covers, and saying otherwise
-would be the dishonest version of this feature.
+Rows can sit OUTSIDE the chain: pre-036 rows never carried a seq, and
+db.log_activity records a row unchained when the write lock cannot be taken (a
+business write must not 500 over bookkeeping). The nightly job ADOPTS them —
+assigns each the tail seq and hash, appends one chained receipt naming the
+rows, and lowers the unchained baseline to what remains. Adoption attests
+content from that moment on, never provenance: an adopted row cannot be edited
+or deleted silently afterwards, which an unchained row always could. The
+receipt is the audit trail — an adoption that no 'activity chain append
+failed' warning in the server log explains is the tamper signal that the
+unchained count alone cannot be (a count above baseline reads identically for
+a lock timeout and a smuggled row, and it used to alarm forever with no
+recovery path).
 
 WHAT THIS CATCHES, and what it does not. The digest is unkeyed and every input
 to it is stored in the row it protects, so anyone who can write platform.db can
@@ -149,9 +158,16 @@ def verify_chain(since_seq: int = 0, expected_prev: str = "") -> dict:
         )
         return out
     if unchained > legacy:
+        n = unchained - legacy
+        noun = "1 row sits" if n == 1 else f"{n} rows sit"
         out.update(
             ok=False,
-            reason=f"{unchained - legacy} row(s) were written to the ledger outside the chain",
+            reason=(
+                f"{noun} outside the chain. The nightly adoption chains every such"
+                " row and records an adopt_unchained receipt. If the server log has no"
+                " matching 'activity chain append failed' warning, treat this as"
+                " tampering."
+            ),
         )
         return out
 
@@ -350,15 +366,76 @@ def record_anchor() -> dict:
     return {"anchored": seq if written or current else 0, "files": written, "current": current}
 
 
+def adopt_unchained(actor: str = "scheduler") -> dict:
+    """Chain every row that sits outside the chain, and record a receipt.
+
+    One transaction: the BEGIN IMMEDIATE holds the write lock across
+    read-tail, the updates, and the receipt, so no chained append can
+    interleave and take a seq this function is about to assign. Only seq-NULL
+    rows are ever touched — a row that carries a seq is immutable history.
+
+    A smuggled row is adopted exactly like a lock-timeout fallback, on
+    purpose: the two are indistinguishable from the database alone, and
+    refusing to adopt meant one fallback row alarmed forever. The receipt
+    carries the row ids, so the feed and the chain both record that an
+    adoption happened — that receipt, checked against the server log, is
+    where the two cases separate.
+
+    The baseline is LOWERED to the new unchained count (0), never raised.
+    check_anchor_log alarms on a baseline above the lowest ever anchored, so
+    lowering is the one safe direction — and without it the old baseline
+    becomes an allowance: `unchained > legacy` with legacy 3 admits three
+    smuggled rows silently.
+    """
+    with db.transaction():
+        orphans = db.query(
+            "SELECT id, actor, action, detail, created_at FROM activity"
+            " WHERE seq IS NULL ORDER BY id"
+        )
+        if not orphans:
+            return {"adopted": 0, "ids": []}
+        tail = db.query_one(
+            "SELECT seq, hash FROM activity WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1"
+        )
+        seq = tail["seq"] if tail else 0
+        prev = tail["hash"] if tail else db.GENESIS_PREV
+        for row in orphans:
+            seq += 1
+            digest = db.activity_hash(
+                seq, row["created_at"], row["actor"], row["action"], row["detail"] or "", prev
+            )
+            db.execute(
+                "UPDATE activity SET seq = ?, hash = ?, prev_hash = ? WHERE id = ?",
+                (seq, digest, None if prev == db.GENESIS_PREV else prev, row["id"]),
+            )
+            prev = digest
+        ids = [r["id"] for r in orphans]
+        shown = ", ".join(str(i) for i in ids[:20])
+        if len(ids) > 20:
+            shown += f" and {len(ids) - 20} more"
+        noun = "1 row" if len(ids) == 1 else f"{len(ids)} rows"
+        ref = "id" if len(ids) == 1 else "ids"
+        db.log_activity(actor, "adopt_unchained", f"chained {noun} into the ledger ({ref} {shown})")
+        _put({LEGACY_UNCHAINED: "0"})
+    return {"adopted": len(orphans), "ids": ids}
+
+
 def nightly_verify() -> dict:
-    """The 03:30 job body: verify the tail, then anchor the verified tip.
+    """The 03:30 job body: adopt rows recorded outside the chain, verify the
+    tail, then anchor the verified tip.
+
+    Adoption runs FIRST so tonight's anchor covers the adopted rows and the
+    06:50 findings walk sees a healed chain — ordered the other way, every
+    fallback row raised one false HIGH tamper finding before the heal.
 
     Anchoring only on ok is the point — after a break, appending would anchor
     a digest the verification just refused to bless.
     """
+    adopted = adopt_unchained()
     result = verify_tail()
     if result["ok"]:
         result["anchor"] = record_anchor()
+    result["adopted"] = adopted["adopted"]
     return result
 
 
@@ -406,11 +483,10 @@ def check_anchor_log() -> dict:
     # The in-DB baseline is re-derived whenever its app_settings row is
     # absent, so deleting that one row re-baselines to whatever is present
     # now — laundering any row smuggled in outside the chain, and leaving no
-    # trace the in-DB marks can see. A baseline ABOVE the highest ever
-    # anchored is that reset, or a legitimate fallback append. The two are
-    # genuinely indistinguishable from here (TODO.md records why no
-    # re-baseline operation exists to tell them apart), so this reports the
-    # fact and its date rather than pretending to a verdict.
+    # trace the in-DB marks can see. A baseline ABOVE the lowest ever
+    # anchored is that reset. adopt_unchained only ever LOWERS the baseline,
+    # so no legitimate path raises it — but this check cannot say who did,
+    # so it reports the fact rather than pretending to a verdict.
     current_baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
     if anchored_baseline is not None and current_baseline > anchored_baseline:
         # recorded, then the digest replay still runs: a baseline discrepancy
@@ -474,6 +550,8 @@ def chain_health() -> dict:
 # call degrades instead of breaking, and the registry lives next to the
 # ledger it names.
 VERBS: dict[str, tuple[str, str]] = {
+    # loud: an adoption nobody expected is the tamper signal (adopt_unchained)
+    "adopt_unchained": ("adopted rows into the ledger chain", "loud"),
     "capture": ("captured", "normal"),
     "save_note": ("saved a note", "normal"),
     "update_note": ("edited a note", "normal"),
