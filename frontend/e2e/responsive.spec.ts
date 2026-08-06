@@ -561,3 +561,78 @@ test("a truly empty workspace says so without breaking", async ({ page }) => {
   await page.unroute("**/api/**");
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
+
+/** Focus rings, walked with REAL Tab presses — el.focus() does not match
+ *  :focus-visible in Chromium, so a programmatic walk reports every element as
+ *  ringless and proves nothing. Scoped deliberately: globals.css sets one
+ *  global 2px outline and check_theme_contrast.py already holds --thread to
+ *  >=5.5:1 on every pack surface, so the COLOUR is settled. What is not
+ *  settled is whether an overflow ancestor eats the ring — /settings has
+ *  .pack-tile (overflow-hidden) and /agents has the flock diagram's
+ *  overflow-x-auto box. */
+for (const path of ["/settings", "/agents"]) {
+  test(`no focus ring is clipped on ${path}`, async ({ page }) => {
+    test.setTimeout(120_000);
+    const problems: Problem[] = [];
+    await page.goto("/");
+    await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+    await page.goto(path);
+    await page.waitForLoadState("networkidle").catch(() => {});
+
+    const seen = new Set<string>();
+    for (let i = 0; i < 80; i++) {
+      await page.keyboard.press("Tab");
+      const stop = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || el === document.body) return null;
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const pad =
+          parseFloat(cs.outlineWidth || "0") +
+          parseFloat(cs.outlineOffset || "0");
+        let clippedBy = "";
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const pc = getComputedStyle(p);
+          if (
+            !/hidden|auto|scroll|clip/.test(
+              pc.overflow + pc.overflowX + pc.overflowY,
+            )
+          )
+            continue;
+          const pr = p.getBoundingClientRect();
+          // only the NEAREST clipping ancestor decides
+          if (
+            r.left - pad < pr.left - 0.5 ||
+            r.right + pad > pr.right + 0.5 ||
+            r.top - pad < pr.top - 0.5
+          )
+            clippedBy = String(p.className).slice(0, 40);
+          break;
+        }
+        return {
+          id: (el.textContent || el.getAttribute("aria-label") || el.tagName)
+            .trim()
+            .slice(0, 30),
+          ring: cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2,
+          clippedBy,
+        };
+      });
+      if (!stop) break; // wrapped back out of the document
+      if (seen.has(stop.id + stop.clippedBy)) continue;
+      seen.add(stop.id + stop.clippedBy);
+      if (!stop.ring)
+        problems.push({ page: path, what: "no ring", detail: stop.id });
+      if (stop.clippedBy)
+        problems.push({
+          page: path,
+          what: "clipped ring",
+          detail: `${stop.id} by .${stop.clippedBy}`,
+        });
+    }
+    expect(
+      seen.size,
+      "tabbed nowhere — the walk proves nothing",
+    ).toBeGreaterThan(5);
+    expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
+  });
+}

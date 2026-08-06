@@ -705,6 +705,10 @@ export default function SettingsPage() {
                 key={a.id}
                 onClick={() => setAppearance(a.id)}
                 aria-pressed={appearance === a.id}
+                // the wrapper's overflow-hidden rounds these buttons' corners
+                // and clipped their focus ring with them — globals.css draws
+                // it inside instead
+                data-ring="inset"
                 className={
                   "px-3 py-1.5 text-sm transition-colors " +
                   (appearance === a.id

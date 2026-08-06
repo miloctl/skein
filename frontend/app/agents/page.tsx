@@ -820,7 +820,8 @@ export default function Agents() {
                     keyboard-only reader unable to reach the right-hand
                     members at all. */}
                   <div
-                    className="overflow-x-auto rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-thread-solid"
+                    data-ring="inset"
+                    className="overflow-x-auto rounded"
                     tabIndex={0}
                     role="group"
                     /* not "scrollable": whether it scrolls depends on the
