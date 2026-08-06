@@ -64,6 +64,8 @@ ignore_names = [
     # the strands SDK calls register_hooks on every session manager it is
     # handed (Agent.__init__); the kwargs are its signature, not ours
     "register_hooks",
+    # anyio's CapacityLimiter setter, assigned once in main.py's lifespan
+    "total_tokens",
 ]
 min_confidence = 60
 sort_by_size = true

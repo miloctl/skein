@@ -88,6 +88,31 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# SQLite checkpoints and DELETES the WAL when the last connection to the
+# database closes — and connection-per-operation (query/execute above) makes
+# nearly every write the last connection. Measured: one insert costs 11.99 ms
+# with no other connection open and 0.28 ms with one idle connection held, so
+# the app was 42x slower per write when NEARLY IDLE than under load. This one
+# connection exists only to keep the WAL alive between operations; it never
+# runs a statement (sqlite3's check_same_thread raises if a worker thread
+# tries), holds no transaction, and so never blocks a checkpoint — the
+# 1000-page auto-checkpoint still bounds WAL size through the writers.
+_keepalive: sqlite3.Connection | None = None
+
+
+def open_keepalive() -> None:
+    global _keepalive
+    if _keepalive is None:
+        _keepalive = connect()
+
+
+def close_keepalive() -> None:
+    global _keepalive
+    if _keepalive is not None:
+        _keepalive.close()
+        _keepalive = None
+
+
 def _statements(sql: str) -> list[str]:
     """Split a migration into statements. Convention: migrations contain no
     semicolons inside string literals, trigger bodies, OR COMMENTS — a
