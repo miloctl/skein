@@ -221,7 +221,7 @@ def test_dismiss_is_rate_capped(client, fresh_db):
     for _ in range(30):
         client.post("/api/field-guide/dismiss", json={"knot": "growth"})
     r = client.post("/api/field-guide/dismiss", json={"knot": "growth"})
-    assert r.status_code == 400 and "slow down" in r.json()["detail"]
+    assert r.status_code == 429 and "The limit for" in r.json()["detail"]
     ratelimit.reset()
 
 

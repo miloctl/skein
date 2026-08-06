@@ -3,6 +3,7 @@ endpoints (capture, ingest). Not a security control — a DoS-annoyance guard
 for a single-process trusted-network deployment. Deliberately process-local:
 restarting resets it, multi-worker deployments each get their own window."""
 
+import math
 import time
 from collections import defaultdict, deque
 from threading import Lock
@@ -11,6 +12,21 @@ from . import config
 
 _hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 _lock = Lock()
+
+
+class RateLimited(ValueError):
+    """A refused call, carrying when a retry can succeed.
+
+    Subclasses ValueError so the agent gate (tools/_gate.py) and the mock
+    agent keep catching it as the plain-string refusal they hand to the
+    model. main.py maps it to 429 with a Retry-After header — as a bare
+    ValueError it answered 400, which made a refused-for-now request
+    wire-identical to a malformed one, so no client could back off.
+    """
+
+    def __init__(self, message: str, retry_after: int):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 def client_addr(request) -> str:
@@ -74,7 +90,8 @@ PER = {
 
 
 def check(surface: str, user: str, cost: int = 1) -> None:
-    """Raise ValueError (→ 400) when user exceeded the per-minute cap.
+    """Raise RateLimited (→ 429 + Retry-After, main.py) when user exceeded
+    the per-minute cap.
 
     cost > 1 charges one request for several slots, for a surface where ONE
     call does the work of many. A flock turn is one agent loop per member plus
@@ -116,7 +133,27 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             if not window:
                 del _hits[key]
             scope = PER.get(surface, "per person")
-            raise ValueError(f"slow down — {surface} is capped at {limit}/minute {scope}")
+            if cost > limit:
+                # unreachable today (the flock cost caps at MAX_MEMBERS + 1,
+                # below every limit) — but window[need - 1] below indexes past
+                # the deque the moment that stops being true, and a full
+                # window of waiting never makes room for this request
+                raise RateLimited(
+                    f"One request cannot use {cost} {surface} slots — the limit"
+                    f" is {limit} per minute {scope}. Send a smaller request.",
+                    retry_after=int(WINDOW_SECONDS),
+                )
+            # window[need - 1] is the timestamp whose expiry first makes room
+            # for `cost` slots, so the wait is exact, not a window-sized guess
+            need = len(window) + cost - limit
+            wait = max(1, math.ceil(WINDOW_SECONDS - (now - window[need - 1])))
+            unit = "second" if wait == 1 else "seconds"
+            uses = f" This request uses {cost} of them." if cost > 1 else ""
+            raise RateLimited(
+                f"The limit for {surface} is {limit} per minute {scope}.{uses}"
+                f" Wait {wait} {unit}, then send the request again.",
+                retry_after=wait,
+            )
         window.extend([now] * cost)
 
 

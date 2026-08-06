@@ -686,7 +686,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
         # the -1. That slot stays spent even when this call refuses.
         # Placement is load-bearing twice over. Inside the /flock parse `try`
         # above, its `except ValueError` would render the cap as an SSE text
-        # line while the identical `chat` cap on this route answers 400
+        # line while the identical `chat` cap on this route answers 429
         # (routes/api.py::delete_note carries the same warning). Before
         # get_flock, the member count is not known yet. Nothing has run a
         # model by now, so a refusal here costs the caller nothing.

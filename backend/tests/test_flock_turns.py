@@ -254,8 +254,8 @@ def test_a_flock_turn_costs_one_chat_slot_per_member(client, monkeypatch):
     with client.stream(
         "POST", "/api/chat", json={"thread_id": "c2", "message": "/flock delivery two"}
     ) as resp:
-        assert resp.status_code == 400
-        assert "chat is capped" in resp.read().decode()
+        assert resp.status_code == 429
+        assert "The limit for chat" in resp.read().decode()
     # the refused CALL took no slots, but the turn's top-of-route charge
     # already landed, so 2 remain — enough for a plain turn
     assert _read_chat(client, "hello", thread="c3")
