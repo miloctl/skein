@@ -22,6 +22,7 @@ from ..services import (
     engagements,
     feedback,
     fieldguide,
+    flocks,
     handoff,
     ingest,
     intake,
@@ -97,6 +98,19 @@ def get_personas():
 @router.get("/personas/{slug}")
 def get_persona(slug: str):
     return personas.get_persona(slug)
+
+
+@router.get("/flocks")
+def get_flocks():
+    return flocks.list_flocks()
+
+
+@router.get("/flocks/traces")
+def get_flock_traces(user: CurrentUser, thread: str = "", flock: str = "", limit: int = 20):
+    # CurrentUser, unlike the open roster above: a trace row names a person and
+    # the thread id their chat transcript is keyed by (routes/chat.py scopes
+    # those per owner), so this must not answer an unidentified caller
+    return flocks.list_traces(thread_id=thread, flock=flock, limit=limit)
 
 
 @router.get("/notes")

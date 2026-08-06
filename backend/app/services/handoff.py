@@ -5,9 +5,11 @@ can be layered on later, same pattern as digest._narrate."""
 from pathlib import Path
 
 from .. import config, db
+from ..agents.identity import refuse_in_flock
 
 
 def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
+    refuse_in_flock("generate handoffs")
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
     if not eng:
         raise db.NotFound(f"engagement #{engagement_id} not found")

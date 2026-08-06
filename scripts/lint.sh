@@ -34,6 +34,9 @@ if [ "$mode" != "frontend" ]; then
     echo "== personas =="
     (cd backend && python -m app.services.personas)
 
+    echo "== flocks =="
+    (cd backend && python -m app.services.flocks)
+
     echo "== license copies =="
     # backend/ carries copies because PEP 639 forbids ../ in license-files;
     # a drifted copy would ship a wheel with the wrong license text.

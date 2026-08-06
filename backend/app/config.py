@@ -21,6 +21,8 @@ _playbooks_overlay = os.getenv("SKEIN_PLAYBOOKS_DIR", "")
 PLAYBOOKS_OVERLAY: Path | None = Path(_playbooks_overlay) if _playbooks_overlay else None
 _personas_overlay = os.getenv("SKEIN_PERSONAS_DIR", "")
 PERSONAS_OVERLAY: Path | None = Path(_personas_overlay) if _personas_overlay else None
+_flocks_overlay = os.getenv("SKEIN_FLOCKS_DIR", "")
+FLOCKS_OVERLAY: Path | None = Path(_flocks_overlay) if _flocks_overlay else None
 
 
 def overlay_errors() -> list[str]:
@@ -34,6 +36,7 @@ def overlay_errors() -> list[str]:
     for label, overlay in (
         ("SKEIN_PLAYBOOKS_DIR", PLAYBOOKS_OVERLAY),
         ("SKEIN_PERSONAS_DIR", PERSONAS_OVERLAY),
+        ("SKEIN_FLOCKS_DIR", FLOCKS_OVERLAY),
     ):
         if overlay and not overlay.is_dir():
             out.append(

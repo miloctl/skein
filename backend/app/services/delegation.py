@@ -6,6 +6,7 @@ import json
 from datetime import UTC
 
 from .. import db
+from ..agents.identity import refuse_in_flock
 from .users import ensure_user
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
@@ -65,6 +66,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     """The agent picks up its delegated task: todo -> in_progress. Direct
     (not review-gated) — status motion on the agent's own delegation is
     reversible and the sponsor is told."""
+    refuse_in_flock("claim delegated tasks")
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
@@ -100,6 +102,7 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
         raise ValueError("the progress note is required")
     if len(note) > 2000:
         raise ValueError("keep progress notes under 2000 characters")
+    refuse_in_flock("write to a worklog")
     _check_not_forbidden(actor)
     task = db.query_one(
         "SELECT delegated_agent, sponsor, status, title FROM tasks WHERE id = ?", (task_id,)

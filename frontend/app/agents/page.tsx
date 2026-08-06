@@ -7,6 +7,7 @@ import { actionError, api } from "@/lib/api";
 import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { Card } from "@/components/card";
+import { FlockDiamond, type FlockTrace } from "@/components/flock-diamond";
 import { SectionTabs } from "@/components/section-tabs";
 import { timeAgo } from "@/lib/time";
 
@@ -95,6 +96,7 @@ export default function Agents() {
   const [alwaysReview, setAlwaysReview] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [bench, setBench] = useState<Persona[]>([]);
+  const [traces, setTraces] = useState<FlockTrace[] | null>(null);
   const [entity, setEntity] = useState("task");
   const [level, setLevel] = useState("review");
   const [targetAgent, setTargetAgent] = useState("agent");
@@ -164,6 +166,9 @@ export default function Agents() {
     api<Persona[]>("/api/personas")
       .then(ok(setBench, "bench"))
       .catch(fail("bench", "the bench"));
+    api<FlockTrace[]>("/api/flocks/traces?limit=5")
+      .then(ok(setTraces, "traces"))
+      .catch(fail("traces", "flock traces"));
     api<{
       provider: string;
       model: string;
@@ -364,6 +369,36 @@ export default function Agents() {
                     ))}
                   </p>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Flocks — the last turns, as they ran">
+        {traces === null ? (
+          errors.traces ? failed("traces") : <p className="text-sm text-ink-3">Loading…</p>
+        ) : traces.length === 0 ? (
+          <p className="text-sm text-ink-3">
+            No flock has flown yet. To call a flock, use{" "}
+            <code className="text-xs">/flock &lt;flock&gt; &lt;message&gt;</code> in chat. To see who is
+            on the wing, run <code className="text-xs">/flocks</code>.
+          </p>
+        ) : (
+          <ul className="space-y-6">
+            {traces.map((t) => (
+              <li key={t.id}>
+                <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-sm font-medium text-ink">{t.flock}</span>
+                  <span className="text-xs text-ink-3">
+                    {t.user} · {timeAgo(t.created_at)}
+                  </span>
+                </div>
+                {/* the diagram scrolls inside its own box: the page body must
+                    never scroll sideways on a phone */}
+                <div className="overflow-x-auto">
+                  <FlockDiamond trace={t} />
+                </div>
               </li>
             ))}
           </ul>

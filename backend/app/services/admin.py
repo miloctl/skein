@@ -82,6 +82,9 @@ TABLES = (
     "findings",
     "context_packs",
     "tool_usage",
+    # exported with the other spend tables, not excluded with chat_messages:
+    # a trace carries slugs, timings and token counts, never message text
+    "flock_traces",
     "forecast_snapshots",
     "job_runs",
     "job_outcomes",
