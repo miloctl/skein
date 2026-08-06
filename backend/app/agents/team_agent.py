@@ -13,6 +13,36 @@ log = logging.getLogger("skein.chat")
 # strands' _DEFAULT_AGENT_ID; build_agent never overrides it
 SESSION_AGENT_ID = "default"
 
+# An infinity guard on provider sockets, NOT a latency budget. Deliberately
+# ABOVE routes/chat.py::MEMBER_TIMEOUT_S (180s): that deadline governs a
+# member's whole turn and must be the one that fires, so a cold model load
+# keeps its full budget here. This exists for the reads asyncio.timeout()
+# CANNOT reach — plan_project below is a sync @tool, so strands runs it via
+# asyncio.to_thread (strands/tools/decorator.py), and cancelling that await
+# orphans the THREAD, which keeps reading a stalled socket.
+#
+# That thread holds a slot in the event loop's DEFAULT executor — min(32,
+# cpu_count + 4), so EIGHT on a 4-vCPU box — and NOT in the 40-slot anyio pool
+# that run_in_threadpool and every sync route handler use. The two are
+# separate, and this is the smaller one. Exhaust it and every tool call in
+# every chat stops, with no error that names the cause.
+#
+# Read is an idle-GAP bound, not a request bound: it ends a socket that goes
+# silent, not one that dribbles. It caps the stall, never the orphan's total
+# life, so raising it does not make a hung tool safer.
+READ_TIMEOUT_S = 300.0
+# a host that has not accepted the connection by now is down, not slow
+CONNECT_TIMEOUT_S = 10.0
+
+
+def _client_timeout() -> Any:
+    """The socket timeout every real provider client gets. Local import:
+    httpx arrives with the provider SDK extras, and the mock provider returns
+    before _model() is ever reached."""
+    import httpx
+
+    return httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
+
 
 def _model(model_id: str = "", temperature: float | None = None):
     """Build the configured model provider. THE only place in the codebase
@@ -48,6 +78,7 @@ def _model(model_id: str = "", temperature: float | None = None):
         elif provider == "openai_compatible":
             # local servers ignore it, but the openai client demands one
             client_args["api_key"] = "not-needed"
+        client_args["timeout"] = _client_timeout()
         # No max_tokens here on purpose: the SDK splats params straight into
         # chat.completions.create, and reasoning models (gpt-5 included)
         # reject max_tokens in favour of max_completion_tokens. Injecting it
@@ -59,6 +90,9 @@ def _model(model_id: str = "", temperature: float | None = None):
         from strands.models.ollama import OllamaModel
 
         client_args = {"headers": {"Authorization": f"Bearer {key}"}} if key else {}
+        # ollama is the one SDK whose own default is None (infinite), so this
+        # is the only bound its socket will ever have
+        client_args["timeout"] = _client_timeout()
         return OllamaModel(
             host=config.OLLAMA_HOST,
             ollama_client_args=client_args,
@@ -68,13 +102,20 @@ def _model(model_id: str = "", temperature: float | None = None):
     if provider == "bedrock":
         from strands.models.bedrock import BedrockModel
 
+        # The one branch that sets no timeout, and NOT an oversight: strands
+        # applies its own read_timeout (120s) only while no boto_client_config
+        # is passed, and passing one REPLACES that default instead of merging.
+        # Bedrock is already bounded; hand-rolling a config here to say so
+        # would unbound it the first time someone edits it and forgets.
         return BedrockModel(**_model_config(mid, extra, max_tokens=config.MAX_TOKENS))
 
     if provider == "anthropic":
         from strands.models.anthropic import AnthropicModel
 
+        client_args = {"api_key": key} if key else {}
+        client_args["timeout"] = _client_timeout()
         return AnthropicModel(
-            client_args={"api_key": key} if key else {},
+            client_args=client_args,
             model_id=mid,
             max_tokens=config.MAX_TOKENS,
             **_request_params(extra),

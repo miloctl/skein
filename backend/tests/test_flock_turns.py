@@ -316,3 +316,61 @@ def test_a_hung_member_does_not_hold_the_turn(client, fresh_db, monkeypatch):
     by_slug = {m["slug"]: m["status"] for m in members}
     assert by_slug["code-reviewer"] == "failed"
     assert by_slug["backend-architect"] == "ok"
+
+
+def test_a_hung_merge_does_not_hold_the_turn(client, fresh_db, monkeypatch):
+    """The members have all answered and the reader has nothing left to render,
+    so an unbounded merge holds the SSE stream open on a finished screen. The
+    member deadline covers the merge for the reason it covers a member: both are
+    agent turns against a provider that can accept and never answer."""
+    import asyncio as aio
+
+    from app.routes import chat as chat_route
+
+    class Hung:
+        async def stream_async(self, message):
+            await aio.sleep(3600)
+            yield {"data": "never"}
+
+    monkeypatch.setattr(chat_route, "build_synthesizer", lambda answered: Hung())
+    monkeypatch.setattr(chat_route, "MEMBER_TIMEOUT_S", 0.4)
+    out = _read_chat(client, "/flock delivery what shipped this week", thread="hungmerge")
+    assert "The merge step did not run (TimeoutError)" in out
+    # the members are still delivered — only the merge is lost
+    assert "Project Shepherd" in out
+    row = fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")
+    assert json.loads(row["synthesis"])["status"] == "failed"
+
+
+def test_a_timed_out_member_still_reports_the_write_it_filed(client, fresh_db, monkeypatch):
+    """A receipt for a tool call that already finished must not die with the
+    member. The in-loop drain runs on the NEXT stream event, which a hung member
+    never sends, and the drain after the loop is skipped by the raise — so
+    before the drain in the finally, this proposal sat in the review inbox while
+    the chat window and the trace row both reported none."""
+    import asyncio as aio
+
+    from app.agents import receipts
+    from app.routes import chat as chat_route
+
+    class WroteThenHung:
+        async def stream_async(self, message):
+            receipts.record("queued", "task", "add error tracking", ref=7)
+            await aio.sleep(3600)
+            yield {"data": "never"}
+
+    real = chat_route.build_agent
+
+    def maybe_hang(thread_id, user="anonymous", persona="", stateless=False):
+        if persona == "code-reviewer":
+            return WroteThenHung()
+        return real(thread_id, user, persona=persona, stateless=stateless)
+
+    monkeypatch.setattr(chat_route, "build_agent", maybe_hang)
+    monkeypatch.setattr(chat_route, "MEMBER_TIMEOUT_S", 0.4)
+    out = _read_chat(client, "/flock engineering file something", thread="lostreceipt")
+    assert '"type": "receipt"' in out and "add error tracking" in out
+    members = json.loads(
+        fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")["members"]
+    )
+    assert {m["slug"]: m["receipts"] for m in members}["code-reviewer"] == 1
