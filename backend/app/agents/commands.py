@@ -13,7 +13,7 @@ from difflib import get_close_matches
 from starlette.concurrency import run_in_threadpool
 
 from .. import config
-from ..services import briefing, memory, personas, playbooks, search
+from ..services import briefing, flocks, memory, personas, playbooks, search
 
 # Handlers below call services through run_in_threadpool, never inline: these
 # async generators run on the event loop the chat route shares with every open
@@ -125,6 +125,20 @@ async def _personas(args: str, user: str) -> AsyncIterator[Event]:
     }
 
 
+async def _flocks(args: str, user: str) -> AsyncIterator[Event]:
+    yield _tool_event("list_flocks")
+    rows = await run_in_threadpool(flocks.list_flocks)
+    lines = []
+    for f in rows:
+        heads = " ".join(f"{m['emoji']} {m['name']}" for m in f["members"])
+        lines.append(f"- {f['emoji']} **{f['slug']}** — {f['description']}\n  {heads}")
+    body = "\n".join(lines) or "No flocks installed."
+    yield {
+        "data": "Flocks — call several personas at one time with"
+        f" `/flock <flock> <message>`:\n\n{body}"
+    }
+
+
 async def _remember(args: str, user: str) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/remember <fact>`"}
@@ -194,12 +208,27 @@ COMMANDS: list[dict] = [
         "description": "List the bench of invokable specialist personas",
         "handler": _personas,
     },
+    {
+        "name": "flocks",
+        "args": "",
+        "description": "List the flocks — groups of personas you can call at one time",
+        "handler": _flocks,
+    },
     # handler None: resolved by the chat route (needs the agent layer);
     # listed here so autocomplete and /help stay a single source of truth
     {
         "name": "as",
         "args": "<persona> <message>",
         "description": "Ask a bench persona instead of the Chief of Staff",
+        "handler": None,
+    },
+    # registered even though the route runs it: dispatch() answers any
+    # UNKNOWN /word with a did-you-mean line, and get_close_matches would
+    # match this one to /flocks — the fan-out would never run
+    {
+        "name": "flock",
+        "args": "<flock> <message>",
+        "description": "Ask a flock of personas at one time",
         "handler": None,
     },
 ]

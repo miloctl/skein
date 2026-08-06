@@ -312,7 +312,9 @@ export function Thread() {
               <code>/playbooks</code>, <code>/search</code>,{" "}
               <code>/briefing</code>, <code>/remember</code> — they run
               instantly, no model needed. <code>/personas</code> lists the
-              bench of specialists. Anything else goes to the Chief of Staff.
+              bench of specialists, and <code>/flocks</code> lists the groups
+              you can ask at one time. Anything else goes to the Chief of
+              Staff.
             </p>
           </div>
         </ThreadPrimitive.Empty>

@@ -1,0 +1,8 @@
+name: Engineering
+description: Design tension on one question — the architecture, the failure modes, and the smallest thing that works
+emoji: 🛠️
+members:
+  - backend-architect
+  - code-reviewer
+  - minimal-change-engineer
+synthesis: false

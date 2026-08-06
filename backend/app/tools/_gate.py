@@ -10,7 +10,7 @@ import json
 
 from .. import config, ratelimit
 from ..agents import receipts
-from ..agents.identity import agent_identity, requester_identity
+from ..agents.identity import agent_identity, force_review, requester_identity
 from ..services import lexicon, review
 from ..services.delegation import authority_level
 
@@ -95,8 +95,15 @@ def gated_write(
         return json.dumps(
             {"error": f"writes to {entity} are forbidden for '{actor}' by the authority matrix"}
         )
-    if entity not in ALWAYS_REVIEW and (
-        level == "autonomous" or level == "notify" or not config.AGENT_REVIEW
+    # force_review outranks the matrix and the SKEIN_AGENT_REVIEW flag, and is
+    # outranked by forbidden above (a kill switch never softens into a
+    # proposal). Without it a flock member that earned `autonomous` writes
+    # directly during a fan-out, so ONE consultative human message becomes N
+    # unreviewed writes — see docs/FLOCKS.md and agents/identity.py.
+    if (
+        entity not in ALWAYS_REVIEW
+        and not force_review()
+        and (level == "autonomous" or level == "notify" or not config.AGENT_REVIEW)
     ):
         try:
             result = direct()

@@ -1,0 +1,8 @@
+name: Delivery
+description: Three angles on getting it shipped — the sequence, the cut line, and what was already decided
+emoji: 🚚
+members:
+  - project-shepherd
+  - sprint-prioritizer
+  - meeting-notes
+synthesis: true

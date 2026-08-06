@@ -83,3 +83,52 @@ class MockAgent:
 
         asyncio.run(run())
         return "\n".join(chunks)
+
+
+# One line per member of a keyless flock turn. This pool is one of the five
+# CLAUDE.md commits to keeping in voice — a future author is expected to feed
+# it. Nothing is asked of the reader here, so warmth is allowed.
+_MEMBER_LINES = (
+    "I have read it. On a keyless deployment I can hold an opinion, not voice one.",
+    "Present, and out of my depth without a model behind me.",
+    "Noted. Set a model provider and I will have something to say about this.",
+    "In formation. Silent, but in formation.",
+    "I would answer this properly with a provider configured.",
+)
+
+
+class MockFlockMember:
+    """A flock member on the keyless path. It answers and writes NOTHING.
+
+    Deliberately NOT MockAgent: that class smart-captures freeform text
+    straight through capture.capture, outside the tool gate. Routed through
+    it, one `/flock` message would file N duplicate records attributed to the
+    human who asked a question — the opposite of the review gating a flock
+    turn promises (docs/FLOCKS.md). It also dispatches slash commands, which
+    would run a member's copy of the command N times.
+    """
+
+    def __init__(self, slug: str, name: str = ""):
+        self.slug = slug
+        self.name = name or slug
+
+    async def stream_async(self, message: str):
+        # deterministic per (member, message): the same question gives the
+        # same transcript, which is what makes the keyless path testable
+        seed = sum(ord(c) for c in f"{self.slug}{message.strip()}")
+        yield {"data": _MEMBER_LINES[seed % len(_MEMBER_LINES)]}
+
+
+class MockSynthesizer:
+    """The keyless merge step. It states the count and stops — a synthesis
+    with no model has nothing to merge, and inventing one would be the
+    fabricated answer the mock provider exists to avoid."""
+
+    def __init__(self, answered: int):
+        self.answered = answered
+
+    async def stream_async(self, message: str):
+        # carries a number, so it stays plain: CLAUDE.md bars warmth in any
+        # string with a number in it
+        word = "member" if self.answered == 1 else "members"
+        yield {"data": f"{self.answered} {word} answered. No model is configured to merge them."}
