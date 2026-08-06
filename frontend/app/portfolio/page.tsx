@@ -156,10 +156,10 @@ export default function Portfolio() {
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Health</h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Engagement health, this week&apos;s plan, flow, and forecasts — evidence
-        behind every rating.
+        behind every health call.
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card title="Engagement health — each rating shows why">
+      <Card title="Engagement health — each call shows why">
         {health === null ? (
           pending("health")
         ) : health.length === 0 ? (
@@ -187,8 +187,8 @@ export default function Portfolio() {
                     ))}
                   </ul>
                 ) : (
-                  /* the card title promises a why for every rating, and an
-                     empty receipt list IS the why: services/portfolio.py
+                  /* the card title promises a why for every health call,
+                     and an empty receipt list IS the why: services/portfolio.py
                      rates green exactly when no signal fired */
                   <p className="ml-6 mt-1 text-xs text-ink-3">
                     Nothing flagged: no overdue milestone, no open blocker, no

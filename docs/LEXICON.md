@@ -107,16 +107,19 @@ Cost: 2 label edits plus one helper sentence.
 
 | | |
 |---|---|
-| Words in use | **health** (7 / 3) · **rating** (1 / 1) |
+| Words in use | **health** (7 / 3) · **rating** (2 rendered / 1 file) |
 | Cause | The single "rating" was introduced 2026-08-04 replacing "verdict" — it fixed a real problem (verdict belongs to reviews) but picked a third word |
-| Recommendation | **health** |
+| **DECIDED** | **health** — applied. The card is titled "Engagement health — each call shows why", and the page line reads "evidence behind every health call" |
 
 Why: the card is titled "Engagement health", the API is
-`/api/portfolio/health`, and the knot cards say health. One stray line should
+`/api/portfolio/health`, and the knot cards say health. The stray lines now
 match them. ("Verdict" correctly means a review decision; "score" correctly
 means intake scoring. Both are separate concepts and stay.)
 
-Cost: 1 string.
+Cost: 2 strings — one more than the static count above. A rendered walk
+found the card title as well as the page line, which is the method note at
+the top of this file proving itself: a component assembles a title from a
+prop, and a regex over source counts one of the two.
 
 ---
 
@@ -393,7 +396,7 @@ durable and binary, because it is what a visibility tier reads
 | Concept A | Concept B | Why they must not merge |
 |---|---|---|
 | **verdict** (a review decision) | **score** (intake priority) | different acts, different surfaces |
-| **health** (engagement RAG) | **rating** — retired, see #4 | — |
+| **health** (engagement RAG) | **rating** — retired 2026-08-06, see #4 | not a second concept: it was one word for the same thing |
 | **check** (user action) | **verify** (provenance) / **reconfirm** (charter, decisions) | CLAUDE.md reserves the last two |
 | **delete** (destruction) | **forget** (memories only) | CLAUDE.md |
 | **card** (guide UI) | **knot** (guide source) | see #6 |
