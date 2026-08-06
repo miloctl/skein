@@ -3,6 +3,8 @@ a real Strands Agent. Slash commands come from the shared commands engine
 (also used by the chat route for every provider); freeform text is
 smart-captured — no model, no keys, fully testable."""
 
+from starlette.concurrency import run_in_threadpool
+
 from .. import ratelimit
 from ..services import capture
 from . import commands, receipts
@@ -28,7 +30,11 @@ class MockAgent:
         yield {"current_tool_use": {"toolUseId": "mock-capture", "name": "capture"}}
         try:
             ratelimit.check("capture", self.user)
-            result = capture.capture(text, actor=self.user, origin="human")
+            # threadpooled: this generator is iterated on the event loop
+            # (chat SSE, the Slack route), and capture writes SQLite plus the
+            # search index — inline, the keyless default path was the one
+            # chat path that stalled every open stream on a busy ledger
+            result = await run_in_threadpool(capture.capture, text, actor=self.user, origin="human")
             acks = {
                 "task": (
                     "Filed as task #{id}. It will not escape.",
