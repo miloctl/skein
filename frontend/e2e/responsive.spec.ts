@@ -41,6 +41,11 @@ type Problem = { page: string; what: string; detail: string };
 /** Everything measurable about one rendered page. Kept in the browser as one
  *  evaluate so a walk costs one round trip per page. */
 async function probe(page: Page) {
+  // fonts BEFORE geometry: a pack re-cuts the type, and until its webfont
+  // arrives the header is measured in fallback metrics. That briefly wraps it
+  // to three rows, which read as a 56px --nav-h drift in phosphor and hermes —
+  // a defect in the measurement, not in the app.
+  await page.evaluate(() => document.fonts.ready);
   return page.evaluate(() => {
     const de = document.documentElement;
     const header = document.querySelector("header");
@@ -165,4 +170,185 @@ test.describe("desktop", () => {
     test.use({ colorScheme: "dark" });
     walk("every page holds at 1280px, dark", { phone: false, dark: true });
   });
+});
+
+/** The header is sticky, so a target scrolled to the top of the viewport lands
+ *  under it. axe cannot see this — it is a scroll position, not markup — and
+ *  the skip link was the worst case, putting #content 110px under the header
+ *  for the one control that exists to reach the content. globals.css answers
+ *  with scroll-margin-top on :target and [tabindex="-1"]. */
+for (const vw of [360, 1280]) {
+  test(`the skip link clears the sticky header at ${vw}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: vw, height: 800 });
+    await page.goto("/");
+    await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle").catch(() => {});
+    // from far down the page: the bug only shows when following the link
+    // actually has to scroll
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await page.keyboard.press("Tab");
+    await expect(page.locator(":focus")).toHaveText(/Skip to content/);
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+    const { headerBottom, mainTop } = await page.evaluate(() => ({
+      headerBottom: document.querySelector("header")!.getBoundingClientRect()
+        .bottom,
+      mainTop: document.getElementById("content")!.getBoundingClientRect().top,
+    }));
+    expect(
+      Math.round(mainTop),
+      `#content sits ${Math.round(headerBottom - mainTop)}px under the header`,
+    ).toBeGreaterThanOrEqual(Math.round(headerBottom));
+  });
+}
+
+/** A LAYOUT test, deliberately not a contrast one: check_theme_contrast.py
+ *  already sweeps 7 packs x 6 colorways x 3 surfaces x both modes, plus all
+ *  360 custom hues, on every lint run — a browser adds nothing there. What it
+ *  cannot see is reflow. Phosphor and Atelier bump --fs-xs from 12px to 13px
+ *  and are the widest text in the app; Ledger, Phosphor and Hermes square
+ *  every radius and carry different selvage heights, which feed the --nav-h
+ *  arithmetic the header depends on. */
+test("every fabric pack reflows at 360px without breaking the page", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 360, height: 800 });
+  const problems: Problem[] = [];
+  // a pack re-cuts the type, so a font that fails to load is measured in
+  // fallback metrics — which is a wider header, not a missing one
+  page.on("response", (r) => {
+    if (r.status() >= 400)
+      problems.push({
+        page: new URL(r.url()).pathname,
+        what: "request",
+        detail: String(r.status()),
+      });
+  });
+  await page.goto("/");
+  await page.evaluate(
+    (n) => window.localStorage.setItem("skein-user", n),
+    LONG_NAME,
+  );
+  // densest, longest, and the one page that sizes itself from --nav-h
+  for (const path of ["/dashboard", "/settings", "/chat"]) {
+    for (const pack of [
+      "loom",
+      "ledger",
+      "phosphor",
+      "contrast",
+      "atelier",
+      "claw",
+      "hermes",
+    ]) {
+      await page.goto(path);
+      await page.evaluate(
+        (p) => window.localStorage.setItem("skein-pack", p),
+        pack,
+      );
+      await page.reload();
+      await page.waitForLoadState("networkidle").catch(() => {});
+      // wait for HYDRATION, not a timeout: the name comes from localStorage
+      // through useSyncExternalStore, so until it renders the header is a
+      // different width than the one being measured — which reported a 56px
+      // --nav-h drift for phosphor and hermes against an app that was fine.
+      await page
+        .waitForFunction(
+          (n) => document.querySelector("header")?.innerText.includes(n),
+          LONG_NAME,
+          { timeout: 10_000 },
+        )
+        .catch(() => {});
+      const p = await probe(page);
+      const applied = await page.evaluate(
+        () => document.documentElement.dataset.pack ?? "loom",
+      );
+      const where = `${path} · ${pack}`;
+      // a pack that did not apply makes every measurement below a measurement
+      // of Loom, reported as a pass for the pack
+      if (applied !== pack)
+        problems.push({
+          page: where,
+          what: "pack",
+          detail: `rendered ${applied}`,
+        });
+      if (p.overflowPx > 1)
+        problems.push({
+          page: where,
+          what: "overflow",
+          detail: `${p.overflowPx}px · ${p.overflowCulprit}`,
+        });
+      if (Math.abs(p.headerDrift) > 1) {
+        const shape = await page.evaluate(() => {
+          const h = document.querySelector("header")!;
+          const row = h.querySelector("div")!;
+          return {
+            h: Math.round(h.getBoundingClientRect().height),
+            rows: new Set(
+              [...row.children].map((e) =>
+                Math.round(e.getBoundingClientRect().top),
+              ),
+            ).size,
+            nav: h.innerText.replace(/\n/g, "|").slice(0, 40),
+            vw: window.innerWidth,
+          };
+        });
+        problems.push({
+          page: where,
+          what: "header",
+          detail: `${p.headerDrift}px off --nav-h · ${JSON.stringify(shape)}`,
+        });
+      }
+    }
+  }
+  await page.evaluate(() => window.localStorage.removeItem("skein-pack"));
+  expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
+});
+
+/** The three answers a screen owes: loading, empty, error — and never two at
+ *  once. The repo treats a false empty state as its most expensive defect
+ *  (__tests__/agents-silent-catches.test.tsx, false-claims.test.tsx), but
+ *  those mock at the api() layer in jsdom. This forces the states in a real
+ *  browser, where the page is composed. lib/api.ts::backendUnreachable is the
+ *  one wording every surface must use, so it doubles as the assertion. */
+const CLAIMS: Record<string, RegExp> = {
+  "/agents":
+    /No agent identities yet|No rules yet|Nothing remembered yet|No flock has flown yet/,
+  "/review": /propose changes, they wait here/,
+  "/intake": /No requests yet/,
+  "/charter": /No charter entries yet/,
+  "/activity": /Nothing on the ledger yet/,
+};
+
+test("a dead backend says so, and claims nothing", async ({ page }) => {
+  test.setTimeout(180_000);
+  const problems: Problem[] = [];
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  // every API call fails at the transport layer — the `isUnreachable` branch
+  await page.route("**/api/**", (route) => route.abort("failed"));
+
+  for (const [path, claim] of Object.entries(CLAIMS)) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    const text = await page.evaluate(() => document.body.innerText);
+    if (!text.includes("Check that the server is running"))
+      problems.push({
+        page: path,
+        what: "silent",
+        detail: "no unreachable sentence",
+      });
+    const claimed = text.match(claim);
+    if (claimed)
+      problems.push({
+        page: path,
+        what: "false claim",
+        detail: `said "${claimed[0]}" with no data`,
+      });
+  }
+  await page.unroute("**/api/**");
+  expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });

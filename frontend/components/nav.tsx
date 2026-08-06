@@ -146,195 +146,211 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-10 bg-page/85 backdrop-blur">
       <div className="flex min-h-[var(--nav-h)] flex-wrap items-center px-4 sm:px-6 md:min-h-0">
-        <Link
-          href="/"
-          className="flex h-14 items-center gap-2 whitespace-nowrap"
-        >
-          {/* the mark carries the fixed identity; the wordmark stays live text
+        {/* Logo and identity share ONE non-wrapping row; only the nav below
+            wraps. Without this they are two flex items of a flex-wrap parent,
+            and flex breaks lines using hypothetical sizes BEFORE it shrinks
+            anything — so no min-w-0 on the name can stop the identity being
+            pushed onto a third row when a pack re-cuts the type wider
+            (phosphor uppercases the wordmark; hermes ships a pixel face).
+            md:contents dissolves this wrapper on desktop, where the parent's
+            own order-1/order-2 places the same children. */}
+        <div className="flex w-full min-w-0 items-center md:contents">
+          <Link
+            href="/"
+            className="flex h-14 shrink-0 items-center gap-2 whitespace-nowrap"
+          >
+            {/* the mark carries the fixed identity; the wordmark stays live text
               so it keeps being re-cut per pack (Fraunces under ledger/atelier,
               glowing mono under phosphor) — freezing it would make it the one
               non-parametric piece of type on screen */}
-          <SkeinMark size={17} className="text-thread" />
-          <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
-            Skein
-          </span>
-          <span className="hidden font-mono text-[11px] tracking-[0.08em] text-ink-3 xl:inline">
-            many strands · one formation
-          </span>
-        </Link>
-        <div className="ml-auto flex h-14 items-center gap-3 md:order-2 md:ml-4">
-          <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
-          <div className="relative">
-            <button
-              ref={idBtnRef}
-              onClick={() => {
-                const opening = !menuOpen;
-                setMenuOpen(opening);
-                if (opening && !guideMeta && !anonymous)
-                  api<{ tied_count: number; total: number }>(
-                    "/api/field-guide/hint",
-                  )
-                    .then((h) =>
-                      setGuideMeta({
-                        tied_count: h.tied_count,
-                        total: h.total,
-                      }),
+            <SkeinMark size={17} className="text-thread" />
+            <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
+              Skein
+            </span>
+            <span className="hidden font-mono text-[11px] tracking-[0.08em] text-ink-3 xl:inline">
+              many strands · one formation
+            </span>
+          </Link>
+          {/* min-w-0 so this cluster SHRINKS instead of wrapping the header onto
+            a third row. A fixed cap on the name is not enough: a pack re-cuts
+            the type, and phosphor (mono) and hermes (pixel display) render the
+            same characters wider, which pushed the cluster past the row and
+            drifted --nav-h by 56px — one whole row. Shrinking makes the name's
+            truncate absorb whatever the pack costs. */}
+          <div className="ml-auto flex h-14 min-w-0 items-center gap-3 md:order-2 md:ml-4">
+            <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
+            <div className="relative min-w-0">
+              <button
+                ref={idBtnRef}
+                onClick={() => {
+                  const opening = !menuOpen;
+                  setMenuOpen(opening);
+                  if (opening && !guideMeta && !anonymous)
+                    api<{ tied_count: number; total: number }>(
+                      "/api/field-guide/hint",
                     )
-                    .catch(() => {});
-              }}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              title={anonymous ? "Pick your name" : `You — ${user}`}
-              className="relative flex min-h-11 items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink md:min-h-0"
-            >
-              <span
-                className={
-                  "flex size-5 items-center justify-center rounded-full font-mono text-[10px] uppercase " +
-                  (anonymous
-                    ? "border border-dashed border-line-strong text-ink-3"
-                    : "bg-thread-solid/15 text-thread")
-                }
+                      .then((h) =>
+                        setGuideMeta({
+                          tied_count: h.tied_count,
+                          total: h.total,
+                        }),
+                      )
+                      .catch(() => {});
+                }}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                title={anonymous ? "Pick your name" : `You — ${user}`}
+                className="relative flex min-h-11 min-w-0 items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink md:min-h-0"
               >
-                {anonymous ? "?" : user[0]}
-              </span>
-              {anonymous ? (
-                <span className="text-ink-3">anonymous</span>
-              ) : (
-                // 7rem at phone width, not 9: the logo (65px) plus this
-                // cluster must fit 328px of content box, and at 9rem a
-                // 22-character name made the cluster 273px and wrapped the
-                // header into a THIRD row — 166px against a --nav-h of 100,
-                // which pushes the chat composer off-screen. globals.css
-                // publishes --nav-h on the promise that this cannot happen.
-                <span className="max-w-[7rem] truncate sm:max-w-[9rem]">
-                  {user}
-                </span>
-              )}
-              {hasKey && (
                 <span
-                  aria-hidden
-                  title="Strong identity active"
-                  className="absolute left-4 top-1 size-1.5 rounded-full bg-ok"
-                />
-              )}
-            </button>
-            {menuOpen && (
-              <div
-                ref={menuRef}
-                role="menu"
-                aria-label="You"
-                onBlur={(e) => {
-                  // Tab-out closes; Escape below returns focus to the button
-                  if (!e.currentTarget.contains(e.relatedTarget as Node))
-                    setMenuOpen(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setMenuOpen(false);
-                    idBtnRef.current?.focus();
+                  className={
+                    "flex size-5 items-center justify-center rounded-full font-mono text-[10px] uppercase " +
+                    (anonymous
+                      ? "border border-dashed border-line-strong text-ink-3"
+                      : "bg-thread-solid/15 text-thread")
                   }
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    const items = [
-                      ...(menuRef.current?.querySelectorAll<HTMLElement>(
-                        "[role=menuitem]",
-                      ) ?? []),
-                    ];
-                    const i = items.indexOf(
-                      document.activeElement as HTMLElement,
-                    );
-                    const next =
-                      e.key === "ArrowDown"
-                        ? items[(i + 1) % items.length]
-                        : items[(i - 1 + items.length) % items.length];
-                    next?.focus();
-                  }
-                }}
-                className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-line bg-card p-1 shadow-float"
-              >
-                <Link
-                  href="/settings"
-                  role="menuitem"
-                  onClick={() => setMenuOpen(false)}
-                  className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
                 >
-                  <span aria-hidden>⚙ </span>
-                  {/* only trusted-header mode lets a person type who they are.
-                      Offering it elsewhere invites a name the server ignores. */}
-                  {anonymous && mode === "trusted-header"
-                    ? "Pick your name…"
-                    : "Settings"}
-                </Link>
-                {mode === "oidc" && (
-                  <button
-                    role="menuitem"
-                    onClick={() => {
+                  {anonymous ? "?" : user[0]}
+                </span>
+                {anonymous ? (
+                  <span className="text-ink-3">anonymous</span>
+                ) : (
+                  // 7rem at phone width, not 9: the logo (65px) plus this
+                  // cluster must fit 328px of content box, and at 9rem a
+                  // 22-character name made the cluster 273px and wrapped the
+                  // header into a THIRD row — 166px against a --nav-h of 100,
+                  // which pushes the chat composer off-screen. globals.css
+                  // publishes --nav-h on the promise that this cannot happen.
+                  <span className="min-w-0 max-w-[7rem] truncate sm:max-w-[9rem]">
+                    {user}
+                  </span>
+                )}
+                {hasKey && (
+                  <span
+                    aria-hidden
+                    title="Strong identity active"
+                    className="absolute left-4 top-1 size-1.5 rounded-full bg-ok"
+                  />
+                )}
+              </button>
+              {menuOpen && (
+                <div
+                  ref={menuRef}
+                  role="menu"
+                  aria-label="You"
+                  onBlur={(e) => {
+                    // Tab-out closes; Escape below returns focus to the button
+                    if (!e.currentTarget.contains(e.relatedTarget as Node))
                       setMenuOpen(false);
-                      if (signedIn) {
-                        signOut();
-                        setUser("anonymous");
-                      } else {
-                        // signIn resolves to a message only when it could not
-                        // start: an unconfigured deployment, or a config it
-                        // could not read. Never a success path.
-                        signIn(pathname).then((m) => m && reportStatus(m));
-                      }
-                    }}
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setMenuOpen(false);
+                      idBtnRef.current?.focus();
+                    }
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      const items = [
+                        ...(menuRef.current?.querySelectorAll<HTMLElement>(
+                          "[role=menuitem]",
+                        ) ?? []),
+                      ];
+                      const i = items.indexOf(
+                        document.activeElement as HTMLElement,
+                      );
+                      const next =
+                        e.key === "ArrowDown"
+                          ? items[(i + 1) % items.length]
+                          : items[(i - 1 + items.length) % items.length];
+                      next?.focus();
+                    }
+                  }}
+                  className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-line bg-card p-1 shadow-float"
+                >
+                  <Link
+                    href="/settings"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
                     className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
                   >
-                    <span aria-hidden>{signedIn ? "⇥ " : "⇤ "}</span>
-                    {signedIn ? "Sign out" : "Sign in"}
-                  </button>
-                )}
-                <Link
-                  href="/guide"
-                  role="menuitem"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex w-full items-baseline justify-between rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
-                >
-                  <span>
-                    <span aria-hidden>🧶 </span>Field guide
-                  </span>
-                  {guideMeta && (
-                    <span className="font-mono text-[10px] tabular-nums text-ink-3">
-                      {guideMeta.tied_count}/{guideMeta.total}
-                    </span>
+                    <span aria-hidden>⚙ </span>
+                    {/* only trusted-header mode lets a person type who they are.
+                      Offering it elsewhere invites a name the server ignores. */}
+                    {anonymous && mode === "trusted-header"
+                      ? "Pick your name…"
+                      : "Settings"}
+                  </Link>
+                  {mode === "oidc" && (
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (signedIn) {
+                          signOut();
+                          setUser("anonymous");
+                        } else {
+                          // signIn resolves to a message only when it could not
+                          // start: an unconfigured deployment, or a config it
+                          // could not read. Never a success path.
+                          signIn(pathname).then((m) => m && reportStatus(m));
+                        }
+                      }}
+                      className="block w-full rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
+                    >
+                      <span aria-hidden>{signedIn ? "⇥ " : "⇤ "}</span>
+                      {signedIn ? "Sign out" : "Sign in"}
+                    </button>
                   )}
-                </Link>
-                <p className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3">
-                  {/* what the SERVER will make of this caller. "Weak identity"
+                  <Link
+                    href="/guide"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-baseline justify-between rounded px-2.5 py-2 text-left text-[13px] text-ink-2 hover:bg-raised focus:bg-raised md:py-1.5"
+                  >
+                    <span>
+                      <span aria-hidden>🧶 </span>Field guide
+                    </span>
+                    {guideMeta && (
+                      <span className="font-mono text-[10px] tabular-nums text-ink-3">
+                        {guideMeta.tied_count}/{guideMeta.total}
+                      </span>
+                    )}
+                  </Link>
+                  <p className="mt-1 border-t border-line px-2.5 pb-1 pt-1.5 text-[11px] text-ink-3">
+                    {/* what the SERVER will make of this caller. "Weak identity"
                       is true only where the name picker is the identity. */}
-                  {signedIn
-                    ? "Signed in — strong identity"
-                    : mode === "oidc"
-                      ? "Signed out — sign in to write"
-                      : mode === "api-key"
-                        ? hasKey
-                          ? "Strong identity active"
-                          : "No API key — this deployment needs one"
-                        : anonymous
-                          ? "No name picked — writes will not be yours"
-                          : hasKey
+                    {signedIn
+                      ? "Signed in — strong identity"
+                      : mode === "oidc"
+                        ? "Signed out — sign in to write"
+                        : mode === "api-key"
+                          ? hasKey
                             ? "Strong identity active"
-                            : "Weak identity — no API key"}
-                </p>
-              </div>
-            )}
+                            : "No API key — this deployment needs one"
+                          : anonymous
+                            ? "No name picked — writes will not be yours"
+                            : hasKey
+                              ? "Strong identity active"
+                              : "Weak identity — no API key"}
+                  </p>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={(e) => {
+                // Safari doesn't focus buttons on click — focus explicitly so
+                // the palette can hand focus back here when it closes
+                e.currentTarget.focus();
+                window.dispatchEvent(new Event("skein-capture-open"));
+              }}
+              aria-label="Quick capture"
+              title="Quick capture (⌘K)"
+              className="shrink-0 rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
+            >
+              <span className="md:hidden">+ Capture</span>
+              <span className="hidden md:inline">⌘K</span>
+            </button>
           </div>
-          <button
-            onClick={(e) => {
-              // Safari doesn't focus buttons on click — focus explicitly so
-              // the palette can hand focus back here when it closes
-              e.currentTarget.focus();
-              window.dispatchEvent(new Event("skein-capture-open"));
-            }}
-            aria-label="Quick capture"
-            title="Quick capture (⌘K)"
-            className="rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
-          >
-            <span className="md:hidden">+ Capture</span>
-            <span className="hidden md:inline">⌘K</span>
-          </button>
         </div>
         <nav
           aria-label="Primary"
