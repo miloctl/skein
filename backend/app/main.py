@@ -149,9 +149,23 @@ async def lifespan(app: FastAPI):
 
     import anyio.to_thread
 
-    anyio.to_thread.current_default_thread_limiter().total_tokens = config.THREAD_POOL
+    # THE only place either pool size is applied. services/tuning.py exposes
+    # both as knobs marked live=False, and this line is why that mark is
+    # honest: an administrator's override reaches the process here and
+    # nowhere else, so it takes effect at the next boot and not before.
+    # db.init_db() ran at the top of this function, so the read is safe.
+    pools = {"thread_pool": config.THREAD_POOL, "tool_threads": config.TOOL_THREADS}
+    try:
+        from .services.tuning import effective
+
+        pools = {name: effective(name) for name in pools}
+    except Exception:
+        # operator config never takes down the API — the env values are a
+        # correct sizing, just not the stored one
+        log.exception("could not read the stored pool sizes — using the environment values")
+    anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
     asyncio.get_running_loop().set_default_executor(
-        ThreadPoolExecutor(max_workers=config.TOOL_THREADS, thread_name_prefix="skein-tool")
+        ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
     )
     # held for the process lifetime so writes stop paying WAL
     # checkpoint-on-close — 42x per write when idle, measured (db.py)
@@ -364,9 +378,7 @@ async def database_busy_handler(request: Request, exc: sqlite3.OperationalError)
         raise exc
     return JSONResponse(
         status_code=503,
-        content={
-            "detail": "The database is busy. Wait a few seconds, then send the request again."
-        },
+        content={"detail": "The database is busy. Wait 5 seconds, then send the request again."},
         headers={"Retry-After": "5"},
     )
 

@@ -861,10 +861,34 @@ def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
     assert len(found) == 1
     assert found[0]["rule_id"] == "ledger_rows_adopted"
     assert found[0]["severity"] == "medium"
-    assert "activity chain append failed" in found[0]["message"]
+    # the two counts, and the comparison between them, are the whole signal:
+    # told to grep the log instead, an operator who found ONE genuine warning
+    # stood down for every row adopted that night
+    assert "expected" in found[0]["message"]
+    assert "more than the rows expected" in found[0]["message"]
     receipt = db.query_row("SELECT seq FROM activity WHERE action = 'adopt_unchained'")
     assert found[0]["subject"] == f"adopt:{receipt['seq']}"
     # once the two-day window passes, the rule is quiet again — the receipt is
     # not editable (it is chained), so the window is moved, not the row
     monkeypatch.setattr(insights, "_today", lambda: date(2030, 1, 1))
     assert insights._r_activity_chain() == []
+
+
+def test_an_unchained_row_does_not_suppress_the_digest_walk(fresh_db):
+    """verify_chain used to RETURN at the unchained count, before the walk
+    that is its primary job. One row with a NULL seq — cheap to arrange, and
+    the honest lock-timeout path produces one by itself — then hid a re-forge
+    of the whole chain until the nightly adoption cleared it."""
+    _log(4)
+    assert activity.verify_chain()["ok"]  # sets the baseline at 0
+    # a smuggled unchained row AND a tampered chained row
+    db.execute(
+        "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        ("mallory", "smuggled", "", db.now()),
+    )
+    db.execute("UPDATE activity SET detail = 'rewritten' WHERE seq = 2")
+    result = activity.verify_chain()
+    assert not result["ok"]
+    # the DIGEST break is reported, not just the count that used to mask it
+    assert result["broken_at"] == 2
+    assert "does not match its digest" in result["reason"]

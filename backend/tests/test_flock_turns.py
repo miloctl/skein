@@ -335,7 +335,9 @@ def test_a_hung_merge_does_not_hold_the_turn(client, fresh_db, monkeypatch):
     monkeypatch.setattr(chat_route, "build_synthesizer", lambda answered: Hung())
     monkeypatch.setattr(chat_route, "MEMBER_TIMEOUT_S", 0.4)
     out = _read_chat(client, "/flock delivery what shipped this week", thread="hungmerge")
-    assert "The merge step did not run (TimeoutError)" in out
+    # "did not finish", not "did not run": a merge that hit the deadline
+    # DID run, and whatever it streamed first is already on screen above
+    assert "The merge step did not finish (TimeoutError)" in out
     # the members are still delivered — only the merge is lost
     assert "Project Shepherd" in out
     row = fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")

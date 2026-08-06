@@ -13,19 +13,26 @@ log = logging.getLogger("skein.chat")
 # strands' _DEFAULT_AGENT_ID; build_agent never overrides it
 SESSION_AGENT_ID = "default"
 
-# An infinity guard on provider sockets, NOT a latency budget. Deliberately
-# ABOVE routes/chat.py::MEMBER_TIMEOUT_S (180s): that deadline governs a
-# member's whole turn and must be the one that fires, so a cold model load
-# keeps its full budget here. This exists for the reads asyncio.timeout()
+# An infinity guard on provider sockets, NOT a latency budget. The DEFAULT
+# for the read_timeout_s knob; _client_timeout below reads the administrator's
+# override. Deliberately above routes/chat.py::MEMBER_TIMEOUT_S: that deadline
+# governs a member's whole turn and must be the one that fires, so a cold
+# model load keeps its full budget here. The ordering is enforced at write
+# time by services/tuning.py::_check_pairs and pinned by
+# tests/test_model_providers.py::test_the_socket_outlives_the_turn_deadline —
+# no literal for the other number lives here, because a duplicated literal
+# goes stale the moment chat.py changes. This exists for the reads asyncio.timeout()
 # CANNOT reach — plan_project below is a sync @tool, so strands runs it via
 # asyncio.to_thread (strands/tools/decorator.py), and cancelling that await
 # orphans the THREAD, which keeps reading a stalled socket.
 #
-# That thread holds a slot in the event loop's DEFAULT executor — min(32,
-# cpu_count + 4), so EIGHT on a 4-vCPU box — and NOT in the 40-slot anyio pool
-# that run_in_threadpool and every sync route handler use. The two are
-# separate, and this is the smaller one. Exhaust it and every tool call in
-# every chat stops, with no error that names the cause.
+# That thread holds a slot in the event loop's DEFAULT executor, sized by
+# config.TOOL_THREADS in main.py's lifespan — NOT in the anyio pool
+# (config.THREAD_POOL) that run_in_threadpool and every sync route handler
+# use. The two are separate pools, and exhausting this one stops every tool
+# call in every chat with no error that names the cause. Both sizes are
+# admin-tunable (services/tuning.py), so neither number belongs in this
+# comment: read config.py, which records how they were measured.
 #
 # Read is an idle-GAP bound, not a request bound: it ends a socket that goes
 # silent, not one that dribbles. It caps the stall, never the orphan's total
@@ -38,10 +45,29 @@ CONNECT_TIMEOUT_S = 10.0
 def _client_timeout() -> Any:
     """The socket timeout every real provider client gets. Local import:
     httpx arrives with the provider SDK extras, and the mock provider returns
-    before _model() is ever reached."""
+    before _model() is ever reached.
+
+    Reads the administrator's override per build, never the constant alone.
+    services/tuning.py::_check_pairs refuses to let this value cross
+    MEMBER_TIMEOUT_S, and that invariant only holds while the number it
+    checks is the number that reaches the socket — a knob the enforcement
+    path ignores is worse than no knob, because the UI then reports a bound
+    the deployment does not have.
+    """
     import httpx
 
-    return httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
+    read = READ_TIMEOUT_S
+    try:
+        from ..services.tuning import override_of
+
+        got = override_of("read_timeout_s")
+        if got is not None:
+            read = float(got)
+    except Exception:
+        # a settings read must never stop an agent from being built: the
+        # constant is a correct bound, just not the operator's chosen one
+        pass
+    return httpx.Timeout(read, connect=CONNECT_TIMEOUT_S)
 
 
 def _model(model_id: str = "", temperature: float | None = None):

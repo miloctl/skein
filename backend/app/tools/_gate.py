@@ -89,16 +89,22 @@ def gated_write(
     # destructive ALWAYS_REVIEW verbs legitimately carry empty payloads.
     if action == "update" and not payload and entity not in ALWAYS_REVIEW:
         return json.dumps({"error": "nothing to change — pass at least one field"})
-    # same 30/min budget the REST creates use — a looping agent must not
-    # flood the DB (direct) or the review queue (proposals) unmetered.
-    # Keyed on the (agent, requester) PAIR: the default chat identity is one
-    # name ("agent") shared by the whole team, so keying on the actor alone
-    # made it one team-wide bucket — person B's write refused because person
-    # A was mid-turn, with a message claiming the cap was per person.
-    # 'direct' marks the paths where the agent IS the caller (MCP, scheduler)
-    # and no human stands behind the write.
+    # Same 30/min budget the REST creates use, and keyed on the SAME subject:
+    # the human who asked. Keying on the actor alone made it one team-wide
+    # bucket, because the default chat identity is the single name "agent" —
+    # person B's write was refused because person A was mid-turn, under a
+    # message claiming the cap was per person. Keying on the PAIR fixed that
+    # and broke the arithmetic instead: agent identity is per persona, so one
+    # person addressing a 5-member flock held 5 buckets of 30 against a cap
+    # labelled 30 per person, on the path where every write becomes a
+    # proposal. The requester is the subject the label already names.
+    #
+    # Falls back to the actor for MCP and the scheduler, where the agent IS
+    # the caller and no human stands behind the write. No separator, no join:
+    # a composite key collided the moment a teammate picked the name on the
+    # other side of it.
     try:
-        ratelimit.check("write", f"{actor}@{requester_identity() or 'direct'}")
+        ratelimit.check("write", requester_identity() or actor)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
     level = effective_level(actor, entity)

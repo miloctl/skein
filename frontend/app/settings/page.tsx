@@ -101,6 +101,55 @@ export default function SettingsPage() {
   const [ctxLoaded, setCtxLoaded] = useState(false);
   const [ctxLoadError, setCtxLoadError] = useState("");
   const [ctxStatus, setCtxStatus] = useState("");
+  type Tunable = {
+    name: string;
+    label: string;
+    value: number;
+    default: number;
+    override: number | null;
+    floor: number;
+    ceiling: number;
+    unit: string;
+    live: boolean;
+    detail: string;
+    ignored: boolean;
+  };
+  const [tunables, setTunables] = useState<Tunable[] | null>(null);
+  // three states, not two: before the first fetch settles nothing has failed,
+  // and an error rendered during normal loading describes something that did
+  // not happen (docs/LEXICON.md T2)
+  const [tuneLoaded, setTuneLoaded] = useState(false);
+  const [tuneLoadError, setTuneLoadError] = useState("");
+  const [tuneStatus, setTuneStatus] = useState("");
+  const [tuneBusy, setTuneBusy] = useState("");
+  const [tuneDraft, setTuneDraft] = useState<Record<string, string>>({});
+  // `settled` is the knob that was just written, and ONLY its draft is
+  // dropped. Clearing the whole map threw away half-typed values on every
+  // other knob in the list, with nothing said — a save on knob A silently
+  // reverted the reader's unsaved edit to knob B.
+  const loadTunables = useCallback((settled?: string) => {
+    api<Tunable[]>("/api/settings/tuning")
+      .then((r) => {
+        setTunables(r);
+        setTuneLoadError("");
+        if (settled)
+          setTuneDraft((d) => {
+            const next = { ...d };
+            delete next[settled];
+            return next;
+          });
+      })
+      .catch((e) => {
+        setTunables(null);
+        // the same helper the long-chat section uses, so a refusal the server
+        // answered never reads as an unreachable backend. A non-administrator
+        // lands here too, and the server's own 403 sentence already tells
+        // them what they need — this must not re-word it (CLAUDE.md)
+        setTuneLoadError(loadError(e));
+      })
+      .finally(() => setTuneLoaded(true));
+  }, []);
+  useEffect(loadTunables, [loadTunables]);
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
     // the GET fails, the empty field must NOT be saveable — an empty save
@@ -1081,6 +1130,189 @@ export default function SettingsPage() {
             </p>
           </div>
         )}
+      </Section>
+
+      <Section title="Deployment limits (team)">
+        <p className="mb-3 text-sm text-ink-3">
+          These limits set what Skein allows per person, and how long it waits
+          on a model. They apply to everyone. Only an administrator can read or
+          change them, with a personal API key (step 2). If you clear a limit,
+          Skein uses the server default.
+        </p>
+        {tuneLoaded && !tunables && tuneLoadError && (
+          <p className="text-sm text-ink-3">{tuneLoadError}</p>
+        )}
+        {tunables && (
+          <div className="space-y-3">
+            {tunables.map((t) => {
+              const draft = tuneDraft[t.name] ?? String(t.value);
+              const parsed = Number(draft);
+              // a draft is only submittable when it is a whole number inside
+              // the bounds AND different from what is in force. The server
+              // range-checks it again — this is not the guard, it is the
+              // reason the reader is not made to press a button that fails.
+              const valid =
+                draft.trim() !== "" &&
+                Number.isInteger(parsed) &&
+                parsed >= t.floor &&
+                parsed <= t.ceiling;
+              const changed = valid && parsed !== t.value;
+              return (
+                <div
+                  key={t.name}
+                  className="rounded-xl border border-line px-3 py-2.5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      htmlFor={`tune-${t.name}`}
+                      className="text-sm font-medium text-ink"
+                    >
+                      {t.label}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id={`tune-${t.name}`}
+                        type="number"
+                        inputMode="numeric"
+                        min={t.floor}
+                        max={t.ceiling}
+                        value={draft}
+                        // every sentence that qualifies this number, named
+                        // here: the bounds, the out-of-range notice, and the
+                        // validation line all render BELOW two buttons, so a
+                        // screen reader never reaches them from the input.
+                        // aria-invalid carries the state itself — the range
+                        // of a number input is not reliably announced.
+                        aria-describedby={
+                          `tune-${t.name}-help` +
+                          (t.ignored ? ` tune-${t.name}-stored` : "") +
+                          (valid ? "" : ` tune-${t.name}-err`)
+                        }
+                        aria-invalid={!valid || undefined}
+                        onChange={(e) =>
+                          setTuneDraft((d) => ({
+                            ...d,
+                            [t.name]: e.target.value,
+                          }))
+                        }
+                        className="w-24 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm text-ink"
+                      />
+                      <span className="text-xs text-ink-3">{t.unit}</span>
+                    </div>
+                  </div>
+                  <p id={`tune-${t.name}-help`} className="mt-1 text-xs text-ink-3">
+                    {t.detail} Allowed: {t.floor} to {t.ceiling}. Default:{" "}
+                    {t.default}.
+                    {!t.live &&
+                      " This value is read at startup. A change applies after a restart."}
+                  </p>
+                  {t.ignored && (
+                    <p
+                      id={`tune-${t.name}-stored`}
+                      className="mt-1 text-xs text-danger"
+                    >
+                      The stored value {t.override} is outside the allowed
+                      range, so Skein uses {t.value} {t.unit}. Save a value
+                      inside the range to replace it.
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      // busy, not only unchanged: `changed` stays true for the
+                      // whole flight (t.value updates after the reload), so a
+                      // double press sent two writes — and each one appends to
+                      // the activity ledger, which is never pruned
+                      disabled={!changed || tuneBusy === t.name}
+                      onClick={async () => {
+                        setTuneBusy(t.name);
+                        try {
+                          await api("/api/settings/tuning", {
+                            method: "POST",
+                            body: JSON.stringify({
+                              name: t.name,
+                              value: parsed,
+                            }),
+                          });
+                          setTuneStatus(`${t.label}: ${parsed} ${t.unit}.`);
+                          loadTunables(t.name);
+                        } catch (e) {
+                          // "Not saved." first, matching the long-chat panel:
+                          // the server's own sentence alone reads as a neutral
+                          // remark beside a button the reader just pressed
+                          setTuneStatus(`Not saved. ${actionError(e)}`);
+                        } finally {
+                          setTuneBusy("");
+                        }
+                      }}
+                      className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                    {t.override !== null && (
+                      <button
+                        type="button"
+                        disabled={tuneBusy === t.name}
+                        onClick={async () => {
+                          setTuneBusy(t.name);
+                          try {
+                            await api("/api/settings/tuning", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                name: t.name,
+                                value: null,
+                              }),
+                            });
+                            setTuneStatus(
+                              `${t.label}: back to the server default.`,
+                            );
+                            loadTunables(t.name);
+                          } catch (e) {
+                            setTuneStatus(`Not saved. ${actionError(e)}`);
+                          } finally {
+                            setTuneBusy("");
+                          }
+                        }}
+                        className="rounded-lg border border-line-strong px-3 py-1 text-xs text-ink-2 hover:border-line-strong disabled:opacity-40"
+                      >
+                        Use the default
+                      </button>
+                    )}
+                    {t.override !== null && !t.ignored && (
+                      <span className="text-xs text-ink-3">
+                        Set here, not the server default.
+                      </span>
+                    )}
+                    {valid && !changed && t.override === null && (
+                      <span className="text-xs text-ink-3">
+                        At the server default.
+                      </span>
+                    )}
+                    {!valid && (
+                      <span
+                        id={`tune-${t.name}-err`}
+                        className="text-xs text-danger"
+                      >
+                        Enter a whole number from {t.floor} to {t.ceiling}.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* Outside the {tunables} branch and never conditional on its own
+            text: a live region inserted in the same paint as its content is
+            not announced, and this is the ONLY feedback for a save — the
+            long-chat panel above holds the same shape. */}
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-3 min-h-4 text-sm text-ink-2"
+        >
+          {tuneStatus}
+        </p>
       </Section>
 
       <Section title="Team roster">

@@ -406,8 +406,13 @@ def get_whoami(user: CurrentUser, request: Request):
 def post_key_request(user: CurrentUser):
     from ..services.api_keys import request_key
 
+    # ABOVE the try, never inside it: RateLimited subclasses ValueError, so
+    # the handler below caught the cap and answered 400 — wire-identical to a
+    # malformed request, and stripping the Retry-After header the class exists
+    # to carry. This surface is capped at 3/minute and is the one a client is
+    # most likely to retry.
+    ratelimit.check("keys_request", user)
     try:
-        ratelimit.check("keys_request", user)
         return request_key(user)
     except db.NotFound:
         raise
@@ -637,12 +642,8 @@ class FeedbackIn(BaseModel):
 
 @router.post("/feedback")
 def post_feedback(body: FeedbackIn, user: CurrentUser):
-    try:
-        ratelimit.check("feedback", user)
-    except db.NotFound:
-        raise
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+    # outside the try, for the reason post_key_request states
+    ratelimit.check("feedback", user)
     data = body.model_dump()
     if not data["input_text"]:
         if data["kind"] != "pulse":
@@ -874,10 +875,25 @@ class FindingDispositionIn(BaseModel):
     deferred_until: str = Field("", max_length=10)
 
 
-@router.post("/findings/{finding_id}/disposition")
-def post_finding_disposition(finding_id: int, body: FindingDispositionIn, user: CurrentUser):
-    from ..services import insights as insights_svc
+CHAIN_RULES = ("activity_chain_broken", "ledger_rows_adopted")
 
+
+@router.post("/findings/{finding_id}/disposition")
+def post_finding_disposition(
+    finding_id: int, body: FindingDispositionIn, user: CurrentUser, request: Request
+):
+    from ..services import insights as insights_svc
+    from .deps import _require_strong
+
+    # Ordinary findings take CurrentUser, the way approvals do — any
+    # identified human may act on team work. The ledger rules are the
+    # exception: dismissing one drops it from the daily digest for good, and
+    # since adoption replaced the permanent chain alarm, that digest line is
+    # the only PUSH signal a smuggled row now produces. Under weak identity,
+    # whoever caused the adoption could silence the report of it with a
+    # chosen header.
+    if insights_svc.finding_rule(finding_id) in CHAIN_RULES:
+        _require_strong(getattr(request.state, "strong_auth", False))
     return insights_svc.disposition_finding(
         finding_id, body.disposition, body.reason, body.deferred_until, actor=user
     )

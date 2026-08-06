@@ -304,6 +304,11 @@ def claim_job(job: str, run_key: str) -> bool:
 
 ACTIVITY_DOMAIN = b"skein-activity/v1"
 GENESIS_PREV = "0" * 64
+# How many times log_activity took the unchained fallback since the last
+# adoption. Read and reset by services/activity.py::adopt_unchained, which
+# reports it beside the number of rows it chained — an adoption larger than
+# this count is a row nothing in this process wrote.
+UNCHAINED_FALLBACKS = "activity_unchained_fallbacks"
 
 
 def activity_hash(
@@ -402,5 +407,19 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
             "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
             (actor, action, detail, created_at),
         )
+        # Count it where a MACHINE can read it, not only in the server log.
+        # services/activity.py::adopt_unchained reports adopted-vs-recorded,
+        # and an operator can only tell a busy ledger from a smuggled row by
+        # comparing those two numbers. Left to the log alone, ONE genuine
+        # warning exonerated every row adopted the same night, because one
+        # receipt covers them all. Best-effort on purpose: a counter that
+        # cannot be written must not lose the ledger row underneath it.
+        with contextlib.suppress(sqlite3.DatabaseError):
+            execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, '1', ?)"
+                " ON CONFLICT(key) DO UPDATE SET value ="
+                " CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at",
+                (UNCHAINED_FALLBACKS, now()),
+            )
     except sqlite3.DatabaseError as exc:
         log.error("activity row LOST (%s: %s) — the write it describes did commit", action, exc)

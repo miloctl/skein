@@ -57,7 +57,7 @@ class Tunable:
 TUNABLES: tuple[Tunable, ...] = (
     Tunable(
         "chat_limit",
-        "Chat messages per minute",
+        "Chat messages",
         lambda: _limit("chat"),
         1,
         500,
@@ -67,7 +67,7 @@ TUNABLES: tuple[Tunable, ...] = (
     ),
     Tunable(
         "write_limit",
-        "Writes per minute",
+        "Writes",
         lambda: _limit("write"),
         1,
         1000,
@@ -77,7 +77,7 @@ TUNABLES: tuple[Tunable, ...] = (
     ),
     Tunable(
         "capture_limit",
-        "Captures per minute",
+        "Captures",
         lambda: _limit("capture"),
         1,
         1000,
@@ -93,8 +93,8 @@ TUNABLES: tuple[Tunable, ...] = (
         900,
         "seconds",
         True,
-        "How long one flock member, and the merge after them, may take."
-        " Raise it before lowering the socket timeout, never after.",
+        "How long one flock member, and the merge after it, can take."
+        " If you raise this deadline, raise the model socket timeout first.",
     ),
     Tunable(
         "read_timeout_s",
@@ -104,8 +104,9 @@ TUNABLES: tuple[Tunable, ...] = (
         3600,
         "seconds",
         True,
-        "Ends a provider connection that goes silent. Must stay ABOVE the"
-        " member deadline so that deadline is the one that fires.",
+        "Ends a provider connection that goes silent. This timeout must stay"
+        " greater than the flock member deadline, so the deadline is the one"
+        " that fires.",
     ),
     Tunable(
         "thread_pool",
@@ -115,8 +116,8 @@ TUNABLES: tuple[Tunable, ...] = (
         256,
         "threads",
         False,
-        "Serves every REST handler. Smaller is faster until requests queue on"
-        " genuinely blocking work. Applied at startup, so a change needs a restart.",
+        "Serves every REST handler. A smaller pool is faster until requests"
+        " queue on work that blocks.",
     ),
     Tunable(
         "tool_threads",
@@ -126,7 +127,7 @@ TUNABLES: tuple[Tunable, ...] = (
         256,
         "threads",
         False,
-        "Serves agent tool calls. Applied at startup, so a change needs a restart.",
+        "Serves agent tool calls.",
     ),
 )
 
@@ -157,7 +158,16 @@ def default_of(name: str) -> int:
 
 
 def _overrides() -> dict[str, int]:
-    rows = db.query("SELECT key, value FROM app_settings WHERE key LIKE ?", (f"{PREFIX}%",))
+    # A RANGE, not LIKE: `_` is LIKE's single-character wildcard, so
+    # `key LIKE 'tuning_%'` also matched `tuningXchat_limit` — and the slice
+    # below then read it as the knob `chat_limit`, letting a foreign key in
+    # this shared table drive a live rate limit. The range is also an index
+    # scan on the primary key instead of the full table scan LIKE forced,
+    # which matters because this runs per rate-limit check.
+    rows = db.query(
+        "SELECT key, value FROM app_settings WHERE key >= ? AND key < ?",
+        (PREFIX, PREFIX[:-1] + chr(ord(PREFIX[-1]) + 1)),
+    )
     out: dict[str, int] = {}
     for r in rows:
         name = r["key"][len(PREFIX) :]
@@ -208,10 +218,13 @@ def _check_pairs(name: str, value: int, current: dict[str, int]) -> None:
     dying as a failed member instead of finishing."""
     proposed = {**current, name: value}
     if proposed["read_timeout_s"] <= proposed["member_timeout_s"]:
+        # names the STORED numbers, never the submitted one: a refusal must
+        # not echo the rejected value back (CLAUDE.md)
         raise ValueError(
             "The model socket timeout must be greater than the flock member"
-            f" deadline. The member deadline is {proposed['member_timeout_s']}"
-            " seconds. Raise the socket timeout, or lower the member deadline first."
+            f" deadline. The socket timeout is {current['read_timeout_s']} seconds"
+            f" and the member deadline is {current['member_timeout_s']} seconds."
+            " Raise the socket timeout, or lower the member deadline first."
         )
 
 
@@ -248,13 +261,19 @@ def set_tunable(name: str, value: int | None, *, actor: str) -> dict:
         # never echo the rejected name back — it is caller-supplied
         raise ValueError(f"unknown setting — expected one of: {', '.join(sorted(BY_NAME))}")
     if value is None:
+        # CHECKED like any other write. Clearing moves the value just as a set
+        # does — to the default — so an unchecked clear was a way around the
+        # pair rule: raise the socket timeout, raise the deadline under it,
+        # then clear the socket timeout and the pair lands inverted.
+        _check_pairs(name, default_of(name), {t.name: effective(t.name) for t in TUNABLES})
         db.execute("DELETE FROM app_settings WHERE key = ?", (f"{PREFIX}{name}",))
-        db.log_activity(actor, "set_tuning", f"{knob.label} returned to the deployment default")
+        db.log_activity(actor, "set_tuning", f"{knob.label} returned to the server default")
         return {"name": name, "value": effective(name), "override": None}
     value = int(value)
     if not (knob.floor <= value <= knob.ceiling):
         raise ValueError(
-            f"{knob.label} must be between {knob.floor} and {knob.ceiling} {knob.unit}."
+            f"{knob.label} must be between {knob.floor} and {knob.ceiling}"
+            f" {knob.unit}. Send a number in that range."
         )
     current = {t.name: effective(t.name) for t in TUNABLES}
     _check_pairs(name, value, current)
