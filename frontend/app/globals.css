@@ -29,6 +29,15 @@
   --ok: light-dark(#22754a, #85cd9e);
   --warn: light-dark(#86590e, #dfb362);
   --danger: light-dark(#b23425, #f0998b);
+  /* FILL halves, for white text — the --thread / --thread-solid pair, applied
+     to the status hues. The inks above are tuned to sit ON a surface at 8-10:1
+     and are far too light in dark mode to sit UNDER white: --ok measured
+     1.87:1 there, on the Approve button. These do not vary by mode, because
+     white sits on them in both. Darkening the inks instead would break the far
+     more common text-ok / text-danger usage. */
+  --ok-solid: #1f6b45;
+  --danger-solid: #a82f21;
+  --weld-solid: #8a541a;
   --warp: light-dark(rgb(29 26 22 / 0.03), rgb(237 233 226 / 0.013));
   --fabric-texture: repeating-linear-gradient(
     90deg,
@@ -52,26 +61,31 @@
   --thread: light-dark(#a92c40, #f0a4ae);
   --thread-solid: light-dark(#a92c40, #b13a4e);
   --weld: light-dark(#48628f, #a3b8dc);
+  --weld-solid: #3d5379;
 }
 :root[data-theme="verdigris"] {
   --thread: light-dark(#1b6a63, #82d0c4);
   --thread-solid: light-dark(#1b6a63, #20776e);
   --weld: light-dark(#9d4f28, #dba175);
+  --weld-solid: #86431f;
 }
 :root[data-theme="graphite"] {
   --thread: light-dark(#45413a, #d3ccc1);
   --thread-solid: light-dark(#45413a, #5c564d);
   --weld: light-dark(#8a5e14, #cfa963);
+  --weld-solid: #755010;
 }
 :root[data-theme="coral"] {
   --thread: light-dark(#a63b29, #ff7070);
   --thread-solid: light-dark(#a63b29, #d13c3c);
   --weld: light-dark(#0f766e, #14b8a6);
+  --weld-solid: #0d635d;
 }
 :root[data-theme="bone"] {
   --thread: light-dark(#74581f, #ffe6cb);
   --thread-solid: light-dark(#74581f, #8a6d3f);
   --weld: light-dark(#047857, #34d399);
+  --weld-solid: #04654a;
 }
 
 /* Fabric packs: a different cloth on the same loom. Packs re-weave the
@@ -94,7 +108,8 @@
   --r-xl: 0px;
   --r-2xl: 0px;
   --shadow-card: 0 0 #0000;
-  --shadow-float: 0 2px 0 light-dark(#181a1f, #000),
+  --shadow-float:
+    0 2px 0 light-dark(#181a1f, #000),
     0 10px 28px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.5));
   --surface-page: light-dark(#f5f6f8, #13151a);
   --surface-card: light-dark(#ffffff, #1a1d24);
@@ -123,8 +138,10 @@
   --r-lg: 0px;
   --r-xl: 0px;
   --r-2xl: 0px;
-  --shadow-card: 0 0 14px light-dark(rgb(23 29 22 / 0.05), rgb(120 200 130 / 0.07));
-  --shadow-float: 0 0 0 1px light-dark(rgb(0 0 0 / 0.06), rgb(120 200 130 / 0.18)),
+  --shadow-card: 0 0 14px
+    light-dark(rgb(23 29 22 / 0.05), rgb(120 200 130 / 0.07));
+  --shadow-float:
+    0 0 0 1px light-dark(rgb(0 0 0 / 0.06), rgb(120 200 130 / 0.18)),
     0 8px 28px light-dark(rgb(0 0 0 / 0.12), rgb(120 200 130 / 0.12));
   --surface-page: light-dark(#f2f5ef, #0c100c);
   --surface-card: light-dark(#fbfdf8, #131813);
@@ -181,7 +198,8 @@
   --text-3: light-dark(#74695a, #90859a);
   --fabric-texture: none;
   --shadow-card: 0 2px 10px light-dark(rgb(60 40 20 / 0.06), rgb(0 0 0 / 0.3));
-  --shadow-float: 0 12px 36px light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
+  --shadow-float: 0 12px 36px
+    light-dark(rgb(60 40 20 / 0.16), rgb(0 0 0 / 0.55));
 }
 
 /* Claw: command deck — layered charcoal, whisper borders, generous radii,
@@ -359,6 +377,9 @@
   --color-thread-solid: var(--thread-solid);
   --color-weld: var(--weld);
   --color-ok: var(--ok);
+  --color-ok-solid: var(--ok-solid);
+  --color-danger-solid: var(--danger-solid);
+  --color-weld-solid: var(--weld-solid);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
@@ -386,10 +407,16 @@
 }
 
 :root {
-  /* the sticky header's height, published once: chat sizing and the mobile
-     drawer offset both derive from it, and nav.tsx pins the rows to it so a
-     long display name can't silently wrap into a third row */
-  --nav-h: 6.25rem;
+  /* The sticky header's height, published once: chat sizing and the mobile
+     drawer offset both derive from it. MEASURED, not chosen — at phone width
+     the header is two rows, 56px (logo + identity) + 52px (nav scroller).
+     At 6.25rem it under-reported by 8px, so the chat pane was 8px too tall
+     and its composer sat below the fold on an 800px screen.
+     min-height cannot pin a row count: what keeps this to two rows is the
+     name cap in nav.tsx (max-w-[7rem] at phone), because the logo plus the
+     identity cluster has to fit 328px of content box. Widen that cap and the
+     header wraps to a third row, and this number is wrong again. */
+  --nav-h: 6.75rem;
 }
 
 @media (min-width: 768px) {
@@ -529,10 +556,19 @@ body {
   transform-origin: 70% 70%;
 }
 @keyframes wave {
-  0%, 100% { transform: rotate(0); }
-  25% { transform: rotate(-12deg); }
-  50% { transform: rotate(10deg); }
-  75% { transform: rotate(-6deg); }
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+  75% {
+    transform: rotate(-6deg);
+  }
 }
 
 /* Escalated knots breathe */
@@ -540,8 +576,12 @@ body {
   animation: knot-breathe 2s ease-in-out infinite alternate;
 }
 @keyframes knot-breathe {
-  from { box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent); }
-  to { box-shadow: 0 0 0 6px color-mix(in oklab, var(--danger) 12%, transparent); }
+  from {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--danger) 12%, transparent);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

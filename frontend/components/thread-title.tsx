@@ -18,7 +18,9 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
     // shared single-flight list (lib/chat-threads.ts) — the sidebar reads
     // the same fetch, so each activity event costs one request, not two
     chatThreads()
-      .then((rows) => setTitle(rows.find((t) => t.id === threadId)?.title ?? ""))
+      .then((rows) =>
+        setTitle(rows.find((t) => t.id === threadId)?.title ?? ""),
+      )
       .catch(() => {});
   }, [threadId]);
 
@@ -79,7 +81,10 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
       <button
         ref={btnRef}
         onClick={() => title && setEditing(true)}
-        title={title ? "Rename this conversation" : undefined}
+        // the title FIRST: this button truncates, so the tooltip is the only
+        // place a long conversation name survives, and spending it entirely on
+        // the affordance hint loses the one thing the reader cannot see
+        title={title ? `${title} — rename this conversation` : undefined}
         className="block max-w-full truncate rounded px-1 py-0.5 text-left font-display text-[15px]/[1.2] font-semibold tracking-[-0.01em] text-ink hover:bg-raised disabled:hover:bg-transparent"
         disabled={!title}
       >

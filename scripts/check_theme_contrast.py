@@ -57,6 +57,11 @@ BASE_PACK = "loom"
 SURFACES = ("surface-page", "surface-card", "surface-raised")
 TEXTS = ("text-1", "text-2", "text-3")
 STATUSES = ("ok", "warn", "danger")
+# Tokens this file sweeps as INK on surfaces. Any of them under white text is
+# the misuse the mirror scan at the bottom catches — they are tuned to be
+# legible ON a surface, which is the opposite requirement. `weld` and `thread`
+# ride along because their fill halves are the -solid pair.
+INK_FILL_CANDIDATES = (*STATUSES, "weld", "thread")
 THREAD_MIN = 5.5
 WELD_MIN = 4.5
 TEXT_MIN = 4.5
@@ -434,6 +439,31 @@ def main() -> int:
                     f"{path.name} uses text-{token} as ink."
                     f" --{token} is a solid fill (on: white in theme.ts) and is not"
                     f" swept against pack surfaces. Use text-{token.replace('-solid', '')}."
+                )
+
+    # The mirror image of the scan above, and the one that was missing: an INK
+    # token carrying white text. The sweep proves every ink against surfaces,
+    # never under white, so `bg-ok text-white` sat at 1.87:1 in dark on the
+    # Approve button with every gate green. Same single source of intent — a
+    # token is safe under white only if it declares on:"white" — and no
+    # literal list of call sites to maintain.
+    # (?![-\w/]) matters twice: `-` stops bg-thread-solid matching bg-thread
+    # (a word boundary sits before a hyphen), and `/` stops the alpha tints —
+    # bg-danger/10 is a wash carrying its own ink, not a fill under white.
+    ink_class = re.compile(r"\bbg-(" + "|".join(sorted(INK_FILL_CANDIDATES)) + r")(?![-\w/])")
+    for path in [*sorted(scanned), CSS]:
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            if "text-white" not in line:
+                continue
+            for m in ink_class.finditer(line):
+                token = m.group(1)
+                if token in fill_only:
+                    continue
+                failures.append(
+                    f"{path.name}:{n} puts text-white on bg-{token}."
+                    f" --{token} is an ink tuned to sit ON a surface, and is not"
+                    f" swept under white. Use bg-{token}-solid, adding it to"
+                    f" globals.css and theme.ts (on: white) if it does not exist."
                 )
 
     checked = sorted(n for n in packs if n != BASE_PACK)

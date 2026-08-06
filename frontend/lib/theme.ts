@@ -25,20 +25,65 @@ export const DEFAULT_COLORWAY = "indigo";
 // In Settings a pack is a "theme card": picking one also applies its
 // signature accent, and the accent stays overridable under Customize.
 export const PACKS = [
-  { id: "loom", label: "Loom", subtitle: "Warm, woven, rounded", accent: "indigo" },
-  { id: "ledger", label: "Ledger", subtitle: "Broadsheet — ruled, square, serif", accent: "madder" },
-  { id: "phosphor", label: "Phosphor", subtitle: "Terminal — mono, scanlines, glow", accent: "verdigris" },
-  { id: "atelier", label: "Atelier", subtitle: "Editorial — serif, soft, gallery", accent: "madder" },
-  { id: "claw", label: "Claw", subtitle: "Command deck — charcoal, coral", accent: "coral" },
-  { id: "hermes", label: "Hermes", subtitle: "Mission console — cream on teal", accent: "bone" },
-  { id: "contrast", label: "High contrast", subtitle: "Maximum legibility", accent: "graphite" },
+  {
+    id: "loom",
+    label: "Loom",
+    subtitle: "Warm, woven, rounded",
+    accent: "indigo",
+  },
+  {
+    id: "ledger",
+    label: "Ledger",
+    subtitle: "Broadsheet — ruled, square, serif",
+    accent: "madder",
+  },
+  {
+    id: "phosphor",
+    label: "Phosphor",
+    subtitle: "Terminal — mono, scanlines, glow",
+    accent: "verdigris",
+  },
+  {
+    id: "atelier",
+    label: "Atelier",
+    subtitle: "Editorial — serif, soft, gallery",
+    accent: "madder",
+  },
+  {
+    id: "claw",
+    label: "Claw",
+    subtitle: "Command deck — charcoal, coral",
+    accent: "coral",
+  },
+  {
+    id: "hermes",
+    label: "Hermes",
+    subtitle: "Mission console — cream on teal",
+    accent: "bone",
+  },
+  {
+    id: "contrast",
+    label: "High contrast",
+    subtitle: "Maximum legibility",
+    accent: "graphite",
+  },
 ] as const;
 
 export const COLORWAYS = [
   { id: "indigo", label: "Indigo & ochre", thread: "#3b4dbf", weld: "#935a1c" },
   { id: "madder", label: "Madder & woad", thread: "#a92c40", weld: "#48628f" },
-  { id: "verdigris", label: "Verdigris & copper", thread: "#1b6a63", weld: "#9d4f28" },
-  { id: "graphite", label: "Graphite & brass", thread: "#45413a", weld: "#8a5e14" },
+  {
+    id: "verdigris",
+    label: "Verdigris & copper",
+    thread: "#1b6a63",
+    weld: "#9d4f28",
+  },
+  {
+    id: "graphite",
+    label: "Graphite & brass",
+    thread: "#45413a",
+    weld: "#8a5e14",
+  },
   { id: "coral", label: "Coral & teal", thread: "#a63b29", weld: "#0f766e" },
   { id: "bone", label: "Bone & jade", thread: "#74581f", weld: "#047857" },
 ] as const;
@@ -67,9 +112,33 @@ export const CUSTOM_DEFAULT = { thread: 264, weld: 65 };
 // swept without touching the checker. Keep the literal shape regular: one
 // token per line, `[lightness, chroma]`.
 export const CUSTOM_LC = {
-  "--thread": { hue: "thread", on: "surface", light: [0.44, 0.13], dark: [0.8, 0.09] },
-  "--thread-solid": { hue: "thread", on: "white", light: [0.44, 0.13], dark: [0.5, 0.13] },
-  "--weld": { hue: "weld", on: "surface", light: [0.47, 0.09], dark: [0.78, 0.09] },
+  "--thread": {
+    hue: "thread",
+    on: "surface",
+    light: [0.44, 0.13],
+    dark: [0.8, 0.09],
+  },
+  "--thread-solid": {
+    hue: "thread",
+    on: "white",
+    light: [0.44, 0.13],
+    dark: [0.5, 0.13],
+  },
+  "--weld": {
+    hue: "weld",
+    on: "surface",
+    light: [0.47, 0.09],
+    dark: [0.78, 0.09],
+  },
+  // the fill half, same hue: white text sits on it in BOTH modes, so both
+  // halves are the dark lightness. Without this a custom hue had no fill
+  // token and bg-weld (the ink) carried white text at ~2:1 in dark.
+  "--weld-solid": {
+    hue: "weld",
+    on: "white",
+    light: [0.45, 0.09],
+    dark: [0.45, 0.09],
+  },
 } as const;
 
 function normalizeHue(n: number): number {
@@ -180,7 +249,9 @@ export function applyPrefs() {
 export function syncThemeColor() {
   const resolved = getComputedStyle(document.body).backgroundColor;
   if (!resolved) return;
-  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]:not([media])');
+  let meta = document.querySelector<HTMLMetaElement>(
+    'meta[name="theme-color"]:not([media])',
+  );
   if (!meta) {
     meta = document.createElement("meta");
     meta.name = "theme-color";
@@ -235,28 +306,32 @@ if (typeof window !== "undefined") {
     if (!pushTimer) return;
     clearTimeout(pushTimer);
     pushTimer = null;
-    Promise.all([import("./api"), import("./auth")]).then(([apiMod, authMod]) => {
-      const { API_URL, getUser, getApiKey } = apiMod;
-      const user = getUser();
-      if (user === "anonymous") return;
-      // carries the credential api() sends: outside trusted-header mode an
-      // unauthenticated POST is a 401, and this catch swallows it — the
-      // last theme change before a tab closes would vanish without a trace.
-      // The sync token read is deliberate: the tab is closing, so a refresh
-      // round trip would never land.
-      const auth =
-        authMod.accessTokenSync() || getApiKey() || process.env.NEXT_PUBLIC_API_TOKEN;
-      fetch(`${API_URL}/api/users/theme`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-User": user,
-          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-        },
-        body: JSON.stringify({ theme: serialize() }),
-        keepalive: true,
-      }).catch(() => {});
-    });
+    Promise.all([import("./api"), import("./auth")]).then(
+      ([apiMod, authMod]) => {
+        const { API_URL, getUser, getApiKey } = apiMod;
+        const user = getUser();
+        if (user === "anonymous") return;
+        // carries the credential api() sends: outside trusted-header mode an
+        // unauthenticated POST is a 401, and this catch swallows it — the
+        // last theme change before a tab closes would vanish without a trace.
+        // The sync token read is deliberate: the tab is closing, so a refresh
+        // round trip would never land.
+        const auth =
+          authMod.accessTokenSync() ||
+          getApiKey() ||
+          process.env.NEXT_PUBLIC_API_TOKEN;
+        fetch(`${API_URL}/api/users/theme`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User": user,
+            ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+          },
+          body: JSON.stringify({ theme: serialize() }),
+          keepalive: true,
+        }).catch(() => {});
+      },
+    );
   });
 }
 
@@ -273,7 +348,8 @@ export function applyThemeCode(code: string): boolean {
     const isCustom = t.colorway === "custom";
     const thread = Number(t.custom?.thread);
     const weld = Number(t.custom?.weld);
-    if (isCustom && (!Number.isFinite(thread) || !Number.isFinite(weld))) return false;
+    if (isCustom && (!Number.isFinite(thread) || !Number.isFinite(weld)))
+      return false;
     if (t.pack !== undefined && !packOk) return false;
     if (t.colorway !== undefined && !colorOk && !isCustom) return false;
     if (!packOk && !colorOk && !isCustom) return false;
@@ -284,7 +360,11 @@ export function applyThemeCode(code: string): boolean {
     } else if (colorOk) {
       write(THEME_KEY, t.colorway);
     }
-    if (t.appearance === "light" || t.appearance === "dark" || t.appearance === "system") {
+    if (
+      t.appearance === "light" ||
+      t.appearance === "dark" ||
+      t.appearance === "system"
+    ) {
       write(APPEARANCE_KEY, t.appearance);
     }
     applyAndPing();
@@ -298,12 +378,14 @@ export function themeCode(): string {
   return serialize();
 }
 
-
 // "no opinion yet" = no local keys, OR the keys came from adopting the TEAM
 // default (not a human choice) — a personal profile may still supersede that
 function browserHasOpinion(): boolean {
   const hasKeys = Boolean(
-    read(THEME_KEY) || read(PACK_KEY) || read(APPEARANCE_KEY) || read(CUSTOM_KEY),
+    read(THEME_KEY) ||
+    read(PACK_KEY) ||
+    read(APPEARANCE_KEY) ||
+    read(CUSTOM_KEY),
   );
   return hasKeys && read(ADOPTED_KEY) !== "team";
 }
@@ -313,7 +395,9 @@ export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
   if (browserHasOpinion()) return null;
   try {
     // anonymous browsers still adopt the team default (TP3)
-    const r = await api<{ theme: string; team_default: string }>("/api/users/theme");
+    const r = await api<{ theme: string; team_default: string }>(
+      "/api/users/theme",
+    );
     const blob = r.theme || r.team_default;
     if (!blob) return null;
     // re-check after the await: a theme picked while the fetch was in
@@ -321,7 +405,8 @@ export async function adoptServerTheme(): Promise<"profile" | "team" | null> {
     if (browserHasOpinion()) return null;
     write(ADOPTED_KEY, r.theme ? "profile" : "team");
     const t = JSON.parse(blob);
-    if (PACKS.some((p) => p.id === t.pack)) write(PACK_KEY, t.pack === DEFAULT_PACK ? null : t.pack);
+    if (PACKS.some((p) => p.id === t.pack))
+      write(PACK_KEY, t.pack === DEFAULT_PACK ? null : t.pack);
     if (t.colorway === "custom" && t.custom) {
       const thread = Number(t.custom.thread);
       const weld = Number(t.custom.weld);

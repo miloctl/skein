@@ -35,7 +35,9 @@ export default function CharterPage() {
     // bake the BUILD day's date into the prerendered HTML — wrong for the
     // reader, and a hydration mismatch against the client's recomputed value
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setReviewBy(new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10));
+    setReviewBy(
+      new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10),
+    );
   }, []);
   const [superseding, setSuperseding] = useState<number | null>(null);
   // dismissing the editor hands focus back to its trigger, or a keyboard user
@@ -54,7 +56,7 @@ export default function CharterPage() {
         setError(null); // a recovered backend must not leave the old banner above fresh data
       })
       .catch((e) => {
-        setDecisions([]);       // settled, with the error shown below
+        setDecisions([]); // settled, with the error shown below
         setError(loadError(e));
       });
   }, []);
@@ -84,13 +86,19 @@ export default function CharterPage() {
   };
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
+    >
       <SectionTabs set="team" />
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Team charter & decision rights</h1>
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+        Team charter & decision rights
+      </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
-        Mission, ownership, escalation rules, and working agreements live
-        here as decisions with review dates. Each one gets reconfirmed or
-        superseded instead of silently rotting.
+        Mission, ownership, escalation rules, and working agreements live here
+        as decisions with review dates. Each one gets reconfirmed or superseded
+        instead of silently rotting.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
 
@@ -141,15 +149,22 @@ export default function CharterPage() {
             className="rounded-xl border border-line bg-card p-4 text-sm shadow-card"
           >
             <div className="mb-1 flex items-center justify-between">
-              <span id={`charter-entry-${d.id}`} tabIndex={-1} className="font-semibold outline-none">
+              <span
+                id={`charter-entry-${d.id}`}
+                tabIndex={-1}
+                className="font-semibold outline-none"
+              >
                 {d.title}
               </span>
               <span
                 className={
-                  "text-xs " + (d.status === "stale" ? "text-weld" : "text-ink-3")
+                  "text-xs " +
+                  (d.status === "stale" ? "text-weld" : "text-ink-3")
                 }
               >
-                {d.status === "stale" ? "⚠ stale — reconfirm or supersede" : d.status}
+                {d.status === "stale"
+                  ? "⚠ stale — reconfirm or supersede"
+                  : d.status}
                 {d.review_by ? ` · review by ${d.review_by}` : ""}
               </span>
             </div>
@@ -216,14 +231,20 @@ export default function CharterPage() {
                       try {
                         await api(`/api/decisions/${d.id}/supersede`, {
                           method: "POST",
-                          body: JSON.stringify({ title: d.title, decision: newText.trim() }),
+                          body: JSON.stringify({
+                            title: d.title,
+                            decision: newText.trim(),
+                          }),
                         });
                         setSuperseding(null);
                         load();
                         // trigger button disappears (entry is superseded) —
                         // land focus on the entry itself
                         setTimeout(
-                          () => document.getElementById(`charter-entry-${d.id}`)?.focus(),
+                          () =>
+                            document
+                              .getElementById(`charter-entry-${d.id}`)
+                              ?.focus(),
                           0,
                         );
                       } catch (e) {
@@ -247,14 +268,20 @@ export default function CharterPage() {
             )}
           </li>
         ))}
+        {/* an <li>, like the empty state directly below: a <p> as a direct
+            child of <ul> is invalid and axe reports it (1.3.1) */}
         {decisions === null && !error && (
-          <p className="text-sm text-ink-3">Loading…</p>
+          <li>
+            <p className="text-sm text-ink-3">Loading…</p>
+          </li>
         )}
         {decisions !== null && decisions.length === 0 && !error && (
-          <li><EmptyState>
-            No charter entries yet. Start with: who owns what, how we escalate,
-            what quality bar we hold.
-          </EmptyState></li>
+          <li>
+            <EmptyState>
+              No charter entries yet. Start with: who owns what, how we
+              escalate, what quality bar we hold.
+            </EmptyState>
+          </li>
         )}
       </ul>
     </main>

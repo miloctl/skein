@@ -243,7 +243,7 @@ export default function ReviewPage() {
           <span>{selected.size} selected</span>
           <button
             onClick={approveBatch}
-            className="rounded-lg bg-ok px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+            className="rounded-lg bg-ok-solid px-3 py-1 text-sm font-medium text-white hover:opacity-90"
           >
             Approve selected
           </button>
@@ -370,14 +370,14 @@ export default function ReviewPage() {
                     id={`verdict-approve-${c.id}`}
                     onClick={() => setAsking({ id: c.id, verb: "approve" })}
                     title={`You are not the sponsor — your reason goes on the record and the verdict will not count toward ${c.proposed_by}'s trust streak`}
-                    className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                    className="rounded-lg bg-ok-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
                     Accept for {c.sponsor}…
                   </button>
                 ) : (
                   <button
                     onClick={() => act(c.id, "approve")}
-                    className="rounded-lg bg-ok px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                    className="rounded-lg bg-ok-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
                     Approve
                   </button>

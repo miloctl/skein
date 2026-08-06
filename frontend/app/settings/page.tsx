@@ -42,12 +42,16 @@ function subscribeStorage(cb: () => void) {
 
 type WhoAmI = { user: string; strong: boolean; keys_minted: number };
 
-
 function CopyLine({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center gap-2">
-      <code className="flex-1 overflow-x-auto rounded bg-raised px-2 py-1 text-xs">
+      {/* wraps, never scrolls. overflow-x-auto made this a scroll container
+          with no way to reach it by keyboard (axe: scrollable-region-focusable),
+          and the fix is not a tabindex — the copy button beside it already
+          gives a keyboard user the whole string. Wrapping shows it instead of
+          merely making it reachable, and adds no tab stop. */}
+      <code className="min-w-0 flex-1 [overflow-wrap:anywhere] rounded bg-raised px-2 py-1 text-xs">
         {text}
       </code>
       <button
@@ -67,7 +71,11 @@ function CopyLine({ text }: { text: string }) {
 }
 
 export default function SettingsPage() {
-  const currentUser = useSyncExternalStore(subscribeStorage, getUser, () => "anonymous");
+  const currentUser = useSyncExternalStore(
+    subscribeStorage,
+    getUser,
+    () => "anonymous",
+  );
   const [name, setName] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [who, setWho] = useState<WhoAmI | null>(null);
@@ -122,7 +130,7 @@ export default function SettingsPage() {
         // a 401 behind SKEIN_API_TOKEN, or a 500 from a locked database, is a
         // server that answered — calling it unreachable sends the reader to
         // check something that is running
-        setCtxLoadError(loadError(e));  // routes to backendUnreachable itself
+        setCtxLoadError(loadError(e)); // routes to backendUnreachable itself
       })
       .finally(() => setCtxLoaded(true));
   }, []);
@@ -151,7 +159,9 @@ export default function SettingsPage() {
 
   useEffect(refresh, [refresh]);
 
-  const [roster, setRoster] = useState<{ name: string; kind: string; active: number }[]>([]);
+  const [roster, setRoster] = useState<
+    { name: string; kind: string; active: number }[]
+  >([]);
   const loadRoster = useCallback(() => {
     api<{ name: string; kind: string; active: number }[]>("/api/users?all=1")
       .then((u) => setRoster(u.filter((x) => x.name !== "anonymous")))
@@ -209,7 +219,9 @@ export default function SettingsPage() {
       // strong === true is EXACTLY the property being tested — a malformed
       // key falls through to weak identity and would otherwise "succeed"
       if (!w || !w.strong) {
-        setKeyStatus("❌ that key is invalid or revoked — check for typos, or mint a new one");
+        setKeyStatus(
+          "❌ that key is invalid or revoked — check for typos, or mint a new one",
+        );
         return;
       }
       setApiKey(candidate);
@@ -245,7 +257,8 @@ export default function SettingsPage() {
       <li
         key={u.name}
         className={
-          "flex items-center justify-between text-sm" + (u.active ? "" : " opacity-60")
+          "flex items-center justify-between text-sm" +
+          (u.active ? "" : " opacity-60")
         }
       >
         <span>
@@ -274,22 +287,27 @@ export default function SettingsPage() {
                 />
                 <button
                   onClick={(e) => {
-                    const input = (e.currentTarget.parentElement?.querySelector(
+                    const input = e.currentTarget.parentElement?.querySelector(
                       "input",
-                    ) as HTMLInputElement | null);
+                    ) as HTMLInputElement | null;
                     if (input) renameUser(u.name, input.value);
                   }}
                   className="rounded bg-thread-solid px-2 py-0.5 text-xs font-medium text-white hover:opacity-90"
                 >
                   save
                 </button>
-                <button onClick={() => setRenaming(null)} className="text-xs text-ink-3 hover:text-ink">
+                <button
+                  onClick={() => setRenaming(null)}
+                  className="text-xs text-ink-3 hover:text-ink"
+                >
                   cancel
                 </button>
               </span>
             ) : deactivating === u.name ? (
               <span className="flex items-center gap-1 text-xs">
-                <span className="text-ink-3">history stays, keys revoked —</span>
+                <span className="text-ink-3">
+                  history stays, keys revoked —
+                </span>
                 <button
                   autoFocus
                   aria-label={`Deactivate ${u.name} — history stays, keys revoked`}
@@ -297,11 +315,14 @@ export default function SettingsPage() {
                     setDeactivating(null);
                     setActive(u.name, false);
                   }}
-                  className="rounded bg-danger px-2 py-0.5 font-medium text-white hover:opacity-90"
+                  className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
                 >
                   deactivate
                 </button>
-                <button onClick={() => setDeactivating(null)} className="text-ink-3 hover:text-ink">
+                <button
+                  onClick={() => setDeactivating(null)}
+                  className="text-ink-3 hover:text-ink"
+                >
                   keep
                 </button>
               </span>
@@ -335,8 +356,16 @@ export default function SettingsPage() {
       </li>
     ));
 
-  const appearance = useSyncExternalStore(subscribeStorage, getAppearance, () => "system");
-  const colorway = useSyncExternalStore(subscribeStorage, getColorway, () => "indigo");
+  const appearance = useSyncExternalStore(
+    subscribeStorage,
+    getAppearance,
+    () => "system",
+  );
+  const colorway = useSyncExternalStore(
+    subscribeStorage,
+    getColorway,
+    () => "indigo",
+  );
   const pack = useSyncExternalStore(subscribeStorage, getPack, () => "loom");
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [codeDraft, setCodeDraft] = useState("");
@@ -358,8 +387,7 @@ export default function SettingsPage() {
   // restoring is just deleting the flag (progress is recomputed server-side)
   const checklistHidden = useSyncExternalStore(
     subscribeStorage,
-    () =>
-      window.localStorage.getItem(`skein-onboarded:${currentUser}`) === "1",
+    () => window.localStorage.getItem(`skein-onboarded:${currentUser}`) === "1",
     () => false,
   );
   const restoreChecklist = () => {
@@ -368,20 +396,25 @@ export default function SettingsPage() {
   };
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl">
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Settings</h1>
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-5xl p-4 sm:p-6 xl:max-w-6xl"
+    >
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+        Settings
+      </h1>
       <p className="text-sm text-ink-3">
-        Everything you need to set up lives here — nothing requires reading
-        the docs first.
+        Everything you need to set up lives here — nothing requires reading the
+        docs first.
       </p>
-
 
       <Section title="1 · Identity">
         <p className="mb-2 text-sm text-ink-3">
           Your name attributes everything you create (tasks, standups,
-          captures). It works on the honor system inside the team network.
-          That is fine for team-visible work, but not enough for the private
-          1:1s page or admin export (step 2 covers those).
+          captures). It works on the honor system inside the team network. That
+          is fine for team-visible work, but not enough for the private 1:1s
+          page or admin export (step 2 covers those).
         </p>
         <p className="mb-2 text-sm">
           Current:{" "}
@@ -395,7 +428,9 @@ export default function SettingsPage() {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && saveName()}
             aria-label="Your name"
-            placeholder={currentUser === "anonymous" ? "your name" : "change name"}
+            placeholder={
+              currentUser === "anonymous" ? "your name" : "change name"
+            }
             className="flex-1 rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
           />
           <button
@@ -411,8 +446,8 @@ export default function SettingsPage() {
       <Section title="2 · Personal API key (private surfaces + CLI)">
         <p className="mb-2 text-sm text-ink-3">
           The 1:1s page (private prep, feedback journal) and admin export need a
-          key — a spoofable name is not enough for private data. The key
-          also powers the CLI and git hooks.
+          key — a spoofable name is not enough for private data. The key also
+          powers the CLI and git hooks.
         </p>
         <p className="mb-3 text-sm">
           Status:{" "}
@@ -422,8 +457,8 @@ export default function SettingsPage() {
             </span>
           ) : hasBrowserKey ? (
             <span className="font-medium text-danger">
-              A key is stored in this browser but it is not working — paste
-              a fresh one below
+              A key is stored in this browser but it is not working — paste a
+              fresh one below
             </span>
           ) : (
             <span className="font-medium text-weld">
@@ -448,9 +483,12 @@ export default function SettingsPage() {
                 <button
                   onClick={async () => {
                     try {
-                      const r = await api<{ already_pending: boolean }>("/api/keys/request", {
-                        method: "POST",
-                      });
+                      const r = await api<{ already_pending: boolean }>(
+                        "/api/keys/request",
+                        {
+                          method: "POST",
+                        },
+                      );
                       setKeyStatus(
                         r.already_pending
                           ? "Already asked — the request is still on the team's My Day."
@@ -469,11 +507,14 @@ export default function SettingsPage() {
                     I run the server — show me the command
                   </summary>
                   <div className="mt-2">
-                    <CopyLine text={`python -m app.bootstrap_key ${currentUser}`} />
+                    <CopyLine
+                      text={`python -m app.bootstrap_key ${currentUser}`}
+                    />
                     <p className="mt-2 text-xs text-ink-3">
                       Docker:{" "}
                       <code>
-                        docker compose exec backend python -m app.bootstrap_key {currentUser}
+                        docker compose exec backend python -m app.bootstrap_key{" "}
+                        {currentUser}
                       </code>{" "}
                       — the key prints once.
                     </p>
@@ -482,9 +523,9 @@ export default function SettingsPage() {
               </>
             ) : (
               <p>
-                A key exists for {who.user} — paste it below. A key shows
-                only once. If you lost it, ask whoever runs the server to mint
-                a new one (same command), or revoke old ones from the CLI.
+                A key exists for {who.user} — paste it below. A key shows only
+                once. If you lost it, ask whoever runs the server to mint a new
+                one (same command), or revoke old ones from the CLI.
               </p>
             )}
           </div>
@@ -521,16 +562,16 @@ export default function SettingsPage() {
           </p>
         )}
         <p className="mt-2 text-xs text-ink-3">
-          Stored only in this browser (localStorage). OIDC sign-in replaces
-          this flow at deployment.
+          Stored only in this browser (localStorage). OIDC sign-in replaces this
+          flow at deployment.
         </p>
       </Section>
 
       <Section title="3 · Growth interests (optional)">
         <p className="mb-2 text-sm text-ink-3">
           You declare these yourself. They appear in staffing what-ifs so
-          interesting work finds you. Display-only — never scored, never
-          matched automatically.
+          interesting work finds you. Display-only — never scored, never matched
+          automatically.
         </p>
         <div className="flex gap-2">
           <input
@@ -571,8 +612,8 @@ export default function SettingsPage() {
       <Section title="4 · Connect your own AI agent (optional)">
         <p className="mb-2 text-sm text-ink-3">
           Skein is an MCP server — Claude Code or any MCP client can read and
-          write the platform natively. New agents start at{" "}
-          <b>needs-approval</b> authority.{" "}
+          write the platform natively. New agents start at <b>needs-approval</b>{" "}
+          authority.{" "}
           {gateOn === null ? (
             <>
               What that holds back depends on the review gate —{" "}
@@ -605,7 +646,9 @@ export default function SettingsPage() {
             </>
           )}
         </p>
-        <p className="mb-1 text-xs font-medium text-ink-3">Claude Code registration:</p>
+        <p className="mb-1 text-xs font-medium text-ink-3">
+          Claude Code registration:
+        </p>
         <CopyLine
           text={`claude mcp add skein -- env SKEIN_MCP_USER=${currentUser === "anonymous" ? "you" : currentUser} <path-to-backend>/.venv/bin/python -m app.mcp_server`}
         />
@@ -621,29 +664,30 @@ export default function SettingsPage() {
 
       <Section title="5 · Calendar feed (optional)">
         <p className="mb-2 text-sm text-ink-3">
-          Subscribe your calendar app to team events + milestone/promise
-          due dates. Use a local calendar client — hosted clients (Google)
-          mirror titles outside your network.
+          Subscribe your calendar app to team events + milestone/promise due
+          dates. Use a local calendar client — hosted clients (Google) mirror
+          titles outside your network.
         </p>
         <CopyLine text={`${API_URL}/api/calendar.ics`} />
         <p className="mt-2 text-xs text-ink-3">
-          If the API is token-locked, whoever runs the server sets SKEIN_ICS_TOKEN and
-          the URL becomes …/api/calendar.ics?token=&lt;that token&gt;.
+          If the API is token-locked, whoever runs the server sets
+          SKEIN_ICS_TOKEN and the URL becomes …/api/calendar.ics?token=&lt;that
+          token&gt;.
         </p>
       </Section>
 
       <Section title="6 · Code forge webhook (optional)">
         <p className="mb-2 text-sm text-ink-3">
-          Let your git forge move tasks. A push to <code>task/42-…</code>{" "}
-          starts task 42. When the pull request merges, the task finishes.
-          Add this URL as a repository webhook. Set the content type to JSON.
+          Let your git forge move tasks. A push to <code>task/42-…</code> starts
+          task 42. When the pull request merges, the task finishes. Add this URL
+          as a repository webhook. Set the content type to JSON.
         </p>
         <CopyLine text={`${API_URL}/api/webhooks/forge`} />
         <p className="mt-2 text-xs text-ink-3">
-          Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Put the
-          same secret in the webhook. If the secret is not set, the endpoint
-          stays closed. Skein ignores a branch name that has no task number. A
-          merge never closes a delegated task — the sponsor accepts that work.
+          Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET. Put the same
+          secret in the webhook. If the secret is not set, the endpoint stays
+          closed. Skein ignores a branch name that has no task number. A merge
+          never closes a delegated task — the sponsor accepts that work.
         </p>
       </Section>
 
@@ -726,7 +770,9 @@ export default function SettingsPage() {
                   </span>
                   {/* ink-2, not ink-3: the SELECTED card tints its background
                       (bg-thread/10), a surface the ink-3 tuning never covered */}
-                  <span className="block px-0.5 text-xs text-ink-2">{p.subtitle}</span>
+                  <span className="block px-0.5 text-xs text-ink-2">
+                    {p.subtitle}
+                  </span>
                 </button>
               );
             })}
@@ -739,7 +785,10 @@ export default function SettingsPage() {
         >
           <span
             aria-hidden
-            className={"inline-block transition-transform " + (customizeOpen ? "rotate-90" : "")}
+            className={
+              "inline-block transition-transform " +
+              (customizeOpen ? "rotate-90" : "")
+            }
           >
             ▸
           </span>
@@ -812,8 +861,16 @@ export default function SettingsPage() {
                 </p>
                 {(
                   [
-                    ["Accent", customThread, (v: number) => setCustomHues(v, customWeld)],
-                    ["Second accent", customWeld, (v: number) => setCustomHues(customThread, v)],
+                    [
+                      "Accent",
+                      customThread,
+                      (v: number) => setCustomHues(v, customWeld),
+                    ],
+                    [
+                      "Second accent",
+                      customWeld,
+                      (v: number) => setCustomHues(customThread, v),
+                    ],
                   ] as const
                 ).map(([label, value, onChange]) => (
                   <div key={label} className="flex items-center gap-3">
@@ -857,7 +914,9 @@ export default function SettingsPage() {
                   onClick={() => {
                     const ok = applyThemeCode(codeDraft.trim());
                     setCodeStatus(
-                      ok ? "Applied." : "That is not a valid theme code — check the paste.",
+                      ok
+                        ? "Applied."
+                        : "That is not a valid theme code — check the paste.",
                     );
                     if (ok) setCodeDraft("");
                   }}
@@ -866,37 +925,41 @@ export default function SettingsPage() {
                   Apply
                 </button>
               </div>
-              <p role="status" aria-live="polite" className="mt-1 min-h-4 text-xs text-ink-3">
+              <p
+                role="status"
+                aria-live="polite"
+                className="mt-1 min-h-4 text-xs text-ink-3"
+              >
                 {codeStatus}
               </p>
               <div className="mt-3 border-t border-line pt-3">
-                  <button
-                    disabled={!strong}
-                    onClick={async () => {
-                      try {
-                        await api("/api/users/theme/default", {
-                          method: "POST",
-                          body: JSON.stringify({ theme: themeCode() }),
-                        });
-                        setCodeStatus(
-                          "Saved as the team default — fresh browsers and anonymous visitors start here.",
-                        );
-                      } catch (e) {
-                        setCodeStatus(actionError(e));
-                      }
-                    }}
-                    className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
-                  >
-                    Make this the team default
-                  </button>
-                  <p className="mt-1 text-xs text-ink-3">
-                    A default, never an override — anyone&apos;s personal
-                    choice beats it.{" "}
-                    {strong
-                      ? "Fresh browsers and anonymous visitors start here."
-                      : "Needs your API key (step 2 above) and administrator access."}
-                  </p>
-                </div>
+                <button
+                  disabled={!strong}
+                  onClick={async () => {
+                    try {
+                      await api("/api/users/theme/default", {
+                        method: "POST",
+                        body: JSON.stringify({ theme: themeCode() }),
+                      });
+                      setCodeStatus(
+                        "Saved as the team default — fresh browsers and anonymous visitors start here.",
+                      );
+                    } catch (e) {
+                      setCodeStatus(actionError(e));
+                    }
+                  }}
+                  className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
+                >
+                  Make this the team default
+                </button>
+                <p className="mt-1 text-xs text-ink-3">
+                  A default, never an override — anyone&apos;s personal choice
+                  beats it.{" "}
+                  {strong
+                    ? "Fresh browsers and anonymous visitors start here."
+                    : "Needs your API key (step 2 above) and administrator access."}
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -905,9 +968,9 @@ export default function SettingsPage() {
       <Section title="Long chats (team)">
         <p className="mb-3 text-sm text-ink-3">
           A model holds only so much of a conversation. When a chat outgrows
-          that, Skein either drops the oldest messages or summarizes them.
-          This setting applies to everyone. Only an administrator can change
-          it, with a personal API key (step 2).
+          that, Skein either drops the oldest messages or summarizes them. This
+          setting applies to everyone. Only an administrator can change it, with
+          a personal API key (step 2).
           {ctx && !ctx.applies && (
             <> No model is connected. This setting is not in use.</>
           )}
@@ -1002,7 +1065,11 @@ export default function SettingsPage() {
                 Use the deployment default ({ctx.default})
               </button>
             )}
-            <p role="status" aria-live="polite" className="min-h-4 text-xs text-ink-3">
+            <p
+              role="status"
+              aria-live="polite"
+              className="min-h-4 text-xs text-ink-3"
+            >
               {ctxStatus ||
                 (strong
                   ? ""
@@ -1015,9 +1082,9 @@ export default function SettingsPage() {
       <Section title="Team roster">
         <p className="mb-2 text-sm text-ink-3">
           Everyone who has picked a name here. Deactivate a name to remove a
-          typo or a departed teammate from the roster and the counts. This
-          also revokes their API keys — history stays attributed. Requires a
-          working API key (step 2) and administrator access.
+          typo or a departed teammate from the roster and the counts. This also
+          revokes their API keys — history stays attributed. Requires a working
+          API key (step 2) and administrator access.
         </p>
         <h3 className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Teammates
@@ -1025,7 +1092,9 @@ export default function SettingsPage() {
         {roster.filter((u) => u.kind !== "agent").length === 0 ? (
           <p className="text-sm text-ink-3">Nobody yet.</p>
         ) : (
-          <ul className="space-y-1">{rosterRows(roster.filter((u) => u.kind !== "agent"))}</ul>
+          <ul className="space-y-1">
+            {rosterRows(roster.filter((u) => u.kind !== "agent"))}
+          </ul>
         )}
         {roster.some((u) => u.kind === "agent") && (
           <>
@@ -1036,10 +1105,11 @@ export default function SettingsPage() {
               Created automatically the first time an agent writes — the
               Chief-of-Staff and any bench persona someone has called with{" "}
               <code>/as</code>. Not teammates — they exist so every write stays
-              attributed. Deactivate one to retire the name — its history
-              stays.
+              attributed. Deactivate one to retire the name — its history stays.
             </p>
-            <ul className="space-y-1">{rosterRows(roster.filter((u) => u.kind === "agent"))}</ul>
+            <ul className="space-y-1">
+              {rosterRows(roster.filter((u) => u.kind === "agent"))}
+            </ul>
           </>
         )}
       </Section>
@@ -1049,8 +1119,8 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-ink-2">
               The <b>first-week checklist</b> on My Day is hidden in this
-              browser. Your progress was never lost — it retires itself for
-              good once every step is done.
+              browser. Your progress was never lost — it retires itself for good
+              once every step is done.
             </p>
             <button
               onClick={restoreChecklist}
@@ -1061,13 +1131,13 @@ export default function SettingsPage() {
           </div>
         ) : (
           <p className="text-sm text-ink-3">
-            Nothing is dismissed in this browser. If you dismiss the
-            first-week checklist on My Day, this is where you bring it back.
+            Nothing is dismissed in this browser. If you dismiss the first-week
+            checklist on My Day, this is where you bring it back.
           </p>
         )}
         <p className="mt-2 text-xs text-ink-3">
-          Dismissed NOTICE items are just markers — the proposals, blockers,
-          and reviews they point to stay visible in{" "}
+          Dismissed NOTICE items are just markers — the proposals, blockers, and
+          reviews they point to stay visible in{" "}
           <a href="/review" className="underline">
             Inbox → Approvals
           </a>{" "}
@@ -1081,8 +1151,8 @@ export default function SettingsPage() {
 
       <Section title="Field guide">
         <p className="text-sm text-ink-2">
-          Every Skein feature as a card — tied once you use it, with the
-          how-to on the rest. Only you can see your guide.{" "}
+          Every Skein feature as a card — tied once you use it, with the how-to
+          on the rest. Only you can see your guide.{" "}
           <Link href="/guide" className="font-medium underline">
             Open the field guide
           </Link>

@@ -63,11 +63,17 @@ export default function ActivityPage() {
   };
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
+    >
       <SectionTabs set="team" />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Activity</h1>
+          <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+            Activity
+          </h1>
           <p className="mt-0.5 text-sm text-ink-3">
             What the agents did, what the system did, and what you did — one
             sentence per action. Teammates&apos; rows are not shown here.
@@ -97,8 +103,8 @@ export default function ActivityPage() {
       {loaded && !error && entries.length === 0 && (
         <Card>
           <p className="text-sm text-ink-3">
-            Nothing on the ledger yet. Rows appear here as agents and the
-            system do work.
+            Nothing on the ledger yet. Rows appear here as agents and the system
+            do work.
           </p>
         </Card>
       )}
@@ -108,10 +114,13 @@ export default function ActivityPage() {
           <ul className="divide-y divide-line">
             {entries.map((e) =>
               raw ? (
-                <li key={e.seq} className="py-1.5 font-mono text-[11px] text-ink-2">
+                <li
+                  key={e.seq}
+                  className="py-1.5 font-mono text-[11px] text-ink-2"
+                >
                   <span className="text-ink-3">#{e.seq}</span> {e.created_at}{" "}
-                  <span className="font-medium text-thread">{e.actor}</span> {e.action}{" "}
-                  {e.detail}
+                  <span className="font-medium text-thread">{e.actor}</span>{" "}
+                  {e.action} {e.detail}
                 </li>
               ) : (
                 <li key={e.seq}>
@@ -140,7 +149,12 @@ export default function ActivityPage() {
                     >
                       {e.who === "you" ? "you" : e.who}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-ink">
+                    {/* wraps at phone width, truncates from sm up. At 360 the
+                        row had 174px for a 576px sentence, so two thirds of
+                        every line was gone and expanding reveals only `detail`
+                        — a sighted phone reader had no route to the sentence
+                        except the Raw toggle. */}
+                    <span className="min-w-0 flex-1 text-ink sm:truncate">
                       {e.sentence}
                       {e.detail && (
                         <span className="text-ink-3"> — {e.detail}</span>
@@ -152,12 +166,17 @@ export default function ActivityPage() {
                   </button>
                   {expanded === e.seq && (
                     <div className="mb-2 ml-6 rounded-lg bg-raised px-3 py-2 font-mono text-[11px] text-ink-2">
-                      <div>seq #{e.seq} · {e.created_at}</div>
+                      <div>
+                        seq #{e.seq} · {e.created_at}
+                      </div>
                       <div>
                         actor {e.actor} · action {e.action}
-                        {!e.registered && " · (no verb registered — shown as recorded)"}
+                        {!e.registered &&
+                          " · (no verb registered — shown as recorded)"}
                       </div>
-                      {e.detail && <div className="break-all">detail: {e.detail}</div>}
+                      {e.detail && (
+                        <div className="break-all">detail: {e.detail}</div>
+                      )}
                     </div>
                   )}
                 </li>

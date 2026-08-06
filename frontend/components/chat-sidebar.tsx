@@ -422,7 +422,7 @@ export function ChatSidebar({
               <button
                 autoFocus
                 onClick={deleteSelected}
-                className="rounded bg-danger px-2 py-1 font-medium text-white hover:opacity-90"
+                className="rounded bg-danger-solid px-2 py-1 font-medium text-white hover:opacity-90"
               >
                 {selChats.size
                   ? "Really delete — transcripts gone"

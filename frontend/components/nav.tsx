@@ -27,10 +27,18 @@ const GROUPS: { href: string; label: string; paths: string[] }[][] = [
       label: "Work",
       paths: ["/portfolio", "/dashboard", "/insights"],
     },
-    { href: "/review", label: "Inbox", paths: ["/review", "/intake", "/ingest"] },
+    {
+      href: "/review",
+      label: "Inbox",
+      paths: ["/review", "/intake", "/ingest"],
+    },
   ],
   [
-    { href: "/agents", label: "Team", paths: ["/agents", "/people", "/charter", "/activity"] },
+    {
+      href: "/agents",
+      label: "Team",
+      paths: ["/agents", "/people", "/charter", "/activity"],
+    },
   ],
 ];
 
@@ -83,7 +91,10 @@ export function Nav() {
   const [menuOpen, setMenuOpen] = useState(false);
   // fetched lazily on first menu open — the nav must not add a request to
   // every page load for a number that only matters inside the menu
-  const [guideMeta, setGuideMeta] = useState<{ tied_count: number; total: number } | null>(null);
+  const [guideMeta, setGuideMeta] = useState<{
+    tied_count: number;
+    total: number;
+  } | null>(null);
   const idBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   // focus the first item once per open — not via a ref callback, which would
@@ -135,7 +146,10 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-10 bg-page/85 backdrop-blur">
       <div className="flex min-h-[var(--nav-h)] flex-wrap items-center px-4 sm:px-6 md:min-h-0">
-        <Link href="/" className="flex h-14 items-center gap-2 whitespace-nowrap">
+        <Link
+          href="/"
+          className="flex h-14 items-center gap-2 whitespace-nowrap"
+        >
           {/* the mark carries the fixed identity; the wordmark stays live text
               so it keeps being re-cut per pack (Fraunces under ledger/atelier,
               glowing mono under phosphor) — freezing it would make it the one
@@ -157,8 +171,15 @@ export function Nav() {
                 const opening = !menuOpen;
                 setMenuOpen(opening);
                 if (opening && !guideMeta && !anonymous)
-                  api<{ tied_count: number; total: number }>("/api/field-guide/hint")
-                    .then((h) => setGuideMeta({ tied_count: h.tied_count, total: h.total }))
+                  api<{ tied_count: number; total: number }>(
+                    "/api/field-guide/hint",
+                  )
+                    .then((h) =>
+                      setGuideMeta({
+                        tied_count: h.tied_count,
+                        total: h.total,
+                      }),
+                    )
                     .catch(() => {});
               }}
               aria-haspopup="menu"
@@ -179,7 +200,15 @@ export function Nav() {
               {anonymous ? (
                 <span className="text-ink-3">anonymous</span>
               ) : (
-                <span className="max-w-[9rem] truncate">{user}</span>
+                // 7rem at phone width, not 9: the logo (65px) plus this
+                // cluster must fit 328px of content box, and at 9rem a
+                // 22-character name made the cluster 273px and wrapped the
+                // header into a THIRD row — 166px against a --nav-h of 100,
+                // which pushes the chat composer off-screen. globals.css
+                // publishes --nav-h on the promise that this cannot happen.
+                <span className="max-w-[7rem] truncate sm:max-w-[9rem]">
+                  {user}
+                </span>
               )}
               {hasKey && (
                 <span
@@ -211,7 +240,9 @@ export function Nav() {
                         "[role=menuitem]",
                       ) ?? []),
                     ];
-                    const i = items.indexOf(document.activeElement as HTMLElement);
+                    const i = items.indexOf(
+                      document.activeElement as HTMLElement,
+                    );
                     const next =
                       e.key === "ArrowDown"
                         ? items[(i + 1) % items.length]
@@ -230,7 +261,9 @@ export function Nav() {
                   <span aria-hidden>⚙ </span>
                   {/* only trusted-header mode lets a person type who they are.
                       Offering it elsewhere invites a name the server ignores. */}
-                  {anonymous && mode === "trusted-header" ? "Pick your name…" : "Settings"}
+                  {anonymous && mode === "trusted-header"
+                    ? "Pick your name…"
+                    : "Settings"}
                 </Link>
                 {mode === "oidc" && (
                   <button
