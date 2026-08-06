@@ -175,9 +175,11 @@ def test_a_bad_mcp_identity_never_takes_down_the_api(client, fresh_db, monkeypat
 
 
 def test_a_reserved_key_cannot_read_through_the_perimeter(client, fresh_db, monkeypatch):
-    """deps.py refuses this credential, but the read routes that carry no user
-    dependency never reach deps — in api-key mode the perimeter is their only
-    gate, so the same wall belongs there."""
+    """deps.py refuses this credential, but the catalog reads that resolve no
+    caller never reach deps — in api-key mode the perimeter is their only
+    gate, so the same wall belongs there. Asserted on those reads: against a
+    route that resolves a caller the dependency refuses the key too, and the
+    perimeter wall could be deleted with this test still green."""
     from app import config, db
     from app.services import api_keys
 
@@ -187,7 +189,7 @@ def test_a_reserved_key_cannot_read_through_the_perimeter(client, fresh_db, monk
     )
     key = api_keys.create_key("team", "legacy")["key"]
     monkeypatch.setattr(config, "AUTH_MODE", "api-key")
-    for path in ("/api/users", "/api/tasks", "/api/decisions"):
+    for path in ("/api/playbooks", "/api/personas", "/api/flocks"):
         r = client.get(path, headers={"Authorization": f"Bearer {key}"})
         assert r.status_code == 403, path
         assert "reserved for the system" in r.json()["detail"]

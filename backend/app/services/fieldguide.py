@@ -65,8 +65,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     ),
     "promise": lambda u: _has("SELECT 1 FROM promises WHERE created_by = ?", (u,)),
     "growth": lambda u: _act(u, "set_growth_interests"),
-    # a chat_threads row means a message or slash command actually landed —
-    # tool_usage's 'chat' surface would tie on merely opening the page
+    # a chat_threads row means a message reached POST /api/chat, which claims
+    # the id before anything else runs (chat_threads.claim_thread) — so a turn
+    # that dies after the claim ties this too. Still the right probe:
+    # tool_usage's 'chat' surface would tie on merely opening the page.
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
     # one row per flock turn, written when the turn closes — a cancelled turn
     # ties it too, which is right: the person called a flock and it flew

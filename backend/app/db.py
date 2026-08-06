@@ -82,6 +82,13 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL takes an exclusive lock to SET, and does NOT honor busy_timeout —
+    # SQLite answers SQLITE_BUSY immediately. So several workers booting
+    # against a BRAND NEW database race here and all but one die on "database
+    # is locked". Once WAL is established the pragma is a no-op read and the
+    # race is gone, which is why only a fresh volume or a restore into an
+    # empty one ever sees it. The timeout two lines down covers everything
+    # after this point, not this line.
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")

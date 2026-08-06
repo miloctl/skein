@@ -92,8 +92,8 @@ def test_rename_user_merges_into_existing(client, fresh_db):
 
 
 def test_attribution_map_matches_schema(client, fresh_db):
-    """Every declared column exists; new attribution-shaped columns must be
-    added to the map (or this fails and forces the decision)."""
+    """Every declared column exists. This is the FORWARD direction only — the
+    test below is the one that catches a new column nobody added."""
     from app.services.users import _ATTRIBUTION
 
     tables = {
@@ -104,6 +104,76 @@ def test_attribution_map_matches_schema(client, fresh_db):
         have = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
         for col in cols:
             assert col in have, f"{table}.{col}"
+
+
+# column names that hold a person. A new table carrying one of these joins
+# _ATTRIBUTION or this list, with a reason — the map is what rename_user walks,
+# and a column left out of it silently strands that person's rows under the old
+# name forever.
+_PERSON_SHAPED = frozenset(
+    {
+        "actor", "added_by", "agent", "asked_by", "assigned_to", "assignee", "author",
+        "created_by", "decided_by", "delegated_agent", "lead", "mentioned_by", "owner",
+        "person", "proposed_by", "requested_by", "requester", "reviewed_by", "sponsor",
+        "subject", "updated_by", "user",
+    }
+)  # fmt: skip
+
+# deliberate absences, each with the consequence of leaving it out
+_NOT_RENAMED = {
+    ("activity", "actor"): (
+        "every chained row's digest covers its actor, so a rewrite breaks"
+        " verify_chain permanently at the renamed person's earliest row. The"
+        " ledger records what was true when it was written."
+    ),
+    ("findings", "subject"): (
+        "a finding is a weekly snapshot keyed UNIQUE (rule_id, subject, week)."
+        " Moving the subject would collide with the renamed person's own row"
+        " for the same week, and the message text names the old name anyway."
+    ),
+    ("finding_dispositions", "subject"): (
+        "it points at findings.subject above, and must not drift from it."
+    ),
+    ("mention_log", "person"): (
+        "a dedupe key, not attribution. Left behind, the worst case is one"
+        " repeated notification the next time the same row is scanned."
+    ),
+    ("mention_log", "mentioned_by"): ("the other half of the dedupe key above."),
+}
+
+
+def test_no_person_column_is_left_out_of_the_rename_map(client, fresh_db):
+    """The reverse direction. Without it, adding a table with a `person` or
+    `owner` column passes every gate in the repository while rename_user
+    quietly stops being able to move that person."""
+    from app.services.users import _ATTRIBUTION
+
+    unlisted = set()
+    for row in fresh_db.query("SELECT name FROM sqlite_master WHERE type = 'table'"):
+        table = row["name"]
+        for col in fresh_db.query(f"PRAGMA table_info({table})"):
+            name = col["name"]
+            if name not in _PERSON_SHAPED:
+                continue
+            if name in _ATTRIBUTION.get(table, ()) or (table, name) in _NOT_RENAMED:
+                continue
+            unlisted.add(f"{table}.{name}")
+    assert not unlisted, (
+        f"these name a person and rename_user does not move them: {sorted(unlisted)}."
+        " Add each to users._ATTRIBUTION, or to _NOT_RENAMED here with the reason."
+    )
+
+
+def test_the_deliberate_absences_are_still_real_columns(client, fresh_db):
+    """A reason kept for a column that no longer exists is a reason the next
+    reader trusts about something else."""
+    from app.services.users import _ATTRIBUTION
+
+    for (table, col), reason in _NOT_RENAMED.items():
+        have = {c["name"] for c in fresh_db.query(f"PRAGMA table_info({table})")}
+        assert col in have, f"{table}.{col} is gone — delete its entry"
+        assert col not in _ATTRIBUTION.get(table, ()), f"{table}.{col} is in both lists"
+        assert reason.strip(), f"{table}.{col} needs a reason"
 
 
 def test_ensure_user_concurrent_safe(fresh_db):

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SkeinMark } from "@/components/mark";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
-import { api, getApiKey, getUser, setUser, subscribeUser } from "@/lib/api";
+import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
 
@@ -287,7 +287,16 @@ export function Nav() {
                         setMenuOpen(false);
                         if (signedIn) {
                           signOut();
-                          setUser("anonymous");
+                          // A full navigation, and no setUser("anonymous").
+                          // signOut clears the GET cache, but nothing
+                          // re-fetches a card that already rendered — signing
+                          // out on /people left the private 1:1 notes painted
+                          // on screen. Reloading the CURRENT page would then
+                          // answer 401 to every fetch on it, so this leaves
+                          // for My Day, which works signed out. The display
+                          // name stays: oidc mode ignores X-User, so
+                          // overwriting it only destroys what the person typed.
+                          window.location.assign("/");
                         } else {
                           // signIn resolves to a message only when it could not
                           // start: an unconfigured deployment, or a config it

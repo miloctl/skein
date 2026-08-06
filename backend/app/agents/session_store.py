@@ -219,11 +219,21 @@ class SqliteSessionRepository(SessionRepository):
 
 def delete_thread_sessions(thread_id: str) -> None:
     """A deleted chat's model-side sessions, including the per-persona
-    variants routes/chat.py names `<thread>--<persona>`. Cascades take the
-    agents, messages, and multi-agent state."""
+    variants chat_threads.persona_session_id names. Cascades take the agents,
+    messages, and multi-agent state.
+
+    ESCAPE, because `_` is a LIKE single-character wildcard and the thread-id
+    charset allows it: deleting a thread named `a_b` matched — and destroyed —
+    another owner's `axb` persona sessions. Both separators are swept: `:`
+    is what chat.py mints now, `--` is what threads created before it carry.
+    """
+    from ..services.chat_threads import _LEGACY_PERSONA_SEP, PERSONA_SEP
+
+    safe = thread_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     db.execute(
-        "DELETE FROM sessions WHERE session_id = ? OR session_id LIKE ?",
-        (thread_id, f"{thread_id}--%"),
+        "DELETE FROM sessions WHERE session_id = ?"
+        " OR session_id LIKE ? ESCAPE '\\' OR session_id LIKE ? ESCAPE '\\'",
+        (thread_id, f"{safe}{PERSONA_SEP}%", f"{safe}{_LEGACY_PERSONA_SEP}%"),
     )
 
 

@@ -243,7 +243,8 @@ def my_day(user: str) -> dict:
             ),
             # assignee IN (?, '') is deliberate: an unowned task that is due is
             # everyone's business, and tasks are team-visible anyway (GET
-            # /api/tasks carries no user dependency). LIMIT is not: unbounded,
+            # /api/tasks names a caller but applies no visibility filter —
+            # docs/VISIBILITY.md phase 3). LIMIT is not: unbounded,
             # a team with thousands of stale overdue rows served every one of
             # them as SELECT * on every dashboard load, for every user.
             # ORDER BY due_date puts the most overdue first, so the cap drops

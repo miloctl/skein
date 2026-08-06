@@ -245,6 +245,7 @@ async def perimeter_auth(request: Request, call_next):
         NEED_LOGIN,
         agent_on_rest,
         agent_on_signin,
+        is_shared_token,
     )
     from .services.api_keys import PREFIX, verify_key
     from .services.users import is_active, is_agent, reserved_refusal
@@ -252,12 +253,12 @@ async def perimeter_auth(request: Request, call_next):
     auth = request.headers.get("Authorization", "")
     # The shared token is checked BEFORE the key prefix: an operator whose
     # SKEIN_API_TOKEN happens to begin with the key prefix would otherwise be
-    # routed into verify_key and locked out of their own deployment.
-    if config.AUTH_MODE == "trusted-header":
-        import hmac
-
-        if hmac.compare_digest(auth, f"Bearer {config.API_TOKEN}"):
-            return await call_next(request)
+    # routed into verify_key and locked out of their own deployment. Here the
+    # order is safe either way — this door only decides pass-or-refuse, and a
+    # key that is also the token passes on both branches. routes/deps.py has
+    # to check it AFTER verify_key, because it decides identity as well.
+    if is_shared_token(auth):
+        return await call_next(request)
     if auth.startswith(f"Bearer {PREFIX}"):
         # verify_key and is_agent hit SQLite; oidc.validate does network I/O
         # and RSA work. This middleware is async, so running any of it inline
@@ -266,18 +267,20 @@ async def perimeter_auth(request: Request, call_next):
         if owner is None:
             return JSONResponse(status_code=401, content={"detail": INVALID_KEY})
         # the same agent wall routes/deps.py applies. It belongs here too:
-        # the read routes that carry no user dependency never reach deps, so
-        # in api-key/oidc mode this is their only gate.
+        # this runs before ANY handler, so it is the one refusal that covers
+        # the catalog reads which resolve no caller and never reach deps
+        # (tests/test_route_identity.py::OPEN_READS).
         if await run_in_threadpool(is_agent, owner):
             return JSONResponse(status_code=403, content={"detail": agent_on_rest(owner)})
         # and the reserved-name wall, for exactly the same reason: deps.py
-        # refuses this credential, but the read routes never reach deps.
+        # refuses this credential, but the catalog reads never reach deps.
         reserved = await run_in_threadpool(reserved_refusal, owner)
         if reserved:
             return JSONResponse(status_code=403, content={"detail": reserved})
-        # deactivation wall, for the same reason the agent wall is here: the
-        # read routes that carry no user dependency never reach deps, so an
-        # offboarded teammate would still read all 45 of them
+        # deactivation wall, for the same reason the agent wall is here.
+        # It is also the EARLY refusal: deps.py checks the same thing, and
+        # doing it at the door keeps an offboarded key out of the handler
+        # rather than one dependency deep.
         if not await run_in_threadpool(is_active, owner):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
         request.state.auth_key_owner = owner
@@ -296,9 +299,9 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=503, content={"detail": str(exc)})
         except oidc.OIDCError as exc:
             return JSONResponse(status_code=401, content={"detail": str(exc)})
-        # the agent wall again, for the same reason it is above: the read
-        # routes that carry no user dependency never reach deps, so a sign-in
-        # naming an agent row would otherwise read them all.
+        # the agent wall again, for the same reason it is above: a sign-in
+        # naming an agent row must be refused before any handler, catalog
+        # reads included.
         if await run_in_threadpool(is_agent, name):
             return JSONResponse(status_code=403, content={"detail": agent_on_signin(name)})
         reserved = await run_in_threadpool(reserved_refusal, name)

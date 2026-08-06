@@ -570,7 +570,12 @@ async def chat(req: ChatRequest, user: CurrentUser):
     ratelimit.check("chat", user)
     # the UI transcript is keyed by the BASE thread id (persona sessions
     # share one visible conversation); sanitize once, up front
-    ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64] or "default"
+    ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64]
+    # "default" is ChatRequest's field default, so an omitted id and an
+    # explicit one are the same request — both must land on the caller's own
+    # row rather than the single shared one every scripted client restored.
+    if not ui_thread or ui_thread == "default":
+        ui_thread = chat_threads.default_thread_id(user)
     # /as <persona> <message>: resolve the bench persona BEFORE any model —
     # unknown slugs get a deterministic error, valid ones swap the agent's
     # head and identity (writes are attributed and gated per persona)
@@ -666,6 +671,15 @@ async def chat(req: ChatRequest, user: CurrentUser):
             yield _sse({"type": "done"})
 
         return StreamingResponse(fb_stream(), media_type="text/event-stream")
+
+    # Every path below takes this id: the command dispatcher's session bridge,
+    # the flock fan-out, and build_agent. Only this call proves the id is the
+    # caller's — agents/session_store.py keys on session_id alone, so without
+    # it, naming another person's thread answered out of their conversation.
+    # AFTER the fb: guard, or a refused private line would leave a thread row
+    # behind (test_fb_never_reaches_transcript); BEFORE the dispatcher, whose
+    # bridge writes into the model session. Threadpool because it writes.
+    await run_in_threadpool(chat_threads.claim_thread, ui_thread, user)
 
     # slash commands are deterministic for EVERY provider: no agent, no
     # tokens — same engine the mock agent and Slack use. The exchange is
@@ -778,9 +792,10 @@ async def chat(req: ChatRequest, user: CurrentUser):
         )
     thread_id = ui_thread
     if persona:
-        # stable, untruncated suffix: deletion globs session_{id}--* and the
-        # base is already capped at 64, so names stay filesystem-safe
-        thread_id = f"{thread_id}--{persona}"
+        # stable, untruncated suffix: deletion globs both separators
+        # (session_store.delete_thread_sessions) and the base is already
+        # capped at 64, so names stay filesystem-safe.
+        thread_id = chat_threads.persona_session_id(thread_id, persona)
     masthead = ""
     if persona:
         # deterministic nameplate for EVERY provider, once per thread — who

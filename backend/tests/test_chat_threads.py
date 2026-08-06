@@ -190,3 +190,82 @@ def test_a_provider_error_reaches_the_ui_as_a_class_name_not_a_body(client, monk
     assert "RuntimeError" in body
     msgs = client.get("/api/chats/t-leak/messages").json()
     assert "sk-SECRET-abc123" not in msgs[-1]["content"]
+
+
+def test_chat_refuses_another_owners_thread(client):
+    """The transcript write already refused a cross-file, but silently and
+    only AFTER build_agent had restored the model-side conversation — the
+    stream carried the other person's history while their sidebar showed
+    nothing. The claim runs first, and a miss is a 404."""
+    _read_chat(client, "note: mine alone", thread="th-own")
+    resp = client.post(
+        "/api/chat",
+        json={"thread_id": "th-own", "message": "what were we discussing?"},
+        headers={"X-User": "intruder"},
+    )
+    assert resp.status_code == 404
+    # and the refusal did not file the intruder a thread of that name
+    theirs = client.get("/api/chats", headers={"X-User": "intruder"}).json()
+    assert theirs == []
+
+
+def test_a_persona_session_id_cannot_be_typed(client):
+    """The ownership claim guards thread ROWS, and a persona session id names
+    none — `th-p--growth-mentor` was the session of whoever owned `th-p`, and
+    it sanitized clean, so the claim waved it through to build_agent. The
+    separator now sits outside _THREAD_ID's charset, which is the whole
+    guarantee: routes/chat.py strips it from anything a caller sends."""
+    import re
+
+    from app.services.chat_threads import _THREAD_ID, PERSONA_SEP, persona_session_id
+
+    minted = persona_session_id("th-p", "growth-mentor")
+    assert not _THREAD_ID.fullmatch(minted)
+    assert re.sub(r"[^A-Za-z0-9_-]", "", minted) != minted
+
+    # the old separator is now just characters: an intruder sending it gets a
+    # thread of their own by that literal name, reaching no session but theirs
+    _read_chat(client, "/as growth-mentor plan my week", thread="th-p")
+    resp = client.post(
+        "/api/chat",
+        json={"thread_id": "th-p--growth-mentor", "message": "continue"},
+        headers={"X-User": "intruder"},
+    )
+    assert resp.status_code == 200
+    theirs = [c["id"] for c in client.get("/api/chats", headers={"X-User": "intruder"}).json()]
+    assert theirs == ["th-p--growth-mentor"]
+    assert PERSONA_SEP not in "th-p--growth-mentor"
+
+
+def test_the_unnamed_thread_cannot_be_squatted(client):
+    """default_thread_id hashes a name every caller can read off the roster,
+    and the claim is first-come. One POST to a teammate's computed id took
+    their unnamed thread for good: every later message of theirs answered
+    404, and they could not delete it to take it back."""
+    from app.services.chat_threads import default_thread_id
+
+    victim = default_thread_id("tester")
+    squat = client.post(
+        "/api/chat", json={"thread_id": victim, "message": "mine now"}, headers={"X-User": "thief"}
+    )
+    assert squat.status_code == 404
+    # the rightful owner still lands on it
+    client.post("/api/chat", json={"message": "hello"}).read()
+    assert [c["id"] for c in client.get("/api/chats").json()] == [victim]
+
+
+def test_an_unnamed_thread_is_one_per_person(client):
+    """The ChatRequest default made an omitted thread id and an explicit
+    'default' the same row for everyone, so every scripted caller restored
+    the same model session."""
+    from app.services import chat_threads
+
+    client.post("/api/chat", json={"message": "note: no thread id"}).read()
+    client.post(
+        "/api/chat", json={"message": "note: also none"}, headers={"X-User": "other"}
+    ).read()
+    mine = [c["id"] for c in client.get("/api/chats").json()]
+    theirs = [c["id"] for c in client.get("/api/chats", headers={"X-User": "other"}).json()]
+    assert mine == [chat_threads.default_thread_id("tester")]
+    assert theirs == [chat_threads.default_thread_id("other")]
+    assert mine != theirs

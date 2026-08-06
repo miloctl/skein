@@ -17,6 +17,18 @@ The ID tags are kept because source comments cite them. `TD1` and `TP5` and
 their neighbours are named in `frontend/app/globals.css`, `frontend/lib/theme.ts`,
 and `frontend/lib/whimsy.ts`.
 
+## Visibility tiers and crews
+
+Designed in `docs/VISIBILITY.md`, phases 3 to 6 un-shipped. A `private` /
+`crew` / `workspace` tier on the content tables, plus crew membership.
+Private is structural (never enters FTS, packs, digests, findings, the ICS
+feed, or an export), so only the crew tier is filtered. A non-workspace row
+is read only by a `StrongUser`. Phases 0 to 2 have shipped: every content read resolves a caller,
+`POST /api/chat` claims the thread id, MCP `get_my_day` answers only for
+its own identity, `crews` and `crew_members` carry the membership, and
+`services/scope.py` holds the filter plus a table-classification
+inventory that CI checks.
+
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
 CORRECTIONS rule 5 names three bounds. Only the PATCH-vs-create parity check
@@ -95,8 +107,10 @@ did not ship:
   inline, then the intake queue, then stale decisions, then one-click commit.
   Pure composition of endpoints that exist.
 - **P3 shared 1:1 loop** — a pairwise-visible agenda scope and a `1:1:` capture
-  prefix. Deferred until reports ask for it. The visibility tier gets designed
-  then, not before.
+  prefix. Deferred until reports ask for it. The visibility tier it waited on
+  is now designed in `docs/VISIBILITY.md` (`private` / `crew` / `workspace`
+  plus crew membership, un-shipped); a pairwise scope is a fourth case that
+  design does not cover, so it still gets designed at the time.
 - **P4 interrupt ledger** — derived, with no user action: a task created after
   the week line locked and finished in the same week counts as unplanned. The
   team-level ratio goes in flow metrics and the readout, with a findings rule.

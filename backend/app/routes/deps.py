@@ -1,3 +1,4 @@
+import hmac
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -63,6 +64,24 @@ def _refuse_inactive(name: str) -> None:
         raise HTTPException(status_code=403, detail=INACTIVE)
 
 
+def is_shared_token(authorization: str) -> bool:
+    """The deployment-wide SKEIN_API_TOKEN. It proves membership in the
+    deployment, never identity, so a caller holding it stays weak.
+
+    Compared as BYTES: starlette decodes headers as latin-1 and
+    compare_digest raises TypeError on a non-ASCII str, so one 0xFF byte in
+    an Authorization header turned a caller's mistake into a 500 — the same
+    hazard verify_forge_signature below documents. main.py's perimeter calls
+    this rather than restating the comparison, so the two doors cannot
+    disagree about the same header.
+    """
+    if config.AUTH_MODE != "trusted-header" or not config.API_TOKEN:
+        return False
+    return hmac.compare_digest(
+        authorization.encode("utf-8", "replace"), f"Bearer {config.API_TOKEN}".encode()
+    )
+
+
 def _cached(request: Request | None, attr: str):
     """What the perimeter middleware already proved about this request.
 
@@ -109,21 +128,29 @@ def _resolve(
         raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
     if authorization.startswith("Bearer ") and authorization[7:].startswith(PREFIX):
         owner = _cached(request, "auth_key_owner") or verify_key(authorization[7:])
-        if not owner:
+        # A SKEIN_API_TOKEN that begins with sk-skein- reaches this door and is
+        # not a key, so refusing every unverified prefix locks the operator out
+        # of their own deployment. Checked AFTER verify_key, never before: an
+        # operator who set the token TO a real personal key would otherwise
+        # have that key silently demoted from strong identity to a weak shared
+        # door. The token proves membership in the deployment, never identity,
+        # so it falls through to the name-picker door below.
+        if not owner and not is_shared_token(authorization):
             raise HTTPException(status_code=401, detail=INVALID_KEY)
-        # two write paths, one service layer: humans use REST, agents use the
-        # gated tools/MCP. An agent-owned key on REST would reach every
-        # ungated human surface with origin=human — refuse the door entirely
-        if is_agent(owner):
-            raise HTTPException(status_code=403, detail=agent_on_rest(owner))
-        # the key door never calls ensure_user, so a row that predates the
-        # reserved-name wall (or was renamed into one) would keep writing as a
-        # system actor and leak every row to every viewer. Refuse the
-        # CREDENTIAL, so a broken identity fails at the door rather than
-        # half-working.
-        _refuse_reserved(owner)
-        _refuse_inactive(owner)
-        return owner, True, []
+        if owner:
+            # two write paths, one service layer: humans use REST, agents use
+            # the gated tools/MCP. An agent-owned key on REST would reach every
+            # ungated human surface with origin=human — refuse the door entirely
+            if is_agent(owner):
+                raise HTTPException(status_code=403, detail=agent_on_rest(owner))
+            # the key door never calls ensure_user, so a row that predates the
+            # reserved-name wall (or was renamed into one) would keep writing as
+            # a system actor and leak every row to every viewer. Refuse the
+            # CREDENTIAL, so a broken identity fails at the door rather than
+            # half-working.
+            _refuse_reserved(owner)
+            _refuse_inactive(owner)
+            return owner, True, []
     if config.AUTH_MODE == "oidc":
         if authorization.startswith("Bearer "):
             from .. import oidc
@@ -232,13 +259,33 @@ def _is_admin(user: str, groups: list[str]) -> bool:
     Names match case-insensitively, the way resolve_teammate matches the
     roster: SKEIN_ADMINS=Casey must not lock out the roster's `casey`. Group
     names stay exact — those come from the IdP, not from a person typing."""
-    if any(user.casefold() == admin.casefold() for admin in config.ADMINS):
-        return True
-    if config.OIDC_ADMIN_GROUP and config.OIDC_ADMIN_GROUP in groups:
+    if is_named_admin(user, groups):
         return True
     return (
         not config.ADMINS and not config.OIDC_ADMIN_GROUP and config.AUTH_MODE == "trusted-header"
     )
+
+
+def is_named_admin(user: str, groups: list[str]) -> bool:
+    """Administrator by CONFIGURATION, without the scarcity fallback above.
+
+    The fallback exists because a deployment that mints every key by hand has
+    already decided who it trusts. That reasoning does not carry to a boundary
+    that decides what a person READS: with it, any key holder could make
+    themselves the steward of any crew and evict the one who was there
+    (routes/api.py::_crew_steward). Membership is that boundary, so it takes
+    the strict test — and an operator who wants an administrator to repair a
+    crew names one in SKEIN_ADMINS.
+    """
+    if any(user.casefold() == admin.casefold() for admin in config.ADMINS):
+        return True
+    return bool(config.OIDC_ADMIN_GROUP and config.OIDC_ADMIN_GROUP in groups)
+
+
+# Methods that read. adoption.record_use takes counts=False for these, so a
+# page load registers the person without inflating the action tally — see the
+# docstring there for what that protects.
+_READS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def _surface(request: Request, x_client: str) -> str:
@@ -255,10 +302,24 @@ def current_user(
 ) -> str:
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
-    user, strong, _ = _resolve(x_user, authorization, request.method, request)
-    request.state.strong_auth = strong
-    record_use(user, _surface(request, x_client))
+    user, strong, groups = _resolve(x_user, authorization, request.method, request)
+    _stash(request, strong, groups)
+    record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
+
+
+def _stash(request: Request, strong: bool, groups: list[str]) -> None:
+    """What a handler can read back off the request.
+
+    All three dependencies stash, not only current_user: a route that
+    re-derives admin-ness in its own body (routes/api.py::_crew_steward) reads
+    these, and an empty group list silently refuses every administrator
+    identified only by SKEIN_OIDC_ADMIN_GROUP. Stashing in one door and not
+    the others makes that a property of which dependency the next route
+    happens to pick.
+    """
+    request.state.strong_auth = strong
+    request.state.auth_groups = groups
 
 
 def _require_strong(strong: bool) -> None:
@@ -282,10 +343,10 @@ def strong_user(
     The self-asserted X-User header is never sufficient here. A personal API
     key or a validated OIDC sign-in both qualify: each one proves the caller
     is who the record says."""
-    user, strong, _ = _resolve(x_user, authorization, request.method, request)
+    user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    request.state.strong_auth = True
-    record_use(user, _surface(request, x_client))
+    _stash(request, True, groups)
+    record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
 
@@ -303,14 +364,14 @@ def admin_user(
     their own records is not a privilege boundary, it is a dead end."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
+    _stash(request, True, groups)
     if not _is_admin(user, groups):
         raise HTTPException(
             status_code=403,
             detail=f"'{user}' is not an administrator. Ask whoever runs the"
             " server to add the name to SKEIN_ADMINS.",
         )
-    request.state.strong_auth = True
-    record_use(user, _surface(request, x_client))
+    record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
 

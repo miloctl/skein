@@ -310,3 +310,22 @@ def test_both_list_branches_keep_the_200_cap(fresh_db):
         private_notes.add_note("manager", "dana", f"entry {i}")
     assert len(private_notes.list_notes("manager", "dana")) == 200
     assert len(private_notes.list_notes("manager")) == 200
+
+
+def test_mcp_reads_answer_only_for_its_own_identity(fresh_db, monkeypatch):
+    """get_my_day took a model-controlled `user`, and briefing.my_day answers
+    for whatever name it is handed — assigned questions, owned blockers,
+    tasks, and the BODIES of unread notifications. One argument enumerated
+    any teammate's inbox over a surface whose whole identity is an env var."""
+    import inspect
+
+    from app import mcp_server
+    from app.services import notifications, users
+
+    users.ensure_user("mira")
+    users.ensure_user(mcp_server.ACTOR, kind="agent")
+    notifications.notify("mira", "the vendor quote came in at 40k", tier="immediate")
+
+    fn = getattr(mcp_server.get_my_day, "fn", mcp_server.get_my_day)
+    assert inspect.signature(fn).parameters == {}
+    assert "40k" not in fn()

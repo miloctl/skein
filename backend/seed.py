@@ -3,7 +3,17 @@
 from datetime import date, timedelta
 
 from app import db
-from app.services import blockers, collab, engagements, intake, playbooks, review, users, work
+from app.services import (
+    blockers,
+    collab,
+    crews,
+    engagements,
+    intake,
+    playbooks,
+    review,
+    users,
+    work,
+)
 
 
 def main() -> None:
@@ -189,11 +199,20 @@ def main() -> None:
         ],
     )
 
+    # two crews, one of them retired: the retired branch is a different
+    # render path (dashed border, "retired" badge) and the e2e axe walk is the
+    # only thing that sees it
+    platform = crews.create_crew("Platform", summary="the backend half", actor="ava")
+    crews.add_member(platform["id"], "marcus", actor="ava")
+    crews.update_crew(
+        crews.create_crew("Launch squad", actor="ava")["id"], active=False, actor="ava"
+    )
+
     print(
         "Seeded: 1 engagement (playbook), tasks, standups, blockers,"
         " intake queue, pending reviews, calendar, lessons, a promise,"
         " an absence, a charter entry, a delegation awaiting acceptance,"
-        " and one flock turn."
+        " one flock turn, and two crews (one retired)."
     )
 
 
