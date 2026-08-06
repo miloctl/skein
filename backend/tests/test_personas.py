@@ -254,3 +254,29 @@ def test_an_unparseable_overlay_stem_reserves_no_bench_name(tmp_path, monkeypatc
     assert not any(" " in p["slug"] for p in personas.list_personas())
     # and the validator still REPORTS it, so the bad file is not silent
     assert any("Vendor Audit.md" in e for e in personas.validate_all())
+
+
+def test_the_default_agent_turn_carries_the_requester(client, fresh_db, monkeypatch):
+    """The default path set no requester — the one path most turns take. A
+    proposal from the Chief of Staff then reached the review inbox with no
+    requested_by, so a team reviewer could not tell whose chat produced it,
+    and the gate's per-person write bucket had no person to key on."""
+    from app.agents.identity import requester_identity
+    from app.routes import chat as chat_route
+
+    seen = {}
+
+    class Peek:
+        async def stream_async(self, message):
+            seen["requester"] = requester_identity()
+            yield {"data": "ok"}
+
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: Peek())
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={"thread_id": "d", "message": "hello"},
+        headers={"X-User": "mira"},
+    ) as resp:
+        resp.read()
+    assert seen["requester"] == "mira"

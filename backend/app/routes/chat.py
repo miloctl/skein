@@ -749,7 +749,12 @@ async def chat(req: ChatRequest, user: CurrentUser):
         # identity is set INSIDE the generator: tool calls run during this
         # iteration, in this context — proposals sign the persona's name
         token = set_agent_identity(persona or "agent")
-        req_token = set_requester_identity(user if persona else "")
+        # the requester is set on BOTH paths, not only for personas: proposals
+        # carry the human who asked (requested_by, tools/_gate.py), and the
+        # gate's write bucket keys on the (agent, requester) pair — left empty
+        # here, the default identity "agent" was ONE team-wide 30/min bucket,
+        # and person B's write refused because person A was mid-turn
+        req_token = set_requester_identity(user)
         if masthead:
             yield _sse({"type": "text", "text": masthead})
         receipts.start()

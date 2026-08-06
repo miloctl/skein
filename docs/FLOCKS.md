@@ -231,11 +231,13 @@ chat slot is already spent by then and stays spent. It is deliberately the chat 
 its own: two buckets would let a refused flock silently consume chat slots,
 and the operator would have no single number for a person's model budget.
 
-The per-actor buckets are NOT covered by that and stay accepted: the `write`
-bucket (`tools/_gate.py`) and the `memory` bucket (`services/memory.py`) key
-on the member slug, so a 4-member flock carries 4x either budget, and two
-people flocking the same persona share it. Every member write is
-review-gated (step 4), so the amplification fills an inbox, not the database.
+The per-actor buckets are NOT covered by that: the `write` bucket
+(`tools/_gate.py`) keys on the (member, requester) pair, so a 4-member flock
+carries 4x the write budget — but two people flocking the same persona no
+longer share it, each holds their own bucket against each member. The
+`memory` bucket (`services/memory.py`) still keys on the member slug alone
+and stays shared across requesters. Every member write is review-gated
+(step 4), so the amplification fills an inbox, not the database.
 `SKEIN_MONTHLY_BUDGET_USD` reports overspend and never refuses.
 
 Mock mode: each member yields a deterministic reply from a flock-specific

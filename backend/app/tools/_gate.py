@@ -89,10 +89,16 @@ def gated_write(
     # destructive ALWAYS_REVIEW verbs legitimately carry empty payloads.
     if action == "update" and not payload and entity not in ALWAYS_REVIEW:
         return json.dumps({"error": "nothing to change — pass at least one field"})
-    # same 30/min bucket the REST creates use — a looping agent must not
-    # flood the DB (direct) or the review queue (proposals) unmetered
+    # same 30/min budget the REST creates use — a looping agent must not
+    # flood the DB (direct) or the review queue (proposals) unmetered.
+    # Keyed on the (agent, requester) PAIR: the default chat identity is one
+    # name ("agent") shared by the whole team, so keying on the actor alone
+    # made it one team-wide bucket — person B's write refused because person
+    # A was mid-turn, with a message claiming the cap was per person.
+    # 'direct' marks the paths where the agent IS the caller (MCP, scheduler)
+    # and no human stands behind the write.
     try:
-        ratelimit.check("write", actor)
+        ratelimit.check("write", f"{actor}@{requester_identity() or 'direct'}")
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
     level = effective_level(actor, entity)
