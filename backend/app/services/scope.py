@@ -57,10 +57,11 @@ class Viewer:
     def __init__(self, name: str, strong: bool):
         weak = not strong or name in _NOT_A_VIEWER
         self.name = "" if weak else name
-        # resolved ONCE per viewer, not once per query. A dashboard fans out to
-        # roughly 27 scoped reads, and db.connect() is 280 us against a 2 us
-        # SELECT — as a per-call lookup this is a 48% increase in the process's
-        # scarcest budget, for an answer that cannot change mid-request.
+        # resolved ONCE per viewer, not once per query. One dashboard load
+        # fans out to roughly 27 scoped reads, and db.connect() (db.py) costs
+        # two orders of magnitude more than this SELECT — so per-call it grows
+        # the process's scarcest budget by half, for an answer that cannot
+        # change mid-request.
         self.crew_ids: list[int] = crews.crews_of(self.name) if self.name else []
 
 
@@ -118,10 +119,11 @@ def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, li
 # The inventory. Every table is here or in UNSCOPED, and
 # tests/test_scope.py walks sqlite_master and fails on anything in neither.
 #
-# This exists because the two other enumerate-everything structures in the
-# repository (services/admin.py::TABLES and services/users.py::_ATTRIBUTION)
-# both went stale in the direction CI did not check, and _ATTRIBUTION's gap
-# was found during phase 1 of this very feature.
+# An inventory is only as good as the direction CI checks. Both other
+# enumerate-everything structures here (services/admin.py::TABLES and
+# services/users.py::_ATTRIBUTION) carry a test in each direction for that
+# reason: a table missing from the map, and a map entry naming a table that
+# is gone. tests/test_scope.py holds both for this one.
 # ---------------------------------------------------------------------------
 
 # table -> the column that decides authorship for the tier filter.

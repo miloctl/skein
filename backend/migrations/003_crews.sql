@@ -20,7 +20,8 @@ CREATE TABLE crews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     summary TEXT NOT NULL DEFAULT '',
-    -- deactivate rather than delete, the way users.active works: a crew that
+    -- deactivate rather than delete, the same word and the same shape as
+    -- users.active: a crew that
     -- scoped rows must keep resolving after it stops being used, or those
     -- rows name a crew id that no longer exists
     active INTEGER NOT NULL DEFAULT 1,
