@@ -145,7 +145,7 @@ export default function PeoplePage() {
                 setError(actionError(e));
               }
             }}
-            className="mt-2 rounded-lg bg-weld px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+            className="mt-2 rounded-lg bg-weld-solid px-3 py-1 text-xs font-medium text-white hover:opacity-90"
           >
             Request a key
           </button>

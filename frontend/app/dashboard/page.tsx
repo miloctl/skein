@@ -710,7 +710,7 @@ export default function Dashboard() {
                       autoFocus
                       aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on} for good`}
                       onClick={() => deleteAbsence(Number(a.id))}
-                      className="rounded bg-danger px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
+                      className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
                     >
                       delete for good
                     </button>
@@ -990,7 +990,7 @@ export default function Dashboard() {
                         autoFocus
                         aria-label={`Delete note ${n.topic} for good`}
                         onClick={() => deleteNote(Number(n.id))}
-                        className="rounded bg-danger px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
+                        className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
                       >
                         delete for good
                       </button>

@@ -692,7 +692,7 @@ export default function Agents() {
                           }
                           setForgetting(null);
                         }}
-                        className="rounded bg-danger px-2 py-0.5 font-medium text-white hover:opacity-90"
+                        className="rounded bg-danger-solid px-2 py-0.5 font-medium text-white hover:opacity-90"
                       >
                         forget for good
                       </button>
