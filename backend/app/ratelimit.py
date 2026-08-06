@@ -76,12 +76,20 @@ LIMITS = {
     # credential buys an HMAC over the whole body at line rate.
     "forge_addr": 600,
 }
-MAX_KEYS = 1024  # X-User is client-supplied — bound the key space
+# X-User is client-supplied — bound the key space. 4096, not 1024: the write
+# bucket keys on (agent, requester) pairs (tools/_gate.py), so active keys
+# scale with people x agent identities rather than people alone.
+MAX_KEYS = 4096
 # What the cap counts, per surface. A signed-out caller has no name, so the
 # signin cap counts addresses — and the refusal must not claim otherwise.
 # Behind a reverse proxy, SKEIN_TRUST_PROXY_HOPS is what makes an address
 # mean a caller: at the default 0 every browser shares the proxy's address,
 # and so one signin bucket for the whole deployment.
+# `write` has no entry ON PURPOSE: REST creates key it on the person and the
+# agent gate keys it on the (agent, requester) pair, and the "per person"
+# fallback is now true for both — every bucket belongs to one person. Before
+# the pair key it was false on the gate path, where one shared "agent"
+# bucket refused person B for person A's work.
 PER = {
     "signin": "per address",
     "forge": "for the whole integration",

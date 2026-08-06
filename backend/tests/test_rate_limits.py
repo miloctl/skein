@@ -143,3 +143,43 @@ def test_signin_buckets_follow_the_forwarded_client(client, monkeypatch):
     )
     assert r.status_code != 429
 
+
+def test_the_write_bucket_is_per_person_even_on_the_shared_agent(fresh_db, monkeypatch):
+    """The default chat identity is one name ("agent") for the whole team.
+    Keyed on the actor alone, the gate made it one team-wide 30/minute
+    bucket — person B's write refused because person A was mid-turn, under a
+    message claiming the cap was per person. The gate keys on the
+    (agent, requester) pair now, so each person spends only their own."""
+    import json
+
+    from app import ratelimit
+    from app.agents.identity import (
+        reset_agent_identity,
+        reset_requester_identity,
+        set_agent_identity,
+        set_requester_identity,
+    )
+    from app.tools._gate import gated_write
+
+    monkeypatch.setitem(ratelimit.LIMITS, "write", 2)
+    ratelimit.reset()
+    t1 = set_agent_identity("agent")
+    r1 = set_requester_identity("ava")
+    try:
+        for _ in range(2):
+            gated_write("task", "create", {"title": "a"}, direct=lambda: {"id": 0})
+        out = json.loads(gated_write("task", "create", {"title": "a"}, direct=lambda: {"id": 0}))
+        assert "The limit for write" in out["error"]
+    finally:
+        reset_requester_identity(r1)
+        reset_agent_identity(t1)
+    # ava spent HER budget against the agent; marcus still holds his own
+    t2 = set_agent_identity("agent")
+    r2 = set_requester_identity("marcus")
+    try:
+        out = json.loads(gated_write("task", "create", {"title": "b"}, direct=lambda: {"id": 0}))
+        assert "error" not in out
+    finally:
+        reset_requester_identity(r2)
+        reset_agent_identity(t2)
+    ratelimit.reset()
