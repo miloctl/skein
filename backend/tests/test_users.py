@@ -115,9 +115,15 @@ _PERSON_SHAPED = frozenset(
         "actor", "added_by", "agent", "asked_by", "assigned_to", "assignee", "author",
         "created_by", "decided_by", "delegated_agent", "lead", "mentioned_by", "owner",
         "person", "proposed_by", "requested_by", "requester", "reviewed_by", "sponsor",
-        "subject", "updated_by", "user",
+        "steward", "subject", "updated_by", "user",
     }
 )  # fmt: skip
+# `steward` was missing while this very feature introduced the word
+# (crew_members.role = 'steward'). A hand-written list of person-shaped names
+# only catches the names somebody thought of, so a column that holds a person
+# under a new word is invisible to the rename sweep and a rename orphans it.
+# If you add a role, a nominee, an approver or an escalation target, add it
+# here in the same commit.
 
 # deliberate absences, each with the consequence of leaving it out
 _NOT_RENAMED = {
