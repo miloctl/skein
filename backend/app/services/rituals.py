@@ -9,7 +9,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
-from . import wording
+from . import scope, wording
+from .scope import WORKSPACE_ONLY
 
 
 def _clean(text: str, width: int = 80) -> str:
@@ -70,22 +71,32 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
 def _week_close_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
     due_promises = db.query(
-        "SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open'"
+        f"SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (horizon,),
     )
     stuck_closing = db.query(
-        "SELECT id, name, updated_at FROM engagements WHERE status = 'closing'"
+        f"SELECT id, name, updated_at FROM engagements WHERE status = 'closing' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND updated_at < ? ORDER BY updated_at",
         ((datetime.now(UTC) - timedelta(days=7)).isoformat(timespec="seconds"),),
     )
-    stale_proposals = db.query(
-        "SELECT id, summary, proposed_by, created_at FROM pending_changes"
-        " WHERE status = 'pending' AND created_at < ? ORDER BY id",
-        ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
+    # NOBODY, like every other query in this job: the week-close artifact is
+    # workspace-tier and its body also reaches job_outcomes.detail. A
+    # proposal's `summary` quotes its target row, so an unfiltered read here
+    # publishes a crew row's text to the roster and to the export.
+    from .review import _readable
+
+    stale_proposals = _readable(
+        db.query(
+            "SELECT id, entity, entity_id, summary, proposed_by, created_at FROM pending_changes"
+            " WHERE status = 'pending' AND created_at < ? ORDER BY id",
+            ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
+        ),
+        scope.NOBODY,
     )
     open_questions = db.query(
-        "SELECT id, question, assigned_to FROM questions WHERE status = 'open' ORDER BY id"
+        f"SELECT id, question, assigned_to FROM questions WHERE status = 'open'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" AND {WORKSPACE_ONLY} ORDER BY id"
     )
 
     lines = [f"# Week close-out — {today.isoformat()}", ""]
@@ -165,6 +176,12 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
 
 
 def _week_open_run(today: date, week: str, actor: str) -> dict:
+    """Every query below that reads a CLASSIFIED table takes WORKSPACE_ONLY.
+    They render into ONE markdown artifact, written at the workspace tier by
+    _write_artifact — so a scoped row quoted here reaches the whole roster
+    through GET /api/artifacts, the file on disk, and job_outcomes.detail.
+    The roster query reads `users`, which carries no tier (scope.UNSCOPED).
+    """
     horizon = (today + timedelta(days=7)).isoformat()
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
@@ -177,22 +194,23 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     for h in humans:
         name = h["name"]
         promises = db.query(
-            "SELECT id, promise, due_date FROM promises WHERE status = 'open'"
+            f"SELECT id, promise, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
             " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
             (name, horizon),
         )
         decisions = db.query(
-            "SELECT id, title FROM decisions WHERE status = 'stale' AND decided_by = ? ORDER BY id",
+            f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            " AND decided_by = ? ORDER BY id",
             (name,),
         )
         questions = db.query(
-            "SELECT id, question FROM questions WHERE status = 'open' AND assigned_to = ?"
-            " ORDER BY id",
+            f"SELECT id, question FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            " AND assigned_to = ? ORDER BY id",
             (name,),
         )
         tasks = db.query(
-            "SELECT id, title, due_date FROM tasks WHERE assignee = ? AND status != 'done'"
-            " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
+            f"SELECT id, title, due_date FROM tasks WHERE {WORKSPACE_ONLY} AND assignee = ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            " AND status != 'done' AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
             (name, horizon),
         )
         n = len(promises) + len(decisions) + len(questions) + len(tasks)
@@ -233,9 +251,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     # promises carry only created_by (the recorder) — a promise an agent
     # captured belongs to nobody in the loop above and must not go silent
     agent_recorded = db.query(
-        "SELECT c.id, c.promise, c.due_date FROM promises c"
+        "SELECT c.id, c.promise, c.due_date FROM promises c"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
-        " WHERE c.status = 'open' AND (c.due_date IS NULL OR c.due_date <= ?)"
+        f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open'"
+        " AND (c.due_date IS NULL OR c.due_date <= ?)"
         " ORDER BY c.due_date",
         (horizon,),
     )

@@ -5,6 +5,8 @@ import json
 import pytest
 from conftest import _delegated_task, _strong
 
+from app import db
+
 
 def _approve_latest(client):
     from app.services.api_keys import create_key
@@ -511,3 +513,78 @@ def test_batch_approve_answers_a_duplicated_id_twice(client, fresh_db):
     assert len(results) == 2
     assert results[0]["status"] == "approved"
     assert results[1]["status"] == "error"
+
+
+def test_every_registry_entity_maps_to_a_target_table_or_is_named_untargeted(fresh_db):
+    """_readable decides whether a proposal may be shown or judged by looking
+    up the row it targets. An entity in neither map has no row to look up, so
+    it is kept for every reader with its payload — which for a create is the
+    whole body of the row it would make. That is how `note`, `standup`,
+    `event`, `memory`, `lesson`, `intake` and `absence` creates went out
+    unfiltered while the update entities beside them were checked."""
+    from app.services import review, scope
+
+    entities = set(review._registry())
+    mapped = set(review._TARGET_TABLE)
+    untargeted = set(review._UNTARGETED)
+    missing = entities - mapped - untargeted
+    assert not missing, (
+        f"registry entities with no target table and no written reason: {sorted(missing)}."
+        " Add the table to review._TARGET_TABLE, or name it in _UNTARGETED with why."
+    )
+    assert not (mapped & untargeted), sorted(mapped & untargeted)
+    ghosts = (mapped | untargeted) - entities
+    assert not ghosts, f"mapped entities the registry no longer has: {sorted(ghosts)}"
+    unknown = {t for t in review._TARGET_TABLE.values() if t not in scope.CLASSIFIED}
+    assert not unknown, f"target tables that carry no tier: {sorted(unknown)}"
+
+
+def test_a_create_proposal_is_judged_by_the_tier_of_the_row_it_names(fresh_db):
+    """A proposal that is invisible must not be approvable. `_readable` and
+    `_assert_judgeable` each grew their own tier lookup and disagreed: a
+    `delegation` create names its task in the PAYLOAD, not in entity_id, so
+    both read nothing and a non-member approved a delegation of a crew task
+    they cannot see. One resolver now answers for both."""
+    from app.services import crews, review, scope, users, work
+
+    for n in ("ava", "mallory"):
+        users.ensure_user(n)
+    users.ensure_user("scout", kind="agent")
+    cid = crews.create_crew("Alpha", actor="ava")["id"]
+    crew_task = work.create_task(title="rotate keys", actor="ava", visibility="crew", crew_id=cid)
+    open_task = work.create_task(title="open work", actor="ava")
+
+    scoped = review.propose_change(
+        "delegation",
+        "create",
+        {"task_id": crew_task["id"], "agent": "scout", "sponsor": "ava"},
+        summary="delegate",
+        actor="scout",
+    )["id"]
+    declared = review.propose_change(
+        "note",
+        "create",
+        {"topic": "t", "content": "SECRET", "author": "ava", "visibility": "crew", "crew_id": cid},
+        summary="save note",
+        actor="scout",
+    )["id"]
+    workspace = review.propose_change(
+        "delegation",
+        "create",
+        {"task_id": open_task["id"], "agent": "scout", "sponsor": "ava"},
+        summary="delegate",
+        actor="scout",
+    )["id"]
+
+    mal = scope.Viewer("mallory", True)
+    assert [c["id"] for c in review.list_changes(viewer=mal)] == [workspace]
+    for pid in (scoped, declared):
+        with pytest.raises(db.NotFound):
+            review.approve_change(pid, actor="mallory", strong=True, viewer=mal)
+        with pytest.raises(db.NotFound):
+            review.reject_change(pid, note="no", actor="mallory", strong=True, viewer=mal)
+    # and the guard does not swallow the ordinary case
+    assert (
+        review.approve_change(workspace, actor="mallory", strong=True, viewer=mal)["status"]
+        == "approved"
+    )

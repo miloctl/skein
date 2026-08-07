@@ -612,11 +612,16 @@ export default function SettingsPage() {
             Test & save
           </button>
           {hasBrowserKey && (
+            /* "Delete", not "Remove": docs/LEXICON.md reserves delete for
+               destruction, and the 401 this screen exists to answer
+               (routes/deps.py::INVALID_KEY) sends the reader here to "delete
+               the stored key" — a button with a different verb is the reader
+               checking whether they are on the right screen. */
             <button
               onClick={clearKey}
               className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
             >
-              Remove
+              Delete
             </button>
           )}
         </div>
@@ -1373,7 +1378,7 @@ export default function SettingsPage() {
               Created automatically the first time an agent writes — the
               Chief-of-Staff and any bench persona someone has called with{" "}
               <code>/as</code>. Not teammates — they exist so every write stays
-              attributed. Deactivate one to retire the name — its history stays.
+              attributed. Deactivate one to take the name out of use — its history stays.
             </p>
             <ul className="space-y-1">
               {rosterRows(roster.filter((u) => u.kind === "agent"))}
@@ -1387,7 +1392,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-ink-2">
               The <b>first-week checklist</b> on My Day is hidden in this
-              browser. Your progress was never lost — it retires itself for good
+              browser. Your progress was never lost — it hides itself for good
               once every step is done.
             </p>
             <button

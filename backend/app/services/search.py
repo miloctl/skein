@@ -12,6 +12,7 @@ import logging
 import re
 
 from .. import config, db
+from . import scope
 
 
 def _fts_quote(q: str) -> str:
@@ -43,6 +44,108 @@ def _short_id_hit(q: str) -> dict | None:
     return {**row, "rank": None} if row else None
 
 
+# entity name -> the table it lives in, for the tier lookup below. Only the
+# entities index_record is called with; scope.CLASSIFIED holds the tier map.
+_ENTITY_TABLE = {
+    "blocker": "blockers",
+    "decision": "decisions",
+    "engagement": "engagements",
+    "event": "events",
+    "intake": "intake_requests",
+    "lesson": "lessons",
+    "memory": "memories",
+    "milestone": "milestones",
+    "note": "notes",
+    "promise": "promises",
+    "question": "questions",
+    "standup": "standups",
+    "task": "tasks",
+}
+
+
+def _tier_of(entity: str, entity_id: int) -> tuple[str, int | None] | None:
+    """The row's tier, or None when the entity carries none."""
+    table = _ENTITY_TABLE.get(entity)
+    if table is None or table not in scope.CLASSIFIED:
+        return None
+    row = db.query_one(
+        f"SELECT visibility, crew_id FROM {table} WHERE id = ?",  # noqa: S608 — constant map
+        (entity_id,),
+    )
+    return (row["visibility"], row["crew_id"]) if row else None
+
+
+def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
+    """Drop the hits this viewer may not read.
+
+    The FTS table has no tier of its own, and it CANNOT get one cheaply:
+    `entity` and `entity_id` are UNINDEXED in fts5, so a predicate on them
+    scans the whole virtual table, and adding a column means dropping and
+    rebuilding the index plus its five shadow tables. So the tier is read off
+    the source rows instead.
+
+    Without this every crew row was world-readable through search, /ask, the
+    MCP search_workspace tool, and the by-id fetch — which voids every filter
+    the list endpoints apply.
+
+    One query per TABLE, not per hit. db.connect() runs four PRAGMAs (db.py),
+    so a per-hit read costs a connection — and this filters BEFORE the
+    `limit * 4` over-fetch is truncated, so a 20-result page probes 80 rows.
+    Measured at 81 connections and 38ms per search; grouped by table it is 3
+    and 1.9ms.
+    """
+    want: dict[str, set[int]] = {}
+    for h in hits:
+        table = _ENTITY_TABLE.get(h["entity"])
+        if table in scope.CLASSIFIED:
+            want.setdefault(table, set()).add(h["entity_id"])
+    rows: dict[tuple[str, int], tuple[str, int | None, str]] = {}
+    for table, ids in want.items():
+        marks = ", ".join("?" for _ in ids)
+        author = scope.CLASSIFIED[table]
+        for r in db.query(
+            f"SELECT id, visibility, crew_id, {author} AS author FROM {table}"  # noqa: S608 — table and column from constant maps, ids are bound marks
+            f" WHERE id IN ({marks})",
+            tuple(ids),
+        ):
+            rows[table, r["id"]] = (r["visibility"], r["crew_id"], r["author"] or "")
+    out = []
+    for h in hits:
+        table = _ENTITY_TABLE.get(h["entity"])
+        if table not in scope.CLASSIFIED:
+            out.append(h)  # the entity carries no tier at all
+            continue
+        row = rows.get((table, h["entity_id"]))
+        if row is None:
+            # the source row is GONE and this is a stale index entry. Only
+            # note, event and memory deindex on delete, so the other ten
+            # entities reach here — and a hit whose row cannot be tier-checked
+            # must not be served.
+            continue
+        if scope.can_read(row[0], row[1], viewer, row[2]):
+            out.append(h)
+    return out
+
+
+def _is_private(entity: str, entity_id: int) -> bool:
+    """Whether this record must stay out of the index.
+
+    Looked up HERE rather than passed in by each of the 20 callers. A
+    parameter is a thing a call site can forget, and a forgotten one puts the
+    body in the FTS index — where /ask, semantic search, the MCP
+    search_workspace tool and the by-id fetch all read it, and where deleting
+    the row later does not take back what was already served. One SELECT on a
+    primary key — inside the caller's transaction where there is one, and on
+    its own connection where there is not (intake.submit_request indexes after
+    its transaction closes).
+    """
+    table = _ENTITY_TABLE.get(entity)
+    if table is None or table not in scope.CLASSIFIED:
+        return False
+    row = db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (entity_id,))  # noqa: S608 — constant map
+    return row is not None and row["visibility"] == scope.PRIVATE
+
+
 def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
     # by rowid via search_ids, never WHERE entity = ?: entity/entity_id are
     # UNINDEXED in FTS5, so that predicate scans the whole virtual table —
@@ -54,6 +157,11 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
     # statements would collide on the explicit rowid insert (IntegrityError);
     # BEGIN IMMEDIATE serializes them instead.
     with db.transaction():
+        if _is_private(entity, entity_id):
+            # and remove any row a previous, non-private version left behind:
+            # a record demoted to private must not stay searchable
+            deindex_record(entity, entity_id)
+            return
         db.execute(
             "INSERT OR IGNORE INTO search_ids (entity, entity_id) VALUES (?, ?)",
             (entity, entity_id),
@@ -107,20 +215,23 @@ def deindex_record(entity: str, entity_id: int) -> None:
         )
 
 
-def ask(q: str, limit: int = 5) -> dict:
+def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
     its row (entity #id), findings-style. Degrades honestly keyless — an LLM
     synthesis can be layered on top later, but the citations ARE the answer.
     NOTE for any future UI: snippets contain literal <b> markup from FTS —
     render as text or strip it; never innerHTML indexed user content."""
-    hits = search(q, limit)
+    # viewer forwarded to BOTH searches: taking the parameter and dropping it
+    # left /ask serving every crew and private row through the one surface
+    # whose whole job is to quote them back
+    hits = search(q, limit, viewer=viewer)
     note = ""
     if not hits:
         # natural phrasing rarely matches as a phrase — fall back to OR of
         # the meaningful words, bm25-ranked, and say so
         words = [w for w in q.split() if len(w) > 2]
         if len(words) > 1:
-            hits = search(" OR ".join(_fts_quote(w) for w in words), limit, raw=True)
+            hits = search(" OR ".join(_fts_quote(w) for w in words), limit, raw=True, viewer=viewer)
             if hits:
                 note = "no exact match — loosely related results (word overlap)"
     if not hits:
@@ -139,7 +250,9 @@ def ask(q: str, limit: int = 5) -> dict:
     }
 
 
-def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
+def search(
+    q: str, limit: int = 20, raw: bool = False, viewer: "scope.Viewer | None" = None
+) -> list[dict]:
     """raw=True passes q as a pre-built FTS expression (callers must quote
     each term themselves — ask()'s OR fallback does)."""
     if not q.strip():
@@ -150,9 +263,16 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
         " bm25(search_index) AS rank"
         " FROM search_index WHERE search_index MATCH ?"
         " ORDER BY rank LIMIT ?",
-        (q if raw else _fts_quote(q), limit),
+        # over-fetch, because the tier is checked AFTER the match: a page of
+        # hits that are all scoped would otherwise come back empty
+        (q if raw else _fts_quote(q), limit * 4),
     )
+    hits = visible_hits(hits, viewer or scope.NOBODY)[:limit]
+    # the by-id fetch is its own door: `note 4` resolves a row without
+    # matching anything, so the tier has to be checked here too
     direct = None if raw else _short_id_hit(q)
+    if direct and not visible_hits([direct], viewer or scope.NOBODY):
+        direct = None
     if direct:
         rest = [
             h
@@ -171,6 +291,10 @@ def search(q: str, limit: int = 20, raw: bool = False) -> list[dict]:
                 " WHERE i.entity = ? AND i.entity_id = ?",
                 (s["entity"], s["entity_id"]),
             )
+            if row and not visible_hits(
+                [{"entity": s["entity"], "entity_id": s["entity_id"]}], viewer or scope.NOBODY
+            ):
+                continue
             if row:
                 hits.append(
                     {

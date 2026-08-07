@@ -5,6 +5,8 @@ over data the team already records — receipts shown for every verdict."""
 from datetime import UTC, date, datetime, timedelta
 
 from .. import db
+from . import scope
+from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS
 from .stats import median as _median
 
@@ -39,21 +41,38 @@ def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
     return done
 
 
-def _linked_blockers(engagement_id: int) -> list[dict]:
+def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    # BOTH sides of the join carry the filter. Only the blockers side would let
+    # a workspace blocker on a crew task through, and only the tasks side would
+    # let a crew blocker on a workspace task through — and the engagement
+    # pack (services/context_pack.py) and the handoff both read this, the
+    # second of which writes its body to an artifact file on disk.
+    bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
+    tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     return db.query(
-        "SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id"
-        " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE {bfrag}"
+        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND b.status != 'resolved'",
-        (engagement_id, engagement_id),
+        (*tp, *bp, engagement_id, engagement_id),
     )
 
 
-def engagement_health() -> list[dict]:
-    """R/Y/G per non-closed engagement, each signal listed as a receipt."""
+def engagement_health(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    """R/Y/G per non-closed engagement, each signal listed as a receipt.
+
+    Filtered, defaulting to NOBODY: /portfolio passes the caller's viewer, and
+    the exec readout (services/readout.py) writes a markdown file with no
+    viewer at all — which is exactly the workspace tier this default gives it.
+    """
     today = _today().isoformat()
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
-    engagements = db.query("SELECT * FROM engagements WHERE status != 'closed' ORDER BY id")
+    frag, vp = scope.visible_filter(viewer, "engagements")
+    engagements = db.query(
+        f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks
+        tuple(vp),
+    )
     # Four batched scans grouped in Python, not per-engagement queries: at
     # ~6 queries per engagement plus one per waiting task, a growing
     # portfolio multiplies /portfolio and exec-readout latency.
@@ -61,18 +80,25 @@ def engagement_health() -> list[dict]:
     # milestone's) — the id set below dedups the two paths, and a task whose
     # two paths reach DIFFERENT engagements counts toward both.
     overdue_by: dict[int, list[dict]] = {}
+    # each receipt scan carries the SAME viewer as the engagement list above,
+    # not WORKSPACE_ONLY: a receipt quotes the row's own title, and the exec
+    # readout reaches here with NOBODY, which is the workspace tier anyway
+    mfrag, mp = scope.visible_filter(viewer, "milestones")
     for m in db.query(
-        "SELECT id, title, due_date, engagement_id FROM milestones"
-        " WHERE status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
-        (today,),
+        f"SELECT id, title, due_date, engagement_id FROM milestones WHERE {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " AND status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
+        (*mp, today),
     ):
         overdue_by.setdefault(m["engagement_id"], []).append(m)
     blockers_by: dict[int, list[dict]] = {}
+    bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
+    tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     for b in db.query(
-        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"
-        " FROM blockers b JOIN tasks t ON t.id = b.task_id"
+        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
         " LEFT JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE b.status != 'resolved' ORDER BY b.id"
+        f" WHERE b.status != 'resolved' AND {bfrag} ORDER BY b.id",
+        (*tp, *bp),
     ):
         for eng_id in {b.pop("t_eng"), b.pop("m_eng")} - {None}:
             blockers_by.setdefault(eng_id, []).append(b)
@@ -82,10 +108,12 @@ def engagement_health() -> list[dict]:
     open_by: dict[int, int] = {}
     all_waits: list[dict] = []
     for t in db.query(
-        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"
+        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " t.waiting_on_type, t.waiting_on_id,"
         " t.engagement_id AS t_eng, m.engagement_id AS m_eng"
-        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id ORDER BY t.id"
+        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
+        f" WHERE {tfrag} ORDER BY t.id",
+        tuple(tp),
     ):
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
@@ -153,20 +181,22 @@ def engagement_health() -> list[dict]:
     return out
 
 
-def allocation_conflicts() -> list[dict]:
+def allocation_conflicts(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """People allocated >100% across non-closed engagements whose windows
-    cover today (open-ended allocations always count)."""
+    cover today (open-ended allocations always count). Sums every tier and
+    masks the names the viewer may not read (scope.visible_name)."""
     today = _today().isoformat()
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     return db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent,"
-        " GROUP_CONCAT(e.name || ' (' || a.percent || '%)', ', ') AS detail"
+        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+        f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
         " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
         " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
         " GROUP BY a.person HAVING total_percent > 100"
         " ORDER BY total_percent DESC",
-        (today, today),
+        (*np, today, today),
     )
 
 
@@ -206,9 +236,11 @@ def flow_metrics(weeks: int = 8) -> dict:
     )
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     stale = db.query(
-        "SELECT id, title, assignee,"
+        # the workspace tier: unlike the counts above, this list carries
+        # TITLES, and nudge_stale_wip notifies each assignee by name from it
+        "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(updated_at) AS INTEGER) AS days_stale"
-        " FROM tasks WHERE status = 'in_progress' AND updated_at < ?"
+        f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"
         " ORDER BY updated_at",
         (stale_cutoff,),
     )
@@ -274,8 +306,10 @@ def slip_forecast() -> dict:
     median_slip = round(med, 1) if med is not None else 0.0
     applied = max(0.0, median_slip)
     open_ms = db.query(
-        "SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id"
-        " WHERE e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
+        # both sides of the join: the forecast names milestone TITLES and is
+        # written to a snapshot table by the daily job, which has no viewer
+        f"SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id AND e.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" WHERE m.{WORKSPACE_ONLY} AND e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     )
     # one waiting-task query for all open milestones, one resolution query
@@ -285,8 +319,14 @@ def slip_forecast() -> dict:
     if open_ms:
         marks = ", ".join("?" for _ in open_ms)
         for w in db.query(
-            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above
-            f" WHERE milestone_id IN ({marks}) AND status != 'done'"
+            # WORKSPACE_ONLY even though open_ms is already workspace-filtered:
+            # a PRIVATE task can link to a workspace milestone, and this emits
+            # the id it waits on into forecast_snapshots, which the daily job
+            # writes with no viewer. The forecast DATE is the median slip and
+            # does not read this list, so dropping the row costs an annotation
+            # and not a number.
+            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above, and scope.WORKSPACE_ONLY is a module constant
+            f" WHERE {WORKSPACE_ONLY} AND milestone_id IN ({marks}) AND status != 'done'"
             f" AND waiting_on_type IS NOT NULL ORDER BY id",
             tuple(m["id"] for m in open_ms),
         ):
@@ -322,16 +362,26 @@ def slip_forecast() -> dict:
     }
 
 
-def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
+def what_if(
+    request_id: int, people: list[str], percent: int = 50, viewer: scope.Viewer = scope.NOBODY
+) -> dict:
     """Project team capacity if this intake request were accepted and staffed
     with `people` at `percent` each."""
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
     if not people:
         raise ValueError("name at least one person to staff")
-    req = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
+    # what_if reports the request's TITLE and the id comes straight off the
+    # URL, so this is filtered on the CALLER. Hardcoded to the workspace
+    # tier it refused a crew member the request GET /api/intake had just shown
+    # them, with a message that says the request does not exist.
+    frag, fp = scope.visible_filter(viewer, "intake_requests")
+    req = db.query_one(
+        f"SELECT * FROM intake_requests WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (request_id, *fp),
+    )
     if not req:
-        raise db.NotFound(f"intake request #{request_id} not found")
+        raise scope.missing("intake_requests", request_id)
     # window-aware like allocation_conflicts — an allocation that ended last
     # quarter must not veto today's intake decision
     today = _today().isoformat()

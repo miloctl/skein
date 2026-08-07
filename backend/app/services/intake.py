@@ -4,9 +4,26 @@ score = reach * impact * confidence / effort (each 1-5, effort >= 1)."""
 import sqlite3
 
 from .. import db
+from . import scope
 from .search import index_record
 
 DISPOSITIONS = ("accepted", "deferred", "declined")
+
+
+def _can_read(row: dict, person: str) -> bool:
+    """assert_readable_by as a predicate. The notify path needs to SKIP a
+    reader it cannot reach, not refuse the write that triggered it."""
+    try:
+        scope.assert_readable_by(
+            row["visibility"],
+            row["crew_id"],
+            person,
+            label="requester",
+            author=row["created_by"],
+        )
+    except ValueError:
+        return False
+    return True
 
 
 def _score(reach: int, impact: int, confidence: int, effort: int) -> float:
@@ -22,17 +39,38 @@ def submit_request(
     *,
     actor: str = "",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not title.strip():
         raise ValueError("request title is required")
     ts = db.now()
-    rid = db.execute(
-        "INSERT INTO intake_requests (title, detail, requester, project_class,"
-        " origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, detail, requester or actor, project_class, origin, actor or requester, ts, ts),
+    # inside the transaction, like the other 13 resolve_write call sites: bare,
+    # the membership check opens its own connection, so somebody removed from
+    # the crew between the check and the INSERT still scopes a row into it
+    # (services/scope.py::resolve_write says this at the point of temptation)
+    with db.transaction():
+        tier, crew = scope.resolve_write(visibility, crew_id, actor=actor or requester)
+        rid = db.execute(
+            "INSERT INTO intake_requests (title, detail, requester, project_class,"
+            " origin, created_by, created_at, updated_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                title,
+                detail,
+                requester or actor,
+                project_class,
+                origin,
+                actor or requester,
+                ts,
+                ts,
+                tier,
+                crew,
+            ),
+        )
+    db.log_activity(
+        actor or requester or "system", "submit_intake", scope.detail(tier, f"#{rid}", title)
     )
-    db.log_activity(actor or requester or "system", "submit_intake", f"#{rid} {title}")
     index_record("intake", rid, title, f"{detail} {requester} {project_class}")
     return {"id": rid, "status": "submitted"}
 
@@ -42,9 +80,10 @@ def edit_request(
 ) -> dict:
     """Fix a request's wording before triage — after a disposition the record
     is the reason the requester saw, so it stays put."""
-    row = db.query_one("SELECT title, status FROM intake_requests WHERE id = ?", (request_id,))
+    row = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
     if not row:
-        raise db.NotFound(f"request #{request_id} not found")
+        raise scope.missing("intake_requests", request_id)
+    scope.assert_editable("intake_requests", row, actor, verb="edit")
     if row["status"] not in ("submitted", "scored"):
         raise ValueError(f"request #{request_id} is {row['status']} — history stays put")
     fields = {k: v for k, v in [("title", title.strip()), ("detail", detail)] if v}
@@ -54,14 +93,16 @@ def edit_request(
         fields["detail"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
-        f"UPDATE intake_requests SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608
+        f"UPDATE intake_requests SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded, id is a bound mark
         (*fields.values(), db.now(), request_id),
     )
     if title.strip() and title.strip() != row["title"]:
         db.log_activity(
             actor or "system",
             "edit_intake",
-            f"#{request_id}: '{row['title']}' -> '{title.strip()}'",
+            scope.detail(
+                row["visibility"], f"#{request_id}", f"'{row['title']}' -> '{title.strip()}'"
+            ),
         )
     else:
         db.log_activity(actor or "system", "edit_intake", f"#{request_id} {' '.join(fields)}")
@@ -89,9 +130,10 @@ def score_request(
     ):
         if not 1 <= v <= 5:
             raise ValueError(f"{name} must be 1-5")
-    current = db.query_one("SELECT id, status FROM intake_requests WHERE id = ?", (request_id,))
+    current = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
-        raise db.NotFound(f"intake request #{request_id} not found")
+        raise scope.missing("intake_requests", request_id)
+    scope.assert_editable("intake_requests", current, actor, verb="score")
     # scoring must not be a back door out of a terminal disposition — a
     # declined request re-entering triage could be accepted a second time
     if current["status"] not in ("submitted", "scored"):
@@ -154,9 +196,10 @@ def _disposition(
     actor: str,
     origin: str,
 ) -> dict:
-    current = db.query_one("SELECT status FROM intake_requests WHERE id = ?", (request_id,))
+    current = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
     if not current:
-        raise db.NotFound(f"intake request #{request_id} not found")
+        raise scope.missing("intake_requests", request_id)
+    scope.assert_editable("intake_requests", current, actor, verb="disposition")
     if current["status"] not in ("submitted", "scored"):
         raise ValueError(f"request #{request_id} already dispositioned ({current['status']})")
     db.execute(
@@ -166,7 +209,11 @@ def _disposition(
     )
     db.log_activity(actor, "disposition_intake", f"#{request_id} {disposition}")
     row = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
-    if row and row["requester"] and row["requester"] != actor:
+    # the requester is a FREE field on the agent tool path, so it is not always
+    # the author — and this message quotes the request title. Skipped, not
+    # refused: the disposition is the decision, and a reader who cannot see the
+    # request must not be able to block someone else from making it.
+    if row and row["requester"] and row["requester"] != actor and _can_read(row, row["requester"]):
         from .notifications import notify
 
         notify(
@@ -190,6 +237,11 @@ def _disposition(
                 kill_criteria=kill_criteria,
                 actor=actor,
                 origin=origin,
+                # the engagement's name IS the request's title and its summary
+                # IS the request's detail, so a workspace engagement here
+                # republishes a scoped request in full, and indexes it
+                visibility=row["visibility"],
+                crew_id=row["crew_id"] or 0,
             )
         except (ValueError, sqlite3.IntegrityError) as exc:
             # a name collision must not read as "work has started" — say so.
@@ -198,7 +250,16 @@ def _disposition(
             # together both pass that read and the loser hits
             # ux_engagements_name_nocase. Uncaught it is a 500 for a
             # caller-supplied name, which the 4xx rule forbids.
-            db.log_activity(actor, "accept_without_engagement", f"#{request_id}: {exc}")
+            # scope.detail, not the raw exception: `exc` is
+            # "engagement '<name>' already exists", and that name is the
+            # request's own title. The ledger is hash-chained, so a scoped
+            # title written here has no delete and no redaction — the caller
+            # still gets the full reason in `note` below.
+            db.log_activity(
+                actor,
+                "accept_without_engagement",
+                scope.detail(current["visibility"], f"#{request_id}", str(exc)),
+            )
             return {
                 "id": request_id,
                 "status": disposition,
@@ -212,14 +273,17 @@ def _disposition(
     }
 
 
-def list_requests(status: str = "") -> list[dict]:
+def list_requests(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "intake_requests")
     if status:
         return db.query(
-            "SELECT * FROM intake_requests WHERE status = ? ORDER BY score DESC, id DESC LIMIT 200",
-            (status,),
+            f"SELECT * FROM intake_requests WHERE status = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY score DESC, id DESC LIMIT 200",
+            (status, *vp),
         )
     return db.query(
-        "SELECT * FROM intake_requests"
+        f"SELECT * FROM intake_requests WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " ORDER BY CASE status WHEN 'submitted' THEN 0 WHEN 'scored' THEN 1 ELSE 2 END,"
-        " score DESC, id DESC LIMIT 200"
+        " score DESC, id DESC LIMIT 200",
+        tuple(vp),
     )

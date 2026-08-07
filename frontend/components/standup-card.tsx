@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { VisibilityPicker } from "@/components/visibility-picker";
 import { actionError, api } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 
@@ -19,6 +20,7 @@ export function StandupComposer({
   const [blockers, setBlockers] = useState("");
   const [posted, setPosted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
 
   const post = async () => {
     // in-flight guard: a held Enter key must not file N standups (each
@@ -28,7 +30,12 @@ export function StandupComposer({
     try {
       await api("/api/standups", {
         method: "POST",
-        body: JSON.stringify({ yesterday: yesterday || suggestion, today, blockers }),
+        body: JSON.stringify({
+          yesterday: yesterday || suggestion,
+          today,
+          blockers,
+          ...tier,
+        }),
       });
       setPosted(true);
       setTimeout(() => {
@@ -36,6 +43,12 @@ export function StandupComposer({
         setToday("");
         setBlockers("");
         setYesterday("");
+        // `tier` is deliberately NOT reset, unlike capture-palette.tsx, which
+        // clears it and says why. The difference is whether the choice stays
+        // visible: that dialog closes after a capture, so a carried tier is
+        // one nobody can see, while this card stays mounted with the picker
+        // still reading "Platform only". Posting two standups to the same
+        // crew in a row is also the ordinary case here.
         onPosted?.();
       }, 700);
     } catch (e) {
@@ -53,7 +66,9 @@ export function StandupComposer({
         value={yesterday}
         maxLength={2000}
         onChange={(e) => setYesterday(e.target.value)}
-        placeholder={suggestion ? `yesterday — ${suggestion}` : "yesterday (optional)"}
+        placeholder={
+          suggestion ? `yesterday — ${suggestion}` : "yesterday (optional)"
+        }
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
       <input
@@ -67,17 +82,18 @@ export function StandupComposer({
         placeholder="today — what are you on?"
         className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
       />
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <input
           name="standup-blockers"
           aria-label="Standup: blockers"
           value={blockers}
-        maxLength={2000}
+          maxLength={2000}
           onChange={(e) => setBlockers(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && post()}
           placeholder="blockers — auto-filed with an escalation clock"
-          className="flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
+          className="min-w-0 flex-1 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid"
         />
+        <VisibilityPicker value={tier} onChange={setTier} label="standup" />
         <button
           onClick={post}
           disabled={!today.trim() || busy}

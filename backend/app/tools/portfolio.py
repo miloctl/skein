@@ -7,8 +7,8 @@ from typing import Any
 from strands import tool
 
 from ..agents import receipts
-from ..agents.identity import agent_identity
-from ..services import absences, collab, context_pack, delegation, portfolio, promises
+from ..agents.identity import agent_identity, requester_viewer
+from ..services import absences, collab, context_pack, delegation, portfolio, promises, scope
 from ._gate import gated_write
 
 
@@ -151,12 +151,22 @@ def get_context_pack(engagement_id: int = 0) -> str:
 # rejected proposals INCLUDING reviewer notes, and 20 unread notification
 # bodies. As a model-controlled argument, "check the agent inbox for mira" was
 # the whole exploit. The MCP twin lost the same parameter for the same reason
-# (app/mcp_server.py::get_my_day). Pinned by tests/test_privacy.py.
+# (app/mcp_server.py::get_my_day). Pinned by
+# tests/test_privacy.py::test_the_agent_inbox_tool_takes_no_name.
 def my_agent_inbox() -> str:
     """Your own ambient inbox: delegated tasks, questions assigned to you,
     rejected proposals (with reviewer notes), notifications."""
     try:
-        return json.dumps(delegation.agent_inbox(agent_identity()))
+        # the REQUESTER's viewer, not None: None means "the agent is the
+        # caller" and leaves the inbox unfiltered, which is right for MCP and
+        # the scheduler. `/as <persona>` makes that false — a human takes the
+        # persona's identity, every shipped persona holds this tool, and the
+        # REST twin refuses the same read. Unset outside a chat turn, so the
+        # autonomous path is unchanged.
+        rv = requester_viewer()
+        return json.dumps(
+            delegation.agent_inbox(agent_identity(), rv if isinstance(rv, scope.Viewer) else None)
+        )
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 
@@ -295,7 +305,7 @@ def add_absence(
         kind: pto (zeroes planning), oncall, or focus (advisory).
         note: Optional context.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "person": person,
         "starts_on": starts_on,
         "ends_on": ends_on,

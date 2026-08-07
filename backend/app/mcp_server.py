@@ -175,7 +175,12 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
 def log_decision(title: str, decision: str, context: str = "") -> str:
     """Record a team decision with rationale in the decision log."""
     record_use(ACTOR, "mcp")
-    payload = {"title": title, "decision": decision, "context": context, "decided_by": ACTOR}
+    payload: dict[str, Any] = {
+        "title": title,
+        "decision": decision,
+        "context": context,
+        "decided_by": ACTOR,
+    }
     return gated_write(
         "decision",
         "create",
@@ -212,7 +217,7 @@ def search_workspace(query: str) -> str:
 def save_knowledge(topic: str, content: str) -> str:
     """Save a note to the shared team knowledge base."""
     record_use(ACTOR, "mcp")
-    payload = {"topic": topic, "content": content, "author": ACTOR}
+    payload: dict[str, Any] = {"topic": topic, "content": content, "author": ACTOR}
     return gated_write(
         "note",
         "create",

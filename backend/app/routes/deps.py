@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Request
 
 from .. import config
+from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
 from ..services.users import ensure_user, is_agent, refuse_fold_collision
@@ -11,7 +12,16 @@ from ..services.users import ensure_user, is_agent, refuse_fold_collision
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
 # instead of drafting near-duplicates.
-INVALID_KEY = "invalid or revoked API key"
+# States the fix, like NEED_KEY below. Without it this reads as a dead end:
+# it is the page-level error on EVERY surface once a stored key goes bad, and
+# the one screen that can clear the key shows the same sentence. A reader with
+# a revoked key asked "how am I supposed to log in" — which is the question a
+# refusal with no remedy always produces.
+INVALID_KEY = (
+    "invalid or revoked API key. Open Settings, step 2, and delete the stored"
+    " key or paste a new one. Get a new key from whoever runs the server"
+    " (python -m app.bootstrap_key <you>)."
+)
 NEED_KEY = (
     "SKEIN_AUTH_MODE=api-key: every request needs a personal API key. Get"
     " your first one from whoever runs the server (python -m"
@@ -303,12 +313,12 @@ def current_user(
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
-    _stash(request, strong, groups)
+    _stash(request, user, strong, groups)
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
 
-def _stash(request: Request, strong: bool, groups: list[str]) -> None:
+def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None:
     """What a handler can read back off the request.
 
     All three dependencies stash, not only current_user: a route that
@@ -320,6 +330,19 @@ def _stash(request: Request, strong: bool, groups: list[str]) -> None:
     """
     request.state.strong_auth = strong
     request.state.auth_groups = groups
+    # The viewer every scoped read filters on. Built HERE and nowhere else
+    # (services/scope.py::Viewer) so the strong-identity bar is a property of
+    # the door rather than a rule every scoped read has to remember.
+    # It resolves crew membership once, so a page that fans out to dozens of
+    # scoped reads pays for one lookup.
+    #
+    # Built on EVERY request, including routes that read nothing scoped. It
+    # costs a crews_of query only for a STRONG caller — Viewer.__init__ blanks
+    # a weak name and then skips the lookup, so in the default trusted-header
+    # mode it costs nothing at all. Kept in the single door either way: making
+    # it lazy moves construction out of the one place that builds a Viewer,
+    # which is the whole reason the strong-identity bar cannot be forgotten.
+    request.state.viewer = scope.Viewer(user, strong)
 
 
 def _require_strong(strong: bool) -> None:
@@ -345,7 +368,7 @@ def strong_user(
     is who the record says."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, True, groups)
+    _stash(request, user, True, groups)
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
@@ -364,7 +387,7 @@ def admin_user(
     their own records is not a privilege boundary, it is a dead end."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, True, groups)
+    _stash(request, user, True, groups)
     if not _is_admin(user, groups):
         raise HTTPException(
             status_code=403,
@@ -375,6 +398,22 @@ def admin_user(
     return user
 
 
+def viewer(request: Request, _user: Annotated[str, Depends(current_user)]) -> "scope.Viewer":
+    """What the caller may read.
+
+    `_user` is unused on purpose: it ORDERS the two, so current_user has
+    resolved and stashed before this reads request.state. FastAPI caches a
+    dependency per request, so a route taking both pays for one resolution.
+
+    The `getattr` default is unreachable while `_user` is here: _stash sets
+    request.state.viewer unconditionally. It is the fail-closed landing if
+    somebody drops that parameter — which would also drop the ordering, so the
+    default going live is the SYMPTOM of that edit, not a case to design for.
+    """
+    return getattr(request.state, "viewer", scope.NOBODY)
+
+
 CurrentUser = Annotated[str, Depends(current_user)]
 StrongUser = Annotated[str, Depends(strong_user)]
 AdminUser = Annotated[str, Depends(admin_user)]
+ViewerDep = Annotated["scope.Viewer", Depends(viewer)]

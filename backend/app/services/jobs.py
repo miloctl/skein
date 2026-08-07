@@ -193,6 +193,35 @@ def record_outcome(job: str, status: str, detail: str = "", duration_ms: int = 0
     )
 
 
+def _outcome_detail(result: object) -> str:
+    """What a job's return value may put in job_outcomes.detail.
+
+    Counts, never rows. `job_outcomes` carries no tier of its own
+    (scope.UNSCOPED reasons that a job reads the workspace tier, so what lands
+    there is already workspace) and it is in admin.TABLES, so it is exported.
+    Two jobs break that assumption on purpose: blockers.sweep_escalations and
+    collab.sweep_stale_decisions escalate EVERY tier, and both return the rows
+    they acted on. str(result) then wrote whole private blocker and decision
+    dicts — titles, detail, owner — into the export.
+
+    Both sweeps already route their ledger line through scope.detail and gate
+    their notify. This is the third door out of the same function.
+
+    A scalar stays: jobs report their skip reasons as {"skipped": "..."} and
+    those are our own literals, not row text.
+    """
+    if result is None:
+        return ""
+    if isinstance(result, list | tuple | set):
+        return f"{len(result)} rows"
+    if isinstance(result, dict):
+        return ", ".join(
+            f"{k}={len(v) if isinstance(v, list | tuple | set | dict) else v}"
+            for k, v in result.items()
+        )
+    return str(result)
+
+
 def run_job(spec: JobSpec) -> None:
     """Run one registered job: log, time, record the outcome. Never raises —
     a failing job must not take down the scheduler or startup."""
@@ -201,8 +230,9 @@ def run_job(spec: JobSpec) -> None:
     try:
         result = spec.fn()
         elapsed = int((time.monotonic() - start) * 1000)
-        record_outcome(spec.name, "ok", str(result) if result is not None else "", elapsed)
-        log.info("job %s: done %s", spec.name, result if result is not None else "")
+        detail = _outcome_detail(result)
+        record_outcome(spec.name, "ok", detail, elapsed)
+        log.info("job %s: done %s", spec.name, detail)
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         # outcome table unavailable must not mask the real failure

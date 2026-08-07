@@ -4,6 +4,8 @@ import re
 from datetime import UTC, date, datetime
 
 from .. import db
+from . import scope
+from .scope import WORKSPACE_ONLY
 
 # a date, or a date-prefixed ISO timestamp — both compare correctly against
 # the stored starts_at strings
@@ -19,6 +21,8 @@ def schedule_event(
     *,
     actor: str = "system",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not title.strip():
         raise ValueError("event title is required")
@@ -41,19 +45,37 @@ def schedule_event(
 
     starts_at = _canon("starts_at", starts_at)
     ends_at = _canon("ends_at", ends_at) if ends_at else ""
-    eid = db.execute(
-        "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
-        " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, description, starts_at, ends_at or None, attendees, origin, actor, db.now()),
-    )
     from .search import index_record
 
-    index_record("event", eid, title, f"{description} {attendees} {starts_at}")
-    db.log_activity(actor, "schedule_event", f"#{eid} {title} @ {starts_at}")
+    with db.transaction():
+        tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        eid = db.execute(
+            "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
+            " origin, created_by, created_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                title,
+                description,
+                starts_at,
+                ends_at or None,
+                attendees,
+                origin,
+                actor,
+                db.now(),
+                tier,
+                crew,
+            ),
+        )
+        index_record("event", eid, title, f"{description} {attendees} {starts_at}")
+        db.log_activity(
+            actor, "schedule_event", scope.detail(tier, f"#{eid}", f"{title} @ {starts_at}")
+        )
     return {"id": eid, "title": title, "starts_at": starts_at}
 
 
-def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
+def list_events(
+    from_date: str = "", limit: int = 50, viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
     if from_date:
         # a string compare against a garbage value returns [], which reads as
         # "no events" — a silent wrong answer. Every write path validates
@@ -66,18 +88,32 @@ def list_events(from_date: str = "", limit: int = 50) -> list[dict]:
             date.fromisoformat(head)
         except ValueError as exc:
             raise ValueError("from_date must be a real date (YYYY-MM-DD)") from exc
+    frag, vp = scope.visible_filter(viewer, "events")
+    if from_date:
         return db.query(
-            "SELECT * FROM events WHERE starts_at >= ? ORDER BY starts_at LIMIT ?",
-            (from_date, limit),
+            f"SELECT * FROM events WHERE starts_at >= ? AND {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (from_date, *vp, limit),
         )
-    return db.query("SELECT * FROM events ORDER BY starts_at LIMIT ?", (limit,))
+    return db.query(
+        f"SELECT * FROM events WHERE {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (*vp, limit),
+    )
 
 
-def get_event(event_id: int) -> dict | None:
+def get_event(event_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
     """One event, or None. Exists so tools/schedule.py can name an event in a
     proposal summary without writing SQL — it was the only query in app/tools/,
-    and the rule is that SQL lives here."""
-    return db.query_one("SELECT * FROM events WHERE id = ?", (event_id,))
+    and the rule is that SQL lives here.
+
+    Filtered, and the default viewer is NOBODY. tools/schedule.py puts the
+    title straight into a pending_changes summary a reviewer reads, and that
+    reviewer is not necessarily in the event's crew.
+    """
+    frag, vp = scope.visible_filter(viewer, "events")
+    return db.query_one(
+        f"SELECT * FROM events WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (event_id, *vp),
+    )
 
 
 def cancel_event(event_id: int, *, actor: str = "system", origin: str = "human") -> dict:
@@ -86,12 +122,15 @@ def cancel_event(event_id: int, *, actor: str = "system", origin: str = "human")
     # one transaction: a row delete that commits without its index delete
     # leaves the cancelled event citable by search and /ask
     with db.transaction():
-        row = db.query_one("SELECT title FROM events WHERE id = ?", (event_id,))
+        row = db.query_one("SELECT * FROM events WHERE id = ?", (event_id,))
         if not row:
-            raise db.NotFound(f"no event #{event_id}")
+            raise scope.missing("events", event_id)
+        scope.assert_editable("events", row, actor, verb="cancel")
         db.execute("DELETE FROM events WHERE id = ?", (event_id,))
         deindex_record("event", event_id)  # search must never cite a cancelled event
-        db.log_activity(actor, "cancel_event", f"#{event_id} {row['title']}")
+        db.log_activity(
+            actor, "cancel_event", scope.detail(row["visibility"], f"#{event_id}", row["title"])
+        )
     return {"id": event_id, "cancelled": True}
 
 
@@ -134,7 +173,9 @@ def ics_feed() -> str:
         "PRODID:-//Skein//calendar//EN",
         "X-WR-CALNAME:Skein",
     ]
-    for e in db.query("SELECT * FROM events ORDER BY starts_at LIMIT 500"):
+    for e in db.query(
+        f"SELECT * FROM events WHERE {WORKSPACE_ONLY} ORDER BY starts_at LIMIT 500"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    ):
         start = _ics_dt_lines("DTSTART", e["starts_at"])
         if not start:
             continue
@@ -148,8 +189,8 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     for m in db.query(
-        "SELECT id, title, due_date FROM milestones"
-        " WHERE status != 'done' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
+        f"SELECT id, title, due_date FROM milestones WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND status != 'done' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
         start = _ics_dt_lines("DTSTART", m["due_date"])
         if not start:  # a malformed stored date must not sink the whole feed
@@ -162,8 +203,8 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     for c in db.query(
-        "SELECT id, promise, due_date FROM promises"
-        " WHERE status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
+        f"SELECT id, promise, due_date FROM promises WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
         start = _ics_dt_lines("DTSTART", c["due_date"])
         if not start:

@@ -42,6 +42,35 @@ def reset_requester_identity(token: Token) -> None:
     _current_requester.reset(token)
 
 
+# The requesting human's Viewer, for the turn. Set beside the name above and
+# read by the tool surface.
+#
+# A tool cannot build one: scope.Viewer carries the strong-identity bar and is
+# constructed in routes/deps.py alone, so a tool that resolved its own would
+# either bypass the bar or, from a machine name, come back empty. And it
+# cannot be skipped — `/as <persona>` lets a HUMAN take an agent identity, so
+# "the agent is reading its own inbox" stops being true the moment a person is
+# driving the turn. Unset (None) means nobody is: MCP and the scheduler, where
+# the agent really is the caller.
+_current_requester_viewer: ContextVar[object | None] = ContextVar(
+    "current_requester_viewer", default=None
+)
+
+
+def requester_viewer() -> object | None:
+    """The Viewer of the human whose message caused this turn, or None when
+    the agent is the caller (MCP, a scheduled job)."""
+    return _current_requester_viewer.get()
+
+
+def set_requester_viewer(v: object | None) -> Token:
+    return _current_requester_viewer.set(v)
+
+
+def reset_requester_viewer(token: Token) -> None:
+    _current_requester_viewer.reset(token)
+
+
 _force_review: ContextVar[bool] = ContextVar("force_review", default=False)
 
 

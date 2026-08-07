@@ -1,11 +1,12 @@
 """Scheduling tools — thin wrappers over app.services.schedule."""
 
 import json
+from typing import Any
 
 from strands import tool
 
 from ..agents.identity import agent_identity
-from ..services import schedule
+from ..services import schedule, scope
 from ._gate import gated_write
 
 
@@ -22,7 +23,7 @@ def schedule_event(
         description: What the event is for.
         attendees: Comma-separated attendee names.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "title": title,
         "starts_at": starts_at,
         "ends_at": ends_at,
@@ -65,5 +66,11 @@ def cancel_event(event_id: int) -> str:
         {},
         lambda: schedule.cancel_event(event_id, actor=agent_identity(), origin="agent"),
         entity_id=event_id,
-        summary=f"cancel event #{event_id} '{row['title']}' ({row['starts_at']})",
+        # the time stays, the title does not: scope.detail keeps a scoped
+        # event's name out of the review queue and its team notification
+        summary=scope.detail(
+            row["visibility"],
+            f"cancel event #{event_id} ({row['starts_at']})",
+            f"'{row['title']}'",
+        ),
     )

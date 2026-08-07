@@ -259,7 +259,14 @@ def test_service_write_survives_a_dead_endpoint(monkeypatch, fresh_db, caplog):
     with caplog.at_level("WARNING", logger="skein"):
         search.index_record("note", 90004, "resilient title", "resilient body")
         search.index_record("note", 90005, "second title", "second body")
-    assert [r["entity_id"] for r in search.search("resilient title")] == [90004]
+    # asserted on search_index, not through search(): these ids have no row in
+    # `notes`, and search.visible_hits now refuses a hit whose source row is
+    # gone (it cannot be tier-checked). What this test pins is that
+    # index_record LANDS the row when embeddings are down.
+    indexed = db.query(
+        "SELECT entity_id FROM search_index WHERE entity = 'note' ORDER BY entity_id"
+    )
+    assert [r["entity_id"] for r in indexed] == [90004, 90005]
     assert db.query_one("SELECT 1 AS x FROM embeddings WHERE entity_id = 90004") is None
     warnings = [r for r in caplog.records if "embedding failed" in r.message]
     assert len(warnings) == 1  # once per outage, not per write

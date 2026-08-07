@@ -63,7 +63,7 @@ LEGACY_UNCHAINED = "activity_chain_legacy"
 
 def _settings(*keys: str) -> dict[str, str]:
     marks = ", ".join("?" for _ in keys)
-    rows = db.query(f"SELECT key, value FROM app_settings WHERE key IN ({marks})", keys)  # noqa: S608
+    rows = db.query(f"SELECT key, value FROM app_settings WHERE key IN ({marks})", keys)  # noqa: S608 — keys hardcoded, id is a bound mark
     return {r["key"]: r["value"] for r in rows}
 
 

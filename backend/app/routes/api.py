@@ -38,6 +38,7 @@ from ..services import (
     review,
     rituals,
     schedule,
+    scope,
     search,
     settings,
     tuning,
@@ -46,7 +47,7 @@ from ..services import (
     weekly,
     work,
 )
-from .deps import AdminUser, CurrentUser, StrongUser
+from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep
 
 router = APIRouter(prefix="/api")
 
@@ -67,41 +68,41 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/milestones")
-def get_milestones(user: CurrentUser, project: str = "", status: str = ""):
-    return work.list_milestones(project, status)
+def get_milestones(user: CurrentUser, viewer: ViewerDep, project: str = "", status: str = ""):
+    return work.list_milestones(project, status, viewer)
 
 
 @router.get("/tasks")
-def get_tasks(user: CurrentUser):
-    return work.list_tasks_joined()
+def get_tasks(user: CurrentUser, viewer: ViewerDep):
+    return work.list_tasks_joined(viewer)
 
 
 @router.get("/tasks/{task_id}/worklog")
-def get_task_worklog(user: CurrentUser, task_id: int):
+def get_task_worklog(user: CurrentUser, viewer: ViewerDep, task_id: int):
     try:
-        return delegation.list_worklog(task_id)
+        return delegation.list_worklog(task_id, viewer=viewer)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
 
 @router.get("/questions")
-def get_questions(user: CurrentUser, status: str = ""):
-    return collab.list_questions(status)
+def get_questions(user: CurrentUser, viewer: ViewerDep, status: str = ""):
+    return collab.list_questions(status, viewer)
 
 
 @router.get("/decisions")
-def get_decisions(user: CurrentUser, status: str = "", category: str = ""):
-    return collab.list_decisions(status=status, category=category)
+def get_decisions(user: CurrentUser, viewer: ViewerDep, status: str = "", category: str = ""):
+    return collab.list_decisions(status=status, category=category, viewer=viewer)
 
 
 @router.get("/standups")
-def get_standups(user: CurrentUser):
-    return collab.list_standups()
+def get_standups(user: CurrentUser, viewer: ViewerDep):
+    return collab.list_standups(viewer=viewer)
 
 
 @router.get("/events")
-def get_events(user: CurrentUser, from_date: str = ""):
-    return schedule.list_events(from_date)
+def get_events(user: CurrentUser, viewer: ViewerDep, from_date: str = ""):
+    return schedule.list_events(from_date, viewer=viewer)
 
 
 @router.get("/personas")
@@ -124,12 +125,12 @@ def get_flock_traces(user: CurrentUser, thread: str = "", flock: str = "", limit
     # CurrentUser, unlike the open roster above: a trace row names a person and
     # the thread id their chat transcript is keyed by (routes/chat.py scopes
     # those per owner), so this must not answer an unidentified caller
-    return flocks.list_traces(thread_id=thread, flock=flock, limit=limit)
+    return flocks.list_traces(user, thread_id=thread, flock=flock, limit=limit)
 
 
 @router.get("/notes")
-def get_notes(user: CurrentUser, q: str = ""):
-    return collab.search_notes(q)
+def get_notes(user: CurrentUser, viewer: ViewerDep, q: str = ""):
+    return collab.search_notes(q, viewer)
 
 
 class NotePatch(BaseModel):
@@ -195,28 +196,28 @@ def get_activity_verify(user: CurrentUser, tail: int = 0):
 
 
 @router.get("/blockers")
-def get_blockers(user: CurrentUser, status: str = "", owner: str = ""):
-    return blockers.list_blockers(status, owner)
+def get_blockers(user: CurrentUser, viewer: ViewerDep, status: str = "", owner: str = ""):
+    return blockers.list_blockers(status, owner, viewer)
 
 
 @router.get("/intake")
-def get_intake(user: CurrentUser, status: str = ""):
-    return intake.list_requests(status)
+def get_intake(user: CurrentUser, viewer: ViewerDep, status: str = ""):
+    return intake.list_requests(status, viewer)
 
 
 @router.get("/review")
-def get_review(user: CurrentUser, status: str = "pending"):
-    return review.list_changes(status)
+def get_review(user: CurrentUser, viewer: ViewerDep, status: str = "pending"):
+    return review.list_changes(status, viewer)
 
 
 @router.get("/engagements")
-def get_engagements(user: CurrentUser, status: str = ""):
-    return engagements.list_engagements(status)
+def get_engagements(user: CurrentUser, viewer: ViewerDep, status: str = ""):
+    return engagements.list_engagements(status, viewer=viewer)
 
 
 @router.get("/allocations")
-def get_allocations(user: CurrentUser, engagement_id: int = 0):
-    return engagements.list_allocations(engagement_id)
+def get_allocations(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
+    return engagements.list_allocations(engagement_id, viewer=viewer)
 
 
 @router.delete("/allocations/{allocation_id}")
@@ -234,11 +235,15 @@ class AbsenceIn(BaseModel):
     ends_on: str = Field(max_length=10)
     kind: str = Field("pto", max_length=10)
     note: str = Field("", max_length=200)
+    # `person` is checked as a READER (absences.add_absence).
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.get("/absences")
-def get_absences(user: CurrentUser, person: str = ""):
-    return absences.list_absences(person)
+def get_absences(user: CurrentUser, viewer: ViewerDep, person: str = ""):
+    return absences.list_absences(person, viewer=viewer)
 
 
 @router.post("/absences")
@@ -246,7 +251,14 @@ def post_absence(body: AbsenceIn, user: CurrentUser):
     ratelimit.check("absence", user)
     try:
         return absences.add_absence(
-            body.person, body.starts_on, body.ends_on, body.kind, body.note, actor=user
+            body.person,
+            body.starts_on,
+            body.ends_on,
+            body.kind,
+            body.note,
+            actor=user,
+            visibility=body.visibility,
+            crew_id=body.crew_id,
         )
     except db.NotFound:
         raise
@@ -264,13 +276,13 @@ def delete_absence(absence_id: int, user: CurrentUser):
 
 
 @router.get("/capacity")
-def get_capacity(user: CurrentUser):
-    return engagements.capacity()
+def get_capacity(user: CurrentUser, viewer: ViewerDep):
+    return engagements.capacity(viewer)
 
 
 @router.get("/lessons")
-def get_lessons(user: CurrentUser, project_class: str = ""):
-    return engagements.list_lessons(project_class)
+def get_lessons(user: CurrentUser, viewer: ViewerDep, project_class: str = ""):
+    return engagements.list_lessons(project_class, viewer=viewer)
 
 
 @router.get("/playbooks")
@@ -279,8 +291,8 @@ def get_playbooks():
 
 
 @router.get("/artifacts")
-def get_artifacts(user: CurrentUser, engagement_id: int = 0):
-    return handoff.list_artifacts(engagement_id)
+def get_artifacts(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
+    return handoff.list_artifacts(engagement_id, viewer)
 
 
 @router.get("/users")
@@ -347,8 +359,8 @@ def _crew_steward(crew_id: int, user: str, request: Request) -> None:
 
     Not AdminUser on the route: a crew whose membership only an administrator
     can edit is a crew nobody maintains. Not CurrentUser alone either — in
-    trusted-header mode that is a self-asserted header, and membership is
-    about to decide what a person reads. Strong identity is the same bar
+    trusted-header mode that is a self-asserted header, and membership
+    decides what a person reads. Strong identity is the same bar
     routes/private.py holds for the other surface that answers per person.
     """
     from .deps import _require_strong, is_named_admin
@@ -471,15 +483,15 @@ def post_team_theme(body: ThemeIn, user: AdminUser):
 
 
 @router.get("/search")
-def get_search(q: str, user: CurrentUser):
+def get_search(q: str, user: CurrentUser, viewer: ViewerDep):
     fieldguide.mark(user, "search")
-    return search.search(q)
+    return search.search(q, viewer=viewer)
 
 
 @router.get("/ask")
-def get_ask(q: str, user: CurrentUser):
+def get_ask(q: str, user: CurrentUser, viewer: ViewerDep):
     fieldguide.mark(user, "search")
-    return search.ask(q)
+    return search.ask(q, viewer=viewer)
 
 
 @router.get("/field-guide")
@@ -556,8 +568,8 @@ def post_key_request(user: CurrentUser):
 
 
 @router.get("/briefing")
-def get_briefing(user: CurrentUser):
-    return briefing.my_day(user)
+def get_briefing(user: CurrentUser, viewer: ViewerDep):
+    return briefing.my_day(user, viewer)
 
 
 @router.get("/attention")
@@ -621,8 +633,8 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 
 
 @router.get("/memories")
-def get_memories(user: CurrentUser, q: str = ""):
-    return memory.recall(q)
+def get_memories(user: CurrentUser, viewer: ViewerDep, q: str = ""):
+    return memory.recall(q, user=user, viewer=viewer)
 
 
 @router.delete("/memories/{memory_id}")
@@ -640,13 +652,13 @@ def get_pulse(user: CurrentUser):
 
 
 @router.get("/portfolio/health")
-def get_portfolio_health(user: CurrentUser):
-    return portfolio.engagement_health()
+def get_portfolio_health(user: CurrentUser, viewer: ViewerDep):
+    return portfolio.engagement_health(viewer)
 
 
 @router.get("/portfolio/conflicts")
-def get_portfolio_conflicts(user: CurrentUser):
-    return portfolio.allocation_conflicts()
+def get_portfolio_conflicts(user: CurrentUser, viewer: ViewerDep):
+    return portfolio.allocation_conflicts(viewer)
 
 
 @router.get("/portfolio/flow")
@@ -671,8 +683,8 @@ class WhatIfIn(BaseModel):
 
 
 @router.post("/intake/{request_id}/what-if")
-def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser):
-    return portfolio.what_if(request_id, body.people, body.percent)
+def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser, viewer: ViewerDep):
+    return portfolio.what_if(request_id, body.people, body.percent, viewer)
 
 
 @router.get("/week")
@@ -696,8 +708,8 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
 
 
 @router.get("/promises")
-def get_promises(user: CurrentUser, status: str = "", audience: str = ""):
-    return promises.list_promises(status, audience)
+def get_promises(user: CurrentUser, viewer: ViewerDep, status: str = "", audience: str = ""):
+    return promises.list_promises(status, audience, viewer)
 
 
 class PromiseIn(BaseModel):
@@ -706,6 +718,11 @@ class PromiseIn(BaseModel):
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
     audience: str = Field("external", max_length=20)
+    # No reader check on `to_whom`: it is deliberately not a roster name (the
+    # default audience is external) — promises.add_promise says why.
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/promises")
@@ -763,8 +780,8 @@ def post_reconfirm(decision_id: int, body: ReconfirmIn, user: CurrentUser):
 
 
 @router.get("/review/stats")
-def get_review_stats(user: CurrentUser):
-    return review.review_stats()
+def get_review_stats(user: CurrentUser, viewer: ViewerDep):
+    return review.review_stats(viewer)
 
 
 class FeedbackIn(BaseModel):
@@ -948,10 +965,11 @@ def post_agents_authority(body: AuthorityIn, user: AdminUser):
 
 
 @router.get("/agents/{agent}/inbox")
-def get_agent_inbox(agent: str, user: CurrentUser):
+def get_agent_inbox(agent: str, user: CurrentUser, viewer: ViewerDep):
     if not users.is_agent(agent):
-        raise HTTPException(status_code=404, detail=f"no agent named '{agent}'")
-    return delegation.agent_inbox(agent)
+        # names no name: an error never echoes a rejected value back (CLAUDE.md)
+        raise HTTPException(status_code=404, detail="no such agent. Check the name.")
+    return delegation.agent_inbox(agent, viewer)
 
 
 class DelegateIn(BaseModel):
@@ -965,15 +983,18 @@ def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser):
 
 
 @router.get("/context-pack")
-def get_context_pack(user: CurrentUser, engagement: int = 0):
+def get_context_pack(user: CurrentUser, viewer: ViewerDep, engagement: int = 0, crew: int = 0):
     if engagement:
-        return {"engagement": engagement, "content": context_pack.build_engagement_pack(engagement)}
-    return context_pack.get_pack(actor=user)
+        return {
+            "engagement": engagement,
+            "content": context_pack.build_engagement_pack(engagement, viewer),
+        }
+    return context_pack.get_pack(actor=user, crew_id=crew, viewer=viewer)
 
 
 @router.post("/context-pack/publish")
-def post_context_pack(user: CurrentUser):
-    return context_pack.publish_pack(actor=user)
+def post_context_pack(user: CurrentUser, viewer: ViewerDep, crew: int = 0):
+    return context_pack.publish_pack(actor=user, crew_id=crew, viewer=viewer)
 
 
 @router.get("/onboarding")
@@ -1054,12 +1075,12 @@ def post_findings_run(user: CurrentUser):
 
 
 @router.get("/usage")
-def get_usage(user: CurrentUser):
+def get_usage(user: CurrentUser, viewer: ViewerDep):
     """Token and estimated-cost accounting. Costs are estimates from the
     operator's price table; unpriced_calls says how much each sum cannot see."""
     return {
         "models": usage.usage_summary(),
-        "engagements": usage.engagement_costs(),
+        "engagements": usage.engagement_costs(viewer=viewer),
         "month": usage.month_to_date(),
         "prices_error": config.MODEL_PRICES_ERROR,
     }
@@ -1074,6 +1095,11 @@ class MilestoneIn(BaseModel):
     project: str = Field("default", max_length=120)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # No assignee check here — a milestone has an owner, not an assignee, and
+    # create_milestone takes no readability check on it.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/milestones")
@@ -1105,6 +1131,10 @@ class TaskIn(BaseModel):
     priority: str = Field("medium", max_length=10)
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
+    # the tier the writer picked, checked in the service: crew membership,
+    # and whether the assignee could read what they are being handed
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/tasks")
@@ -1140,13 +1170,22 @@ def patch_task(task_id: int, body: TaskPatch, user: CurrentUser):
 class QuestionIn(BaseModel):
     question: str = Field(max_length=1000)
     assigned_to: str = Field("", max_length=64)
+    # `assigned_to` is checked as a READER (collab.ask_question).
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/questions")
 def post_question(body: QuestionIn, user: CurrentUser):
     ratelimit.check("write", user)
     return collab.ask_question(
-        body.question, asked_by=user, assigned_to=body.assigned_to, actor=user
+        body.question,
+        asked_by=user,
+        assigned_to=body.assigned_to,
+        actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
     )
 
 
@@ -1176,6 +1215,10 @@ class DecisionIn(BaseModel):
     context: str = Field("", max_length=4000)
     review_by: str = Field("", max_length=10)
     category: str = Field("", max_length=40)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # No assignee check here — a decision names nobody to hand work to.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/decisions")
@@ -1189,6 +1232,8 @@ def post_decision(body: DecisionIn, user: CurrentUser):
         review_by=body.review_by,
         category=body.category,
         actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
     )
 
 
@@ -1196,23 +1241,46 @@ class StandupIn(BaseModel):
     yesterday: str = Field("", max_length=2000)
     today: str = Field("", max_length=2000)
     blockers: str = Field("", max_length=2000)
+    # the tier the writer picked, checked in the service: crew membership, and
+    # the OWNER of the blocker this standup forks — which is always the author
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/standups")
 def post_standup(body: StandupIn, user: CurrentUser):
     ratelimit.check("write", user)
-    return collab.post_standup(user, body.yesterday, body.today, body.blockers, actor=user)
+    return collab.post_standup(
+        user,
+        body.yesterday,
+        body.today,
+        body.blockers,
+        actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
+    )
 
 
 class NoteIn(BaseModel):
     topic: str = Field(max_length=200)
     content: str = Field(max_length=20_000)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # No assignee check here — a note names nobody to hand work to.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/notes")
 def post_note(body: NoteIn, user: CurrentUser):
     ratelimit.check("write", user)
-    return collab.save_note(body.topic, body.content, author=user, actor=user)
+    return collab.save_note(
+        body.topic,
+        body.content,
+        author=user,
+        actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
+    )
 
 
 class EventIn(BaseModel):
@@ -1221,6 +1289,10 @@ class EventIn(BaseModel):
     ends_at: str = Field("", max_length=25)
     description: str = Field("", max_length=4000)
     attendees: str = Field("", max_length=500)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # No assignee check here — `attendees` is free text, not a roster join.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/events")
@@ -1235,6 +1307,14 @@ class BlockerIn(BaseModel):
     owner: str = Field("", max_length=64)
     impact: str = Field("medium", max_length=10)
     task_id: int = 0
+    # the tier the writer picked, checked in the service: crew membership, and
+    # the owner is checked as a READER (blockers.raise_blocker). Present here
+    # even though the two doors that usually create a blocker inherit instead
+    # — capture.py and collab.post_standup. Every create body whose service
+    # accepts a tier offers one, pinned by
+    # tests/test_visibility_writes.py::test_a_create_body_exposes_the_tier_its_service_accepts.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/blockers")
@@ -1272,13 +1352,22 @@ class IntakeIn(BaseModel):
     title: str = Field(max_length=200)
     detail: str = Field("", max_length=4000)
     project_class: str = Field("", max_length=40)
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/intake")
 def post_intake(body: IntakeIn, user: CurrentUser):
     ratelimit.check("write", user)
     return intake.submit_request(
-        body.title, body.detail, requester=user, project_class=body.project_class, actor=user
+        body.title,
+        body.detail,
+        requester=user,
+        project_class=body.project_class,
+        actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
     )
 
 
@@ -1339,26 +1428,51 @@ class ReviewActionIn(BaseModel):
 
 
 @router.post("/review/{change_id}/approve")
-def post_approve(change_id: int, body: ReviewActionIn, user: CurrentUser, request: Request):
+def post_approve(
+    change_id: int,
+    body: ReviewActionIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.approve_change(change_id, body.note, actor=user, strong=strong)
+    return review.approve_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
 
 
 @router.post("/review/{change_id}/reject")
-def post_reject(change_id: int, body: ReviewActionIn, user: CurrentUser, request: Request):
+def post_reject(
+    change_id: int,
+    body: ReviewActionIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.reject_change(change_id, body.note, actor=user, strong=strong)
+    return review.reject_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
 
 
 class CaptureIn(BaseModel):
     text: str = Field(max_length=10_000)  # one capture, not a document dump
+    # quick capture is the ONLY door tasks and notes are created through in
+    # the web UI, so this is where their tier is chosen. It routes to seven
+    # entities, and every one of the seven carries the tier through
+    # (services/capture.py) — a picker that applied to some kinds and not
+    # others would be worse than none.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/capture")
 def post_capture(body: CaptureIn, user: CurrentUser, request: Request):
     ratelimit.check("capture", user)
     strong = bool(getattr(request.state, "strong_auth", False))
-    return capture.capture(body.text, actor=user, strong_auth=strong)
+    return capture.capture(
+        body.text,
+        actor=user,
+        strong_auth=strong,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
+    )
 
 
 class IngestIn(BaseModel):
@@ -1376,8 +1490,8 @@ class BatchApproveIn(BaseModel):
 
 
 @router.get("/review/{change_id}/diff")
-def get_review_diff(change_id: int, user: CurrentUser):
-    return review.change_diff(change_id)
+def get_review_diff(change_id: int, user: CurrentUser, viewer: ViewerDep):
+    return review.change_diff(change_id, viewer)
 
 
 class SeenIn(BaseModel):
@@ -1390,7 +1504,9 @@ def post_review_seen(body: SeenIn, user: CurrentUser):
 
 
 @router.post("/review/approve-batch")
-def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request):
+def post_approve_batch(
+    body: BatchApproveIn, user: CurrentUser, viewer: ViewerDep, request: Request
+):
     strong = bool(getattr(request.state, "strong_auth", False))
     results = []
     # BatchApproveIn.max_length is the only cap. A second limit here (a
@@ -1399,7 +1515,7 @@ def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request
     # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
         try:
-            r = review.approve_change(cid, actor=user, strong=strong)
+            r = review.approve_change(cid, actor=user, strong=strong, viewer=viewer)
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
@@ -1415,6 +1531,11 @@ class EngagementIn(BaseModel):
     timebox_end: str = Field("", max_length=10)
     kill_criteria: str = Field("", max_length=500)
     outcome: str = Field("", max_length=2000)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # It PROPAGATES — the handoff artifact, the ship-it note and the
+    # experiment lesson all inherit from the engagement they came from.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/engagements")
@@ -1459,6 +1580,9 @@ class LessonIn(BaseModel):
     recommendation: str = Field("", max_length=2000)
     engagement_id: int = 0
     project_class: str = Field("general", max_length=40)
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/lessons")
@@ -1484,9 +1608,9 @@ def post_instantiate(body: InstantiateIn, user: CurrentUser):
 
 
 @router.post("/engagements/{engagement_id}/handoff")
-def post_handoff(engagement_id: int, user: CurrentUser):
+def post_handoff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
     ratelimit.check("artifact", user)
-    return handoff.generate_handoff(engagement_id, actor=user)
+    return handoff.generate_handoff(engagement_id, actor=user, viewer=viewer)
 
 
 @router.post("/digest")

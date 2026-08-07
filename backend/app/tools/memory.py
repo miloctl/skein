@@ -4,8 +4,8 @@ import json
 
 from strands import tool
 
-from ..agents.identity import agent_identity
-from ..services import memory
+from ..agents.identity import agent_identity, requester_identity
+from ..services import memory, scope
 from ._gate import gated_write
 
 
@@ -46,7 +46,14 @@ def recall_memories(query: str = "") -> str:
     Args:
         query: What to look for; empty returns the most recent memories.
     """
-    return json.dumps(memory.recall(query))
+    # `user=`, because recall's two axes are the person and the tier and this
+    # door passed NEITHER: the model asked for "therapy" and got back a
+    # teammate's memory, straight into the system prompt where nothing marks
+    # it as somebody else's. Same shape as get_my_day and my_agent_inbox,
+    # which take no name for exactly this reason.
+    # No viewer: a tool carries no strong identity, so it reads the workspace
+    # tier (docs/VISIBILITY.md decision 3).
+    return json.dumps(memory.recall(query, user=requester_identity()))
 
 
 @tool
@@ -67,5 +74,11 @@ def forget_memory(memory_id: int) -> str:
         {},
         lambda: memory.forget(memory_id, actor=agent_identity(), origin="agent"),
         entity_id=memory_id,
-        summary=f"forget memory #{memory_id} [{row['topic']}]: {row['content'][:80]}",
+        # scope.detail: same egress as tools/collab.py::delete_note — the review queue
+        # and the team notification both carry this line
+        summary=scope.detail(
+            row["visibility"],
+            f"forget memory #{memory_id}",
+            f"[{row['topic']}]: {row['content'][:80]}",
+        ),
     )
