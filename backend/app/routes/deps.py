@@ -12,7 +12,16 @@ from ..services.users import ensure_user, is_agent, refuse_fold_collision
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
 # instead of drafting near-duplicates.
-INVALID_KEY = "invalid or revoked API key"
+# States the fix, like NEED_KEY below. Without it this reads as a dead end:
+# it is the page-level error on EVERY surface once a stored key goes bad, and
+# the one screen that can clear the key shows the same sentence. A reader with
+# a revoked key asked "how am I supposed to log in" — which is the question a
+# refusal with no remedy always produces.
+INVALID_KEY = (
+    "invalid or revoked API key. Open Settings, step 2, and delete the stored"
+    " key or paste a new one. Get a new key from whoever runs the server"
+    " (python -m app.bootstrap_key <you>)."
+)
 NEED_KEY = (
     "SKEIN_AUTH_MODE=api-key: every request needs a personal API key. Get"
     " your first one from whoever runs the server (python -m"
