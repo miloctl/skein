@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 
@@ -48,8 +48,29 @@ export function VisibilityPicker({
     };
   }, []);
 
+  // The one thing this control must never do is describe a tier it is not
+  // sending. `value` is the parent's, the option list is ours, and nothing
+  // reconciled them: with a crew selected, an identity change (or a reopen as
+  // somebody in no crew) left the select falling back to "everyone on the
+  // roster" while the parent still held `crew_id: 1` and submitted it. Told
+  // here, so the parent's state and the label agree again.
+  //
+  // onChange through a ref: callers pass an inline arrow, so depending on it
+  // re-runs this effect every render and the reset fights the parent forever.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+  const missing =
+    crews !== null &&
+    value.visibility === "crew" &&
+    !crews.some((c) => c.id === value.crew_id);
+  useEffect(() => {
+    if (missing) onChangeRef.current({ visibility: "workspace", crew_id: 0 });
+  }, [missing]);
+
   // null is still loading. An empty crew list is NOT a reason to hide the
-  // picker any more — "only me" is a choice a person with no crew can make.
+  // picker any more — "only you" is a choice a person with no crew can make.
   if (crews === null) return null;
 
   return (
@@ -88,12 +109,36 @@ export function VisibilityPicker({
 
 // One request for the whole page, not one per badge: a Browse listing renders
 // a badge per row. The promise is the cache, so N badges mounting in the same
-// tick share the one in flight. Never resolved to a crew a caller cannot read
-// — the server filters a crew row out of the list before a badge exists.
+// tick share the one in flight.
+//
+// This is an id-to-name map, NOT an authorization decision: /api/crews is the
+// whole deployment's roster of crews (scope.UNSCOPED classifies `crews` that
+// way), and what keeps a crew row off the page is the server filtering the ROW
+// out of the listing, before any badge exists.
 let crewNames: Promise<Record<number, string>> | null = null;
+
+// Dropped on the same signal lib/api.ts drops its GET cache. Both the identity
+// picker and the API-key writer dispatch "storage", and without this a crew
+// renamed in Settings kept its old name in every badge for the rest of the
+// session — the badge would then disagree with the picker that set it.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", () => {
+    crewNames = null;
+  });
+}
 
 function useCrewName(crewId?: number): string {
   const [name, setName] = useState("");
+  // `tick` re-runs the effect after an invalidation, so a badge that is
+  // already mounted picks the new name up too. Without it only a fresh mount
+  // ever recovered, which meant a failed /api/crews left every visible badge
+  // reading "one crew only" until the page was reloaded.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((n) => n + 1);
+    window.addEventListener("storage", bump);
+    return () => window.removeEventListener("storage", bump);
+  }, []);
   useEffect(() => {
     if (!crewId) return;
     crewNames ??= api<{ id: number; name: string }[]>("/api/crews")
@@ -108,7 +153,7 @@ function useCrewName(crewId?: number): string {
     return () => {
       live = false;
     };
-  }, [crewId]);
+  }, [crewId, tick]);
   return name;
 }
 

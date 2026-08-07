@@ -139,6 +139,10 @@ export function CapturePalette() {
       });
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
+      // the tier resets with the text. The dialog closes after each capture,
+      // so a tier left behind is a tier nobody can see — the next unrelated
+      // thought was filed to the crew the last one chose.
+      setTier({ visibility: "workspace", crew_id: 0 });
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
     } catch (err) {
