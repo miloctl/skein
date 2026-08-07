@@ -41,17 +41,20 @@ def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
     return done
 
 
-def _linked_blockers(engagement_id: int) -> list[dict]:
+def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    # BOTH sides of the join carry the filter. Only the blockers side would let
+    # a workspace blocker on a crew task through, and only the tasks side would
+    # let a crew blocker on a workspace task through — and the readout (no
+    # viewer, so the workspace tier), the engagement pack and the handoff all
+    # read this.
+    bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
+    tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     return db.query(
-        # BOTH sides of the join carry the lock. Only the blockers side would
-        # let a workspace blocker on a crew task through, and only the tasks
-        # side would let a crew blocker on a workspace task through — and the
-        # readout, the engagement pack and the handoff all read this.
-        f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND t.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        f" WHERE b.{WORKSPACE_ONLY}"
+        f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE {bfrag}"
         " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND b.status != 'resolved'",
-        (engagement_id, engagement_id),
+        (*tp, *bp, engagement_id, engagement_id),
     )
 
 

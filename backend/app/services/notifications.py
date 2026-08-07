@@ -103,11 +103,24 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         "SELECT * FROM notifications WHERE tier = 'digest' AND sent_at IS NULL ORDER BY id"
     )
     if pending:
-        by_user: dict[str, list[str]] = {}
+        # COUNTS, never the messages. Every notify() addresses somebody who
+        # can read the row it quotes, but this posts them all into ONE Slack
+        # channel — so a crew task's title addressed to one member lands in
+        # front of everybody. `notifications` carries no tier to filter on
+        # (services/scope.py::UNSCOPED says why), and adding one would put the
+        # rule at all 16 notify() call sites. A count carries nothing, whatever
+        # a future caller writes.
+        #
+        # Nothing is lost: this post is a NUDGE. The bodies are already in the
+        # app, and every line here links to them.
+        #
+        # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
+        by_user: dict[str, int] = {}
         for n in pending:
-            by_user.setdefault(n["user"], []).append(n["message"])
-        lines = [f"*{u}*: " + " · ".join(msgs) for u, msgs in by_user.items()]
-        _post_slack("📬 Skein digest\n" + "\n".join(lines))
+            by_user[n["user"]] = by_user.get(n["user"], 0) + 1
+        counts = ", ".join(f"{n} for {u}" for u, n in sorted(by_user.items()))
+        closer = "Open Skein to read it." if len(pending) == 1 else "Open Skein to read them."
+        _post_slack(f"Skein digest — {counts}. {closer}")
         # Stamp exactly the rows we posted — a notification inserted between
         # the SELECT and this UPDATE must stay pending for the next flush.
         ids = [n["id"] for n in pending]
