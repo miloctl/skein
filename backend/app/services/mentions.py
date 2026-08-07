@@ -20,7 +20,7 @@ from . import crews, scope
 _MENTION = re.compile(r"(?<![a-z0-9])@([a-z0-9][a-z0-9._-]*)", re.ASCII | re.IGNORECASE)
 
 
-def _reaches(entity: str, entity_id: int, person: str) -> bool:
+def _reaches(tier: tuple[str, int | None] | None, person: str) -> bool:
     """Can `person` open the row this mention points at.
 
     Looked up HERE rather than passed in, the same choice search.index_record
@@ -32,10 +32,11 @@ def _reaches(entity: str, entity_id: int, person: str) -> bool:
 
     A PRIVATE row reaches nobody: its only reader is the author, and the
     author is the actor, who is already in `skip`.
-    """
-    from .search import _tier_of
 
-    tier = _tier_of(entity, entity_id)
+    Takes the resolved tier, it does not look it up: the parent row is the
+    same for every name in one scan, and reading it per name made a note with
+    12 mentions 12 identical primary-key reads, each on its own connection.
+    """
     if tier is None or tier[0] == scope.WORKSPACE:
         return True
     if tier[0] == scope.PRIVATE:
@@ -64,6 +65,10 @@ def scan(
     }
     skip = {actor.lower(), *(e.lower() for e in exclude if e)}
     from .notifications import notify
+    from .search import _tier_of
+
+    # resolved ONCE: the parent cannot change inside one scan
+    parent_tier = _tier_of(entity, entity_id)
 
     notified = []
     for token in dict.fromkeys(m.group(1).lower() for m in _MENTION.finditer(text)):
@@ -73,7 +78,7 @@ def scan(
         name = roster.get(token) or roster.get(token.rstrip("._-"))
         if not name or name.lower() in skip:
             continue
-        if not _reaches(entity, entity_id, name):
+        if not _reaches(parent_tier, name):
             continue
         fresh = db.execute_rowcount(
             "INSERT OR IGNORE INTO mention_log"

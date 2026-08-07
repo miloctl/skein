@@ -10,7 +10,7 @@ import json
 from datetime import UTC, date, datetime, timedelta
 
 from .. import db
-from . import stats
+from . import scope, stats
 from .scope import WORKSPACE_ONLY
 from .slas import AGING_WIP_DAYS
 
@@ -435,10 +435,19 @@ def _r_promises_external() -> list[dict]:
 
 
 def _r_review_stall() -> list[dict]:
-    pending = db.query(
-        "SELECT id, entity, summary, proposed_by,"
-        " ROUND((julianday('now') - julianday(created_at)) * 24) AS hours"
-        " FROM pending_changes WHERE status = 'pending' ORDER BY created_at"
+    # scope.NOBODY: the receipt this builds lands in `findings`, which has no
+    # identity column, a UNIQUE(rule_id, subject, week) key and no pruning —
+    # docs/VISIBILITY.md calls it the most dangerous sink in the app. A
+    # proposal's `summary` quotes its target row's text.
+    from .review import _readable
+
+    pending = _readable(
+        db.query(
+            "SELECT id, entity, entity_id, summary, proposed_by,"
+            " ROUND((julianday('now') - julianday(created_at)) * 24) AS hours"
+            " FROM pending_changes WHERE status = 'pending' ORDER BY created_at"
+        ),
+        scope.NOBODY,
     )
     old = [p for p in pending if p["hours"] >= 72]
     oldest_days = round(pending[0]["hours"] / 24, 1) if pending else 0
@@ -477,11 +486,17 @@ def _r_rejection_spike() -> list[dict]:
     )
     if prev and prev["n"] >= 10 and rate < 1.5 * (prev["rej"] / prev["n"] or 0.01):
         return []
-    notes = db.query(
-        "SELECT entity, summary, review_note FROM pending_changes"
-        " WHERE status = 'rejected' AND reviewed_at >= ? AND review_note != ''"
-        " ORDER BY id DESC LIMIT 10",
-        (cut,),
+    # same sink, same rule as _r_review_stall above
+    from .review import _readable
+
+    notes = _readable(
+        db.query(
+            "SELECT entity, entity_id, summary, review_note FROM pending_changes"
+            " WHERE status = 'rejected' AND reviewed_at >= ? AND review_note != ''"
+            " ORDER BY id DESC LIMIT 10",
+            (cut,),
+        ),
+        scope.NOBODY,
     )
     return [
         _finding(

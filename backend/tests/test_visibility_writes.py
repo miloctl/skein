@@ -556,3 +556,58 @@ def test_quick_capture_scopes_every_kind_it_routes_to(fresh_db):
             f"SELECT visibility, crew_id FROM {table} ORDER BY id DESC LIMIT 1"  # noqa: S608 — test table names
         )
         assert row == {"visibility": "crew", "crew_id": cid}, text
+
+
+def test_a_create_body_exposes_the_tier_its_service_accepts():
+    """A create form that omits `visibility` files at the workspace tier no
+    matter what the caller chose, silently. Five did — absence, promise,
+    question, intake and lesson — while the nine beside them carried the pair,
+    so the omission read as a decision somebody had made.
+
+    The invariant is a RELATION, not a list: if the service function a POST
+    route calls takes `visibility`, the body that feeds it must offer it. An
+    exemption list here would be one more inventory to forget, which is the
+    failure it exists to prevent.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "app"
+    tree = ast.parse((root / "routes" / "api.py").read_text())
+    fields = {
+        n.name: {t.target.id for t in n.body if isinstance(t, ast.AnnAssign)}
+        for n in ast.walk(tree)
+        if isinstance(n, ast.ClassDef)
+    }
+    # which service functions take a tier
+    takes_tier: dict[tuple[str, str], bool] = {}
+    for path in (root / "services").glob("*.py"):
+        mod = ast.parse(path.read_text())
+        for fn in mod.body:
+            if isinstance(fn, ast.FunctionDef):
+                args = fn.args.args + fn.args.kwonlyargs
+                takes_tier[path.stem, fn.name] = any(a.arg == "visibility" for a in args)
+
+    missing = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        if not any(
+            isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "post"
+            for d in fn.decorator_list
+        ):
+            continue
+        body_models = [getattr(a.annotation, "id", "") for a in fn.args.args]
+        model = next((m for m in body_models if m in fields), "")
+        if not model:
+            continue
+        for call in ast.walk(fn):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                continue
+            owner = getattr(call.func.value, "id", "")
+            if takes_tier.get((owner, call.func.attr)) and "visibility" not in fields[model]:
+                missing.append(f"{fn.name} -> {owner}.{call.func.attr} (body {model})")
+    assert not missing, (
+        "these POST bodies feed a service that accepts a tier, and do not"
+        f" offer one — so the caller's choice is discarded: {sorted(set(missing))}"
+    )

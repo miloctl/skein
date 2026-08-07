@@ -98,6 +98,15 @@ def edit_blocker(
     for clearable in ("detail", "owner"):
         if fields.get(clearable) == "-":
             fields[clearable] = ""
+    # the NEW owner is checked as a reader, not just the one raise_blocker
+    # checked: sweep_escalations quotes this blocker's title to whoever `owner`
+    # names at sweep time, and its comment claims the owner was already
+    # verified. Without this, an edit hands a crew blocker to a non-member and
+    # the sweep tells them its title.
+    if fields.get("owner"):
+        scope.assert_readable_by(
+            row["visibility"], row["crew_id"], fields["owner"], label="owner", author=actor
+        )
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
         f"UPDATE blockers SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
@@ -187,7 +196,7 @@ def list_blockers(
     status: str = "", owner: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "blockers")
-    sql, params = f"SELECT * FROM blockers WHERE {frag}", list(vp)  # noqa: S608 — scope fragment
+    sql, params = f"SELECT * FROM blockers WHERE {frag}", list(vp)  # noqa: S608 — scope.visible_filter emits only bound marks
     if status:
         sql += " AND status = ?"
         params.append(status)
@@ -225,7 +234,8 @@ def sweep_escalations() -> list[dict]:
             # escalates is a worse outcome than one nobody is told about. But
             # the message quotes the title, so it goes to the owner alone: the
             # "team" fallback addresses the whole roster, and an owner is the
-            # only name here already checked as a reader (raise_blocker).
+            # only name here checked as a reader — by raise_blocker at
+            # creation AND by edit_blocker on every change to it.
             if b["owner"] or b["visibility"] == scope.WORKSPACE:
                 notify(
                     b["owner"] or "team",

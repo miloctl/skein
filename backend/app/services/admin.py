@@ -218,8 +218,13 @@ def export(*, keep: int = 14) -> dict:
     for table in TABLES:
         try:
             # a private row leaves the box in this file otherwise. The export
-            # is JSON on disk under DATA_DIR and the mirror copies it off-box,
-            # so no column check downstream can take it back.
+            # is plaintext JSON on disk under DATA_DIR, kept `keep` deep, and
+            # nothing downstream re-checks a column — NOT because _mirror
+            # copies it: _mirror has one caller, backup(), on the .db file.
+            # The cost of this line is that a restore from an export loses
+            # every private row with no signal. Only `private` is dropped;
+            # crew rows export in full, because an export is an operator
+            # artifact and a crew is not a secret from the operator.
             where = f" WHERE visibility != '{PRIVATE}'" if table in CLASSIFIED else ""
             dump[table] = db.query(f"SELECT * FROM {table}{where}")  # noqa: S608 — TABLES constant, and `where` interpolates only scope.PRIVATE
         except Exception:

@@ -116,13 +116,25 @@ def audience(tier: str, crew_id: int | None, writer: Viewer) -> Viewer:
     roster member then read them out of GET /api/artifacts and the file on
     disk. The body has to be narrowed to the document, not to the author.
 
+    The result is the INTERSECTION of what the document's readers may see and
+    what the WRITER may see. Both halves matter, and the second one was
+    missing: a caller reaches a scoped row through any of three disjuncts, and
+    authorship is one of them. Somebody who created a crew engagement and was
+    later removed from the crew still passes the read filter on that ONE row —
+    handing them Viewer.for_crew put the whole crew's decisions, questions and
+    tasks into a document they generated and can read, which is precisely what
+    crews.remove_member promises does not happen.
+
     A PRIVATE document returns the writer unchanged: its one reader is the
     author, so anything the author can read is already something its only
     reader can read.
     """
     if tier == PRIVATE:
         return writer
-    if tier == CREW and crew_id:
+    # `crew_id in writer.crew_ids`, not just `tier == CREW`: membership is what
+    # makes for_crew a narrowing. Without it the writer is an author-only
+    # reader, and the two sets intersect at the workspace tier and nowhere else.
+    if tier == CREW and crew_id and crew_id in writer.crew_ids:
         return Viewer.for_crew(crew_id)
     return NOBODY
 

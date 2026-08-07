@@ -227,13 +227,21 @@ export function CrewsCard({
                               accessible name: this is a data-loss warning, and
                               the file's own docstring says the copy has to say
                               it. On the aria-label alone a sighted person
-                              confirmed with the word "remove" and no more. */}
-                          <span className="text-[10px] text-ink-3">
+                              confirmed with the word "remove" and no more.
+                              aria-describedby rather than repeating it in the
+                              label: browse mode reads the pill linearly, so
+                              two wordings of one consequence get announced
+                              twice. */}
+                          <span
+                            id={`rm-${crew.id}-${m.person}`}
+                            className="text-[10px] text-ink-3"
+                          >
                             loses access to crew work they did not write
                           </span>
                           <button
                             autoFocus
-                            aria-label={`Confirm: remove ${m.person} from ${crew.name}. They lose access to crew work they did not write.`}
+                            aria-label={`Confirm: remove ${m.person} from ${crew.name}`}
+                            aria-describedby={`rm-${crew.id}-${m.person}`}
                             disabled={!!busy}
                             onClick={async () => {
                               const ok = await act(

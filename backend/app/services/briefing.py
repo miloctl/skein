@@ -204,6 +204,8 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     refuses. The filter also expires access the moment somebody leaves a crew
     — membership is checked at the write, and this read outlives it.
     """
+    from .review import _readable
+
     # UTC dates to match db.now() timestamps on the rows
     utc_today = datetime.now(UTC).date()
     today = utc_today.isoformat()
@@ -221,10 +223,18 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             (user, *q_p),
         ),
         # LIMITed: a bulk ingest can legitimately file hundreds of proposals,
-        # and this payload rides the hottest page — the count carries the rest
-        "pending_reviews": db.query(
-            "SELECT id, entity, action, summary, proposed_by, created_at"
-            " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
+        # and this payload rides the hottest page — the count carries the rest.
+        #
+        # Through review._readable, because `summary` is built by the producer
+        # out of the target row's own text. GET /api/review filters this way
+        # and this one did not, so the dashboard served the review queue's
+        # scoped summaries to every caller — the same leak, one reader over.
+        "pending_reviews": _readable(
+            db.query(
+                "SELECT id, entity, entity_id, action, summary, proposed_by, created_at"
+                " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
+            ),
+            viewer,
         ),
         "your_blockers": db.query(
             f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
@@ -261,6 +271,12 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
                 " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
                 (user, *t_p),
             ),
+            # The tier filter wraps BOTH arms. The unowned arm was already
+            # workspace-locked; the named-assignee arm was not, and it is a
+            # read that outlives the membership check made at the write — a
+            # crew task assigned to somebody stayed on their My Day after they
+            # left the crew, with SELECT * carrying title and description.
+            #
             # assignee IN (?, '') is deliberate: an unowned task that is due is
             # everyone's business. The '' arm reaches every reader, and
             # assert_readable_by only ever checked a NAMED assignee — so this
@@ -271,10 +287,11 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             # ORDER BY due_date puts the most overdue first, so the cap drops
             # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": db.query(
-                f"SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-                f" AND due_date <= ? AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
+                "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
+                f" AND due_date <= ? AND {t_f}"
+                f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
                 " ORDER BY due_date LIMIT 50",
-                (week, user),
+                (week, *t_p, user),
             ),
             "standup_suggestion": _standup_suggestion(user, yesterday),
         },

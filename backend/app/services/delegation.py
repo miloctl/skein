@@ -39,11 +39,12 @@ def delegate_task(
     if not task:
         raise scope.missing("tasks", task_id)
     scope.assert_editable("tasks", task, actor, verb="delegate")
-    # A private task has ONE reader, and an agent is not it: scope.is_machine
-    # lets a machine work a crew row and never a private one, so
-    # assert_editable already refuses this agent every update it would need to
-    # make. Delegating anyway files work that its own worker cannot claim,
-    # report on, or submit — and puts the title in agent_inbox.
+    # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
+    # ONLY BARRIER: claim_task, report_progress, accept_completion and
+    # submit_completion below each gate on `delegated_agent` alone and never
+    # call scope.assert_editable, so once a private task carries a delegate
+    # nothing downstream refuses it. It would also put the title in
+    # agent_inbox.
     if task["visibility"] == scope.PRIVATE:
         raise ValueError(
             "a private task has one reader, so it cannot be delegated."
@@ -152,14 +153,22 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
 
 
 def list_worklog(task_id: int, limit: int = 50, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
-    if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
+    # the existence check takes the same filter as the worklog below, so an
+    # unreadable task answers exactly like an absent one. Unfiltered, a
+    # private task returned 200 [] and an absent id returned 404 — which reads
+    # off which ids exist, for sequential integers (scope.Viewer.for_actor).
+    tfrag, tp = scope.visible_filter(viewer, "tasks")
+    if not db.query_one(
+        f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (task_id, *tp),
+    ):
         raise scope.missing("tasks", task_id)
     # the worklog is the task's own text, and its parent may be invisible to
     # this reader — the child has to be filtered on its own tier, not the
     # task's existence check above
     frag, vp = scope.visible_filter(viewer, "task_worklog")
     return db.query(
-        f"SELECT * FROM task_worklog WHERE task_id = ? AND {frag}"  # noqa: S608 — scope fragment
+        f"SELECT * FROM task_worklog WHERE task_id = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " ORDER BY id DESC LIMIT ?",
         (task_id, *vp, limit),
     )
@@ -537,16 +546,29 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
         f" AND status = 'open' AND {qfrag} ORDER BY id",
         (agent, *qp),
     )
+    # through _readable on the REST door for the same reason the two queries
+    # above take a filter: `summary` and `review_note` quote the target row's
+    # own text, and GET /api/agents/{agent}/inbox answers any CurrentUser with
+    # the agent name off the URL. The agent's own doors (viewer is None) keep
+    # everything — a rejection it cannot read is a correction it cannot act on.
+    from .review import _readable
+
     rejected = db.query(
-        "SELECT id, entity, summary, review_note, reviewed_by FROM pending_changes"
+        "SELECT id, entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
         " WHERE proposed_by = ? AND status = 'rejected' ORDER BY id DESC LIMIT 10",
         (agent,),
     )
+    if viewer is not None:
+        rejected = _readable(rejected, viewer)
+    # `notifications` carries no tier (scope.UNSCOPED) and its bodies quote
+    # scoped rows, so the REST door gets counts and the agent gets the text.
     notifications = db.query(
         "SELECT id, message, link, created_at FROM notifications"
         " WHERE user = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20",
         (agent,),
     )
+    if viewer is not None:
+        notifications = [{k: v for k, v in n.items() if k != "message"} for n in notifications]
     return {
         "agent": agent,
         "delegated_tasks": tasks,

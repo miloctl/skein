@@ -189,13 +189,50 @@ def _claim(
         raise ValueError(f"change #{change_id} already {change['status']}")
 
 
+def _assert_judgeable(change: dict, viewer: scope.Viewer) -> None:
+    """A verdict on a row you cannot read is refused, in the same words as a
+    proposal that does not exist.
+
+    `_readable` hides these from the queue and `change_diff` returns no diff,
+    but the VERDICT endpoints took a bare id — so a caller in no crew could
+    walk ids and approve a proposal whose payload then overwrote a crew note's
+    content, or applied a note_delete / memory_forget / event_cancel. The
+    apply runs as `change["proposed_by"]`, an agent slug, and scope.is_machine
+    lets a machine work a crew row on purpose, so assert_editable inside the
+    handler never refuses it. This is the only place that can.
+
+    NotFound with the same sentence as an absent proposal: any other wording
+    tells the caller that #12 exists and is scoped (scope.missing).
+    """
+    table = _TARGET_TABLE.get(change["entity"])
+    if table not in scope.CLASSIFIED or not change["entity_id"]:
+        return
+    author = scope.CLASSIFIED[table]
+    row = db.query_one(
+        f"SELECT visibility, crew_id, {author} AS author FROM {table} WHERE id = ?",  # noqa: S608 — table and column from constant maps
+        (change["entity_id"],),
+    )
+    # a VANISHED target is not refused here, unlike _readable: there is no row
+    # left to protect, and approve_change has its own auto-reject path for it
+    # ("target vanished") that a 404 would hide behind the wrong sentence.
+    # _readable still drops it from the LIST, where the summary would show.
+    if row and not scope.can_read(row["visibility"], row["crew_id"], viewer, row["author"] or ""):
+        raise db.NotFound(f"pending change #{change['id']} not found")
+
+
 def approve_change(
-    change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
+    change_id: int,
+    note: str = "",
+    *,
+    actor: str = "system",
+    strong: bool = False,
+    viewer: scope.Viewer = scope.NOBODY,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise db.NotFound(f"pending change #{change_id} not found")
+    _assert_judgeable(change, viewer)
     # settle the already-reviewed case before any gating, so a non-sponsor
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
@@ -290,12 +327,20 @@ def _clear_review_ping(change_id: int) -> None:
 
 
 def reject_change(
-    change_id: int, note: str = "", *, actor: str = "system", strong: bool = False
+    change_id: int,
+    note: str = "",
+    *,
+    actor: str = "system",
+    strong: bool = False,
+    viewer: scope.Viewer = scope.NOBODY,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise db.NotFound(f"pending change #{change_id} not found")
+    # a reject is a verdict too: it feeds rejection streaks and demotion, and
+    # it settles a proposal against a row this caller cannot read
+    _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
@@ -327,6 +372,48 @@ _DIFF_TABLES = {
     "event_cancel": "events",
     "intake_edit": "intake_requests",
     "memory_forget": "memories",
+}
+
+# What table an entity's proposal TARGETS. A superset of _DIFF_TABLES, which
+# answers a narrower question (what can be rendered as a before/after) and so
+# omits the two entities whose payload is not a column set: task_completion
+# carries a free-text work summary, question_assign carries an assignee.
+# _readable needs the TARGET, and reading it off _DIFF_TABLES let both of
+# those bypass the tier check entirely — every reader saw a crew task's
+# acceptance payload in the review queue, on the dashboard, and in the stats.
+_TARGET_TABLE = {
+    **_DIFF_TABLES,
+    # updates _DIFF_TABLES cannot render (their payload is not a column set)
+    "task_completion": "tasks",
+    "question_assign": "questions",
+    # every CREATE. These have no target row yet, so _DIFF_TABLES never needed
+    # them — but the tier the row WOULD take is in the payload, and without an
+    # entry here _readable had nothing to look up and kept the proposal, body
+    # and all, for every reader.
+    "task": "tasks",
+    "milestone": "milestones",
+    "question": "questions",
+    "decision": "decisions",
+    "standup": "standups",
+    "note": "notes",
+    "event": "events",
+    "blocker": "blockers",
+    "engagement": "engagements",
+    "intake": "intake_requests",
+    "lesson": "lessons",
+    "promise": "promises",
+    "memory": "memories",
+    "absence": "absences",
+    "delegation": "tasks",
+}
+
+# Entities that address no scoped row at all, and why. Kept as an explicit
+# list rather than an absence, so tests/test_review.py can prove _registry
+# gained nothing that silently skips the tier check.
+_UNTARGETED = {
+    "playbook": "instantiates a whole engagement tree, no single target row",
+    "weekly_plan": "commits a set of task ids, each already tier-checked on its own",
+    "authority": "an agent's permission matrix, which carries no tier",
 }
 
 # columns worth showing a reviewer when a proposal would DESTROY the row —
@@ -393,7 +480,7 @@ def mark_seen(ids: list[int], *, actor: str = "system") -> dict:
     return {"seen": n}
 
 
-def review_stats() -> dict:
+def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     """The review inbox as a flywheel: every verdict is a labeled example.
     These stats show which proposal types earn trust and which waste reviewer
     time — the input to authority-matrix decisions."""
@@ -414,9 +501,16 @@ def review_stats() -> dict:
         " SUM(status = 'rejected') AS rejected"
         " FROM pending_changes GROUP BY proposed_by ORDER BY proposed DESC"
     )
-    rejection_reasons = db.query(
-        "SELECT entity, summary, review_note, reviewed_by FROM pending_changes"
-        " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
+    # the only list here that carries row TEXT. The aggregates above count
+    # rows per entity and per proposer, which discloses nothing; `summary` is
+    # built by the producer out of the target row's own title, so a rejected
+    # proposal against a crew note republished it to the whole roster.
+    rejection_reasons = _readable(
+        db.query(
+            "SELECT entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
+            " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
+        ),
+        viewer,
     )
     minutes = sorted(
         r["m"]
@@ -461,11 +555,14 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     the queue the whole review flow runs on.
 
     One query per TABLE, not per row: at LIMIT 200 the per-row shape put 200
-    round trips on /review and on every dashboard load through my_day.
+    round trips on GET /api/review, its only caller. Six other readers quote
+    `summary` out of this table and each has to call this explicitly —
+    briefing.my_day, delegation.agent_inbox, review_stats, handoff, rituals
+    and two insights rules. They do not arrive here on their own.
     """
     want: dict[str, set[int]] = {}
     for r in rows:
-        table = _DIFF_TABLES.get(r["entity"])
+        table = _TARGET_TABLE.get(r["entity"])
         if table in scope.CLASSIFIED and r["entity_id"]:
             want.setdefault(table, set()).add(r["entity_id"])
     tiers: dict[tuple[str, int], tuple[str, int | None, str]] = {}
@@ -481,9 +578,42 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
             tiers[table, row["id"]] = (row["visibility"], row["crew_id"], row["author"] or "")
     out = []
     for r in rows:
-        table = _DIFF_TABLES.get(r["entity"])
-        tier = tiers.get((table, r["entity_id"])) if table else None
-        if tier is None or scope.can_read(tier[0], tier[1], viewer, tier[2]):
+        table = _TARGET_TABLE.get(r["entity"])
+        if table in scope.CLASSIFIED and not r["entity_id"]:
+            # a CREATE: there is no target row yet, and the tier the row WOULD
+            # land at is in the payload. Every _registry create handler takes
+            # visibility=/crew_id= and approve_change splats **payload into
+            # them, so a proposal to create a private note carries its whole
+            # body here and said nothing about its tier.
+            # `.get`, because not every caller selects payload — my_day,
+            # review_stats, rituals and insights read `summary` only. Those
+            # rows cannot disclose a create's body, and a create's summary is
+            # producer-built ("create note"), so treating an absent payload as
+            # workspace keeps them without opening anything. list_changes is
+            # the reader that returns the payload, and it selects *.
+            try:
+                payload = json.loads(r.get("payload") or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            declared = str(payload.get("visibility") or scope.WORKSPACE)
+            if declared != scope.WORKSPACE and not scope.can_read(
+                declared, payload.get("crew_id"), viewer, str(payload.get("author") or "")
+            ):
+                continue
+            out.append(r)
+            continue
+        if table not in scope.CLASSIFIED or not r["entity_id"]:
+            # genuinely no row to be scoped by (weekly_plan, authority,
+            # playbook). Keeping these is what makes the queue usable.
+            out.append(r)
+            continue
+        tier = tiers.get((table, r["entity_id"]))
+        if tier is None:
+            # the target row is GONE. We cannot prove the viewer could read
+            # it, and the summary still quotes it, so this fails closed —
+            # anything else makes deleting the row the way to publish it.
+            continue
+        if scope.can_read(tier[0], tier[1], viewer, tier[2]):
             out.append(r)
     return out
 

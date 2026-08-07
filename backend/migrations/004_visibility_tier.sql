@@ -1,27 +1,19 @@
 -- The visibility tier: private / crew / workspace (docs/VISIBILITY.md).
 --
--- Every column here defaults to `workspace`, which is what every row already
--- behaved as, so applying this migration changes nothing anyone can see. The
--- filter that reads these columns is services/scope.py::visible_filter, and
--- the table list below is exactly scope.CLASSIFIED -- tests/test_scope.py
--- fails if the two drift.
+-- The reader is services/scope.py::visible_filter, over scope.CLASSIFIED.
+-- tests/test_visibility_writes.py::test_every_classified_table_has_both_columns
+-- fails if a table joins that map without these two columns.
 --
--- `private` means the author and nobody else. The column is only half of
--- that: the other half is every place a private row must not reach -- the FTS
--- index, the digest, the exec readout, the context pack, the ICS feed, admin
--- export, and activity.detail. services/scope.py names them.
+-- NO index on visibility. It holds three values and `workspace` is the default
+-- on every row this file adds, so an index leading on it is dead weight on
+-- every write. Measured on 50k tasks: SQLite picks the existing status and
+-- assignee indexes either way and evaluates the tier as a residual. If a crew
+-- read ever needs one, it is (crew_id, visibility), in a NEW migration.
 --
--- NO index on visibility. It holds three values and roughly nine rows in ten
--- are `workspace`, so an index leading on it is dead weight on every write and
--- buys nothing on read -- measured before this file was written. The existing
--- status and assignee indexes keep driving their plans, with the tier
--- evaluated as a residual. A (visibility, crew_id) composite helps exactly one
--- query shape that no surface asks for yet.
---
--- No semicolon and no apostrophe inside a comment -- db.py::_statements splits
--- on the semicolon with no comment awareness, so the tail half of the comment
--- becomes a statement, and an apostrophe opens a string literal that never
--- closes. Either one breaks init_db at startup, on a fresh database only.
+-- No semicolon inside a comment. db.py::_statements splits on it with no
+-- comment awareness, so the tail half becomes a statement and init_db fails at
+-- startup, on a fresh database only. An apostrophe is fine -- `--` runs to end
+-- of line, and SQLite opens no string literal inside it.
 
 ALTER TABLE absences ADD COLUMN visibility TEXT NOT NULL DEFAULT 'workspace'
     CHECK (visibility IN ('private', 'crew', 'workspace'));

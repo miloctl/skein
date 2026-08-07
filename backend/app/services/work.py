@@ -406,7 +406,7 @@ def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
     return db.query(
-        f"SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope fragment
+        f"SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" WHERE {frag}"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
@@ -422,7 +422,7 @@ def list_tasks(
     viewer: scope.Viewer = scope.NOBODY,
 ) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "tasks")
-    sql = f"SELECT * FROM tasks WHERE {frag}"  # noqa: S608 — scope fragment
+    sql = f"SELECT * FROM tasks WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
     params: list[str | int] = list(vp)
     if milestone_id:
         sql += " AND milestone_id = ?"

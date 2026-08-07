@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
-from . import wording
+from . import scope, wording
 from .scope import WORKSPACE_ONLY
 
 
@@ -80,10 +80,19 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         " AND updated_at < ? ORDER BY updated_at",
         ((datetime.now(UTC) - timedelta(days=7)).isoformat(timespec="seconds"),),
     )
-    stale_proposals = db.query(
-        "SELECT id, summary, proposed_by, created_at FROM pending_changes"
-        " WHERE status = 'pending' AND created_at < ? ORDER BY id",
-        ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
+    # NOBODY, like every other query in this job: the week-close artifact is
+    # workspace-tier and its body also reaches job_outcomes.detail. A
+    # proposal's `summary` quotes its target row, so an unfiltered read here
+    # publishes a crew row's text to the roster and to the export.
+    from .review import _readable
+
+    stale_proposals = _readable(
+        db.query(
+            "SELECT id, entity, entity_id, summary, proposed_by, created_at FROM pending_changes"
+            " WHERE status = 'pending' AND created_at < ? ORDER BY id",
+            ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
+        ),
+        scope.NOBODY,
     )
     open_questions = db.query(
         f"SELECT id, question, assigned_to FROM questions WHERE status = 'open'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant

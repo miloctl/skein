@@ -368,7 +368,14 @@ def allocate(
     db.validate_date("ends_on", ends_on, allow_clear=False)
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
-    if not db.query_one("SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
+    # filtered like every other link probe: unfiltered, it accepts a scoped id
+    # and refuses an absent one, and ids are sequential
+    # (services/scope.py::Viewer.for_actor names the attack)
+    afrag, ap = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
+    if not db.query_one(
+        f"SELECT id FROM engagements WHERE id = ? AND {afrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ap),
+    ):
         raise scope.missing("engagements", engagement_id)
     aid = db.execute(
         "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on,"
@@ -472,10 +479,15 @@ def record_lesson(
 ) -> dict:
     if not lesson.strip():
         raise ValueError("the lesson text is required")
+    # filtered like the other link probes: an unfiltered probe accepts a
+    # scoped id and refuses an absent one, and it also let a non-reader attach
+    # a lesson to an engagement they cannot read
+    lfrag, lp = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if engagement_id and not db.query_one(
-        "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+        f"SELECT id FROM engagements WHERE id = ? AND {lfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *lp),
     ):
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise ValueError(scope.missing_text("engagements", engagement_id))
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
         lid = db.execute(

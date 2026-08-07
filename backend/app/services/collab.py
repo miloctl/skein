@@ -136,12 +136,12 @@ def list_questions(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> lis
     frag, vp = scope.visible_filter(viewer, "questions")
     if status:
         return db.query(
-            f"SELECT * FROM questions WHERE status = ? AND {frag}"  # noqa: S608 — scope fragment
+            f"SELECT * FROM questions WHERE status = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " ORDER BY id DESC LIMIT 200",
             (status, *vp),
         )
     return db.query(
-        f"SELECT * FROM questions WHERE {frag}"  # noqa: S608 — scope fragment
+        f"SELECT * FROM questions WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " ORDER BY status = 'answered', id DESC LIMIT 200",
         tuple(vp),
     )
@@ -426,7 +426,7 @@ def post_standup(
 def list_standups(limit: int = 30, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "standups")
     return db.query(
-        f"SELECT * FROM standups WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope fragment
+        f"SELECT * FROM standups WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
         (*vp, limit),
     )
 
@@ -584,11 +584,11 @@ def search_notes(keyword: str = "", viewer: scope.Viewer = scope.NOBODY) -> list
         # came back whatever its tier — the exact shape visible_filter's
         # docstring names as failing silently.
         return db.query(
-            f"SELECT * FROM notes WHERE (topic LIKE ? OR content LIKE ?)"  # noqa: S608 — scope fragment
+            f"SELECT * FROM notes WHERE (topic LIKE ? OR content LIKE ?)"  # noqa: S608 — scope.visible_filter emits only bound marks
             f" AND {frag} ORDER BY id DESC LIMIT 25",
             (like, like, *vp),
         )
     return db.query(
-        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT 25",  # noqa: S608 — scope fragment
+        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT 25",  # noqa: S608 — scope.visible_filter emits only bound marks
         tuple(vp),
     )

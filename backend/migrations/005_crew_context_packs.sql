@@ -1,4 +1,4 @@
--- Per-crew context packs (docs/VISIBILITY.md phase 6).
+-- Per-crew context packs (docs/VISIBILITY.md).
 --
 -- No 12-step table rebuild. UNIQUE(version) was a standalone index, not a
 -- table constraint, so DROP INDEX plus a new expression index changes the key
@@ -8,11 +8,12 @@
 -- IFNULL(crew_id, 0), not crew_id: SQLite treats every NULL as distinct in a
 -- UNIQUE index, so a bare (crew_id, version) would let two team packs share
 -- version 1 and break the concurrent-publisher recovery in
--- services/context_pack.py::publish_pack, which reads the version back.
+-- services/context_pack.py::publish_pack, which reads the version back through
+-- latest_pack.
 --
--- No semicolon and no apostrophe inside a comment. db.py::_statements splits
--- on the semicolon with no string or comment awareness, and sqlite3 reads a
--- lone apostrophe as the start of a string literal that never closes.
+-- No semicolon inside a comment. db.py::_statements splits on it with no
+-- comment awareness, and the tail half becomes a statement. An apostrophe is
+-- fine -- `--` runs to end of line, and SQLite opens no string literal there.
 
 DROP INDEX ux_context_packs_version;
 

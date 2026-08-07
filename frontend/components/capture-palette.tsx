@@ -114,8 +114,16 @@ export function CapturePalette() {
 
   const trapTab = (e: React.KeyboardEvent) => {
     if (e.key !== "Tab" || !dialogRef.current) return;
+    // `select` and `input` are in this list because the dialog gained a
+    // control that is neither a button nor a textarea. The visibility picker
+    // mounts BELOW the Capture button, so with the old selector the last
+    // focusable was always Capture, Tab from it wrapped to the first chip,
+    // and the one control that decides who can read the capture was
+    // unreachable by keyboard — every keyboard-only capture went to the
+    // workspace tier with no way to see the choice existed.
+    // Anything focusable added here must match, or it is invisible the same way.
     const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), textarea, [tabindex]",
+      "button:not([disabled]), textarea, select, input:not([type=hidden]), a[href], [tabindex]",
     );
     if (focusables.length === 0) return;
     const first = focusables[0];
