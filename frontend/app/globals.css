@@ -703,8 +703,8 @@ body {
 .prose-chat h3 {
   font-size: 1.03rem;
 }
-/* The seam between two flock members. --border-strong, not the hairline used
-   for table cells above: measured on the assistant bubble the hairline is
+/* The seam between two flock members. --border-strong, not the
+   --border-hairline the table cells below use: measured on the bubble it is
    rgb(30,32,40) against a rgb(25,28,36) surface, so the rule is invisible —
    and an invisible separator is the one thing this must not be. Preflight's
    currentColor is the other extreme, heavier than every border in the design

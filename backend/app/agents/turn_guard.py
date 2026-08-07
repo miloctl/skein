@@ -42,14 +42,15 @@ def unnotified(message: str, wrote: bool, actor: str = "", invoked: str = "") ->
     A chat turn that files nothing has no such row, so the mention reaches no
     one.
 
-    NOT the same trigger as `unfiled` above, which needs a typed capture
+    NOT the same trigger as `unfiled` below, which needs a typed capture
     prefix. A handle is its own intent signal — nobody types a teammate's name
     by accident — so this fires on prose, and states what happened rather than
     demanding a write the author may not want.
 
     `invoked` catches a REPEATED mention of the persona answering
-    (`/as scout ... @scout ...`). A leading `@slug` never reaches here: the
-    route rewrites it into the /as form and `message` keeps only the remainder.
+    (`/as scout ... @scout ...`). A leading `@slug` WITH a message never
+    reaches here — the route rewrites it into the /as form and `message` keeps
+    only the remainder. A bare `@slug` does, and is reported like any name.
     """
     if wrote:
         return None

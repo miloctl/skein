@@ -112,9 +112,11 @@ def _title_from(text: str) -> str:
 # the prefix comes off first, then the emphasis, then the quotes, or
 # 'Name: "Ship it"' keeps its opening quote after the closing one is gone.
 _TITLE_LABEL = re.compile(r"^(?:title|name)\s*[:\-]\s*", re.I)
-# the curly pairs are escaped, not literal: ruff RUF001 rejects them in
-# source as ambiguous. A cloud model answers with them often, so they have to
-# be here — the straight pair alone leaves “Ship it” quoted in the sidebar.
+# the SINGLE curly pair is escaped because ruff rejects those two marks in
+# source as ambiguous with the ASCII quote (RUF001 in a string, RUF003 in
+# this comment, which is why they are named here and not shown); the double
+# pair is escaped only to keep the four together. A cloud model answers with them often — the straight
+# pair alone leaves “Ship it” quoted in the sidebar.
 _TITLE_QUOTES = "\"'" + "\u201c\u201d\u2018\u2019"
 
 

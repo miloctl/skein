@@ -9,10 +9,12 @@ import { describe, expect, it, vi } from "vitest";
  *  an already-prevented event.
  *
  *  That contract lives inside the library. tsc catches the export vanishing
- *  or its signature changing; it catches NOTHING about the guard. If a later
- *  0.14.x stops checking defaultPrevented, ArrowUp starts moving the popup
- *  selection AND rewriting the composer, silently. This is the test that
- *  fails when that happens. */
+ *  or its signature changing; it catches NOTHING about the guard — and
+ *  neither do these tests: deleting the hook's defaultPrevented check leaves
+ *  all three green, because the popup is only ever open on a non-empty draft
+ *  and the hook refuses to recall from one. What these DO pin is `recalling`.
+ *  Without it a recalled slash command reopens the popup, which then swallows
+ *  the next arrow and strands the walk on one entry. */
 
 // jsdom ships no ResizeObserver, and assistant-ui's composer attaches one to
 // autosize the textarea. Without this the component throws on mount and both
@@ -60,7 +62,7 @@ const composer = () => screen.getByRole("combobox") as HTMLTextAreaElement;
 
 /** History must be NON-EMPTY before either assertion runs. With nothing to
  *  recall the hook returns early and ArrowUp is a no-op whatever the popup
- *  does, so both tests would pass while proving nothing. */
+ *  does, so all three tests would pass while proving nothing. */
 async function send(text: string) {
   const box = composer();
   fireEvent.change(box, { target: { value: text } });
@@ -101,7 +103,8 @@ describe("ArrowUp in the composer", () => {
     // has SENT available and would otherwise overwrite this — did not run.
     // TWO mechanisms enforce this, the popup's preventDefault and the hook's
     // own "only recall from an empty draft" guard, so this passes if either
-    // one holds. The test below is the one that needs both.
+    // one holds. The test below needs neither: it pins `recalling`, which
+    // keeps the popup shut so the walk can continue.
     await waitFor(() => expect(box.value).toBe("/b"));
     expect(box.value).not.toBe(SENT);
   });

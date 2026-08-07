@@ -205,7 +205,7 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
 
 # One tool-less completion that answers in 60 characters or less, and it runs
 # ON the critical path, so this budget is "how long may a finished answer sit
-# there with nothing rendering" — not _member_deadline()'s 180 s, which asks
+# there with nothing rendering" — not MEMBER_TIMEOUT_S's 180 s default, which asks
 # how long a stalled provider may hold a connection nobody reads.
 _TITLE_TIMEOUT_S = 8.0
 
@@ -263,9 +263,10 @@ async def _summarize_title(thread_id: str, user: str) -> None:
         )
 
 
-# Render-only, and skipped above the first member (_flock_stream). It is NOT
-# part of _masthead because _masthead is also the merge input: the synthesizer
-# needs every section LABELLED, and a rule labels nothing.
+# Kept out of _masthead because the merge input is built from _masthead(c):
+# a rule there is UI chrome the synthesizer is asked to reconcile. It still
+# reaches the saved transcript and the session bridge, like every other head.
+# Skipped above the FIRST member (_flock_stream) — nothing precedes it.
 _SECTION_RULE = "\n\n---"
 
 
@@ -674,7 +675,8 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     stripped = message.strip()
     # A LEADING @slug invokes that bench persona for this ONE message. Rewritten
     # into the /as form rather than given its own branch, so it takes the
-    # identical path below — persona session, identity, ensure_user, gate — and
+    # identical path below — persona session, identity, ensure_user, the fb:
+    # guard, gate — and
     # cannot drift from it. Only a bench slug rewrites: `@mira ...` is a mention
     # of a person and stays ordinary prose (services/users.py::ensure_user
     # refuses a human holding a bench slug, so one token never means both).
@@ -1031,7 +1033,8 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 yield _sse({"type": "receipt", **note})
             else:
                 # only when `note` did not fire: on "todo: ask @mira ..." that
-                # filed nothing, both are true and the second adds no fact
+                # filed nothing both fire, and this one's detail tells the
+                # author to use the capture prefix they already typed
                 miss = await run_in_threadpool(turn_guard.unnotified, message, wrote, user, persona)
                 if miss:
                     transcript.append(_receipt_line(miss))
@@ -1079,10 +1082,7 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             _close_turn()
         yield _sse({"type": "done"})
 
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-    )
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:

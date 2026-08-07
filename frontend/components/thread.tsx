@@ -109,7 +109,7 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   },
 ];
 
-// Promise-cached for the life of the page: both catalogs change only on a
+// Promise-cached for the life of the page: these catalogs change only on a
 // server restart, and RuntimeProvider's key={threadId} remounts the Composer
 // on every thread switch — uncached, each switch costs two requests. The
 // authConfig() shape (lib/auth.ts): a failed read is not cached, so the
@@ -140,7 +140,7 @@ function personaList(): Promise<Persona[]> {
 
 // The roster the @ picker lists under People. Agent rows share this table
 // (/as and /flock mint them), so the picker filters by kind rather than
-// showing every persona anyone has ever invoked — the bench below is the
+// showing every persona anyone has ever invoked — personaList() above is the
 // honest source for specialists.
 type Person = { name: string; kind: string };
 
@@ -151,6 +151,10 @@ type Person = { name: string; kind: string };
 // miss it never saw either. Filtering on spaces alone missed both.
 const MENTIONABLE = /^[a-z0-9][a-z0-9._-]*$/i;
 
+// Cached like the catalogs above, but the roster is NOT restart-stable: a
+// person who joins mid-session is not offered until the page reloads. The
+// picker missing a brand-new name costs one manual @type; a fetch per thread
+// switch costs a request on every switch, in every open tab.
 let peopleCache: Promise<Person[]> | null = null;
 function peopleList(): Promise<Person[]> {
   if (!peopleCache) {
@@ -197,8 +201,10 @@ const Composer = () => {
   // derived from the thread runtime's message list, which is what isolates one
   // chat from another's; runtime-provider.tsx's /messages import is what makes
   // a reloaded thread recall anything at all. The library's own popover guard
-  // is inert here (this popup is hand-rolled, not Unstable_TriggerPopoverRoot),
-  // so preventDefault below is the ONLY thing holding recall off.
+  // is inert here (this popup is hand-rolled, not Unstable_TriggerPopoverRoot).
+  // Two things then hold recall off: the hook's own "recall only from an empty
+  // draft" rule, and preventDefault below. Only preventDefault covers a walk
+  // already in progress, which is why `recalling` keeps the popup shut.
   const inputHistory = unstable_useComposerInputHistory();
   const activePersona = useSyncExternalStore(
     subscribePersona,
@@ -332,7 +338,8 @@ const Composer = () => {
     else sections.push({ group: c.group, rows: [{ c, i }] });
   });
 
-  // the list scrolls now, so the selection can leave the visible box
+  // the listbox has its own scroller (max-h-72 below), so ArrowUp can walk the
+  // selection out of view — activedescendant moves, the row does not
   useEffect(() => {
     if (open)
       document
@@ -344,8 +351,9 @@ const Composer = () => {
     if (c.mention) {
       // splice at the @token rather than replacing the composer: unlike a
       // command, a mention sits inside a sentence still being written
-      // function replacer: a name is data, and `$&`, `$'` or `$1` inside one
-      // would expand as replacement patterns and splice the wrong text
+      // function replacer, so this stays correct if MENTIONABLE above is ever
+      // widened: `$&`, `$'` or `$1` in a name would expand as replacement
+      // patterns and splice the wrong text
       composer.setText(
         text.replace(
           /(^|\s)@[a-z0-9._-]*$/i,
