@@ -23,9 +23,11 @@ from ..agents import commands, receipts, session_log, turn_guard
 from ..agents.identity import (
     reset_agent_identity,
     reset_requester_identity,
+    reset_requester_viewer,
     set_agent_identity,
     set_force_review,
     set_requester_identity,
+    set_requester_viewer,
 )
 from ..agents.team_agent import build_agent, build_synthesizer
 from ..services import capture, chat_threads, fieldguide, flocks, personas
@@ -325,7 +327,7 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
         out.put_nowait({"type": "member-end", "entry": entry})
 
 
-async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw: str):
+async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw: str, viewer=None):
     """Fan one message out to every member, render the answers as sections in
     declared order, then merge them when the flock synthesizes."""
     cards = await run_in_threadpool(flocks.member_cards, fdef["members"])
@@ -344,6 +346,11 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
     # a member files must name the human who asked (tools/_gate.py reads it as
     # requested_by). Identity is per-task; the requester is per-turn.
     req_token = set_requester_identity(user)
+    # and the requesting human's VIEWER, because `/as <persona>` hands a human
+    # an agent identity: without it the tool surface reads as the persona,
+    # which is in no crew, and agent_inbox is unfiltered for its own agent
+    # (see tools/portfolio.py::my_agent_inbox).
+    rv_token = set_requester_viewer(viewer)
     # keyed by slug, which is unique only because flocks._parse refuses a
     # repeated member — two members on one queue would interleave into one
     # section, so a `cards` list built anywhere but get_flock re-opens that
@@ -557,6 +564,7 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         _close_turn()
         with contextlib.suppress(ValueError):
             reset_requester_identity(req_token)
+            reset_requester_viewer(rv_token)
     yield _sse({"type": "done"})
 
 
@@ -787,7 +795,7 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # what a filing-shaped message asked for, and a flock turn has N heads
         # and no write path of its own (docs/FLOCKS.md)
         return StreamingResponse(
-            _flock_stream(flock_def, ui_thread, user, message, req.message),
+            _flock_stream(flock_def, ui_thread, user, message, req.message, viewer),
             media_type="text/event-stream",
         )
     thread_id = ui_thread
@@ -844,6 +852,7 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # here, the default identity "agent" was ONE team-wide 30/min bucket,
         # and person B's write refused because person A was mid-turn
         req_token = set_requester_identity(user)
+        rv_token = set_requester_viewer(viewer)
         if masthead:
             yield _sse({"type": "text", "text": masthead})
         receipts.start()
@@ -936,6 +945,7 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             try:
                 reset_agent_identity(token)
                 reset_requester_identity(req_token)
+                reset_requester_viewer(rv_token)
             except ValueError:
                 pass
             # sync fallback for the CANCELLED stream (stop button, tab

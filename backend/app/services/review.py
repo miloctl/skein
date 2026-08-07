@@ -204,19 +204,14 @@ def _assert_judgeable(change: dict, viewer: scope.Viewer) -> None:
     NotFound with the same sentence as an absent proposal: any other wording
     tells the caller that #12 exists and is scoped (scope.missing).
     """
-    table = _TARGET_TABLE.get(change["entity"])
-    if table not in scope.CLASSIFIED or not change["entity_id"]:
-        return
-    author = scope.CLASSIFIED[table]
-    row = db.query_one(
-        f"SELECT visibility, crew_id, {author} AS author FROM {table} WHERE id = ?",  # noqa: S608 — table and column from constant maps
-        (change["entity_id"],),
-    )
+    tier = _governing_tier(change)
     # a VANISHED target is not refused here, unlike _readable: there is no row
     # left to protect, and approve_change has its own auto-reject path for it
     # ("target vanished") that a 404 would hide behind the wrong sentence.
     # _readable still drops it from the LIST, where the summary would show.
-    if row and not scope.can_read(row["visibility"], row["crew_id"], viewer, row["author"] or ""):
+    if not isinstance(tier, tuple):  # None (unscoped) or "gone" (deleted)
+        return
+    if not scope.can_read(tier[0], tier[1], viewer, tier[2]):
         raise db.NotFound(f"pending change #{change['id']} not found")
 
 
@@ -407,6 +402,14 @@ _TARGET_TABLE = {
     "delegation": "tasks",
 }
 
+# A CREATE whose subject is a row that ALREADY EXISTS names it in the payload.
+# `delegation` is the case: delegate_task(task_id=...) changes a task that has
+# its own tier, so there is nothing to declare in the payload and nothing in
+# `entity_id`, which propose_change only requires for updates. Reading neither,
+# such a proposal was shown to every reader AND judgeable by them — a
+# non-member approved a delegation of a crew task they cannot see.
+_CREATE_PARENT = {"delegation": ("tasks", "task_id")}
+
 # Entities that address no scoped row at all, and why. Kept as an explicit
 # list rather than an absence, so tests/test_review.py can prove _registry
 # gained nothing that silently skips the tier check.
@@ -535,6 +538,53 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     }
 
 
+def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
+    """The tier that decides who may see or judge one proposal.
+
+    Returns `(visibility, crew_id, author)`, the string "gone" when the row it
+    addresses has been deleted, or None when it addresses no scoped row at all
+    (weekly_plan, authority, playbook).
+
+    ONE resolver, because `_readable` and `_assert_judgeable` each grew their
+    own and they disagreed: the list hid a create while the verdict endpoints
+    applied it. A proposal that is invisible must not be approvable, and the
+    only way to keep that true is for both to ask the same question.
+
+    Three sources, in order: the row `entity_id` names (updates), the row the
+    payload names (_CREATE_PARENT), then the tier the payload declares.
+    """
+    table = _TARGET_TABLE.get(change["entity"])
+    if table not in scope.CLASSIFIED:
+        return None
+    try:
+        payload = json.loads(change["payload"]) if change.get("payload") else {}
+    except (TypeError, ValueError):
+        payload = {}
+
+    row_id = change["entity_id"]
+    if not row_id and change["entity"] in _CREATE_PARENT:
+        table, key = _CREATE_PARENT[change["entity"]]
+        row_id = payload.get(key)
+    if row_id:
+        author = scope.CLASSIFIED[table]
+        row = db.query_one(
+            f"SELECT visibility, crew_id, {author} AS author FROM {table} WHERE id = ?",  # noqa: S608 — table and column from constant maps
+            (row_id,),
+        )
+        return (row["visibility"], row["crew_id"], row["author"] or "") if row else "gone"
+
+    # a create with no parent row: the tier it WOULD land at is declared here.
+    # Absent because the caller chose none, and absent because the caller never
+    # selected the payload column — both mean workspace, and neither can
+    # disclose a body the reader is not already being shown.
+    crew = payload.get("crew_id")
+    return (
+        str(payload.get("visibility") or scope.WORKSPACE),
+        crew if isinstance(crew, int) else None,
+        str(payload.get("author") or ""),
+    )
+
+
 def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     """Drop proposals whose target row the viewer may not read.
 
@@ -554,66 +604,26 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     those carry no row to be scoped by, and defaulting them out would empty
     the queue the whole review flow runs on.
 
-    One query per TABLE, not per row: at LIMIT 200 the per-row shape put 200
-    round trips on GET /api/review, its only caller. Six other readers quote
-    `summary` out of this table and each has to call this explicitly —
-    briefing.my_day, delegation.agent_inbox, review_stats, handoff, rituals
-    and two insights rules. They do not arrive here on their own.
+    Eight readers quote `summary` or `payload` out of this table and each has
+    to call this explicitly — GET /api/review, briefing.my_day,
+    delegation.agent_inbox, review_stats, the handoff, the week-close ritual,
+    and the two insights rules that write into findings.receipt. They do not
+    arrive here on their own.
     """
-    want: dict[str, set[int]] = {}
-    for r in rows:
-        table = _TARGET_TABLE.get(r["entity"])
-        if table in scope.CLASSIFIED and r["entity_id"]:
-            want.setdefault(table, set()).add(r["entity_id"])
-    tiers: dict[tuple[str, int], tuple[str, int | None, str]] = {}
-    for table, ids in want.items():
-        marks = ", ".join("?" for _ in ids)
-        # the author column too: a private row is readable by whoever wrote
-        # it, and scope.CLASSIFIED is the only place that mapping lives
-        author = scope.CLASSIFIED[table]
-        for row in db.query(
-            f"SELECT id, visibility, crew_id, {author} AS author FROM {table} WHERE id IN ({marks})",  # noqa: S608 — table and column from constant maps, ids are bound marks
-            tuple(ids),
-        ):
-            tiers[table, row["id"]] = (row["visibility"], row["crew_id"], row["author"] or "")
     out = []
     for r in rows:
-        table = _TARGET_TABLE.get(r["entity"])
-        if table in scope.CLASSIFIED and not r["entity_id"]:
-            # a CREATE: there is no target row yet, and the tier the row WOULD
-            # land at is in the payload. Every _registry create handler takes
-            # visibility=/crew_id= and approve_change splats **payload into
-            # them, so a proposal to create a private note carries its whole
-            # body here and said nothing about its tier.
-            # `.get`, because not every caller selects payload — my_day,
-            # review_stats, rituals and insights read `summary` only. Those
-            # rows cannot disclose a create's body, and a create's summary is
-            # producer-built ("create note"), so treating an absent payload as
-            # workspace keeps them without opening anything. list_changes is
-            # the reader that returns the payload, and it selects *.
-            try:
-                payload = json.loads(r.get("payload") or "{}")
-            except (TypeError, ValueError):
-                payload = {}
-            declared = str(payload.get("visibility") or scope.WORKSPACE)
-            if declared != scope.WORKSPACE and not scope.can_read(
-                declared, payload.get("crew_id"), viewer, str(payload.get("author") or "")
-            ):
-                continue
-            out.append(r)
-            continue
-        if table not in scope.CLASSIFIED or not r["entity_id"]:
-            # genuinely no row to be scoped by (weekly_plan, authority,
-            # playbook). Keeping these is what makes the queue usable.
-            out.append(r)
-            continue
-        tier = tiers.get((table, r["entity_id"]))
+        tier = _governing_tier(r)
         if tier is None:
-            # the target row is GONE. We cannot prove the viewer could read
-            # it, and the summary still quotes it, so this fails closed —
-            # anything else makes deleting the row the way to publish it.
+            # no scoped row to be judged by (weekly_plan, authority, playbook).
+            # Keeping these is what makes the queue usable at all.
+            out.append(r)
+        elif not isinstance(tier, tuple):
+            # "gone": the target row is DELETED. We cannot prove the viewer
+            # could read it and the summary still quotes it, so this fails
+            # closed — anything else makes deleting the row the way to
+            # publish it.
             continue
-        if scope.can_read(tier[0], tier[1], viewer, tier[2]):
+        elif scope.can_read(tier[0], tier[1], viewer, tier[2]):
             out.append(r)
     return out
 

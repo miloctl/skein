@@ -547,8 +547,10 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     `viewer=None` means the agent is reading its OWN inbox — the tool door
     passes agent_identity(), the MCP door passes its ACTOR — and the rows stay
     unfiltered: a crew task delegated to an agent is work that agent has to
-    see, and an agent is in no crew, so a Viewer built from its name would
-    empty the inbox.
+    see, and crews.add_member refuses an agent identity — so a Viewer built
+    from an agent's own name carries no crews and would strip exactly those
+    rows (the workspace ones would still come back, which is what makes the
+    loss easy to miss).
 
     GET /api/agents/{agent}/inbox is the other door. It takes the agent name
     off the URL and answers any CurrentUser, so it passes the CALLER's viewer

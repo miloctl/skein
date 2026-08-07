@@ -329,3 +329,40 @@ def test_mcp_reads_answer_only_for_its_own_identity(fresh_db, monkeypatch):
     fn = getattr(mcp_server.get_my_day, "fn", mcp_server.get_my_day)
     assert inspect.signature(fn).parameters == {}
     assert "40k" not in fn()
+
+
+def test_a_persona_turn_reads_the_inbox_with_the_humans_eyes(fresh_db):
+    """`viewer=None` on agent_inbox means "the agent is the caller" and leaves
+    the rows unfiltered — right for MCP and the scheduler. `/as <persona>`
+    breaks that assumption: a HUMAN takes the persona's identity, every shipped
+    persona holds my_agent_inbox, and the persona is in no crew. The REST twin
+    refuses the same read, so the chat door was the way around it."""
+    import json
+
+    from app.agents.identity import (
+        reset_agent_identity,
+        reset_requester_viewer,
+        set_agent_identity,
+        set_requester_viewer,
+    )
+    from app.services import crews, delegation, scope, users, work
+    from app.tools.portfolio import my_agent_inbox
+
+    for n in ("ava", "bo"):
+        users.ensure_user(n)
+    users.ensure_user("scout", kind="agent")
+    cid = crews.create_crew("Alpha", actor="ava")["id"]
+    t = work.create_task(title="ZZCREWZZ rotate keys", actor="ava", visibility="crew", crew_id=cid)
+    delegation.delegate_task(t["id"], "scout", "ava", actor="ava")
+
+    def titles(viewer):
+        tok, vt = set_agent_identity("scout"), set_requester_viewer(viewer)
+        try:
+            return [x["title"] for x in json.loads(my_agent_inbox())["delegated_tasks"]]
+        finally:
+            reset_requester_viewer(vt)
+            reset_agent_identity(tok)
+
+    assert titles(scope.Viewer("bo", True)) == []  # not in the crew
+    assert titles(scope.Viewer("ava", True)) == ["ZZCREWZZ rotate keys"]
+    assert titles(None) == ["ZZCREWZZ rotate keys"]  # autonomous: unchanged

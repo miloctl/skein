@@ -18,9 +18,12 @@ went stale inside a single branch, and a stale number reads as a measurement.
 **What makes `private` private is not this filter.** The filter only ever
 matches a private row for its own author. What keeps it private is the set of
 places it never reaches: search.index_record refuses to index one,
-admin.export leaves it out, every job and egress builder reads
-WORKSPACE_ONLY, `detail` keeps its body out of the hash-chained ledger, and
-`assert_readable_by` refuses to hand it to anyone. Each of those is a
+admin.export leaves it out, every job reads WORKSPACE_ONLY, `detail` keeps its
+body out of the hash-chained ledger, and `assert_readable_by` refuses to hand
+it to anyone. One egress builder is NOT on that list: handoff.generate_handoff
+runs for a person, so it takes a viewer and narrows the body to the artifact's
+own tier through `scope.audience` — locking it to WORKSPACE_ONLY would break
+the crew handoff on purpose. Each of those is a
 separate promise, and a forgotten one is a body somewhere permanent.
 """
 

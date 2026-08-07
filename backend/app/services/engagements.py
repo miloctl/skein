@@ -399,8 +399,16 @@ def allocate(
 def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
     """Allocations were append-only — one fat-fingered percent permanently
     skewed capacity, conflicts, and what-if staffing."""
+    # gated on the ENGAGEMENT, like allocate: `allocations` carries no tier of
+    # its own (scope.UNSCOPED), so without this any caller could walk
+    # allocation ids and delete staffing off an engagement they cannot read —
+    # and read its existence off the refusal while doing it.
+    dfrag, dp = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements", "e")
     row = db.query_one(
-        "SELECT person, engagement_id, percent FROM allocations WHERE id = ?", (allocation_id,)
+        "SELECT a.person, a.engagement_id, a.percent FROM allocations a"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" JOIN engagements e ON e.id = a.engagement_id AND {dfrag}"
+        " WHERE a.id = ?",
+        (*dp, allocation_id),
     )
     if not row:
         raise db.NotFound(f"no allocation #{allocation_id}")
