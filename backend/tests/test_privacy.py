@@ -366,3 +366,25 @@ def test_a_persona_turn_reads_the_inbox_with_the_humans_eyes(fresh_db):
     assert titles(scope.Viewer("bo", True)) == []  # not in the crew
     assert titles(scope.Viewer("ava", True)) == ["ZZCREWZZ rotate keys"]
     assert titles(None) == ["ZZCREWZZ rotate keys"]  # autonomous: unchanged
+
+
+def test_the_agent_inbox_tool_takes_no_name():
+    """The MCP twin has had this test since the same exploit closed there.
+    This one did not, while its comment said "Pinned by tests/test_privacy.py"
+    — so the parameter could come back with the whole suite green, and the
+    next author reading that line would not add the test either.
+
+    `my_agent_inbox` answers for whatever roster row it is handed: delegated
+    tasks, assigned questions, rejected proposals with reviewer notes. As a
+    model-controlled argument, "check the agent inbox for mira" was the whole
+    exploit.
+    """
+    import inspect
+
+    from app.tools import portfolio
+
+    fn = getattr(portfolio.my_agent_inbox, "fn", portfolio.my_agent_inbox)
+    assert list(inspect.signature(fn).parameters) == [], (
+        "my_agent_inbox must take no parameters — it reads its own identity"
+        " from agent_identity() and the caller's viewer from requester_viewer()"
+    )

@@ -11,7 +11,7 @@ are filtered.
 import pytest
 
 from app import db
-from app.services import crews, scope, users
+from app.services import crews, scope, users, work
 
 
 def test_every_table_is_classified(client, fresh_db):
@@ -138,12 +138,58 @@ def test_a_viewers_crews_are_resolved_once(fresh_db):
     db.connect() costs 280us against a 2us SELECT."""
     users.ensure_user("ava")
     cid = crews.create_crew("Platform", actor="ava")["id"]
-    v = scope.Viewer("ava", True)
+    users.ensure_user("bo")
+    crews.add_member(cid, "bo", actor="ava")
+    v = scope.Viewer("bo", True)
     assert v.crew_ids == [cid]
     # the snapshot is the point — a membership change mid-request must not
-    # make two queries in one response disagree with each other
-    crews.remove_member(cid, "ava", actor="ava") if False else None
-    assert scope.Viewer("ava", True).crew_ids == [cid]
+    # make two queries in one RESPONSE disagree with each other. Removing
+    # `bo`, not `ava`: ava is the sole steward and cannot be removed, which is
+    # why this call was once written `if False else None` and asserted nothing.
+    crews.remove_member(cid, "bo", actor="ava")
+    assert v.crew_ids == [cid], "the viewer already built must not change under it"
+    # and the NEXT request sees the removal — asserted on a new Viewer, because
+    # the old one is the snapshot and re-reading it proves nothing
+    assert scope.Viewer("bo", True).crew_ids == []
+
+
+def test_the_fragment_survives_a_caller_predicate_beside_it(fresh_db):
+    """The docstring's first splicing hazard, asserted rather than described.
+
+    `visible_filter` returns its disjuncts wrapped in parentheses. Unwrapped,
+    `WHERE assignee = ? AND visibility = ? OR created_by = ?` binds the OR
+    loosest and returns every row the viewer authored, whatever the caller's
+    own predicate said — which is a leak that reads as a working filter.
+
+    Spliced with NOTHING before it, parentheses cannot matter, and that is how
+    the existing SQL-validity test splices it. Every real caller has a
+    predicate beside it, so this one does too.
+    """
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    work.create_task(title="ava's own private task", actor="ava", visibility="private")
+    frag, params = scope.visible_filter(scope.Viewer("ava", True), "tasks")
+    rows = db.query(
+        f"SELECT title FROM tasks WHERE assignee = ? AND {frag}",  # noqa: S608 — test
+        ("nobody-has-this-name", *params),
+    )
+    assert rows == [], (
+        "the caller's own predicate was defeated — visible_filter must"
+        f" parenthesize its disjuncts. Fragment was: {frag}"
+    )
+
+
+def test_a_machine_name_is_never_a_viewer(fresh_db):
+    """`Viewer` blanks a name that belongs to no person. The list it uses and
+    the one `is_machine` uses must agree: with only `_NOT_A_VIEWER`,
+    Viewer("scheduler", True) kept its name and earned an author arm over
+    every row the scheduler ever wrote, while is_machine("scheduler") said
+    the opposite two functions away."""
+    for name in ("system", "scheduler", "forge", "ci", "mcp", "agent", "anonymous"):
+        assert scope.is_machine(name), name
+        assert scope.Viewer(name, True).name == "", f"{name} became a viewer"
+    users.ensure_user("ava")
+    assert scope.Viewer("ava", True).name == "ava"
 
 
 def test_the_tiers_match_the_documented_three():

@@ -151,7 +151,8 @@ def get_context_pack(engagement_id: int = 0) -> str:
 # rejected proposals INCLUDING reviewer notes, and 20 unread notification
 # bodies. As a model-controlled argument, "check the agent inbox for mira" was
 # the whole exploit. The MCP twin lost the same parameter for the same reason
-# (app/mcp_server.py::get_my_day). Pinned by tests/test_privacy.py.
+# (app/mcp_server.py::get_my_day). Pinned by
+# tests/test_privacy.py::test_the_agent_inbox_tool_takes_no_name.
 def my_agent_inbox() -> str:
     """Your own ambient inbox: delegated tasks, questions assigned to you,
     rejected proposals (with reviewer notes), notifications."""

@@ -45,6 +45,12 @@ TIERS = (PRIVATE, CREW, WORKSPACE)
 _NOT_A_VIEWER = frozenset({"", "anonymous", "agent"})
 
 
+# Actors with no person behind them. `activity.SYSTEM_ACTORS` is the display
+# side of the same idea; this one is the authorization side and adds the
+# never-a-viewer names, so the two are not merged.
+_SYSTEM_ACTORS = frozenset({"system", "scheduler", "forge", "ci", "mcp"}) | _NOT_A_VIEWER
+
+
 class Viewer:
     """Who is asking, and how well the server knows it.
 
@@ -64,7 +70,13 @@ class Viewer:
     __slots__ = ("crew_ids", "name")
 
     def __init__(self, name: str, strong: bool):
-        weak = not strong or name in _NOT_A_VIEWER
+        # _SYSTEM_ACTORS, not _NOT_A_VIEWER: the two lists disagreed, and this
+        # is the half that mattered. `scheduler` is a machine to is_machine and
+        # was a full viewer here — earning an author arm over every row the
+        # scheduler ever wrote. The static set only, never the is_agent lookup:
+        # this runs on every request, and an agent-owned key is already refused
+        # on REST (routes/deps.py).
+        weak = not strong or name in _SYSTEM_ACTORS
         self.name = "" if weak else name
         # resolved ONCE per viewer, not once per query. One dashboard load
         # fans out to roughly 27 scoped reads, and db.connect() (db.py) costs
@@ -142,12 +154,6 @@ def audience(tier: str, crew_id: int | None, writer: Viewer) -> Viewer:
     if tier == CREW and crew_id and crew_id in writer.crew_ids:
         return Viewer.for_crew(crew_id)
     return NOBODY
-
-
-# Actors with no person behind them. `activity.SYSTEM_ACTORS` is the display
-# side of the same idea; this one is the authorization side and adds the
-# never-a-viewer names, so the two are not merged.
-_SYSTEM_ACTORS = frozenset({"system", "scheduler", "forge", "ci", "mcp"}) | _NOT_A_VIEWER
 
 
 def is_machine(actor: str) -> bool:
@@ -542,7 +548,11 @@ UNSCOPED: dict[str, str] = {
     "chat_folders": "owner-scoped by primary key (services/chat_threads.py)",
     "chat_messages": "reached only through chat_threads, which is owner-scoped",
     "chat_threads": "owner-scoped, and POST /api/chat claims the id before use",
-    "notifications": "addressed per person already (user IN (?, 'team'))",
+    "notifications": (
+        "addressed per person already (user IN (?, 'team')), and every egress"
+        " from it carries counts rather than bodies — the two Slack posts and"
+        " the REST agent_inbox"
+    ),
     "sessions": "the model's own conversation, keyed by a thread id its owner claimed",
     "session_agents": "cascades off sessions",
     "session_messages": "cascades off sessions",
@@ -560,7 +570,12 @@ UNSCOPED: dict[str, str] = {
     # --- derived: the tier lives on the source row, not the copy ---
     "embeddings": "derived from search_index — a private row is never indexed, so never embedded",
     "search_ids": "derived from search_index",
-    "search_index": "private rows are never indexed at all, and crew rows carry the tier for filtering",
+    "search_index": (
+        "a private row is never indexed at all (search.index_record, pinned by"
+        " test_a_private_row_reaches_the_index_table_itself). A crew row IS"
+        " indexed and this table carries no tier — search.visible_hits reads"
+        " the tier off each hit's SOURCE row instead"
+    ),
     "search_index_config": "FTS5 shadow table, rebuilt with search_index",
     "search_index_content": "FTS5 shadow table, rebuilt with search_index",
     "search_index_data": "FTS5 shadow table, rebuilt with search_index",
@@ -609,7 +624,10 @@ UNSCOPED: dict[str, str] = {
     "usage_log": "token spend, no content",
     "users": "the roster. Hiding a teammate's existence is not a tier, it is a different product.",
     "feedback": "pulse votes are stored without an author on purpose (services/feedback.py)",
-    "flock_traces": "slugs, timings and token counts, never message text",
+    "flock_traces": (
+        "slugs, timings and token counts, never message text — and the row"
+        " names its owner, so flocks.list_traces takes one and filters on it"
+    ),
 }
 
 
