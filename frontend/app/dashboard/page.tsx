@@ -92,6 +92,10 @@ function StandupCard({ rows }: { rows: Row[] }) {
           {rows.map((s) => (
             <li key={s.id} className="text-sm">
               <span className="font-medium">{s.author}</span>
+              <VisibilityBadge
+                visibility={s.visibility as string}
+                crewId={s.crew_id as number}
+              />
               <p className="text-xs text-ink-3">
                 {s.today}
                 {s.blockers ? (
@@ -606,6 +610,10 @@ export default function Dashboard() {
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-xs text-ink-3">#{e.id}</span>
                   <span className="truncate font-medium">{e.name}</span>
+                  <VisibilityBadge
+                    visibility={e.visibility as string}
+                    crewId={e.crew_id as number}
+                  />
                   {e.kind === "experiment" && (
                     <span className="whitespace-nowrap rounded-full border border-weld/25 bg-weld/10 px-1.5 py-px font-mono text-[10px] text-weld">
                       experiment
@@ -696,6 +704,10 @@ export default function Dashboard() {
             >
               <span>
                 <span className="text-ink-3">#{b.id}</span> {b.title}
+                <VisibilityBadge
+                  visibility={b.visibility as string}
+                  crewId={b.crew_id as number}
+                />
                 <span className="ml-2 text-xs text-ink-3">
                   {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
                 </span>
@@ -752,6 +764,10 @@ export default function Dashboard() {
                 >
                   <span>
                     {a.person}
+                    <VisibilityBadge
+                      visibility={a.visibility as string}
+                      crewId={a.crew_id as number}
+                    />
                     <span className="ml-2 text-xs text-ink-3">
                       {a.kind} · {a.starts_on} → {a.ends_on}
                       {a.note ? ` · ${a.note}` : ""}
@@ -813,6 +829,10 @@ export default function Dashboard() {
               >
                 <span>
                   <span className="text-ink-3">#{m.id}</span> {m.title}
+                  <VisibilityBadge
+                    visibility={m.visibility as string}
+                    crewId={m.crew_id as number}
+                  />
                   {m.due_date ? (
                     <span className="ml-2 text-xs text-ink-3">
                       due {m.due_date}
@@ -914,6 +934,10 @@ export default function Dashboard() {
               <div className="flex items-center justify-between gap-2">
                 <span>
                   <span className="text-ink-3">#{q.id}</span> {q.question}
+                  <VisibilityBadge
+                    visibility={q.visibility as string}
+                    crewId={q.crew_id as number}
+                  />
                 </span>
                 <Badge value={String(q.status)} />
               </div>
@@ -1020,6 +1044,10 @@ export default function Dashboard() {
           render={(d) => (
             <li key={d.id} className="text-sm">
               <span className="font-medium">{d.title}</span>
+              <VisibilityBadge
+                visibility={d.visibility as string}
+                crewId={d.crew_id as number}
+              />
               {d.decision !== d.title && (
                 <p className="text-xs text-ink-3">{d.decision}</p>
               )}
@@ -1036,7 +1064,13 @@ export default function Dashboard() {
               key={e.id}
               className="flex items-center justify-between text-sm"
             >
-              <span>{e.title}</span>
+              <span>
+                {e.title}
+                <VisibilityBadge
+                  visibility={e.visibility as string}
+                  crewId={e.crew_id as number}
+                />
+              </span>
               <span className="text-xs text-ink-3">{e.starts_at}</span>
             </li>
           )}
@@ -1059,7 +1093,13 @@ export default function Dashboard() {
             ) : (
               <li key={n.id} className="text-sm">
                 <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{n.topic}</span>
+                  <span className="font-medium">
+                    {n.topic}
+                    <VisibilityBadge
+                      visibility={n.visibility as string}
+                      crewId={n.crew_id as number}
+                    />
+                  </span>
                   <span className="flex shrink-0 gap-1">
                     <button
                       id={`edit-note-${n.id}`}
