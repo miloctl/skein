@@ -114,7 +114,7 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         # channel — so a crew task's title addressed to one member lands in
         # front of everybody. `notifications` carries no tier to filter on
         # (services/scope.py::UNSCOPED says why), and adding one would put the
-        # rule at all 16 notify() call sites. A count carries nothing, whatever
+        # rule at every notify() call site. A count carries nothing, whatever
         # a future caller writes.
         #
         # Nothing is lost: this post is a NUDGE. The bodies are already in the

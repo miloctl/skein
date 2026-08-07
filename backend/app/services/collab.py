@@ -464,9 +464,12 @@ def save_note(
 
 
 def get_note(note_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
-    # Filtered, defaulting to NOBODY: tools/collab.py puts the topic and the
-    # first 80 characters of the body into a pending_changes summary, and the
-    # reviewer who reads that card is not necessarily in the note's crew.
+    # Filtered, defaulting to NOBODY: a note's own text reaches the review
+    # queue two ways — tools/collab.py::delete_note puts the topic and the
+    # first 80 characters into the summary (scope.detail drops that half for a
+    # scoped row), and save_note puts the whole content in the PAYLOAD, which
+    # review.list_changes returns. The reviewer who reads that card is not
+    # necessarily in the note's crew.
     frag, vp = scope.visible_filter(viewer, "notes")
     return db.query_one(
         f"SELECT * FROM notes WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks

@@ -1387,7 +1387,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-ink-2">
               The <b>first-week checklist</b> on My Day is hidden in this
-              browser. Your progress was never lost — it retires itself for good
+              browser. Your progress was never lost — it hides itself for good
               once every step is done.
             </p>
             <button

@@ -44,6 +44,22 @@ def test_no_table_is_in_both_maps():
     assert not both, f"classified and unscoped at once: {sorted(both)}"
 
 
+def test_every_classified_table_has_a_reader_facing_noun():
+    """scope.missing does NOUN[table] on the not-found path of every guarded
+    service. A classified table with no entry raises KeyError there, so the
+    one sentence a caller sees for an absent row becomes a 500 — and only for
+    the table somebody just added, which is the last place anyone looks."""
+    orphans = set(scope.CLASSIFIED) - set(scope.NOUN)
+    assert not orphans, (
+        f"classified with no reader-facing noun: {sorted(orphans)}."
+        " Add one to scope.NOUN — `table[:-1]` renders 'memorie'."
+    )
+    stale = set(scope.NOUN) - set(scope.CLASSIFIED)
+    assert not stale, f"nouns for tables that carry no tier: {sorted(stale)}"
+    for table, noun in scope.NOUN.items():
+        assert "_" not in noun, f"{table} reads as an identifier, not a word: {noun!r}"
+
+
 def test_every_author_column_exists(client, fresh_db):
     """The filter emits this column name into SQL. A typo here is a 500 on
     every scoped read of that table."""

@@ -114,9 +114,10 @@ export function CrewsCard({
     <Section title="Crews">
       <p id={introId} className="mb-3 text-sm text-ink-3">
         A crew is a durable group of people. Crew membership decides who reads
-        work that is set to that crew. Whoever makes a crew becomes its steward,
-        and a steward adds and removes members. Requires a working API key (step
-        2), and stewardship of the crew or administrator access.
+        the work that is visible to that crew. Whoever makes a crew becomes its
+        steward, and a steward adds and removes members. To edit a crew you
+        need a working API key (step 2), and stewardship of the crew or
+        administrator access.
       </p>
 
       {strong && (
@@ -222,6 +223,14 @@ export function CrewsCard({
                     {canEdit(crew) &&
                       (removing === `${crew.id}:${m.person}` ? (
                         <>
+                          {/* the consequence is VISIBLE, not only in the
+                              accessible name: this is a data-loss warning, and
+                              the file's own docstring says the copy has to say
+                              it. On the aria-label alone a sighted person
+                              confirmed with the word "remove" and no more. */}
+                          <span className="text-[10px] text-ink-3">
+                            loses access to crew work they did not write
+                          </span>
                           <button
                             autoFocus
                             aria-label={`Confirm: remove ${m.person} from ${crew.name}. They lose access to crew work they did not write.`}

@@ -2,14 +2,16 @@
 
 The read half of the three tiers in docs/VISIBILITY.md, and the write
 half's one check. `visible_filter` is what every scoped read splices in, so
-the predicate lives here rather than in each of the ~57 read functions that
-need it.
+the predicate lives here rather than in each read function that needs it.
 
-There is no chokepoint in this codebase to hang a filter on: 382 hand-written
-SELECT statements across 50 service files, and `db.py` is a transport that
-never inspects SQL. So the design is a fragment plus an inventory that CI
-checks, modeled on `activity.visible_actor_filter` — which is the only
-precedent, and which reached three callers on discipline alone.
+There is no chokepoint in this codebase to hang a filter on: every read is a
+hand-written SELECT in a service, and `db.py` is a transport that never
+inspects SQL. So the design is a fragment plus an inventory that CI checks,
+modeled on `activity.visible_actor_filter` — which is the only precedent, and
+which reached three callers on discipline alone.
+
+Counts are deliberately absent from this file. Four of them were wrong within
+one branch of being written, and a stale number reads as a measurement.
 
 **What makes `private` private is not this filter.** The filter only ever
 matches a private row for its own author. What keeps it private is the set of
@@ -149,7 +151,7 @@ WORKSPACE_ONLY = f"visibility = '{WORKSPACE}'"
 
 
 def resolve_write(visibility: str, crew_id: int, *, actor: str) -> tuple[str, int | None]:
-    """The tier a write lands on, checked once so 16 services do not each
+    """The tier a write lands on, checked once so every service does not each
     invent it. Returns the pair to store.
 
     `private` means the author and nobody else. What makes that true is not
@@ -176,7 +178,10 @@ def resolve_write(visibility: str, crew_id: int, *, actor: str) -> tuple[str, in
     if visibility != CREW:
         raise ValueError(f"visibility must be one of {', '.join(TIERS)}")
     if not crew_id:
-        raise ValueError("pick the crew this belongs to")
+        # what happened, then the fix (CLAUDE.md). Fix-only, the caller who
+        # sent visibility=crew with no crew_id gets an instruction and no
+        # diagnosis.
+        raise ValueError("a crew tier needs a crew. Pick the crew this belongs to.")
     crews.assert_writable(crew_id, actor)
     return CREW, crew_id
 
@@ -218,17 +223,19 @@ def assert_readable_by(
         # names no name: the value came from the caller, and an error never
         # echoes a rejected value back (CLAUDE.md)
         raise ValueError(
-            "a private record is readable by nobody else, so it takes no"
-            # "leave the {label} empty", not "unassigned": delegate_task passes
-            # label="sponsor", and a delegation with no sponsor is refused —
-            # the old wording named a remedy that endpoint does not accept
-            f" {label}. Pick a crew, or leave the {label} empty."
+            # The remedy has to be one EVERY caller can take. "leave the
+            # {label} empty" is not: delegate_task refuses an empty sponsor
+            # two checks earlier, and add_absence requires the person. Both
+            # remedies below are always available, and both name the picker's
+            # own labels rather than the tier names (docs/LEXICON.md).
+            f'"only you" means one reader, so this takes no {label}.'
+            f" Pick a crew, or make it visible to everyone on the roster."
         )
     if tier != CREW or not person:
         return
     if crew_id not in crews.crews_of(person):
         raise ValueError(
-            f"that {label} is not in the crew and cannot read this record."
+            f"that {label} is not in the crew, so they cannot read this."
             f" Add them to the crew, or pick a different {label}."
         )
 
@@ -345,11 +352,13 @@ def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> Non
 def inherit(row: dict | None) -> tuple[str, int | None]:
     """The tier a CHILD row takes from its parent.
 
-    A child never chooses. services/collab.py::post_standup lifts its blockers
-    text into a new blocker row, delegation.report_progress writes a worklog
-    against a task, intake._disposition turns a request into an engagement —
-    19 crossings in all, and each one is a place where a scoped parent's text
-    lands in a workspace child unless the tier travels with it.
+    Called by delegation.report_progress and delegation.accept_completion,
+    and by nothing else. Every OTHER parent-to-child crossing threads the pair
+    by hand — collab.post_standup into a blocker, intake._disposition into an
+    engagement, engagements._ship_it into a note, _experiment_lesson into a
+    lesson, handoff.generate_handoff into an artifact. So a new crossing is a
+    place to REMEMBER the tier, not a call to make: this helper is not the
+    chokepoint, and looking for one finds nothing to hang a check on.
 
     No membership re-check: the parent already passed one, and re-checking
     would refuse a legitimate write by an agent or a job that is in no crew.
@@ -486,8 +495,10 @@ CLASSIFIED: dict[str, str] = {
 
 # table -> what a reader calls one row of it. Not `table[:-1]`, which renders
 # "memorie" and "intake_request" — an identifier, underscore included, in a
-# sentence a person reads. Parity with CLASSIFIED is pinned in
-# tests/test_scope.py.
+# sentence a person reads. Parity with CLASSIFIED is pinned by
+# tests/test_scope.py::test_every_classified_table_has_a_reader_facing_noun —
+# a CLASSIFIED table with no entry here raises KeyError inside scope.missing,
+# which turns every not-found path for that table into a 500.
 NOUN: dict[str, str] = {
     "absences": "absence",
     "artifacts": "artifact",

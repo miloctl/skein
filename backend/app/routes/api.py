@@ -1079,8 +1079,8 @@ class MilestoneIn(BaseModel):
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
     # the tier the writer picked, checked in the service: crew membership only.
-    # No assignee check here — an owner is not an assignee, and create_milestone
-    # takes no readability check on one names nobody to hand work to.
+    # No assignee check here — a milestone has an owner, not an assignee, and
+    # create_milestone takes no readability check on it.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -1264,7 +1264,7 @@ class EventIn(BaseModel):
     description: str = Field("", max_length=4000)
     attendees: str = Field("", max_length=500)
     # the tier the writer picked, checked in the service: crew membership only.
-    # No assignee check here — `attendees` is free text, not a roster join names nobody to hand work to.
+    # No assignee check here — `attendees` is free text, not a roster join.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -1281,6 +1281,14 @@ class BlockerIn(BaseModel):
     owner: str = Field("", max_length=64)
     impact: str = Field("medium", max_length=10)
     task_id: int = 0
+    # the tier the writer picked, checked in the service: crew membership, and
+    # the owner is checked as a READER (blockers.raise_blocker). Present here
+    # even though the two doors that usually create a blocker inherit instead
+    # — capture.py and collab.post_standup — because raise_blocker accepts the
+    # pair and every other *In model on this router carries it. Omitted, this
+    # is the one create form that silently files at the workspace tier.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/blockers")

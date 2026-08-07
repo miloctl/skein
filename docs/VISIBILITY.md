@@ -2,7 +2,7 @@
 
 > This file holds the design for a three-tier visibility model
 > (`private` / `crew` / `workspace`) and the crew membership it needs.
-> Phases 0 to 6 have shipped; phase 6 covers per-crew context packs only.
+> Phases 0 to 6 have shipped. Phase 6 covers per-crew context packs only.
 > `docs/ROADMAP.md` holds the rest of the backlog.
 
 Three decisions are settled and the rest of this file depends on them:
@@ -172,13 +172,13 @@ inventory:
   refused, and every private standup with blockers text rolled back whole.
 - `assert_editable(table, row, actor)` — every mutation finds its row by a
   caller-supplied id, so `UPDATE notes SET ... WHERE id = ?` matched a private
-  note whoever asked. Any reader may edit; a machine actor may work a CREW row
+  note whoever asked. Any reader can edit. A machine actor can work a CREW row
   (it IS the mechanism — the forge webhook, `approve_change` applying as
   `proposed_by`, the delegation trio) but never a private one.
 - `missing(table, row_id)` — ONE "no such row" sentence for both the absent row
-  and the row the caller may not read. Any wording only the scoped case
+  and the row the caller cannot read. Any wording only the scoped case
   produces answers "does #12 exist", and ids are sequential integers.
-- `detail(tier, ident, body)` — what a scoped write may put in
+- `detail(tier, ident, body)` — what a scoped write can put in
   `activity.detail`. The chain is append-only, so a body written there is
   written for good.
 - `WORKSPACE_ONLY` — what a JOB reads. Spliced as a literal because these are
@@ -274,7 +274,7 @@ crew's view, silently, for 15 seconds.
 | 0 **(shipped)** | Give the 45 open GET endpoints a `CurrentUser`. Claim `thread_id` on `POST /api/chat`. Remove the free `user` parameter from MCP `get_my_day`. Make the nav sign-out clear rendered state. |
 | 1 **(shipped)** | `crews` + `crew_members`, the service, and the Settings card. No visibility yet. |
 | 2 **(shipped)** | `services/scope.py`, the classification inventory, and the parity tests. No behavior change. |
-| 3 **(shipped)** | Columns on all 16 content tables. Fourteen write paths accept a tier; five REST bodies expose one (task, decision, standup, note, capture). Children inherit (blockers from a standup, task_worklog from a task, the ship-it note and experiment lesson from an engagement, an engagement from an accepted intake request). Viewer threaded through the reads. Picker and badge in the UI. The `StrongUser` bar. |
+| 3 **(shipped)** | Columns on all 16 content tables. Every write path accepts a tier, and nine REST bodies expose one (milestone, task, decision, standup, note, event, blocker, capture, engagement). Children inherit (blockers from a standup, task_worklog from a task, the ship-it note and experiment lesson from an engagement, an engagement from an accepted intake request). Viewer threaded through the reads. Picker and badge in the UI. The `StrongUser` bar. |
 | 4 **(shipped)** | The sinks: FTS (search.index_record looks the tier up itself rather than trusting 20 call sites), admin export, and `activity.detail` via scope.detail. `private` became writable here. |
 | 5 **(shipped, before 3c)** | Jobs and egress read `WORKSPACE_ONLY`: digest, readout, handoff, context pack, the findings rules, and the team-wide block of My Day. Moved AHEAD of the picker — a crew task would otherwise have gone straight into the daily digest, which is the same control-that-does-not-hold problem `private` was sequenced around. |
 | 6 **(shipped, packs only)** | Per-crew context packs: `005_crew_context_packs.sql`, `build_pack(crew_id)` appending a crew section to the shared body, per-crew version counters, `GET /api/context-pack?crew=`. Per-crew digests and insights are deliberately NOT built. A digest is one morning page for one team — N of them is a different product decision, not a parameter, and the crew pack already answers "what is my crew working on" on demand. A findings row is the most dangerous sink in the app: it quotes another table's text into a row with no identity column and a UNIQUE (rule_id, subject, week) key, and it is never pruned. Per crew, that needs the tier ON the finding, not a second run. Build either when somebody asks for it, not before. |

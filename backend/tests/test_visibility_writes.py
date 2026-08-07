@@ -1,9 +1,10 @@
 """The write half of the tier: who may set one, and what a child inherits.
 
-Phase 3 gives four surfaces a picker — tasks, notes, decisions, standups —
-plus the blocker a standup forks and the worklog a task carries. Every other
-table has the columns and defaults to workspace, so the filter is uniform
-without 16 pickers landing at once (docs/VISIBILITY.md).
+Every REST create body accepts a tier; two UI surfaces offer a picker (quick
+capture and the standup card), and the rest inherit — the blocker a standup
+forks, the worklog a task carries. Every table has the columns and defaults to
+workspace, so the FILTER is uniform even where the picker is not
+(docs/VISIBILITY.md).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -178,7 +179,7 @@ def test_a_private_row_cannot_be_handed_to_anyone(fresh_db):
     work that does not exist for them."""
     users.ensure_user("ava")
     users.ensure_user("bo")
-    with pytest.raises(ValueError, match="readable by nobody else"):
+    with pytest.raises(ValueError, match="means one reader"):
         work.create_task(title="x", assignee="bo", actor="ava", visibility="private")
 
 
@@ -190,7 +191,7 @@ def test_an_unknown_tier_is_refused(fresh_db):
 
 def test_a_crew_tier_without_a_crew_is_refused(fresh_db):
     users.ensure_user("ava")
-    with pytest.raises(ValueError, match="pick the crew"):
+    with pytest.raises(ValueError, match="Pick the crew"):
         work.create_task(title="x", actor="ava", visibility="crew")
 
 
@@ -461,9 +462,20 @@ def _seed_every_scoped_kind(cid):
     schedule.schedule_event(
         f"{secret} event", soon + "T10:00", actor="ava", visibility="crew", crew_id=cid
     )
-    engagements.create_engagement(
+    scoped_eng = engagements.create_engagement(
         f"{secret} engagement", actor="ava", visibility="crew", crew_id=cid
     )
+    # ALLOCATED, or capacity and allocation_conflicts read as empty and every
+    # assertion below passes whatever their tier lock does. The engagement NAME
+    # travels through GROUP_CONCAT on four REST surfaces, the exec readout file
+    # and the team_capacity tool, and this seed not allocating is the reason
+    # that shipped.
+    # OVER 100 in total, because allocation_conflicts only reports a person
+    # above that line — at 60% the surface is empty and the assertion passes
+    # whatever the tier lock does. This is the shape that hid the leak.
+    open_eng = engagements.create_engagement("open work", actor="ava")
+    engagements.allocate("ava", scoped_eng["id"], 80, actor="ava")
+    engagements.allocate("ava", open_eng["id"], 80, actor="ava")
     work.create_milestone(
         f"{secret} milestone",
         project=f"{secret} engagement",

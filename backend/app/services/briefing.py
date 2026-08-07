@@ -269,7 +269,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             # a team with thousands of stale overdue rows served every one of
             # them as SELECT * on every dashboard load, for every user.
             # ORDER BY due_date puts the most overdue first, so the cap drops
-            # the least urgent. See migration 044 for the index this reads.
+            # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": db.query(
                 f"SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
                 f" AND due_date <= ? AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
