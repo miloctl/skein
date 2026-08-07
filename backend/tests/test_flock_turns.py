@@ -67,7 +67,13 @@ def test_the_turn_logs_one_assistant_message(client):
     _read_chat(client, "/flock engineering what breaks first", thread="one")
     rows = client.get("/api/chats/one/messages").json()
     assert [r["role"] for r in rows] == ["user", "assistant"]
-    assert rows[1]["content"].count("**") >= 6  # three member mastheads
+    # mastheads are h3, not bold: one bubble holds every member, so the seam
+    # has to be a heading that .prose-chat can size (frontend/app/globals.css)
+    content = rows[1]["content"]
+    assert content.count("\n### ") == 3
+    # a rule BETWEEN members, so one fewer than the members themselves
+    assert content.count("\n---\n\n### ") == 2
+    assert not content.lstrip().startswith("---")
 
 
 def test_a_trace_row_lands_with_every_member(client, fresh_db):

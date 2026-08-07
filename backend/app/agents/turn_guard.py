@@ -6,11 +6,12 @@ covering: a turn that ends with NOTHING written, on a message that plainly
 asked for a write, says nothing at all — and silence reads as success. The
 guard makes the absence of a write as visible as a write.
 
-Keyless and model-free: prefix matching only. Content heuristics
+Keyless and model-free. `unfiled` matches prefixes only: content heuristics
 (capture.PATTERNS) are deliberately NOT reused here — one of them classifies
 any message ending in "?" as a question, which would fire the guard on ordinary
 conversation. A typed prefix is an unambiguous request to file; nothing else
-qualifies.
+qualifies. `unnotified` reads the roster, which is a deterministic lookup, not
+a heuristic.
 """
 
 from .. import config
@@ -31,6 +32,45 @@ def reprompt_enabled() -> bool:
     """Off by default, and never on the mock provider — a re-prompt there costs
     a round trip and buys nothing, because the mock reply is deterministic."""
     return config.TURN_GUARD and config.EFFECTIVE_PROVIDER != "mock"
+
+
+def unnotified(message: str, wrote: bool, actor: str = "", invoked: str = "") -> dict | None:
+    """The receipt for an @mention that reached nobody.
+
+    A mention notifies through the row it is written on (services/mentions.py):
+    the notification names an entity and an id, and the named person opens it.
+    A chat turn that files nothing has no such row, so the mention reaches no
+    one.
+
+    NOT the same trigger as `unfiled` below, which needs a typed capture
+    prefix. A handle is its own intent signal — nobody types a teammate's name
+    by accident — so this fires on prose, and states what happened rather than
+    demanding a write the author may not want.
+
+    `invoked` catches a REPEATED mention of the persona answering
+    (`/as scout ... @scout ...`). A leading `@slug` WITH a message never
+    reaches here — the route rewrites it into the /as form and `message` keeps
+    only the remainder. A bare `@slug` does, and is reported like any name.
+    """
+    if wrote:
+        return None
+    from ..services import mentions
+
+    people, agents = mentions.names_in(message, actor=actor)
+    named = [n for n in [*people, *agents] if n.lower() != invoked.lower()]
+    if not named:
+        return None
+    # capped: a pasted standup with twenty handles wrote a receipt longer than
+    # the answer, into the SSE frame and the saved transcript both
+    shown = ", ".join(named[:3])
+    rest = len(named) - 3
+    return {
+        "kind": "unnotified",
+        "entity": f"{shown} and {rest} more" if rest > 0 else shown,
+        "detail": "Nothing was filed, so there is nothing to open."
+        " To reach them, start the message with a capture prefix such as `todo:`.",
+        "ref": 0,
+    }
 
 
 def unfiled(message: str, wrote: bool) -> dict | None:

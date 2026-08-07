@@ -20,6 +20,58 @@ from . import crews, scope
 _MENTION = re.compile(r"(?<![a-z0-9])@([a-z0-9][a-z0-9._-]*)", re.ASCII | re.IGNORECASE)
 
 
+def _roster() -> dict[str, tuple[str, str]]:
+    """@token (lowercased) -> (roster name, kind). Personas share this table
+    with people: /as and /flock mint `kind='agent'` rows on demand
+    (services/users.py::ensure_user), which also refuses a human name that
+    collides with a bench slug — so one token never means two identities."""
+    return {
+        u["name"].lower(): (u["name"], u["kind"])
+        for u in db.query("SELECT name, kind FROM users WHERE active = 1 AND name != 'anonymous'")
+    }
+
+
+# fenced and inline code, dropped before any token is read. Chat is where
+# people paste shell and YAML, and `curl -H "X-User: @mira"` is not a mention
+# — it notified mira, and the chat guard then told the author it had not.
+_CODE = re.compile(r"```.*?```|`[^`]*`", re.S)
+
+
+def _tokens(text: str) -> list[str]:
+    text = _CODE.sub(" ", text)
+    return list(dict.fromkeys(m.group(1).lower() for m in _MENTION.finditer(text)))
+
+
+def _match(roster: dict[str, tuple[str, str]], token: str) -> tuple[str, str] | None:
+    # "thanks @mira." binds the sentence-final punctuation into the token
+    # (._- are legal name characters) — retry stripped, or the most common
+    # mention position never matches
+    return roster.get(token) or roster.get(token.rstrip("._-"))
+
+
+def names_in(text: str, actor: str = "") -> tuple[list[str], list[str]]:
+    """(people, agents) named by an @token, in roster casing.
+
+    Shares _tokens and _match with scan() on purpose: a surface that reports
+    what a mention WILL do must not use a second parser, or it names people
+    scan never matches and stays silent about ones it does. `actor` is dropped
+    for the same reason scan drops it — a self-mention is not directed
+    attention, and reporting one tells the author to file something that would
+    notify nobody.
+    """
+    if not text or "@" not in text:
+        return [], []
+    skip = actor.strip().lower()
+    roster = _roster()
+    people: list[str] = []
+    agents: list[str] = []
+    for token in _tokens(text):
+        hit = _match(roster, token)
+        if hit and hit[0].lower() != skip:
+            (agents if hit[1] == "agent" else people).append(hit[0])
+    return people, agents
+
+
 def _reaches(tier: tuple[str, int | None] | None, person: str) -> bool:
     """Can `person` open the row this mention points at.
 
@@ -59,10 +111,7 @@ def scan(
     self-mention is not directed attention."""
     if not text or "@" not in text:
         return []
-    roster = {
-        u["name"].lower(): u["name"]
-        for u in db.query("SELECT name FROM users WHERE active = 1 AND name != 'anonymous'")
-    }
+    roster = _roster()
     skip = {actor.lower(), *(e.lower() for e in exclude if e)}
     from .notifications import notify
     from .search import _tier_of
@@ -71,12 +120,16 @@ def scan(
     parent_tier = _tier_of(entity, entity_id)
 
     notified = []
-    for token in dict.fromkeys(m.group(1).lower() for m in _MENTION.finditer(text)):
-        # "thanks @mira." binds the sentence-final punctuation into the
-        # token (._- are legal name characters) — retry stripped, or the
-        # most common mention position never notifies
-        name = roster.get(token) or roster.get(token.rstrip("._-"))
-        if not name or name.lower() in skip:
+    for token in _tokens(text):
+        hit = _match(roster, token)
+        # agents are mentionable on purpose, NOT an oversight: an agent
+        # identity reads its notifications through tools/portfolio.py::
+        # my_agent_inbox, so `@scout take this one` on a task reaches scout
+        # the way it reaches a person (pinned by test_mentions.py).
+        if not hit:
+            continue
+        name = hit[0]
+        if name.lower() in skip:
             continue
         if not _reaches(parent_tier, name):
             continue
