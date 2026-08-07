@@ -13,7 +13,7 @@ from difflib import get_close_matches
 from starlette.concurrency import run_in_threadpool
 
 from .. import config
-from ..services import briefing, flocks, memory, personas, playbooks, search
+from ..services import briefing, flocks, memory, personas, playbooks, scope, search
 
 # Handlers below call services through run_in_threadpool, never inline: these
 # async generators run on the event loop the chat route shares with every open
@@ -29,13 +29,13 @@ def _tool_event(name: str) -> Event:
     return {"current_tool_use": {"toolUseId": f"cmd-{name}", "name": name}}
 
 
-async def _help(args: str, user: str) -> AsyncIterator[Event]:
+async def _help(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     yield {"data": help_text()}
 
 
-async def _briefing(args: str, user: str) -> AsyncIterator[Event]:
+async def _briefing(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     yield _tool_event("my_day")
-    b = await run_in_threadpool(briefing.my_day, user)
+    b = await run_in_threadpool(briefing.my_day, user, viewer)
     n = b["needs_you"]
     lines = [f"**My Day — {b['user']}, {b['date']}**", ""]
     lines.append(f"- Open questions for you: {len(n['open_questions'])}")
@@ -52,12 +52,12 @@ async def _briefing(args: str, user: str) -> AsyncIterator[Event]:
     yield {"data": "\n".join(lines)}
 
 
-async def _search(args: str, user: str) -> AsyncIterator[Event]:
+async def _search(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/search <query>`"}
         return
     yield _tool_event("search_workspace")
-    hits = await run_in_threadpool(search.search, args)
+    hits = await run_in_threadpool(search.search, args, viewer=viewer)
     if not hits:
         yield {"data": f"No matches for “{args}”."}
     else:
@@ -75,7 +75,7 @@ async def _search(args: str, user: str) -> AsyncIterator[Event]:
         yield {"data": f"Found {len(hits)} {word} for “{args}”:\n\n{body}"}
 
 
-async def _plan(args: str, user: str) -> AsyncIterator[Event]:
+async def _plan(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     parts = args.split(maxsplit=1)
     if len(parts) < 2:
         yield {"data": "Usage: `/plan <playbook-slug> <engagement name>`"}
@@ -99,7 +99,7 @@ async def _plan(args: str, user: str) -> AsyncIterator[Event]:
         yield {"data": f"⚠️ {exc}"}
 
 
-async def _playbooks(args: str, user: str) -> AsyncIterator[Event]:
+async def _playbooks(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     yield _tool_event("list_playbooks")
     rows = await run_in_threadpool(playbooks.list_playbooks)
     body = (
@@ -109,7 +109,7 @@ async def _playbooks(args: str, user: str) -> AsyncIterator[Event]:
     yield {"data": f"Available playbooks:\n\n{body}"}
 
 
-async def _personas(args: str, user: str) -> AsyncIterator[Event]:
+async def _personas(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     yield _tool_event("list_personas")
     rows = await run_in_threadpool(personas.list_personas)
     body = (
@@ -125,7 +125,7 @@ async def _personas(args: str, user: str) -> AsyncIterator[Event]:
     }
 
 
-async def _flocks(args: str, user: str) -> AsyncIterator[Event]:
+async def _flocks(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     yield _tool_event("list_flocks")
     rows = await run_in_threadpool(flocks.list_flocks)
     lines = []
@@ -139,7 +139,7 @@ async def _flocks(args: str, user: str) -> AsyncIterator[Event]:
     }
 
 
-async def _remember(args: str, user: str) -> AsyncIterator[Event]:
+async def _remember(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/remember <fact>`"}
         return
@@ -278,10 +278,18 @@ async def _unknown(name: str) -> AsyncIterator[Event]:
     yield {"data": f"`/{name}` is not a command.{hint} Type `/help` to see them all."}
 
 
-def dispatch(text: str, user: str) -> AsyncIterator[Event] | None:
+def dispatch(
+    text: str, user: str, viewer: "scope.Viewer | None" = None
+) -> AsyncIterator[Event] | None:
     """Event stream for slash-command text; None means 'not a command —
     give it to the agent'. Command-shaped tokens that match nothing get a
-    did-you-mean reply instead of a silent (and costly) trip to the model."""
+    did-you-mean reply instead of a silent (and costly) trip to the model.
+
+    Every handler takes the viewer, including the six that ignore it. A
+    handler that reads scoped work has to be handed one, and giving only the
+    two that need it today a different signature makes the next /command an
+    unfiltered read by default.
+    """
     stripped = text.strip()
     if not stripped.startswith("/"):
         return None
@@ -294,5 +302,5 @@ def dispatch(text: str, user: str) -> AsyncIterator[Event] | None:
         if c["name"] == name:
             if c["handler"] is None:
                 return None  # route-level command (e.g. /as needs the agent)
-            return c["handler"](rest, user)
+            return c["handler"](rest, user, viewer or scope.NOBODY)
     return _unknown(name)

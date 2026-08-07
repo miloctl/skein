@@ -7,6 +7,7 @@ from datetime import UTC
 
 from .. import db
 from ..agents.identity import refuse_in_flock
+from . import scope
 from .users import ensure_user
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
@@ -36,7 +37,28 @@ def delegate_task(
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
+    scope.assert_editable("tasks", task, actor, verb="delegate")
+    # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
+    # ONLY BARRIER: claim_task, report_progress, accept_completion and
+    # submit_completion below each gate on `delegated_agent` alone and never
+    # call scope.assert_editable, so once a private task carries a delegate
+    # nothing downstream refuses it. It would also put the title in
+    # agent_inbox.
+    if task["visibility"] == scope.PRIVATE:
+        raise ValueError(
+            "a private task has one reader, so it cannot be delegated."
+            " Pick a crew, or make this task visible to everyone on the roster."
+        )
+    # the notify below quotes the task title to whatever name the caller
+    # passed, and the sponsor then reviews the agent's work on the task
+    scope.assert_readable_by(
+        task["visibility"],
+        task["crew_id"],
+        sponsor,
+        label="sponsor",
+        author=task["created_by"],
+    )
     ensure_user(agent, kind="agent")
     db.execute(
         "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
@@ -62,6 +84,27 @@ def _check_not_forbidden(actor: str) -> None:
         raise ValueError(f"'{actor}' is forbidden on tasks — ask a human to lift it")
 
 
+def _assert_readable_or_missing(task: dict, actor: str, task_id: int) -> None:
+    """A task that exists but is not this actor's answers like one that does
+    not exist, UNLESS the actor could read it anyway.
+
+    The informative refusals below ("not delegated to you", "written by its
+    delegate or sponsor only") are worth keeping — they tell a legitimate
+    caller what went wrong. They are also a 400 where an absent id gives a
+    404, so on a row the caller cannot read the pair reports existence, and
+    ids are sequential (services/scope.py::Viewer.for_actor names the attack).
+    Readable, the message discloses nothing the caller could not already
+    fetch. Unreadable, it is the only thing that says the row is there.
+    """
+    if not scope.can_read(
+        task["visibility"],
+        task["crew_id"],
+        scope.Viewer.for_actor(actor),
+        task.get("created_by", ""),
+    ):
+        raise scope.missing("tasks", task_id)
+
+
 def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     """The agent picks up its delegated task: todo -> in_progress. Direct
     (not review-gated) — status motion on the agent's own delegation is
@@ -70,8 +113,9 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if task["delegated_agent"] != actor:
+        _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] not in ("todo", "blocked"):
         raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
@@ -79,7 +123,9 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
         "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
         (db.now(), task_id),
     )
-    db.log_activity(actor, "claim_task", f"#{task_id} {task['title']}")
+    db.log_activity(
+        actor, "claim_task", scope.detail(task["visibility"], f"#{task_id}", task["title"])
+    )
     if task["sponsor"]:
         from .notifications import notify
 
@@ -104,30 +150,50 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
         raise ValueError("keep progress notes under 2000 characters")
     refuse_in_flock("write to a worklog")
     _check_not_forbidden(actor)
+    # visibility and crew_id ride along on a SELECT that already runs: a
+    # worklog note is the task's text, and a workspace child under a scoped
+    # task publishes what the task was scoped to hide
     task = db.query_one(
-        "SELECT delegated_agent, sponsor, status, title FROM tasks WHERE id = ?", (task_id,)
+        "SELECT delegated_agent, sponsor, status, title, visibility, crew_id, created_by"
+        " FROM tasks WHERE id = ?",
+        (task_id,),
     )
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if actor not in (task["delegated_agent"], task["sponsor"]):
+        _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id}'s worklog is written by its delegate or sponsor only")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is done — its worklog is history now")
+    tier, cid = scope.inherit(task)
     wid = db.execute(
-        "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (task_id, actor, note, origin, db.now()),
+        "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (task_id, actor, note, origin, db.now(), tier, cid),
     )
-    db.log_activity(actor, "report_progress", f"task #{task_id}: {note[:80]}")
+    db.log_activity(actor, "report_progress", scope.detail(tier, f"task #{task_id}", note[:80]))
     return {"id": wid, "task_id": task_id}
 
 
-def list_worklog(task_id: int, limit: int = 50) -> list[dict]:
-    if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
-        raise db.NotFound(f"task #{task_id} not found")
+def list_worklog(task_id: int, limit: int = 50, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    # the existence check takes the same filter as the worklog below, so an
+    # unreadable task answers exactly like an absent one. Unfiltered, a
+    # private task returned 200 [] and an absent id returned 404 — which reads
+    # off which ids exist, for sequential integers (scope.Viewer.for_actor).
+    tfrag, tp = scope.visible_filter(viewer, "tasks")
+    if not db.query_one(
+        f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (task_id, *tp),
+    ):
+        raise scope.missing("tasks", task_id)
+    # the worklog is the task's own text, and its parent may be invisible to
+    # this reader — the child has to be filtered on its own tier, not the
+    # task's existence check above
+    frag, vp = scope.visible_filter(viewer, "task_worklog")
     return db.query(
-        "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
-        (task_id, limit),
+        f"SELECT * FROM task_worklog WHERE task_id = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " ORDER BY id DESC LIMIT ?",
+        (task_id, *vp, limit),
     )
 
 
@@ -138,7 +204,7 @@ def accept_completion(
     approval IS the acceptance — mark done, close the loop."""
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
     # a reassignment between submit and verdict voids the proposal — the
@@ -154,18 +220,25 @@ def accept_completion(
         (db.now(), db.now(), task_id),
     )
     if summary:
+        tier, cid = scope.inherit(task)
         db.execute(
-            "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
+            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 task_id,
                 actor or "agent",
                 f"[accepted] {summary}",
                 origin or "agent_verified",
                 db.now(),
+                tier,
+                cid,
             ),
         )
-    db.log_activity(actor or "agent", "complete_task", f"#{task_id} {task['title']}")
+    db.log_activity(
+        actor or "agent",
+        "complete_task",
+        scope.detail(task["visibility"], f"#{task_id}", task["title"]),
+    )
     return {"id": task_id, "status": "done"}
 
 
@@ -183,8 +256,9 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if task["delegated_agent"] != actor:
+        _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
@@ -204,7 +278,16 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         "task_completion",
         "update",
         {"summary": summary.strip()},
-        summary=f"accept task #{task_id} '{task['title']}': {summary.strip()[:80]}",
+        # scope.detail, not an f-string: this summary is served by
+        # GET /api/review, by my_day's pending_reviews, and by rituals'
+        # week-close artifact on disk — so a crew task's title reached the
+        # roster three ways. This call passes notify_team=False, so the team
+        # notification is NOT one of them.
+        summary=scope.detail(
+            task["visibility"],
+            f"accept task #{task_id}",
+            f"'{task['title']}': {summary.strip()[:80]}",
+        ),
         entity_id=task_id,
         actor=actor,
         origin="agent",
@@ -457,35 +540,64 @@ def mission_control() -> list[dict]:
     return out
 
 
-def agent_inbox(agent: str) -> dict:
+def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
-    Deterministic — the same view a human gets from my_day, agent-shaped."""
+    Deterministic — the same view a human gets from my_day, agent-shaped.
+
+    `viewer=None` means the agent is reading its OWN inbox — the tool door
+    passes agent_identity(), the MCP door passes its ACTOR — and the rows stay
+    unfiltered: a crew task delegated to an agent is work that agent has to
+    see, and crews.add_member refuses an agent identity — so a Viewer built
+    from an agent's own name carries no crews and would strip exactly those
+    rows (the workspace ones would still come back, which is what makes the
+    loss easy to miss).
+
+    GET /api/agents/{agent}/inbox is the other door. It takes the agent name
+    off the URL and answers any CurrentUser, so it passes the CALLER's viewer
+    — without one, a human read every crew task title delegated to any agent
+    by walking the roster of agent names.
+    """
     if not db.query_one("SELECT id FROM users WHERE name = ?", (agent,)):
         raise db.NotFound(
             f"no such agent '{agent}'. Check the name: a typo reads as an empty inbox."
         )
+    tfrag, tp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "tasks")
+    qfrag, qp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "questions")
     tasks = db.query(
-        "SELECT id, title, status, priority, sponsor FROM tasks"
-        " WHERE delegated_agent = ? AND status != 'done'"
+        "SELECT id, title, status, priority, sponsor FROM tasks"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE delegated_agent = ? AND status != 'done' AND {tfrag}"
         " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, id",
-        (agent,),
+        (agent, *tp),
     )
     questions = db.query(
-        "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"
-        " AND status = 'open' ORDER BY id",
-        (agent,),
+        "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" AND status = 'open' AND {qfrag} ORDER BY id",
+        (agent, *qp),
     )
+    # through _readable on the REST door for the same reason the two queries
+    # above take a filter: `summary` and `review_note` quote the target row's
+    # own text, and GET /api/agents/{agent}/inbox answers any CurrentUser with
+    # the agent name off the URL. The agent's own doors (viewer is None) keep
+    # everything — a rejection it cannot read is a correction it cannot act on.
+    from .review import _readable
+
     rejected = db.query(
-        "SELECT id, entity, summary, review_note, reviewed_by FROM pending_changes"
+        "SELECT id, entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
         " WHERE proposed_by = ? AND status = 'rejected' ORDER BY id DESC LIMIT 10",
         (agent,),
     )
+    if viewer is not None:
+        rejected = _readable(rejected, viewer)
+    # `notifications` carries no tier (scope.UNSCOPED) and its bodies quote
+    # scoped rows, so the REST door gets counts and the agent gets the text.
     notifications = db.query(
         "SELECT id, message, link, created_at FROM notifications"
         " WHERE user = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20",
         (agent,),
     )
+    if viewer is not None:
+        notifications = [{k: v for k, v in n.items() if k != "message"} for n in notifications]
     return {
         "agent": agent,
         "delegated_tasks": tasks,

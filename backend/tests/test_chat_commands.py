@@ -106,7 +106,9 @@ def test_a_late_receipt_in_a_command_survives_the_stream(client, monkeypatch):
         yield {"data": "working…"}
         receipts.record("wrote", "note", "recorded after the last yield", 5)
 
-    monkeypatch.setattr(commands, "dispatch", lambda text, user: late_receipt_command())
+    monkeypatch.setattr(
+        commands, "dispatch", lambda text, user, viewer=None: late_receipt_command()
+    )
     body = client.post("/api/chat", json={"thread_id": "t-late", "message": "/briefing"}).text
     assert '"kind": "wrote"' in body
     assert "recorded after the last yield" in body

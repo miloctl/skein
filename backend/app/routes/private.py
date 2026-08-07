@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from ..services import private_notes
-from .deps import StrongUser
+from .deps import StrongUser, ViewerDep
 
 router = APIRouter(prefix="/api/private")
 
@@ -39,9 +39,9 @@ def get_audit(user: StrongUser):
 
 
 @router.get("/brief/{person}")
-def get_brief(person: str, user: StrongUser, days: int = 14):
+def get_brief(person: str, user: StrongUser, viewer: ViewerDep, days: int = 14):
     private_notes.audit_brief(user, person)
-    brief = private_notes.one_on_one_brief(person, days=days)
+    brief = private_notes.one_on_one_brief(person, days=days, viewer=viewer)
     gap = private_notes.feedback_gap_days(user, person)
     brief["feedback_gap_days"] = gap
     brief["nudge"] = (

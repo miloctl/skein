@@ -212,10 +212,21 @@ def backup_if_stale() -> dict | None:
 
 
 def export(*, keep: int = 14) -> dict:
+    from .scope import CLASSIFIED, PRIVATE
+
     dump = {}
     for table in TABLES:
         try:
-            dump[table] = db.query(f"SELECT * FROM {table}")  # noqa: S608 — TABLES constant
+            # a private row leaves the box in this file otherwise. The export
+            # is plaintext JSON on disk under DATA_DIR, kept `keep` deep, and
+            # nothing downstream re-checks a column — NOT because _mirror
+            # copies it: _mirror has one caller, backup(), on the .db file.
+            # The cost of this line is that a restore from an export loses
+            # every private row with no signal. Only `private` is dropped;
+            # crew rows export in full, because an export is an operator
+            # artifact and a crew is not a secret from the operator.
+            where = f" WHERE visibility != '{PRIVATE}'" if table in CLASSIFIED else ""
+            dump[table] = db.query(f"SELECT * FROM {table}{where}")  # noqa: S608 — TABLES constant, and `where` interpolates only scope.PRIVATE
         except Exception:
             # LOGGED, not swallowed. One table left empty is indistinguishable
             # from one table that is empty, and the completeness test only

@@ -17,6 +17,7 @@ import re
 import shutil
 
 from .. import config, db
+from . import scope
 
 _THREAD_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TITLE_LEN = 60
@@ -241,8 +242,16 @@ def update_thread(
                 (db.now(), thread_id),
             )
         else:
-            if not db.query_one("SELECT 1 FROM engagements WHERE id = ?", (engagement_id,)):
-                raise db.NotFound(f"engagement #{engagement_id} not found")
+            # filtered on the thread's OWNER, like every other link probe:
+            # unfiltered it accepted a scoped id and refused an absent one,
+            # and it attributed this thread's token spend to an engagement the
+            # owner cannot read (services/scope.py::Viewer.for_actor).
+            efrag, ep = scope.visible_filter(scope.Viewer.for_actor(owner), "engagements")
+            if not db.query_one(
+                f"SELECT 1 FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                (engagement_id, *ep),
+            ):
+                raise db.NotFound(scope.missing_text("engagements", engagement_id))
             db.execute(
                 "UPDATE chat_threads SET engagement_id = ?, updated_at = ? WHERE id = ?",
                 (engagement_id, db.now(), thread_id),

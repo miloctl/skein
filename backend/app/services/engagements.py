@@ -2,6 +2,7 @@
 lessons captured at retro time."""
 
 from .. import db
+from . import scope
 from .search import index_record
 
 STATUSES = ("proposed", "active", "closing", "closed")
@@ -23,6 +24,8 @@ def create_engagement(
     *,
     actor: str = "system",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     name = name.strip()
     if not name:
@@ -39,35 +42,43 @@ def create_engagement(
     if db.query_one("SELECT id FROM engagements WHERE name = ? COLLATE NOCASE", (name,)):
         raise ValueError(f"engagement '{name}' already exists")
     ts = db.now()
-    eid = db.execute(
-        "INSERT INTO engagements (name, project_class, summary, lead, started_at,"
-        " kind, timebox_end, kill_criteria, outcome,"
-        " origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            name,
-            project_class,
-            summary,
-            lead,
-            ts,
-            kind,
-            timebox_end or None,
-            kill_criteria,
-            outcome,
-            origin,
-            actor,
-            ts,
-            ts,
-        ),
-    )
-    # adopt milestones created under this name before the engagement existed —
-    # health/handoff/ship-it join on engagement_id, not the display name
-    db.execute(
-        "UPDATE milestones SET engagement_id = ? WHERE project = ? AND engagement_id IS NULL",
-        (eid, name),
-    )
-    db.log_activity(actor, "create_engagement", f"#{eid} {name} [{project_class}]")
-    index_record("engagement", eid, name, f"{summary} {project_class} {lead}")
+    # one transaction: scope.resolve_write's membership check must not be able
+    # to pass and then have the author leave the crew before the INSERT lands
+    with db.transaction():
+        tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        eid = db.execute(
+            "INSERT INTO engagements (name, project_class, summary, lead, started_at,"
+            " kind, timebox_end, kill_criteria, outcome,"
+            " origin, created_by, created_at, updated_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                name,
+                project_class,
+                summary,
+                lead,
+                ts,
+                kind,
+                timebox_end or None,
+                kill_criteria,
+                outcome,
+                origin,
+                actor,
+                ts,
+                ts,
+                tier,
+                crew,
+            ),
+        )
+        # adopt milestones created under this name before the engagement existed —
+        # health/handoff/ship-it join on engagement_id, not the display name
+        db.execute(
+            "UPDATE milestones SET engagement_id = ? WHERE project = ? AND engagement_id IS NULL",
+            (eid, name),
+        )
+        db.log_activity(
+            actor, "create_engagement", scope.detail(tier, f"#{eid}", f"{name} [{project_class}]")
+        )
+        index_record("engagement", eid, name, f"{summary} {project_class} {lead}")
     return {
         "id": eid,
         "name": name,
@@ -96,12 +107,10 @@ def update_engagement(
     if conclusion and conclusion not in CONCLUSIONS:
         raise ValueError(f"conclusion must be one of {CONCLUSIONS}")
     db.validate_date("timebox_end", timebox_end)
-    current = db.query_one(
-        "SELECT name, status, kind, outcome, conclusion FROM engagements WHERE id = ?",
-        (engagement_id,),
-    )
+    current = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
     if not current:
-        raise db.NotFound(f"engagement #{engagement_id} not found")
+        raise scope.missing("engagements", engagement_id)
+    scope.assert_editable("engagements", current, actor, verb="update")
     name = name.strip()
     renaming = bool(name and name != current["name"])
     # NOCASE and id-excluded, matching create: the case-variant fork the
@@ -220,6 +229,10 @@ def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
         project_class=eng["project_class"],
         actor=actor,
         origin=origin,
+        # the lesson text IS the engagement name, conclusion and outcome, and
+        # lessons reach the context pack, the handoff file and the FTS index
+        visibility=eng["visibility"],
+        crew_id=eng["crew_id"] or 0,
     )
 
 
@@ -285,18 +298,37 @@ def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
     # hardcoded "human", an engagement closed by the agent path writes a
     # machine-generated note attributed to a person, in the same transaction
     # where the lesson correctly records agent_verified
-    save_note(topic=f"shipped-{name}", content=recap, author=actor, actor=actor, origin=origin)
-    # the note renders markdown; notifications land on plain-text surfaces
-    notify("team", recap.replace("**", ""), tier="immediate", link="/dashboard")
+    # the note takes the engagement's tier: its topic IS the engagement name
+    # and its body quotes it, so a workspace child republished a crew closure
+    # to the whole roster and put it in the FTS index besides
+    save_note(
+        topic=f"shipped-{name}",
+        content=recap,
+        author=actor,
+        actor=actor,
+        origin=origin,
+        visibility=eng["visibility"],
+        crew_id=eng["crew_id"] or 0,
+    )
+    # the note renders markdown; notifications land on plain-text surfaces.
+    # "team" is every person on the roster, so a scoped closure is not
+    # announced at all — the crew reads it on the note above.
+    if eng["visibility"] == scope.WORKSPACE:
+        notify("team", recap.replace("**", ""), tier="immediate", link="/dashboard")
 
 
-def list_engagements(status: str = "") -> list[dict]:
+def list_engagements(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "engagements")
     if status:
         rows = db.query(
-            "SELECT * FROM engagements WHERE status = ? ORDER BY id DESC LIMIT 200", (status,)
+            f"SELECT * FROM engagements WHERE status = ? AND {frag} ORDER BY id DESC LIMIT 200",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (status, *vp),
         )
     else:
-        rows = db.query("SELECT * FROM engagements ORDER BY status = 'closed', id DESC LIMIT 200")
+        rows = db.query(
+            f"SELECT * FROM engagements WHERE {frag} ORDER BY status = 'closed', id DESC LIMIT 200",  # noqa: S608 — scope.visible_filter emits only bound marks
+            tuple(vp),
+        )
     # One query for every engagement's allocations, not one per engagement:
     # this ran up to 201 queries per GET /api/engagements. Placeholders are
     # generated from the row count, never interpolated from caller input.
@@ -336,8 +368,15 @@ def allocate(
     db.validate_date("ends_on", ends_on, allow_clear=False)
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
-    if not db.query_one("SELECT id FROM engagements WHERE id = ?", (engagement_id,)):
-        raise db.NotFound(f"engagement #{engagement_id} not found")
+    # filtered like every other link probe: unfiltered, it accepts a scoped id
+    # and refuses an absent one, and ids are sequential
+    # (services/scope.py::Viewer.for_actor names the attack)
+    afrag, ap = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
+    if not db.query_one(
+        f"SELECT id FROM engagements WHERE id = ? AND {afrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ap),
+    ):
+        raise scope.missing("engagements", engagement_id)
     aid = db.execute(
         "INSERT INTO allocations (person, engagement_id, percent, starts_on, ends_on,"
         " origin, created_by, created_at)"
@@ -360,8 +399,16 @@ def allocate(
 def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
     """Allocations were append-only — one fat-fingered percent permanently
     skewed capacity, conflicts, and what-if staffing."""
+    # gated on the ENGAGEMENT, like allocate: `allocations` carries no tier of
+    # its own (scope.UNSCOPED), so without this any caller could walk
+    # allocation ids and delete staffing off an engagement they cannot read —
+    # and read its existence off the refusal while doing it.
+    dfrag, dp = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements", "e")
     row = db.query_one(
-        "SELECT person, engagement_id, percent FROM allocations WHERE id = ?", (allocation_id,)
+        "SELECT a.person, a.engagement_id, a.percent FROM allocations a"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" JOIN engagements e ON e.id = a.engagement_id AND {dfrag}"
+        " WHERE a.id = ?",
+        (*dp, allocation_id),
     )
     if not row:
         raise db.NotFound(f"no allocation #{allocation_id}")
@@ -375,38 +422,49 @@ def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
     return {"id": allocation_id, "deleted": True}
 
 
-def list_allocations(engagement_id: int = 0, limit: int = 500) -> list[dict]:
+def list_allocations(
+    engagement_id: int = 0, limit: int = 500, viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
+    """An allocation is a person and a percent, and `allocations` carries no
+    tier of its own (scope.UNSCOPED). The engagement NAME it joins to does —
+    so the rows all stay and the name is masked (scope.visible_name)."""
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     if engagement_id:
         return db.query(
-            "SELECT a.*, e.name AS engagement FROM allocations a"
+            f"SELECT a.*, {name} AS engagement FROM allocations a"  # noqa: S608 — scope.visible_name emits only bound marks
             " JOIN engagements e ON e.id = a.engagement_id WHERE a.engagement_id = ?"
             " ORDER BY a.id DESC LIMIT ?",
-            (engagement_id, limit),
+            (*np, engagement_id, limit),
         )
     return db.query(
-        "SELECT a.*, e.name AS engagement FROM allocations a"
+        f"SELECT a.*, {name} AS engagement FROM allocations a"  # noqa: S608 — scope.visible_name emits only bound marks
         " JOIN engagements e ON e.id = a.engagement_id WHERE e.status != 'closed'"
         " ORDER BY a.id DESC LIMIT ?",
-        (limit,),
+        (*np, limit),
     )
 
 
-def capacity() -> list[dict]:
+def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """Total allocation per person across non-closed engagements; >100 =
     overcommitted. Window-aware like allocation_conflicts: rows whose date
     window excludes today don't count (capacity and conflicts must agree).
     Absence-aware: people away today carry an `away` marker so the math is
-    read with the right eyes (a PTO'd 80% is not 80%)."""
+    read with the right eyes (a PTO'd 80% is not 80%).
+
+    The percent sums over every tier and the NAME is masked per row — see
+    scope.visible_name for why the total must stay honest.
+    """
     today = db.now()[:10]
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     rows = db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent,"
-        " GROUP_CONCAT(e.name || ' (' || a.percent || '%)', ', ') AS detail"
+        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+        f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
         " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
         " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
         " GROUP BY a.person ORDER BY total_percent DESC",
-        (today, today),
+        (*np, today, today),
     )
     from .absences import away_today
 
@@ -424,27 +482,54 @@ def record_lesson(
     *,
     actor: str = "system",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not lesson.strip():
         raise ValueError("the lesson text is required")
+    # filtered like the other link probes: an unfiltered probe accepts a
+    # scoped id and refuses an absent one, and it also let a non-reader attach
+    # a lesson to an engagement they cannot read
+    lfrag, lp = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if engagement_id and not db.query_one(
-        "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+        f"SELECT id FROM engagements WHERE id = ? AND {lfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *lp),
     ):
-        raise ValueError(f"engagement #{engagement_id} not found")
-    lid = db.execute(
-        "INSERT INTO lessons (engagement_id, project_class, lesson, recommendation,"
-        " origin, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (engagement_id or None, project_class, lesson, recommendation, origin, actor, db.now()),
-    )
-    db.log_activity(actor, "record_lesson", f"#{lid} [{project_class}]")
-    index_record("lesson", lid, lesson[:120], f"{lesson} {recommendation}")
+        raise ValueError(scope.missing_text("engagements", engagement_id))
+    with db.transaction():
+        tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        lid = db.execute(
+            "INSERT INTO lessons (engagement_id, project_class, lesson, recommendation,"
+            " origin, created_by, created_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                engagement_id or None,
+                project_class,
+                lesson,
+                recommendation,
+                origin,
+                actor,
+                db.now(),
+                tier,
+                crew,
+            ),
+        )
+        db.log_activity(actor, "record_lesson", f"#{lid} [{project_class}]")
+        index_record("lesson", lid, lesson[:120], f"{lesson} {recommendation}")
     return {"id": lid, "project_class": project_class}
 
 
-def list_lessons(project_class: str = "", limit: int = 100) -> list[dict]:
+def list_lessons(
+    project_class: str = "", limit: int = 100, viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "lessons")
     if project_class:
         return db.query(
-            "SELECT * FROM lessons WHERE project_class = ? ORDER BY id DESC LIMIT ?",
-            (project_class, limit),
+            f"SELECT * FROM lessons WHERE project_class = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY id DESC LIMIT ?",
+            (project_class, *vp, limit),
         )
-    return db.query("SELECT * FROM lessons ORDER BY id DESC LIMIT ?", (limit,))
+    return db.query(
+        f"SELECT * FROM lessons WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (*vp, limit),
+    )

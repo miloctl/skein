@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from .. import db
 from . import wording
+from .scope import WORKSPACE_ONLY
 from .work import WEEK_RE, update_task
 
 MAX_PER_PERSON = 5
@@ -21,9 +22,12 @@ def week_view(week: str = "") -> dict:
     if not WEEK_RE.match(week):
         raise ValueError("week must look like 2026-W31")
     tasks = db.query(
-        "SELECT t.*, m.title AS milestone_title FROM tasks t"
-        " LEFT JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE t.committed_week = ? ORDER BY t.assignee, t.id",
+        "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # the milestone lock rides the ON clause, not the WHERE: in the WHERE it
+        # would drop every task with no milestone and turn the join INNER
+        # (services/scope.py::visible_filter names this placement)
+        f" LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
+        f" WHERE t.{WORKSPACE_ONLY} AND t.committed_week = ? ORDER BY t.assignee, t.id",
         (week,),
     )
     done = sum(1 for t in tasks if t["status"] == "done")
@@ -65,8 +69,11 @@ def draft_plan(week: str = "") -> dict:
             skipped.append({"person": h["name"], "away_days": away_days})
             continue
         rows = db.query(
-            "SELECT id, title, priority, due_date FROM tasks"
-            " WHERE assignee = ? AND status IN ('todo', 'in_progress')"
+            # the workspace tier: the draft is one plan for the whole team,
+            # proposed to a reviewer who is in nobody's crew in particular,
+            # and every item carries its task title
+            "SELECT id, title, priority, due_date FROM tasks"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f" WHERE assignee = ? AND {WORKSPACE_ONLY} AND status IN ('todo', 'in_progress')"
             " AND (committed_week IS NULL OR committed_week != ?)"
             " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
             " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date, id"
@@ -97,7 +104,12 @@ def apply_plan(
         except ValueError:
             skipped.append(int(tid))
     if not committed:
-        raise ValueError("every task in the plan is gone — draft the week again from current tasks")
+        # "could not be committed", not "is gone": scope.missing gives the
+        # absent row and the unreadable row one sentence on purpose, so this
+        # cannot tell them apart — and it must not claim the deletion.
+        raise ValueError(
+            "no task in the plan can be committed. Draft the week again from current tasks."
+        )
     db.log_activity(
         actor,
         "apply_weekly_plan",

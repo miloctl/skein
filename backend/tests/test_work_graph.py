@@ -49,7 +49,7 @@ def test_waiting_on_validation_and_clear(client, fresh_db):
     b = blockers.raise_blocker("vendor key", actor="m")
     with pytest.raises(ValueError, match="waiting_on must look like"):
         work.update_task(t["id"], waiting_on="nonsense", actor="m")
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(ValueError, match="no blocker #999"):
         work.update_task(t["id"], waiting_on="blocker:999", actor="m")
     with pytest.raises(ValueError, match="wait on itself"):
         work.update_task(t["id"], waiting_on=f"task:{t['id']}", actor="m")

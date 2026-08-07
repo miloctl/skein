@@ -50,7 +50,13 @@ def notify(user: str, message: str, tier: str = "digest", link: str = "") -> dic
         (user, tier, message, link, ts if tier == "immediate" else None, ts),
     )
     if tier == "immediate":
-        _post_slack(f"🔔 {user}: {message}")
+        # The SAME rule flush_digest_tier follows, and for the same reason:
+        # this posts into ONE shared channel, `notifications` carries no tier
+        # to test (scope.UNSCOPED says why), and the callers quote scoped row
+        # titles into `message` — blockers.resolve_blocker, delegation and
+        # mentions all do. A count carries nothing, whatever a caller writes.
+        # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
+        _post_slack(f"Skein — 1 notification for {user}. Open Skein to read it.")
     return {"id": nid, "tier": tier}
 
 
@@ -103,16 +109,34 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         "SELECT * FROM notifications WHERE tier = 'digest' AND sent_at IS NULL ORDER BY id"
     )
     if pending:
-        by_user: dict[str, list[str]] = {}
+        # COUNTS, never the messages. Every notify() addresses somebody who
+        # can read the row it quotes, but this posts them all into ONE Slack
+        # channel — so a crew task's title addressed to one member lands in
+        # front of everybody. `notifications` carries no tier to filter on
+        # (services/scope.py::UNSCOPED says why), and adding one would put the
+        # rule at every notify() call site. A count carries nothing, whatever
+        # a future caller writes.
+        #
+        # Nothing is lost: this post is a NUDGE. Every body is already an
+        # in-app notification row, which is where the reader opens it — the
+        # post itself carries no link, only the count and the app's name.
+        #
+        # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
+        by_user: dict[str, int] = {}
         for n in pending:
-            by_user.setdefault(n["user"], []).append(n["message"])
-        lines = [f"*{u}*: " + " · ".join(msgs) for u, msgs in by_user.items()]
-        _post_slack("📬 Skein digest\n" + "\n".join(lines))
+            by_user[n["user"]] = by_user.get(n["user"], 0) + 1
+        # the NOUN stays: "3 for Ana" dropped it along with the bodies, and a
+        # bare integer in a channel next to real work names nothing at all
+        counts = ", ".join(
+            f"{n} notification{'' if n == 1 else 's'} for {u}" for u, n in sorted(by_user.items())
+        )
+        closer = "Open Skein to read it." if len(pending) == 1 else "Open Skein to read them."
+        _post_slack(f"Skein digest — {counts}. {closer}")
         # Stamp exactly the rows we posted — a notification inserted between
         # the SELECT and this UPDATE must stay pending for the next flush.
         ids = [n["id"] for n in pending]
         db.execute_rowcount(
-            f"UPDATE notifications SET sent_at = ? WHERE id IN ({','.join('?' * len(ids))})",  # noqa: S608
+            f"UPDATE notifications SET sent_at = ? WHERE id IN ({','.join('?' * len(ids))})",  # noqa: S608 — keys hardcoded, id is a bound mark
             (db.now(), *ids),
         )
     return {"flushed": len(pending)}

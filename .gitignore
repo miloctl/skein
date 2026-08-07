@@ -1,3 +1,6 @@
 .run/
 __pycache__/
 *.pyc
+
+# agent worktrees (Claude Code tooling scratch, never project state)
+.claude/worktrees/

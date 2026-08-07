@@ -3,23 +3,37 @@
 import re
 
 from .. import db
+from . import scope
 from .search import index_record
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def ask_question(
-    question: str, asked_by: str, assigned_to: str = "", *, actor: str = "", origin: str = "human"
+    question: str,
+    asked_by: str,
+    assigned_to: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not question.strip():
         raise ValueError("the question text is required")
-    qid = db.execute(
-        "INSERT INTO questions (asked_by, assigned_to, question, origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (asked_by, assigned_to, question, origin, actor or asked_by, db.now()),
-    )
-    db.log_activity(actor or asked_by, "ask_question", f"#{qid}")
-    index_record("question", qid, question[:120], question)
+    # one transaction, because scope.resolve_write checks crew membership and
+    # the check has to hold until the row lands — bare, it opens its own
+    # connection and a person removed in between still scopes the row
+    with db.transaction():
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or asked_by)
+        scope.assert_readable_by(tier, cid, assigned_to, label="assignee", author=actor or asked_by)
+        qid = db.execute(
+            "INSERT INTO questions (asked_by, assigned_to, question, origin, created_by,"
+            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (asked_by, assigned_to, question, origin, actor or asked_by, db.now(), tier, cid),
+        )
+        db.log_activity(actor or asked_by, "ask_question", f"#{qid}")
+        index_record("question", qid, question[:120], question)
     if assigned_to:
         from .notifications import notify
 
@@ -40,7 +54,8 @@ def assign_question(
 ) -> dict:
     row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
     if not row:
-        raise db.NotFound(f"question #{question_id} not found")
+        raise scope.missing("questions", question_id)
+    scope.assert_editable("questions", row, actor, verb="assign")
     if row["status"] != "open":
         raise ValueError(f"question #{question_id} is already {row['status']}")
     assigned_to = assigned_to.strip()
@@ -53,6 +68,16 @@ def assign_question(
         if not match:
             raise ValueError("assigned_to is not an active user")
         assigned_to = match
+        # the same check ask_question makes at the create: the notify below
+        # quotes 80 characters of the question, and a reassignment reaches a
+        # name the original write never checked
+        scope.assert_readable_by(
+            row["visibility"],
+            row["crew_id"],
+            assigned_to,
+            label="assignee",
+            author=row["created_by"],
+        )
     db.execute("UPDATE questions SET assigned_to = ? WHERE id = ?", (assigned_to, question_id))
     db.log_activity(
         actor or "system", "assign_question", f"#{question_id} -> {assigned_to} [{origin}]"
@@ -72,9 +97,10 @@ def assign_question(
 def answer_question(
     question_id: int, answer: str, answered_by: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
-    row = db.query_one("SELECT id, answer, status FROM questions WHERE id = ?", (question_id,))
+    row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
     if not row:
-        raise db.NotFound(f"question #{question_id} not found")
+        raise scope.missing("questions", question_id)
+    scope.assert_editable("questions", row, actor or answered_by, verb="answer")
     if row["status"] == "answered" and row["answer"] and row["answer"] != answer:
         raise ValueError(
             f"question #{question_id} already has an answer — read it first,"
@@ -104,12 +130,22 @@ def answer_question(
     return {"id": question_id, "status": "answered"}
 
 
-def list_questions(status: str = "") -> list[dict]:
+def list_questions(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    # NOBODY is the default so a caller that passes nothing reads the
+    # workspace tier, which is what a job, an agent tool or an MCP call must
+    # read anyway (docs/VISIBILITY.md). The REST door passes a real viewer.
+    frag, vp = scope.visible_filter(viewer, "questions")
     if status:
         return db.query(
-            "SELECT * FROM questions WHERE status = ? ORDER BY id DESC LIMIT 200", (status,)
+            f"SELECT * FROM questions WHERE status = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY id DESC LIMIT 200",
+            (status, *vp),
         )
-    return db.query("SELECT * FROM questions ORDER BY status = 'answered', id DESC LIMIT 200")
+    return db.query(
+        f"SELECT * FROM questions WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " ORDER BY status = 'answered', id DESC LIMIT 200",
+        tuple(vp),
+    )
 
 
 DECISION_CATEGORIES = ("", "charter")  # charter: team mission/ownership/norms
@@ -125,6 +161,8 @@ def record_decision(
     *,
     actor: str = "",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not title.strip() or not decision.strip():
         raise ValueError("decision title and text are required")
@@ -149,24 +187,38 @@ def record_decision(
             "charter entries need a review_by date — the whole point is that"
             " they get reconfirmed instead of silently rotting"
         )
-    did = db.execute(
-        "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
-        " origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            title,
-            context,
-            decision,
-            decided_by,
-            review_by or None,
-            category,
-            origin,
-            actor or decided_by,
-            db.now(),
-        ),
-    )
-    db.log_activity(actor or decided_by or "system", "record_decision", f"#{did} {title}")
-    index_record("decision", did, title, f"{decision} {context}")
+    with db.transaction():
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or decided_by)
+        # decided_by is checked as a READER, the same way work.py checks an
+        # assignee and blockers.py checks an owner. sweep_stale_decisions says
+        # it follows the blocker sweep's rule — that rule holds only because
+        # raise_blocker ran this check, and without it here the sweep quoted a
+        # crew decision's title to somebody who cannot open it.
+        scope.assert_readable_by(tier, cid, decided_by, label="decider", author=actor or decided_by)
+        did = db.execute(
+            "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
+            " origin, created_by, created_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                title,
+                context,
+                decision,
+                decided_by,
+                review_by or None,
+                category,
+                origin,
+                actor or decided_by,
+                db.now(),
+                tier,
+                cid,
+            ),
+        )
+        db.log_activity(
+            actor or decided_by or "system",
+            "record_decision",
+            scope.detail(tier, f"#{did}", title),
+        )
+        index_record("decision", did, title, f"{decision} {context}")
     from .mentions import scan
 
     scan(
@@ -202,7 +254,8 @@ def supersede_decision(
     with db.transaction():
         old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
         if not old:
-            raise db.NotFound(f"decision #{decision_id} not found")
+            raise scope.missing("decisions", decision_id)
+        scope.assert_editable("decisions", old, actor or decided_by, verb="supersede")
         # CAS-claim the old decision BEFORE creating the successor — two racing
         # supersedes must not leave two active contradicting decisions
         claimed = db.execute_rowcount(
@@ -230,6 +283,11 @@ def supersede_decision(
             category=old["category"],  # a charter entry's replacement stays charter
             actor=actor,
             origin=origin,
+            # the successor's default context is f"Supersedes #N: {old title}",
+            # so a workspace replacement for a crew decision copies that title
+            # into a row every reader can see, and indexes it
+            visibility=old["visibility"],
+            crew_id=old["crew_id"] or 0,
         )
         db.execute("UPDATE decisions SET superseded_by = ? WHERE id = ?", (new["id"], decision_id))
         db.log_activity(
@@ -258,14 +316,20 @@ def sweep_stale_decisions() -> list[dict]:
         swept.append({**d, "status": "stale"})
         from .notifications import notify
 
-        notify(
-            d["decided_by"] or "team",
-            f"Decision #{d['id']} '{d['title']}' passed its review-by date"
-            f" ({d['review_by']}). Reconfirm it or supersede it.",
-            tier="digest",
-            link="/",
+        # the same rule sweep_escalations follows (services/blockers.py): the
+        # message quotes the title, and the "team" fallback is the whole
+        # roster, so a scoped decision tells its decider or nobody
+        if d["decided_by"] or d["visibility"] == scope.WORKSPACE:
+            notify(
+                d["decided_by"] or "team",
+                f"Decision #{d['id']} '{d['title']}' passed its review-by date"
+                f" ({d['review_by']}). Reconfirm it or supersede it.",
+                tier="digest",
+                link="/",
+            )
+        db.log_activity(
+            "scheduler", "stale_decision", scope.detail(d["visibility"], f"#{d['id']}", d["title"])
         )
-        db.log_activity("scheduler", "stale_decision", f"#{d['id']} {d['title']}")
     return swept
 
 
@@ -276,7 +340,8 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
 
     row = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
     if not row:
-        raise db.NotFound(f"decision #{decision_id} not found")
+        raise scope.missing("decisions", decision_id)
+    scope.assert_editable("decisions", row, actor, verb="reconfirm")
     if row["status"] == "superseded":
         raise ValueError(f"decision #{decision_id} was superseded — reconfirm the successor")
     if review_by:
@@ -298,17 +363,23 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
     return {"id": decision_id, "status": "active", "review_by": review_by}
 
 
-def list_decisions(limit: int = 50, status: str = "", category: str = "") -> list[dict]:
-    where, params = [], []
+def list_decisions(
+    limit: int = 50, status: str = "", category: str = "", viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "decisions")
+    # the scope fragment SEEDS the AND list rather than being appended to a
+    # clause that may be empty: a builder that can emit no WHERE at all drops
+    # the filter silently, and `where` starting non-empty prevents that
+    where, params = [frag], list(vp)
     if status:
         where.append("status = ?")
         params.append(status)
     if category:
         where.append("category = ?")
         params.append(category)
-    clause = f" WHERE {' AND '.join(where)}" if where else ""
     return db.query(
-        f"SELECT * FROM decisions{clause} ORDER BY id DESC LIMIT ?",  # noqa: S608 — clauses hardcoded
+        f"SELECT * FROM decisions WHERE {' AND '.join(where)}"  # noqa: S608 — clauses hardcoded, and scope.visible_filter emits only bound marks
+        " ORDER BY id DESC LIMIT ?",
         (*params, limit),
     )
 
@@ -321,55 +392,90 @@ def post_standup(
     *,
     actor: str = "",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
-    sid = db.execute(
-        "INSERT INTO standups (author, yesterday, today, blockers, origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (author, yesterday, today, blockers, origin, actor or author, db.now()),
-    )
-    index_record("standup", sid, f"{author}'s standup", f"{yesterday} {today} {blockers}")
-    db.log_activity(actor or author, "post_standup", f"#{sid}")
-    if blockers.strip():
-        from .blockers import raise_blocker
-
-        raise_blocker(
-            title=blockers.strip()[:120],
-            detail=f"Auto-extracted from {author}'s standup #{sid}",
-            owner=author,
-            source=f"standup:{sid}",
-            actor=actor or author,
-            origin=origin,
+    with db.transaction():
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or author)
+        sid = db.execute(
+            "INSERT INTO standups (author, yesterday, today, blockers, origin, created_by,"
+            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (author, yesterday, today, blockers, origin, actor or author, db.now(), tier, cid),
         )
+        index_record("standup", sid, f"{author}'s standup", f"{yesterday} {today} {blockers}")
+        db.log_activity(actor or author, "post_standup", f"#{sid}")
+        if blockers.strip():
+            from .blockers import raise_blocker
+
+            # the child takes the standup's tier. Without it a crew standup's
+            # blocker text lands at workspace and goes on to the digest, the
+            # exec readout and the FTS index — the standup is scoped and the
+            # sentence lifted out of it is not.
+            raise_blocker(
+                title=blockers.strip()[:120],
+                detail=f"Auto-extracted from {author}'s standup #{sid}",
+                owner=author,
+                source=f"standup:{sid}",
+                actor=actor or author,
+                origin=origin,
+                visibility=tier,
+                crew_id=cid or 0,
+            )
     return {"id": sid}
 
 
-def list_standups(limit: int = 30) -> list[dict]:
-    return db.query("SELECT * FROM standups ORDER BY id DESC LIMIT ?", (limit,))
+def list_standups(limit: int = 30, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "standups")
+    return db.query(
+        f"SELECT * FROM standups WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (*vp, limit),
+    )
 
 
 def save_note(
-    topic: str, content: str, author: str = "", *, actor: str = "", origin: str = "human"
+    topic: str,
+    content: str,
+    author: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     # every sibling create refuses an empty record; this one used to accept
     # topic="" content="", indexing a blank row for search and burning a
     # hash-chained activity seq on a note with nothing in it
     if not topic.strip() and not content.strip():
         raise ValueError("a note needs a topic or content")
-    nid = db.execute(
-        "INSERT INTO notes (topic, content, author, origin, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (topic, content, author, origin, actor or author or "system", db.now()),
-    )
-    db.log_activity(actor or author or "system", "save_note", topic)
-    index_record("note", nid, topic, content)
+    with db.transaction():
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or author)
+        nid = db.execute(
+            "INSERT INTO notes (topic, content, author, origin, created_by, created_at,"
+            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (topic, content, author, origin, actor or author or "system", db.now(), tier, cid),
+        )
+        db.log_activity(
+            actor or author or "system", "save_note", scope.detail(tier, f"#{nid}", topic)
+        )
+        index_record("note", nid, topic, content)
     from .mentions import scan
 
     scan("note", nid, f"{topic} {content}", actor=actor or author or "system", link="/")
     return {"id": nid, "topic": topic}
 
 
-def get_note(note_id: int) -> dict | None:
-    return db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
+def get_note(note_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
+    # Filtered, defaulting to NOBODY: a note's own text reaches the review
+    # queue two ways — tools/collab.py::delete_note puts the topic and the
+    # first 80 characters into the summary (scope.detail drops that half for a
+    # scoped row), and save_note puts the whole content in the PAYLOAD, which
+    # review.list_changes returns. The reviewer who reads that card is not
+    # necessarily in the note's crew.
+    frag, vp = scope.visible_filter(viewer, "notes")
+    return db.query_one(
+        f"SELECT * FROM notes WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (note_id, *vp),
+    )
 
 
 def update_note(
@@ -380,9 +486,10 @@ def update_note(
     # delete_note removes it and clears its index, and then the index_record
     # below puts the deleted body back — searchable forever.
     with db.transaction():
-        row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+        row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:
-            raise db.NotFound(f"no note #{note_id}")
+            raise scope.missing("notes", note_id)
+        scope.assert_editable("notes", row, actor, verb="update")
         fields = {k: v for k, v in [("topic", topic), ("content", content)] if v}
         if not fields:
             raise ValueError("nothing to update")
@@ -392,11 +499,19 @@ def update_note(
             (*fields.values(), note_id),
         )
         if topic and topic != row["topic"]:
+            # both topics are the note's own text, so a scoped rename logs
+            # the identifier only
             db.log_activity(
-                actor or "system", "update_note", f"#{note_id}: '{row['topic']}' -> '{topic}'"
+                actor or "system",
+                "update_note",
+                scope.detail(row["visibility"], f"#{note_id}", f"'{row['topic']}' -> '{topic}'"),
             )
         else:
-            db.log_activity(actor or "system", "update_note", f"#{note_id} {row['topic']}")
+            db.log_activity(
+                actor or "system",
+                "update_note",
+                scope.detail(row["visibility"], f"#{note_id}", row["topic"]),
+            )
         new = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
         if new:
             index_record("note", note_id, new["topic"], new["content"])
@@ -421,15 +536,22 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
     # through search forever. That path also outlives the 300-char ledger
     # snapshot below, which is deliberately bounded.
     with db.transaction():
-        row = db.query_one("SELECT topic, content FROM notes WHERE id = ?", (note_id,))
+        row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:
-            raise db.NotFound(f"no note #{note_id}")
+            raise scope.missing("notes", note_id)
+        scope.assert_editable("notes", row, actor, verb="delete")
         db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         deindex_record("note", note_id)
-        # bounded content snapshot: a note deleted between backups must be
-        # reviewable (and partially recoverable) from the ledger
+        # bounded content snapshot: a workspace note deleted between backups
+        # must be reviewable (and partially recoverable) from the ledger. A
+        # scoped one gets the identifier only — the chain is append-only, so
+        # the snapshot outlives every tier change and every later delete.
         db.log_activity(
-            actor or "system", "delete_note", f"#{note_id} {row['topic']}: {row['content'][:300]}"
+            actor or "system",
+            "delete_note",
+            scope.detail(
+                row["visibility"], f"#{note_id}", f"{row['topic']}: {row['content'][:300]}"
+            ),
         )
     return {"id": note_id, "deleted": True}
 
@@ -454,11 +576,20 @@ def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
     )
 
 
-def search_notes(keyword: str = "") -> list[dict]:
+def search_notes(keyword: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "notes")
     if keyword:
         like = f"%{keyword}%"
+        # the keyword OR is PARENTHESIZED. Left bare, `a LIKE ? OR b LIKE ? AND
+        # {frag}` binds AND tighter than OR, so every row matching the topic
+        # came back whatever its tier — the exact shape visible_filter's
+        # docstring names as failing silently.
         return db.query(
-            "SELECT * FROM notes WHERE topic LIKE ? OR content LIKE ? ORDER BY id DESC LIMIT 25",
-            (like, like),
+            f"SELECT * FROM notes WHERE (topic LIKE ? OR content LIKE ?)"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f" AND {frag} ORDER BY id DESC LIMIT 25",
+            (like, like, *vp),
         )
-    return db.query("SELECT * FROM notes ORDER BY id DESC LIMIT 25")
+    return db.query(
+        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT 25",  # noqa: S608 — scope.visible_filter emits only bound marks
+        tuple(vp),
+    )

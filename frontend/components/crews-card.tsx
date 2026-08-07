@@ -16,9 +16,10 @@ export type Crew = {
   members: CrewMember[];
 };
 
-/** Crew membership. A crew grants nothing yet — the visibility tier that reads
- *  it is docs/VISIBILITY.md phase 3 — so this card says what it is FOR without
- *  claiming it does anything today.
+/** Crew membership. This is what services/scope.py::visible_filter reads:
+ *  removing someone here takes away their access to every crew-tier row they
+ *  did not write. The copy below has to say so — a card that understates a
+ *  privacy boundary is the one wrong claim nobody can take back.
  *
  *  `me` is the SERVER-resolved identity from /api/whoami, never getUser(): a
  *  personal API key wins over the X-User display name in every auth mode
@@ -112,10 +113,11 @@ export function CrewsCard({
   return (
     <Section title="Crews">
       <p id={introId} className="mb-3 text-sm text-ink-3">
-        A crew is a durable group of people. Today it is a list of names — it
-        changes nothing about what anyone can see. Whoever makes a crew becomes
-        its steward, and a steward adds and removes members. Requires a working
-        API key (step 2), and stewardship of the crew or administrator access.
+        A crew is a durable group of people. Crew membership decides who reads
+        the work that is visible to that crew. Whoever makes a crew becomes its
+        steward, and a steward adds and removes members. To edit a crew you
+        need a working API key (step 2), and stewardship of the crew or
+        administrator access.
       </p>
 
       {strong && (
@@ -221,9 +223,25 @@ export function CrewsCard({
                     {canEdit(crew) &&
                       (removing === `${crew.id}:${m.person}` ? (
                         <>
+                          {/* the consequence is VISIBLE, not only in the
+                              accessible name: this is a data-loss warning, and
+                              the file's own docstring says the copy has to say
+                              it. On the aria-label alone a sighted person
+                              confirmed with the word "remove" and no more.
+                              aria-describedby rather than repeating it in the
+                              label: browse mode reads the pill linearly, so
+                              two wordings of one consequence get announced
+                              twice. */}
+                          <span
+                            id={`rm-${crew.id}-${m.person}`}
+                            className="text-[10px] text-ink-3"
+                          >
+                            loses access to crew work they did not write
+                          </span>
                           <button
                             autoFocus
                             aria-label={`Confirm: remove ${m.person} from ${crew.name}`}
+                            aria-describedby={`rm-${crew.id}-${m.person}`}
                             disabled={!!busy}
                             onClick={async () => {
                               const ok = await act(

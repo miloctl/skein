@@ -9,6 +9,7 @@ from .. import config, db
 from .insights import digest_findings
 from .portfolio import allocation_conflicts, engagement_health, flow_metrics
 from .pulse import season
+from .scope import WORKSPACE_ONLY
 
 
 def _today() -> date:
@@ -22,16 +23,18 @@ def exec_readout(*, actor: str = "system") -> dict:
     flow = flow_metrics()
     s = season()
     shipped = db.query(
-        "SELECT name, closed_at FROM engagements WHERE status = 'closed'"
+        f"SELECT name, closed_at FROM engagements WHERE status = 'closed' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND closed_at >= ? ORDER BY closed_at DESC",
         (s["start"],),
     )
     due_soon = db.query(
-        "SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         ((_today() + timedelta(days=14)).isoformat(),),
     )
-    escalated = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
+    escalated = db.query(
+        f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
 
     dot = {"red": "🔴", "yellow": "🟡", "green": "🟢"}
     lines = [f"# Exec readout — {_today().isoformat()} ({s['label']})", ""]

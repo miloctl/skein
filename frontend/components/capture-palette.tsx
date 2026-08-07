@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { VisibilityPicker } from "@/components/visibility-picker";
 import { actionError, api } from "@/lib/api";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
@@ -56,6 +57,7 @@ export function CapturePalette() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -74,7 +76,8 @@ export function CapturePalette() {
         e.preventDefault();
         if (closeTimer.current) clearTimeout(closeTimer.current);
         setOpen((o) => {
-          if (!o) openerRef.current = document.activeElement as HTMLElement | null;
+          if (!o)
+            openerRef.current = document.activeElement as HTMLElement | null;
           return !o;
         });
         setResult(null);
@@ -111,8 +114,16 @@ export function CapturePalette() {
 
   const trapTab = (e: React.KeyboardEvent) => {
     if (e.key !== "Tab" || !dialogRef.current) return;
+    // `select` and `input` are in this list because the dialog gained a
+    // control that is neither a button nor a textarea. The visibility picker
+    // mounts BELOW the Capture button, so with the old selector the last
+    // focusable was always Capture, Tab from it wrapped to the first chip,
+    // and the one control that decides who can read the capture was
+    // unreachable by keyboard — every keyboard-only capture went to the
+    // workspace tier with no way to see the choice existed.
+    // Anything focusable added here must match, or it is invisible the same way.
     const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), textarea, [tabindex]",
+      "button:not([disabled]), textarea, select, input:not([type=hidden]), a[href], [tabindex]",
     );
     if (focusables.length === 0) return;
     const first = focusables[0];
@@ -132,10 +143,14 @@ export function CapturePalette() {
     try {
       const r = await api<{ kind: string; id: number }>("/api/capture", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, ...tier }),
       });
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
+      // the tier resets with the text. The dialog closes after each capture,
+      // so a tier left behind is a tier nobody can see — the next unrelated
+      // thought was filed to the crew the last one chose.
+      setTier({ visibility: "workspace", crew_id: 0 });
       // long enough for the live region to announce before the dialog goes
       closeTimer.current = setTimeout(() => setOpen(false), 1400);
     } catch (err) {
@@ -143,7 +158,11 @@ export function CapturePalette() {
     } finally {
       setBusy(false);
     }
-  }, [text, busy]);
+    // tier IS a dependency: without it the callback closes over the tier as it
+    // was when the text last changed, so choosing a crew AFTER typing filed the
+    // capture at workspace — and the picker sits below the textarea, which
+    // makes type-then-choose the natural order
+  }, [text, busy, tier]);
 
   const applyChip = (prefix: string) => {
     setText((t) => `${prefix} ${t.replace(KNOWN_PREFIX, "").trimStart()}`);
@@ -212,14 +231,19 @@ export function CapturePalette() {
                   ? kind
                   : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
                 : [
-                    <span key="kbd" className="[@media(any-pointer:coarse)]:hidden">
+                    <span
+                      key="kbd"
+                      className="[@media(any-pointer:coarse)]:hidden"
+                    >
                       Enter to save · Esc to close
                     </span>,
-                    <span key="touch" className="[@media(any-pointer:fine)]:hidden">
+                    <span
+                      key="touch"
+                      className="[@media(any-pointer:fine)]:hidden"
+                    >
                       Capture to save · tap outside to close
                     </span>,
                   ])}
-
           </span>
           <button
             onClick={submit}
@@ -228,6 +252,23 @@ export function CapturePalette() {
           >
             Capture
           </button>
+        </div>
+        <div className="mt-2">
+          {/* An `fb:` capture short-circuits in services/capture.py BEFORE the
+              tier is read, into private.db — a separate database no other code
+              path opens. The tier IS still on the wire — submit sends the
+              whole state — and the server discards it, so a picker reading
+              "Platform only" would state a choice that has no effect. It
+              fails safe (more private, not less), which is exactly why it
+              would never be noticed. */}
+          {previewKind(text) === "private feedback" ? (
+            <p className="text-xs text-ink-3">
+              Visible to <span className="text-ink-2">only you</span> — feedback
+              is kept out of the shared record, so it takes no other choice.
+            </p>
+          ) : (
+            <VisibilityPicker value={tier} onChange={setTier} label="capture" />
+          )}
         </div>
         <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">
           Tap a chip or type a prefix — the line above the button always shows

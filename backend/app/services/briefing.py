@@ -7,6 +7,8 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from .. import db
+from . import scope
+from .scope import WORKSPACE_ONLY
 
 
 # groups, in display order: decide (what needs a call), unblock (what's
@@ -58,7 +60,10 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "link": "/intake",
             }
         )
-    for d in db.query("SELECT id, title FROM decisions WHERE status = 'stale' ORDER BY id LIMIT 5"):
+    for d in db.query(
+        f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id LIMIT 5"
+    ):
         items.append(
             {
                 "kind": "decision",
@@ -70,7 +75,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
             }
         )
     for c in db.query(
-        "SELECT id, promise, due_date, audience FROM promises WHERE status = 'open'"
+        f"SELECT id, promise, due_date, audience FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (week,),
     ):
@@ -191,31 +196,55 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
     )
 
 
-def my_day(user: str) -> dict:
+def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """`viewer`, not just `user`: these three lists are addressed to a person
+    BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
+    name alone, `X-User: ava` with no credential returned Ava's private task
+    and blocker titles, which is the one thing docs/VISIBILITY.md decision 3
+    refuses. The filter also expires access the moment somebody leaves a crew
+    — membership is checked at the write, and this read outlives it.
+    """
+    from .review import _readable
+
     # UTC dates to match db.now() timestamps on the rows
     utc_today = datetime.now(UTC).date()
     today = utc_today.isoformat()
     week = (utc_today + timedelta(days=7)).isoformat()
     yesterday = (utc_today - timedelta(days=1)).isoformat()
 
+    q_f, q_p = scope.visible_filter(viewer, "questions")
+    b_f, b_p = scope.visible_filter(viewer, "blockers")
+    t_f, t_p = scope.visible_filter(viewer, "tasks")
+
     needs_you = {
         "open_questions": db.query(
-            "SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? ORDER BY id",
-            (user,),
+            f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY id",
+            (user, *q_p),
         ),
         # LIMITed: a bulk ingest can legitimately file hundreds of proposals,
-        # and this payload rides the hottest page — the count carries the rest
-        "pending_reviews": db.query(
-            "SELECT id, entity, action, summary, proposed_by, created_at"
-            " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
+        # and this payload rides the hottest page — the count carries the rest.
+        #
+        # Through review._readable, because `summary` is built by the producer
+        # out of the target row's own text. GET /api/review filters this way
+        # and this one did not, so the dashboard served the review queue's
+        # scoped summaries to every caller — the same leak, one reader over.
+        "pending_reviews": _readable(
+            db.query(
+                "SELECT id, entity, entity_id, action, summary, proposed_by, created_at"
+                " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
+            ),
+            viewer,
         ),
         "your_blockers": db.query(
-            "SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? ORDER BY created_at",
-            (user,),
+            f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY created_at",
+            (user, *b_p),
         ),
         "intake_to_triage": db.query(
-            "SELECT id, title, requester, status, score FROM intake_requests"
-            " WHERE status IN ('submitted', 'scored') ORDER BY score DESC LIMIT 10"
+            f"SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f" WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
+            " ORDER BY score DESC LIMIT 10"
         ),
         "notifications": db.query(
             "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
@@ -236,37 +265,49 @@ def my_day(user: str) -> dict:
         "attention": _attention(user, needs_you, today, week),
         "your_work": {
             "tasks": db.query(
-                "SELECT * FROM tasks WHERE assignee = ? AND status IN ('todo', 'in_progress', 'blocked')"
+                "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+                f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
                 " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                 " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
-                (user,),
+                (user, *t_p),
             ),
+            # The tier filter wraps BOTH arms. The unowned arm was already
+            # workspace-locked; the named-assignee arm was not, and it is a
+            # read that outlives the membership check made at the write — a
+            # crew task assigned to somebody stayed on their My Day after they
+            # left the crew, with SELECT * carrying title and description.
+            #
             # assignee IN (?, '') is deliberate: an unowned task that is due is
-            # everyone's business, and tasks are team-visible anyway (GET
-            # /api/tasks names a caller but applies no visibility filter —
-            # docs/VISIBILITY.md phase 3). LIMIT is not: unbounded,
+            # everyone's business. The '' arm reaches every reader, and
+            # assert_readable_by only ever checked a NAMED assignee — so this
+            # arm takes the workspace lock, or an unowned crew task lands on
+            # the whole roster's My Day. LIMIT is not deliberate: unbounded,
             # a team with thousands of stale overdue rows served every one of
             # them as SELECT * on every dashboard load, for every user.
             # ORDER BY due_date puts the most overdue first, so the cap drops
-            # the least urgent. See migration 044 for the index this reads.
+            # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": db.query(
-                "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"
-                " AND due_date <= ? AND assignee IN (?, '') ORDER BY due_date LIMIT 50",
-                (week, user),
+                "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
+                f" AND due_date <= ? AND {t_f}"
+                f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
+                " ORDER BY due_date LIMIT 50",
+                (week, *t_p, user),
             ),
             "standup_suggestion": _standup_suggestion(user, yesterday),
         },
         "team": {
             "recently_shipped": db.query(
-                "SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"
-                " AND closed_at >= ?",
+                f"SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" AND {WORKSPACE_ONLY} AND closed_at >= ?",
                 ((utc_today - timedelta(days=2)).isoformat(),),
             ),
             "escalated_blockers": db.query(
-                "SELECT * FROM blockers WHERE status = 'escalated' ORDER BY created_at"
+                f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                " ORDER BY created_at"
             ),
             "todays_events": db.query(
-                "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
+                f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" AND {WORKSPACE_ONLY} ORDER BY starts_at",
                 (today, (utc_today + timedelta(days=1)).isoformat()),
             ),
             # scoped like /activity: your own strand plus agents and system —
@@ -282,10 +323,10 @@ def attention_count(user: str) -> int:
     promises render on My Day; counting them here made the badge promise
     things the destination doesn't show (a 3 that lands on an empty page)."""
     row = db.query_one(
-        "SELECT"
+        "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
-        " + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
-        "    WHERE status IN ('submitted', 'scored'))"
+        f" + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
+        f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
         " AS n"
     )
     return row["n"] if row else 0
