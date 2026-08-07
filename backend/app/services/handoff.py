@@ -6,32 +6,47 @@ from pathlib import Path
 
 from .. import config, db
 from ..agents.identity import refuse_in_flock
+from .scope import WORKSPACE_ONLY
 
 
 def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     refuse_in_flock("generate handoffs")
-    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    # the workspace tier only, matching context_packs in scope.UNSCOPED: this
+    # writes a markdown file and hands it to the model provider, and there is
+    # no viewer here to scope it to. NotFound, so a scoped engagement reads
+    # as absent rather than as refused.
+    eng = db.query_one(
+        f"SELECT * FROM engagements WHERE id = ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        (engagement_id,),
+    )
     if not eng:
         raise db.NotFound(f"engagement #{engagement_id} not found")
     name = eng["name"]
 
     milestones = db.query(
-        "SELECT * FROM milestones WHERE engagement_id = ? ORDER BY due_date IS NULL, due_date",
+        f"SELECT * FROM milestones WHERE engagement_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY due_date IS NULL, due_date",
         (engagement_id,),
     )
     tasks = db.query(
-        "SELECT t.* FROM tasks t WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        f"SELECT t.* FROM tasks t WHERE t.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND t.status != 'done'",
         (engagement_id, engagement_id),
     )
     from .portfolio import _linked_blockers
 
     blockers = _linked_blockers(engagement_id)  # this engagement's, not the whole platform's
-    questions = db.query("SELECT * FROM questions WHERE status = 'open'")
-    decisions = db.query("SELECT * FROM decisions ORDER BY id DESC LIMIT 20")
+    questions = db.query(
+        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
+    decisions = db.query(
+        f"SELECT * FROM decisions WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 20"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
     pending = db.query("SELECT * FROM pending_changes WHERE status = 'pending'")
     lessons = db.query(
-        "SELECT * FROM lessons WHERE engagement_id = ? OR project_class = ?",
+        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND (engagement_id = ? OR project_class = ?)",
         (engagement_id, eng["project_class"]),
     )
 

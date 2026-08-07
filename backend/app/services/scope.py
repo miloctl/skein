@@ -1,9 +1,9 @@
 """Visibility scope: who may read a row.
 
-The read half of the three tiers in docs/VISIBILITY.md. Nothing calls
-`visible_filter` yet — the `visibility` and `crew_id` columns land in phase 3,
-and this module is what those queries will use so that ~95 read functions do
-not each invent the predicate.
+The read half of the three tiers in docs/VISIBILITY.md, and the write
+half's one check. `visible_filter` is what every scoped read splices in, so
+the predicate lives here rather than in each of the ~57 read functions that
+need it.
 
 There is no chokepoint in this codebase to hang a filter on: 382 hand-written
 SELECT statements across 50 service files, and `db.py` is a transport that
@@ -11,11 +11,13 @@ never inspects SQL. So the design is a fragment plus an inventory that CI
 checks, modeled on `activity.visible_actor_filter` — which is the only
 precedent, and which reached three callers on discipline alone.
 
-**`private` never reaches this module.** A private row is excluded
-structurally: it is never indexed, never embedded, never in a context pack, a
-digest, a readout, a finding, the ICS feed, or an export. That is the
-`private_notes` principle applied to a column, and it is what keeps the filter
-here to ONE tier instead of three.
+**What makes `private` private is not this filter.** The filter only ever
+matches a private row for its own author. What keeps it private is the set of
+places it never reaches: search.index_record refuses to index one,
+admin.export leaves it out, every job and egress builder reads
+WORKSPACE_ONLY, `detail` keeps its body out of the hash-chained ledger, and
+`assert_readable_by` refuses to hand it to anyone. Each of those is a
+separate promise, and a forgotten one is a body somewhere permanent.
 """
 
 from .. import db
@@ -67,6 +69,200 @@ class Viewer:
 
 NOBODY = Viewer("", False)
 
+# Actors with no person behind them. `activity.SYSTEM_ACTORS` is the display
+# side of the same idea; this one is the authorization side and adds the
+# never-a-viewer names, so the two are not merged.
+_SYSTEM_ACTORS = frozenset({"system", "scheduler", "forge", "ci", "mcp"}) | _NOT_A_VIEWER
+
+
+def is_machine(actor: str) -> bool:
+    """Is this actor a job, a webhook, or an agent rather than a person?"""
+    if actor in _SYSTEM_ACTORS:
+        return True
+    from .users import is_agent
+
+    return is_agent(actor)
+
+
+# What a JOB reads. A scheduled job has no viewer — "who is this digest for"
+# has no answer — so it reads the workspace tier and nothing else. Spliced as
+# a literal rather than through visible_filter because these are hand-written
+# SQL strings with their own params, and a fragment with a bound parameter
+# would have to be threaded into each one's tuple.
+WORKSPACE_ONLY = f"visibility = '{WORKSPACE}'"
+
+
+def resolve_write(visibility: str, crew_id: int, *, actor: str) -> tuple[str, int | None]:
+    """The tier a write lands on, checked once so 16 services do not each
+    invent it. Returns the pair to store.
+
+    `private` means the author and nobody else. What makes that true is not
+    this function but the sinks: search.index_record refuses to index one,
+    admin.export leaves it out, every job reads WORKSPACE_ONLY, and
+    scope.detail keeps its body out of the hash-chained ledger. A private row
+    also cannot be handed to anyone (assert_readable_by), because there is
+    nobody who could read it.
+
+    It is still weaker than private.db, which no code path opens at all. The
+    difference is reversibility: a forgotten filter is a query you fix, a
+    forgotten sink has already written the body somewhere permanent.
+
+    A crew tier costs a membership check (crews.assert_writable), and that call
+    belongs INSIDE the caller's transaction: bare, it opens its own connection,
+    so a person removed from the crew between the check and the insert still
+    scopes a row into it.
+    """
+    visibility = (visibility or WORKSPACE).strip().lower()
+    if visibility == WORKSPACE:
+        return WORKSPACE, None
+    if visibility == PRIVATE:
+        return PRIVATE, None
+    if visibility != CREW:
+        raise ValueError(f"visibility must be one of {', '.join(TIERS)}")
+    if not crew_id:
+        raise ValueError("pick the crew this belongs to")
+    crews.assert_writable(crew_id, actor)
+    return CREW, crew_id
+
+
+def detail(tier: str, ident: str, body: str) -> str:
+    """What a scoped write may put in activity.detail.
+
+    The ledger is hash-chained: a migration may not UPDATE a row carrying a
+    seq (tests/test_migrations.py), and the off-box anchor log makes
+    re-chaining impossible by design. So a body written here is written for
+    good — there is no delete, no redaction, and no later tier change that
+    takes it back. An identifier is enough to find the row, and the row
+    itself carries the tier.
+    """
+    return ident if tier != WORKSPACE else f"{ident} {body}".rstrip()
+
+
+def assert_readable_by(
+    tier: str, crew_id: int | None, person: str, *, label: str, author: str = ""
+) -> None:
+    """Refuse handing scoped work to somebody who cannot read it.
+
+    A crew task assigned to a non-member is a row its own assignee never sees:
+    the filter's disjuncts are the workspace tier, authorship, and crew
+    membership, and an assignee is none of those. Caught at the write, this is
+    a sentence the writer can act on. Left to the read, it is a task that
+    silently does not exist for the person meant to do it.
+
+    `author` is the third disjunct, and leaving it out refused the ordinary
+    case. capture.py hardcodes `owner=actor` on a blocker and post_standup
+    passes `owner=author`, so without it EVERY private capture that classified
+    as a blocker was refused, and every private standup with blockers text
+    rolled back whole — naming a remedy ("leave the owner empty") that neither
+    caller can take.
+    """
+    if person and person == author:
+        return
+    if tier == PRIVATE and person:
+        # names no name: the value came from the caller, and an error never
+        # echoes a rejected value back (CLAUDE.md)
+        raise ValueError(
+            "a private record is readable by nobody else, so it takes no"
+            # "leave the {label} empty", not "unassigned": delegate_task passes
+            # label="sponsor", and a delegation with no sponsor is refused —
+            # the old wording named a remedy that endpoint does not accept
+            f" {label}. Pick a crew, or leave the {label} empty."
+        )
+    if tier != CREW or not person:
+        return
+    if crew_id not in crews.crews_of(person):
+        raise ValueError(
+            f"that {label} is not in the crew and cannot read this record."
+            f" Add them to the crew, or pick a different {label}."
+        )
+
+
+def missing(table: str, row_id: int) -> db.NotFound:
+    """The one "no such row" sentence, for BOTH the absent row and the row the
+    caller may not read.
+
+    They have to be the same string. "you cannot edit #12" — or any wording
+    that only the scoped case produces — answers "does #12 exist", and ids are
+    sequential integers, so a caller walks 1..n and reads off which ones are
+    scoped. That is the fact a private row must not carry. A caller who cannot
+    read the row cannot tell the two apart, and absent is the honest answer.
+
+    Every service guarded by assert_editable raises THIS for its own existence
+    check too. tests/test_visibility_authz.py compares the two byte for byte.
+    """
+    return db.NotFound(f"no {NOUN[table]} #{row_id}")
+
+
+def assert_editable(table: str, row: dict, actor: str, *, verb: str = "") -> None:
+    """Refuse a mutation of a row the actor could not read.
+
+    `visible_filter` covers the read half. It does nothing for a write, and
+    every mutation in this codebase finds its row by a caller-supplied id:
+    `UPDATE notes SET ... WHERE id = ?` matches a private note whoever asks.
+    Ids are small integers, so this is not obscurity — it is enumeration.
+
+    Editing is not a separate permission here. Any reader of a row may change
+    it (this is a coordination harness, not a document store), so the check is
+    exactly `visible_filter`'s disjuncts evaluated in Python. Keeping the two
+    in one file is the point: a fourth disjunct added there and forgotten here
+    hands a reader a row they cannot edit, which reads as a bug, not a breach.
+
+    Delete matters more than update. collab.delete_note writes 300 characters
+    of the note into activity.detail so a deletion stays reviewable, and the
+    ledger is hash-chained — a private body that lands there is there for good.
+
+    Takes the plain actor name, not a Viewer. The write path already trusts it
+    (resolve_write -> crews.assert_writable), so a stronger bar here would
+    refuse the very write that created the row.
+    """
+    tier = row["visibility"]
+    if tier == WORKSPACE:
+        return
+    if tier == CREW and is_machine(actor):
+        # A crew is a set of PEOPLE, and this check answers "may this person
+        # read it". A machine actor is the mechanism, not a reader: the forge
+        # webhook moves a task on a push, review.approve_change applies with
+        # actor=proposed_by (the agent slug, never the approving human), and
+        # the delegation trio runs as the agent. Refusing them turned every
+        # agent proposal against a crew row into a permanent auto-reject that
+        # told the reviewer the row had vanished, while it sat on their screen.
+        #
+        # PRIVATE deliberately falls through to the checks below. Nothing ever
+        # hands an agent private work — assert_readable_by refuses a private
+        # assignee, owner and sponsor outright — so a machine reaching one is
+        # already wrong.
+        return
+    author_column = CLASSIFIED.get(table)
+    if author_column is None:
+        # KeyError, not ValueError — see visible_filter below for why
+        raise KeyError(f"{table!r} carries no visibility tier — see scope.CLASSIFIED")
+    # `actor not in _NOT_A_VIEWER`, the same bar Viewer applies to a reader.
+    # Without it every tool call authors rows as the literal "agent", so one
+    # agent's private note matched another agent's delete on `author == actor`
+    # and the two shared an identity the product never gave them.
+    if actor not in _NOT_A_VIEWER and row[author_column] == actor:
+        return
+    if tier == CREW and actor not in _NOT_A_VIEWER and row["crew_id"] in crews.crews_of(actor):
+        return
+    raise missing(table, row["id"])
+
+
+def inherit(row: dict | None) -> tuple[str, int | None]:
+    """The tier a CHILD row takes from its parent.
+
+    A child never chooses. services/collab.py::post_standup lifts its blockers
+    text into a new blocker row, delegation.report_progress writes a worklog
+    against a task, intake._disposition turns a request into an engagement —
+    19 crossings in all, and each one is a place where a scoped parent's text
+    lands in a workspace child unless the tier travels with it.
+
+    No membership re-check: the parent already passed one, and re-checking
+    would refuse a legitimate write by an agent or a job that is in no crew.
+    """
+    if not row:
+        return WORKSPACE, None
+    return row["visibility"], row["crew_id"]
+
 
 def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, list]:
     """A SQL fragment limiting rows to what `viewer` may read, plus its params.
@@ -101,7 +297,10 @@ def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, li
     """
     author_column = CLASSIFIED.get(table)
     if author_column is None:
-        raise ValueError(f"{table!r} carries no visibility tier — see scope.CLASSIFIED")
+        # KeyError, not ValueError: app/main.py maps ValueError to 400, and
+        # `table` is a literal at every call site — a miss here is our bug, so
+        # it has to stay a 500 (CLAUDE.md, "Input errors are 4xx")
+        raise KeyError(f"{table!r} carries no visibility tier — see scope.CLASSIFIED")
     p = f"{alias}." if alias else ""
     if not viewer.name:
         return f"({p}visibility = ?)", [WORKSPACE]
@@ -127,7 +326,7 @@ def visible_filter(viewer: Viewer, table: str, alias: str = "") -> tuple[str, li
 # ---------------------------------------------------------------------------
 
 # table -> the column that decides authorship for the tier filter.
-# Adding `visibility` and `crew_id` to these tables is phase 3.
+# Every table here carries `visibility` and `crew_id` (migration 004).
 CLASSIFIED: dict[str, str] = {
     # `person`, not `created_by`: an absence is filed FOR someone, often by
     # someone else (absences.py resolves any teammate). The deliberate cost is
@@ -156,6 +355,29 @@ CLASSIFIED: dict[str, str] = {
     "standups": "author",
     "task_worklog": "author",
     "tasks": "created_by",
+}
+
+# table -> what a reader calls one row of it. Not `table[:-1]`, which renders
+# "memorie" and "intake_request" — an identifier, underscore included, in a
+# sentence a person reads. Parity with CLASSIFIED is pinned in
+# tests/test_scope.py.
+NOUN: dict[str, str] = {
+    "absences": "absence",
+    "artifacts": "artifact",
+    "blockers": "blocker",
+    "decisions": "decision",
+    "engagements": "engagement",
+    "events": "event",
+    "intake_requests": "request",
+    "lessons": "lesson",
+    "memories": "memory",
+    "milestones": "milestone",
+    "notes": "note",
+    "promises": "promise",
+    "questions": "question",
+    "standups": "standup",
+    "task_worklog": "worklog entry",
+    "tasks": "task",
 }
 
 # table -> why a visibility tier does not belong on it. A reason, not a shrug:

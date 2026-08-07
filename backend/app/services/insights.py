@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from .. import db
 from . import stats
+from .scope import WORKSPACE_ONLY
 from .slas import AGING_WIP_DAYS
 
 WINDOW_DAYS = 28
@@ -43,8 +44,8 @@ _p85 = stats.p85
 
 def _resolve_hours(since: str, until: str) -> list[float]:
     rows = db.query(
-        "SELECT (julianday(resolved_at) - julianday(created_at)) * 24 AS h"
-        " FROM blockers WHERE status = 'resolved'"
+        "SELECT (julianday(resolved_at) - julianday(created_at)) * 24 AS h"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
         " AND resolved_at >= ? AND resolved_at < ?",
         (since, until),
     )
@@ -145,19 +146,19 @@ def review_trend(months: int = 6) -> list[dict]:
 def intake_funnel(weeks: int = 12) -> dict:
     since = _iso(_today() - timedelta(weeks=weeks))
     counts = db.query_one(
-        "SELECT COUNT(*) AS submitted,"
+        "SELECT COUNT(*) AS submitted,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " SUM(status != 'submitted') AS scored_or_beyond,"
         " SUM(status = 'accepted') AS accepted,"
         " SUM(status = 'deferred') AS deferred,"
         " SUM(status = 'declined') AS declined"
-        " FROM intake_requests WHERE created_at >= ?",
+        f" FROM intake_requests WHERE {WORKSPACE_ONLY} AND created_at >= ?",
         (since,),
     )
     times = [
         r["d"]
         for r in db.query(
-            "SELECT julianday(updated_at) - julianday(created_at) AS d"
-            " FROM intake_requests WHERE updated_at >= ?"
+            f"SELECT julianday(updated_at) - julianday(created_at) AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f" FROM intake_requests WHERE updated_at >= ? AND {WORKSPACE_ONLY}"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
         )
@@ -236,9 +237,9 @@ def _r_mttr() -> list[dict]:
     ratio = cur["median_hours"] / prev["median_hours"]
     _, cut, _upper = _rolling_bounds()
     slowest = db.query(
-        "SELECT id, title, ROUND((julianday(resolved_at) - julianday(created_at)) * 24) AS hours"
-        " FROM blockers WHERE status = 'resolved' AND resolved_at >= ?"
-        " ORDER BY hours DESC LIMIT 3",
+        "SELECT id, title, ROUND((julianday(resolved_at) - julianday(created_at)) * 24) AS hours"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
+        " AND resolved_at >= ? ORDER BY hours DESC LIMIT 3",
         (cut,),
     )
     receipt = {"current": cur, "previous": prev, "slowest": slowest}
@@ -272,8 +273,8 @@ def _r_mttr() -> list[dict]:
 
 def _escalated_share(since: str, until: str) -> tuple[int, float | None]:
     row = db.query_one(
-        "SELECT COUNT(*) AS n, SUM(escalated_at IS NOT NULL) AS esc FROM blockers"
-        " WHERE status = 'resolved' AND resolved_at >= ? AND resolved_at < ?",
+        f"SELECT COUNT(*) AS n, SUM(escalated_at IS NOT NULL) AS esc FROM blockers WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND status = 'resolved' AND resolved_at >= ? AND resolved_at < ?",
         (since, until),
     )
     if not row or not row["n"]:
@@ -290,7 +291,7 @@ def _r_escalation_spike() -> list[dict]:
     if pn >= 6 and pshare and share < 1.5 * pshare:
         return []
     ids = db.query(
-        "SELECT id, title, impact FROM blockers WHERE status = 'resolved'"
+        f"SELECT id, title, impact FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND escalated_at IS NOT NULL AND resolved_at >= ?",
         (cut,),  # already an ISO string from _rolling_bounds
     )
@@ -309,12 +310,18 @@ def _r_escalation_spike() -> list[dict]:
 
 def _r_aging_wip() -> list[dict]:
     cutoff = _iso(_today() - timedelta(days=AGING_WIP_DAYS))
-    wip = db.query_one("SELECT COUNT(*) AS n FROM tasks WHERE status = 'in_progress'")
+    wip = db.query_one(
+        f"SELECT COUNT(*) AS n FROM tasks WHERE status = 'in_progress' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
     aging = db.query(
-        "SELECT t.id, t.title, m.project,"
+        "SELECT t.id, t.title, m.project,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(t.updated_at) AS INTEGER) AS days"
-        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE t.status = 'in_progress' AND t.updated_at < ? ORDER BY days DESC",
+        # m.project is persisted into a findings row, which is never pruned and
+        # is republished every week — the lock rides the ON clause because m is
+        # the nullable side (services/scope.py::visible_filter)
+        f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
+        f" WHERE t.{WORKSPACE_ONLY}"
+        " AND t.status = 'in_progress' AND t.updated_at < ? ORDER BY days DESC",
         (cutoff,),
     )
     if not wip or len(aging) < max(4, round(0.25 * wip["n"])):
@@ -382,7 +389,7 @@ def _r_promises_external() -> list[dict]:
     today = _iso(_today())
     soon = _iso(_today() + timedelta(days=7))
     for c in db.query(
-        "SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ?",
         (soon,),
     ):
@@ -410,7 +417,8 @@ def _r_promises_external() -> list[dict]:
         )
     week_ago = _iso(_today() - timedelta(days=7))
     for c in db.query(
-        "SELECT * FROM promises WHERE status = 'missed' AND updated_at >= ?", (week_ago,)
+        f"SELECT * FROM promises WHERE status = 'missed' AND {WORKSPACE_ONLY} AND updated_at >= ?",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        (week_ago,),
     ):
         out.append(
             _finding(
@@ -493,8 +501,8 @@ def _r_intake_stall() -> list[dict]:
     times = [
         r["d"]
         for r in db.query(
-            "SELECT julianday(updated_at) - julianday(created_at) AS d"
-            " FROM intake_requests WHERE updated_at >= ?"
+            f"SELECT julianday(updated_at) - julianday(created_at) AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f" FROM intake_requests WHERE updated_at >= ? AND {WORKSPACE_ONLY}"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
         )
@@ -513,9 +521,9 @@ def _r_intake_stall() -> list[dict]:
             )
         ]
     old = db.query(
-        "SELECT id, title, score,"
+        "SELECT id, title, score,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(created_at) AS INTEGER) AS days"
-        " FROM intake_requests WHERE status IN ('submitted', 'scored')"
+        f" FROM intake_requests WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
         " AND created_at < ?",
         (_iso(_today() - timedelta(days=14)),),
     )
@@ -538,9 +546,9 @@ def _r_intake_stall() -> list[dict]:
 def _r_question_aging() -> list[dict]:
     out = []
     for q in db.query(
-        "SELECT id, question, asked_by,"
+        "SELECT id, question, asked_by,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(created_at) AS INTEGER) AS days"
-        " FROM questions WHERE status = 'open' AND created_at < ?",
+        f" FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} AND created_at < ?",
         (_iso(_today() - timedelta(days=5)),),
     ):
         out.append(
@@ -558,8 +566,12 @@ def _r_question_aging() -> list[dict]:
 
 
 def _r_decision_decay() -> list[dict]:
-    stale = db.query("SELECT id, title, review_by FROM decisions WHERE status = 'stale'")
-    corpus = db.query_row("SELECT COUNT(*) AS n FROM decisions WHERE status != 'superseded'")
+    stale = db.query(
+        f"SELECT id, title, review_by FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
+    corpus = db.query_row(
+        f"SELECT COUNT(*) AS n FROM decisions WHERE status != 'superseded' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
     if not stale:
         return []
     if len(stale) >= 3 or (corpus["n"] and len(stale) / corpus["n"] >= 0.25):
@@ -610,8 +622,8 @@ def _r_token_anomaly() -> list[dict]:
 
 def _r_experiment_overdue() -> list[dict]:
     overdue = db.query(
-        "SELECT id, name, timebox_end, kill_criteria FROM engagements"
-        " WHERE kind = 'experiment' AND status != 'closed' AND conclusion IS NULL"
+        f"SELECT id, name, timebox_end, kill_criteria FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND kind = 'experiment' AND status != 'closed' AND conclusion IS NULL"
         " AND timebox_end IS NOT NULL AND timebox_end < ?",
         (_iso(_today()),),
     )

@@ -16,9 +16,10 @@ export type Crew = {
   members: CrewMember[];
 };
 
-/** Crew membership. A crew grants nothing yet — the visibility tier that reads
- *  it is docs/VISIBILITY.md phase 3 — so this card says what it is FOR without
- *  claiming it does anything today.
+/** Crew membership. This is what services/scope.py::visible_filter reads:
+ *  removing someone here takes away their access to every crew-tier row they
+ *  did not write. The copy below has to say so — a card that understates a
+ *  privacy boundary is the one wrong claim nobody can take back.
  *
  *  `me` is the SERVER-resolved identity from /api/whoami, never getUser(): a
  *  personal API key wins over the X-User display name in every auth mode
@@ -112,10 +113,10 @@ export function CrewsCard({
   return (
     <Section title="Crews">
       <p id={introId} className="mb-3 text-sm text-ink-3">
-        A crew is a durable group of people. Today it is a list of names — it
-        changes nothing about what anyone can see. Whoever makes a crew becomes
-        its steward, and a steward adds and removes members. Requires a working
-        API key (step 2), and stewardship of the crew or administrator access.
+        A crew is a durable group of people. Crew membership decides who reads
+        work that is set to that crew. Whoever makes a crew becomes its steward,
+        and a steward adds and removes members. Requires a working API key (step
+        2), and stewardship of the crew or administrator access.
       </p>
 
       {strong && (
@@ -223,7 +224,7 @@ export function CrewsCard({
                         <>
                           <button
                             autoFocus
-                            aria-label={`Confirm: remove ${m.person} from ${crew.name}`}
+                            aria-label={`Confirm: remove ${m.person} from ${crew.name}. They lose access to crew work they did not write.`}
                             disabled={!!busy}
                             onClick={async () => {
                               const ok = await act(

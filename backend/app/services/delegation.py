@@ -7,6 +7,7 @@ from datetime import UTC
 
 from .. import db
 from ..agents.identity import refuse_in_flock
+from . import scope
 from .users import ensure_user
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
@@ -36,7 +37,17 @@ def delegate_task(
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
+    scope.assert_editable("tasks", task, actor, verb="delegate")
+    # the notify below quotes the task title to whatever name the caller
+    # passed, and the sponsor then reviews the agent's work on the task
+    scope.assert_readable_by(
+        task["visibility"],
+        task["crew_id"],
+        sponsor,
+        label="sponsor",
+        author=task["created_by"],
+    )
     ensure_user(agent, kind="agent")
     db.execute(
         "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
@@ -70,7 +81,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if task["delegated_agent"] != actor:
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] not in ("todo", "blocked"):
@@ -79,7 +90,9 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
         "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
         (db.now(), task_id),
     )
-    db.log_activity(actor, "claim_task", f"#{task_id} {task['title']}")
+    db.log_activity(
+        actor, "claim_task", scope.detail(task["visibility"], f"#{task_id}", task["title"])
+    )
     if task["sponsor"]:
         from .notifications import notify
 
@@ -104,30 +117,41 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
         raise ValueError("keep progress notes under 2000 characters")
     refuse_in_flock("write to a worklog")
     _check_not_forbidden(actor)
+    # visibility and crew_id ride along on a SELECT that already runs: a
+    # worklog note is the task's text, and a workspace child under a scoped
+    # task publishes what the task was scoped to hide
     task = db.query_one(
-        "SELECT delegated_agent, sponsor, status, title FROM tasks WHERE id = ?", (task_id,)
+        "SELECT delegated_agent, sponsor, status, title, visibility, crew_id"
+        " FROM tasks WHERE id = ?",
+        (task_id,),
     )
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if actor not in (task["delegated_agent"], task["sponsor"]):
         raise ValueError(f"task #{task_id}'s worklog is written by its delegate or sponsor only")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is done — its worklog is history now")
+    tier, cid = scope.inherit(task)
     wid = db.execute(
-        "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (task_id, actor, note, origin, db.now()),
+        "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (task_id, actor, note, origin, db.now(), tier, cid),
     )
-    db.log_activity(actor, "report_progress", f"task #{task_id}: {note[:80]}")
+    db.log_activity(actor, "report_progress", scope.detail(tier, f"task #{task_id}", note[:80]))
     return {"id": wid, "task_id": task_id}
 
 
-def list_worklog(task_id: int, limit: int = 50) -> list[dict]:
+def list_worklog(task_id: int, limit: int = 50, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     if not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
+    # the worklog is the task's own text, and its parent may be invisible to
+    # this reader — the child has to be filtered on its own tier, not the
+    # task's existence check above
+    frag, vp = scope.visible_filter(viewer, "task_worklog")
     return db.query(
-        "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
-        (task_id, limit),
+        f"SELECT * FROM task_worklog WHERE task_id = ? AND {frag}"  # noqa: S608 — scope fragment
+        " ORDER BY id DESC LIMIT ?",
+        (task_id, *vp, limit),
     )
 
 
@@ -138,7 +162,7 @@ def accept_completion(
     approval IS the acceptance — mark done, close the loop."""
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
     # a reassignment between submit and verdict voids the proposal — the
@@ -154,18 +178,25 @@ def accept_completion(
         (db.now(), db.now(), task_id),
     )
     if summary:
+        tier, cid = scope.inherit(task)
         db.execute(
-            "INSERT INTO task_worklog (task_id, author, note, origin, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
+            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 task_id,
                 actor or "agent",
                 f"[accepted] {summary}",
                 origin or "agent_verified",
                 db.now(),
+                tier,
+                cid,
             ),
         )
-    db.log_activity(actor or "agent", "complete_task", f"#{task_id} {task['title']}")
+    db.log_activity(
+        actor or "agent",
+        "complete_task",
+        scope.detail(task["visibility"], f"#{task_id}", task["title"]),
+    )
     return {"id": task_id, "status": "done"}
 
 
@@ -183,7 +214,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
     if task["delegated_agent"] != actor:
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] == "done":

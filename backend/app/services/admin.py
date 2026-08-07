@@ -212,10 +212,16 @@ def backup_if_stale() -> dict | None:
 
 
 def export(*, keep: int = 14) -> dict:
+    from .scope import CLASSIFIED, PRIVATE
+
     dump = {}
     for table in TABLES:
         try:
-            dump[table] = db.query(f"SELECT * FROM {table}")  # noqa: S608 — TABLES constant
+            # a private row leaves the box in this file otherwise. The export
+            # is JSON on disk under DATA_DIR and the mirror copies it off-box,
+            # so no column check downstream can take it back.
+            where = f" WHERE visibility != '{PRIVATE}'" if table in CLASSIFIED else ""
+            dump[table] = db.query(f"SELECT * FROM {table}{where}")  # noqa: S608 — TABLES constant, and `where` interpolates only scope.PRIVATE
         except Exception:
             # LOGGED, not swallowed. One table left empty is indistinguishable
             # from one table that is empty, and the completeness test only

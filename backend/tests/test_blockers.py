@@ -4,6 +4,8 @@ from datetime import UTC
 
 import pytest
 
+from app import db
+
 
 def test_raise_blocker_bad_task_id_is_valueerror(fresh_db):
     from app.services import blockers
@@ -21,7 +23,9 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
     blockers.resolve_blocker(b["id"])
     assert work.list_tasks()[0]["status"] == "in_progress"
 
-    with pytest.raises(ValueError, match="not found"):
+    # services/scope.py::missing — one wording for the absent row and for the
+    # row this caller may not read, so neither answers "does #999 exist"
+    with pytest.raises(db.NotFound, match="no blocker #999"):
         blockers.resolve_blocker(999)
 
 

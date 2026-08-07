@@ -5,6 +5,8 @@ over data the team already records — receipts shown for every verdict."""
 from datetime import UTC, date, datetime, timedelta
 
 from .. import db
+from . import scope
+from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS
 from .stats import median as _median
 
@@ -41,19 +43,33 @@ def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
 
 def _linked_blockers(engagement_id: int) -> list[dict]:
     return db.query(
-        "SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id"
-        " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        # BOTH sides of the join carry the lock. Only the blockers side would
+        # let a workspace blocker on a crew task through, and only the tasks
+        # side would let a crew blocker on a workspace task through — and the
+        # readout, the engagement pack and the handoff all read this.
+        f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND t.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" WHERE b.{WORKSPACE_ONLY}"
+        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND b.status != 'resolved'",
         (engagement_id, engagement_id),
     )
 
 
-def engagement_health() -> list[dict]:
-    """R/Y/G per non-closed engagement, each signal listed as a receipt."""
+def engagement_health(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    """R/Y/G per non-closed engagement, each signal listed as a receipt.
+
+    Filtered, defaulting to NOBODY: /portfolio passes the caller's viewer, and
+    the exec readout (services/readout.py) writes a markdown file with no
+    viewer at all — which is exactly the workspace tier this default gives it.
+    """
     today = _today().isoformat()
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
-    engagements = db.query("SELECT * FROM engagements WHERE status != 'closed' ORDER BY id")
+    frag, vp = scope.visible_filter(viewer, "engagements")
+    engagements = db.query(
+        f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks
+        tuple(vp),
+    )
     # Four batched scans grouped in Python, not per-engagement queries: at
     # ~6 queries per engagement plus one per waiting task, a growing
     # portfolio multiplies /portfolio and exec-readout latency.
@@ -61,18 +77,25 @@ def engagement_health() -> list[dict]:
     # milestone's) — the id set below dedups the two paths, and a task whose
     # two paths reach DIFFERENT engagements counts toward both.
     overdue_by: dict[int, list[dict]] = {}
+    # each receipt scan carries the SAME viewer as the engagement list above,
+    # not WORKSPACE_ONLY: a receipt quotes the row's own title, and the exec
+    # readout reaches here with NOBODY, which is the workspace tier anyway
+    mfrag, mp = scope.visible_filter(viewer, "milestones")
     for m in db.query(
-        "SELECT id, title, due_date, engagement_id FROM milestones"
-        " WHERE status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
-        (today,),
+        f"SELECT id, title, due_date, engagement_id FROM milestones WHERE {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " AND status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
+        (*mp, today),
     ):
         overdue_by.setdefault(m["engagement_id"], []).append(m)
     blockers_by: dict[int, list[dict]] = {}
+    bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
+    tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     for b in db.query(
-        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"
-        " FROM blockers b JOIN tasks t ON t.id = b.task_id"
+        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
         " LEFT JOIN milestones m ON m.id = t.milestone_id"
-        " WHERE b.status != 'resolved' ORDER BY b.id"
+        f" WHERE b.status != 'resolved' AND {bfrag} ORDER BY b.id",
+        (*tp, *bp),
     ):
         for eng_id in {b.pop("t_eng"), b.pop("m_eng")} - {None}:
             blockers_by.setdefault(eng_id, []).append(b)
@@ -82,10 +105,12 @@ def engagement_health() -> list[dict]:
     open_by: dict[int, int] = {}
     all_waits: list[dict] = []
     for t in db.query(
-        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"
+        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " t.waiting_on_type, t.waiting_on_id,"
         " t.engagement_id AS t_eng, m.engagement_id AS m_eng"
-        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id ORDER BY t.id"
+        " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
+        f" WHERE {tfrag} ORDER BY t.id",
+        tuple(tp),
     ):
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
@@ -206,9 +231,11 @@ def flow_metrics(weeks: int = 8) -> dict:
     )
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     stale = db.query(
-        "SELECT id, title, assignee,"
+        # the workspace tier: unlike the counts above, this list carries
+        # TITLES, and it renders in the exec readout and nudges the whole team
+        "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(updated_at) AS INTEGER) AS days_stale"
-        " FROM tasks WHERE status = 'in_progress' AND updated_at < ?"
+        f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"
         " ORDER BY updated_at",
         (stale_cutoff,),
     )
@@ -274,8 +301,10 @@ def slip_forecast() -> dict:
     median_slip = round(med, 1) if med is not None else 0.0
     applied = max(0.0, median_slip)
     open_ms = db.query(
-        "SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id"
-        " WHERE e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
+        # both sides of the join: the forecast names milestone TITLES and is
+        # written to a snapshot table by the daily job, which has no viewer
+        f"SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id AND e.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" WHERE m.{WORKSPACE_ONLY} AND e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     )
     # one waiting-task query for all open milestones, one resolution query
@@ -329,7 +358,12 @@ def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
         raise ValueError("percent must be 1-100")
     if not people:
         raise ValueError("name at least one person to staff")
-    req = db.query_one("SELECT * FROM intake_requests WHERE id = ?", (request_id,))
+    # the workspace tier: what_if echoes the whole request row back, the id
+    # comes straight off the URL, and there is no viewer on this path
+    req = db.query_one(
+        f"SELECT * FROM intake_requests WHERE id = ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        (request_id,),
+    )
     if not req:
         raise db.NotFound(f"intake request #{request_id} not found")
     # window-aware like allocation_conflicts — an allocation that ended last

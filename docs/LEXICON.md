@@ -374,8 +374,38 @@ with all five. `teammate` stays the word for one person.
 
 A crew is not an **engagement**. An engagement joins people to work, reaches
 `closed`, allocates a percent, and carries a date window. Crew membership is
-durable and binary, because it is what a visibility tier reads
+durable and binary, because it is what the visibility tier reads
 (`docs/VISIBILITY.md`).
+
+### the three tiers
+
+The wire values are `private` / `crew` / `workspace`. **Two of the three are
+never shown.** The picker and the badge say **only you**, **{crew} only**, and
+**everyone on the roster** (`components/visibility-picker.tsx`).
+
+`workspace` is never shown because the product uses the word nowhere else.
+`private` is never shown because it is already taken: the People page's
+author-private journal lives in a separate `private.db` that no code path
+opens. A tier column earns less than a separate file (`docs/VISIBILITY.md`
+argues exactly this), so it must not reuse the word on the surface. "only you"
+says the same thing and claims nothing about the file layer.
+
+"everyone on the roster", not "everyone": the tier was NAMED `workspace` so no
+reader takes it for public, and a bare "everyone" hands that reading straight
+back.
+
+The concept's own name on a surface is **visible to** — the picker's label.
+Not "scope" (a code word), not "audience" (`promises.audience` is a different
+enum on the same screens), and not "sharing" (nothing is shared; a tier is read
+access that either already exists or does not).
+
+### 9. Switching something off without deleting it
+
+| | |
+|---|---|
+| Words in use | **deactivate** (roster, crews) - **retire** (2, one of them a different concept) |
+| Where they split | `app/settings/page.tsx` used BOTH in one sentence. `app/insights/page.tsx` uses "retire" for retiring a RULE, which is a different act |
+| **DECIDED** | **deactivate** — it is the verb on every button, the aria-label, and the confirmation. `retire` stays only where the object is a rule |
 
 ## Already settled (2026-08-04, enforced or applied)
 
@@ -400,3 +430,5 @@ durable and binary, because it is what a visibility tier reads
 | **check** (user action) | **verify** (provenance) / **reconfirm** (charter, decisions) | CLAUDE.md reserves the last two |
 | **delete** (destruction) | **forget** (memories only) | CLAUDE.md |
 | **card** (guide UI) | **knot** (guide source) | see #6 |
+| **private** (the People journal — a separate `private.db` file no code path opens) | **only you** (the visibility tier, a column) | one is structural, one is a filter. `docs/VISIBILITY.md` refuses to let the column claim the word |
+| **crew** (a durable group of people) | **flock** (a named group of personas) | see the crew entry; the member word is `member` in both |

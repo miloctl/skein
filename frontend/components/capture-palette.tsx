@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { VisibilityPicker } from "@/components/visibility-picker";
 import { actionError, api } from "@/lib/api";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
@@ -56,6 +57,7 @@ export function CapturePalette() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
   const [busy, setBusy] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -74,7 +76,8 @@ export function CapturePalette() {
         e.preventDefault();
         if (closeTimer.current) clearTimeout(closeTimer.current);
         setOpen((o) => {
-          if (!o) openerRef.current = document.activeElement as HTMLElement | null;
+          if (!o)
+            openerRef.current = document.activeElement as HTMLElement | null;
           return !o;
         });
         setResult(null);
@@ -132,7 +135,7 @@ export function CapturePalette() {
     try {
       const r = await api<{ kind: string; id: number }>("/api/capture", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, ...tier }),
       });
       setResult(`Captured as ${r.kind} #${r.id}`);
       setText("");
@@ -143,7 +146,11 @@ export function CapturePalette() {
     } finally {
       setBusy(false);
     }
-  }, [text, busy]);
+    // tier IS a dependency: without it the callback closes over the tier as it
+    // was when the text last changed, so choosing a crew AFTER typing filed the
+    // capture at workspace — and the picker sits below the textarea, which
+    // makes type-then-choose the natural order
+  }, [text, busy, tier]);
 
   const applyChip = (prefix: string) => {
     setText((t) => `${prefix} ${t.replace(KNOWN_PREFIX, "").trimStart()}`);
@@ -212,14 +219,19 @@ export function CapturePalette() {
                   ? kind
                   : `will file as: ${kind}${kind === "private feedback" ? " (needs your API key)" : ""}`
                 : [
-                    <span key="kbd" className="[@media(any-pointer:coarse)]:hidden">
+                    <span
+                      key="kbd"
+                      className="[@media(any-pointer:coarse)]:hidden"
+                    >
                       Enter to save · Esc to close
                     </span>,
-                    <span key="touch" className="[@media(any-pointer:fine)]:hidden">
+                    <span
+                      key="touch"
+                      className="[@media(any-pointer:fine)]:hidden"
+                    >
                       Capture to save · tap outside to close
                     </span>,
                   ])}
-
           </span>
           <button
             onClick={submit}
@@ -228,6 +240,9 @@ export function CapturePalette() {
           >
             Capture
           </button>
+        </div>
+        <div className="mt-2">
+          <VisibilityPicker value={tier} onChange={setTier} label="capture" />
         </div>
         <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">
           Tap a chip or type a prefix — the line above the button always shows

@@ -1,6 +1,7 @@
 """Scheduling tools — thin wrappers over app.services.schedule."""
 
 import json
+from typing import Any
 
 from strands import tool
 
@@ -22,7 +23,7 @@ def schedule_event(
         description: What the event is for.
         attendees: Comma-separated attendee names.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "title": title,
         "starts_at": starts_at,
         "ends_at": ends_at,

@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Request
 
 from .. import config
+from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
 from ..services.users import ensure_user, is_agent, refuse_fold_collision
@@ -303,12 +304,12 @@ def current_user(
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
-    _stash(request, strong, groups)
+    _stash(request, user, strong, groups)
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
 
-def _stash(request: Request, strong: bool, groups: list[str]) -> None:
+def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None:
     """What a handler can read back off the request.
 
     All three dependencies stash, not only current_user: a route that
@@ -320,6 +321,12 @@ def _stash(request: Request, strong: bool, groups: list[str]) -> None:
     """
     request.state.strong_auth = strong
     request.state.auth_groups = groups
+    # The viewer every scoped read filters on. Built HERE and nowhere else
+    # (services/scope.py::Viewer) so the strong-identity bar is a property of
+    # the door rather than a rule ~57 read call sites each have to remember.
+    # It resolves crew membership once, so a page that fans out to dozens of
+    # scoped reads pays for one lookup.
+    request.state.viewer = scope.Viewer(user, strong)
 
 
 def _require_strong(strong: bool) -> None:
@@ -345,7 +352,7 @@ def strong_user(
     is who the record says."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, True, groups)
+    _stash(request, user, True, groups)
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
@@ -364,7 +371,7 @@ def admin_user(
     their own records is not a privilege boundary, it is a dead end."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, True, groups)
+    _stash(request, user, True, groups)
     if not _is_admin(user, groups):
         raise HTTPException(
             status_code=403,
@@ -375,6 +382,19 @@ def admin_user(
     return user
 
 
+def viewer(request: Request, _user: Annotated[str, Depends(current_user)]) -> "scope.Viewer":
+    """What the caller may read. Depends on CurrentUser, so identity is
+    resolved and stashed before this runs.
+
+    The parameter is unused on purpose: it is here to ORDER the two, so
+    current_user has resolved and stashed before this reads request.state.
+    FastAPI caches a dependency per request, so a route taking both pays for
+    one resolution.
+    """
+    return getattr(request.state, "viewer", scope.NOBODY)
+
+
 CurrentUser = Annotated[str, Depends(current_user)]
 StrongUser = Annotated[str, Depends(strong_user)]
 AdminUser = Annotated[str, Depends(admin_user)]
+ViewerDep = Annotated["scope.Viewer", Depends(viewer)]

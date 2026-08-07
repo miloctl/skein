@@ -295,7 +295,7 @@ def add_absence(
         kind: pto (zeroes planning), oncall, or focus (advisory).
         note: Optional context.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "person": person,
         "starts_on": starts_on,
         "ends_on": ends_on,

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .. import config, db
 from . import wording
+from .scope import WORKSPACE_ONLY
 
 
 def _clean(text: str, width: int = 80) -> str:
@@ -70,12 +71,12 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
 def _week_close_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
     due_promises = db.query(
-        "SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open'"
+        f"SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (horizon,),
     )
     stuck_closing = db.query(
-        "SELECT id, name, updated_at FROM engagements WHERE status = 'closing'"
+        f"SELECT id, name, updated_at FROM engagements WHERE status = 'closing' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND updated_at < ? ORDER BY updated_at",
         ((datetime.now(UTC) - timedelta(days=7)).isoformat(timespec="seconds"),),
     )
@@ -85,7 +86,8 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
     )
     open_questions = db.query(
-        "SELECT id, question, assigned_to FROM questions WHERE status = 'open' ORDER BY id"
+        f"SELECT id, question, assigned_to FROM questions WHERE status = 'open'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" AND {WORKSPACE_ONLY} ORDER BY id"
     )
 
     lines = [f"# Week close-out — {today.isoformat()}", ""]
@@ -177,7 +179,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     for h in humans:
         name = h["name"]
         promises = db.query(
-            "SELECT id, promise, due_date FROM promises WHERE status = 'open'"
+            f"SELECT id, promise, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
             " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
             (name, horizon),
         )
@@ -233,9 +235,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     # promises carry only created_by (the recorder) — a promise an agent
     # captured belongs to nobody in the loop above and must not go silent
     agent_recorded = db.query(
-        "SELECT c.id, c.promise, c.due_date FROM promises c"
+        "SELECT c.id, c.promise, c.due_date FROM promises c"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
-        " WHERE c.status = 'open' AND (c.due_date IS NULL OR c.due_date <= ?)"
+        f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open'"
+        " AND (c.due_date IS NULL OR c.due_date <= ?)"
         " ORDER BY c.due_date",
         (horizon,),
     )
