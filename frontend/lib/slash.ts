@@ -8,10 +8,10 @@ export type ArgItem = { slug: string; emoji: string; description: string };
  * typed so far. Returns null when the input is not a slug argument.
  *
  * The required whitespace after the command name is load-bearing. Without it
- * "/flock" resolves here with an empty prefix, so it leaves the command
- * branch that sorts an exact match first — and Tab then completes "/flocks"
- * for someone who typed "/flock" in full (agents/commands.py carries the same
- * note for the backend did-you-mean).
+ * "/flock" resolves here, the command branch never runs, and the popup jumps
+ * straight to the flock roster — "/flocks" disappears from autocomplete for
+ * anyone who has typed "/flock" so far (agents/commands.py carries the same
+ * pairing note for the backend did-you-mean).
  */
 export function argQuery(
   text: string,

@@ -142,8 +142,8 @@ def test_a_leading_at_person_is_not_an_invocation(client):
     turn rather than answering as a persona or refusing an unknown slug."""
     users.ensure_user("mira")
     out = _read_chat(client, "@mira please review the export job", thread="cm-4")
-    # the real refusal string the bench emits — "is not defined" appears
-    # nowhere in the backend, so asserting its absence pinned nothing
+    # the literal string services/personas.py raises: an invented one asserts
+    # the absence of text the backend never emits
     assert "no persona" not in out
     assert "Not notified" in _last_saved(client, "cm-4") or "wrote" in out.lower()
 

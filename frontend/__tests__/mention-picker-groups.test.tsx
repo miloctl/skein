@@ -90,8 +90,6 @@ describe("the @ picker", () => {
     // name, so labelling rows dropped the description that is the whole value
     // of a specialist row
     expect(groupNames("People")).toContain("@mira");
-    // the description rides the accessible name — it is the whole value of a
-    // specialist row, and an aria-label on the option would have replaced it
     expect(groupNames("Specialists")).toContain("@growth-mentor🌱 coaching");
   });
 
@@ -114,6 +112,8 @@ describe("the @ picker", () => {
     expect(names.some((n) => n.includes("ada lovelace"))).toBe(false);
     expect(names.some((n) => n.includes("Brien"))).toBe(false);
     expect(names.some((n) => n.includes("Jos"))).toBe(false);
+    // the bench is kept out of People by kind, not by charset — the slug
+    // tokenizes fine, and it has its own section
     expect(names).not.toContain("@backend-architect");
   });
 

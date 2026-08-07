@@ -15,9 +15,9 @@ describe("argQuery", () => {
   });
 
   it("leaves a bare command to the command popup", () => {
-    // the /flock-vs-/flocks hazard: if "/flock" resolved here, it would skip
-    // the command branch that sorts an exact match first, and Tab would
-    // complete "/flocks" for someone who typed "/flock" in full
+    // the /flock-vs-/flocks hazard: if "/flock" resolved here the command
+    // branch never runs, and "/flocks" disappears from autocomplete for
+    // anyone who has typed "/flock" so far
     expect(argQuery("/flock", ROSTERS)).toBeNull();
     expect(argQuery("/flocks", ROSTERS)).toBeNull();
     expect(argQuery("/as", ROSTERS)).toBeNull();
