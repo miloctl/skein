@@ -161,11 +161,16 @@ Execution of a flock turn:
    records the asking human as `requested_by`.
 3. Stream sections in declared member order. The head-of-queue member
    streams live; completed members flush as they reach the head. Each
-   section ALWAYS opens with the masthead (emoji, bold name, vibe) — the
+   section ALWAYS opens with the masthead (`###`, emoji, name, vibe) — the
    once-per-thread `thread_contains` dedup does not apply, because in a
    flock turn the masthead is the section delimiter, not a repeated
    introduction. Who answered never depends on whether the model signs
-   its work.
+   its work. A heading, not bold text, and a `---` rule between members
+   (never above the first): the whole turn is ONE assistant bubble, so the
+   section break has to carry weight that `**` does not. `.prose-chat` in
+   `frontend/app/globals.css` sizes the levels — Tailwind v4 preflight
+   resets headings to body size, so the CSS is what makes the hierarchy
+   visible at all.
 4. **Every member write is a review proposal**, regardless of
    `SKEIN_AGENT_REVIEW` and of the member's earned authority level. The
    enforcement point is a `force_review` contextvar in `agents/identity.py`,
@@ -193,7 +198,10 @@ Execution of a flock turn:
    unattributed. Per-member draining is also what makes the `receipts`
    count in the trace computable.
 6. If `synthesis` is on: one more model call, no tools, input is the member
-   sections, streamed last under its own masthead. It writes nothing.
+   sections, streamed last under its own masthead. It writes nothing. The
+   merge masthead is `##`, one level ABOVE the members' `###`: it merges
+   the sections above it, and giving it their level renders the turn as
+   N+1 peer voices with no visible seam where the merge starts.
 7. Errors are isolated per member: a failed member's section states
    `<Name> did not answer.` plus the error line, and the turn continues.
    Synthesis runs over the survivors. Only when every member fails does

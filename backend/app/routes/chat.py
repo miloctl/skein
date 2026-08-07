@@ -29,7 +29,7 @@ from ..agents.identity import (
     set_requester_identity,
     set_requester_viewer,
 )
-from ..agents.team_agent import build_agent, build_synthesizer
+from ..agents.team_agent import build_agent, build_synthesizer, build_titler
 from ..services import capture, chat_threads, fieldguide, flocks, personas
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
@@ -202,12 +202,83 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
             record_chat_usage(**row)
 
 
+# One tool-less completion that answers in 60 characters or less, and it runs
+# ON the critical path, so this budget is "how long may a finished answer sit
+# there with nothing rendering" — not _member_deadline()'s 180 s, which asks
+# how long a stalled provider may hold a connection nobody reads.
+_TITLE_TIMEOUT_S = 8.0
+
+
+async def _summarize_title(thread_id: str, user: str) -> None:
+    """Retitle a thread from its first message, with one model call.
+
+    Awaited INSIDE the stream, after _close_turn and before the done frame,
+    which is the whole reason it is not a background task. The client
+    refreshes the sidebar and the header off one `skein-chat-activity` event
+    fired when the reader loop ends (frontend/app/runtime-provider.tsx), and
+    a response body that terminates first wins that race every time: the
+    title was correct in the database and a second too late to be read.
+
+    Cost is the call's own latency, paid once per thread ever, at the moment
+    of LOWEST provider concurrency — every member and the merge have already
+    finished. A turn the reader stops mid-title forfeits the summary for good
+    (pending_auto_title then sees two user messages), which is the deliberate
+    trade: a title that shows up beats a nicer one nobody sees.
+
+    Silent to the reader, whose title already reads back their own first
+    line, and loud in the log for whoever runs the server.
+    """
+    try:
+        pending = await run_in_threadpool(chat_threads.pending_auto_title, thread_id, user)
+        if not pending:
+            return
+        previous, first = pending
+        titler = await run_in_threadpool(build_titler)
+        if titler is None:
+            return  # mock provider: the deterministic title stands
+        parts: list[str] = []
+        try:
+            async with asyncio.timeout(_TITLE_TIMEOUT_S):
+                async for event in titler.stream_async(first):
+                    if "data" in event:
+                        parts.append(event["data"])
+        finally:
+            # SPEND FIRST, and in a finally: a provider that stalls AFTER it
+            # read the input costs more than one that answers, so extracting
+            # on the success path only drops the most expensive rows there
+            # are. _run_member carries the same finally for the same reason.
+            row = _usage_row(titler, thread_id, agent_name="title")
+            if row:
+                with contextlib.suppress(Exception):
+                    await run_in_threadpool(record_chat_usage, **row)
+        await run_in_threadpool(
+            chat_threads.set_auto_title, thread_id, user, previous, "".join(parts)
+        )
+    except Exception:
+        # exc_info, not a bare line: a rotated key and a 25 s stall need
+        # different fixes, and this is the only place either one is visible
+        logging.getLogger("skein.chat").warning(
+            "thread title summary did not finish (thread=%s)", thread_id, exc_info=True
+        )
+
+
+# Render-only, and skipped above the first member (_flock_stream). It is NOT
+# part of _masthead because _masthead is also the merge input: the synthesizer
+# needs every section LABELLED, and a rule labels nothing.
+_SECTION_RULE = "\n\n---"
+
+
 def _masthead(card: dict) -> str:
     """A flock section header. ALWAYS rendered, unlike the /as masthead that
     thread_contains dedups once per thread: here it is the delimiter between
-    two members' answers, so dropping it merges two voices into one block."""
+    two members' answers, so dropping it merges two voices into one block.
+
+    A heading, not bold text. The whole turn is ONE assistant bubble holding
+    every member, so the section break has to carry typographic weight that
+    `**` does not: `.prose-chat` in frontend/app/globals.css sizes h3 above
+    body text, and h2 above that for the merge."""
     vibe = f" — *{card['vibe']}*" if card.get("vibe") else ""
-    return f"\n\n{card['emoji']} **{card['name']}**{vibe}\n\n"
+    return f"\n\n### {card['emoji']} {card['name']}{vibe}\n\n"
 
 
 async def _run_member(card: dict, thread_id: str, user: str, message: str, out: asyncio.Queue):
@@ -436,7 +507,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         ]
         for card in cards:
             slug = card["slug"]
-            head = _masthead(card)
+            # no rule above the FIRST member: nothing precedes it to separate
+            # it from, and a bubble that opens on a horizontal line reads as a
+            # torn-off fragment of an earlier message
+            head = (_SECTION_RULE if transcript else "") + _masthead(card)
             transcript.append(head)
             model_parts.append(head)
             yield _sse({"type": "text", "text": head})
@@ -480,7 +554,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
             # optimistic "ok" would trace a 0 ms merge that never ran
             synth_entry = {"status": "cancelled", "ms": 0, "tokens_in": 0, "tokens_out": 0}
             started = time.monotonic()
-            head = f"\n\n{fdef['emoji']} **{fdef['name']}** — together\n\n"
+            # h2 against the members' h3: the merge sits OVER the sections
+            # above, and giving it their heading level renders the turn as
+            # N+1 peer voices with no visible seam where the merge starts
+            head = f"{_SECTION_RULE}\n\n## {fdef['emoji']} {fdef['name']} — together\n\n"
             transcript.append(head)
             model_parts.append(head)
             yield _sse({"type": "text", "text": head})
@@ -529,6 +606,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                     if row:
                         usage_rows.append(row)
         await run_in_threadpool(_close_turn)
+        # before the done frame, never after: the client refreshes the sidebar
+        # and header when its reader loop ends, so a title written past that
+        # point is correct and unread until the next navigation
+        await _summarize_title(ui_thread, user)
     finally:
         # an unfinished member keeps running — and keeps filing proposals —
         # after the reader stops, so cancel before the close
@@ -772,6 +853,13 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 _close_turn()
             yield _sse({"type": "done"})
 
+        # NOT titled, unlike the two model-running responses below. The
+        # comment above this dispatcher is the reason: a slash command is
+        # deterministic for every provider, no agent and no tokens. Summarize
+        # here and "/help" on a fresh thread buys a model call, on the one
+        # path built to never need one. The refusal streams above (a usage
+        # string, a slug clash, an fb: guard) are untitled for the same
+        # reason — they log the message and run nothing.
         return StreamingResponse(command_stream(), media_type="text/event-stream")
 
     if flock_def:
@@ -921,6 +1009,10 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             elif filed and capture.PREFIX.match(message):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
             await run_in_threadpool(_close_turn)
+            # before the done frame, never after: the client refreshes the
+            # sidebar and header when its reader loop ends, so a title written
+            # past that point is correct and unread until the next navigation
+            await _summarize_title(ui_thread, user)
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user
@@ -957,7 +1049,10 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             _close_turn()
         yield _sse({"type": "done"})
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+    )
 
 
 def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:

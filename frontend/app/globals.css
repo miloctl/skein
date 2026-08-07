@@ -683,9 +683,36 @@ body {
   color: inherit;
   opacity: 0.85;
 }
-.prose-chat :is(h1, h2, h3) {
+.prose-chat :is(h1, h2, h3, h4, h5, h6) {
   font-weight: 600;
   margin: 0.75rem 0 0.25rem;
+}
+/* Tailwind v4 preflight resets headings to font-size: inherit. Without these,
+   a flock merge (h2) and its members (h3) render at body size and at the same
+   size as each other, which erases the one-level hierarchy that says the merge
+   sits over the sections above (backend routes/chat.py::_masthead).
+   h4-h6 keep body size on purpose: a model writing "####" inside its own
+   answer must not out-size the h3 masthead that answer sits under. The weight
+   above still separates them from a paragraph. */
+.prose-chat h1 {
+  font-size: 1.3rem;
+}
+.prose-chat h2 {
+  font-size: 1.15rem;
+}
+.prose-chat h3 {
+  font-size: 1.03rem;
+}
+/* The seam between two flock members. --border-strong, not the hairline used
+   for table cells above: measured on the assistant bubble the hairline is
+   rgb(30,32,40) against a rgb(25,28,36) surface, so the rule is invisible —
+   and an invisible separator is the one thing this must not be. Preflight's
+   currentColor is the other extreme, heavier than every border in the design
+   language. */
+.prose-chat hr {
+  border: 0;
+  border-top: 1px solid var(--border-strong);
+  margin: 1rem 0 0.25rem;
 }
 .prose-chat table {
   border-collapse: collapse;
