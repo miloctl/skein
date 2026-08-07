@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from .. import config, db
+from . import scope
 from .scope import WORKSPACE_ONLY
 
 
@@ -110,20 +111,24 @@ def build_pack(crew_id: int = 0) -> str:
     return "\n".join(lines)
 
 
-def build_engagement_pack(engagement_id: int) -> str:
+def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> str:
     """Scoped pack for ONE engagement — what a delegated agent needs and
     nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
     on demand (unversioned; versioning is for the org-brain)."""
-    # the workspace tier only, matching context_packs in scope.UNSCOPED: this
-    # writes a markdown file and hands it to the model provider, and there is
-    # no viewer here to scope it to. NotFound, so a scoped engagement reads
-    # as absent rather than as refused.
+    # Filtered by the CALLER. An agent tool and the MCP server pass NOBODY,
+    # which is the workspace tier — the rule those surfaces need. A crew
+    # member gets their own engagement, which locked they could see listed and
+    # not open (services/handoff.py has the same pair).
+    efrag, ep = scope.visible_filter(viewer, "engagements")
+    mfrag, mp = scope.visible_filter(viewer, "milestones")
+    tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
+    lfrag, lp = scope.visible_filter(viewer, "lessons")
     eng = db.query_one(
-        f"SELECT * FROM engagements WHERE id = ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        (engagement_id,),
+        f"SELECT * FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
     )
     if not eng:
-        raise db.NotFound(f"engagement #{engagement_id} not found")
+        raise scope.missing("engagements", engagement_id)
     lines = [
         f"# Engagement context: {eng['name']}",
         "",
@@ -143,9 +148,9 @@ def build_engagement_pack(engagement_id: int) -> str:
         ]
     lines.append("## Milestones")
     milestones = db.query(
-        f"SELECT * FROM milestones WHERE engagement_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM milestones WHERE engagement_id = ? AND {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " ORDER BY due_date IS NULL, due_date",
-        (engagement_id,),
+        (engagement_id, *mp),
     )
     lines += [
         f"- [{m['status']}] #{m['id']} {m['title']}"
@@ -155,12 +160,12 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     lines.append("## Open tasks")
     tasks = db.query(
-        f"SELECT t.* FROM tasks t WHERE t.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND t.status != 'done'"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END",
-        (engagement_id, engagement_id),
+        (*tp, engagement_id, engagement_id),
     )
     for t in tasks:
         line = f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"
@@ -174,7 +179,7 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     from .portfolio import _linked_blockers
 
-    blockers = _linked_blockers(engagement_id)
+    blockers = _linked_blockers(engagement_id, viewer)
     lines.append("## Unresolved blockers")
     lines += [f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}" for b in blockers] or [
         "- none"
@@ -182,9 +187,9 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     lines.append("## Lessons from this class")
     lessons = db.query(
-        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
-        (engagement_id, eng["project_class"]),
+        (*lp, engagement_id, eng["project_class"]),
     )
     lines += [
         f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")

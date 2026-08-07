@@ -247,7 +247,7 @@ identifier, never a body.** Pin it with a test.
 | `search_ids` | `_short_id_hit` (`services/search.py::_short_id_hit`) resolves `task 42` straight to a row with no authorization. It takes the same filter. |
 | `embeddings` | `_embed` sends `text[:8000]` to `EMBED_BASE_URL` inside every `index_record`. Private rows are never indexed, so they never reach it. |
 | `memories` | Closed in phase 4. `recall()` applies BOTH the `user` filter and the tier on every branch (`services/memory.py::recall`) — the query branch used to apply neither, so one person's search answered out of another person's memories, and `memory_prompt` injects the result into a system prompt. |
-| `notifications` | Two halves. Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. `flush_digest_tier` (`services/notifications.py`) still batches every user's pending messages into ONE Slack channel — **not closed**, and not a tier problem: it is one channel for N audiences. |
+| `notifications` | Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. `flush_digest_tier` posts COUNTS, never messages: it batches into ONE Slack channel, `notifications` carries no tier to filter on, and a count carries nothing whatever a future caller writes. The post is a nudge — the bodies are one click away in the app. |
 | `admin.export` | Private rows are excluded structurally. Crew rows stay — a full dump is what the surface is for — but every new table takes its `admin.TABLES` classification. |
 | `data/artifacts/` | A file on disk carries no column. Anything a job writes is workspace-tier by the rule above. |
 
@@ -288,11 +288,15 @@ the four the plan named and three more, from one control.
 
 ### What still lands at workspace, always
 
-Fourteen of the sixteen tables can carry a non-workspace tier. Only
-`artifacts` and `lessons` cannot be written with one directly — both are
-written by jobs, which have no viewer. (`lessons` still INHERITS one, from the
-experiment whose conclusion drafted it.) They gain a picker when they gain a
-writer that can offer one.
+All sixteen tables can now carry a non-workspace tier. `lessons` and
+`artifacts` are the two nobody sets by hand: a lesson inherits from the
+experiment whose conclusion drafted it, and a handoff artifact inherits from
+its engagement — which is what stops `list_artifacts` handing out a path to a
+file of another crew's work.
+
+Six of the sixteen have no create form in this UI at all (milestones, events,
+absences, memories, engagements, lessons). Their REST bodies take a tier where
+one makes sense; quick capture covers the other seven entities.
 
 A comment claiming "this table carries no settable tier" was written four
 times in this codebase and was false at every site by the time it shipped.

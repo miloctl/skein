@@ -280,8 +280,8 @@ def get_playbooks():
 
 
 @router.get("/artifacts")
-def get_artifacts(user: CurrentUser, engagement_id: int = 0):
-    return handoff.list_artifacts(engagement_id)
+def get_artifacts(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
+    return handoff.list_artifacts(engagement_id, viewer)
 
 
 @router.get("/users")
@@ -966,9 +966,12 @@ def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser):
 
 
 @router.get("/context-pack")
-def get_context_pack(user: CurrentUser, engagement: int = 0, crew: int = 0):
+def get_context_pack(user: CurrentUser, viewer: ViewerDep, engagement: int = 0, crew: int = 0):
     if engagement:
-        return {"engagement": engagement, "content": context_pack.build_engagement_pack(engagement)}
+        return {
+            "engagement": engagement,
+            "content": context_pack.build_engagement_pack(engagement, viewer),
+        }
     # StrongUser is NOT the bar here, unlike the scoped reads: a crew pack is
     # gated on membership, which crews.crews_of resolves from the name the
     # server already accepted for every other write on this router
@@ -1078,6 +1081,11 @@ class MilestoneIn(BaseModel):
     project: str = Field("default", max_length=120)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # No assignee check here — an owner is not an assignee, and create_milestone
+    # takes no readability check on one names nobody to hand work to.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/milestones")
@@ -1258,6 +1266,10 @@ class EventIn(BaseModel):
     ends_at: str = Field("", max_length=25)
     description: str = Field("", max_length=4000)
     attendees: str = Field("", max_length=500)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # No assignee check here — `attendees` is free text, not a roster join names nobody to hand work to.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/events")
@@ -1465,6 +1477,11 @@ class EngagementIn(BaseModel):
     timebox_end: str = Field("", max_length=10)
     kill_criteria: str = Field("", max_length=500)
     outcome: str = Field("", max_length=2000)
+    # the tier the writer picked, checked in the service: crew membership only.
+    # It PROPAGATES — the handoff artifact, the ship-it note and the
+    # experiment lesson all inherit from the engagement they came from.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/engagements")
@@ -1534,9 +1551,9 @@ def post_instantiate(body: InstantiateIn, user: CurrentUser):
 
 
 @router.post("/engagements/{engagement_id}/handoff")
-def post_handoff(engagement_id: int, user: CurrentUser):
+def post_handoff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
     ratelimit.check("artifact", user)
-    return handoff.generate_handoff(engagement_id, actor=user)
+    return handoff.generate_handoff(engagement_id, actor=user, viewer=viewer)
 
 
 @router.post("/digest")

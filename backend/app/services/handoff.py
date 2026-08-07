@@ -6,48 +6,61 @@ from pathlib import Path
 
 from .. import config, db
 from ..agents.identity import refuse_in_flock
-from .scope import WORKSPACE_ONLY
+from . import scope
 
 
-def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
+def generate_handoff(
+    engagement_id: int, *, actor: str = "system", viewer: scope.Viewer = scope.NOBODY
+) -> dict:
     refuse_in_flock("generate handoffs")
-    # the workspace tier only, matching context_packs in scope.UNSCOPED: this
-    # writes a markdown file and hands it to the model provider, and there is
-    # no viewer here to scope it to. NotFound, so a scoped engagement reads
-    # as absent rather than as refused.
+    # Filtered by the CALLER, not locked to the workspace tier. Locked, a crew
+    # member saw their engagement in GET /api/engagements and got "not found"
+    # asking for its handoff — a correct refusal with a misleading sentence.
+    # The pack contents below take the same viewer, and the artifact row takes
+    # the engagement's tier so list_artifacts does not hand the path to
+    # somebody who could not have generated it.
+    efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
-        f"SELECT * FROM engagements WHERE id = ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        (engagement_id,),
+        f"SELECT * FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
     )
     if not eng:
-        raise db.NotFound(f"engagement #{engagement_id} not found")
+        raise scope.missing("engagements", engagement_id)
     name = eng["name"]
+    mfrag, mp = scope.visible_filter(viewer, "milestones")
+    tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
+    lfrag, lp = scope.visible_filter(viewer, "lessons")
 
     milestones = db.query(
-        f"SELECT * FROM milestones WHERE engagement_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM milestones WHERE engagement_id = ? AND {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " ORDER BY due_date IS NULL, due_date",
-        (engagement_id,),
+        (engagement_id, *mp),
     )
     tasks = db.query(
-        f"SELECT t.* FROM tasks t WHERE t.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND t.status != 'done'",
-        (engagement_id, engagement_id),
+        (*tp, engagement_id, engagement_id),
     )
     from .portfolio import _linked_blockers
 
-    blockers = _linked_blockers(engagement_id)  # this engagement's, not the whole platform's
+    # this engagement's, not the whole platform's
+    blockers = _linked_blockers(engagement_id, viewer)
+    qfrag, qp = scope.visible_filter(viewer, "questions")
     questions = db.query(
-        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM questions WHERE status = 'open' AND {qfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        tuple(qp),
     )
+    dfrag, dp = scope.visible_filter(viewer, "decisions")
     decisions = db.query(
-        f"SELECT * FROM decisions WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 20"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM decisions WHERE {dfrag} ORDER BY id DESC LIMIT 20",  # noqa: S608 — scope.visible_filter emits only bound marks
+        tuple(dp),
     )
     pending = db.query("SELECT * FROM pending_changes WHERE status = 'pending'")
     lessons = db.query(
-        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND (engagement_id = ? OR project_class = ?)",
-        (engagement_id, eng["project_class"]),
+        (*lp, engagement_id, eng["project_class"]),
     )
 
     lines = [
@@ -107,17 +120,33 @@ def generate_handoff(engagement_id: int, *, actor: str = "system") -> dict:
     path.write_text(markdown)
 
     aid = db.execute(
-        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (engagement_id, "handoff", f"Handoff — {name}", str(path), actor, db.now()),
+        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            engagement_id,
+            "handoff",
+            f"Handoff — {name}",
+            str(path),
+            actor,
+            db.now(),
+            eng["visibility"],
+            eng["crew_id"],
+        ),
     )
     db.log_activity(actor, "generate_handoff", f"engagement #{engagement_id} -> artifact #{aid}")
     return {"artifact_id": aid, "path": str(path), "markdown": markdown}
 
 
-def list_artifacts(engagement_id: int = 0) -> list[dict]:
+def list_artifacts(engagement_id: int = 0, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    # a row here carries a PATH to a markdown file holding the engagement's
+    # work — generate_handoff tags it with that engagement's tier
+    frag, vp = scope.visible_filter(viewer, "artifacts")
     if engagement_id:
         return db.query(
-            "SELECT * FROM artifacts WHERE engagement_id = ? ORDER BY id DESC", (engagement_id,)
+            f"SELECT * FROM artifacts WHERE engagement_id = ? AND {frag} ORDER BY id DESC",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (engagement_id, *vp),
         )
-    return db.query("SELECT * FROM artifacts ORDER BY id DESC LIMIT 50")
+    return db.query(
+        f"SELECT * FROM artifacts WHERE {frag} ORDER BY id DESC LIMIT 50",  # noqa: S608 — scope.visible_filter emits only bound marks
+        tuple(vp),
+    )

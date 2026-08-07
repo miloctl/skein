@@ -486,7 +486,6 @@ _UNFILTERED_READS = {
     "engagements.py::list_allocations": "allocations rows — the table is UNSCOPED",
     "usage.py::engagement_costs": "token spend per engagement id",
     "portfolio.py::allocation_conflicts": "SUM(percent) per person",
-    "insights.py::_resolve_hours": "hours between two timestamps",
     # --- the row's OWN reader: this is the person or agent the row is for ---
     "delegation.py::agent_inbox": (
         "one agent's own delegated tasks and assigned questions. Nothing hands"
@@ -521,10 +520,6 @@ _UNFILTERED_READS = {
     "collab.py::sweep_stale_decisions": "same rule, same two gates inside",
     "digest.py::publish_digest": "upserts its own artifact row, keyed on the file path",
     "rituals.py::_write_artifact": "same",
-    "handoff.py::list_artifacts": (
-        "artifacts is CLASSIFIED for uniformity but no writer sets a tier on"
-        " one — every row is written by a job. It gains a filter with a writer."
-    ),
     # --- deliberate carve-outs, argued where the code lives ---
     "absences.py::away_today": "capacity must be honest — see the comment there",
     "absences.py::weekday_overlap": "same",
@@ -550,7 +545,8 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
     reads = re.compile(rf"\b(?:FROM|JOIN)\s+(?:{tables})\b", re.I)
     services = pathlib.Path(__file__).resolve().parent.parent / "app" / "services"
     assert services.is_dir(), services
-    unfiltered, seen = [], set()
+    unfiltered: list[str] = []
+    still_needed: set[str] = set()
     for path in sorted(services.glob("*.py")):
         # NOT _EXEMPT_FILES: that set excuses digest.py and rituals.py from the
         # MUTATION scan, because their only writes are artifact upserts keyed
@@ -563,7 +559,6 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
             if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             key = f"{path.name}::{fn.name}"
-            seen.add(key)
             if not any(reads.search(_sql_text(n)) for n in ast.walk(fn)):
                 continue
             # a Name or an Attribute, not the rendered text: WORKSPACE_ONLY and
@@ -579,13 +574,19 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
                 continue
             if key not in _UNFILTERED_READS:
                 unfiltered.append(key)
+            still_needed.add(key)
     assert not unfiltered, (
         f"reads of a scoped table with no viewer and no WORKSPACE_ONLY: {unfiltered}."
         " Take a viewer, splice scope.WORKSPACE_ONLY, or add a written reason"
         " to _UNFILTERED_READS."
     )
-    assert not set(_UNFILTERED_READS) - seen, (
-        f"excused reads naming no function: {sorted(set(_UNFILTERED_READS) - seen)}"
+    # An excuse for a read that IS filtered now is the same rot this test
+    # exists to catch, one level up: it reads as a live carve-out and the next
+    # author trusts it. list_artifacts and generate_handoff both sat here until
+    # they took a viewer.
+    assert not set(_UNFILTERED_READS) - still_needed, (
+        f"excuses no longer needed: {sorted(set(_UNFILTERED_READS) - still_needed)}."
+        " The function is filtered now, or it is gone. Delete the entry."
     )
 
 
@@ -645,3 +646,84 @@ def test_a_crew_pack_is_a_separate_artifact_file(fresh_db):
         p.name for p in (pathlib.Path(config.DATA_DIR) / "artifacts" / "context-pack").glob("*")
     }
     assert names == {"context-pack-v1.md", f"context-pack-crew{a}-v1.md"}
+
+
+def test_a_crew_member_can_open_the_pack_for_their_own_engagement(fresh_db):
+    """Locked to the workspace tier, a member saw their engagement in
+    GET /api/engagements and got "not found" asking for its pack — a correct
+    refusal with a misleading sentence."""
+    from app.services import context_pack, crews, engagements
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    crews.add_member(cid, "bo", actor="ava")
+    eng = engagements.create_engagement("ZZCREWENGZZ", actor="ava", visibility="crew", crew_id=cid)
+    member, outsider = scope.Viewer("bo", True), scope.Viewer("cass", True)
+
+    assert "ZZCREWENGZZ" in context_pack.build_engagement_pack(eng["id"], member)
+    with pytest.raises(db.NotFound):
+        context_pack.build_engagement_pack(eng["id"], outsider)
+    # and a surface with no human behind it still reads the workspace tier
+    with pytest.raises(db.NotFound):
+        context_pack.build_engagement_pack(eng["id"])
+
+
+def test_a_handoff_artifact_carries_its_engagements_tier(fresh_db):
+    """The row holds a PATH to a markdown file of the engagement's work, and
+    list_artifacts serves rows to everyone."""
+    from app.services import crews, engagements, handoff
+
+    users.ensure_user("ava")
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    eng = engagements.create_engagement("scoped", actor="ava", visibility="crew", crew_id=cid)
+    open_eng = engagements.create_engagement("open", actor="ava")
+    author = scope.Viewer("ava", True)
+    handoff.generate_handoff(eng["id"], actor="ava", viewer=author)
+    handoff.generate_handoff(open_eng["id"], actor="ava", viewer=author)
+
+    row = fresh_db.query_one(
+        "SELECT visibility, crew_id FROM artifacts WHERE title LIKE '%scoped%'"
+    )
+    assert row == {"visibility": "crew", "crew_id": cid}
+    titles = lambda v: sorted(a["title"] for a in handoff.list_artifacts(viewer=v))  # noqa: E731
+    assert titles(author) == ["Handoff — open", "Handoff — scoped"]
+    assert titles(scope.Viewer("bo", True)) == ["Handoff — open"]
+    assert titles(scope.NOBODY) == ["Handoff — open"]
+
+
+def _key(owner):
+    from app.services.api_keys import create_key
+
+    users.ensure_user(owner)
+    return {"Authorization": f"Bearer {create_key(owner, 'k')['key']}"}
+
+
+def test_a_milestone_and_an_event_take_a_tier_over_rest(client, fresh_db):
+    """Both services accepted one before any surface offered it. Neither has a
+    create form in this UI — REST, the CLI and the agent tools are the whole
+    surface."""
+    users.ensure_user("ava")
+    from app.services import crews
+
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    ava = _key("ava")
+    client.post(
+        "/api/milestones",
+        json={"title": "scoped milestone", "visibility": "crew", "crew_id": cid},
+        headers=ava,
+    )
+    client.post(
+        "/api/events",
+        json={
+            "title": "scoped event",
+            "starts_at": "2026-12-01T10:00",
+            "visibility": "private",
+        },
+        headers=ava,
+    )
+    assert fresh_db.query_one("SELECT visibility, crew_id FROM milestones") == {
+        "visibility": "crew",
+        "crew_id": cid,
+    }
+    assert fresh_db.query_one("SELECT visibility FROM events") == {"visibility": "private"}

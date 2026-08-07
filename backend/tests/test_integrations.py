@@ -28,7 +28,10 @@ def test_notification_tiers(fresh_db, monkeypatch):
     flushed = notifications.flush_digest_tier()
     assert flushed["flushed"] == 1
     assert len(posts) == 2  # digest batch posted
-    assert "later thing" in posts[1]
+    # a COUNT, never the message: the batch goes to ONE shared channel, so a
+    # body addressed to one person lands in front of everybody
+    assert "later thing" not in posts[1]
+    assert posts[1] == "Skein digest — 1 for ava. Open Skein to read it."
 
     notifications.mark_read("ava")
     assert notifications.list_notifications("ava") == []
@@ -227,3 +230,22 @@ def test_a_shutdown_mid_connect_is_not_resurrected(fresh_db, monkeypatch):
     assert m.mcp_tools() == []
     assert closed == [stale]  # the orphaned session was closed, not leaked
     assert m._tools is None  # nothing published
+
+
+def test_the_slack_digest_carries_no_message_body(fresh_db, monkeypatch):
+    """One channel, N audiences. Every notify() addresses somebody who can
+    read the row it quotes, but this batch posts them together — so a crew
+    row's title addressed to one member would land in front of the roster.
+    `notifications` has no tier to filter on, so nothing is carried at all."""
+    from app.services import notifications
+
+    posts: list[str] = []
+    monkeypatch.setattr(notifications, "_post_slack", posts.append)
+    notifications.notify("ava", "ZZSECRETZZ vendor terms", tier="digest")
+    notifications.notify("bo", "ZZSECRETZZ vendor terms", tier="digest")
+    notifications.notify("bo", "another", tier="digest")
+    notifications.flush_digest_tier()
+
+    assert len(posts) == 1
+    assert "ZZSECRETZZ" not in posts[0]
+    assert posts[0] == "Skein digest — 1 for ava, 2 for bo. Open Skein to read them."
