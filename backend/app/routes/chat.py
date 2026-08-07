@@ -679,18 +679,21 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     # of a person and stays ordinary prose (services/users.py::ensure_user
     # refuses a human holding a bench slug, so one token never means both).
     if stripped.startswith("@"):
-        head, _, rest = stripped.partition(" ")
-        slug = head[1:].lower().rstrip("._-")
-        if rest.strip():
-            try:
-                # the same resolve the /as branch runs, deliberately: a second
-                # way to decide "is this a bench persona" is a second way to
-                # disagree with it
-                await run_in_threadpool(personas.get_persona, slug)
-                stripped = f"/as {slug} {rest.strip()}"
-                message = stripped
-            except ValueError:
-                pass  # not a bench slug — an ordinary message that names someone
+        # split(), not partition(" "): a newline after the slug is an ordinary
+        # composer message (shift-Enter), and partition cannot see one. The
+        # trailing punctuation goes the way _MENTION's does, so
+        # "@growth-mentor, how do I..." invokes rather than warning that the
+        # specialist was not notified.
+        parts = stripped.split(maxsplit=1)
+        slug = parts[0][1:].lower().rstrip("._-,;:!?")
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        # bench_slugs() globs; get_persona() parses every persona file to build
+        # its error string. Without this pre-check the commonest @ message in
+        # the product — "@mira can you look" — paid a full bench parse to
+        # produce a message nobody reads.
+        if rest and slug in await run_in_threadpool(personas.bench_slugs):
+            stripped = f"/as {slug} {rest}"
+            message = stripped
     if stripped.lower().split(maxsplit=1)[:1] == ["/as"]:
         parts = stripped.split(maxsplit=2)
         if len(parts) < 3:
@@ -1029,7 +1032,7 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             else:
                 # only when `note` did not fire: on "todo: ask @mira ..." that
                 # filed nothing, both are true and the second adds no fact
-                miss = await run_in_threadpool(turn_guard.unnotified, message, wrote, persona)
+                miss = await run_in_threadpool(turn_guard.unnotified, message, wrote, user, persona)
                 if miss:
                     transcript.append(_receipt_line(miss))
                     yield _sse({"type": "receipt", **miss})

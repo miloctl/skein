@@ -31,6 +31,10 @@ def _read_chat(client, message, thread):
         return resp.read().decode()
 
 
+def _last_saved(client, thread):
+    return client.get(f"/api/chats/{thread}/messages").json()[-1]["content"]
+
+
 def _unread(fresh_db, person):
     rows = fresh_db.query(
         "SELECT message FROM notifications WHERE user = ? AND read_at IS NULL", (person,)
@@ -61,15 +65,48 @@ def test_a_turn_that_wrote_something_stays_quiet(client):
 
 
 def test_an_unknown_name_is_not_warned_about(client):
-    # only roster names resolve, so a stray @word must not produce a receipt
-    assert turn_guard.unnotified("email me @ noon", wrote=False) is None
+    # a real token that reaches the roster and misses — "@ noon" never becomes
+    # a token at all, so it would pass without the roster lookup ever running
+    assert turn_guard.unnotified("ping @nobody-on-this-roster", wrote=False) is None
+
+
+def test_a_self_mention_is_not_a_miss(client):
+    """scan drops the actor — a self-mention is not directed attention — so
+    reporting one tells the author to file something that notifies nobody."""
+    users.ensure_user("tester")
+    assert turn_guard.unnotified("remind @tester to check it", wrote=False, actor="tester") is None
+
+
+def test_a_mention_inside_code_is_not_a_mention(client):
+    """Chat is where shell and YAML get pasted. `curl -H "X-User: @mira"` is an
+    argument, and warning about it teaches the reader to distrust the receipt."""
+    users.ensure_user("mira")
+    fenced = 'why does this fail?\n```\ncurl -H "X-User: @mira" /api/x\n```'
+    assert turn_guard.unnotified(fenced, wrote=False) is None
+    assert turn_guard.unnotified("run `@mira` inline", wrote=False) is None
+
+
+def test_many_mentions_are_capped(client):
+    for n in ("aa", "bb", "cc", "dd", "ee"):
+        users.ensure_user(n)
+    note = turn_guard.unnotified("@aa @bb @cc @dd @ee", wrote=False)
+    assert note is not None
+    assert note["entity"] == "aa, bb, cc and 2 more"
 
 
 def test_the_invoked_persona_is_not_reported_unreached(client):
     """A leading @slug IS the delivery for that name — warning about it would
     contradict the answer the reader is looking at."""
     users.ensure_user("backend-architect", kind="agent")
-    assert turn_guard.unnotified("what breaks?", wrote=False, invoked="backend-architect") is None
+    # the message MUST contain the mention, or this passes with `invoked`
+    # deleted: names_in returns nothing and the guard is silent either way
+    assert turn_guard.unnotified("@backend-architect what breaks?", wrote=False) is not None
+    assert (
+        turn_guard.unnotified(
+            "@backend-architect what breaks?", wrote=False, invoked="backend-architect"
+        )
+        is None
+    )
 
 
 def test_a_silent_turn_reports_who_it_did_not_reach(client, monkeypatch):
@@ -105,10 +142,23 @@ def test_a_leading_at_person_is_not_an_invocation(client):
     turn rather than answering as a persona or refusing an unknown slug."""
     users.ensure_user("mira")
     out = _read_chat(client, "@mira please review the export job", thread="cm-4")
-    assert "is not defined" not in out
-    assert "Usage: `/as" not in out
+    # the real refusal string the bench emits — "is not defined" appears
+    # nowhere in the backend, so asserting its absence pinned nothing
+    assert "no persona" not in out
+    assert "Not notified" in _last_saved(client, "cm-4") or "wrote" in out.lower()
 
 
 def test_a_bare_at_slug_with_no_message_is_ordinary_text(client):
     out = _read_chat(client, "@growth-mentor", thread="cm-5")
     assert "Growth Mentor" not in out
+    # without this the test passes when the rewrite fires on an empty rest and
+    # the /as branch answers with its usage line, which also lacks the masthead
+    assert "Usage: `/as" not in out
+
+
+def test_punctuation_after_the_slug_still_invokes(client):
+    """A comma or a newline after the slug is ordinary composer typing, and
+    partition(" ") saw neither — the specialist was not invoked AND the guard
+    then warned that it had not been notified."""
+    assert "Growth Mentor" in _read_chat(client, "@growth-mentor, plan a goal?", thread="cm-6")
+    assert "Growth Mentor" in _read_chat(client, "@growth-mentor\nplan a goal?", thread="cm-7")

@@ -23,3 +23,25 @@ export function argQuery(
   if (!rosterNames.includes(cmd)) return null;
   return { cmd, token: hit[2].toLowerCase() };
 }
+
+/**
+ * The `@token` being typed at the end of the composer, and whether it opens
+ * the message. Null when the caret is not inside an @token.
+ *
+ * STRICTER than the backend on purpose. services/mentions.py excludes only
+ * `[a-z0-9]` before the `@`, so it matches `(@mira`; this needs whitespace.
+ * Erring narrow costs a picker that stays shut where a mention would still
+ * work; erring wide offers a name inside `root@scout`, which never matches.
+ *
+ * `atStart` decides whether bench personas are offered, because only a
+ * LEADING @slug invokes one (routes/chat.py rewrites it into the /as form).
+ * Offering a specialist mid-sentence would promise an answer that never comes.
+ */
+export function mentionQuery(
+  text: string,
+): { token: string; atStart: boolean } | null {
+  const hit = /(^|\s)@([a-z0-9._-]*)$/i.exec(text);
+  if (!hit) return null;
+  const before = text.slice(0, hit.index + hit[1].length);
+  return { token: hit[2].toLowerCase(), atStart: before.trim() === "" };
+}

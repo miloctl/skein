@@ -101,7 +101,10 @@ def test_the_derived_title_is_the_guard_that_pending_matches(client):
     _read_chat(client, "/as growth-mentor map out a learning goal", thread="tt-9")
     pending = chat_threads.pending_auto_title("tt-9", USER)
     assert pending is not None
-    assert pending[0] == chat_threads._title_from(pending[1])
+    # the LITERAL derived title, not _title_from() again: comparing the
+    # function against itself can never fail, and the hazard is that the
+    # derived shape changes while stored titles keep the old one
+    assert pending[0] == "map out a learning goal"
 
 
 @pytest.mark.parametrize(
@@ -158,23 +161,24 @@ def test_a_real_summary_reaches_the_sidebar(client, monkeypatch):
 
 
 def test_a_later_turn_builds_no_titler_at_all(client, monkeypatch):
-    """The cost bound is on the model call, not just on the write."""
+    """The cost bound is on the model CALL, not just on the write.
+
+    Counted, never raised: _summarize_title wraps its body in `except
+    Exception`, so a titler that raises is swallowed and the test passes with
+    the bound deleted."""
     _read_chat(client, "open the migration thread", thread="tt-13")
-
-    def _boom():
-        raise AssertionError("only the first turn of a thread may build a titler")
-
-    monkeypatch.setattr("app.routes.chat.build_titler", _boom)
+    calls: list[int] = []
+    monkeypatch.setattr("app.routes.chat.build_titler", lambda: calls.append(1))
     _read_chat(client, "and the rollback plan", thread="tt-13")
+    assert calls == []
 
 
 def test_a_command_turn_buys_no_model_call(client, monkeypatch):
     """Slash commands are deterministic for every provider: no agent, no
     tokens. A title summary on that path would be the one model call it costs."""
 
-    def _boom():
-        raise AssertionError("a slash command must not build a titler")
-
-    monkeypatch.setattr("app.routes.chat.build_titler", _boom)
+    calls: list[int] = []
+    monkeypatch.setattr("app.routes.chat.build_titler", lambda: calls.append(1))
     _read_chat(client, "/help", thread="tt-11")
+    assert calls == []
     assert _title(client, "tt-11") == "/help"
