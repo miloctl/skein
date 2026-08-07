@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   ThreadPrimitive,
@@ -8,11 +8,13 @@ import {
   ComposerPrimitive,
   useComposer,
   useComposerRuntime,
+  unstable_useComposerInputHistory,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { api } from "@/lib/api";
+import { argQuery, mentionQuery, type ArgItem } from "@/lib/slash";
 import {
   findPersona,
   getActivePersona,
@@ -52,7 +54,16 @@ const SUGGESTIONS = [
   "/briefing",
 ];
 
-type SlashCommand = { name: string; args: string; description: string };
+type SlashCommand = {
+  name: string;
+  args: string;
+  description: string;
+  // set only on @mention rows: the roster name to splice at the @token, and
+  // the section it is listed under. A pick with `mention` never rewrites the
+  // whole composer the way a command pick does — the @ sits mid-sentence.
+  mention?: string;
+  group?: string;
+};
 
 // shipped set as a fallback so autocomplete works even if the catalog
 // fetch fails; the backend response replaces it and is the source of truth
@@ -98,7 +109,7 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
   },
 ];
 
-// Promise-cached for the life of the page: both catalogs change only on a
+// Promise-cached for the life of the page: these catalogs change only on a
 // server restart, and RuntimeProvider's key={threadId} remounts the Composer
 // on every thread switch — uncached, each switch costs two requests. The
 // authConfig() shape (lib/auth.ts): a failed read is not cached, so the
@@ -127,13 +138,74 @@ function personaList(): Promise<Persona[]> {
   return personasCache;
 }
 
+// The roster the @ picker lists under People. Agent rows share this table
+// (/as and /flock mint them), so the picker filters by kind rather than
+// showing every persona anyone has ever invoked — personaList() above is the
+// honest source for specialists.
+type Person = { name: string; kind: string };
+
+// the charset services/mentions.py::_MENTION can tokenize. A roster name is
+// free-form — ensure_user only strips and truncates — so "O'Brien" and "José"
+// are real names the picker used to offer: the apostrophe and the accent end
+// the token, the backend matches nobody, and the turn guard cannot report a
+// miss it never saw either. Filtering on spaces alone missed both.
+const MENTIONABLE = /^[a-z0-9][a-z0-9._-]*$/i;
+
+// Cached like the catalogs above, but the roster is NOT restart-stable: a
+// person who joins mid-session is not offered until the page reloads. The
+// picker missing a brand-new name costs one manual @type; a fetch per thread
+// switch costs a request on every switch, in every open tab.
+let peopleCache: Promise<Person[]> | null = null;
+function peopleList(): Promise<Person[]> {
+  if (!peopleCache) {
+    const attempt = api<Person[]>("/api/users").catch((e) => {
+      if (peopleCache === attempt) peopleCache = null;
+      throw e;
+    });
+    peopleCache = attempt;
+  }
+  return peopleCache;
+}
+
+// Only the fields the argument popup reads. /api/flocks also carries the
+// resolved member cards and the synthesis flag, which the composer never
+// shows — a flock is picked by slug here, not inspected.
+type Flock = { slug: string; description: string; emoji: string };
+
+let flocksCache: Promise<Flock[]> | null = null;
+function flockList(): Promise<Flock[]> {
+  if (!flocksCache) {
+    const attempt = api<Flock[]>("/api/flocks").catch((e) => {
+      if (flocksCache === attempt) flocksCache = null;
+      throw e;
+    });
+    flocksCache = attempt;
+  }
+  return flocksCache;
+}
+
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [flocks, setFlocks] = useState<Flock[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  // set while the person is walking input history, and NOT reset by resetKey
+  // below: a recalled slash command changes the token, so resetting it there
+  // would reopen the popup on the very entry that recall just produced
+  const [recalling, setRecalling] = useState(false);
+  // ArrowUp recalls this thread's own sent messages, newest first. History is
+  // derived from the thread runtime's message list, which is what isolates one
+  // chat from another's; runtime-provider.tsx's /messages import is what makes
+  // a reloaded thread recall anything at all. The library's own popover guard
+  // is inert here (this popup is hand-rolled, not Unstable_TriggerPopoverRoot).
+  // Two things then hold recall off: the hook's own "recall only from an empty
+  // draft" rule, and preventDefault below. Only preventDefault covers a walk
+  // already in progress, which is why `recalling` keeps the popup shut.
+  const inputHistory = unstable_useComposerInputHistory();
   const activePersona = useSyncExternalStore(
     subscribePersona,
     getActivePersona,
@@ -143,6 +215,12 @@ const Composer = () => {
   useEffect(() => {
     chatCommands()
       .then(setCommands)
+      .catch(() => {});
+    flockList()
+      .then(setFlocks)
+      .catch(() => {});
+    peopleList()
+      .then(setPeople)
       .catch(() => {});
     personaList()
       .then((list) => {
@@ -164,14 +242,21 @@ const Composer = () => {
       .catch(() => {});
   }, []);
 
-  // two popup modes: the command token ("/bri"), and the persona slug
-  // right after "/as " — the hard-to-recall half of the invocation
+  // two popup modes: the command token ("/bri"), and the slug argument right
+  // after a command that takes one — the hard-to-recall half of the
+  // invocation. A command absent from argRosters gets no argument popup.
+  const argRosters: Record<string, ArgItem[]> = { as: personas, flock: flocks };
   const cmdToken = /^\/[a-z]*$/i.test(text)
     ? text.slice(1).toLowerCase()
     : null;
-  const asToken =
-    /^\/as\s+([a-z0-9-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
-  const resetKey = asToken !== null ? `as:${asToken}` : cmdToken;
+  const arg = argQuery(text, Object.keys(argRosters));
+  const argRoster = arg ? argRosters[arg.cmd] : undefined;
+  const at = mentionQuery(text);
+  const resetKey = at
+    ? `@${at.atStart ? "^" : ""}${at.token}`
+    : arg
+      ? `${arg.cmd}:${arg.token}`
+      : cmdToken;
   const [prevToken, setPrevToken] = useState(resetKey);
   if (prevToken !== resetKey) {
     setPrevToken(resetKey);
@@ -179,14 +264,50 @@ const Composer = () => {
     setDismissed(false);
   }
 
-  const matches: SlashCommand[] =
-    asToken !== null
-      ? personas
-          .filter((p) => p.slug.startsWith(asToken))
+  const mentionRows: SlashCommand[] = !at
+    ? []
+    : [
+        // a name with a space cannot be written as one @token, so the backend
+        // can never match it (services/mentions.py). Suggesting one produces
+        // a mention that silently notifies nobody.
+        ...people
+          .filter(
+            (p) =>
+              p.kind !== "agent" &&
+              MENTIONABLE.test(p.name) &&
+              p.name.toLowerCase().startsWith(at.token),
+          )
           .map((p) => ({
-            name: `as ${p.slug}`,
+            name: p.name,
+            args: "",
+            description: "",
+            mention: p.name,
+            group: "People",
+          })),
+        // only at the start of the message: that is the only position that
+        // invokes one (lib/slash.ts::mentionQuery)
+        ...(at.atStart
+          ? personas
+              .filter((x) => x.slug.startsWith(at.token))
+              .map((x) => ({
+                name: x.slug,
+                args: "",
+                description: `${x.emoji} ${x.description}`,
+                mention: x.slug,
+                group: "Specialists",
+              }))
+          : []),
+      ];
+
+  const matches: SlashCommand[] = at
+    ? mentionRows
+    : argRoster && arg
+      ? argRoster
+          .filter((x) => x.slug.startsWith(arg.token))
+          .map((x) => ({
+            name: `${arg.cmd} ${x.slug}`,
             args: "<message>",
-            description: `${p.emoji} ${p.description}`,
+            description: `${x.emoji} ${x.description}`,
           }))
       : cmdToken === null
         ? []
@@ -201,16 +322,52 @@ const Composer = () => {
               (a, b) =>
                 Number(b.name === cmdToken) - Number(a.name === cmdToken),
             );
-  const open = !dismissed && matches.length > 0;
+  const open = !dismissed && !recalling && matches.length > 0;
   // one clamp for Enter, aria-selected and aria-activedescendant: filtering
   // can shrink matches below sel, and a raw sel then points activedescendant
   // at an id that is not in the DOM while Enter runs a different row
   const activeIdx = Math.min(sel, matches.length - 1);
   const active = matches[activeIdx];
+  // grouped for rendering, carrying the index into `matches` with each row:
+  // a per-section index would break `cmd-${i}` against aria-activedescendant
+  const sections: { group?: string; rows: { c: SlashCommand; i: number }[] }[] =
+    [];
+  matches.forEach((c, i) => {
+    const tail = sections[sections.length - 1];
+    if (tail && tail.group === c.group) tail.rows.push({ c, i });
+    else sections.push({ group: c.group, rows: [{ c, i }] });
+  });
+
+  // the listbox has its own scroller (max-h-72 below), so ArrowUp can walk the
+  // selection out of view — activedescendant moves, the row does not
+  useEffect(() => {
+    if (open)
+      document
+        .getElementById(`cmd-${activeIdx}`)
+        ?.scrollIntoView({ block: "nearest" });
+  }, [open, activeIdx]);
 
   const run = (c: SlashCommand) => {
-    if (c.name.startsWith("as ")) {
-      const p = findPersona(c.name.slice(3));
+    if (c.mention) {
+      // splice at the @token rather than replacing the composer: unlike a
+      // command, a mention sits inside a sentence still being written
+      // function replacer, so this stays correct if MENTIONABLE above is ever
+      // widened: `$&`, `$'` or `$1` in a name would expand as replacement
+      // patterns and splice the wrong text
+      composer.setText(
+        text.replace(
+          /(^|\s)@[a-z0-9._-]*$/i,
+          (_m, lead) => `${lead}@${c.mention} `,
+        ),
+      );
+      return;
+    }
+    // "/as <persona>" is the one roster pick that enters a MODE outliving the
+    // turn, so it activates the persona and empties the box. Every other one
+    // ("/flock <slug>") is per-turn and falls through to the c.args branch,
+    // which fills the slug and leaves the caret for the message.
+    if (arg?.cmd === "as") {
+      const p = findPersona(c.name.slice(arg.cmd.length + 1));
       if (p) {
         setActivePersona(p);
         composer.setText("");
@@ -226,12 +383,36 @@ const Composer = () => {
   };
 
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
-    if (!open) return;
+    // a MODIFIED arrow belongs to the textarea: Shift+Up extends a selection,
+    // Alt/Meta+Up jumps the caret. Swallowing those left a multi-line draft
+    // uneditable by keyboard, and let Shift+Up replace the whole draft from
+    // history.
+    const arrow =
+      (e.key === "ArrowUp" || e.key === "ArrowDown") &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      !e.ctrlKey;
+    // a bare modifier keydown is not typing, so it must not end a recall walk
+    const typing = !["Shift", "Control", "Alt", "Meta"].includes(e.key);
+    if (!arrow && typing && recalling) setRecalling(false);
+    if (!open) {
+      // The popup is closed, so this arrow belongs to input history on the
+      // Input below. Recall can land a bare slash command ("/briefing" is a
+      // shipped suggestion), which reopens this popup and would then swallow
+      // the NEXT arrow — leaving the person stuck on one entry with no way
+      // back to their draft. Staying closed until they type again is what
+      // keeps recall walking.
+      if (arrow) setRecalling(true);
+      return;
+    }
+    // preventDefault here also holds input history off: the recall handler on
+    // the Input yields to an already-prevented event, so an arrow that moves
+    // the popup selection must never also reach it.
+    if (arrow) e.preventDefault();
     if (e.key === "ArrowDown") {
-      e.preventDefault();
       setSel((s) => (s + 1) % matches.length);
     } else if (e.key === "ArrowUp") {
-      e.preventDefault();
       setSel((s) => (s - 1 + matches.length) % matches.length);
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -239,7 +420,11 @@ const Composer = () => {
       if (active) run(active);
     } else if (e.key === "Tab") {
       e.preventDefault();
-      if (active) composer.setText(`/${active.name}${active.args ? " " : ""}`);
+      // a mention completes the same way it is picked — "/name " would be a
+      // command that does not exist
+      if (active?.mention) run(active);
+      else if (active)
+        composer.setText(`/${active.name}${active.args ? " " : ""}`);
     } else if (e.key === "Escape") {
       e.stopPropagation();
       setDismissed(true);
@@ -249,44 +434,85 @@ const Composer = () => {
   return (
     <div className="relative" onKeyDownCapture={onKeyDownCapture}>
       {open && (
-        <div
-          id="cmd-list"
-          role="listbox"
-          aria-label="Commands"
-          className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-float"
-        >
-          <p className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
-            Commands — ↵ to run, tab to complete
+        <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-float">
+          {/* OUTSIDE the listbox: a paragraph is not a role a listbox may own,
+              and aria-activedescendant means a screen reader reads only the
+              active option — so the one line that teaches the keys reached
+              nobody. Spoken now through aria-describedby on the input. */}
+          <p
+            id="cmd-hint"
+            className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3"
+          >
+            {at
+              ? "Mentions — ↵ or tab to insert"
+              : "Commands — ↵ to run, tab to complete"}
           </p>
-          {matches.map((c, i) => (
-            <button
-              key={c.name}
-              id={`cmd-${i}`}
-              role="option"
-              aria-selected={i === activeIdx}
-              onMouseEnter={() => setSel(i)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => run(c)}
-              className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
-                i === sel ? "bg-thread/10" : ""
-              }`}
-            >
-              <code className="shrink-0 font-medium text-thread">
-                /{c.name}
-              </code>
-              {c.args && (
-                <code className="shrink-0 text-xs text-ink-3">{c.args}</code>
-              )}
-              <span className="truncate text-xs text-ink-3">
-                {c.description}
-              </span>
-              {i === sel && (
-                <kbd className="ml-auto shrink-0 rounded border border-line-strong px-1 font-mono text-[10px] text-ink-3">
-                  ↵
-                </kbd>
-              )}
-            </button>
-          ))}
+          {/* max-h + scroll, NOT the outer overflow-hidden alone: the popup is
+              anchored bottom-full above a sticky composer, so a roster longer
+              than the space above it put rows off the top of the window with
+              no way to reach them — measured at -106px on a 520px viewport,
+              while ArrowUp still walked the selection onto them. */}
+          <div
+            id="cmd-list"
+            role="listbox"
+            aria-label={at ? "Mentions" : "Commands"}
+            className="max-h-72 overflow-y-auto"
+          >
+            {sections.map((sec) => (
+              <div
+                key={sec.group ?? "flat"}
+                role={sec.group ? "group" : "presentation"}
+                aria-labelledby={sec.group ? `cmd-grp-${sec.group}` : undefined}
+              >
+                {/* a real group with a real label, not an aria-hidden heading
+                    plus aria-label on each row: aria-label REPLACES the
+                    accessible name, so a specialist row announced its section
+                    and dropped the description that is the whole row */}
+                {sec.group && (
+                  <p
+                    id={`cmd-grp-${sec.group}`}
+                    className="px-3 pb-0.5 pt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3"
+                  >
+                    {sec.group}
+                  </p>
+                )}
+                {sec.rows.map(({ c, i }) => (
+                  <button
+                    key={c.name}
+                    id={`cmd-${i}`}
+                    role="option"
+                    aria-selected={i === activeIdx}
+                    onMouseEnter={() => setSel(i)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => run(c)}
+                    className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
+                      i === activeIdx ? "bg-thread/10" : ""
+                    }`}
+                  >
+                    <code className="shrink-0 font-medium text-thread">
+                      {c.mention ? `@${c.name}` : `/${c.name}`}
+                    </code>
+                    {c.args && (
+                      <code className="shrink-0 text-xs text-ink-3">
+                        {c.args}
+                      </code>
+                    )}
+                    <span className="truncate text-xs text-ink-3">
+                      {c.description}
+                    </span>
+                    {i === activeIdx && (
+                      <kbd
+                        aria-hidden="true"
+                        className="ml-auto shrink-0 rounded border border-line-strong px-1 font-mono text-[10px] text-ink-3"
+                      >
+                        ↵
+                      </kbd>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {activePersona && (
@@ -310,10 +536,13 @@ const Composer = () => {
       )}
       <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
         <ComposerPrimitive.Input
+          {...inputHistory}
           name="message"
           role="combobox"
           aria-expanded={open}
           aria-controls={open ? "cmd-list" : undefined}
+          aria-describedby={open ? "cmd-hint" : undefined}
+          aria-autocomplete="list"
           aria-activedescendant={open ? `cmd-${activeIdx}` : undefined}
           autoFocus
           placeholder={

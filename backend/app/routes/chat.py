@@ -29,7 +29,7 @@ from ..agents.identity import (
     set_requester_identity,
     set_requester_viewer,
 )
-from ..agents.team_agent import build_agent, build_synthesizer
+from ..agents.team_agent import build_agent, build_synthesizer, build_titler
 from ..services import capture, chat_threads, fieldguide, flocks, personas
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
@@ -154,6 +154,7 @@ def _receipt_line(r: dict) -> str:
         "refused": f"refused: {r['entity']}",
         "failed": f"not written: {r['entity']}",
         "nothing": "nothing was filed",
+        "unnotified": f"not notified: {r['entity']}",
     }.get(r["kind"], r["kind"])
     return f"\n\n> **{label}** — {r['detail']}\n\n"
 
@@ -202,12 +203,84 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
             record_chat_usage(**row)
 
 
+# One tool-less completion that answers in 60 characters or less, and it runs
+# ON the critical path, so this budget is "how long may a finished answer sit
+# there with nothing rendering" — not MEMBER_TIMEOUT_S's 180 s default, which asks
+# how long a stalled provider may hold a connection nobody reads.
+_TITLE_TIMEOUT_S = 8.0
+
+
+async def _summarize_title(thread_id: str, user: str) -> None:
+    """Retitle a thread from its first message, with one model call.
+
+    Awaited INSIDE the stream, after _close_turn and before the done frame,
+    which is the whole reason it is not a background task. The client
+    refreshes the sidebar and the header off one `skein-chat-activity` event
+    fired when the reader loop ends (frontend/app/runtime-provider.tsx), and
+    a response body that terminates first wins that race every time: the
+    title was correct in the database and a second too late to be read.
+
+    Cost is the call's own latency, paid once per thread ever, at the moment
+    of LOWEST provider concurrency — every member and the merge have already
+    finished. A turn the reader stops mid-title forfeits the summary for good
+    (pending_auto_title then sees two user messages), which is the deliberate
+    trade: a title that shows up beats a nicer one nobody sees.
+
+    Silent to the reader, whose title already reads back their own first
+    line, and loud in the log for whoever runs the server.
+    """
+    try:
+        pending = await run_in_threadpool(chat_threads.pending_auto_title, thread_id, user)
+        if not pending:
+            return
+        previous, first = pending
+        titler = await run_in_threadpool(build_titler)
+        if titler is None:
+            return  # mock provider: the deterministic title stands
+        parts: list[str] = []
+        try:
+            async with asyncio.timeout(_TITLE_TIMEOUT_S):
+                async for event in titler.stream_async(first):
+                    if "data" in event:
+                        parts.append(event["data"])
+        finally:
+            # SPEND FIRST, and in a finally: a provider that stalls AFTER it
+            # read the input costs more than one that answers, so extracting
+            # on the success path only drops the most expensive rows there
+            # are. _run_member carries the same finally for the same reason.
+            row = _usage_row(titler, thread_id, agent_name="title")
+            if row:
+                with contextlib.suppress(Exception):
+                    await run_in_threadpool(record_chat_usage, **row)
+        await run_in_threadpool(
+            chat_threads.set_auto_title, thread_id, user, previous, "".join(parts)
+        )
+    except Exception:
+        # exc_info, not a bare line: a rotated key and a 25 s stall need
+        # different fixes, and this is the only place either one is visible
+        logging.getLogger("skein.chat").warning(
+            "thread title summary did not finish (thread=%s)", thread_id, exc_info=True
+        )
+
+
+# Kept out of _masthead because the merge input is built from _masthead(c):
+# a rule there is UI chrome the synthesizer is asked to reconcile. It still
+# reaches the saved transcript and the session bridge, like every other head.
+# Skipped above the FIRST member (_flock_stream) — nothing precedes it.
+_SECTION_RULE = "\n\n---"
+
+
 def _masthead(card: dict) -> str:
     """A flock section header. ALWAYS rendered, unlike the /as masthead that
     thread_contains dedups once per thread: here it is the delimiter between
-    two members' answers, so dropping it merges two voices into one block."""
+    two members' answers, so dropping it merges two voices into one block.
+
+    A heading, not bold text. The whole turn is ONE assistant bubble holding
+    every member, so the section break has to carry typographic weight that
+    `**` does not: `.prose-chat` in frontend/app/globals.css sizes h3 above
+    body text, and h2 above that for the merge."""
     vibe = f" — *{card['vibe']}*" if card.get("vibe") else ""
-    return f"\n\n{card['emoji']} **{card['name']}**{vibe}\n\n"
+    return f"\n\n### {card['emoji']} {card['name']}{vibe}\n\n"
 
 
 async def _run_member(card: dict, thread_id: str, user: str, message: str, out: asyncio.Queue):
@@ -436,7 +509,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         ]
         for card in cards:
             slug = card["slug"]
-            head = _masthead(card)
+            # no rule above the FIRST member: nothing precedes it to separate
+            # it from, and a bubble that opens on a horizontal line reads as a
+            # torn-off fragment of an earlier message
+            head = (_SECTION_RULE if transcript else "") + _masthead(card)
             transcript.append(head)
             model_parts.append(head)
             yield _sse({"type": "text", "text": head})
@@ -480,7 +556,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
             # optimistic "ok" would trace a 0 ms merge that never ran
             synth_entry = {"status": "cancelled", "ms": 0, "tokens_in": 0, "tokens_out": 0}
             started = time.monotonic()
-            head = f"\n\n{fdef['emoji']} **{fdef['name']}** — together\n\n"
+            # h2 against the members' h3: the merge sits OVER the sections
+            # above, and giving it their heading level renders the turn as
+            # N+1 peer voices with no visible seam where the merge starts
+            head = f"{_SECTION_RULE}\n\n## {fdef['emoji']} {fdef['name']} — together\n\n"
             transcript.append(head)
             model_parts.append(head)
             yield _sse({"type": "text", "text": head})
@@ -529,6 +608,10 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
                     if row:
                         usage_rows.append(row)
         await run_in_threadpool(_close_turn)
+        # before the done frame, never after: the client refreshes the sidebar
+        # and header when its reader loop ends, so a title written past that
+        # point is correct and unread until the next navigation
+        await _summarize_title(ui_thread, user)
     finally:
         # an unfinished member keeps running — and keeps filing proposals —
         # after the reader stops, so cancel before the close
@@ -590,6 +673,29 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     persona = ""
     message = req.message
     stripped = message.strip()
+    # A LEADING @slug invokes that bench persona for this ONE message. Rewritten
+    # into the /as form rather than given its own branch, so it takes the
+    # identical path below — persona session, identity, ensure_user, the fb:
+    # guard, gate — and
+    # cannot drift from it. Only a bench slug rewrites: `@mira ...` is a mention
+    # of a person and stays ordinary prose (services/users.py::ensure_user
+    # refuses a human holding a bench slug, so one token never means both).
+    if stripped.startswith("@"):
+        # split(), not partition(" "): a newline after the slug is an ordinary
+        # composer message (shift-Enter), and partition cannot see one. The
+        # trailing punctuation goes the way _MENTION's does, so
+        # "@growth-mentor, how do I..." invokes rather than warning that the
+        # specialist was not notified.
+        parts = stripped.split(maxsplit=1)
+        slug = parts[0][1:].lower().rstrip("._-,;:!?")
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        # bench_slugs() globs; get_persona() parses every persona file to build
+        # its error string. Without this pre-check the commonest @ message in
+        # the product — "@mira can you look" — paid a full bench parse to
+        # produce a message nobody reads.
+        if rest and slug in await run_in_threadpool(personas.bench_slugs):
+            stripped = f"/as {slug} {rest}"
+            message = stripped
     if stripped.lower().split(maxsplit=1)[:1] == ["/as"]:
         parts = stripped.split(maxsplit=2)
         if len(parts) < 3:
@@ -772,6 +878,13 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 _close_turn()
             yield _sse({"type": "done"})
 
+        # NOT titled, unlike the two model-running responses below. The
+        # comment above this dispatcher is the reason: a slash command is
+        # deterministic for every provider, no agent and no tokens. Summarize
+        # here and "/help" on a fresh thread buys a model call, on the one
+        # path built to never need one. The refusal streams above (a usage
+        # string, a slug clash, an fb: guard) are untitled for the same
+        # reason — they log the message and run nothing.
         return StreamingResponse(command_stream(), media_type="text/event-stream")
 
     if flock_def:
@@ -918,9 +1031,21 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             if note:
                 transcript.append(_receipt_line(note))
                 yield _sse({"type": "receipt", **note})
-            elif filed and capture.PREFIX.match(message):
+            else:
+                # only when `note` did not fire: on "todo: ask @mira ..." that
+                # filed nothing both fire, and this one's detail tells the
+                # author to use the capture prefix they already typed
+                miss = await run_in_threadpool(turn_guard.unnotified, message, wrote, user, persona)
+                if miss:
+                    transcript.append(_receipt_line(miss))
+                    yield _sse({"type": "receipt", **miss})
+            if not note and filed and capture.PREFIX.match(message):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
             await run_in_threadpool(_close_turn)
+            # before the done frame, never after: the client refreshes the
+            # sidebar and header when its reader loop ends, so a title written
+            # past that point is correct and unread until the next navigation
+            await _summarize_title(ui_thread, user)
         except Exception as exc:  # surface model/config errors to the UI
             logging.getLogger("skein.chat").exception(
                 "chat stream failed (thread=%s user=%s)", thread_id, user

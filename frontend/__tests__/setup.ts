@@ -25,6 +25,13 @@ if (typeof window.localStorage?.getItem !== "function") {
   );
 }
 
+// jsdom implements no scrolling at all. assistant-ui's viewport calls
+// scrollTo, and the composer popup calls scrollIntoView to keep the selected
+// row inside its scroller — unstubbed, a component that scrolls throws where
+// a browser would simply scroll.
+Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.scrollTo ??= () => {};
+
 // localStorage and sessionStorage carry identity (the picked user, the pasted
 // API key, the OIDC token) and the once-per-session wave. Left dirty, one
 // test signs in the next one.

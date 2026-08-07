@@ -75,7 +75,14 @@ export function outgoing(text: string): string {
     if (p) setActivePersona(p); // unknown slugs pass through; backend explains
     return text;
   }
-  if (text.trimStart().startsWith("/")) return text; // commands stay unprefixed
+  // "@" as well as "/": a leading @slug invokes one specialist for one message
+  // (routes/chat.py rewrites it into the /as form), and prefixed with the
+  // sticky persona it never reaches that rewrite — the picker offered
+  // "Specialists → growth-mentor" and the message went to whoever was sticky.
+  // Deliberately EVERY leading @, not only a bench slug: this runs before the
+  // send, where a person and a specialist are indistinguishable. "@mira ..."
+  // losing the sticky persona for one turn is the cheaper wrong answer.
+  if (/^[/@]/.test(text.trimStart())) return text; // commands stay unprefixed
   if (current) return `/as ${current.slug} ${text}`;
   return text;
 }
