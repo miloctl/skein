@@ -104,7 +104,12 @@ def apply_plan(
         except ValueError:
             skipped.append(int(tid))
     if not committed:
-        raise ValueError("every task in the plan is gone — draft the week again from current tasks")
+        # "could not be committed", not "is gone": scope.missing gives the
+        # absent row and the unreadable row one sentence on purpose, so this
+        # cannot tell them apart — and it must not claim the deletion.
+        raise ValueError(
+            "no task in the plan could be committed — draft the week again from current tasks"
+        )
     db.log_activity(
         actor,
         "apply_weekly_plan",
