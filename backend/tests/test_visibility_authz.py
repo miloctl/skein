@@ -257,17 +257,84 @@ def test_a_scoped_blocker_gets_no_team_wide_funeral(fresh_db):
 
 def _sql_text(node) -> str:
     """The literal text of one AST node, with every f-string hole rendered as
-    `{}`. Walking bare Constants instead splits `f"DELETE FROM {t} WHERE ..."`
-    into "DELETE FROM " and " WHERE ...", so the table name vanishes and the
-    statement matches nothing — the exact shape that would slip past."""
+    `{the source expression}`.
+
+    Walking bare Constants instead splits `f"DELETE FROM {t} WHERE ..."` into
+    "DELETE FROM " and " WHERE ...", so the table name vanishes and the
+    statement matches nothing — the exact shape that would slip past.
+
+    The hole keeps its braces AND gains its expression, because the two scans
+    need different halves of it. The mutation scan matches `{` to catch a table
+    name it cannot resolve (`FROM {t}`). The read scan matches the expression
+    to tell a spliced tier filter (`WHERE {WORKSPACE_ONLY}`) from any other
+    interpolation — rendered as a bare `{}` the two are the same string, and
+    every filtered read looks exactly like every leaking one.
+
+    `+` concatenation is folded here too. Python merges ADJACENT literals at
+    parse time but not operands of `+`, so `"SELECT ... FROM " + "tasks"`
+    reaches this function as a BinOp whose halves each match nothing.
+    """
     if isinstance(node, ast.JoinedStr):
         return "".join(
-            v.value if isinstance(v, ast.Constant) and isinstance(v.value, str) else "{}"
+            v.value
+            if isinstance(v, ast.Constant) and isinstance(v.value, str)
+            else "{" + ast.unparse(v.value) + "}"
+            if isinstance(v, ast.FormattedValue)
+            else ""
             for v in node.values
         )
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _sql_text(node.left) + _sql_text(node.right)
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return ""
+
+
+def _statements(tree) -> list[tuple[str, str]]:
+    """Every string in a module, paired with the function that owns it.
+
+    Module-level SQL is owned by `<module>`. A scan that only walked
+    FunctionDef bodies read `portfolio._WAIT_SATISFIED` — three SELECTs held
+    in a module constant and spliced into queries below — as zero SQL, so a
+    leak parked in a constant was invisible to both scans.
+
+    A nested function is owned by its OUTERMOST enclosing function, because
+    that is the name an exemption key has to spell. ast.walk is breadth-first,
+    so the outer FunctionDef claims the node before any inner one reaches it.
+    """
+    owner: dict[int, str] = {}
+    # a docstring is prose, never a query. Skipped by IDENTITY rather than by
+    # content: the docstrings worth writing here are the ones that quote the
+    # leaking shape they forbid, so matching on the text would silence exactly
+    # the explanations this codebase asks for.
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        first = node.body[0] if node.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            docstrings.add(id(first.value))
+    for fn in ast.walk(tree):
+        if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+            for n in ast.walk(fn):
+                owner.setdefault(id(n), fn.name)
+    # a rendered node consumes its own children: the Constant halves of
+    # `f"SELECT * FROM tasks WHERE {frag}"` are "SELECT * FROM tasks WHERE "
+    # and "", so scanning them SEPARATELY reports the table with its filter
+    # torn off, and every correctly filtered read fails. ast.walk is
+    # breadth-first, so the whole node is always reached before its pieces.
+    consumed: set[int] = set()
+    out = []
+    for n in ast.walk(tree):
+        if id(n) in consumed or id(n) in docstrings:
+            continue
+        sql = _sql_text(n)
+        if not sql:
+            continue
+        for child in ast.walk(n):
+            consumed.add(id(child))
+        out.append((owner.get(id(n), "<module>"), sql))
+    return out
 
 
 def test_every_id_addressed_mutation_is_listed(fresh_db):
@@ -284,7 +351,33 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
     # a bare {} too: `f"UPDATE {table} SET ..."` (the shape at users.py) names
     # no table here, and matching only literal names would wave it through
     names = "|".join(scope.CLASSIFIED)
+    # Three shapes, because SQLite writes a row three ways. UPDATE and DELETE
+    # were the only ones matched, so `INSERT OR REPLACE INTO tasks` (which
+    # deletes the row and re-inserts it) and `INSERT INTO tasks ... ON
+    # CONFLICT(id) DO UPDATE` both walked past. The upsert shape is already in
+    # this codebase — crews.add_member and search.index_record use it — so it
+    # is the one a next author reaches for by example.
     stmt = re.compile(rf"\b(?:UPDATE|DELETE FROM)(?:\s+OR\s+\w+)?\s+(?:{names}|\{{)", re.I)
+    # An upsert carries no WHERE at all, so the id gate below cannot apply to
+    # it — the row is addressed by the conflict target or by an explicit id
+    # column. Gated on `id` appearing somewhere in the statement, so an
+    # `ON CONFLICT(name)` upsert is not claimed as id-addressed.
+    upsert = re.compile(
+        rf"\bINSERT\s+OR\s+REPLACE\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bid\b"
+        rf"|\bINSERT\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bON\s+CONFLICT\b[\s\S]*?\bid\b"
+        rf"|\bINSERT\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bid\b[\s\S]*?\bON\s+CONFLICT\b",
+        re.I,
+    )
+    # "id-addressed" read off the SQL, not off the signature. The arg-name
+    # test (`endswith('_id')`) was a property of what the author called the
+    # parameter: `def edit(row: int)` with `UPDATE tasks ... WHERE id = ?`
+    # took a caller-supplied id and matched nothing.
+    # `\bid`, and only after WHERE. Any `*_id` column matched create_engagement's
+    # `UPDATE milestones SET engagement_id = ? WHERE project = ?` — a write keyed
+    # on a NAME, which is the one shape this test must not claim. A word
+    # boundary before `id` cannot match inside `engagement_id`, because the
+    # preceding underscore is a word character.
+    addressed = re.compile(r"\bWHERE\b[\s\S]*?\bid\s*(?:=\s*\?|IN\s*\()", re.I)
     missing = []
     seen: set[str] = set()
     # anchored on this file, not the CWD: `pytest backend/tests/...` from the
@@ -295,22 +388,18 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
         if path.name in _EXEMPT_FILES:
             continue
         tree = ast.parse(path.read_text())
-        for fn in [
-            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
-        ]:
-            args = fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
-            seen.add(f"{path.name}::{fn.name}")
-            # crew_id is the tier the WRITE sets, not a row the caller names
-            if not any(a.arg.endswith("_id") and a.arg != "crew_id" for a in args):
-                continue  # takes no row id from its caller
-            # per NODE, never joined: Python merges adjacent string literals
-            # into one Constant (or one JoinedStr) at parse time, so a whole
-            # statement is always a single node. Joining them instead let
-            # prose in one string ("... create or update") run into an f-string
-            # hole in another and match as `UPDATE {`.
-            hit = any(stmt.search(_sql_text(n)) for n in ast.walk(fn))
-            key = f"{path.name}::{fn.name}"
-            if hit and fn.name not in listed and key not in _EXEMPT_FUNCTIONS:
+        for fn in ast.walk(tree):
+            if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+                seen.add(f"{path.name}::{fn.name}")
+        # _statements, not a walk of FunctionDef bodies: SQL held in a module
+        # constant and spliced into a query below belongs to no function, and
+        # the body walk read it as zero SQL (portfolio._WAIT_SATISFIED is
+        # three real SELECTs that were invisible to both scans).
+        for fname, sql in _statements(tree):
+            if not (stmt.search(sql) and addressed.search(sql)) and not upsert.search(sql):
+                continue
+            key = f"{path.name}::{fname}"
+            if fname not in listed and key not in _EXEMPT_FUNCTIONS:
                 missing.append(key)
     assert not missing, (
         f"unlisted id-addressed mutations on a scoped table: {missing}."
@@ -481,24 +570,50 @@ _UNFILTERED_READS = {
     "pulse.py::blocker_speedrun": "resolution times by impact, no titles",
     "pulse.py::pulse": "season counters over the same aggregates",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
-    "engagements.py::capacity": "percent math over allocations",
-    "engagements.py::allocate": "percent math, and the overlap check it refuses on",
-    "engagements.py::list_allocations": "allocations rows — the table is UNSCOPED",
-    "usage.py::engagement_costs": "token spend per engagement id",
-    "portfolio.py::allocation_conflicts": "SUM(percent) per person",
-    # --- the row's OWN reader: this is the person or agent the row is for ---
-    "delegation.py::agent_inbox": (
-        "one agent's own delegated tasks and assigned questions. Nothing hands"
-        " an agent private work (assert_readable_by refuses a private assignee),"
-        " and a crew task delegated to an agent is work that agent must see."
+    "engagements.py::allocate": "reads the engagement it links to, to refuse a bad id",
+    "portfolio.py::flow_metrics": (
+        "cycle-time numbers and a per-person WIP count. No title, no id, and"
+        " the person is the allocation's own — same rule as pulse below."
     ),
+    "portfolio.py::slip_forecast": (
+        "the slip HISTORY: one julianday difference per done milestone, no"
+        " title and no id. The open-milestone list beside it is filtered."
+    ),
+    "portfolio.py::what_if": "SUM(percent) per person, to project capacity",
+    "portfolio.py::<module>": (
+        "_WAIT_SATISFIED asks whether ids the caller ALREADY holds have"
+        " cleared. It returns those same ids and no other column, and"
+        " slip_forecast now only ever hands it workspace ones."
+    ),
+    "insights.py::automation_ratio": "counts rows per month per origin, over `{t}`",
+    "fieldguide.py::<module>": (
+        "the knot probes: SELECT 1 ... WHERE <the reader's own name>. Each"
+        " answers 'have you done this yet' about the reader, and returns no"
+        " column from the row that proves it."
+    ),
+    # --- the row's OWN reader: this is the person or agent the row is for ---
     "review.py::_sponsor_of": "reads the one column that names who reviews it",
+    "review.py::_readable": (
+        "reads the tier columns to decide readability — the same shape as"
+        " search._tier_of, and filtering it would be circular"
+    ),
+    "blockers.py::resolve_blocker": (
+        "the tasks waiting on this blocker, to tell their assignees it cleared."
+        " An assignee is a name work.py:186 and work.py:348 already checked as"
+        " a reader (assert_readable_by), so the title goes to somebody who can"
+        " open it — the same rule sweep_escalations follows."
+    ),
+    "delegation.py::list_worklog": "reads the task id to refuse a bad one",
+    "search.py::_tier_of": "reads the tier itself — the thing every filter asks for",
+    "search.py::_authored_by": "same, for the author column CLASSIFIED names",
+    "search.py::_is_private": "same, and it is the guard that keeps a private row unindexed",
     # --- write paths: the SELECT feeds the guard, not a response ---
-    "work.py::create_task": "reads the milestone/engagement it links to, to refuse a bad id",
-    "work.py::create_milestone": "reads the engagement it links to, by name",
-    "promises.py::add_promise": "reads the engagement it links to, to refuse a bad id",
-    "blockers.py::raise_blocker": "reads the task it links to, to refuse a bad id",
+    "work.py::create_milestone": (
+        "resolves the engagement by NAME, not by id — there is no id to"
+        " enumerate, and a name the caller already knows is not a disclosure"
+    ),
     "engagements.py::create_engagement": "reads its own name, NOCASE, to refuse a duplicate",
+    "engagements.py::update_engagement": "same duplicate-name check, excluding itself",
     "engagements.py::record_lesson": "reads the engagement it links to, to refuse a bad id",
     "context_pack.py::_crew_section": "filters on `visibility = 'crew' AND crew_id = ?` itself",
     # --- keyed on a row the caller did not name ---
@@ -520,6 +635,7 @@ _UNFILTERED_READS = {
     "collab.py::sweep_stale_decisions": "same rule, same two gates inside",
     "digest.py::publish_digest": "upserts its own artifact row, keyed on the file path",
     "rituals.py::_write_artifact": "same",
+    "readout.py::exec_readout": "same — and its body is built from filtered readers",
     # --- deliberate carve-outs, argued where the code lives ---
     "absences.py::away_today": "capacity must be honest — see the comment there",
     "absences.py::weekday_overlap": "same",
@@ -542,7 +658,27 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
     import re
 
     tables = "|".join(scope.CLASSIFIED)
-    reads = re.compile(rf"\b(?:FROM|JOIN)\s+(?:{tables})\b", re.I)
+    # `|\{` for the same reason the mutation scan carries it: `FROM {t}` names
+    # no table here, and matching literal names only waves the whole shape past
+    reads = re.compile(rf"\b(?:FROM|JOIN)\s+(?:{tables}|\{{)", re.I)
+    # prose says "from" too. "Auto-extracted from {author}'s standup" matched
+    # `FROM {` and reported post_standup as an unfiltered read of every table.
+    # A false positive here costs more than a miss: it teaches the next author
+    # that an entry in _UNFILTERED_READS is the way to make this test quiet.
+    is_sql = re.compile(r"\b(?:SELECT|INSERT|UPDATE|DELETE)\b", re.I)
+    # the tier filter as it appears in SQL: the WORKSPACE_ONLY constant, a
+    # visible_filter call spliced inline, or the name a caller bound its
+    # fragment to. Bare `viewer` is NOT proof — a function can take the
+    # parameter and never use it, which is a leak that reads as filtered.
+    #
+    # visible_name counts, and it is the one entry here that MASKS rather than
+    # excludes: the rows all stay and one column is replaced. It is accepted
+    # because the capacity surfaces have to sum every tier to stay honest (see
+    # scope.visible_name). Reach for it only when the row's existence is
+    # already public and its NAME is the secret — on any other query it
+    # answers this scan while leaking every other column.
+    filtered = re.compile(r"\b(?:WORKSPACE_ONLY|visible_filter|visible_name)\b")
+    by_id = re.compile(r"\bWHERE\s+\w*\.?id\s*=\s*\?")
     services = pathlib.Path(__file__).resolve().parent.parent / "app" / "services"
     assert services.is_dir(), services
     unfiltered: list[str] = []
@@ -555,22 +691,65 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
         # export surface, gated on AdminUser and enumerated in admin.TABLES.
         if path.name == "admin.py":
             continue
-        for fn in ast.walk(ast.parse(path.read_text())):
+        tree = ast.parse(path.read_text())
+        # the names a tier fragment was bound to, per function. `frag, vp =
+        # scope.visible_filter(...)` and the dict comprehension in
+        # private_notes.one_on_one_brief both splice by NAME, so the statement
+        # reads `WHERE {frag}` and the call itself is nowhere in it.
+        bound: dict[str, set[str]] = {}
+        for fn in ast.walk(tree):
             if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
-            key = f"{path.name}::{fn.name}"
-            if not any(reads.search(_sql_text(n)) for n in ast.walk(fn)):
+            names: set[str] = set()
+
+            def carries(src: str, names: set[str] = names) -> bool:
+                return bool(filtered.search(src)) or any(re.search(rf"\b{n}\b", src) for n in names)
+
+            # to a fixpoint, because the fragment reaches the query through
+            # intermediates: list_decisions does `frag, vp = visible_filter(...)`
+            # and then `where, params = [frag], list(vp)`, so the statement
+            # splices `where` and the call appears nowhere near it. One hop is
+            # not enough — the second assignment names only the first.
+            changed = True
+            while changed:
+                changed = False
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Assign) and carries(ast.unparse(node.value)):
+                        for t in node.targets:
+                            new = {n.id for n in ast.walk(t) if isinstance(n, ast.Name)}
+                            if new - names:
+                                names |= new
+                                changed = True
+                    elif (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr in ("append", "extend", "add", "insert")
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id not in names
+                        and carries(" ".join(ast.unparse(a) for a in node.args))
+                    ):
+                        names.add(node.func.value.id)
+                        changed = True
+            bound.setdefault(fn.name, set()).update(names)
+        # a function that guards with assert_editable reads its row to feed the
+        # guard. That escape is per STATEMENT and only for a read keyed on the
+        # id the guard then checks — held at function level it excused every
+        # other query beside it, which is how the leaks got in.
+        guarded = {
+            fn.name
+            for fn in ast.walk(tree)
+            if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)
+            and "assert_editable" in {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
+        }
+        for fname, sql in _statements(tree):
+            if not reads.search(sql) or not is_sql.search(sql):
                 continue
-            # a Name or an Attribute, not the rendered text: WORKSPACE_ONLY and
-            # assert_editable are interpolations, so they render as `{}`
-            refs = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | {
-                n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)
-            }
-            if "WORKSPACE_ONLY" in refs or "assert_editable" in refs:
-                continue
-            if any(
-                a.arg == "viewer" for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+            key = f"{path.name}::{fname}"
+            if filtered.search(sql) or any(
+                re.search(rf"\b{n}\b", sql) for n in bound.get(fname, ())
             ):
+                continue
+            if fname in guarded and by_id.search(sql):
                 continue
             if key not in _UNFILTERED_READS:
                 unfiltered.append(key)
@@ -603,14 +782,23 @@ def test_a_crew_pack_carries_the_crew_rows_and_reaches_members_only(fresh_db):
     )
     collab.record_decision("open call", "y", decided_by="ava", actor="ava")
 
-    team = context_pack.get_pack(actor="ava")["content"]
-    crew_pack = context_pack.get_pack(actor="ava", crew_id=cid)["content"]
+    ava, bo = scope.Viewer("ava", True), scope.Viewer("bo", True)
+    team = context_pack.get_pack(actor="ava", viewer=ava)["content"]
+    crew_pack = context_pack.get_pack(actor="ava", crew_id=cid, viewer=ava)["content"]
     assert "ZZCREWZZ" not in team and "open call" in team
     assert "ZZCREWZZ" in crew_pack and "Platform only" in crew_pack
 
     # a non-member gets the same answer as somebody naming a crew that is gone
     with pytest.raises(db.NotFound):
-        context_pack.get_pack(actor="bo", crew_id=cid)
+        context_pack.get_pack(actor="bo", crew_id=cid, viewer=bo)
+
+    # and so does a member the server cannot identify. In trusted-header mode
+    # the name is whatever the caller typed, so gating on `actor` alone let a
+    # rewritten X-User header read any crew's decisions and conventions.
+    with pytest.raises(db.NotFound):
+        context_pack.get_pack(actor="ava", crew_id=cid, viewer=scope.Viewer("ava", False))
+    # the TEAM pack is workspace content and stays open to a weak caller
+    assert context_pack.get_pack(actor="ava", viewer=scope.NOBODY)["content"]
 
 
 def test_each_crew_versions_its_pack_independently(fresh_db):
@@ -621,9 +809,10 @@ def test_each_crew_versions_its_pack_independently(fresh_db):
     users.ensure_user("ava")
     a = crews.create_crew("Alpha", actor="ava")["id"]
     b = crews.create_crew("Beta", actor="ava")["id"]
-    assert context_pack.get_pack(actor="ava")["version"] == 1
-    assert context_pack.get_pack(actor="ava", crew_id=a)["version"] == 1
-    assert context_pack.get_pack(actor="ava", crew_id=b)["version"] == 1
+    ava = scope.Viewer("ava", True)
+    assert context_pack.get_pack(actor="ava", viewer=ava)["version"] == 1
+    assert context_pack.get_pack(actor="ava", crew_id=a, viewer=ava)["version"] == 1
+    assert context_pack.get_pack(actor="ava", crew_id=b, viewer=ava)["version"] == 1
     collab.record_decision("new", "x", decided_by="ava", actor="ava", visibility="crew", crew_id=a)
     assert context_pack.publish_pack(actor="ava", crew_id=a)["version"] == 2
     assert context_pack.latest_pack(b)["version"] == 1

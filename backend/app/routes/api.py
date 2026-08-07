@@ -206,8 +206,8 @@ def get_intake(user: CurrentUser, viewer: ViewerDep, status: str = ""):
 
 
 @router.get("/review")
-def get_review(user: CurrentUser, status: str = "pending"):
-    return review.list_changes(status)
+def get_review(user: CurrentUser, viewer: ViewerDep, status: str = "pending"):
+    return review.list_changes(status, viewer)
 
 
 @router.get("/engagements")
@@ -216,8 +216,8 @@ def get_engagements(user: CurrentUser, viewer: ViewerDep, status: str = ""):
 
 
 @router.get("/allocations")
-def get_allocations(user: CurrentUser, engagement_id: int = 0):
-    return engagements.list_allocations(engagement_id)
+def get_allocations(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
+    return engagements.list_allocations(engagement_id, viewer=viewer)
 
 
 @router.delete("/allocations/{allocation_id}")
@@ -265,8 +265,8 @@ def delete_absence(absence_id: int, user: CurrentUser):
 
 
 @router.get("/capacity")
-def get_capacity(user: CurrentUser):
-    return engagements.capacity()
+def get_capacity(user: CurrentUser, viewer: ViewerDep):
+    return engagements.capacity(viewer)
 
 
 @router.get("/lessons")
@@ -557,8 +557,8 @@ def post_key_request(user: CurrentUser):
 
 
 @router.get("/briefing")
-def get_briefing(user: CurrentUser):
-    return briefing.my_day(user)
+def get_briefing(user: CurrentUser, viewer: ViewerDep):
+    return briefing.my_day(user, viewer)
 
 
 @router.get("/attention")
@@ -646,8 +646,8 @@ def get_portfolio_health(user: CurrentUser, viewer: ViewerDep):
 
 
 @router.get("/portfolio/conflicts")
-def get_portfolio_conflicts(user: CurrentUser):
-    return portfolio.allocation_conflicts()
+def get_portfolio_conflicts(user: CurrentUser, viewer: ViewerDep):
+    return portfolio.allocation_conflicts(viewer)
 
 
 @router.get("/portfolio/flow")
@@ -672,8 +672,8 @@ class WhatIfIn(BaseModel):
 
 
 @router.post("/intake/{request_id}/what-if")
-def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser):
-    return portfolio.what_if(request_id, body.people, body.percent)
+def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser, viewer: ViewerDep):
+    return portfolio.what_if(request_id, body.people, body.percent, viewer)
 
 
 @router.get("/week")
@@ -949,10 +949,10 @@ def post_agents_authority(body: AuthorityIn, user: AdminUser):
 
 
 @router.get("/agents/{agent}/inbox")
-def get_agent_inbox(agent: str, user: CurrentUser):
+def get_agent_inbox(agent: str, user: CurrentUser, viewer: ViewerDep):
     if not users.is_agent(agent):
         raise HTTPException(status_code=404, detail=f"no agent named '{agent}'")
-    return delegation.agent_inbox(agent)
+    return delegation.agent_inbox(agent, viewer)
 
 
 class DelegateIn(BaseModel):
@@ -972,10 +972,7 @@ def get_context_pack(user: CurrentUser, viewer: ViewerDep, engagement: int = 0, 
             "engagement": engagement,
             "content": context_pack.build_engagement_pack(engagement, viewer),
         }
-    # StrongUser is NOT the bar here, unlike the scoped reads: a crew pack is
-    # gated on membership, which crews.crews_of resolves from the name the
-    # server already accepted for every other write on this router
-    return context_pack.get_pack(actor=user, crew_id=crew)
+    return context_pack.get_pack(actor=user, crew_id=crew, viewer=viewer)
 
 
 @router.post("/context-pack/publish")
@@ -1061,12 +1058,12 @@ def post_findings_run(user: CurrentUser):
 
 
 @router.get("/usage")
-def get_usage(user: CurrentUser):
+def get_usage(user: CurrentUser, viewer: ViewerDep):
     """Token and estimated-cost accounting. Costs are estimates from the
     operator's price table; unpriced_calls says how much each sum cannot see."""
     return {
         "models": usage.usage_summary(),
-        "engagements": usage.engagement_costs(),
+        "engagements": usage.engagement_costs(viewer=viewer),
         "month": usage.month_to_date(),
         "prices_error": config.MODEL_PRICES_ERROR,
     }
@@ -1438,8 +1435,8 @@ class BatchApproveIn(BaseModel):
 
 
 @router.get("/review/{change_id}/diff")
-def get_review_diff(change_id: int, user: CurrentUser):
-    return review.change_diff(change_id)
+def get_review_diff(change_id: int, user: CurrentUser, viewer: ViewerDep):
+    return review.change_diff(change_id, viewer)
 
 
 class SeenIn(BaseModel):

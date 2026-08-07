@@ -114,22 +114,29 @@ def list_absences(
 def away_today(kind: str = "pto") -> dict[str, str]:
     """{person: kind} for everyone with an absence window covering today.
     Only 'pto' zeroes capacity; oncall/focus are advisory context."""
-    # NO tier filter here, unlike list_absences above, and the same for
-    # weekday_overlap. These two feed capacity and the weekly draft, and a
-    # planner that cannot see a scoped absence staffs the person anyway —
-    # which surfaces the absence as a conflict instead of as a window. What
-    # the tier hides is the NOTE and the kind, which list_absences serves. A
-    # day that is unavailable cannot be hidden and stay honest.
+    # NO tier filter on the ROW, and the same for weekday_overlap. These two
+    # feed capacity and the weekly draft, and a planner that cannot see a
+    # scoped absence staffs the person anyway — which surfaces the absence as
+    # a conflict instead of as a window. A day that is unavailable cannot be
+    # hidden and stay honest.
+    #
+    # The KIND is a different question and it IS hidden. engagements.capacity
+    # puts this value on /api/capacity for the whole roster, so a private
+    # `focus` or `oncall` window announced itself by name. Scoped rows report
+    # "away": unavailability is the honest core, the reason is not. The
+    # precedence below still reads the REAL kind, so a private PTO day keeps
+    # outranking an advisory one and the capacity math does not move.
     today = db.now()[:10]
     rows = db.query(
-        "SELECT person, kind FROM absences WHERE starts_on <= ? AND ends_on >= ?",
+        "SELECT person, kind, visibility FROM absences WHERE starts_on <= ? AND ends_on >= ?",
         (today, today),
     )
     out: dict[str, str] = {}
     for r in rows:
+        shown = r["kind"] if r["visibility"] == scope.WORKSPACE else "away"
         # pto wins over advisory kinds when windows overlap
         if r["person"] not in out or (r["kind"] == kind and out[r["person"]] != kind):
-            out[r["person"]] = r["kind"]
+            out[r["person"]] = shown
     return out
 
 

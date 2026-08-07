@@ -31,7 +31,7 @@ from ..agents.team_agent import build_agent, build_synthesizer
 from ..services import capture, chat_threads, fieldguide, flocks, personas
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
-from .deps import CurrentUser
+from .deps import CurrentUser, ViewerDep
 
 router = APIRouter()
 
@@ -561,7 +561,7 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
 
 
 @router.post("/api/chat")
-async def chat(req: ChatRequest, user: CurrentUser):
+async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     # Sync work (SQLite reads, disk session restore, transcript writes) goes
     # through run_in_threadpool everywhere in this route: this coroutine and
     # its generators run on the event loop that carries every open SSE
@@ -685,7 +685,7 @@ async def chat(req: ChatRequest, user: CurrentUser):
     # tokens — same engine the mock agent and Slack use. The exchange is
     # still bridged into the model session afterwards (session_log) so a
     # follow-up question to the agent has the context.
-    command_events = commands.dispatch(message, user)
+    command_events = commands.dispatch(message, user, viewer)
     if command_events is not None:
 
         async def command_stream():

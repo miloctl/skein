@@ -10,6 +10,7 @@ rows went unpriced, so a sum is never mistaken for a total.
 from datetime import UTC, datetime
 
 from .. import config, db
+from . import scope
 
 
 def cost_for(model_id: str, input_tokens: int, output_tokens: int) -> float | None:
@@ -56,7 +57,9 @@ def usage_summary() -> list[dict]:
     )
 
 
-def engagement_costs(days: int = 30, since: str = "") -> list[dict]:
+def engagement_costs(
+    days: int = 30, since: str = "", viewer: "scope.Viewer | None" = None
+) -> list[dict]:
     """Spend per engagement over the window, via the thread link. Turns whose
     thread is unlinked (or predates the link) land in one honest 'unlinked'
     bucket instead of disappearing.
@@ -68,8 +71,14 @@ def engagement_costs(days: int = 30, since: str = "") -> list[dict]:
 
     if not since:
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
+    # `t.engagement_id IS NULL` first, and not scope.visible_name: the join is
+    # LEFT, so an unlinked turn has no engagement row at all, and every tier
+    # test against a NULL side is false — the mask would file every unlinked
+    # turn under "other work" and lose the honest bucket the docstring names.
+    frag, fp = scope.visible_filter(viewer or scope.NOBODY, "engagements", alias="e")
     return db.query(
-        "SELECT COALESCE(e.name, '(unlinked)') AS engagement,"
+        "SELECT CASE WHEN t.engagement_id IS NULL THEN '(unlinked)'"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHEN {frag} THEN e.name ELSE ? END AS engagement,"
         " t.engagement_id AS engagement_id,"
         " COUNT(*) AS calls,"
         " SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens,"
@@ -80,7 +89,7 @@ def engagement_costs(days: int = 30, since: str = "") -> list[dict]:
         " LEFT JOIN engagements e ON e.id = t.engagement_id"
         " WHERE u.created_at >= ?"
         " GROUP BY t.engagement_id ORDER BY cost_usd DESC NULLS LAST",
-        (since,),
+        (*fp, scope.OTHER_WORK, since),
     )
 
 

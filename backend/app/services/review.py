@@ -5,7 +5,7 @@ rest of the platform uses, stamped origin='agent_verified'."""
 import json
 
 from .. import db
-from . import lexicon
+from . import lexicon, scope
 
 
 def _registry() -> dict:
@@ -338,19 +338,31 @@ _DESTRUCTIVE_VIEW = {
 }
 
 
-def change_diff(change_id: int) -> dict:
+def change_diff(change_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     """Before/after view for update proposals: current row values for exactly
-    the fields the payload would change."""
+    the fields the payload would change.
+
+    Filtered on the TARGET row, not on the proposal. `pending_changes` carries
+    no tier of its own (scope.UNSCOPED) and this endpoint is CurrentUser, so
+    an unfiltered read here handed any reader the current body of a private
+    note or memory verbatim — _DESTRUCTIVE_VIEW renders `content` and `topic`
+    for exactly the two entities whose deletion always files a proposal.
+    A reader who cannot see the row gets no diff at all: the proposed half is
+    the payload, which for an edit holds the new body.
+    """
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
         raise db.NotFound(f"pending change #{change_id} not found")
     table = _DIFF_TABLES.get(change["entity"])
     if change["action"] != "update" or not table or not change["entity_id"]:
         return {"id": change_id, "diff": None}
+    frag, fp = scope.visible_filter(viewer, table) if table in scope.CLASSIFIED else ("1 = 1", [])
     row = db.query_one(
-        f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 — table from constant map
-        (change["entity_id"],),
+        f"SELECT * FROM {table} WHERE id = ? AND {frag}",  # noqa: S608 — table from constant map, and scope.visible_filter emits only bound marks
+        (change["entity_id"], *fp),
     )
+    if not row:
+        return {"id": change_id, "diff": None}
     payload = json.loads(change["payload"])
     doomed = _DESTRUCTIVE_VIEW.get(change["entity"])
     if doomed:
@@ -429,7 +441,54 @@ def review_stats() -> dict:
     }
 
 
-def list_changes(status: str = "pending") -> list[dict]:
+def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
+    """Drop proposals whose target row the viewer may not read.
+
+    `pending_changes` carries no tier of its own (scope.UNSCOPED) and this
+    list returns the whole row — `payload` parsed, and a `summary` that four
+    producers build out of the row's own text (delegation.submit_completion,
+    tools/collab.py::delete_note, tools/memory.py::forget,
+    tools/schedule.py::cancel_event). Served unfiltered to every CurrentUser,
+    the review queue is a full-text mirror of every scoped row somebody
+    proposed a change to.
+
+    Dropped, not blanked: a reviewer who cannot read the row cannot judge the
+    change, so a redacted entry is a verdict taken blind. The crew keeps
+    seeing its own.
+
+    An entity with no tier at all (weekly_plan, authority, playbook) stays —
+    those carry no row to be scoped by, and defaulting them out would empty
+    the queue the whole review flow runs on.
+
+    One query per TABLE, not per row: at LIMIT 200 the per-row shape put 200
+    round trips on /review and on every dashboard load through my_day.
+    """
+    want: dict[str, set[int]] = {}
+    for r in rows:
+        table = _DIFF_TABLES.get(r["entity"])
+        if table in scope.CLASSIFIED and r["entity_id"]:
+            want.setdefault(table, set()).add(r["entity_id"])
+    tiers: dict[tuple[str, int], tuple[str, int | None, str]] = {}
+    for table, ids in want.items():
+        marks = ", ".join("?" for _ in ids)
+        # the author column too: a private row is readable by whoever wrote
+        # it, and scope.CLASSIFIED is the only place that mapping lives
+        author = scope.CLASSIFIED[table]
+        for row in db.query(
+            f"SELECT id, visibility, crew_id, {author} AS author FROM {table} WHERE id IN ({marks})",  # noqa: S608 — table and column from constant maps, ids are bound marks
+            tuple(ids),
+        ):
+            tiers[table, row["id"]] = (row["visibility"], row["crew_id"], row["author"] or "")
+    out = []
+    for r in rows:
+        table = _DIFF_TABLES.get(r["entity"])
+        tier = tiers.get((table, r["entity_id"])) if table else None
+        if tier is None or scope.can_read(tier[0], tier[1], viewer, tier[2]):
+            out.append(r)
+    return out
+
+
+def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     if status:
         rows = db.query(
             "SELECT * FROM pending_changes WHERE status = ? ORDER BY id DESC LIMIT 200",
@@ -437,6 +496,7 @@ def list_changes(status: str = "pending") -> list[dict]:
         )
     else:
         rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")
+    rows = _readable(rows, viewer)
     for r in rows:
         r["payload"] = json.loads(r["payload"])
         # what this proposal is CALLED, resolved here so the header, the

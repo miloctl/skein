@@ -407,38 +407,49 @@ def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
     return {"id": allocation_id, "deleted": True}
 
 
-def list_allocations(engagement_id: int = 0, limit: int = 500) -> list[dict]:
+def list_allocations(
+    engagement_id: int = 0, limit: int = 500, viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
+    """An allocation is a person and a percent, and `allocations` carries no
+    tier of its own (scope.UNSCOPED). The engagement NAME it joins to does —
+    so the rows all stay and the name is masked (scope.visible_name)."""
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     if engagement_id:
         return db.query(
-            "SELECT a.*, e.name AS engagement FROM allocations a"
+            f"SELECT a.*, {name} AS engagement FROM allocations a"  # noqa: S608 — scope.visible_name emits only bound marks
             " JOIN engagements e ON e.id = a.engagement_id WHERE a.engagement_id = ?"
             " ORDER BY a.id DESC LIMIT ?",
-            (engagement_id, limit),
+            (*np, engagement_id, limit),
         )
     return db.query(
-        "SELECT a.*, e.name AS engagement FROM allocations a"
+        f"SELECT a.*, {name} AS engagement FROM allocations a"  # noqa: S608 — scope.visible_name emits only bound marks
         " JOIN engagements e ON e.id = a.engagement_id WHERE e.status != 'closed'"
         " ORDER BY a.id DESC LIMIT ?",
-        (limit,),
+        (*np, limit),
     )
 
 
-def capacity() -> list[dict]:
+def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """Total allocation per person across non-closed engagements; >100 =
     overcommitted. Window-aware like allocation_conflicts: rows whose date
     window excludes today don't count (capacity and conflicts must agree).
     Absence-aware: people away today carry an `away` marker so the math is
-    read with the right eyes (a PTO'd 80% is not 80%)."""
+    read with the right eyes (a PTO'd 80% is not 80%).
+
+    The percent sums over every tier and the NAME is masked per row — see
+    scope.visible_name for why the total must stay honest.
+    """
     today = db.now()[:10]
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     rows = db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent,"
-        " GROUP_CONCAT(e.name || ' (' || a.percent || '%)', ', ') AS detail"
+        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+        f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
         " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
         " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
         " GROUP BY a.person ORDER BY total_percent DESC",
-        (today, today),
+        (*np, today, today),
     )
     from .absences import away_today
 
