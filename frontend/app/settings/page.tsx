@@ -1373,7 +1373,7 @@ export default function SettingsPage() {
               Created automatically the first time an agent writes — the
               Chief-of-Staff and any bench persona someone has called with{" "}
               <code>/as</code>. Not teammates — they exist so every write stays
-              attributed. Deactivate one to retire the name — its history stays.
+              attributed. Deactivate one to take the name out of use — its history stays.
             </p>
             <ul className="space-y-1">
               {rosterRows(roster.filter((u) => u.kind === "agent"))}

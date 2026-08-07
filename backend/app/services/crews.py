@@ -1,8 +1,8 @@
 """Crews: durable groups of people.
 
-The membership a visibility tier reads (docs/VISIBILITY.md). Nothing here
-grants or restricts anything yet — until the tier columns land, a crew is a
-roster with a name, and `crews_of` is the one function the filter will call.
+The membership the visibility tier reads (docs/VISIBILITY.md).
+`crews_of` is what scope.Viewer resolves once per request, and
+`assert_writable` is what every write that names a crew_id checks.
 
 A crew is not an engagement. An engagement joins people to WORK: it reaches
 `closed`, allocates a percent, and carries a date window, so access built on
@@ -264,7 +264,7 @@ def add_member(
 def remove_member(crew_id: int, person: str, *, actor: str) -> dict:
     """Remove someone from the crew.
 
-    Once the tier lands this revokes their read access to every row scoped to
+    This revokes their read access to every row scoped to
     this crew, except the rows they authored themselves.
     """
     # the same resolution add_member applies, so removing `Ava` finds `ava`.

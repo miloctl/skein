@@ -1,9 +1,11 @@
-"""The visibility inventory, and the fragment the tier filter will emit.
+"""The visibility inventory, and the fragment the tier filter emits.
 
-Nothing calls visible_filter yet (docs/VISIBILITY.md phase 3). These tests
-exist now because the inventory is the part that rots: two of the three
+visible_filter has callers across app/services now. These tests are still
+about the INVENTORY, because that is the part that rots: two of the three
 enumerate-everything structures in this repository went stale in exactly the
-direction CI did not check.
+direction CI did not check. tests/test_visibility_authz.py covers the two
+directions this one does not — which mutations are guarded, and which reads
+are filtered.
 """
 
 import pytest
@@ -185,10 +187,12 @@ def test_an_unclassified_table_is_refused(fresh_db):
     authorization bypass (`id IS NOT NULL OR \'\'` returns every private row)
     and, worse, a silent misfilter: `notes` has `created_by` as well as
     `author`, so the wrong one compiled and hid a note from its own writer."""
+    # KeyError, not ValueError: app/main.py maps ValueError to 400, and the
+    # table is a literal at every call site — a miss is our bug, so a 500
     v = scope.Viewer("ava", True)
-    with pytest.raises(ValueError, match="carries no visibility tier"):
+    with pytest.raises(KeyError, match="carries no visibility tier"):
         scope.visible_filter(v, "users")
-    with pytest.raises(ValueError, match="carries no visibility tier"):
+    with pytest.raises(KeyError, match="carries no visibility tier"):
         scope.visible_filter(v, "id IS NOT NULL OR ''")
 
 

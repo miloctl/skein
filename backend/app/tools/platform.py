@@ -46,7 +46,7 @@ def resolve_blocker(blocker_id: int, resolution: str = "") -> str:
         blocker_id: ID of the blocker.
         resolution: How it was resolved.
     """
-    payload = {"resolution": resolution}
+    payload: dict[str, Any] = {"resolution": resolution}
     return gated_write(
         "blocker",
         "update",
@@ -81,7 +81,7 @@ def submit_intake_request(
         requester: Who is asking.
         project_class: prototype, incident, migration, or other class if known.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "title": title,
         "detail": detail,
         "requester": requester,
@@ -169,7 +169,7 @@ def start_engagement_from_playbook(
         lead: Who leads it.
         start_date: Start date YYYY-MM-DD (defaults to today).
     """
-    payload = {
+    payload: dict[str, Any] = {
         "slug": playbook_slug,
         "engagement_name": engagement_name,
         "lead": lead,
@@ -236,7 +236,9 @@ def edit_blocker(blocker_id: int, title: str = "", detail: str = "", owner: str 
         detail: Corrected detail ('-' to clear).
         owner: Corrected owner ('-' to clear).
     """
-    payload = {k: v for k, v in {"title": title, "detail": detail, "owner": owner}.items() if v}
+    payload: dict[str, Any] = {
+        k: v for k, v in {"title": title, "detail": detail, "owner": owner}.items() if v
+    }
     if not payload:
         return json.dumps({"error": "nothing to change — pass at least one field"})
     return gated_write(
@@ -261,7 +263,7 @@ def edit_intake_request(request_id: int, title: str = "", detail: str = "") -> s
         title: Corrected title.
         detail: Corrected detail ('-' to clear).
     """
-    payload = {k: v for k, v in {"title": title, "detail": detail}.items() if v}
+    payload: dict[str, Any] = {k: v for k, v in {"title": title, "detail": detail}.items() if v}
     if not payload:
         return json.dumps({"error": "nothing to change — pass title and/or detail"})
     return gated_write(
@@ -301,7 +303,7 @@ def update_engagement(
         timebox_end: New timebox end (YYYY-MM-DD) for experiments.
         kill_criteria: Updated kill criteria for experiments.
     """
-    payload = {
+    payload: dict[str, Any] = {
         k: v
         for k, v in {
             "status": status,

@@ -3,6 +3,7 @@
 import re
 
 from .. import db
+from . import scope
 from .search import index_record
 
 MILESTONE_STATUSES = ("planned", "in_progress", "blocked", "done")
@@ -20,6 +21,8 @@ def create_milestone(
     *,
     actor: str = "system",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not title.strip():
         raise ValueError("milestone title is required")
@@ -28,35 +31,45 @@ def create_milestone(
     # resolve the engagement link at write time — the name join is display
     # only, the id is what health/forecast/handoff trust
     eng = db.query_one("SELECT id FROM engagements WHERE name = ?", (project,))
-    mid = db.execute(
-        "INSERT INTO milestones (project, engagement_id, title, description, owner,"
-        " due_date, origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            project,
-            eng["id"] if eng else None,
-            title,
-            description,
-            owner,
-            due_date or None,
-            origin,
-            actor,
-            ts,
-            ts,
-        ),
-    )
-    if eng is None and project != "default":
-        from .notifications import notify
-
-        notify(
-            "team",
-            f"Milestone #{mid} '{title}' names project '{project}' but no engagement"
-            " matches — it will not count in health/forecast until you relink it.",
-            tier="digest",
-            link="/dashboard",
+    # the membership check belongs INSIDE the insert's transaction — bare, it
+    # opens its own connection, so a person removed from the crew between the
+    # check and the write still scopes the row (services/scope.py::resolve_write)
+    with db.transaction():
+        tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        mid = db.execute(
+            "INSERT INTO milestones (project, engagement_id, title, description, owner,"
+            " due_date, origin, created_by, created_at, updated_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                project,
+                eng["id"] if eng else None,
+                title,
+                description,
+                owner,
+                due_date or None,
+                origin,
+                actor,
+                ts,
+                ts,
+                tier,
+                crew,
+            ),
         )
-    db.log_activity(actor, "create_milestone", f"#{mid} {title}")
-    index_record("milestone", mid, title, f"{description} {project} {owner}")
+        # "team" is every person on the roster and the message quotes the
+        # title, so a scoped milestone tells nobody — its own list still shows
+        # the unlinked project to the people who can read it
+        if eng is None and project != "default" and tier == scope.WORKSPACE:
+            from .notifications import notify
+
+            notify(
+                "team",
+                f"Milestone #{mid} '{title}' names project '{project}' but no engagement"
+                " matches — it will not count in health/forecast until you relink it.",
+                tier="digest",
+                link="/dashboard",
+            )
+        db.log_activity(actor, "create_milestone", scope.detail(tier, f"#{mid}", title))
+        index_record("milestone", mid, title, f"{description} {project} {owner}")
     return {"id": mid, "title": title, "status": "planned"}
 
 
@@ -75,8 +88,10 @@ def update_milestone(
     if status and status not in MILESTONE_STATUSES:
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
     db.validate_date("due_date", due_date)
-    if not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
-        raise db.NotFound(f"milestone #{milestone_id} not found")
+    current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
+    if not current:
+        raise scope.missing("milestones", milestone_id)
+    scope.assert_editable("milestones", current, actor, verb="update")
     fields: dict[str, str | None] = {
         k: v
         for k, v in [
@@ -123,8 +138,14 @@ def update_milestone(
     return {"id": milestone_id, "updated": list(fields)}
 
 
-def list_milestones(project: str = "", status: str = "") -> list[dict]:
-    sql, params = "SELECT * FROM milestones WHERE 1=1", []
+def list_milestones(
+    project: str = "", status: str = "", viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "milestones")
+    sql, params = (
+        f"SELECT * FROM milestones WHERE {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        list(vp),
+    )
     if project:
         sql += " AND project = ?"
         params.append(project)
@@ -145,6 +166,8 @@ def create_task(
     *,
     actor: str = "system",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
@@ -158,26 +181,32 @@ def create_task(
     ):
         raise ValueError(f"engagement #{engagement_id} not found")
     ts = db.now()
-    tid = db.execute(
-        "INSERT INTO tasks (milestone_id, engagement_id, title, description, assignee,"
-        " priority, due_date, origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            milestone_id or None,
-            engagement_id or None,
-            title,
-            description,
-            assignee,
-            priority,
-            due_date or None,
-            origin,
-            actor,
-            ts,
-            ts,
-        ),
-    )
-    db.log_activity(actor, "create_task", f"#{tid} {title}")
-    index_record("task", tid, title, f"{description} {assignee}")
+    with db.transaction():
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+        scope.assert_readable_by(tier, cid, assignee, label="assignee", author=actor)
+        tid = db.execute(
+            "INSERT INTO tasks (milestone_id, engagement_id, title, description, assignee,"
+            " priority, due_date, origin, created_by, created_at, updated_at,"
+            " visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                milestone_id or None,
+                engagement_id or None,
+                title,
+                description,
+                assignee,
+                priority,
+                due_date or None,
+                origin,
+                actor,
+                ts,
+                ts,
+                tier,
+                cid,
+            ),
+        )
+        db.log_activity(actor, "create_task", scope.detail(tier, f"#{tid}", title))
+        index_record("task", tid, title, f"{description} {assignee}")
     from .mentions import scan
 
     # title too: a short `todo: ask @mira ...` capture lands entirely in the
@@ -240,9 +269,10 @@ def update_task(
         table = _WAITING_TABLES[kind]
         if not db.query_one(f"SELECT id FROM {table} WHERE id = ?", (waiting_id,)):  # noqa: S608
             raise ValueError(f"{kind} #{waiting_id} not found")
-    current = db.query_one("SELECT status, delegated_agent FROM tasks WHERE id = ?", (task_id,))
+    current = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not current:
-        raise db.NotFound(f"task #{task_id} not found")
+        raise scope.missing("tasks", task_id)
+    scope.assert_editable("tasks", current, actor, verb="update")
     # delegated work is closed by the sponsor's verdict, never by an agent
     # marking it done — otherwise submit_for_acceptance is a paper wall.
     #
@@ -311,6 +341,17 @@ def update_task(
         fields["completed_at"] = None
     # reassigning a delegated task away from its agent ends the delegation —
     # otherwise both parties see it as theirs
+    if assignee:
+        # the same check create_task makes: a reassignment reaches a name the
+        # original write never saw, and an assignee who cannot read the task
+        # is given work that does not exist for them
+        scope.assert_readable_by(
+            current["visibility"],
+            current["crew_id"],
+            assignee,
+            label="assignee",
+            author=current["created_by"],
+        )
     if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
         fields["delegated_agent"] = ""
         fields["sponsor"] = ""
@@ -336,19 +377,34 @@ def update_task(
     return {"id": task_id, "updated": list(fields)}
 
 
-def list_tasks_joined() -> list[dict]:
+def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """Browse listing: tasks with their milestone title, priority-ordered."""
+    # Two filters, two placements. `t` is the LEFT JOIN's driving side, so it
+    # belongs in WHERE. `m` is the nullable side and belongs in the ON clause —
+    # in WHERE it would drop every task with no milestone and turn the join
+    # INNER. Without the `m` filter this column served a private milestone's
+    # title beside a workspace task (weekly.week_view has the same pair).
+    frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
+    mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
     return db.query(
-        "SELECT t.*, m.title AS milestone_title FROM tasks t"
-        " LEFT JOIN milestones m ON m.id = t.milestone_id"
+        f"SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope fragment
+        f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
+        f" WHERE {frag}"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT 500"
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT 500",
+        (*mp, *vp),
     )
 
 
-def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> list[dict]:
-    sql = "SELECT * FROM tasks WHERE 1=1"
-    params: list[str | int] = []
+def list_tasks(
+    milestone_id: int = 0,
+    status: str = "",
+    assignee: str = "",
+    viewer: scope.Viewer = scope.NOBODY,
+) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "tasks")
+    sql = f"SELECT * FROM tasks WHERE {frag}"  # noqa: S608 — scope fragment
+    params: list[str | int] = list(vp)
     if milestone_id:
         sql += " AND milestone_id = ?"
         params.append(milestone_id)

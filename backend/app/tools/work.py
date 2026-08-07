@@ -28,7 +28,7 @@ def create_milestone(
         owner: Team member (human or agent) responsible.
         due_date: Target date in YYYY-MM-DD format, or empty if none.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "title": title,
         "description": description,
         "project": project,

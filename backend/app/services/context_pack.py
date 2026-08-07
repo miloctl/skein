@@ -8,10 +8,17 @@ import sqlite3
 from pathlib import Path
 
 from .. import config, db
+from .scope import WORKSPACE_ONLY
 
 
-def build_pack() -> str:
-    """Assemble the pack body. Pure read — same data in, same text out."""
+def build_pack(crew_id: int = 0) -> str:
+    """Assemble the pack body. Pure read — same data in, same text out.
+
+    The body is always the workspace tier, because a crew member reads the
+    workspace too. `crew_id` APPENDS that crew's own rows as a final section
+    rather than filtering the base, so the team pack stays a prefix of every
+    crew pack and a reader can tell which half is shared.
+    """
     from .portfolio import engagement_health
 
     lines = ["# Team context pack", ""]
@@ -41,7 +48,8 @@ def build_pack() -> str:
 
     lines.append("## Standing decisions (cite these; supersede, don't ignore)")
     decisions = db.query(
-        "SELECT * FROM decisions WHERE status = 'active' ORDER BY id DESC LIMIT 25"
+        f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id DESC LIMIT 25"
     )
     for d in decisions:
         line = f"- **{d['title']}** — {d['decision']}"
@@ -50,7 +58,10 @@ def build_pack() -> str:
         lines.append(line)
     if not decisions:
         lines.append("- none recorded")
-    stale = db.query("SELECT * FROM decisions WHERE status = 'stale' ORDER BY id DESC LIMIT 5")
+    stale = db.query(
+        f"SELECT * FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id DESC LIMIT 5"
+    )
     if stale:
         lines.append("")
         lines.append("Stale (past review-by — confirm before relying on):")
@@ -58,7 +69,9 @@ def build_pack() -> str:
     lines.append("")
 
     lines.append("## Lessons the team already paid for")
-    lessons = db.query("SELECT * FROM lessons ORDER BY id DESC LIMIT 15")
+    lessons = db.query(
+        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
     lines += [
         f"- [{les['project_class']}] {les['lesson']}"
         + (f" → {les['recommendation']}" if les["recommendation"] else "")
@@ -68,7 +81,8 @@ def build_pack() -> str:
 
     lines.append("## Conventions")
     conventions = db.query(
-        "SELECT * FROM notes WHERE topic LIKE 'convention%' ORDER BY id DESC LIMIT 15"
+        f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id DESC LIMIT 15"
     )
     lines += [f"- {n['topic']}: {n['content']}" for n in conventions] or [
         "- none recorded (save notes with topic 'convention: ...' to add)"
@@ -76,7 +90,10 @@ def build_pack() -> str:
     lines.append("")
 
     lines.append("## Open questions nobody has answered")
-    questions = db.query("SELECT * FROM questions WHERE status = 'open' ORDER BY id DESC LIMIT 10")
+    questions = db.query(
+        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id DESC LIMIT 10"
+    )
     lines += [f"- #{q['id']} {q['question']} (asked by {q['asked_by']})" for q in questions] or [
         "- none"
     ]
@@ -88,6 +105,8 @@ def build_pack() -> str:
         "- MCP server: `python -m app.mcp_server` (tools + this pack as a resource)",
         "- CLI: `skein capture|my-day|tasks|context`",
     ]
+    if crew_id:
+        lines += _crew_section(crew_id)
     return "\n".join(lines)
 
 
@@ -95,7 +114,14 @@ def build_engagement_pack(engagement_id: int) -> str:
     """Scoped pack for ONE engagement — what a delegated agent needs and
     nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
     on demand (unversioned; versioning is for the org-brain)."""
-    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    # the workspace tier only, matching context_packs in scope.UNSCOPED: this
+    # writes a markdown file and hands it to the model provider, and there is
+    # no viewer here to scope it to. NotFound, so a scoped engagement reads
+    # as absent rather than as refused.
+    eng = db.query_one(
+        f"SELECT * FROM engagements WHERE id = ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        (engagement_id,),
+    )
     if not eng:
         raise db.NotFound(f"engagement #{engagement_id} not found")
     lines = [
@@ -117,7 +143,8 @@ def build_engagement_pack(engagement_id: int) -> str:
         ]
     lines.append("## Milestones")
     milestones = db.query(
-        "SELECT * FROM milestones WHERE engagement_id = ? ORDER BY due_date IS NULL, due_date",
+        f"SELECT * FROM milestones WHERE engagement_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY due_date IS NULL, due_date",
         (engagement_id,),
     )
     lines += [
@@ -128,8 +155,8 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     lines.append("## Open tasks")
     tasks = db.query(
-        "SELECT t.* FROM tasks t"
-        " WHERE (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+        f"SELECT t.* FROM tasks t WHERE t.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND t.status != 'done'"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END",
@@ -155,8 +182,8 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     lines.append("## Lessons from this class")
     lessons = db.query(
-        "SELECT * FROM lessons WHERE engagement_id = ? OR project_class = ?"
-        " ORDER BY id DESC LIMIT 10",
+        f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
         (engagement_id, eng["project_class"]),
     )
     lines += [
@@ -166,21 +193,82 @@ def build_engagement_pack(engagement_id: int) -> str:
     lines.append("")
     lines.append("## Standing decisions that bind this work")
     decisions = db.query(
-        "SELECT * FROM decisions WHERE status = 'active' ORDER BY id DESC LIMIT 10"
+        f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id DESC LIMIT 10"
     )
     lines += [f"- **{d['title']}** — {d['decision']}" for d in decisions] or ["- none"]
     return "\n".join(lines)
 
 
-def latest_pack() -> dict | None:
-    return db.query_one("SELECT * FROM context_packs ORDER BY version DESC, id DESC LIMIT 1")
+def _crew_section(crew_id: int) -> list[str]:
+    """One crew's own rows, appended to the workspace body.
+
+    A crew pack is handed to an agent and written to disk, so it holds the
+    CREW tier and never the private one — private has no reader but its
+    author, and a pack has no author to be.
+    """
+    from . import crews
+
+    crew = crews.get_crew(crew_id)  # raises NotFound on an unknown id
+    scoped = "visibility = 'crew' AND crew_id = ?"
+    lines = ["", f"## {crew['name']} only", ""]
+    if crew["summary"]:
+        lines += [crew["summary"], ""]
+    for heading, sql, fmt in (
+        (
+            "Decisions",
+            f"SELECT * FROM decisions WHERE status = 'active' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            lambda r: f"- **{r['title']}** — {r['decision']}",
+        ),
+        (
+            "Conventions",
+            f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — same
+            lambda r: f"- {r['topic']}: {r['content']}",
+        ),
+        (
+            "Open questions",
+            f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — same
+            lambda r: f"- #{r['id']} {r['question']} (asked by {r['asked_by']})",
+        ),
+        (
+            "Open work",
+            f"SELECT * FROM tasks WHERE status != 'done' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — same
+            lambda r: (
+                f"- [{r['status']}] #{r['id']} {r['title']} (@{r['assignee'] or 'unassigned'})"
+            ),
+        ),
+    ):
+        rows = db.query(sql, (crew_id,))
+        lines += [f"### {heading}"] + ([fmt(r) for r in rows] or ["- none"]) + [""]
+    return lines
 
 
-def publish_pack(*, actor: str = "system") -> dict:
-    """Version the pack; no-op if nothing changed since the last version."""
-    body = build_pack()
+def latest_pack(crew_id: int = 0) -> dict | None:
+    # IFNULL, matching migration 005's index: the team pack stores crew_id NULL
+    # and `crew_id = 0` matches no row in SQL
+    return db.query_one(
+        "SELECT * FROM context_packs WHERE IFNULL(crew_id, 0) = ?"
+        " ORDER BY version DESC, id DESC LIMIT 1",
+        (crew_id,),
+    )
+
+
+def publish_pack(*, actor: str = "system", crew_id: int = 0) -> dict:
+    """Version the pack; no-op if nothing changed since the last version.
+
+    Each crew versions independently — v3 of the Platform pack has nothing to
+    do with v3 of the team pack, and a shared counter would bump every crew's
+    version whenever any one of them published.
+    """
+    if crew_id:
+        # membership, before the body is built: _crew_section reads the crew's
+        # own rows, and a non-member must not get them back in an error either
+        from . import crews
+
+        crews.assert_writable(crew_id, actor)
+    body = build_pack(crew_id)
     digest = hashlib.sha256(body.encode()).hexdigest()[:16]
-    last = latest_pack()
+    last = latest_pack(crew_id)
     if last and last["content_hash"] == digest:
         return {"version": last["version"], "hash": digest, "changed": False}
     version = (last["version"] + 1) if last else 1
@@ -191,31 +279,42 @@ def publish_pack(*, actor: str = "system") -> dict:
     )
     try:
         db.execute(
-            "INSERT INTO context_packs (version, content, content_hash, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (version, content, digest, actor, db.now()),
+            "INSERT INTO context_packs (version, content, content_hash, created_by,"
+            " created_at, crew_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (version, content, digest, actor, db.now(), crew_id or None),
         )
     except sqlite3.IntegrityError:
         # concurrent publisher won the version — serve theirs
-        last = latest_pack()
+        last = latest_pack(crew_id)
         if last is None:
             # ValueError → 400 via the global handler; RuntimeError was a 500
             raise ValueError("context pack vanished during concurrent publish — retry") from None
         return {"version": last["version"], "hash": last["content_hash"], "changed": False}
     pack_dir = Path(config.DATA_DIR) / "artifacts" / "context-pack"
     pack_dir.mkdir(parents=True, exist_ok=True)
-    path = pack_dir / f"context-pack-v{version}.md"
+    # the crew id is in the filename, not only the row: two crews at v3 would
+    # otherwise overwrite one file and the artifact would name the wrong pack
+    stem = f"crew{crew_id}-v{version}" if crew_id else f"v{version}"
+    path = pack_dir / f"context-pack-{stem}.md"
     path.write_text(content)
-    db.log_activity(actor, "publish_context_pack", f"v{version} ({digest})")
+    db.log_activity(actor, "publish_context_pack", f"{stem} ({digest})")
     return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 
 
-def get_pack(*, actor: str = "system") -> dict:
+def get_pack(*, actor: str = "system", crew_id: int = 0) -> dict:
     """Latest published pack, publishing v1 on first call."""
-    last = latest_pack()
+    if crew_id:
+        from . import crews
+
+        # membership, NOT assert_writable: that one also refuses a deactivated
+        # crew, and a retired crew's members must keep reading the pack they
+        # already have. NotFound, so a non-member cannot enumerate crew ids.
+        if crew_id not in crews.crews_of(actor):
+            raise db.NotFound(f"no context pack for crew #{crew_id}")
+    last = latest_pack(crew_id)
     if not last:
-        publish_pack(actor=actor)
-        last = latest_pack()
+        publish_pack(actor=actor, crew_id=crew_id)
+        last = latest_pack(crew_id)
         if last is None:
             raise ValueError("context pack publish produced no pack — retry")
     return {
@@ -223,4 +322,5 @@ def get_pack(*, actor: str = "system") -> dict:
         "hash": last["content_hash"],
         "created_at": last["created_at"],
         "content": last["content"],
+        "crew_id": last["crew_id"],
     }

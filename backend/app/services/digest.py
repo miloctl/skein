@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
+from .scope import WORKSPACE_ONLY
 from .slas import DIGEST_STALLED_DAYS
 
 
@@ -17,7 +18,8 @@ def _utc_today():
 def _stalled_tasks(days: int = DIGEST_STALLED_DAYS) -> list[dict]:
     cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     return db.query(
-        "SELECT * FROM tasks WHERE status = 'in_progress' AND updated_at < ?", (cutoff,)
+        f"SELECT * FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        (cutoff,),
     )
 
 
@@ -62,7 +64,7 @@ def build_digest() -> str:
             )
         lines.append("")
 
-    esc = db.query("SELECT * FROM blockers WHERE status = 'escalated'")
+    esc = db.query(f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}")  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
     if esc:
         lines.append("## ⛔ Escalated blockers")
         lines += [
@@ -78,7 +80,9 @@ def build_digest() -> str:
         lines += [f"- #{t['id']} {t['title']} (@{t['assignee'] or 'unassigned'})" for t in stalled]
         lines.append("")
 
-    open_q = db.query("SELECT * FROM questions WHERE status = 'open' ORDER BY id LIMIT 10")
+    open_q = db.query(
+        f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} ORDER BY id LIMIT 10"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+    )
     if open_q:
         lines.append("## ❓ Unanswered questions")
         lines += [
@@ -88,8 +92,8 @@ def build_digest() -> str:
 
     week = (_utc_today() + timedelta(days=7)).isoformat()
     due = db.query(
-        "SELECT * FROM milestones WHERE status != 'done' AND due_date IS NOT NULL"
-        " AND due_date <= ? ORDER BY due_date",
+        f"SELECT * FROM milestones WHERE status != 'done' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (week,),
     )
     if due:
@@ -99,7 +103,8 @@ def build_digest() -> str:
 
     pending = db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'")
     events = db.query(
-        "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
+        f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY starts_at",
         (today, (_utc_today() + timedelta(days=1)).isoformat()),
     )
     if _utc_today().weekday() == 0:  # Monday: the one-question pulse

@@ -3,8 +3,9 @@ No LLM required; an agent classifier can replace `classify` later behind the
 same interface."""
 
 import re
+from typing import Any
 
-from . import blockers, collab, promises, work
+from . import blockers, collab, promises, scope, work
 
 # explicit prefixes first, content heuristics second — a typed prefix always
 # wins ("req: blocked on X" is a request, not a blocker)
@@ -135,7 +136,13 @@ def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
 
 
 def capture(
-    text: str, *, actor: str = "system", origin: str = "human", strong_auth: bool = False
+    text: str,
+    *,
+    actor: str = "system",
+    origin: str = "human",
+    strong_auth: bool = False,
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     text = text.strip()
     if not text:
@@ -167,15 +174,20 @@ def capture(
         return {"kind": "feedback", **result}
     kind, _entity, _payload = plan(text, actor=actor)
     body = PREFIX.sub("", text).strip() or text
+    # one dict, splatted into all seven branches: the branches below are a
+    # hand-written mirror of plan()'s payloads, so a tier added to one and
+    # not the others would apply to some captured kinds and silently not
+    # to the rest
+    tier: dict[str, Any] = {"visibility": visibility, "crew_id": crew_id}
 
     if kind == "question":
         assignee, body = split_assignee(body)
         result = collab.ask_question(
-            body, asked_by=actor, assigned_to=assignee, actor=actor, origin=origin
+            body, asked_by=actor, assigned_to=assignee, actor=actor, origin=origin, **tier
         )
     elif kind == "blocker":
         result = blockers.raise_blocker(
-            title=body[:120], detail=body, owner=actor, actor=actor, origin=origin
+            title=body[:120], detail=body, owner=actor, actor=actor, origin=origin, **tier
         )
     elif kind == "decision":
         review_by, body = split_review_by(body)
@@ -186,15 +198,16 @@ def capture(
             review_by=review_by,
             actor=actor,
             origin=origin,
+            **tier,
         )
     elif kind == "promise":
-        result = promises.add_promise(body, actor=actor, origin=origin)
+        result = promises.add_promise(body, actor=actor, origin=origin, **tier)
     elif kind == "request":
         # requests arrive where people already type — route them into intake
         # instead of letting them die as notes
         from . import intake
 
-        result = intake.submit_request(body[:120], detail=body, actor=actor, origin=origin)
+        result = intake.submit_request(body[:120], detail=body, actor=actor, origin=origin, **tier)
     elif kind == "task":
         result = work.create_task(
             title=body[:120],
@@ -202,10 +215,11 @@ def capture(
             assignee="",
             actor=actor,
             origin=origin,
+            **tier,
         )
     else:
         result = collab.save_note(
-            topic=body[:60], content=body, author=actor, actor=actor, origin=origin
+            topic=body[:60], content=body, author=actor, actor=actor, origin=origin, **tier
         )
     from .. import db
 

@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from .. import db
+from .scope import WORKSPACE_ONLY
 
 
 # groups, in display order: decide (what needs a call), unblock (what's
@@ -58,7 +59,10 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "link": "/intake",
             }
         )
-    for d in db.query("SELECT id, title FROM decisions WHERE status = 'stale' ORDER BY id LIMIT 5"):
+    for d in db.query(
+        f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " ORDER BY id LIMIT 5"
+    ):
         items.append(
             {
                 "kind": "decision",
@@ -70,7 +74,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
             }
         )
     for c in db.query(
-        "SELECT id, promise, due_date, audience FROM promises WHERE status = 'open'"
+        f"SELECT id, promise, due_date, audience FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (week,),
     ):
@@ -214,8 +218,9 @@ def my_day(user: str) -> dict:
             (user,),
         ),
         "intake_to_triage": db.query(
-            "SELECT id, title, requester, status, score FROM intake_requests"
-            " WHERE status IN ('submitted', 'scored') ORDER BY score DESC LIMIT 10"
+            f"SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f" WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
+            " ORDER BY score DESC LIMIT 10"
         ),
         "notifications": db.query(
             "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
@@ -242,31 +247,35 @@ def my_day(user: str) -> dict:
                 (user,),
             ),
             # assignee IN (?, '') is deliberate: an unowned task that is due is
-            # everyone's business, and tasks are team-visible anyway (GET
-            # /api/tasks names a caller but applies no visibility filter —
-            # docs/VISIBILITY.md phase 3). LIMIT is not: unbounded,
+            # everyone's business. The '' arm reaches every reader, and
+            # assert_readable_by only ever checked a NAMED assignee — so this
+            # arm takes the workspace lock, or an unowned crew task lands on
+            # the whole roster's My Day. LIMIT is not deliberate: unbounded,
             # a team with thousands of stale overdue rows served every one of
             # them as SELECT * on every dashboard load, for every user.
             # ORDER BY due_date puts the most overdue first, so the cap drops
             # the least urgent. See migration 044 for the index this reads.
             "due_soon": db.query(
-                "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"
-                " AND due_date <= ? AND assignee IN (?, '') ORDER BY due_date LIMIT 50",
+                f"SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" AND due_date <= ? AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
+                " ORDER BY due_date LIMIT 50",
                 (week, user),
             ),
             "standup_suggestion": _standup_suggestion(user, yesterday),
         },
         "team": {
             "recently_shipped": db.query(
-                "SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"
-                " AND closed_at >= ?",
+                f"SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" AND {WORKSPACE_ONLY} AND closed_at >= ?",
                 ((utc_today - timedelta(days=2)).isoformat(),),
             ),
             "escalated_blockers": db.query(
-                "SELECT * FROM blockers WHERE status = 'escalated' ORDER BY created_at"
+                f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                " ORDER BY created_at"
             ),
             "todays_events": db.query(
-                "SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at",
+                f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f" AND {WORKSPACE_ONLY} ORDER BY starts_at",
                 (today, (utc_today + timedelta(days=1)).isoformat()),
             ),
             # scoped like /activity: your own strand plus agents and system —
@@ -282,10 +291,10 @@ def attention_count(user: str) -> int:
     promises render on My Day; counting them here made the badge promise
     things the destination doesn't show (a 3 that lands on an empty page)."""
     row = db.query_one(
-        "SELECT"
+        "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
-        " + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
-        "    WHERE status IN ('submitted', 'scored'))"
+        f" + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
+        f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
         " AS n"
     )
     return row["n"] if row else 0

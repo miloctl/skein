@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { VisibilityBadge } from "@/components/visibility-picker";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
@@ -12,7 +13,12 @@ import { emptyState, loadingLine } from "@/lib/whimsy";
 type Pulse = {
   season: { label: string; days_left: number };
   standup_chain: { chain: number; humans: number };
-  blocker_speedrun: { impact: string; cleared: number; avg_hours: number; best_hours: number }[];
+  blocker_speedrun: {
+    impact: string;
+    cleared: number;
+    avg_hours: number;
+    best_hours: number;
+  }[];
   season_totals: Record<string, number>;
 };
 
@@ -209,7 +215,9 @@ function AbsenceForm({
       {/* visible captions: once the row wraps, two bare date inputs are
           indistinguishable — aria-labels don't help a sighted phone user */}
       <label className="flex flex-col gap-0.5">
-        <span className="text-[10px] uppercase tracking-wide text-ink-3">from</span>
+        <span className="text-[10px] uppercase tracking-wide text-ink-3">
+          from
+        </span>
         <input
           type="date"
           aria-label="Away from"
@@ -220,7 +228,9 @@ function AbsenceForm({
         />
       </label>
       <label className="flex flex-col gap-0.5">
-        <span className="text-[10px] uppercase tracking-wide text-ink-3">until</span>
+        <span className="text-[10px] uppercase tracking-wide text-ink-3">
+          until
+        </span>
         <input
           type="date"
           aria-label="Away until"
@@ -314,13 +324,13 @@ export default function Dashboard() {
   const [closing, setClosing] = useState<number | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
-  const [editing, setEditing] = useState<{ kind: "task" | "milestone"; id: number } | null>(
-    null,
-  );
+  const [editing, setEditing] = useState<{
+    kind: "task" | "milestone";
+    id: number;
+  } | null>(null);
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const [deletingNote, setDeletingNote] = useState<number | null>(null);
   const [deletingAbsence, setDeletingAbsence] = useState<number | null>(null);
-
 
   // inline actions re-fetch instead of window.location.reload() — a reload
   // resets focus to the document top and strips a screen-reader user of all
@@ -344,9 +354,7 @@ export default function Dashboard() {
   const refresh = useCallback((names: string[]) => {
     const g = ++generation.current;
     for (const e of names) collectionGen.current[e] = g;
-    Promise.all(
-      names.map(async (e) => [e, await fetchCollection(e)] as const),
-    )
+    Promise.all(names.map(async (e) => [e, await fetchCollection(e)] as const))
       .then((pairs) => {
         const fresh = pairs.filter(([e]) => collectionGen.current[e] === g);
         if (fresh.length === 0) return;
@@ -394,9 +402,16 @@ export default function Dashboard() {
     }
   };
 
-  const patchRow = async (entity: "tasks" | "milestones", id: number, fields: Record<string, string>) => {
+  const patchRow = async (
+    entity: "tasks" | "milestones",
+    id: number,
+    fields: Record<string, string>,
+  ) => {
     try {
-      await api(`/api/${entity}/${id}`, { method: "PATCH", body: JSON.stringify(fields) });
+      await api(`/api/${entity}/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(fields),
+      });
       setEditing(null);
       refocusEdit(entity === "tasks" ? "task" : "milestone", id);
       refresh([entity, "activity"]);
@@ -453,10 +468,10 @@ export default function Dashboard() {
       >
         <SectionTabs set="work" />
         <p className="text-sm text-danger">
-        {error}
-        <button onClick={load} className="ml-2 underline">
-          retry
-        </button>
+          {error}
+          <button onClick={load} className="ml-2 underline">
+            retry
+          </button>
         </p>
       </main>
     );
@@ -464,7 +479,11 @@ export default function Dashboard() {
 
   if (Object.keys(data).length === 0)
     return (
-      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+      <main
+        id="content"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
+      >
         <SectionTabs set="work" />
         <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           Browse
@@ -474,9 +493,15 @@ export default function Dashboard() {
     );
 
   return (
-    <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
+    <main
+      id="content"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6"
+    >
       <SectionTabs set="work" />
-      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Browse</h1>
+      <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
+        Browse
+      </h1>
       <p className="mb-6 max-w-3xl text-sm text-ink-3">
         Everything the team tracks — edit inline wherever you see it.
       </p>
@@ -492,548 +517,615 @@ export default function Dashboard() {
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {pulse && (
-        <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
-          <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">
-            Season {pulse.season.label}
-            {/* a real space, not just the margin: CSS gaps separate pixels,
+        {pulse && (
+          <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
+            <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">
+              Season {pulse.season.label}
+              {/* a real space, not just the margin: CSS gaps separate pixels,
                 not text, so "S5" + "0 days left" was read as "S50 days left" */}{" "}
-            <span className="ml-2 font-normal normal-case text-ink-3">
-              {pulse.season.days_left} days left
-            </span>
-          </h2>
-          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-            <div>
-              <p className="font-display text-[30px]/none font-semibold text-ink">
-                {pulse.standup_chain.chain}{" "}
-                {/* the unit sits INLINE with the number, so it reads as a
+              <span className="ml-2 font-normal normal-case text-ink-3">
+                {pulse.season.days_left} days left
+              </span>
+            </h2>
+            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.standup_chain.chain}{" "}
+                  {/* the unit sits INLINE with the number, so it reads as a
                     phrase and must agree — the (s) allowance covers standalone
                     stat labels, not "1 days" set in 30px type */}
-                <span className="ml-1 text-sm font-normal text-ink-3">
-                  {pulse.standup_chain.chain === 1 ? "day" : "days"}
-                </span>
-              </p>
-              <span
-                aria-hidden
-                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.standup_chain.chain > 0 ? "bg-ok" : "bg-line-strong"}`}
-              />
-              <p className="text-xs text-ink-3">standup chain (whole team)</p>
-            </div>
-            <div>
-              <p className="font-display text-[30px]/none font-semibold text-ink">
-                {pulse.season_totals.engagements_shipped}
-              </p>
-              <span
-                aria-hidden
-                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped > 0 ? "bg-weld" : "bg-line-strong"}`}
-              />
-              <p className="text-xs text-ink-3">shipped this season</p>
-            </div>
-            <div>
-              <p className="font-display text-[30px]/none font-semibold text-ink">
-                {pulse.season_totals.blockers_spotted}{" "}
-                <span className="ml-1 text-sm font-normal text-ink-3">
-                  / {pulse.season_totals.blockers_open} open
-                </span>
-              </p>
-              <span
-                aria-hidden
-                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
-              />
-              <p className="text-xs text-ink-3">blockers spotted — spotting one is a win</p>
-            </div>
-            <div>
-              <p className="font-display text-[30px]/none font-semibold text-ink">
-                {pulse.season_totals.lessons_recorded}
-              </p>
-              <span
-                aria-hidden
-                className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.lessons_recorded > 0 ? "bg-thread-solid" : "bg-line-strong"}`}
-              />
-              <p className="text-xs text-ink-3">lessons recorded</p>
-            </div>
-          </div>
-          {pulse.blocker_speedrun.length > 0 && (
-            <p className="mt-3 text-xs text-ink-3">
-              ⏱️ Time to clear blockers this season, by impact:{" "}
-              {pulse.blocker_speedrun
-                .map((s) => `${s.impact} — avg ${s.avg_hours}h (fastest ${s.best_hours}h)`)
-                .join(" · ")}
-            </p>
-          )}
-        </section>
-      )}
-      <Section
-        title="Engagements"
-        rows={data.engagements ?? []}
-        empty="No engagements — accept a request (Inbox → Requests) or start one from a playbook."
-        render={(e) => (
-          <li key={e.id} className="flex flex-wrap items-start justify-between gap-3 text-sm">
-            <span className="min-w-0">
-              <span className="flex items-center gap-2">
-                <span className="font-mono text-xs text-ink-3">#{e.id}</span>
-                <span className="truncate font-medium">{e.name}</span>
-                {e.kind === "experiment" && (
-                  <span className="whitespace-nowrap rounded-full border border-weld/25 bg-weld/10 px-1.5 py-px font-mono text-[10px] text-weld">
-                    experiment
+                  <span className="ml-1 text-sm font-normal text-ink-3">
+                    {pulse.standup_chain.chain === 1 ? "day" : "days"}
                   </span>
-                )}
-              </span>
-              <span className="mt-0.5 block font-mono text-[11px] text-ink-3">
-                {e.project_class}
-                {e.lead ? ` · lead @${e.lead}` : ""}
-                {e.kind === "experiment" && e.timebox_end
-                  ? ` · timebox ${String(e.timebox_end)}`
-                  : ""}
-                {e.conclusion ? ` · ${String(e.conclusion)}` : ""}
-              </span>
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              {e.status !== "closed" && closing !== e.id && (
-                <button
-                  onClick={() => setClosing(Number(e.id))}
-                  className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                >
-                  close out…
-                </button>
-              )}
-              <Badge value={String(e.status)} />
-            </span>
-            {closing === e.id && (
-              <span
-                className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs"
-                onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
-              >
-                <span className="text-ink-3">How did it end?</span>
-                <span className="w-full text-[11px] text-ink-3">
-                  invalidated = disproved on time (a win) · unmeasured = closed
-                  without measuring
-                </span>
-                {CONCLUSIONS.map((c, ci) => (
-                  <button
-                    key={c}
-                    autoFocus={ci === 0}
-                    onClick={async () => {
-                      try {
-                        await api(`/api/engagements/${e.id}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ status: "closed", conclusion: c }),
-                        });
-                        setClosing(null);
-                        // closing removes the engagement's allocations from
-                        // capacity and ships a recap note — both render here
-                        refresh(["engagements", "capacity", "notes", "activity"]);
-                      } catch (err) {
-                        reportStatus(actionError(err));
-                      }
-                    }}
-                    title={CONCLUSION_HINTS[c]}
-                    className="rounded bg-raised px-2 py-0.5 hover:bg-line"
-                  >
-                    {c}
-                  </button>
-                ))}
-                <button onClick={() => setClosing(null)} className="text-ink-3 hover:text-ink">
-                  cancel
-                </button>
-              </span>
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.standup_chain.chain > 0 ? "bg-ok" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">standup chain (whole team)</p>
+              </div>
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.season_totals.engagements_shipped}
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.engagements_shipped > 0 ? "bg-weld" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">shipped this season</p>
+              </div>
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.season_totals.blockers_spotted}{" "}
+                  <span className="ml-1 text-sm font-normal text-ink-3">
+                    / {pulse.season_totals.blockers_open} open
+                  </span>
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.blockers_open > 0 ? "bg-danger" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">
+                  blockers spotted — spotting one is a win
+                </p>
+              </div>
+              <div>
+                <p className="font-display text-[30px]/none font-semibold text-ink">
+                  {pulse.season_totals.lessons_recorded}
+                </p>
+                <span
+                  aria-hidden
+                  className={`my-1.5 block h-0.5 w-6 rounded-full ${pulse.season_totals.lessons_recorded > 0 ? "bg-thread-solid" : "bg-line-strong"}`}
+                />
+                <p className="text-xs text-ink-3">lessons recorded</p>
+              </div>
+            </div>
+            {pulse.blocker_speedrun.length > 0 && (
+              <p className="mt-3 text-xs text-ink-3">
+                ⏱️ Time to clear blockers this season, by impact:{" "}
+                {pulse.blocker_speedrun
+                  .map(
+                    (s) =>
+                      `${s.impact} — avg ${s.avg_hours}h (fastest ${s.best_hours}h)`,
+                  )
+                  .join(" · ")}
+              </p>
             )}
-          </li>
+          </section>
         )}
-      />
-      <Section
-        title="Blockers"
-        rows={data.blockers ?? []}
-        empty={emptyState("blockers")}
-        render={(b) => (
-          <li key={b.id} className="flex items-center justify-between gap-2 text-sm">
-            <span>
-              <span className="text-ink-3">#{b.id}</span> {b.title}
-              <span className="ml-2 text-xs text-ink-3">
-                {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
-              </span>
-            </span>
-            <Badge value={String(b.status)} />
-          </li>
-        )}
-      />
-      <Section
-        title="Capacity"
-        rows={data.capacity ?? []}
-        empty="No allocations recorded."
-        render={(c) => (
-          <li key={String(c.person)} className="flex items-center justify-between text-sm">
-            <span>
-              {c.person}
-              {c.away ? (
-                <span className="ml-1.5 rounded-full bg-weld/15 px-1.5 py-px font-mono text-[10px] text-weld">
-                  away · {c.away}
-                </span>
-              ) : null}
-              <span className="ml-2 text-xs text-ink-3">{c.detail}</span>
-            </span>
-            <span
-              className={`text-xs font-semibold ${
-                Number(c.total_percent) > 100 ? "text-danger" : "text-ok"
-              }`}
+        <Section
+          title="Engagements"
+          rows={data.engagements ?? []}
+          empty="No engagements — accept a request (Inbox → Requests) or start one from a playbook."
+          render={(e) => (
+            <li
+              key={e.id}
+              className="flex flex-wrap items-start justify-between gap-3 text-sm"
             >
-              {c.total_percent}%
-            </span>
-          </li>
-        )}
-      />
-      <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-        <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-          Time away
-        </h2>
-        <p className="mb-2 text-xs text-ink-3">
-          PTO zeroes someone out of capacity and the weekly plan. On-call and
-          focus are advisory context for staffing calls.
-        </p>
-        <AbsenceForm onAdd={addAbsence} />
-        {(data.absences ?? []).length === 0 ? (
-          <p className="text-sm text-ink-3">Nobody is scheduled away.</p>
-        ) : (
-          <ul className="space-y-1 text-sm">
-            {(data.absences ?? []).map((a) => (
-              <li key={a.id} className="flex items-center justify-between gap-2">
-                <span>
-                  {a.person}
-                  <span className="ml-2 text-xs text-ink-3">
-                    {a.kind} · {a.starts_on} → {a.ends_on}
-                    {a.note ? ` · ${a.note}` : ""}
-                  </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-ink-3">#{e.id}</span>
+                  <span className="truncate font-medium">{e.name}</span>
+                  {e.kind === "experiment" && (
+                    <span className="whitespace-nowrap rounded-full border border-weld/25 bg-weld/10 px-1.5 py-px font-mono text-[10px] text-weld">
+                      experiment
+                    </span>
+                  )}
                 </span>
-                {deletingAbsence === a.id ? (
-                  <span className="flex shrink-0 gap-3 md:gap-1.5">
-                    <button
-                      autoFocus
-                      aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on} for good`}
-                      onClick={() => deleteAbsence(Number(a.id))}
-                      className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
-                    >
-                      delete for good
-                    </button>
-                    <button
-                      onClick={() => setDeletingAbsence(null)}
-                      className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
-                    >
-                      keep
-                    </button>
-                  </span>
-                ) : (
+                <span className="mt-0.5 block font-mono text-[11px] text-ink-3">
+                  {e.project_class}
+                  {e.lead ? ` · lead @${e.lead}` : ""}
+                  {e.kind === "experiment" && e.timebox_end
+                    ? ` · timebox ${String(e.timebox_end)}`
+                    : ""}
+                  {e.conclusion ? ` · ${String(e.conclusion)}` : ""}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {e.status !== "closed" && closing !== e.id && (
                   <button
-                    aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on}`}
-                    onClick={() => setDeletingAbsence(Number(a.id))}
-                    className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                    onClick={() => setClosing(Number(e.id))}
+                    className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
-                    delete…
+                    close out…
                   </button>
                 )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      <Section
-        title="Milestones"
-        rows={data.milestones ?? []}
-        empty="No milestones yet — ask the Chief of Staff in Chat to plan a project."
-        render={(m) =>
-          editing?.kind === "milestone" && editing.id === m.id ? (
-            <EditRow
-              key={m.id}
-              fields={{ title: String(m.title), due_date: String(m.due_date ?? "") }}
-              onSave={(f) => patchRow("milestones", Number(m.id), f)}
-              onCancel={() => {
-                setEditing(null);
-                refocusEdit("milestone", Number(m.id));
-              }}
-            />
-          ) : (
-            <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
-              <span>
-                <span className="text-ink-3">#{m.id}</span> {m.title}
-                {m.due_date ? (
-                  <span className="ml-2 text-xs text-ink-3">due {m.due_date}</span>
-                ) : null}
+                <Badge value={String(e.status)} />
               </span>
-              <span className="flex items-center gap-1">
-                <button
-                  id={`edit-milestone-${m.id}`}
-                  aria-label={`Edit milestone #${m.id}: ${m.title}`}
-                  onClick={() => setEditing({ kind: "milestone", id: Number(m.id) })}
-                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+              {closing === e.id && (
+                <span
+                  className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs"
+                  onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
                 >
-                  edit…
-                </button>
-                <Badge value={String(m.status)} />
-              </span>
-            </li>
-          )
-        }
-      />
-      <Section
-        title="Tasks"
-        rows={(data.tasks ?? []).filter((t) => t.status !== "done")}
-        empty="No open tasks — open quick capture and type 'todo: …'."
-        render={(t) =>
-          editing?.kind === "task" && editing.id === t.id ? (
-            <EditRow
-              key={t.id}
-              fields={{
-                title: String(t.title),
-                assignee: String(t.assignee ?? ""),
-                due_date: String(t.due_date ?? ""),
-              }}
-              onSave={(f) => patchRow("tasks", Number(t.id), f)}
-              onCancel={() => {
-                setEditing(null);
-                refocusEdit("task", Number(t.id));
-              }}
-            />
-          ) : (
-            <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
-              <span className="min-w-0 break-words">
-                <span className="text-ink-3">#{t.id}</span> {t.title}
-                {t.assignee ? (
-                  <span className="ml-2 text-xs text-ink-3">@{t.assignee}</span>
-                ) : null}
-                {t.forge_url ? (
-                  // the name repeats on every row, so a screen reader's link
-                  // list reads "code, code, code" without the label. Safe as
-                  // a bare href because services/forge.py::_clean_url is the
-                  // only writer and admits bounded http(s) only.
-                  <a
-                    href={String(t.forge_url)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
-                    className="ml-2 text-xs text-ink-3 underline hover:text-ink-2"
-                  >
-                    code <span aria-hidden>↗</span>
-                  </a>
-                ) : null}
-              </span>
-              <span className="flex shrink-0 items-center gap-1">
-                <button
-                  id={`edit-task-${t.id}`}
-                  aria-label={`Edit task #${t.id}: ${t.title}`}
-                  onClick={() => setEditing({ kind: "task", id: Number(t.id) })}
-                  className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
-                >
-                  edit…
-                </button>
-                <Badge value={String(t.priority)} />
-                <Badge value={String(t.status)} />
-              </span>
-            </li>
-          )
-        }
-      />
-      <Section
-        title="Open questions"
-        rows={data.questions ?? []}
-        empty="No questions logged."
-        render={(q) => (
-          <li key={q.id} className="text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span>
-                <span className="text-ink-3">#{q.id}</span> {q.question}
-              </span>
-              <Badge value={String(q.status)} />
-            </div>
-            {q.status === "open" && (
-              <p className="mt-0.5 text-xs text-ink-3">
-                {assigning === q.id ? (
-                  <span className="flex items-center gap-1.5">
-                    <PersonInput
-                      autoFocus
-                      name="assign-question"
-                      aria-label="Assign this question to"
-                      placeholder="teammate's name — Enter to assign"
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Escape") setAssigning(null);
-                        const who = (ev.target as HTMLInputElement).value.trim();
-                        if (ev.key === "Enter" && who) assignTo(Number(q.id), who);
-                      }}
-                      onChange={(ev) => {
-                        // a mouse-picked datalist suggestion must commit too —
-                        // picks arrive as insertReplacementText (or undefined
-                        // inputType in Firefox), typing as insertText
-                        const t = (ev.nativeEvent as InputEvent).inputType;
-                        if (t && t !== "insertReplacementText") return;
-                        const who = ev.target.value.trim();
-                        if (who) assignTo(Number(q.id), who);
-                      }}
-                      className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
-                    />
-                    <button onClick={() => setAssigning(null)} className="hover:text-ink">
-                      cancel
-                    </button>
+                  <span className="text-ink-3">How did it end?</span>
+                  <span className="w-full text-[11px] text-ink-3">
+                    invalidated = disproved on time (a win) · unmeasured =
+                    closed without measuring
                   </span>
-                ) : answering === q.id ? (
-                  <span className="flex items-center gap-1.5">
-                    <input
-                      autoFocus
-                      name="answer-question"
-                      aria-label="Answer this question"
-                      placeholder="the answer — Enter to record it"
-                      onKeyDown={async (ev) => {
-                        if (ev.key === "Escape") setAnswering(null);
-                        const answer = (ev.target as HTMLInputElement).value.trim();
-                        if (ev.key !== "Enter" || !answer) return;
+                  {CONCLUSIONS.map((c, ci) => (
+                    <button
+                      key={c}
+                      autoFocus={ci === 0}
+                      onClick={async () => {
                         try {
-                          await api(`/api/questions/${q.id}/answer`, {
-                            method: "POST",
-                            body: JSON.stringify({ answer }),
+                          await api(`/api/engagements/${e.id}`, {
+                            method: "PATCH",
+                            body: JSON.stringify({
+                              status: "closed",
+                              conclusion: c,
+                            }),
                           });
-                          setAnswering(null);
-                          refresh(["questions", "activity"]);
-                        } catch (e) {
-                          reportStatus(actionError(e));
+                          setClosing(null);
+                          // closing removes the engagement's allocations from
+                          // capacity and ships a recap note — both render here
+                          refresh([
+                            "engagements",
+                            "capacity",
+                            "notes",
+                            "activity",
+                          ]);
+                        } catch (err) {
+                          reportStatus(actionError(err));
                         }
                       }}
-                      className="w-64 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
-                    />
-                    <button onClick={() => setAnswering(null)} className="hover:text-ink">
-                      cancel
-                    </button>
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    {q.assigned_to ? (
-                      <span>→ @{q.assigned_to}</span>
-                    ) : (
-                      <button
-                        onClick={() => setAssigning(Number(q.id))}
-                        className="underline hover:text-ink-2"
-                      >
-                        unassigned — assign…
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setAnswering(Number(q.id))}
-                      className="underline hover:text-ink-2"
+                      title={CONCLUSION_HINTS[c]}
+                      className="rounded bg-raised px-2 py-0.5 hover:bg-line"
                     >
-                      answer…
+                      {c}
                     </button>
-                  </span>
-                )}
-              </p>
-            )}
-            {q.answer ? (
-              <p className="mt-1 text-xs text-ink-3">↳ {q.answer}</p>
-            ) : null}
-          </li>
-        )}
-      />
-      <Section
-        title="Decisions"
-        rows={data.decisions ?? []}
-        empty="No decisions recorded."
-        render={(d) => (
-          <li key={d.id} className="text-sm">
-            <span className="font-medium">{d.title}</span>
-            {d.decision !== d.title && (
-              <p className="text-xs text-ink-3">{d.decision}</p>
-            )}
-          </li>
-        )}
-      />
-      <StandupCard rows={data.standups ?? []} />
-      <Section
-        title="Calendar"
-        rows={data.events ?? []}
-        empty="Nothing scheduled — ask the Chief of Staff in Chat to schedule an event."
-        render={(e) => (
-          <li key={e.id} className="flex items-center justify-between text-sm">
-            <span>{e.title}</span>
-            <span className="text-xs text-ink-3">{e.starts_at}</span>
-          </li>
-        )}
-      />
-      <Section
-        title="Knowledge base"
-        rows={data.notes ?? []}
-        empty="No notes saved."
-        render={(n) =>
-          editingNote === n.id ? (
-            <EditRow
-              key={n.id}
-              fields={{ title: String(n.topic), content: String(n.content) }}
-              onSave={(f) => patchNote(Number(n.id), f)}
-              onCancel={() => {
-                setEditingNote(null);
-                refocusEdit("note", Number(n.id));
-              }}
-            />
-          ) : (
-            <li key={n.id} className="text-sm">
-              <span className="flex items-center justify-between gap-2">
-                <span className="font-medium">{n.topic}</span>
-                <span className="flex shrink-0 gap-1">
+                  ))}
                   <button
-                    id={`edit-note-${n.id}`}
-                    aria-label={`Edit note: ${n.topic}`}
-                    onClick={() => {
-                      setDeletingNote(null);
-                      setEditingNote(Number(n.id));
-                    }}
-                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                    onClick={() => setClosing(null)}
+                    className="text-ink-3 hover:text-ink"
                   >
-                    edit…
+                    cancel
                   </button>
-                  {deletingNote === n.id ? (
-                    <>
+                </span>
+              )}
+            </li>
+          )}
+        />
+        <Section
+          title="Blockers"
+          rows={data.blockers ?? []}
+          empty={emptyState("blockers")}
+          render={(b) => (
+            <li
+              key={b.id}
+              className="flex items-center justify-between gap-2 text-sm"
+            >
+              <span>
+                <span className="text-ink-3">#{b.id}</span> {b.title}
+                <span className="ml-2 text-xs text-ink-3">
+                  {b.owner ? `@${b.owner}` : "unowned"} · {b.impact}
+                </span>
+              </span>
+              <Badge value={String(b.status)} />
+            </li>
+          )}
+        />
+        <Section
+          title="Capacity"
+          rows={data.capacity ?? []}
+          empty="No allocations recorded."
+          render={(c) => (
+            <li
+              key={String(c.person)}
+              className="flex items-center justify-between text-sm"
+            >
+              <span>
+                {c.person}
+                {c.away ? (
+                  <span className="ml-1.5 rounded-full bg-weld/15 px-1.5 py-px font-mono text-[10px] text-weld">
+                    away · {c.away}
+                  </span>
+                ) : null}
+                <span className="ml-2 text-xs text-ink-3">{c.detail}</span>
+              </span>
+              <span
+                className={`text-xs font-semibold ${
+                  Number(c.total_percent) > 100 ? "text-danger" : "text-ok"
+                }`}
+              >
+                {c.total_percent}%
+              </span>
+            </li>
+          )}
+        />
+        <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+          <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+            Time away
+          </h2>
+          <p className="mb-2 text-xs text-ink-3">
+            PTO zeroes someone out of capacity and the weekly plan. On-call and
+            focus are advisory context for staffing calls.
+          </p>
+          <AbsenceForm onAdd={addAbsence} />
+          {(data.absences ?? []).length === 0 ? (
+            <p className="text-sm text-ink-3">Nobody is scheduled away.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {(data.absences ?? []).map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span>
+                    {a.person}
+                    <span className="ml-2 text-xs text-ink-3">
+                      {a.kind} · {a.starts_on} → {a.ends_on}
+                      {a.note ? ` · ${a.note}` : ""}
+                    </span>
+                  </span>
+                  {deletingAbsence === a.id ? (
+                    <span className="flex shrink-0 gap-3 md:gap-1.5">
                       <button
                         autoFocus
-                        aria-label={`Delete note ${n.topic} for good`}
-                        onClick={() => deleteNote(Number(n.id))}
+                        aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on} for good`}
+                        onClick={() => deleteAbsence(Number(a.id))}
                         className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
                       >
                         delete for good
                       </button>
                       <button
-                        onClick={() => setDeletingNote(null)}
+                        onClick={() => setDeletingAbsence(null)}
                         className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
                       >
                         keep
                       </button>
-                    </>
+                    </span>
                   ) : (
                     <button
-                      aria-label={`Delete note: ${n.topic}`}
-                      onClick={() => setDeletingNote(Number(n.id))}
-                      className="rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                      aria-label={`Delete ${a.person}'s ${a.kind} ${a.starts_on}`}
+                      onClick={() => setDeletingAbsence(Number(a.id))}
+                      className="shrink-0 rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
                     >
                       delete…
                     </button>
                   )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <Section
+          title="Milestones"
+          rows={data.milestones ?? []}
+          empty="No milestones yet — ask the Chief of Staff in Chat to plan a project."
+          render={(m) =>
+            editing?.kind === "milestone" && editing.id === m.id ? (
+              <EditRow
+                key={m.id}
+                fields={{
+                  title: String(m.title),
+                  due_date: String(m.due_date ?? ""),
+                }}
+                onSave={(f) => patchRow("milestones", Number(m.id), f)}
+                onCancel={() => {
+                  setEditing(null);
+                  refocusEdit("milestone", Number(m.id));
+                }}
+              />
+            ) : (
+              <li
+                key={m.id}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span>
+                  <span className="text-ink-3">#{m.id}</span> {m.title}
+                  {m.due_date ? (
+                    <span className="ml-2 text-xs text-ink-3">
+                      due {m.due_date}
+                    </span>
+                  ) : null}
                 </span>
-              </span>
-              <p className="line-clamp-2 text-xs text-ink-3">
-                {/* notes hold markdown; this is a plain-text preview */}
-                {String(n.content).replace(/[*#`]/g, "").replace(/\s+/g, " ")}
-              </p>
+                <span className="flex items-center gap-1">
+                  <button
+                    id={`edit-milestone-${m.id}`}
+                    aria-label={`Edit milestone #${m.id}: ${m.title}`}
+                    onClick={() =>
+                      setEditing({ kind: "milestone", id: Number(m.id) })
+                    }
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    edit…
+                  </button>
+                  <Badge value={String(m.status)} />
+                </span>
+              </li>
+            )
+          }
+        />
+        <Section
+          title="Tasks"
+          rows={(data.tasks ?? []).filter((t) => t.status !== "done")}
+          empty="No open tasks — open quick capture and type 'todo: …'."
+          render={(t) =>
+            editing?.kind === "task" && editing.id === t.id ? (
+              <EditRow
+                key={t.id}
+                fields={{
+                  title: String(t.title),
+                  assignee: String(t.assignee ?? ""),
+                  due_date: String(t.due_date ?? ""),
+                }}
+                onSave={(f) => patchRow("tasks", Number(t.id), f)}
+                onCancel={() => {
+                  setEditing(null);
+                  refocusEdit("task", Number(t.id));
+                }}
+              />
+            ) : (
+              <li
+                key={t.id}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span className="min-w-0 break-words">
+                  <span className="text-ink-3">#{t.id}</span> {t.title}
+                  <VisibilityBadge
+                    visibility={t.visibility as string}
+                    crewId={t.crew_id as number}
+                  />
+                  {t.assignee ? (
+                    <span className="ml-2 text-xs text-ink-3">
+                      @{t.assignee}
+                    </span>
+                  ) : null}
+                  {t.forge_url ? (
+                    // the name repeats on every row, so a screen reader's link
+                    // list reads "code, code, code" without the label. Safe as
+                    // a bare href because services/forge.py::_clean_url is the
+                    // only writer and admits bounded http(s) only.
+                    <a
+                      href={String(t.forge_url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
+                      className="ml-2 text-xs text-ink-3 underline hover:text-ink-2"
+                    >
+                      code <span aria-hidden>↗</span>
+                    </a>
+                  ) : null}
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    id={`edit-task-${t.id}`}
+                    aria-label={`Edit task #${t.id}: ${t.title}`}
+                    onClick={() =>
+                      setEditing({ kind: "task", id: Number(t.id) })
+                    }
+                    className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                  >
+                    edit…
+                  </button>
+                  <Badge value={String(t.priority)} />
+                  <Badge value={String(t.status)} />
+                </span>
+              </li>
+            )
+          }
+        />
+        <Section
+          title="Open questions"
+          rows={data.questions ?? []}
+          empty="No questions logged."
+          render={(q) => (
+            <li key={q.id} className="text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  <span className="text-ink-3">#{q.id}</span> {q.question}
+                </span>
+                <Badge value={String(q.status)} />
+              </div>
+              {q.status === "open" && (
+                <p className="mt-0.5 text-xs text-ink-3">
+                  {assigning === q.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <PersonInput
+                        autoFocus
+                        name="assign-question"
+                        aria-label="Assign this question to"
+                        placeholder="teammate's name — Enter to assign"
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Escape") setAssigning(null);
+                          const who = (
+                            ev.target as HTMLInputElement
+                          ).value.trim();
+                          if (ev.key === "Enter" && who)
+                            assignTo(Number(q.id), who);
+                        }}
+                        onChange={(ev) => {
+                          // a mouse-picked datalist suggestion must commit too —
+                          // picks arrive as insertReplacementText (or undefined
+                          // inputType in Firefox), typing as insertText
+                          const t = (ev.nativeEvent as InputEvent).inputType;
+                          if (t && t !== "insertReplacementText") return;
+                          const who = ev.target.value.trim();
+                          if (who) assignTo(Number(q.id), who);
+                        }}
+                        className="rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                      />
+                      <button
+                        onClick={() => setAssigning(null)}
+                        className="hover:text-ink"
+                      >
+                        cancel
+                      </button>
+                    </span>
+                  ) : answering === q.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <input
+                        autoFocus
+                        name="answer-question"
+                        aria-label="Answer this question"
+                        placeholder="the answer — Enter to record it"
+                        onKeyDown={async (ev) => {
+                          if (ev.key === "Escape") setAnswering(null);
+                          const answer = (
+                            ev.target as HTMLInputElement
+                          ).value.trim();
+                          if (ev.key !== "Enter" || !answer) return;
+                          try {
+                            await api(`/api/questions/${q.id}/answer`, {
+                              method: "POST",
+                              body: JSON.stringify({ answer }),
+                            });
+                            setAnswering(null);
+                            refresh(["questions", "activity"]);
+                          } catch (e) {
+                            reportStatus(actionError(e));
+                          }
+                        }}
+                        className="w-64 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"
+                      />
+                      <button
+                        onClick={() => setAnswering(null)}
+                        className="hover:text-ink"
+                      >
+                        cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      {q.assigned_to ? (
+                        <span>→ @{q.assigned_to}</span>
+                      ) : (
+                        <button
+                          onClick={() => setAssigning(Number(q.id))}
+                          className="underline hover:text-ink-2"
+                        >
+                          unassigned — assign…
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setAnswering(Number(q.id))}
+                        className="underline hover:text-ink-2"
+                      >
+                        answer…
+                      </button>
+                    </span>
+                  )}
+                </p>
+              )}
+              {q.answer ? (
+                <p className="mt-1 text-xs text-ink-3">↳ {q.answer}</p>
+              ) : null}
             </li>
-          )
-        }
-      />
-      <Section
-        title="Recent activity"
-        rows={data.activity ?? []}
-        empty="No activity yet."
-        render={(a) => (
-          <li key={a.id} className="text-xs text-ink-3">
-            <span className="font-medium text-ink-2">
-              {a.actor}
-            </span>{" "}
-            {String(a.action).replace("_", " ")} {a.detail}
-            <time dateTime={String(a.created_at)} title={String(a.created_at)} className="ml-1 text-ink-3">{timeAgo(String(a.created_at))}</time>
-          </li>
-        )}
-      />
+          )}
+        />
+        <Section
+          title="Decisions"
+          rows={data.decisions ?? []}
+          empty="No decisions recorded."
+          render={(d) => (
+            <li key={d.id} className="text-sm">
+              <span className="font-medium">{d.title}</span>
+              {d.decision !== d.title && (
+                <p className="text-xs text-ink-3">{d.decision}</p>
+              )}
+            </li>
+          )}
+        />
+        <StandupCard rows={data.standups ?? []} />
+        <Section
+          title="Calendar"
+          rows={data.events ?? []}
+          empty="Nothing scheduled — ask the Chief of Staff in Chat to schedule an event."
+          render={(e) => (
+            <li
+              key={e.id}
+              className="flex items-center justify-between text-sm"
+            >
+              <span>{e.title}</span>
+              <span className="text-xs text-ink-3">{e.starts_at}</span>
+            </li>
+          )}
+        />
+        <Section
+          title="Knowledge base"
+          rows={data.notes ?? []}
+          empty="No notes saved."
+          render={(n) =>
+            editingNote === n.id ? (
+              <EditRow
+                key={n.id}
+                fields={{ title: String(n.topic), content: String(n.content) }}
+                onSave={(f) => patchNote(Number(n.id), f)}
+                onCancel={() => {
+                  setEditingNote(null);
+                  refocusEdit("note", Number(n.id));
+                }}
+              />
+            ) : (
+              <li key={n.id} className="text-sm">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{n.topic}</span>
+                  <span className="flex shrink-0 gap-1">
+                    <button
+                      id={`edit-note-${n.id}`}
+                      aria-label={`Edit note: ${n.topic}`}
+                      onClick={() => {
+                        setDeletingNote(null);
+                        setEditingNote(Number(n.id));
+                      }}
+                      className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
+                    >
+                      edit…
+                    </button>
+                    {deletingNote === n.id ? (
+                      <>
+                        <button
+                          autoFocus
+                          aria-label={`Delete note ${n.topic} for good`}
+                          onClick={() => deleteNote(Number(n.id))}
+                          className="rounded bg-danger-solid px-2 py-1.5 md:py-0.5 text-xs font-medium text-white hover:opacity-90"
+                        >
+                          delete for good
+                        </button>
+                        <button
+                          onClick={() => setDeletingNote(null)}
+                          className="rounded px-2 py-0.5 text-xs text-ink-3 hover:text-ink"
+                        >
+                          keep
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        aria-label={`Delete note: ${n.topic}`}
+                        onClick={() => setDeletingNote(Number(n.id))}
+                        className="rounded bg-raised px-2 py-0.5 text-xs text-danger hover:bg-line"
+                      >
+                        delete…
+                      </button>
+                    )}
+                  </span>
+                </span>
+                <p className="line-clamp-2 text-xs text-ink-3">
+                  {/* notes hold markdown; this is a plain-text preview */}
+                  {String(n.content).replace(/[*#`]/g, "").replace(/\s+/g, " ")}
+                </p>
+              </li>
+            )
+          }
+        />
+        <Section
+          title="Recent activity"
+          rows={data.activity ?? []}
+          empty="No activity yet."
+          render={(a) => (
+            <li key={a.id} className="text-xs text-ink-3">
+              <span className="font-medium text-ink-2">{a.actor}</span>{" "}
+              {String(a.action).replace("_", " ")} {a.detail}
+              <time
+                dateTime={String(a.created_at)}
+                title={String(a.created_at)}
+                className="ml-1 text-ink-3"
+              >
+                {timeAgo(String(a.created_at))}
+              </time>
+            </li>
+          )}
+        />
       </div>
     </main>
   );

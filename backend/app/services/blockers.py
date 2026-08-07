@@ -4,6 +4,7 @@ sweep flips open blockers past their escalate_after_hours to 'escalated'."""
 from datetime import UTC, datetime, timedelta
 
 from .. import db
+from . import scope
 from .search import index_record
 
 IMPACTS = ("low", "medium", "high", "critical")
@@ -21,6 +22,8 @@ def raise_blocker(
     *,
     actor: str = "system",
     origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
 ) -> dict:
     from .users import resolve_teammate
 
@@ -33,18 +36,39 @@ def raise_blocker(
         raise ValueError(f"task #{task_id} not found")
     hours = escalate_after_hours or DEFAULT_ESCALATION_HOURS[impact]
     ts = db.now()
-    bid = db.execute(
-        "INSERT INTO blockers (title, detail, owner, impact, task_id, source,"
-        " escalate_after_hours, origin, created_by, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, detail, owner, impact, task_id or None, source, hours, origin, actor, ts, ts),
-    )
-    if task_id:
-        from .work import update_task
+    with db.transaction():
+        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+        # author=actor: capture.py hardcodes owner=actor and post_standup
+        # passes owner=author, so without the self-exemption every private
+        # capture and standup that named a blocker was refused
+        scope.assert_readable_by(tier, cid, owner, label="owner", author=actor)
+        bid = db.execute(
+            "INSERT INTO blockers (title, detail, owner, impact, task_id, source,"
+            " escalate_after_hours, origin, created_by, created_at, updated_at,"
+            " visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                title,
+                detail,
+                owner,
+                impact,
+                task_id or None,
+                source,
+                hours,
+                origin,
+                actor,
+                ts,
+                ts,
+                tier,
+                cid,
+            ),
+        )
+        if task_id:
+            from .work import update_task
 
-        update_task(task_id, status="blocked", actor=actor, origin=origin)
-    db.log_activity(actor, "raise_blocker", f"#{bid} {title}")
-    index_record("blocker", bid, title, f"{detail} {owner}")
+            update_task(task_id, status="blocked", actor=actor, origin=origin)
+        db.log_activity(actor, "raise_blocker", scope.detail(tier, f"#{bid}", title))
+        index_record("blocker", bid, title, f"{detail} {owner}")
     return {"id": bid, "title": title, "status": "open", "escalate_after_hours": hours}
 
 
@@ -58,9 +82,10 @@ def edit_blocker(
     origin: str = "human",
 ) -> dict:
     """Correct an open blocker's wording/owner — resolution stays its own verb."""
-    row = db.query_one("SELECT title, status FROM blockers WHERE id = ?", (blocker_id,))
+    row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
-        raise db.NotFound(f"blocker #{blocker_id} not found")
+        raise scope.missing("blockers", blocker_id)
+    scope.assert_editable("blockers", row, actor, verb="edit")
     if row["status"] == "resolved":
         raise ValueError(f"blocker #{blocker_id} is resolved — history stays put")
     fields = {k: v for k, v in [("title", title), ("detail", detail), ("owner", owner)] if v}
@@ -75,7 +100,13 @@ def edit_blocker(
         (*fields.values(), blocker_id),
     )
     if title and title != row["title"]:
-        db.log_activity(actor, "edit_blocker", f"#{blocker_id}: '{row['title']}' -> '{title}'")
+        # both titles are the blocker's own text, so a scoped rename logs the
+        # identifier only — the chain is append-only (services/scope.py::detail)
+        db.log_activity(
+            actor,
+            "edit_blocker",
+            scope.detail(row["visibility"], f"#{blocker_id}", f"'{row['title']}' -> '{title}'"),
+        )
     else:
         db.log_activity(actor, "edit_blocker", f"#{blocker_id} {' '.join(fields)}")
     new = db.query_one("SELECT title, detail, owner FROM blockers WHERE id = ?", (blocker_id,))
@@ -89,7 +120,8 @@ def resolve_blocker(
 ) -> dict:
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
-        raise db.NotFound(f"blocker #{blocker_id} not found")
+        raise scope.missing("blockers", blocker_id)
+    scope.assert_editable("blockers", row, actor, verb="resolve")
     if row["status"] == "resolved":
         raise ValueError(f"blocker #{blocker_id} is already resolved")
     db.execute(
@@ -131,7 +163,9 @@ def resolve_blocker(
     if created.tzinfo is None:
         created = created.replace(tzinfo=UTC)
     age = datetime.now(UTC) - created
-    if age >= timedelta(days=3):  # the Blocker Funeral
+    # the workspace tier only: the funeral is addressed to "team", which is
+    # every person on the roster, and it quotes the blocker's own title
+    if age >= timedelta(days=3) and row["visibility"] == scope.WORKSPACE:  # the Blocker Funeral
         from .notifications import notify
 
         days = age.days
@@ -145,8 +179,11 @@ def resolve_blocker(
     return {"id": blocker_id, "status": "resolved"}
 
 
-def list_blockers(status: str = "", owner: str = "") -> list[dict]:
-    sql, params = "SELECT * FROM blockers WHERE 1=1", []
+def list_blockers(
+    status: str = "", owner: str = "", viewer: scope.Viewer = scope.NOBODY
+) -> list[dict]:
+    frag, vp = scope.visible_filter(viewer, "blockers")
+    sql, params = f"SELECT * FROM blockers WHERE {frag}", list(vp)  # noqa: S608 — scope fragment
     if status:
         sql += " AND status = ?"
         params.append(status)
@@ -180,16 +217,27 @@ def sweep_escalations() -> list[dict]:
                 continue
             from .notifications import notify
 
-            notify(
-                b["owner"] or "team",
-                f"Blocker #{b['id']} escalated: {b['title']}",
-                tier="immediate",
-                link="/",
-            )
+            # Every tier escalates — a crew blocker that silently never
+            # escalates is a worse outcome than one nobody is told about. But
+            # the message quotes the title, so it goes to the owner alone: the
+            # "team" fallback addresses the whole roster, and an owner is the
+            # only name here already checked as a reader (raise_blocker).
+            if b["owner"] or b["visibility"] == scope.WORKSPACE:
+                notify(
+                    b["owner"] or "team",
+                    f"Blocker #{b['id']} escalated: {b['title']}",
+                    tier="immediate",
+                    link="/",
+                )
             db.log_activity(
                 "scheduler",
                 "escalate_blocker",
-                f"#{b['id']} {b['title']} (open {b['escalate_after_hours']}h, owner: {b['owner'] or 'unowned'})",
+                scope.detail(
+                    b["visibility"],
+                    f"#{b['id']}",
+                    f"{b['title']} (open {b['escalate_after_hours']}h,"
+                    f" owner: {b['owner'] or 'unowned'})",
+                ),
             )
             escalated.append(b)
     return escalated

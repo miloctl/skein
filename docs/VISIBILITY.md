@@ -2,7 +2,7 @@
 
 > This file holds the design for a three-tier visibility model
 > (`private` / `crew` / `workspace`) and the crew membership it needs.
-> Phases 0, 1 and 2 have shipped. Phases 3 to 6 are not built.
+> Phases 0 to 6 have shipped; phase 6 covers per-crew context packs only.
 > `docs/ROADMAP.md` holds the rest of the backlog.
 
 Three decisions are settled and the rest of this file depends on them:
@@ -89,9 +89,13 @@ product has, and the journal stays in it.
 
 ### Schema
 
-A new `003_*.sql`. Append-only, DDL plus non-`activity` backfill, no
-triggers, and no semicolon inside a comment — `db.py::_statements` splits
-statements on `;` with no string or comment awareness.
+Three migrations: `003_crews.sql` (the crews tables), `004_visibility_tier.sql`
+(the columns on all 16 content tables), and `005_crew_context_packs.sql`
+(per-crew packs). Append-only, DDL plus non-`activity` backfill, no triggers,
+and no semicolon **and no apostrophe** inside a comment — `db.py::_statements`
+splits on `;` with no string or comment awareness, and sqlite3 reads a lone
+apostrophe as an unterminated string literal. Migration 005 got this wrong in
+the comment that forbids it and bricked `init_db` until it was fixed.
 
 ```sql
 CREATE TABLE crews (
@@ -135,7 +139,8 @@ so no crew is named `team`, `system`, `scheduler`, or `forge`.
 
 ### The mechanism that keeps it alive
 
-A new `services/scope.py` holds two things:
+A new `services/scope.py` holds the read filter, the write check, and the
+inventory:
 
 - `visible_filter(viewer, table, alias="")` returning a SQL fragment and
   its parameters, modeled on `activity.visible_actor_filter`. Positional
@@ -154,7 +159,30 @@ A new `services/scope.py` holds two things:
   column-taking signature let `notes` be filtered on `created_by` — which
   compiles, runs, and hides a private note from the person who wrote it.
 - `CLASSIFIED`, a map naming every table as scoped or unscoped, with a
-  written reason for each unscoped one.
+  written reason for each unscoped one — plus `NOUN`, what a reader calls one
+  row of each (`table[:-1]` renders "memorie", and "intake_request" is an
+  identifier, not a word).
+- `resolve_write(visibility, crew_id, actor)` — the tier a write lands on,
+  checked once so fourteen services do not each invent it. The membership
+  check inside it belongs in the caller's own transaction.
+- `assert_readable_by(tier, crew_id, person, label, author)` — refuse handing
+  scoped work to somebody who cannot read it. `author` is the third disjunct
+  and leaving it out refused the ordinary case: capture hardcodes
+  `owner=actor`, so every private capture that classified as a blocker was
+  refused, and every private standup with blockers text rolled back whole.
+- `assert_editable(table, row, actor)` — every mutation finds its row by a
+  caller-supplied id, so `UPDATE notes SET ... WHERE id = ?` matched a private
+  note whoever asked. Any reader may edit; a machine actor may work a CREW row
+  (it IS the mechanism — the forge webhook, `approve_change` applying as
+  `proposed_by`, the delegation trio) but never a private one.
+- `missing(table, row_id)` — ONE "no such row" sentence for both the absent row
+  and the row the caller may not read. Any wording only the scoped case
+  produces answers "does #12 exist", and ids are sequential integers.
+- `detail(tier, ident, body)` — what a scoped write may put in
+  `activity.detail`. The chain is append-only, so a body written there is
+  written for good.
+- `WORKSPACE_ONLY` — what a JOB reads. Spliced as a literal because these are
+  hand-written SQL strings with their own parameter tuples.
 
 Then a test walks `sqlite_master` and fails on any table that is in
 neither set. The repository does this three times already —
@@ -215,11 +243,11 @@ identifier, never a body.** Pin it with a test.
 
 | Sink | Rule |
 |---|---|
-| `search_index` (FTS5) | Private rows are never indexed. Crew rows carry `visibility` and `crew_id` as UNINDEXED columns; `search()` over-fetches and filters. Rebuilding the virtual table drops five shadow tables — plan it as its own step. |
+| `search_index` (FTS5) | Private rows are never indexed at all — `index_record` looks the tier up itself rather than trusting 20 call sites. The FTS table gains NO tier column (it cannot get one cheaply): `search()` over-fetches 4x, then `visible_hits` checks each hit's SOURCE row by primary key. |
 | `search_ids` | `_short_id_hit` (`services/search.py::_short_id_hit`) resolves `task 42` straight to a row with no authorization. It takes the same filter. |
 | `embeddings` | `_embed` sends `text[:8000]` to `EMBED_BASE_URL` inside every `index_record`. Private rows are never indexed, so they never reach it. |
-| `memories` | `recall()` has three branches with three scopes (`services/memory.py::recall`); the query branch drops the `user` column entirely, so `recall_memories` returns any person's memories into any turn. Fix this regardless of the tier work. |
-| `notifications` | `flush_digest_tier` (`services/notifications.py:95`) posts every user's pending messages, name-labelled, into one Slack channel. Workspace tier only. This is a leak today. |
+| `memories` | Closed in phase 4. `recall()` applies BOTH the `user` filter and the tier on every branch (`services/memory.py::recall`) — the query branch used to apply neither, so one person's search answered out of another person's memories, and `memory_prompt` injects the result into a system prompt. |
+| `notifications` | Two halves. Every team-wide `notify("team", ...)` that quotes a scoped row's text is gated on the workspace tier (the blocker funeral, the stale-decision sweep, ship-it, the unlinked-milestone warning), and a per-person notify checks the recipient can read the row. `flush_digest_tier` (`services/notifications.py`) still batches every user's pending messages into ONE Slack channel — **not closed**, and not a tier problem: it is one channel for N audiences. |
 | `admin.export` | Private rows are excluded structurally. Crew rows stay — a full dump is what the surface is for — but every new table takes its `admin.TABLES` classification. |
 | `data/artifacts/` | A file on disk carries no column. Anything a job writes is workspace-tier by the rule above. |
 
@@ -246,19 +274,52 @@ crew's view, silently, for 15 seconds.
 | 0 **(shipped)** | Give the 45 open GET endpoints a `CurrentUser`. Claim `thread_id` on `POST /api/chat`. Remove the free `user` parameter from MCP `get_my_day`. Make the nav sign-out clear rendered state. |
 | 1 **(shipped)** | `crews` + `crew_members`, the service, and the Settings card. No visibility yet. |
 | 2 **(shipped)** | `services/scope.py`, the classification inventory, and the parity tests. No behavior change. |
-| 3 | Columns on the content tables. Write paths accept a tier. Viewer threading through the read functions. Picker and badge in the UI. The `StrongUser` bar. |
-| 4 | The sinks: FTS, search, memory, notifications, `activity.detail`. |
-| 5 | Jobs and egress locked to workspace. |
-| 6 | Per-crew packs, digests, and insights. |
+| 3 **(shipped)** | Columns on all 16 content tables. Fourteen write paths accept a tier; five REST bodies expose one (task, decision, standup, note, capture). Children inherit (blockers from a standup, task_worklog from a task, the ship-it note and experiment lesson from an engagement, an engagement from an accepted intake request). Viewer threaded through the reads. Picker and badge in the UI. The `StrongUser` bar. |
+| 4 **(shipped)** | The sinks: FTS (search.index_record looks the tier up itself rather than trusting 20 call sites), admin export, and `activity.detail` via scope.detail. `private` became writable here. |
+| 5 **(shipped, before 3c)** | Jobs and egress read `WORKSPACE_ONLY`: digest, readout, handoff, context pack, the findings rules, and the team-wide block of My Day. Moved AHEAD of the picker — a crew task would otherwise have gone straight into the daily digest, which is the same control-that-does-not-hold problem `private` was sequenced around. |
+| 6 **(shipped, packs only)** | Per-crew context packs: `005_crew_context_packs.sql`, `build_pack(crew_id)` appending a crew section to the shared body, per-crew version counters, `GET /api/context-pack?crew=`. Per-crew digests and insights are NOT built — a digest has one audience and a finding row is permanent, so both need their own design. |
+
+### Where the picker actually went
+
+The plan named four create forms. Tasks and notes have no create form in this
+UI — both are made through quick capture — so the picker went into the ⌘K
+palette, which routes to seven entities, plus the standup card. That covers
+the four the plan named and three more, from one control.
+
+### What still lands at workspace, always
+
+Fourteen of the sixteen tables can carry a non-workspace tier. Only
+`artifacts` and `lessons` cannot be written with one directly — both are
+written by jobs, which have no viewer. (`lessons` still INHERITS one, from the
+experiment whose conclusion drafted it.) They gain a picker when they gain a
+writer that can offer one.
+
+A comment claiming "this table carries no settable tier" was written four
+times in this codebase and was false at every site by the time it shipped.
+That class of rot is why `tests/test_visibility_authz.py` walks the AST for
+every read of a scoped table and fails on one with no viewer, no
+`WORKSPACE_ONLY`, and no written reason.
+
+The hazardous sites, counted before any of them were touched: 8 reads with
+GROUP BY (the fragment cannot go in HAVING), 6 with a LEFT JOIN where it must
+go in the ON clause, 4 whose WHERE already has a top-level OR, the 8-way
+UNION in `insights.automation_ratio`, 6 nested `milestones` subqueries, and 3
+builders that can emit no WHERE at all.
+
+`retention.prune` takes a written carve-out rather than a filter. Its
+orphan-reaping `NOT IN` subqueries decide what to DELETE, so a filter there
+does not hide rows — it deletes live ones.
 
 Phase 0 did not depend on the rest and shipped on its own, and so did
 phase 1. Phase 3 is the expensive one and does not
 reduce: roughly 20 tables, 95 read functions, 110 endpoints, and a
 frontend with no shared primitives to reuse.
 
-Phase 6 needs a table rebuild. `context_packs` is `UNIQUE(version)`, and
-per-crew packs need `UNIQUE(crew_id, version)` — the 12-step SQLite
-rebuild, which is why it sits last.
+Phase 6 did NOT need the 12-step rebuild this file predicted. `UNIQUE(version)`
+was a standalone INDEX, not a table constraint, so `DROP INDEX` plus
+`CREATE UNIQUE INDEX ... (IFNULL(crew_id, 0), version)` changes the key without
+touching a row. `IFNULL`, not a bare `crew_id`: SQLite treats every NULL as
+distinct in a unique index, so two team packs could share version 1.
 
 ## Two cross-user reads phase 0 closed
 
@@ -287,12 +348,18 @@ the chat tool `my_agent_inbox(agent="")` took a model-controlled name and
 answered with that person's assigned questions, rejected proposals
 including reviewer notes, and unread notification bodies.
 
-Two remain open and belong to phase 4: `GET /api/memories` and MCP
-`search_workspace` both return every person's memories, because
-`services/memory.py::recall` drops its `user` filter on the query branch
-and every memory body is in the global FTS index.
+Both were closed in phase 4. `GET /api/memories` passes the caller as `user=`
+and a viewer; `recall` applies both on every branch. MCP `search_workspace`
+passes NOBODY, so it reads the workspace tier only, and a private row was
+never indexed to begin with.
 
-## What phase 3 has to solve that phase 2 did not
+A third, found in the phase 3-6 review and closed with them:
+`GET /api/private/brief/{person}` took a free path parameter with no manager
+relation behind it, and its six queries were unfiltered — so every strong
+identity could read every other person's PRIVATE standup and promise rows in
+full. It now filters on the READER, never on the subject.
+
+## What phase 3 solved
 
 - **The review queue is a mirror.** `pending_changes.payload` holds a copy
   of the proposed row and `GET /api/review` serves it to any
@@ -303,10 +370,14 @@ and every memory body is in the global FTS index.
   It splats the payload as kwargs straight into the service, bypassing
   `gated_write`. So `assert_writable` belongs in the SERVICE, not the
   route handler, or a proposal carrying another crew's id applies.
-- **Parent rows copy text into child rows.** `collab.post_standup` lifts
-  the `blockers` field into `raise_blocker`, a different table with its
-  own default tier. The tier picker will sit on the standup form, and
-  nothing on that form says one field escapes.
+- **Parent rows copy text into child rows.** DONE. `scope.inherit` and
+  explicit `visibility=`/`crew_id=` passing cover all of them:
+  `collab.post_standup` into `raise_blocker`, `delegation.report_progress`
+  into `task_worklog`, `collab.supersede_decision` into its successor,
+  `intake._disposition` into `create_engagement`, and
+  `engagements._ship_it` and `_experiment_lesson` into a note and a lesson.
+  The last two were workspace children of a crew engagement until the
+  phase 3-6 review found them.
 
 ## What this design does not do
 

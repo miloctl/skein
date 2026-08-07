@@ -1,6 +1,7 @@
 """Collaboration tools — thin wrappers over app.services.collab."""
 
 import json
+from typing import Any
 
 from strands import tool
 
@@ -18,7 +19,11 @@ def ask_question(question: str, asked_by: str, assigned_to: str = "") -> str:
         asked_by: Who is asking (human or agent name).
         assigned_to: Who should answer it, if known.
     """
-    payload = {"question": question, "asked_by": asked_by, "assigned_to": assigned_to}
+    payload: dict[str, Any] = {
+        "question": question,
+        "asked_by": asked_by,
+        "assigned_to": assigned_to,
+    }
     return gated_write(
         "question",
         "create",
@@ -36,7 +41,7 @@ def answer_question(question_id: int, answer: str, answered_by: str = "") -> str
         answer: The answer text.
         answered_by: Who answered.
     """
-    payload = {"answer": answer, "answered_by": answered_by}
+    payload: dict[str, Any] = {"answer": answer, "answered_by": answered_by}
     return gated_write(
         "question",
         "update",
@@ -56,7 +61,7 @@ def assign_question(question_id: int, assigned_to: str) -> str:
         question_id: ID of the open question.
         assigned_to: Who should answer it.
     """
-    payload = {"assigned_to": assigned_to}
+    payload: dict[str, Any] = {"assigned_to": assigned_to}
     return gated_write(
         "question_assign",
         "update",
@@ -101,7 +106,7 @@ def record_decision(
     optional = {"context": context, "decided_by": decided_by, "review_by": review_by}
     if category:
         optional["category"] = category
-    payload = {"title": title, "decision": decision, **optional}
+    payload: dict[str, Any] = {"title": title, "decision": decision, **optional}
     return gated_write(
         "decision",
         "create",
@@ -131,7 +136,12 @@ def post_standup(author: str, yesterday: str = "", today: str = "", blockers: st
         today: What's planned next.
         blockers: Anything blocking progress.
     """
-    payload = {"author": author, "yesterday": yesterday, "today": today, "blockers": blockers}
+    payload: dict[str, Any] = {
+        "author": author,
+        "yesterday": yesterday,
+        "today": today,
+        "blockers": blockers,
+    }
     return gated_write(
         "standup",
         "create",
@@ -159,7 +169,7 @@ def save_note(topic: str, content: str, author: str = "") -> str:
         content: The knowledge to persist.
         author: Who wrote it.
     """
-    payload = {"topic": topic, "content": content, "author": author}
+    payload: dict[str, Any] = {"topic": topic, "content": content, "author": author}
     return gated_write(
         "note",
         "create",
@@ -188,7 +198,7 @@ def edit_note(note_id: int, topic: str = "", content: str = "") -> str:
         topic: New topic, if changing it.
         content: New content (markdown), if changing it.
     """
-    payload = {k: v for k, v in {"topic": topic, "content": content}.items() if v}
+    payload: dict[str, Any] = {k: v for k, v in {"topic": topic, "content": content}.items() if v}
     if not payload:
         return json.dumps({"error": "nothing to change — pass topic and/or content"})
     return gated_write(

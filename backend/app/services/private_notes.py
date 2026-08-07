@@ -22,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
+from . import scope
 
 KINDS = ("note", "feedback")
 FEEDBACK_GAP_DAYS = 21
@@ -205,39 +206,56 @@ def audit_brief(author: str, person: str) -> None:
         conn.commit()
 
 
-def one_on_one_brief(person: str, days: int = 14) -> dict:
-    """Deterministic 'since last time' brief from TEAM-VISIBLE platform data
-    only. Every section degrades to empty pre-adoption."""
+def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """Deterministic "since last time" brief, filtered to what the READER may
+    see — not to what the subject wrote.
+
+    `person` is a free path parameter and there is no manager relation in this
+    schema, so every StrongUser can name every teammate. Unfiltered, the six
+    queries below handed any caller another person's PRIVATE standup and
+    promise rows in full, which defeats the private tier rather than the crew
+    one. The viewer is the caller (routes/private.py), never the subject.
+
+    Every section degrades to empty pre-adoption.
+    """
     person = person.strip()
     since = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
+    f = {
+        t: scope.visible_filter(viewer, t)
+        for t in ("standups", "blockers", "questions", "tasks", "promises")
+    }
     return {
         "person": person,
         "since": since,
         "standups": db.query(
-            "SELECT * FROM standups WHERE author = ? AND created_at >= ? ORDER BY id DESC LIMIT 5",
-            (person, since),
+            f"SELECT * FROM standups WHERE author = ? AND created_at >= ? AND {f['standups'][0]}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY id DESC LIMIT 5",
+            (person, since, *f["standups"][1]),
         ),
         "open_blockers": db.query(
-            "SELECT * FROM blockers WHERE owner = ? AND status != 'resolved' ORDER BY id DESC",
-            (person,),
+            f"SELECT * FROM blockers WHERE owner = ? AND status != 'resolved' AND {f['blockers'][0]}"  # noqa: S608 — same
+            " ORDER BY id DESC",
+            (person, *f["blockers"][1]),
         ),
         "open_questions": db.query(
-            "SELECT * FROM questions WHERE assigned_to = ? AND status = 'open' ORDER BY id",
-            (person,),
+            f"SELECT * FROM questions WHERE assigned_to = ? AND status = 'open' AND {f['questions'][0]}"  # noqa: S608 — same
+            " ORDER BY id",
+            (person, *f["questions"][1]),
         ),
         "in_progress": db.query(
-            "SELECT id, title, updated_at FROM tasks WHERE assignee = ?"
+            f"SELECT id, title, updated_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — same
             " AND status = 'in_progress' ORDER BY updated_at",
-            (person,),
+            (person, *f["tasks"][1]),
         ),
         "recently_done": db.query(
-            "SELECT id, title, completed_at FROM tasks WHERE assignee = ?"
+            f"SELECT id, title, completed_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — same
             " AND completed_at >= ? ORDER BY completed_at DESC LIMIT 10",
-            (person, since),
+            (person, *f["tasks"][1], since),
         ),
         "promises_made": db.query(
-            "SELECT * FROM promises WHERE created_by = ? AND created_at >= ? ORDER BY id DESC",
-            (person, since),
+            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ? AND {f['promises'][0]}"  # noqa: S608 — same
+            " ORDER BY id DESC",
+            (person, since, *f["promises"][1]),
         ),
     }
 
