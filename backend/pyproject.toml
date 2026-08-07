@@ -66,24 +66,6 @@ ignore_names = [
     "register_hooks",
     # anyio's CapacityLimiter setter, assigned once in main.py's lifespan
     "total_tokens",
-    # the phase-3 write guard, landed with phase 1 on purpose: every write
-    # path that accepts a crew_id must call the SAME check, and one invented
-    # per table is how a writer ends up able to scope a row into a crew they
-    # are not in. Its contract is pinned by tests/test_crews.py, which
-    # vulture does not scan. Delete this line when phase 3 wires it up
-    # (docs/VISIBILITY.md).
-    "assert_writable",
-    # the tier filter, landed with phase 2 on purpose: the inventory beside it
-    # (scope.CLASSIFIED) is only meaningful next to the predicate it feeds, and
-    # 95 read functions inventing their own is the failure this prevents. Its
-    # contract is pinned by tests/test_scope.py, which vulture does not scan.
-    # Delete this line when phase 3 wires it up (docs/VISIBILITY.md).
-    "visible_filter",
-    # the viewer every surface with no human behind it passes — a job, an
-    # agent tool, an MCP call. Landed with the filter it feeds, and named so
-    # those surfaces have one obvious answer instead of twenty decisions.
-    # Delete this line when phase 3 wires it up (docs/VISIBILITY.md).
-    "NOBODY",
 ]
 min_confidence = 60
 sort_by_size = true

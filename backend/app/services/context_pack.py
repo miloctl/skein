@@ -44,7 +44,7 @@ def build_pack(crew_id: int = 0) -> str:
             f" health: {h['health']})"
         )
     if not health:
-        lines.append("- none")
+        lines.append("- none recorded")
     lines.append("")
 
     lines.append("## Standing decisions (cite these; supersede, don't ignore)")
@@ -96,7 +96,7 @@ def build_pack(crew_id: int = 0) -> str:
         " ORDER BY id DESC LIMIT 10"
     )
     lines += [f"- #{q['id']} {q['question']} (asked by {q['asked_by']})" for q in questions] or [
-        "- none"
+        "- none recorded"
     ]
     lines.append("")
 
@@ -156,7 +156,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         f"- [{m['status']}] #{m['id']} {m['title']}"
         + (f" — due {m['due_date']}" if m["due_date"] else "")
         for m in milestones
-    ] or ["- none"]
+    ] or ["- none recorded"]
     lines.append("")
     lines.append("## Open tasks")
     tasks = db.query(
@@ -175,14 +175,14 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
             line += f" — waiting on {t['waiting_on_type']} #{t['waiting_on_id']}"
         lines.append(line)
     if not tasks:
-        lines.append("- none")
+        lines.append("- none recorded")
     lines.append("")
     from .portfolio import _linked_blockers
 
     blockers = _linked_blockers(engagement_id, viewer)
     lines.append("## Unresolved blockers")
     lines += [f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}" for b in blockers] or [
-        "- none"
+        "- none recorded"
     ]
     lines.append("")
     lines.append("## Lessons from this class")
@@ -201,7 +201,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
-    lines += [f"- **{d['title']}** — {d['decision']}" for d in decisions] or ["- none"]
+    lines += [f"- **{d['title']}** — {d['decision']}" for d in decisions] or ["- none recorded"]
     return "\n".join(lines)
 
 
@@ -244,7 +244,7 @@ def _crew_section(crew_id: int) -> list[str]:
         ),
     ):
         rows = db.query(sql, (crew_id,))
-        lines += [f"### {heading}"] + ([fmt(r) for r in rows] or ["- none"]) + [""]
+        lines += [f"### {heading}"] + ([fmt(r) for r in rows] or ["- none recorded"]) + [""]
     return lines
 
 

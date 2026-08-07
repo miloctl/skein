@@ -18,8 +18,10 @@
 -- evaluated as a residual. A (visibility, crew_id) composite helps exactly one
 -- query shape that no surface asks for yet.
 --
--- No semicolons in this file, comments included -- db.py::_statements splits
--- on them and the tail half is a syntax error at startup.
+-- No semicolon and no apostrophe inside a comment -- db.py::_statements splits
+-- on the semicolon with no comment awareness, so the tail half of the comment
+-- becomes a statement, and an apostrophe opens a string literal that never
+-- closes. Either one breaks init_db at startup, on a fresh database only.
 
 ALTER TABLE absences ADD COLUMN visibility TEXT NOT NULL DEFAULT 'workspace'
     CHECK (visibility IN ('private', 'crew', 'workspace'));

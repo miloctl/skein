@@ -549,7 +549,7 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
     users.ensure_user("ava")
     users.ensure_user("bo")
     absences.add_absence("ava", "2026-12-01", "2026-12-02", actor="ava", visibility="private")
-    with pytest.raises(ValueError, match="readable by nobody else"):
+    with pytest.raises(ValueError, match="means one reader"):
         absences.add_absence("bo", "2026-12-01", "2026-12-02", actor="ava", visibility="private")
 
 
@@ -770,7 +770,7 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
 
 
 def test_a_crew_pack_carries_the_crew_rows_and_reaches_members_only(fresh_db):
-    """Phase 6. The shared body stays a PREFIX of the crew pack, so a reader
+    """The shared body stays a PREFIX of the crew pack, so a reader
     can tell which half the whole roster already has."""
     from app.services import context_pack, crews
 

@@ -383,6 +383,17 @@ The wire values are `private` / `crew` / `workspace`. **Two of the three are
 never shown.** The picker and the badge say **only you**, **{crew} only**, and
 **everyone on the roster** (`components/visibility-picker.tsx`).
 
+The badge has a fourth string, **one crew only**, and it renders only when
+`/api/crews` fails, so the badge knows the row is crew-scoped and cannot name
+the crew. It is deliberately not the same shape as the picker's option: a
+reader who sees it must be able to tell that the name is missing rather than
+read it as a different setting.
+
+One place shows the wire values: the API refusal for a malformed
+`visibility` field (`services/scope.py::resolve_write`). That names what the
+endpoint accepts, and no UI can produce it — the picker only ever sends one of
+the three.
+
 `workspace` is never shown because the product uses the word nowhere else.
 `private` is never shown because it is already taken: the People page's
 author-private journal lives in a separate `private.db` that no code path
@@ -397,13 +408,13 @@ back.
 The concept's own name on a surface is **visible to** — the picker's label.
 Not "scope" (a code word), not "audience" (`promises.audience` is a different
 enum on the same screens), and not "sharing" (nothing is shared; a tier is read
-access that either already exists or does not).
+access that either already exists or does not. Nothing changes hands).
 
-### 9. Switching something off without deleting it
+### Switching something off without deleting it
 
 | | |
 |---|---|
-| Words in use | **deactivate** (roster, crews) - **retire** (2, one of them a different concept) |
+| Words in use | **deactivate** (roster, crews) · **retire** (2, one of them a different concept) |
 | Where they split | `app/settings/page.tsx` used BOTH in one sentence. `app/insights/page.tsx` uses "retire" for retiring a RULE, which is a different act |
 | **DECIDED** | **deactivate** — it is the verb on every button, the aria-label, and the confirmation. `retire` stays only where the object is a rule |
 

@@ -323,7 +323,7 @@ def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None
     request.state.auth_groups = groups
     # The viewer every scoped read filters on. Built HERE and nowhere else
     # (services/scope.py::Viewer) so the strong-identity bar is a property of
-    # the door rather than a rule ~57 read call sites each have to remember.
+    # the door rather than a rule every scoped read has to remember.
     # It resolves crew membership once, so a page that fans out to dozens of
     # scoped reads pays for one lookup.
     request.state.viewer = scope.Viewer(user, strong)
