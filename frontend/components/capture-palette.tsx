@@ -256,10 +256,11 @@ export function CapturePalette() {
         <div className="mt-2">
           {/* An `fb:` capture short-circuits in services/capture.py BEFORE the
               tier is read, into private.db — a separate database no other code
-              path opens. So the tier is not sent, and a picker still reading
-              "Platform only" would state one the system discards. It fails
-              safe (more private, not less), which is exactly why it would
-              never be noticed. */}
+              path opens. The tier IS still on the wire — submit sends the
+              whole state — and the server discards it, so a picker reading
+              "Platform only" would state a choice that has no effect. It
+              fails safe (more private, not less), which is exactly why it
+              would never be noticed. */}
           {previewKind(text) === "private feedback" ? (
             <p className="text-xs text-ink-3">
               Visible to <span className="text-ink-2">only you</span> — feedback

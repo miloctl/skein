@@ -92,10 +92,13 @@ product has, and the journal stays in it.
 Three migrations: `003_crews.sql` (the crews tables), `004_visibility_tier.sql`
 (the columns on all 16 content tables), and `005_crew_context_packs.sql`
 (per-crew packs). Append-only, DDL plus non-`activity` backfill, no triggers,
-and no semicolon **and no apostrophe** inside a comment — `db.py::_statements`
-splits on `;` with no string or comment awareness, and sqlite3 reads a lone
-apostrophe as an unterminated string literal. Migration 005 got this wrong in
-the comment that forbids it and bricked `init_db` until it was fixed.
+and **no semicolon inside a comment** — `db.py::_statements` splits on `;`
+with no comment awareness, so the tail half becomes a statement and `init_db`
+fails on a fresh database. An apostrophe is fine: `--` runs to end of line and
+SQLite opens no string literal there. Both migration headers say this; a
+version of this paragraph that also forbade the apostrophe was wrong, and
+teaching a rule the runner does not have costs the next author a real
+debugging session.
 
 ```sql
 CREATE TABLE crews (
@@ -371,7 +374,7 @@ full. It now filters on the READER, never on the subject.
 - **The review queue was a mirror.** DONE. `pending_changes` carries no tier
   of its own, so `review._readable` resolves each proposal's TARGET row and
   drops the ones the reader cannot open — creates included, reading the tier
-  off the payload. All seven readers call it: `GET /api/review`, `my_day`,
+  off the payload. All eight readers call it: `GET /api/review`, `my_day`,
   `agent_inbox`, `review_stats`, the handoff, the week-close ritual and the
   two insights rules that write into `findings.receipt`.
 - **`review.approve_change` is a write path that does not look like one.**

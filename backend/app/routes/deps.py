@@ -336,12 +336,12 @@ def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None
     # It resolves crew membership once, so a page that fans out to dozens of
     # scoped reads pays for one lookup.
     #
-    # Built on EVERY request, including routes that read nothing scoped, which
-    # costs one extra SQLite connection each. Measured and kept: making it
-    # lazy would move construction out of the single door, and "one place
-    # builds a Viewer" is the whole reason the bar cannot be forgotten. The
-    # dashboard, which fans out to roughly 27 scoped reads, pays +1 query
-    # total for it.
+    # Built on EVERY request, including routes that read nothing scoped. It
+    # costs a crews_of query only for a STRONG caller — Viewer.__init__ blanks
+    # a weak name and then skips the lookup, so in the default trusted-header
+    # mode it costs nothing at all. Kept in the single door either way: making
+    # it lazy moves construction out of the one place that builds a Viewer,
+    # which is the whole reason the strong-identity bar cannot be forgotten.
     request.state.viewer = scope.Viewer(user, strong)
 
 
@@ -405,9 +405,10 @@ def viewer(request: Request, _user: Annotated[str, Depends(current_user)]) -> "s
     resolved and stashed before this reads request.state. FastAPI caches a
     dependency per request, so a route taking both pays for one resolution.
 
-    NOBODY when nothing was stashed — a route reached without current_user has
-    no identity to read scoped rows with, and the workspace tier is the only
-    honest answer.
+    The `getattr` default is unreachable while `_user` is here: _stash sets
+    request.state.viewer unconditionally. It is the fail-closed landing if
+    somebody drops that parameter — which would also drop the ordering, so the
+    default going live is the SYMPTOM of that edit, not a case to design for.
     """
     return getattr(request.state, "viewer", scope.NOBODY)
 

@@ -7,8 +7,8 @@ from typing import Any
 from strands import tool
 
 from ..agents import receipts
-from ..agents.identity import agent_identity
-from ..services import absences, collab, context_pack, delegation, portfolio, promises
+from ..agents.identity import agent_identity, requester_viewer
+from ..services import absences, collab, context_pack, delegation, portfolio, promises, scope
 from ._gate import gated_write
 
 
@@ -156,7 +156,16 @@ def my_agent_inbox() -> str:
     """Your own ambient inbox: delegated tasks, questions assigned to you,
     rejected proposals (with reviewer notes), notifications."""
     try:
-        return json.dumps(delegation.agent_inbox(agent_identity()))
+        # the REQUESTER's viewer, not None: None means "the agent is the
+        # caller" and leaves the inbox unfiltered, which is right for MCP and
+        # the scheduler. `/as <persona>` makes that false — a human takes the
+        # persona's identity, every shipped persona holds this tool, and the
+        # REST twin refuses the same read. Unset outside a chat turn, so the
+        # autonomous path is unchanged.
+        rv = requester_viewer()
+        return json.dumps(
+            delegation.agent_inbox(agent_identity(), rv if isinstance(rv, scope.Viewer) else None)
+        )
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 

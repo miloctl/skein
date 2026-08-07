@@ -612,11 +612,16 @@ export default function SettingsPage() {
             Test & save
           </button>
           {hasBrowserKey && (
+            /* "Delete", not "Remove": docs/LEXICON.md reserves delete for
+               destruction, and the 401 this screen exists to answer
+               (routes/deps.py::INVALID_KEY) sends the reader here to "delete
+               the stored key" — a button with a different verb is the reader
+               checking whether they are on the right screen. */
             <button
               onClick={clearKey}
               className="rounded-lg bg-raised px-3 py-1.5 text-sm text-ink-2 hover:bg-line"
             >
-              Remove
+              Delete
             </button>
           )}
         </div>

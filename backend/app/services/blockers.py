@@ -235,8 +235,19 @@ def sweep_escalations() -> list[dict]:
             # the message quotes the title, so it goes to the owner alone: the
             # "team" fallback addresses the whole roster, and an owner is the
             # only name here checked as a reader — by raise_blocker at
-            # creation AND by edit_blocker on every change to it.
-            if b["owner"] or b["visibility"] == scope.WORKSPACE:
+            # creation and by edit_blocker on every change to it.
+            #
+            # Re-checked HERE too, because both of those are WRITE-time and
+            # this job runs hourly forever: somebody removed from the crew
+            # afterwards was a legitimate owner when the blocker was raised,
+            # and scope.audience makes the opposite promise about removal.
+            owner_reads = b["owner"] and scope.can_read(
+                b["visibility"],
+                b["crew_id"],
+                scope.Viewer.for_actor(b["owner"]),
+                b["created_by"],
+            )
+            if owner_reads or b["visibility"] == scope.WORKSPACE:
                 notify(
                     b["owner"] or "team",
                     f"Blocker #{b['id']} escalated: {b['title']}",

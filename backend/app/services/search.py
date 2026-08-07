@@ -81,19 +81,18 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
     The FTS table has no tier of its own, and it CANNOT get one cheaply:
     `entity` and `entity_id` are UNINDEXED in fts5, so a predicate on them
     scans the whole virtual table, and adding a column means dropping and
-    rebuilding the index plus its five shadow tables. So the tier is checked
-    on the source row instead — one primary-key read per hit, over a list
-    already capped by LIMIT.
+    rebuilding the index plus its five shadow tables. So the tier is read off
+    the source rows instead.
 
     Without this every crew row was world-readable through search, /ask, the
     MCP search_workspace tool, and the by-id fetch — which voids every filter
     the list endpoints apply.
 
-    One query per TABLE, not per hit. Per hit it was two reads (_tier_of then
-    _authored_by), each opening its own connection: a 20-result page
-    over-fetches 80 rows and cost 81 connections and ~38ms against 1 and
-    ~0.8ms before the tier existed. db.connect() runs four PRAGMAs, which is
-    the cost db.py documents. Grouping by table makes it 1 + (tables hit).
+    One query per TABLE, not per hit. db.connect() runs four PRAGMAs (db.py),
+    so a per-hit read costs a connection — and this filters BEFORE the
+    `limit * 4` over-fetch is truncated, so a 20-result page probes 80 rows.
+    Measured at 81 connections and 38ms per search; grouped by table it is 3
+    and 1.9ms.
     """
     want: dict[str, set[int]] = {}
     for h in hits:

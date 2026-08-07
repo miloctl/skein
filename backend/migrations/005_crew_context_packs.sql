@@ -15,10 +15,11 @@
 -- comment awareness, and the tail half becomes a statement. An apostrophe is
 -- fine -- `--` runs to end of line, and SQLite opens no string literal there.
 
--- No IF EXISTS, deliberately. This file has already been applied, and
--- CLAUDE.md forbids editing an applied migration's statements. The index is
--- created by 001_baseline.sql, so the only way this fails is a hand-dropped
--- index -- and that is a new migration, not an edit here.
+-- No IF EXISTS. 001_baseline.sql:308 creates this index, so the only way the
+-- DROP fails is a database where it was removed by hand. Recreate it by hand
+-- too: init_db walks migrations in filename order and stops at the first
+-- failure, so a later-numbered migration never runs (CLAUDE.md says the same
+-- about renames).
 DROP INDEX ux_context_packs_version;
 
 ALTER TABLE context_packs ADD COLUMN crew_id INTEGER REFERENCES crews(id);

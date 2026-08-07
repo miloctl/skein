@@ -592,13 +592,9 @@ _UNFILTERED_READS = {
     ),
     # --- the row's OWN reader: this is the person or agent the row is for ---
     "review.py::_sponsor_of": "reads the one column that names who reviews it",
-    "review.py::_assert_judgeable": (
-        "reads the target's tier to decide whether this caller may pass a"
-        " VERDICT on it — the same shape as _readable, one row at a time"
-    ),
-    "review.py::_readable": (
-        "reads the tier columns to decide readability — the same shape as"
-        " search._tier_of, and filtering it would be circular"
+    "review.py::_governing_tier": (
+        "reads the tier that decides who may see or judge a proposal. It IS"
+        " the filter for pending_changes, which carries no tier of its own"
     ),
     "blockers.py::resolve_blocker": (
         "the tasks waiting on this blocker, to tell their assignees it cleared."
