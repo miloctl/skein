@@ -90,6 +90,38 @@ describe("the picker never describes a tier it is not sending", () => {
   });
 });
 
+describe("a failed crew fetch never widens the audience", () => {
+  it("keeps a chosen crew when /api/crews fails", async () => {
+    // `[]` on failure made "we could not ask" identical to "you are in no
+    // crew", and the reconciliation then reset the row to the whole roster.
+    // Widening is the one direction that costs a reader their privacy.
+    failCrews = true;
+    render(<Harness initial={{ visibility: "crew", crew_id: 1 }} />);
+    await screen.findByLabelText("Who can see this task");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByTestId("sent").textContent).toBe(
+      JSON.stringify({ visibility: "crew", crew_id: 1 }),
+    );
+    // and the select still shows a crew rather than falling back to the
+    // roster option, so the label agrees with what would be submitted
+    expect(
+      (screen.getByLabelText("Who can see this task") as HTMLSelectElement).value,
+    ).toBe("crew:1");
+  });
+
+  it("still offers the roster and only-you when the fetch fails", async () => {
+    failCrews = true;
+    render(<Harness initial={{ visibility: "workspace", crew_id: 0 }} />);
+    const sel = (await screen.findByLabelText(
+      "Who can see this task",
+    )) as HTMLSelectElement;
+    expect([...sel.options].map((o) => o.value)).toEqual([
+      "workspace",
+      "private",
+    ]);
+  });
+});
+
 describe("the tier does not survive a capture", () => {
   it("files the next unrelated thought at the workspace tier", async () => {
     render(<CapturePalette />);
@@ -121,6 +153,33 @@ describe("the tier does not survive a capture", () => {
 function bodyOf(call?: { init?: RequestInit }): Record<string, unknown> {
   return JSON.parse(String(call?.init?.body ?? "{}"));
 }
+
+describe("every control in quick capture is reachable by keyboard", () => {
+  it("includes the visibility select in the focus trap", async () => {
+    // The picker mounts BELOW the Capture button, and the trap's selector
+    // listed only buttons, textareas and [tabindex] — so the last focusable
+    // was Capture, Tab wrapped to the first chip, and the one control that
+    // decides who can read the capture could not be reached at all.
+    render(<CapturePalette />);
+    act(() => {
+      window.dispatchEvent(new Event("skein-capture-open"));
+    });
+    await screen.findByText("Platform only");
+    // Asserted through the component's OWN trap, never by re-running its
+    // selector here — a test that queries with the fixed selector passes no
+    // matter what the component uses, which is no test at all.
+    //
+    // jsdom does not move focus on Tab, so the observable is the wrap: the
+    // trap calls preventDefault and focuses the FIRST element only when the
+    // active one is last. With the select missing from the selector, Capture
+    // was last and Tab from it jumped to the first chip.
+    const capture = screen.getByRole("button", { name: /capture/i });
+    capture.focus();
+    fireEvent.keyDown(capture, { key: "Tab" });
+    const firstChip = screen.getByRole("button", { name: "task" });
+    expect(document.activeElement).not.toBe(firstChip);
+  });
+});
 
 describe("the badge", () => {
   it("renders nothing for the workspace tier", () => {

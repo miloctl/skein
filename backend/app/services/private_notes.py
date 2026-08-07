@@ -233,27 +233,27 @@ def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.N
             (person, since, *f["standups"][1]),
         ),
         "open_blockers": db.query(
-            f"SELECT * FROM blockers WHERE owner = ? AND status != 'resolved' AND {f['blockers'][0]}"  # noqa: S608 — same
+            f"SELECT * FROM blockers WHERE owner = ? AND status != 'resolved' AND {f['blockers'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             " ORDER BY id DESC",
             (person, *f["blockers"][1]),
         ),
         "open_questions": db.query(
-            f"SELECT * FROM questions WHERE assigned_to = ? AND status = 'open' AND {f['questions'][0]}"  # noqa: S608 — same
+            f"SELECT * FROM questions WHERE assigned_to = ? AND status = 'open' AND {f['questions'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             " ORDER BY id",
             (person, *f["questions"][1]),
         ),
         "in_progress": db.query(
-            f"SELECT id, title, updated_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — same
+            f"SELECT id, title, updated_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             " AND status = 'in_progress' ORDER BY updated_at",
             (person, *f["tasks"][1]),
         ),
         "recently_done": db.query(
-            f"SELECT id, title, completed_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — same
+            f"SELECT id, title, completed_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             " AND completed_at >= ? ORDER BY completed_at DESC LIMIT 10",
             (person, *f["tasks"][1], since),
         ),
         "promises_made": db.query(
-            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ? AND {f['promises'][0]}"  # noqa: S608 — same
+            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ? AND {f['promises'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             " ORDER BY id DESC",
             (person, since, *f["promises"][1]),
         ),

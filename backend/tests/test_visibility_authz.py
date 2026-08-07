@@ -570,7 +570,6 @@ _UNFILTERED_READS = {
     "pulse.py::blocker_speedrun": "resolution times by impact, no titles",
     "pulse.py::pulse": "season counters over the same aggregates",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
-    "engagements.py::allocate": "reads the engagement it links to, to refuse a bad id",
     "portfolio.py::flow_metrics": (
         "cycle-time numbers and a per-person WIP count. No title, no id, and"
         " the person is the allocation's own — same rule as pulse below."
@@ -593,6 +592,10 @@ _UNFILTERED_READS = {
     ),
     # --- the row's OWN reader: this is the person or agent the row is for ---
     "review.py::_sponsor_of": "reads the one column that names who reviews it",
+    "review.py::_assert_judgeable": (
+        "reads the target's tier to decide whether this caller may pass a"
+        " VERDICT on it — the same shape as _readable, one row at a time"
+    ),
     "review.py::_readable": (
         "reads the tier columns to decide readability — the same shape as"
         " search._tier_of, and filtering it would be circular"
@@ -603,9 +606,12 @@ _UNFILTERED_READS = {
         " a reader (assert_readable_by), so the title goes to somebody who can"
         " open it — the same rule sweep_escalations follows."
     ),
-    "delegation.py::list_worklog": "reads the task id to refuse a bad one",
+    "search.py::visible_hits": (
+        "reads the tier columns for a page of hits, batched by table, and then"
+        " applies scope.can_read to each — it IS the filter for FTS results,"
+        " which carry no tier of their own"
+    ),
     "search.py::_tier_of": "reads the tier itself — the thing every filter asks for",
-    "search.py::_authored_by": "same, for the author column CLASSIFIED names",
     "search.py::_is_private": "same, and it is the guard that keeps a private row unindexed",
     # --- write paths: the SELECT feeds the guard, not a response ---
     "work.py::create_milestone": (
@@ -614,12 +620,10 @@ _UNFILTERED_READS = {
     ),
     "engagements.py::create_engagement": "reads its own name, NOCASE, to refuse a duplicate",
     "engagements.py::update_engagement": "same duplicate-name check, excluding itself",
-    "engagements.py::record_lesson": "reads the engagement it links to, to refuse a bad id",
     "context_pack.py::_crew_section": "filters on `visibility = 'crew' AND crew_id = ?` itself",
     # --- keyed on a row the caller did not name ---
     "ci.py::ci_event": "resolves its blocker from a webhook payload, not an id",
     "forge.py::forge_event": "resolves its task from a branch or PR string",
-    "chat_threads.py::update_thread": "owner-scoped by primary key, see scope.UNSCOPED",
     "delegation.py::claim_task": "the actor must BE the task's delegated_agent",
     "delegation.py::report_progress": "the actor must be the delegate or the sponsor",
     "delegation.py::accept_completion": "same delegated_agent check",

@@ -43,6 +43,12 @@ export function StandupComposer({
         setToday("");
         setBlockers("");
         setYesterday("");
+        // `tier` is deliberately NOT reset, unlike capture-palette.tsx, which
+        // clears it and says why. The difference is whether the choice stays
+        // visible: that dialog closes after a capture, so a carried tier is
+        // one nobody can see, while this card stays mounted with the picker
+        // still reading "Platform only". Posting two standups to the same
+        // crew in a row is also the ordinary case here.
         onPosted?.();
       }, 700);
     } catch (e) {

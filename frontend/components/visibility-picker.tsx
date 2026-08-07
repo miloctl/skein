@@ -24,11 +24,16 @@ export function VisibilityPicker({
   onChange: (t: Tier) => void;
   label: string;
 }) {
-  // null, never []: an empty array would render "you are in no crew" before
-  // the request answers, and the picker would vanish and reappear
-  const [crews, setCrews] = useState<{ id: number; name: string }[] | null>(
-    null,
-  );
+  // Three states, and they are three because two lost information:
+  //   null  — still loading
+  //   false — the request FAILED, so the crew list is not known
+  //   []    — answered, and this caller is in no crew
+  // Collapsing false into [] made a failed fetch indistinguishable from a
+  // real answer, and the reconciliation below then widened a crew row to the
+  // whole roster on a network blip.
+  const [crews, setCrews] = useState<
+    { id: number; name: string }[] | null | false
+  >(null);
 
   useEffect(() => {
     let live = true;
@@ -42,7 +47,12 @@ export function VisibilityPicker({
         // other, so listing them offers a choice that always fails
         setCrews(all.filter((c) => mine.includes(c.id)));
       })
-      .catch(() => live && setCrews([]));
+      // `false`, not `[]`: an empty array means "you are in no crew", and the
+      // reconciliation below reads it as "the crew you picked is gone" and
+      // widens the row to the whole roster. A failed request must never do
+      // that — the caller chose a tier and a network blip silently undoing it
+      // is the one direction that costs a reader their privacy.
+      .catch(() => live && setCrews(false));
     return () => {
       live = false;
     };
@@ -52,8 +62,13 @@ export function VisibilityPicker({
   // sending. `value` is the parent's, the option list is ours, and nothing
   // reconciled them: with a crew selected, an identity change (or a reopen as
   // somebody in no crew) left the select falling back to "everyone on the
-  // roster" while the parent still held `crew_id: 1` and submitted it. Told
-  // here, so the parent's state and the label agree again.
+  // roster" while the parent still held `crew_id: 1` and submitted it.
+  //
+  // This REQUESTS the correction, it cannot enforce it: a parent that ignores
+  // onChange still holds the stale crew while the select reads "everyone on
+  // the roster". Both call sites pass their setState directly, so the two
+  // agree today — a new caller that filters or debounces onChange brings the
+  // original defect back.
   //
   // onChange through a ref: callers pass an inline arrow, so depending on it
   // re-runs this effect every render and the reset fights the parent forever.
@@ -61,8 +76,10 @@ export function VisibilityPicker({
   useEffect(() => {
     onChangeRef.current = onChange;
   });
+  // Array.isArray, not `!== null`: reconcile ONLY against a list the server
+  // actually answered with. A failed fetch leaves the chosen tier alone.
   const missing =
-    crews !== null &&
+    Array.isArray(crews) &&
     value.visibility === "crew" &&
     !crews.some((c) => c.id === value.crew_id);
   useEffect(() => {
@@ -70,8 +87,10 @@ export function VisibilityPicker({
   }, [missing]);
 
   // null is still loading. An empty crew list is NOT a reason to hide the
-  // picker any more — "only you" is a choice a person with no crew can make.
+  // picker any more — "only you" is a choice a person with no crew can make,
+  // and so is keeping the crew already chosen when the list failed to load.
   if (crews === null) return null;
+  const options = Array.isArray(crews) ? crews : [];
 
   return (
     // min-w-0 and a shrinkable select: mounted in a flex row beside an
@@ -96,11 +115,17 @@ export function VisibilityPicker({
         className="min-w-0 flex-1 truncate rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid"
       >
         <option value="workspace">everyone on the roster</option>
-        {crews.map((c) => (
+        {options.map((c) => (
           <option key={c.id} value={`crew:${c.id}`}>
             {c.name} only
           </option>
         ))}
+        {/* the fetch failed and a crew is already chosen: keep an option that
+            matches `value`, or the select falls back to displaying
+            "everyone on the roster" while the parent still holds the crew */}
+        {crews === false && value.visibility === "crew" && (
+          <option value={`crew:${value.crew_id}`}>one crew only</option>
+        )}
         <option value="private">only you</option>
       </select>
     </label>
@@ -129,10 +154,12 @@ if (typeof window !== "undefined") {
 
 function useCrewName(crewId?: number): string {
   const [name, setName] = useState("");
-  // `tick` re-runs the effect after an invalidation, so a badge that is
-  // already mounted picks the new name up too. Without it only a fresh mount
-  // ever recovered, which meant a failed /api/crews left every visible badge
-  // reading "one crew only" until the page was reloaded.
+  // `tick` re-runs the effect on an INVALIDATION, so a badge that is already
+  // mounted picks up a renamed crew instead of holding the old name for the
+  // session. It is not a retry: after a failed /api/crews every mounted badge
+  // reads "one crew only" until some writer dispatches "storage" (an identity
+  // change, an API-key write, a theme change — lib/theme.ts shares the
+  // channel). A user who does none of those never recovers without a reload.
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const bump = () => setTick((n) => n + 1);

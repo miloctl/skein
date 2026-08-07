@@ -88,33 +88,44 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer") -> list[dict]:
     Without this every crew row was world-readable through search, /ask, the
     MCP search_workspace tool, and the by-id fetch — which voids every filter
     the list endpoints apply.
+
+    One query per TABLE, not per hit. Per hit it was two reads (_tier_of then
+    _authored_by), each opening its own connection: a 20-result page
+    over-fetches 80 rows and cost 81 connections and ~38ms against 1 and
+    ~0.8ms before the tier existed. db.connect() runs four PRAGMAs, which is
+    the cost db.py documents. Grouping by table makes it 1 + (tables hit).
     """
+    want: dict[str, set[int]] = {}
+    for h in hits:
+        table = _ENTITY_TABLE.get(h["entity"])
+        if table in scope.CLASSIFIED:
+            want.setdefault(table, set()).add(h["entity_id"])
+    rows: dict[tuple[str, int], tuple[str, int | None, str]] = {}
+    for table, ids in want.items():
+        marks = ", ".join("?" for _ in ids)
+        author = scope.CLASSIFIED[table]
+        for r in db.query(
+            f"SELECT id, visibility, crew_id, {author} AS author FROM {table}"  # noqa: S608 — table and column from constant maps, ids are bound marks
+            f" WHERE id IN ({marks})",
+            tuple(ids),
+        ):
+            rows[table, r["id"]] = (r["visibility"], r["crew_id"], r["author"] or "")
     out = []
     for h in hits:
-        tier = _tier_of(h["entity"], h["entity_id"])
-        if tier is None:
+        table = _ENTITY_TABLE.get(h["entity"])
+        if table not in scope.CLASSIFIED:
             out.append(h)  # the entity carries no tier at all
             continue
-        visibility, crew_id = tier
-        if (
-            visibility == scope.WORKSPACE
-            or (viewer.name and (visibility == scope.CREW and crew_id in viewer.crew_ids))
-            or (viewer.name and _authored_by(h["entity"], h["entity_id"], viewer.name))
-        ):
+        row = rows.get((table, h["entity_id"]))
+        if row is None:
+            # the source row is GONE and this is a stale index entry. Only
+            # note, event and memory deindex on delete, so the other ten
+            # entities reach here — and a hit whose row cannot be tier-checked
+            # must not be served.
+            continue
+        if scope.can_read(row[0], row[1], viewer, row[2]):
             out.append(h)
     return out
-
-
-def _authored_by(entity: str, entity_id: int, person: str) -> bool:
-    table = _ENTITY_TABLE.get(entity)
-    column = scope.CLASSIFIED.get(table or "")
-    if not table or not column:
-        return False
-    row = db.query_one(
-        f"SELECT {column} AS who FROM {table} WHERE id = ?",  # noqa: S608 — constant map
-        (entity_id,),
-    )
-    return row is not None and row["who"] == person
 
 
 def _is_private(entity: str, entity_id: int) -> bool:

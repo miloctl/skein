@@ -63,7 +63,12 @@ def generate_handoff(
         f"SELECT * FROM decisions WHERE {dfrag} ORDER BY id DESC LIMIT 20",  # noqa: S608 — scope.visible_filter emits only bound marks
         tuple(dp),
     )
-    pending = db.query("SELECT * FROM pending_changes WHERE status = 'pending'")
+    # _readable, like every other section here: this renders into the handoff
+    # markdown AND an artifact on disk carrying the engagement's tier, and a
+    # proposal's `summary` is built out of its target row's own text.
+    from .review import _readable
+
+    pending = _readable(db.query("SELECT * FROM pending_changes WHERE status = 'pending'"), viewer)
     lessons = db.query(
         f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND (engagement_id = ? OR project_class = ?)",

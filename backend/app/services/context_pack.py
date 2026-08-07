@@ -227,17 +227,17 @@ def _crew_section(crew_id: int) -> list[str]:
         ),
         (
             "Conventions",
-            f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — same
+            f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: f"- {r['topic']}: {r['content']}",
         ),
         (
             "Open questions",
-            f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — same
+            f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: f"- #{r['id']} {r['question']} (asked by {r['asked_by']})",
         ),
         (
             "Open work",
-            f"SELECT * FROM tasks WHERE status != 'done' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — same
+            f"SELECT * FROM tasks WHERE status != 'done' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- [{r['status']}] #{r['id']} {r['title']} (@{r['assignee'] or 'unassigned'})"
             ),

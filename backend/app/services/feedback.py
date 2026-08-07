@@ -53,10 +53,10 @@ _COLS = "id, kind, input, output, verdict, correction, created_at"  # never crea
 def list_feedback(kind: str = "") -> list[dict]:
     if kind:
         return db.query(
-            f"SELECT {_COLS} FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100",  # noqa: S608
+            f"SELECT {_COLS} FROM feedback WHERE kind = ? ORDER BY id DESC LIMIT 100",  # noqa: S608 — keys hardcoded, id is a bound mark
             (kind,),
         )
-    return db.query(f"SELECT {_COLS} FROM feedback ORDER BY id DESC LIMIT 100")  # noqa: S608
+    return db.query(f"SELECT {_COLS} FROM feedback ORDER BY id DESC LIMIT 100")  # noqa: S608 — keys hardcoded, id is a bound mark
 
 
 CAPTURE_KINDS = ("question", "blocker", "decision", "promise", "task", "note")

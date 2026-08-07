@@ -93,7 +93,7 @@ def edit_request(
         fields["detail"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
-        f"UPDATE intake_requests SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608
+        f"UPDATE intake_requests SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded, id is a bound mark
         (*fields.values(), db.now(), request_id),
     )
     if title.strip() and title.strip() != row["title"]:
@@ -268,12 +268,12 @@ def list_requests(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list
     frag, vp = scope.visible_filter(viewer, "intake_requests")
     if status:
         return db.query(
-            f"SELECT * FROM intake_requests WHERE status = ? AND {frag}"  # noqa: S608 — scope fragment
+            f"SELECT * FROM intake_requests WHERE status = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " ORDER BY score DESC, id DESC LIMIT 200",
             (status, *vp),
         )
     return db.query(
-        f"SELECT * FROM intake_requests WHERE {frag}"  # noqa: S608 — scope fragment
+        f"SELECT * FROM intake_requests WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " ORDER BY CASE status WHEN 'submitted' THEN 0 WHEN 'scored' THEN 1 ELSE 2 END,"
         " score DESC, id DESC LIMIT 200",
         tuple(vp),

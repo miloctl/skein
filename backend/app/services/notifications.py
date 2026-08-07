@@ -135,7 +135,7 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         # the SELECT and this UPDATE must stay pending for the next flush.
         ids = [n["id"] for n in pending]
         db.execute_rowcount(
-            f"UPDATE notifications SET sent_at = ? WHERE id IN ({','.join('?' * len(ids))})",  # noqa: S608
+            f"UPDATE notifications SET sent_at = ? WHERE id IN ({','.join('?' * len(ids))})",  # noqa: S608 — keys hardcoded, id is a bound mark
             (db.now(), *ids),
         )
     return {"flushed": len(pending)}

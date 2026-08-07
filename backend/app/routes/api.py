@@ -235,6 +235,10 @@ class AbsenceIn(BaseModel):
     ends_on: str = Field(max_length=10)
     kind: str = Field("pto", max_length=10)
     note: str = Field("", max_length=200)
+    # `person` is checked as a READER (absences.add_absence).
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.get("/absences")
@@ -247,7 +251,14 @@ def post_absence(body: AbsenceIn, user: CurrentUser):
     ratelimit.check("absence", user)
     try:
         return absences.add_absence(
-            body.person, body.starts_on, body.ends_on, body.kind, body.note, actor=user
+            body.person,
+            body.starts_on,
+            body.ends_on,
+            body.kind,
+            body.note,
+            actor=user,
+            visibility=body.visibility,
+            crew_id=body.crew_id,
         )
     except db.NotFound:
         raise
@@ -707,6 +718,11 @@ class PromiseIn(BaseModel):
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
     audience: str = Field("external", max_length=20)
+    # No reader check on `to_whom`: it is deliberately not a roster name (the
+    # default audience is external) — promises.add_promise says why.
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/promises")
@@ -764,8 +780,8 @@ def post_reconfirm(decision_id: int, body: ReconfirmIn, user: CurrentUser):
 
 
 @router.get("/review/stats")
-def get_review_stats(user: CurrentUser):
-    return review.review_stats()
+def get_review_stats(user: CurrentUser, viewer: ViewerDep):
+    return review.review_stats(viewer)
 
 
 class FeedbackIn(BaseModel):
@@ -951,7 +967,8 @@ def post_agents_authority(body: AuthorityIn, user: AdminUser):
 @router.get("/agents/{agent}/inbox")
 def get_agent_inbox(agent: str, user: CurrentUser, viewer: ViewerDep):
     if not users.is_agent(agent):
-        raise HTTPException(status_code=404, detail=f"no agent named '{agent}'")
+        # names no name: an error never echoes a rejected value back (CLAUDE.md)
+        raise HTTPException(status_code=404, detail="no such agent. Check the name.")
     return delegation.agent_inbox(agent, viewer)
 
 
@@ -1153,13 +1170,22 @@ def patch_task(task_id: int, body: TaskPatch, user: CurrentUser):
 class QuestionIn(BaseModel):
     question: str = Field(max_length=1000)
     assigned_to: str = Field("", max_length=64)
+    # `assigned_to` is checked as a READER (collab.ask_question).
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/questions")
 def post_question(body: QuestionIn, user: CurrentUser):
     ratelimit.check("write", user)
     return collab.ask_question(
-        body.question, asked_by=user, assigned_to=body.assigned_to, actor=user
+        body.question,
+        asked_by=user,
+        assigned_to=body.assigned_to,
+        actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
     )
 
 
@@ -1284,9 +1310,9 @@ class BlockerIn(BaseModel):
     # the tier the writer picked, checked in the service: crew membership, and
     # the owner is checked as a READER (blockers.raise_blocker). Present here
     # even though the two doors that usually create a blocker inherit instead
-    # — capture.py and collab.post_standup — because raise_blocker accepts the
-    # pair and every other *In model on this router carries it. Omitted, this
-    # is the one create form that silently files at the workspace tier.
+    # — capture.py and collab.post_standup. Every create body whose service
+    # accepts a tier offers one, pinned by
+    # tests/test_visibility_writes.py::test_a_create_body_exposes_the_tier_its_service_accepts.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -1326,13 +1352,22 @@ class IntakeIn(BaseModel):
     title: str = Field(max_length=200)
     detail: str = Field("", max_length=4000)
     project_class: str = Field("", max_length=40)
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/intake")
 def post_intake(body: IntakeIn, user: CurrentUser):
     ratelimit.check("write", user)
     return intake.submit_request(
-        body.title, body.detail, requester=user, project_class=body.project_class, actor=user
+        body.title,
+        body.detail,
+        requester=user,
+        project_class=body.project_class,
+        actor=user,
+        visibility=body.visibility,
+        crew_id=body.crew_id,
     )
 
 
@@ -1393,15 +1428,27 @@ class ReviewActionIn(BaseModel):
 
 
 @router.post("/review/{change_id}/approve")
-def post_approve(change_id: int, body: ReviewActionIn, user: CurrentUser, request: Request):
+def post_approve(
+    change_id: int,
+    body: ReviewActionIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.approve_change(change_id, body.note, actor=user, strong=strong)
+    return review.approve_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
 
 
 @router.post("/review/{change_id}/reject")
-def post_reject(change_id: int, body: ReviewActionIn, user: CurrentUser, request: Request):
+def post_reject(
+    change_id: int,
+    body: ReviewActionIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.reject_change(change_id, body.note, actor=user, strong=strong)
+    return review.reject_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
 
 
 class CaptureIn(BaseModel):
@@ -1457,7 +1504,9 @@ def post_review_seen(body: SeenIn, user: CurrentUser):
 
 
 @router.post("/review/approve-batch")
-def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request):
+def post_approve_batch(
+    body: BatchApproveIn, user: CurrentUser, viewer: ViewerDep, request: Request
+):
     strong = bool(getattr(request.state, "strong_auth", False))
     results = []
     # BatchApproveIn.max_length is the only cap. A second limit here (a
@@ -1466,7 +1515,7 @@ def post_approve_batch(body: BatchApproveIn, user: CurrentUser, request: Request
     # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
         try:
-            r = review.approve_change(cid, actor=user, strong=strong)
+            r = review.approve_change(cid, actor=user, strong=strong, viewer=viewer)
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
@@ -1531,6 +1580,9 @@ class LessonIn(BaseModel):
     recommendation: str = Field("", max_length=2000)
     engagement_id: int = 0
     project_class: str = Field("general", max_length=40)
+    # the tier the writer picked, checked in the service: crew membership only.
+    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    crew_id: int = 0
 
 
 @router.post("/lessons")

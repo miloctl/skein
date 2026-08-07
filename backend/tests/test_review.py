@@ -511,3 +511,27 @@ def test_batch_approve_answers_a_duplicated_id_twice(client, fresh_db):
     assert len(results) == 2
     assert results[0]["status"] == "approved"
     assert results[1]["status"] == "error"
+
+
+def test_every_registry_entity_maps_to_a_target_table_or_is_named_untargeted(fresh_db):
+    """_readable decides whether a proposal may be shown or judged by looking
+    up the row it targets. An entity in neither map has no row to look up, so
+    it is kept for every reader with its payload — which for a create is the
+    whole body of the row it would make. That is how `note`, `standup`,
+    `event`, `memory`, `lesson`, `intake` and `absence` creates went out
+    unfiltered while the update entities beside them were checked."""
+    from app.services import review, scope
+
+    entities = set(review._registry())
+    mapped = set(review._TARGET_TABLE)
+    untargeted = set(review._UNTARGETED)
+    missing = entities - mapped - untargeted
+    assert not missing, (
+        f"registry entities with no target table and no written reason: {sorted(missing)}."
+        " Add the table to review._TARGET_TABLE, or name it in _UNTARGETED with why."
+    )
+    assert not (mapped & untargeted), sorted(mapped & untargeted)
+    ghosts = (mapped | untargeted) - entities
+    assert not ghosts, f"mapped entities the registry no longer has: {sorted(ghosts)}"
+    unknown = {t for t in review._TARGET_TABLE.values() if t not in scope.CLASSIFIED}
+    assert not unknown, f"target tables that carry no tier: {sorted(unknown)}"
