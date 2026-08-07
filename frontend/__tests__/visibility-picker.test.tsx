@@ -181,6 +181,27 @@ describe("every control in quick capture is reachable by keyboard", () => {
   });
 });
 
+describe("the fb: path states the tier it actually uses", () => {
+  it("replaces the picker when the capture is private feedback", async () => {
+    render(<CapturePalette />);
+    act(() => {
+      window.dispatchEvent(new Event("skein-capture-open"));
+    });
+    const input = await screen.findByLabelText("What to capture");
+    await screen.findByText("Platform only");
+
+    fireEvent.change(input, { target: { value: "fb: ada — clearer specs please" } });
+    // services/capture.py routes this into private.db before it reads a tier,
+    // so a picker offering "Platform only" here would name one that is dropped
+    expect(screen.queryByLabelText("Who can see this capture")).toBeNull();
+    expect(screen.getByText(/feedback is kept out of the shared record/)).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: "todo: back to a normal capture" } });
+    // awaited: the picker remounts and refetches, so it renders null for a tick
+    expect(await screen.findByLabelText("Who can see this capture")).toBeTruthy();
+  });
+});
+
 describe("the badge", () => {
   it("renders nothing for the workspace tier", () => {
     const { container } = render(<VisibilityBadge visibility="workspace" />);

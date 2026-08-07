@@ -276,15 +276,14 @@ crew's view, silently, for 15 seconds.
 | 2 **(shipped)** | `services/scope.py`, the classification inventory, and the parity tests. No behavior change. |
 | 3 **(shipped)** | Columns on all 16 content tables. Every write path accepts a tier, and nine REST bodies expose one (milestone, task, decision, standup, note, event, blocker, capture, engagement). Children inherit (blockers from a standup, task_worklog from a task, the ship-it note and experiment lesson from an engagement, an engagement from an accepted intake request). Viewer threaded through the reads. Picker and badge in the UI. The `StrongUser` bar. |
 | 4 **(shipped)** | The sinks: FTS (search.index_record looks the tier up itself rather than trusting 20 call sites), admin export, and `activity.detail` via scope.detail. `private` became writable here. |
-| 5 **(shipped, before 3c)** | Jobs and egress read `WORKSPACE_ONLY`: digest, readout, handoff, context pack, the findings rules, and the team-wide block of My Day. Moved AHEAD of the picker — a crew task would otherwise have gone straight into the daily digest, which is the same control-that-does-not-hold problem `private` was sequenced around. |
+| 5 **(shipped, before 3c)** | Jobs and egress read `WORKSPACE_ONLY`: digest, readout, context pack, the findings rules, and the team-wide block of My Day. The handoff is the exception — it takes a viewer and narrows to the artifact's own tier through `scope.audience`, because it is generated on demand by a person rather than by a job. Moved AHEAD of the picker — a crew task would otherwise have gone straight into the daily digest, which is the same control-that-does-not-hold problem `private` was sequenced around. |
 | 6 **(shipped, packs only)** | Per-crew context packs: `005_crew_context_packs.sql`, `build_pack(crew_id)` appending a crew section to the shared body, per-crew version counters, `GET /api/context-pack?crew=`. Per-crew digests and insights are deliberately NOT built. A digest is one morning page for one team — N of them is a different product decision, not a parameter, and the crew pack already answers "what is my crew working on" on demand. A findings row is the most dangerous sink in the app: it quotes another table's text into a row with no identity column and a UNIQUE (rule_id, subject, week) key, and it is never pruned. Per crew, that needs the tier ON the finding, not a second run. Build either when somebody asks for it, not before. |
 
 ### Where the picker actually went
 
-The plan named four create forms. Tasks and notes have no create form in this
-UI — both are made through quick capture — so the picker went into the ⌘K
-palette, which routes to seven entities, plus the standup card. That covers
-the four the plan named and three more, from one control.
+Tasks and notes have no create form of their own in this UI — both are made
+through quick capture — so the picker went into the ⌘K palette, which routes
+to seven entities, plus the standup card. Two controls, eight entities.
 
 ### What still lands at workspace, always
 
@@ -294,9 +293,13 @@ experiment whose conclusion drafted it, and a handoff artifact inherits from
 its engagement — which is what stops `list_artifacts` handing out a path to a
 file of another crew's work.
 
-Six of the sixteen have no create form in this UI at all (milestones, events,
-absences, memories, engagements, lessons). Their REST bodies take a tier where
-one makes sense; quick capture covers the other seven entities.
+Four of the sixteen have no create form in this UI at all (milestones,
+events, memories, lessons). Two more do have one but offer no picker on it:
+the Time away card (`/settings`) and the engagement field in the chat sidebar
+both POST without a tier, so they file at `workspace`. Their REST bodies
+accept one — every create body whose service takes a tier exposes it, pinned
+by `test_a_create_body_exposes_the_tier_its_service_accepts` — so adding a
+picker there is UI work, not a model change.
 
 A comment claiming "this table carries no settable tier" was written four
 times in this codebase and was false at every site by the time it shipped.
@@ -365,15 +368,18 @@ full. It now filters on the READER, never on the subject.
 
 ## What phase 3 solved
 
-- **The review queue is a mirror.** `pending_changes.payload` holds a copy
-  of the proposed row and `GET /api/review` serves it to any
-  `CurrentUser`. A rejected proposal is worse than an approved one: its
-  summary is republished by `review_stats` and copied into
-  `findings.receipt`, which is never pruned.
+- **The review queue was a mirror.** DONE. `pending_changes` carries no tier
+  of its own, so `review._readable` resolves each proposal's TARGET row and
+  drops the ones the reader cannot open — creates included, reading the tier
+  off the payload. All seven readers call it: `GET /api/review`, `my_day`,
+  `agent_inbox`, `review_stats`, the handoff, the week-close ritual and the
+  two insights rules that write into `findings.receipt`.
 - **`review.approve_change` is a write path that does not look like one.**
-  It splats the payload as kwargs straight into the service, bypassing
-  `gated_write`. So `assert_writable` belongs in the SERVICE, not the
-  route handler, or a proposal carrying another crew's id applies.
+  DONE. It splats the payload as kwargs straight into the service, and it
+  applies as the proposal's `proposed_by` — an agent slug that
+  `scope.is_machine` lets work a crew row — so nothing downstream refuses it.
+  `_assert_judgeable` gates both verdicts on the target's tier, in the same
+  sentence an absent proposal gets.
 - **Parent rows copy text into child rows.** DONE. `scope.inherit` and
   explicit `visibility=`/`crew_id=` passing cover all of them:
   `collab.post_standup` into `raise_blocker`, `delegation.report_progress`

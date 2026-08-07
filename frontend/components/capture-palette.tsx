@@ -254,7 +254,20 @@ export function CapturePalette() {
           </button>
         </div>
         <div className="mt-2">
-          <VisibilityPicker value={tier} onChange={setTier} label="capture" />
+          {/* An `fb:` capture short-circuits in services/capture.py BEFORE the
+              tier is read, into private.db — a separate database no other code
+              path opens. So the tier is not sent, and a picker still reading
+              "Platform only" would state one the system discards. It fails
+              safe (more private, not less), which is exactly why it would
+              never be noticed. */}
+          {previewKind(text) === "private feedback" ? (
+            <p className="text-xs text-ink-3">
+              Visible to <span className="text-ink-2">only you</span> — feedback
+              is kept out of the shared record, so it takes no other choice.
+            </p>
+          ) : (
+            <VisibilityPicker value={tier} onChange={setTier} label="capture" />
+          )}
         </div>
         <div className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-ink-3">
           Tap a chip or type a prefix — the line above the button always shows

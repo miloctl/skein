@@ -44,9 +44,9 @@ def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
 def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     # BOTH sides of the join carry the filter. Only the blockers side would let
     # a workspace blocker on a crew task through, and only the tasks side would
-    # let a crew blocker on a workspace task through — and the readout (no
-    # viewer, so the workspace tier), the engagement pack and the handoff all
-    # read this.
+    # let a crew blocker on a workspace task through — and the engagement
+    # pack (services/context_pack.py) and the handoff both read this, the
+    # second of which writes its body to an artifact file on disk.
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     return db.query(
@@ -237,7 +237,7 @@ def flow_metrics(weeks: int = 8) -> dict:
     stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
     stale = db.query(
         # the workspace tier: unlike the counts above, this list carries
-        # TITLES, and it renders in the exec readout and nudges the whole team
+        # TITLES, and nudge_stale_wip notifies each assignee by name from it
         "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(updated_at) AS INTEGER) AS days_stale"
         f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"
@@ -371,8 +371,8 @@ def what_if(
         raise ValueError("percent must be 1-100")
     if not people:
         raise ValueError("name at least one person to staff")
-    # what_if echoes the whole request row back and the id comes straight off
-    # the URL, so this is filtered on the CALLER. Hardcoded to the workspace
+    # what_if reports the request's TITLE and the id comes straight off the
+    # URL, so this is filtered on the CALLER. Hardcoded to the workspace
     # tier it refused a crew member the request GET /api/intake had just shown
     # them, with a message that says the request does not exist.
     frag, fp = scope.visible_filter(viewer, "intake_requests")

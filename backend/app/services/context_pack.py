@@ -117,8 +117,10 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     on demand (unversioned; versioning is for the org-brain)."""
     # Filtered by the CALLER. An agent tool and the MCP server pass NOBODY,
     # which is the workspace tier — the rule those surfaces need. A crew
-    # member gets their own engagement, which locked they could see listed and
-    # not open (services/handoff.py has the same pair).
+    # member gets their own engagement. Locked to the workspace tier instead,
+    # a crew member saw the engagement in GET /api/engagements and got "not
+    # found" asking for its pack — a correct refusal with a misleading
+    # sentence (services/handoff.py states the same pair).
     efrag, ep = scope.visible_filter(viewer, "engagements")
     mfrag, mp = scope.visible_filter(viewer, "milestones")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
@@ -258,18 +260,28 @@ def latest_pack(crew_id: int = 0) -> dict | None:
     )
 
 
-def publish_pack(*, actor: str = "system", crew_id: int = 0) -> dict:
+def publish_pack(
+    *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+) -> dict:
     """Version the pack; no-op if nothing changed since the last version.
 
     Each crew versions independently — v3 of the Platform pack has nothing to
     do with v3 of the team pack, and a shared counter would bump every crew's
     version whenever any one of them published.
+
+    Gated on the VIEWER for a crew pack, matching get_pack. Publishing takes
+    the crew id off a query string and writes that crew's decisions,
+    conventions, questions and open work to an artifact file, then bumps the
+    version every member cites — so gating the read at strong identity and the
+    write at a self-asserted name made publish the weaker door to the same
+    rows. assert_writable stays as well: it is the one that refuses a
+    DEACTIVATED crew, which get_pack deliberately allows for reading.
     """
     if crew_id:
-        # membership, before the body is built: _crew_section reads the crew's
-        # own rows, and a non-member must not get them back in an error either
         from . import crews
 
+        if crew_id not in viewer.crew_ids:
+            raise db.NotFound(f"no context pack for crew #{crew_id}")
         crews.assert_writable(crew_id, actor)
     body = build_pack(crew_id)
     digest = hashlib.sha256(body.encode()).hexdigest()[:16]
@@ -323,13 +335,16 @@ def get_pack(
     CurrentUser, which is why the bar lives here and not on the route.
     """
     # membership, NOT assert_writable: that one also refuses a deactivated
-    # crew, and a retired crew's members must keep reading the pack they
+    # crew, and a DEACTIVATED crew's members must keep reading the pack they
     # already have. NotFound, so a non-member cannot enumerate crew ids.
     if crew_id and crew_id not in viewer.crew_ids:
         raise db.NotFound(f"no context pack for crew #{crew_id}")
     last = latest_pack(crew_id)
     if not last:
-        publish_pack(actor=actor, crew_id=crew_id)
+        # the same viewer: this call publishes, and publish_pack now gates on
+        # it. Passing NOBODY here would refuse the member who just passed the
+        # check above, on their own crew's first read.
+        publish_pack(actor=actor, crew_id=crew_id, viewer=viewer)
         last = latest_pack(crew_id)
         if last is None:
             raise ValueError("context pack publish produced no pack — retry")

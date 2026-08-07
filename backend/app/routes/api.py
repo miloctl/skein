@@ -125,7 +125,7 @@ def get_flock_traces(user: CurrentUser, thread: str = "", flock: str = "", limit
     # CurrentUser, unlike the open roster above: a trace row names a person and
     # the thread id their chat transcript is keyed by (routes/chat.py scopes
     # those per owner), so this must not answer an unidentified caller
-    return flocks.list_traces(thread_id=thread, flock=flock, limit=limit)
+    return flocks.list_traces(user, thread_id=thread, flock=flock, limit=limit)
 
 
 @router.get("/notes")
@@ -993,8 +993,8 @@ def get_context_pack(user: CurrentUser, viewer: ViewerDep, engagement: int = 0, 
 
 
 @router.post("/context-pack/publish")
-def post_context_pack(user: CurrentUser, crew: int = 0):
-    return context_pack.publish_pack(actor=user, crew_id=crew)
+def post_context_pack(user: CurrentUser, viewer: ViewerDep, crew: int = 0):
+    return context_pack.publish_pack(actor=user, crew_id=crew, viewer=viewer)
 
 
 @router.get("/onboarding")

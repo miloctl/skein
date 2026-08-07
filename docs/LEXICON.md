@@ -383,18 +383,27 @@ The wire values are `private` / `crew` / `workspace`. **Two of the three are
 never shown.** The picker and the badge say **only you**, **{crew} only**, and
 **everyone on the roster** (`components/visibility-picker.tsx`).
 
-The badge has a fourth string, **one crew only**, and it renders only when
-`/api/crews` fails, so the badge knows the row is crew-scoped and cannot name
-the crew. It is deliberately not the same shape as the picker's option: a
-reader who sees it must be able to tell that the name is missing rather than
-read it as a different setting.
+The badge has a fourth string, **one crew only**. It says "this row is
+crew-scoped and I cannot name the crew", which happens three ways: on first
+paint before `/api/crews` answers, when that request fails, and permanently
+for a row scoped to a **deactivated** crew (the endpoint returns active crews
+only, while `crews_of` still returns deactivated ones, so the row stays
+readable to its members). The picker shows it too, in the one case where a
+crew is already chosen and the list did not load — without it the select
+would fall back to "everyone on the roster" while still submitting the crew.
+
+It is deliberately not the same shape as the picker's `{crew} only`: a reader
+must be able to tell that the name is missing rather than read it as a
+different setting.
 
 One place shows the wire values: the API refusal for a malformed
 `visibility` field (`services/scope.py::resolve_write`). That names what the
 endpoint accepts, and no UI can produce it — the picker only ever sends one of
 the three.
 
-`workspace` is never shown because the product uses the word nowhere else.
+`workspace` is never shown **as a tier**. The word does appear elsewhere in a
+different sense — "search across the workspace" means the corpus, not an
+audience — which is exactly why it must not also name who can read a row.
 `private` is never shown because it is already taken: the People page's
 author-private journal lives in a separate `private.db` that no code path
 opens. A tier column earns less than a separate file (`docs/VISIBILITY.md`

@@ -285,7 +285,7 @@ def dispatch(
     give it to the agent'. Command-shaped tokens that match nothing get a
     did-you-mean reply instead of a silent (and costly) trip to the model.
 
-    Every handler takes the viewer, including the seven that ignore it. A
+    Every handler takes the viewer, including the six that ignore it. A
     handler that reads scoped work has to be handed one, and giving only the
     two that need it today a different signature makes the next /command an
     unfiltered read by default.

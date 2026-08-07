@@ -358,8 +358,6 @@ def update_task(
         fields["completed_at"] = db.now()  # flow metrics read this, not updated_at
     elif status and status != "done" and current["status"] == "done":
         fields["completed_at"] = None
-    # reassigning a delegated task away from its agent ends the delegation —
-    # otherwise both parties see it as theirs
     if assignee:
         # the same check create_task makes: a reassignment reaches a name the
         # original write never saw, and an assignee who cannot read the task
@@ -371,6 +369,8 @@ def update_task(
             label="assignee",
             author=current["created_by"],
         )
+    # reassigning a delegated task away from its agent ends the delegation —
+    # otherwise both parties see it as theirs
     if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
         fields["delegated_agent"] = ""
         fields["sponsor"] = ""

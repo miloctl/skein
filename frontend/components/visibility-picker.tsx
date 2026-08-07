@@ -86,9 +86,9 @@ export function VisibilityPicker({
     if (missing) onChangeRef.current({ visibility: "workspace", crew_id: 0 });
   }, [missing]);
 
-  // null is still loading. An empty crew list is NOT a reason to hide the
-  // picker any more — "only you" is a choice a person with no crew can make,
-  // and so is keeping the crew already chosen when the list failed to load.
+  // null is still loading, and that is the ONLY state that hides the picker.
+  // An empty crew list does not: "only you" is a choice a person with no crew
+  // can make, and so is keeping a crew already chosen when the list failed.
   if (crews === null) return null;
   const options = Array.isArray(crews) ? crews : [];
 
@@ -136,10 +136,14 @@ export function VisibilityPicker({
 // a badge per row. The promise is the cache, so N badges mounting in the same
 // tick share the one in flight.
 //
-// This is an id-to-name map, NOT an authorization decision: /api/crews is the
-// whole deployment's roster of crews (scope.UNSCOPED classifies `crews` that
-// way), and what keeps a crew row off the page is the server filtering the ROW
-// out of the listing, before any badge exists.
+// This is an id-to-name map, NOT an authorization decision: `crews` carries no
+// tier (scope.UNSCOPED), and what keeps a crew row off the page is the server
+// filtering the ROW out of the listing, before any badge exists.
+//
+// /api/crews returns ACTIVE crews only. A row scoped to a deactivated crew
+// therefore never resolves a name and the badge reads "one crew only" for
+// good — crews.crews_of still returns that crew, so the row itself stays
+// readable to its members.
 let crewNames: Promise<Record<number, string>> | null = null;
 
 // Dropped on the same signal lib/api.ts drops its GET cache. Both the identity

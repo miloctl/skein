@@ -124,8 +124,11 @@ def away_today(kind: str = "pto") -> dict[str, str]:
     # puts this value on /api/capacity for the whole roster, so a private
     # `focus` or `oncall` window announced itself by name. Scoped rows report
     # "away": unavailability is the honest core, the reason is not. The
-    # precedence below still reads the REAL kind, so a private PTO day keeps
-    # outranking an advisory one and the capacity math does not move.
+    # precedence below compares against the REAL kind on the left, so a
+    # private PTO day still outranks an advisory one and the capacity math
+    # does not move. The right-hand comparand is the MASKED value already
+    # stored — correct in every ordering, but a new sentinel that collides
+    # with a real kind would break it.
     today = db.now()[:10]
     rows = db.query(
         "SELECT person, kind, visibility FROM absences WHERE starts_on <= ? AND ends_on >= ?",

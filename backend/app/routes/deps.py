@@ -326,6 +326,13 @@ def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None
     # the door rather than a rule every scoped read has to remember.
     # It resolves crew membership once, so a page that fans out to dozens of
     # scoped reads pays for one lookup.
+    #
+    # Built on EVERY request, including routes that read nothing scoped, which
+    # costs one extra SQLite connection each. Measured and kept: making it
+    # lazy would move construction out of the single door, and "one place
+    # builds a Viewer" is the whole reason the bar cannot be forgotten. The
+    # dashboard, which fans out to roughly 27 scoped reads, pays +1 query
+    # total for it.
     request.state.viewer = scope.Viewer(user, strong)
 
 
@@ -383,13 +390,15 @@ def admin_user(
 
 
 def viewer(request: Request, _user: Annotated[str, Depends(current_user)]) -> "scope.Viewer":
-    """What the caller may read. Depends on CurrentUser, so identity is
-    resolved and stashed before this runs.
+    """What the caller may read.
 
-    The parameter is unused on purpose: it is here to ORDER the two, so
-    current_user has resolved and stashed before this reads request.state.
-    FastAPI caches a dependency per request, so a route taking both pays for
-    one resolution.
+    `_user` is unused on purpose: it ORDERS the two, so current_user has
+    resolved and stashed before this reads request.state. FastAPI caches a
+    dependency per request, so a route taking both pays for one resolution.
+
+    NOBODY when nothing was stashed — a route reached without current_user has
+    no identity to read scoped rows with, and the workspace tier is the only
+    honest answer.
     """
     return getattr(request.state, "viewer", scope.NOBODY)
 

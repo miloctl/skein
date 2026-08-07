@@ -225,11 +225,20 @@ def record_trace(
     )
 
 
-def list_traces(thread_id: str = "", flock: str = "", limit: int = 20) -> list[dict]:
-    """Newest first. members/synthesis are decoded here so no caller parses
-    the JSON twice."""
-    where: list[str] = []
-    params: list[str | int] = []
+def list_traces(owner: str, thread_id: str = "", flock: str = "", limit: int = 20) -> list[dict]:
+    """One person's own flock runs, newest first. members/synthesis are
+    decoded here so no caller parses the JSON twice.
+
+    `owner` is POSITIONAL and has no default on purpose. A trace names the
+    person who ran it and the thread id their chat transcript is keyed by
+    (routes/chat.py scopes those per owner), and the row carries every
+    member's receipts and token counts. With no filter, any identified caller
+    read every other person's runs — which the route's own comment already
+    said must not happen. A default would make the next caller's omission
+    silent, and this is the only caller there is.
+    """
+    where: list[str] = ["user = ?"]
+    params: list[str | int] = [owner]
     if thread_id:
         where.append("thread_id = ?")
         params.append(thread_id)

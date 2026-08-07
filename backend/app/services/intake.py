@@ -250,7 +250,16 @@ def _disposition(
             # together both pass that read and the loser hits
             # ux_engagements_name_nocase. Uncaught it is a 500 for a
             # caller-supplied name, which the 4xx rule forbids.
-            db.log_activity(actor, "accept_without_engagement", f"#{request_id}: {exc}")
+            # scope.detail, not the raw exception: `exc` is
+            # "engagement '<name>' already exists", and that name is the
+            # request's own title. The ledger is hash-chained, so a scoped
+            # title written here has no delete and no redaction — the caller
+            # still gets the full reason in `note` below.
+            db.log_activity(
+                actor,
+                "accept_without_engagement",
+                scope.detail(current["visibility"], f"#{request_id}", str(exc)),
+            )
             return {
                 "id": request_id,
                 "status": disposition,
