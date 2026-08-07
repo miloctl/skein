@@ -99,9 +99,11 @@ def update_crew(
     active: bool | None = None,
     actor: str,
     origin: str = "human",
+    admin_override: bool = False,
 ) -> dict:
     with db.transaction():
         _row(crew_id)
+        assert_steward(crew_id, actor, admin_override=admin_override)
         if name:
             db.execute(
                 "UPDATE crews SET name = ? WHERE id = ?", (_clean_name(name, crew_id), crew_id)
@@ -181,6 +183,31 @@ def is_steward(crew_id: int, person: str) -> bool:
     )
 
 
+def assert_steward(crew_id: int, actor: str, *, admin_override: bool = False) -> None:
+    """Refuse a change to this crew by anyone who does not steward it.
+
+    In the SERVICE, not only in the route, and inside the caller's
+    transaction. Three routes were the only callers and each checked before
+    entering it, which left two gaps. The small one is a race: a steward
+    demoted between the check and the write still lands it. The large one is
+    layering — crew membership decides what every person reads, so a guard
+    that lives in a route is a guard the next caller does not have. There is
+    no crew tool today; the moment there is, it writes with no check at all.
+
+    `admin_override` comes from the route because only the route can know it:
+    is_named_admin reads the OIDC groups stashed on the request, and the
+    strong-identity bar is a property of the door. That half stays there —
+    this is the half that belongs to the data.
+
+    remove_member already runs its sole-steward floor inside the transaction,
+    with a comment naming this exact hazard. This applies the same rule to the
+    authorization itself.
+    """
+    if admin_override or is_steward(crew_id, actor):
+        return
+    raise PermissionError("only a steward of this crew can change it. Ask a steward to add you.")
+
+
 def assert_writable(crew_id: int, person: str) -> int:
     """May this person scope a row to this crew?
 
@@ -217,7 +244,13 @@ def _stewards(crew_id: int) -> list[str]:
 
 
 def add_member(
-    crew_id: int, person: str, *, role: str = "member", actor: str, origin: str = "human"
+    crew_id: int,
+    person: str,
+    *,
+    role: str = "member",
+    actor: str,
+    origin: str = "human",
+    admin_override: bool = False,
 ) -> dict:
     """Add someone, or change the role of someone already in the crew.
 
@@ -237,6 +270,7 @@ def add_member(
         raise ValueError(f"'{person}' is an agent identity and cannot join a crew")
     with db.transaction():
         crew = _row(crew_id)
+        assert_steward(crew_id, actor, admin_override=admin_override)
         already = bool(
             db.query_one(
                 "SELECT 1 FROM crew_members WHERE crew_id = ? AND person = ?", (crew_id, person)
@@ -261,7 +295,7 @@ def add_member(
     return get_crew(crew_id)
 
 
-def remove_member(crew_id: int, person: str, *, actor: str) -> dict:
+def remove_member(crew_id: int, person: str, *, actor: str, admin_override: bool = False) -> dict:
     """Remove someone from the crew.
 
     This revokes their read access to every row scoped to
@@ -273,6 +307,7 @@ def remove_member(crew_id: int, person: str, *, actor: str) -> dict:
     person = users.resolve_teammate(person, actor, "person", allow_team=False)
     with db.transaction():
         _row(crew_id)
+        assert_steward(crew_id, actor, admin_override=admin_override)
         # inside the transaction: read outside it, two concurrent removals
         # both saw two stewards, both passed, and the crew ended with none
         if _stewards(crew_id) == [person]:

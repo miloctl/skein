@@ -354,6 +354,15 @@ async def not_found_handler(request: Request, exc: db.NotFound):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
+@app.exception_handler(PermissionError)
+async def permission_error_handler(request: Request, exc: PermissionError):
+    # 403, not 404: a crew is not a secret. GET /api/crews lists every crew to
+    # every caller (scope.UNSCOPED classifies `crews` that way), so refusing a
+    # steward-only change with "no such crew" would hide nothing and lie about
+    # what happened. The scoped ROWS are what 404 protects.
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})

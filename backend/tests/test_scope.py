@@ -276,9 +276,12 @@ def test_a_weak_or_shared_identity_is_not_a_viewer(fresh_db):
         sql, params = scope.visible_filter(scope.Viewer(name, strong), "tasks")
         assert sql == "(visibility = ?)", (name, strong)
         assert params == [scope.WORKSPACE]
-    sql, params = scope.visible_filter(scope.Viewer("anonymous", True), "tasks")
-    assert sql == "(visibility = ?)"
-    assert params == [scope.WORKSPACE]
+    # a real name WITH strong identity is the control: without it the loop
+    # above passes for a filter that returns the workspace tier to everybody
+    users.ensure_user("ava")
+    sql, params = scope.visible_filter(scope.Viewer("ava", True), "tasks")
+    assert sql != "(visibility = ?)"
+    assert params == [scope.WORKSPACE, "ava"]
 
 
 def test_the_author_column_is_one_a_rename_moves(client, fresh_db):
