@@ -195,7 +195,11 @@ def test_the_last_steward_guard_holds_under_concurrency(fresh_db):
 
     def drop(person: str) -> None:
         try:
-            crews.remove_member(crew["id"], person, actor="admin")
+            # admin_override: this test isolates the sole-steward FLOOR, which
+            # is a different guard from crews.assert_steward beside it. Without
+            # it "admin" is refused as a non-steward and the floor is never
+            # reached, so the test would pass for the wrong reason.
+            crews.remove_member(crew["id"], person, actor="admin", admin_override=True)
         except Exception as exc:  # the refusal is the point
             errors.append(exc)
 
@@ -379,3 +383,51 @@ def test_a_rename_merge_folds_crew_membership(fresh_db):
     # the steward row wins: a merge must not quietly demote the person
     assert crews.get_crew(crew["id"])["members"] == [{"person": "ava", "role": "steward"}]
     assert crews.crews_of("mira") == []
+
+
+def test_a_crew_edit_is_refused_in_the_service_not_only_the_route(fresh_db):
+    """Crew membership decides what every person reads, so the guard belongs
+    to the data and not to one door. All three mutators used to be authorized
+    only by routes/api.py::_crew_admin_override, which meant a caller that was
+    not that route — a future tool, a CLI command, a job — wrote with no check
+    at all, and a steward demoted between the route's check and the service's
+    transaction still landed the write."""
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    users.ensure_user("mallory")
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    crews.add_member(cid, "bo", actor="ava")
+
+    # a member who is not a steward, and a stranger: both refused, and by the
+    # SERVICE — these calls never touch a route
+    for who in ("bo", "mallory"):
+        for call in (
+            lambda a=who: crews.add_member(cid, "mallory", actor=a),
+            lambda a=who: crews.remove_member(cid, "bo", actor=a),
+            lambda a=who: crews.update_crew(cid, summary="theirs now", actor=a),
+        ):
+            with pytest.raises(PermissionError):
+                call()
+
+    # the steward is not blocked, and neither is a named administrator
+    crews.add_member(cid, "mallory", actor="ava")
+    crews.update_crew(cid, summary="ours", actor="ava")
+    crews.remove_member(cid, "mallory", actor="nobody-in-this-crew", admin_override=True)
+    assert {m["person"] for m in crews.get_crew(cid)["members"]} == {"ava", "bo"}
+
+
+def test_the_steward_refusal_is_403_and_names_no_crew_detail(client, fresh_db):
+    """403, not 404: GET /api/crews lists every crew to every caller, so
+    hiding the crew here would protect nothing and misreport what happened.
+    The scoped ROWS are what 404 protects."""
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    crews.add_member(cid, "bo", actor="ava")
+    r = client.post(
+        f"/api/crews/{cid}/members",
+        json={"person": "ava", "role": "member"},
+        headers=_key(client, "bo"),
+    )
+    assert r.status_code == 403, r.text
+    assert "steward" in r.json()["detail"]
