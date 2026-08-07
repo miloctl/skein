@@ -258,14 +258,19 @@ def test_an_unnamed_thread_is_one_per_person(client):
     """The ChatRequest default made an omitted thread id and an explicit
     'default' the same row for everyone, so every scripted caller restored
     the same model session."""
-    from app.services import chat_threads
-
     client.post("/api/chat", json={"message": "note: no thread id"}).read()
     client.post(
         "/api/chat", json={"message": "note: also none"}, headers={"X-User": "other"}
     ).read()
     mine = [c["id"] for c in client.get("/api/chats").json()]
     theirs = [c["id"] for c in client.get("/api/chats", headers={"X-User": "other"}).json()]
-    assert mine == [chat_threads.default_thread_id("tester")]
-    assert theirs == [chat_threads.default_thread_id("other")]
-    assert mine != theirs
+    # Asserted as PROPERTIES, not against default_thread_id: comparing the
+    # route's output to the very function the route calls moves both sides
+    # together, so it cannot fail on a change to how the id is derived.
+    assert len(mine) == 1 and len(theirs) == 1
+    assert mine != theirs, "one shared row would restore one model session for everyone"
+    # and neither is the literal the bug produced — an omitted thread id used
+    # to land on 'default', which is a name any caller can also send
+    assert "default" not in (mine[0], theirs[0])
+    # each caller's own id is stable across requests
+    assert [c["id"] for c in client.get("/api/chats").json()] == mine

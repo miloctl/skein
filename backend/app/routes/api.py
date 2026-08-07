@@ -354,14 +354,18 @@ class CrewMemberOut(BaseModel):
     person: str = Field(min_length=1, max_length=64)
 
 
-def _crew_steward(crew_id: int, user: str, request: Request) -> None:
-    """A steward of THIS crew, or an administrator.
+def _crew_admin_override(user: str, request: Request) -> bool:
+    """The half of the crew-edit check that only a ROUTE can answer.
+
+    Strong identity, and whether this caller is a named administrator. The
+    steward test itself moved into the services (crews.assert_steward), where
+    it runs inside the write's own transaction — membership decides what every
+    person reads, and a guard that lives only here is a guard the next caller
+    does not have.
 
     Not AdminUser on the route: a crew whose membership only an administrator
     can edit is a crew nobody maintains. Not CurrentUser alone either — in
-    trusted-header mode that is a self-asserted header, and membership
-    decides what a person reads. Strong identity is the same bar
-    routes/private.py holds for the other surface that answers per person.
+    trusted-header mode that is a self-asserted header.
     """
     from .deps import _require_strong, is_named_admin
 
@@ -373,12 +377,7 @@ def _crew_steward(crew_id: int, user: str, request: Request) -> None:
     # is_named_admin, NOT _is_admin: the scarcity fallback makes every key
     # holder an administrator in the default deployment, and that would let
     # any of them take a crew from its steward in one call.
-    if crews.is_steward(crew_id, user) or is_named_admin(user, groups):
-        return
-    raise HTTPException(
-        status_code=403,
-        detail="only a steward of this crew can change it. Ask a steward to add you.",
-    )
+    return is_named_admin(user, groups)
 
 
 @router.get("/crews")
@@ -408,18 +407,23 @@ def post_crew(body: CrewIn, user: StrongUser):
 
 @router.patch("/crews/{crew_id}")
 def patch_crew(crew_id: int, body: CrewPatch, user: CurrentUser, request: Request):
-    _crew_steward(crew_id, user, request)
+    admin = _crew_admin_override(user, request)
     ratelimit.check("write", user)
     return crews.update_crew(
-        crew_id, name=body.name, summary=body.summary, active=body.active, actor=user
+        crew_id,
+        name=body.name,
+        summary=body.summary,
+        active=body.active,
+        actor=user,
+        admin_override=admin,
     )
 
 
 @router.post("/crews/{crew_id}/members")
 def post_crew_member(crew_id: int, body: CrewMemberIn, user: CurrentUser, request: Request):
-    _crew_steward(crew_id, user, request)
+    admin = _crew_admin_override(user, request)
     ratelimit.check("write", user)
-    return crews.add_member(crew_id, body.person, role=body.role, actor=user)
+    return crews.add_member(crew_id, body.person, role=body.role, actor=user, admin_override=admin)
 
 
 @router.post("/crews/{crew_id}/members/remove")
@@ -432,9 +436,9 @@ def post_crew_member_remove(crew_id: int, body: CrewMemberOut, user: CurrentUser
     then never removed by any request the client could form. Removal is the
     only way out of a crew, so it must not be shaped by what the name is.
     """
-    _crew_steward(crew_id, user, request)
+    admin = _crew_admin_override(user, request)
     ratelimit.check("delete", user)
-    return crews.remove_member(crew_id, body.person, actor=user)
+    return crews.remove_member(crew_id, body.person, actor=user, admin_override=admin)
 
 
 class GrowthIn(BaseModel):
