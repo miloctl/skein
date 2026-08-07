@@ -6,7 +6,7 @@ from typing import Any
 from strands import tool
 
 from ..agents.identity import agent_identity
-from ..services import collab
+from ..services import collab, scope
 from ._gate import gated_write
 
 
@@ -228,6 +228,16 @@ def delete_note(note_id: int) -> str:
         {},
         lambda: collab.delete_note(note_id, actor=agent_identity(), origin="agent"),
         entity_id=note_id,
-        # the reviewer must see what would be destroyed, right on the card
-        summary=f"delete note #{note_id} '{row['topic']}': {row['content'][:80]}",
+        # the reviewer must see what would be destroyed, right on the card —
+        # but only a reviewer who can already read it. scope.detail drops the
+        # body for a scoped row: GET /api/review serves this summary to every
+        # CurrentUser and propose_change quotes it into a `team` notification,
+        # so the note's own text reached the roster by being deleted.
+        # review.change_diff shows the full body to a reader who passes the
+        # tier check, which is where a destructive verdict gets its evidence.
+        summary=scope.detail(
+            row["visibility"],
+            f"delete note #{note_id}",
+            f"'{row['topic']}': {row['content'][:80]}",
+        ),
     )

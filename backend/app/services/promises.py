@@ -29,10 +29,12 @@ def add_promise(
         raise ValueError("the promise text is required")
     if audience not in AUDIENCES:
         raise ValueError(f"audience must be one of {AUDIENCES}")
+    efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if engagement_id and not db.query_one(
-        "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
     ):
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise ValueError(scope.missing_text("engagements", engagement_id))
     ts = db.now()
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)

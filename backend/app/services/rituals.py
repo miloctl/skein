@@ -167,6 +167,12 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
 
 
 def _week_open_run(today: date, week: str, actor: str) -> dict:
+    """Every one of the four queries below takes WORKSPACE_ONLY. They render
+    into ONE markdown artifact, written at the workspace tier by
+    _write_artifact — so a scoped row quoted here reaches the whole roster
+    through GET /api/artifacts, the file on disk, and job_outcomes.detail.
+    Three of the four were unfiltered because the first one was not.
+    """
     horizon = (today + timedelta(days=7)).isoformat()
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
@@ -184,17 +190,18 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
             (name, horizon),
         )
         decisions = db.query(
-            "SELECT id, title FROM decisions WHERE status = 'stale' AND decided_by = ? ORDER BY id",
+            f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            " AND decided_by = ? ORDER BY id",
             (name,),
         )
         questions = db.query(
-            "SELECT id, question FROM questions WHERE status = 'open' AND assigned_to = ?"
-            " ORDER BY id",
+            f"SELECT id, question FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            " AND assigned_to = ? ORDER BY id",
             (name,),
         )
         tasks = db.query(
-            "SELECT id, title, due_date FROM tasks WHERE assignee = ? AND status != 'done'"
-            " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
+            f"SELECT id, title, due_date FROM tasks WHERE {WORKSPACE_ONLY} AND assignee = ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            " AND status != 'done' AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
             (name, horizon),
         )
         n = len(promises) + len(decisions) + len(questions) + len(tasks)

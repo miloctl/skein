@@ -39,6 +39,16 @@ def delegate_task(
     if not task:
         raise scope.missing("tasks", task_id)
     scope.assert_editable("tasks", task, actor, verb="delegate")
+    # A private task has ONE reader, and an agent is not it: scope.is_machine
+    # lets a machine work a crew row and never a private one, so
+    # assert_editable already refuses this agent every update it would need to
+    # make. Delegating anyway files work that its own worker cannot claim,
+    # report on, or submit — and puts the title in agent_inbox.
+    if task["visibility"] == scope.PRIVATE:
+        raise ValueError(
+            "a private task has one reader, so it cannot be delegated."
+            " Pick a crew, or make this task visible to everyone on the roster."
+        )
     # the notify below quotes the task title to whatever name the caller
     # passed, and the sponsor then reviews the agent's work on the task
     scope.assert_readable_by(
@@ -235,7 +245,14 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         "task_completion",
         "update",
         {"summary": summary.strip()},
-        summary=f"accept task #{task_id} '{task['title']}': {summary.strip()[:80]}",
+        # scope.detail, not an f-string: this summary is served by
+        # GET /api/review and quoted into a `team` notification, so a crew
+        # task's title reached the whole roster through the review queue
+        summary=scope.detail(
+            task["visibility"],
+            f"accept task #{task_id}",
+            f"'{task['title']}': {summary.strip()[:80]}",
+        ),
         entity_id=task_id,
         actor=actor,
         origin="agent",
@@ -488,24 +505,37 @@ def mission_control() -> list[dict]:
     return out
 
 
-def agent_inbox(agent: str) -> dict:
+def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
-    Deterministic — the same view a human gets from my_day, agent-shaped."""
+    Deterministic — the same view a human gets from my_day, agent-shaped.
+
+    `viewer=None` means the agent is reading its OWN inbox (the tool and MCP
+    doors, which pass agent_identity()) and the rows stay unfiltered: a crew
+    task delegated to an agent is work that agent has to see, and a Viewer
+    blanks every machine name so any filter here would empty it.
+
+    GET /api/agents/{agent}/inbox is the other door. It takes the agent name
+    off the URL and answers any CurrentUser, so it passes the CALLER's viewer
+    — without one, a human read every crew task title delegated to any agent
+    by walking the roster of agent names.
+    """
     if not db.query_one("SELECT id FROM users WHERE name = ?", (agent,)):
         raise db.NotFound(
             f"no such agent '{agent}'. Check the name: a typo reads as an empty inbox."
         )
+    tfrag, tp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "tasks")
+    qfrag, qp = ("1 = 1", []) if viewer is None else scope.visible_filter(viewer, "questions")
     tasks = db.query(
-        "SELECT id, title, status, priority, sponsor FROM tasks"
-        " WHERE delegated_agent = ? AND status != 'done'"
+        "SELECT id, title, status, priority, sponsor FROM tasks"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE delegated_agent = ? AND status != 'done' AND {tfrag}"
         " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, id",
-        (agent,),
+        (agent, *tp),
     )
     questions = db.query(
-        "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"
-        " AND status = 'open' ORDER BY id",
-        (agent,),
+        "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" AND status = 'open' AND {qfrag} ORDER BY id",
+        (agent, *qp),
     )
     rejected = db.query(
         "SELECT id, entity, summary, review_note, reviewed_by FROM pending_changes"

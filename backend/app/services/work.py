@@ -90,6 +90,8 @@ def update_milestone(
     db.validate_date("due_date", due_date)
     current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
     if not current:
+        # scope.missing, not missing_text: this is the row in the PATH, so it
+        # is a 404. The link probes below name a row in the BODY and stay 400.
         raise scope.missing("milestones", milestone_id)
     scope.assert_editable("milestones", current, actor, verb="update")
     fields: dict[str, str | None] = {
@@ -106,10 +108,12 @@ def update_milestone(
     if engagement_id:
         # mislinked work silently drops out of health/forecast/handoff —
         # the link must be repairable, not set-once (-1 unlinks)
+        efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
         if engagement_id > 0 and not db.query_one(
-            "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+            f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (engagement_id, *ep),
         ):
-            raise ValueError(f"engagement #{engagement_id} not found")
+            raise ValueError(scope.missing_text("engagements", engagement_id))
         fields["engagement_id"] = None if engagement_id < 0 else engagement_id  # type: ignore[assignment]
     if not fields:
         raise ValueError("nothing to update")
@@ -174,12 +178,22 @@ def create_task(
     db.validate_date("due_date", due_date, allow_clear=False)
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
-    if milestone_id and not db.query_one("SELECT id FROM milestones WHERE id = ?", (milestone_id,)):
-        raise ValueError(f"milestone #{milestone_id} not found")
-    if engagement_id and not db.query_one(
-        "SELECT id FROM engagements WHERE id = ?", (engagement_id,)
+    # scope.Viewer.for_actor, not a bare id probe: an unfiltered existence
+    # check accepts a scoped id and rejects an absent one, and ids are
+    # sequential — so the two answers enumerate the private rows.
+    av = scope.Viewer.for_actor(actor)
+    mfrag, mp = scope.visible_filter(av, "milestones")
+    if milestone_id and not db.query_one(
+        f"SELECT id FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (milestone_id, *mp),
     ):
-        raise ValueError(f"engagement #{engagement_id} not found")
+        raise ValueError(scope.missing_text("milestones", milestone_id))
+    efrag, ep = scope.visible_filter(av, "engagements")
+    if engagement_id and not db.query_one(
+        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
+    ):
+        raise ValueError(scope.missing_text("engagements", engagement_id))
     ts = db.now()
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
@@ -267,8 +281,12 @@ def update_task(
         if kind == "task" and waiting_id == task_id:
             raise ValueError("a task cannot wait on itself")
         table = _WAITING_TABLES[kind]
-        if not db.query_one(f"SELECT id FROM {table} WHERE id = ?", (waiting_id,)):  # noqa: S608
-            raise ValueError(f"{kind} #{waiting_id} not found")
+        wfrag, wp = scope.visible_filter(scope.Viewer.for_actor(actor), table)
+        if not db.query_one(
+            f"SELECT id FROM {table} WHERE id = ? AND {wfrag}",  # noqa: S608 — table from _WAITING_TABLES, and scope.visible_filter emits only bound marks
+            (waiting_id, *wp),
+        ):
+            raise ValueError(scope.missing_text(table, waiting_id))
     current = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise scope.missing("tasks", task_id)
@@ -320,11 +338,12 @@ def update_task(
         ("engagement_id", engagement_id, "engagements"),
     ):
         if link_id:
+            lfrag, lp = scope.visible_filter(scope.Viewer.for_actor(actor), table)
             if link_id > 0 and not db.query_one(
-                f"SELECT id FROM {table} WHERE id = ?",  # noqa: S608 — table hardcoded
-                (link_id,),
+                f"SELECT id FROM {table} WHERE id = ? AND {lfrag}",  # noqa: S608 — table hardcoded, and scope.visible_filter emits only bound marks
+                (link_id, *lp),
             ):
-                raise ValueError(f"{table[:-1]} #{link_id} not found")
+                raise ValueError(scope.missing_text(table, link_id))
             fields[link_field] = None if link_id < 0 else link_id
     if not fields:
         raise ValueError("nothing to update")

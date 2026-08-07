@@ -5,7 +5,7 @@ import json
 from strands import tool
 
 from ..agents.identity import agent_identity
-from ..services import memory
+from ..services import memory, scope
 from ._gate import gated_write
 
 
@@ -67,5 +67,11 @@ def forget_memory(memory_id: int) -> str:
         {},
         lambda: memory.forget(memory_id, actor=agent_identity(), origin="agent"),
         entity_id=memory_id,
-        summary=f"forget memory #{memory_id} [{row['topic']}]: {row['content'][:80]}",
+        # scope.detail: same egress as delete_note above — the review queue
+        # and the team notification both carry this line
+        summary=scope.detail(
+            row["visibility"],
+            f"forget memory #{memory_id}",
+            f"[{row['topic']}]: {row['content'][:80]}",
+        ),
     )

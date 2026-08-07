@@ -306,16 +306,27 @@ def publish_pack(*, actor: str = "system", crew_id: int = 0) -> dict:
     return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 
 
-def get_pack(*, actor: str = "system", crew_id: int = 0) -> dict:
-    """Latest published pack, publishing v1 on first call."""
-    if crew_id:
-        from . import crews
+def get_pack(
+    *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+) -> dict:
+    """Latest published pack, publishing v1 on first call.
 
-        # membership, NOT assert_writable: that one also refuses a deactivated
-        # crew, and a retired crew's members must keep reading the pack they
-        # already have. NotFound, so a non-member cannot enumerate crew ids.
-        if crew_id not in crews.crews_of(actor):
-            raise db.NotFound(f"no context pack for crew #{crew_id}")
+    The crew pack is gated on the VIEWER, not on `actor`. A crew pack's body
+    is _crew_section's decisions, conventions, questions and tasks verbatim,
+    which makes this a scoped READ — and docs/VISIBILITY.md decision 3 sets
+    that bar at strong identity. Resolved from the bare name, `X-User: ava`
+    with no credential read any crew's pack, because in trusted-header mode
+    the name is whatever the caller typed. Viewer blanks a weak identity, so
+    its crew list is empty and this refuses.
+
+    The TEAM pack (crew_id = 0) is workspace content and stays open to every
+    CurrentUser, which is why the bar lives here and not on the route.
+    """
+    # membership, NOT assert_writable: that one also refuses a deactivated
+    # crew, and a retired crew's members must keep reading the pack they
+    # already have. NotFound, so a non-member cannot enumerate crew ids.
+    if crew_id and crew_id not in viewer.crew_ids:
+        raise db.NotFound(f"no context pack for crew #{crew_id}")
     last = latest_pack(crew_id)
     if not last:
         publish_pack(actor=actor, crew_id=crew_id)

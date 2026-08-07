@@ -32,8 +32,12 @@ def raise_blocker(
         raise ValueError("blocker title is required")
     if impact not in IMPACTS:
         raise ValueError(f"impact must be one of {IMPACTS}")
-    if task_id and not db.query_one("SELECT id FROM tasks WHERE id = ?", (task_id,)):
-        raise ValueError(f"task #{task_id} not found")
+    tfrag, tp = scope.visible_filter(scope.Viewer.for_actor(actor), "tasks")
+    if task_id and not db.query_one(
+        f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (task_id, *tp),
+    ):
+        raise ValueError(scope.missing_text("tasks", task_id))
     hours = escalate_after_hours or DEFAULT_ESCALATION_HOURS[impact]
     ts = db.now()
     with db.transaction():

@@ -10,7 +10,7 @@ from app import db
 def test_raise_blocker_bad_task_id_is_valueerror(fresh_db):
     from app.services import blockers
 
-    with pytest.raises(ValueError, match="task #999 not found"):
+    with pytest.raises(ValueError, match="no task #999"):
         blockers.raise_blocker("stuck", task_id=999)
 
 

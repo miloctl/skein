@@ -181,20 +181,22 @@ def engagement_health(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     return out
 
 
-def allocation_conflicts() -> list[dict]:
+def allocation_conflicts(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """People allocated >100% across non-closed engagements whose windows
-    cover today (open-ended allocations always count)."""
+    cover today (open-ended allocations always count). Sums every tier and
+    masks the names the viewer may not read (scope.visible_name)."""
     today = _today().isoformat()
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     return db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent,"
-        " GROUP_CONCAT(e.name || ' (' || a.percent || '%)', ', ') AS detail"
+        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+        f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
         " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
         " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
         " GROUP BY a.person HAVING total_percent > 100"
         " ORDER BY total_percent DESC",
-        (today, today),
+        (*np, today, today),
     )
 
 
@@ -317,8 +319,14 @@ def slip_forecast() -> dict:
     if open_ms:
         marks = ", ".join("?" for _ in open_ms)
         for w in db.query(
-            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above
-            f" WHERE milestone_id IN ({marks}) AND status != 'done'"
+            # WORKSPACE_ONLY even though open_ms is already workspace-filtered:
+            # a PRIVATE task can link to a workspace milestone, and this emits
+            # the id it waits on into forecast_snapshots, which the daily job
+            # writes with no viewer. The forecast DATE is the median slip and
+            # does not read this list, so dropping the row costs an annotation
+            # and not a number.
+            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above, and scope.WORKSPACE_ONLY is a module constant
+            f" WHERE {WORKSPACE_ONLY} AND milestone_id IN ({marks}) AND status != 'done'"
             f" AND waiting_on_type IS NOT NULL ORDER BY id",
             tuple(m["id"] for m in open_ms),
         ):
@@ -354,21 +362,26 @@ def slip_forecast() -> dict:
     }
 
 
-def what_if(request_id: int, people: list[str], percent: int = 50) -> dict:
+def what_if(
+    request_id: int, people: list[str], percent: int = 50, viewer: scope.Viewer = scope.NOBODY
+) -> dict:
     """Project team capacity if this intake request were accepted and staffed
     with `people` at `percent` each."""
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
     if not people:
         raise ValueError("name at least one person to staff")
-    # the workspace tier: what_if echoes the whole request row back, the id
-    # comes straight off the URL, and there is no viewer on this path
+    # what_if echoes the whole request row back and the id comes straight off
+    # the URL, so this is filtered on the CALLER. Hardcoded to the workspace
+    # tier it refused a crew member the request GET /api/intake had just shown
+    # them, with a message that says the request does not exist.
+    frag, fp = scope.visible_filter(viewer, "intake_requests")
     req = db.query_one(
-        f"SELECT * FROM intake_requests WHERE id = ? AND {WORKSPACE_ONLY}",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        (request_id,),
+        f"SELECT * FROM intake_requests WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (request_id, *fp),
     )
     if not req:
-        raise db.NotFound(f"intake request #{request_id} not found")
+        raise scope.missing("intake_requests", request_id)
     # window-aware like allocation_conflicts — an allocation that ended last
     # quarter must not veto today's intake decision
     today = _today().isoformat()

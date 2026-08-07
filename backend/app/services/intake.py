@@ -45,26 +45,31 @@ def submit_request(
     if not title.strip():
         raise ValueError("request title is required")
     ts = db.now()
-    _tier, _crew = scope.resolve_write(visibility, crew_id, actor=actor or requester)
-    rid = db.execute(
-        "INSERT INTO intake_requests (title, detail, requester, project_class,"
-        " origin, created_by, created_at, updated_at, visibility, crew_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            title,
-            detail,
-            requester or actor,
-            project_class,
-            origin,
-            actor or requester,
-            ts,
-            ts,
-            _tier,
-            _crew,
-        ),
-    )
+    # inside the transaction, like the other 13 resolve_write call sites: bare,
+    # the membership check opens its own connection, so somebody removed from
+    # the crew between the check and the INSERT still scopes a row into it
+    # (services/scope.py::resolve_write says this at the point of temptation)
+    with db.transaction():
+        tier, crew = scope.resolve_write(visibility, crew_id, actor=actor or requester)
+        rid = db.execute(
+            "INSERT INTO intake_requests (title, detail, requester, project_class,"
+            " origin, created_by, created_at, updated_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                title,
+                detail,
+                requester or actor,
+                project_class,
+                origin,
+                actor or requester,
+                ts,
+                ts,
+                tier,
+                crew,
+            ),
+        )
     db.log_activity(
-        actor or requester or "system", "submit_intake", scope.detail(_tier, f"#{rid}", title)
+        actor or requester or "system", "submit_intake", scope.detail(tier, f"#{rid}", title)
     )
     index_record("intake", rid, title, f"{detail} {requester} {project_class}")
     return {"id": rid, "status": "submitted"}

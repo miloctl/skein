@@ -50,7 +50,13 @@ def notify(user: str, message: str, tier: str = "digest", link: str = "") -> dic
         (user, tier, message, link, ts if tier == "immediate" else None, ts),
     )
     if tier == "immediate":
-        _post_slack(f"🔔 {user}: {message}")
+        # The SAME rule flush_digest_tier follows, and for the same reason:
+        # this posts into ONE shared channel, `notifications` carries no tier
+        # to test (scope.UNSCOPED says why), and the callers quote scoped row
+        # titles into `message` — blockers.resolve_blocker, delegation and
+        # mentions all do. A count carries nothing, whatever a caller writes.
+        # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
+        _post_slack(f"Skein — 1 notification for {user}. Open Skein to read it.")
     return {"id": nid, "tier": tier}
 
 
@@ -118,7 +124,11 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         by_user: dict[str, int] = {}
         for n in pending:
             by_user[n["user"]] = by_user.get(n["user"], 0) + 1
-        counts = ", ".join(f"{n} for {u}" for u, n in sorted(by_user.items()))
+        # the NOUN stays: "3 for Ana" dropped it along with the bodies, and a
+        # bare integer in a channel next to real work names nothing at all
+        counts = ", ".join(
+            f"{n} notification{'' if n == 1 else 's'} for {u}" for u, n in sorted(by_user.items())
+        )
         closer = "Open Skein to read it." if len(pending) == 1 else "Open Skein to read them."
         _post_slack(f"Skein digest — {counts}. {closer}")
         # Stamp exactly the rows we posted — a notification inserted between

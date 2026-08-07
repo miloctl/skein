@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from .. import db
+from . import scope
 from .scope import WORKSPACE_ONLY
 
 
@@ -195,17 +196,29 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
     )
 
 
-def my_day(user: str) -> dict:
+def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """`viewer`, not just `user`: these three lists are addressed to a person
+    BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
+    name alone, `X-User: ava` with no credential returned Ava's private task
+    and blocker titles, which is the one thing docs/VISIBILITY.md decision 3
+    refuses. The filter also expires access the moment somebody leaves a crew
+    — membership is checked at the write, and this read outlives it.
+    """
     # UTC dates to match db.now() timestamps on the rows
     utc_today = datetime.now(UTC).date()
     today = utc_today.isoformat()
     week = (utc_today + timedelta(days=7)).isoformat()
     yesterday = (utc_today - timedelta(days=1)).isoformat()
 
+    q_f, q_p = scope.visible_filter(viewer, "questions")
+    b_f, b_p = scope.visible_filter(viewer, "blockers")
+    t_f, t_p = scope.visible_filter(viewer, "tasks")
+
     needs_you = {
         "open_questions": db.query(
-            "SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? ORDER BY id",
-            (user,),
+            f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY id",
+            (user, *q_p),
         ),
         # LIMITed: a bulk ingest can legitimately file hundreds of proposals,
         # and this payload rides the hottest page — the count carries the rest
@@ -214,8 +227,9 @@ def my_day(user: str) -> dict:
             " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
         ),
         "your_blockers": db.query(
-            "SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? ORDER BY created_at",
-            (user,),
+            f"SELECT * FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY created_at",
+            (user, *b_p),
         ),
         "intake_to_triage": db.query(
             f"SELECT id, title, requester, status, score FROM intake_requests"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
@@ -241,10 +255,11 @@ def my_day(user: str) -> dict:
         "attention": _attention(user, needs_you, today, week),
         "your_work": {
             "tasks": db.query(
-                "SELECT * FROM tasks WHERE assignee = ? AND status IN ('todo', 'in_progress', 'blocked')"
+                "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+                f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
                 " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                 " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
-                (user,),
+                (user, *t_p),
             ),
             # assignee IN (?, '') is deliberate: an unowned task that is due is
             # everyone's business. The '' arm reaches every reader, and

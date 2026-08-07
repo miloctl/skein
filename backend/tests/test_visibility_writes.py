@@ -88,6 +88,47 @@ def test_a_private_row_is_never_indexed(fresh_db):
     assert [h["title"] for h in hits] == ["public"]
 
 
+def test_a_private_row_reaches_the_index_table_itself(fresh_db):
+    """The assertion above goes through search(), which drops the hit at READ
+    time. That makes the two protections mask each other: neutering
+    search._is_private so private rows are indexed leaves the whole suite
+    green, and the body is then in search_index and has been handed to the
+    embedding endpoint (search._maybe_embed, a third party). Deleting the row
+    afterwards does not take either back. This asserts on the TABLE.
+    """
+    users.ensure_user("ava")
+    collab.save_note(
+        "secrets", "the vendor number is 240k", author="ava", actor="ava", visibility="private"
+    )
+    collab.save_note("public", "the vendor number is public", author="ava", actor="ava")
+    indexed = db.query("SELECT title, body FROM search_index")
+    assert [r["title"] for r in indexed] == ["public"]
+    assert not [r for r in indexed if "240k" in (r["body"] or "")]
+
+
+def test_a_crew_row_is_indexed_and_then_withheld_from_a_non_member(fresh_db):
+    """The other half of the same masking pair. A crew row IS indexed — only
+    the private tier is kept out of the table — so search.visible_hits is the
+    only thing standing between it and a non-member. Neutering that function
+    left 1169 tests green while search(), /ask and the MCP tool all served a
+    crew note to anybody.
+    """
+    from app.services import crews, search
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    collab.save_note(
+        "vendor", "ZZCREWZZ terms", author="ava", actor="ava", visibility="crew", crew_id=cid
+    )
+    assert db.query("SELECT entity_id FROM search_index WHERE body LIKE '%ZZCREWZZ%'")
+    assert [h["title"] for h in search.search("ZZCREWZZ", viewer=scope.Viewer("ava", True))] == [
+        "vendor"
+    ]
+    assert search.search("ZZCREWZZ", viewer=scope.Viewer("bo", True)) == []
+    assert search.search("ZZCREWZZ") == []
+
+
 def test_demoting_a_record_to_private_removes_it_from_the_index(fresh_db):
     """A record indexed while workspace must not stay searchable after it
     becomes private."""

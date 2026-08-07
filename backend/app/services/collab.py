@@ -188,6 +188,12 @@ def record_decision(
         )
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or decided_by)
+        # decided_by is checked as a READER, the same way work.py checks an
+        # assignee and blockers.py checks an owner. sweep_stale_decisions says
+        # it follows the blocker sweep's rule — that rule holds only because
+        # raise_blocker ran this check, and without it here the sweep quoted a
+        # crew decision's title to somebody who cannot open it.
+        scope.assert_readable_by(tier, cid, decided_by, label="decider", author=actor or decided_by)
         did = db.execute(
             "INSERT INTO decisions (title, context, decision, decided_by, review_by, category,"
             " origin, created_by, created_at, visibility, crew_id)"
