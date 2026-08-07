@@ -154,6 +154,7 @@ def _receipt_line(r: dict) -> str:
         "refused": f"refused: {r['entity']}",
         "failed": f"not written: {r['entity']}",
         "nothing": "nothing was filed",
+        "unnotified": f"not notified: {r['entity']}",
     }.get(r["kind"], r["kind"])
     return f"\n\n> **{label}** — {r['detail']}\n\n"
 
@@ -671,6 +672,25 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     persona = ""
     message = req.message
     stripped = message.strip()
+    # A LEADING @slug invokes that bench persona for this ONE message. Rewritten
+    # into the /as form rather than given its own branch, so it takes the
+    # identical path below — persona session, identity, ensure_user, gate — and
+    # cannot drift from it. Only a bench slug rewrites: `@mira ...` is a mention
+    # of a person and stays ordinary prose (services/users.py::ensure_user
+    # refuses a human holding a bench slug, so one token never means both).
+    if stripped.startswith("@"):
+        head, _, rest = stripped.partition(" ")
+        slug = head[1:].lower().rstrip("._-")
+        if rest.strip():
+            try:
+                # the same resolve the /as branch runs, deliberately: a second
+                # way to decide "is this a bench persona" is a second way to
+                # disagree with it
+                await run_in_threadpool(personas.get_persona, slug)
+                stripped = f"/as {slug} {rest.strip()}"
+                message = stripped
+            except ValueError:
+                pass  # not a bench slug — an ordinary message that names someone
     if stripped.lower().split(maxsplit=1)[:1] == ["/as"]:
         parts = stripped.split(maxsplit=2)
         if len(parts) < 3:
@@ -1006,7 +1026,14 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             if note:
                 transcript.append(_receipt_line(note))
                 yield _sse({"type": "receipt", **note})
-            elif filed and capture.PREFIX.match(message):
+            else:
+                # only when `note` did not fire: on "todo: ask @mira ..." that
+                # filed nothing, both are true and the second adds no fact
+                miss = await run_in_threadpool(turn_guard.unnotified, message, wrote, persona)
+                if miss:
+                    transcript.append(_receipt_line(miss))
+                    yield _sse({"type": "receipt", **miss})
+            if not note and filed and capture.PREFIX.match(message):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
             await run_in_threadpool(_close_turn)
             # before the done frame, never after: the client refreshes the
