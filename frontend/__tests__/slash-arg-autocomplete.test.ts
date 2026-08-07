@@ -1,0 +1,46 @@
+import { describe, expect, it } from "vitest";
+
+import { argQuery } from "@/lib/slash";
+
+const ROSTERS = ["as", "flock"];
+
+describe("argQuery", () => {
+  it("offers the roster once a command has whitespace after it", () => {
+    expect(argQuery("/flock ", ROSTERS)).toEqual({ cmd: "flock", token: "" });
+    expect(argQuery("/flock eng", ROSTERS)).toEqual({
+      cmd: "flock",
+      token: "eng",
+    });
+    expect(argQuery("/as gr", ROSTERS)).toEqual({ cmd: "as", token: "gr" });
+  });
+
+  it("leaves a bare command to the command popup", () => {
+    // the /flock-vs-/flocks hazard: if "/flock" resolved here, it would skip
+    // the command branch that sorts an exact match first, and Tab would
+    // complete "/flocks" for someone who typed "/flock" in full
+    expect(argQuery("/flock", ROSTERS)).toBeNull();
+    expect(argQuery("/flocks", ROSTERS)).toBeNull();
+    expect(argQuery("/as", ROSTERS)).toBeNull();
+  });
+
+  it("closes once the slug is complete, so the popup leaves the message alone", () => {
+    // what run() and Tab both write is "/flock engineering " — the trailing
+    // space must NOT reopen the roster with an empty prefix
+    expect(argQuery("/flock engineering ", ROSTERS)).toBeNull();
+    expect(
+      argQuery("/flock engineering what breaks first", ROSTERS),
+    ).toBeNull();
+  });
+
+  it("ignores a command that takes no slug", () => {
+    expect(argQuery("/plan onboarding", ROSTERS)).toBeNull();
+    expect(argQuery("/search flock", ROSTERS)).toBeNull();
+  });
+
+  it("matches the command and the slug without regard to case", () => {
+    expect(argQuery("/FLOCK Eng", ROSTERS)).toEqual({
+      cmd: "flock",
+      token: "eng",
+    });
+  });
+});

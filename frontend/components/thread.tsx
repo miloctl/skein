@@ -8,11 +8,13 @@ import {
   ComposerPrimitive,
   useComposer,
   useComposerRuntime,
+  unstable_useComposerInputHistory,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { api } from "@/lib/api";
+import { argQuery, type ArgItem } from "@/lib/slash";
 import {
   findPersona,
   getActivePersona,
@@ -127,13 +129,42 @@ function personaList(): Promise<Persona[]> {
   return personasCache;
 }
 
+// Only the fields the argument popup reads. /api/flocks also carries the
+// resolved member cards and the synthesis flag, which the composer never
+// shows — a flock is picked by slug here, not inspected.
+type Flock = { slug: string; description: string; emoji: string };
+
+let flocksCache: Promise<Flock[]> | null = null;
+function flockList(): Promise<Flock[]> {
+  if (!flocksCache) {
+    const attempt = api<Flock[]>("/api/flocks").catch((e) => {
+      if (flocksCache === attempt) flocksCache = null;
+      throw e;
+    });
+    flocksCache = attempt;
+  }
+  return flocksCache;
+}
+
 const Composer = () => {
   const text = useComposer((s) => s.text);
   const composer = useComposerRuntime();
   const [commands, setCommands] = useState<SlashCommand[]>(FALLBACK_COMMANDS);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [flocks, setFlocks] = useState<Flock[]>([]);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  // set while the person is walking input history, and NOT reset by resetKey
+  // below: a recalled slash command changes the token, so resetting it there
+  // would reopen the popup on the very entry that recall just produced
+  const [recalling, setRecalling] = useState(false);
+  // ArrowUp recalls this thread's own sent messages, newest first. History is
+  // derived from the thread runtime's message list, which is what isolates one
+  // chat from another's; runtime-provider.tsx's /messages import is what makes
+  // a reloaded thread recall anything at all. The library's own popover guard
+  // is inert here (this popup is hand-rolled, not Unstable_TriggerPopoverRoot),
+  // so preventDefault below is the ONLY thing holding recall off.
+  const inputHistory = unstable_useComposerInputHistory();
   const activePersona = useSyncExternalStore(
     subscribePersona,
     getActivePersona,
@@ -143,6 +174,9 @@ const Composer = () => {
   useEffect(() => {
     chatCommands()
       .then(setCommands)
+      .catch(() => {});
+    flockList()
+      .then(setFlocks)
       .catch(() => {});
     personaList()
       .then((list) => {
@@ -164,14 +198,16 @@ const Composer = () => {
       .catch(() => {});
   }, []);
 
-  // two popup modes: the command token ("/bri"), and the persona slug
-  // right after "/as " — the hard-to-recall half of the invocation
+  // two popup modes: the command token ("/bri"), and the slug argument right
+  // after a command that takes one — the hard-to-recall half of the
+  // invocation. A command absent from argRosters gets no argument popup.
+  const argRosters: Record<string, ArgItem[]> = { as: personas, flock: flocks };
   const cmdToken = /^\/[a-z]*$/i.test(text)
     ? text.slice(1).toLowerCase()
     : null;
-  const asToken =
-    /^\/as\s+([a-z0-9-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
-  const resetKey = asToken !== null ? `as:${asToken}` : cmdToken;
+  const arg = argQuery(text, Object.keys(argRosters));
+  const argRoster = arg ? argRosters[arg.cmd] : undefined;
+  const resetKey = arg ? `${arg.cmd}:${arg.token}` : cmdToken;
   const [prevToken, setPrevToken] = useState(resetKey);
   if (prevToken !== resetKey) {
     setPrevToken(resetKey);
@@ -180,13 +216,13 @@ const Composer = () => {
   }
 
   const matches: SlashCommand[] =
-    asToken !== null
-      ? personas
-          .filter((p) => p.slug.startsWith(asToken))
-          .map((p) => ({
-            name: `as ${p.slug}`,
+    argRoster && arg
+      ? argRoster
+          .filter((x) => x.slug.startsWith(arg.token))
+          .map((x) => ({
+            name: `${arg.cmd} ${x.slug}`,
             args: "<message>",
-            description: `${p.emoji} ${p.description}`,
+            description: `${x.emoji} ${x.description}`,
           }))
       : cmdToken === null
         ? []
@@ -201,7 +237,7 @@ const Composer = () => {
               (a, b) =>
                 Number(b.name === cmdToken) - Number(a.name === cmdToken),
             );
-  const open = !dismissed && matches.length > 0;
+  const open = !dismissed && !recalling && matches.length > 0;
   // one clamp for Enter, aria-selected and aria-activedescendant: filtering
   // can shrink matches below sel, and a raw sel then points activedescendant
   // at an id that is not in the DOM while Enter runs a different row
@@ -209,8 +245,12 @@ const Composer = () => {
   const active = matches[activeIdx];
 
   const run = (c: SlashCommand) => {
-    if (c.name.startsWith("as ")) {
-      const p = findPersona(c.name.slice(3));
+    // "/as <persona>" is the one roster pick that enters a MODE outliving the
+    // turn, so it activates the persona and empties the box. Every other one
+    // ("/flock <slug>") is per-turn and falls through to the c.args branch,
+    // which fills the slug and leaves the caret for the message.
+    if (arg?.cmd === "as") {
+      const p = findPersona(c.name.slice(arg.cmd.length + 1));
       if (p) {
         setActivePersona(p);
         composer.setText("");
@@ -226,12 +266,25 @@ const Composer = () => {
   };
 
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
-    if (!open) return;
+    const arrow = e.key === "ArrowUp" || e.key === "ArrowDown";
+    if (!arrow && recalling) setRecalling(false);
+    if (!open) {
+      // The popup is closed, so this arrow belongs to input history on the
+      // Input below. Recall can land a bare slash command ("/briefing" is a
+      // shipped suggestion), which reopens this popup and would then swallow
+      // the NEXT arrow — leaving the person stuck on one entry with no way
+      // back to their draft. Staying closed until they type again is what
+      // keeps recall walking.
+      if (arrow) setRecalling(true);
+      return;
+    }
+    // preventDefault here also holds input history off: the recall handler on
+    // the Input yields to an already-prevented event, so an arrow that moves
+    // the popup selection must never also reach it.
+    if (arrow) e.preventDefault();
     if (e.key === "ArrowDown") {
-      e.preventDefault();
       setSel((s) => (s + 1) % matches.length);
     } else if (e.key === "ArrowUp") {
-      e.preventDefault();
       setSel((s) => (s - 1 + matches.length) % matches.length);
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -268,7 +321,7 @@ const Composer = () => {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(c)}
               className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
-                i === sel ? "bg-thread/10" : ""
+                i === activeIdx ? "bg-thread/10" : ""
               }`}
             >
               <code className="shrink-0 font-medium text-thread">
@@ -280,7 +333,7 @@ const Composer = () => {
               <span className="truncate text-xs text-ink-3">
                 {c.description}
               </span>
-              {i === sel && (
+              {i === activeIdx && (
                 <kbd className="ml-auto shrink-0 rounded border border-line-strong px-1 font-mono text-[10px] text-ink-3">
                   ↵
                 </kbd>
@@ -310,6 +363,7 @@ const Composer = () => {
       )}
       <ComposerPrimitive.Root className="flex items-end gap-2 rounded-xl border border-line-strong bg-card p-2 shadow-card">
         <ComposerPrimitive.Input
+          {...inputHistory}
           name="message"
           role="combobox"
           aria-expanded={open}

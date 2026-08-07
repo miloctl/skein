@@ -98,10 +98,87 @@ def claim_thread(thread_id: str, owner: str) -> str:
 
 
 def _title_from(text: str) -> str:
-    # "/as growth-mentor how do I..." titles as the question, not the plumbing
-    text = re.sub(r"^/as\s+[a-z0-9-]+\s+", "", text.strip(), flags=re.I)
+    # "/as growth-mentor how do I..." titles as the question, not the plumbing.
+    # /flock belongs here too: routes/chat.py logs the RAW command on that path
+    # (the /as path logs the stripped message), so without the second branch
+    # every flock thread is named after the command instead of the question.
+    text = re.sub(r"^/(?:as|flock)\s+[a-z0-9-]+\s+", "", text.strip(), flags=re.I)
     line = text.splitlines()[0].strip() if text.strip() else "New chat"
     return line[:TITLE_LEN] + ("…" if len(line) > TITLE_LEN else "")
+
+
+# TITLE_PROMPT forbids each of these, which is the reason to strip them: a
+# prompt names a failure because models produce it anyway. Order matters —
+# the prefix comes off first, then the emphasis, then the quotes, or
+# 'Name: "Ship it"' keeps its opening quote after the closing one is gone.
+_TITLE_LABEL = re.compile(r"^(?:title|name)\s*[:\-]\s*", re.I)
+# the curly pairs are escaped, not literal: ruff RUF001 rejects them in
+# source as ambiguous. A cloud model answers with them often, so they have to
+# be here — the straight pair alone leaves “Ship it” quoted in the sidebar.
+_TITLE_QUOTES = "\"'" + "\u201c\u201d\u2018\u2019"
+
+
+def _clean_title(text: str) -> str:
+    """One bare line from whatever shape the model answered in."""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    line = _TITLE_LABEL.sub("", stripped.splitlines()[0].strip())
+    line = line.strip("#*_ ").strip()
+    return line.strip(_TITLE_QUOTES).strip()[:TITLE_LEN]
+
+
+def pending_auto_title(thread_id: str, owner: str) -> tuple[str, str] | None:
+    """(current title, first user message) for a thread that still carries the
+    title _title_from derived, or None when no summary must run.
+
+    The title IS the guard — no column records where a title came from. A
+    thread the owner renamed through set_thread below no longer matches
+    _title_from, so a summary that finishes after the rename finds no match
+    and drops. Without this read the rename would be overwritten by a model
+    call the owner never saw, and the name they typed is not recoverable.
+    """
+    _check_id(thread_id)
+    row = db.query_one(
+        "SELECT title FROM chat_threads WHERE id = ? AND owner = ?", (thread_id, owner)
+    )
+    if not row:
+        return None
+    firsts = db.query(
+        "SELECT content FROM chat_messages WHERE thread_id = ? AND role = 'user'"
+        " ORDER BY id LIMIT 2",
+        (thread_id,),
+    )
+    # EXACTLY one user message, so a thread is summarized once and never again.
+    # Every failure here leaves the title still matching _title_from — a
+    # timeout, an empty answer, a model that echoes the derived line back.
+    # Without this bound each of those retries on every later turn, and the
+    # thread pays one model call per turn for the rest of its life.
+    if len(firsts) != 1:
+        return None
+    if row["title"] != _title_from(firsts[0]["content"]):
+        return None
+    return row["title"], firsts[0]["content"]
+
+
+def set_auto_title(thread_id: str, owner: str, previous: str, title: str) -> bool:
+    """Compare-and-set a summarized title. False when the owner renamed the
+    thread while the model ran: their name wins and the summary is dropped.
+
+    updated_at is left alone on purpose. It orders the chat list, and the turn
+    that triggered this summary already touched it — bumping it again here
+    would reorder the list for a change the owner never made.
+    """
+    _check_id(thread_id)
+    clean = _clean_title(title)
+    if not clean:
+        return False
+    return bool(
+        db.execute_rowcount(
+            "UPDATE chat_threads SET title = ? WHERE id = ? AND owner = ? AND title = ?",
+            (clean, thread_id, owner, previous),
+        )
+    )
 
 
 def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
