@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { argQuery } from "@/lib/slash";
+import { argQuery, mentionQuery } from "@/lib/slash";
 
 const ROSTERS = ["as", "flock"];
 
@@ -42,5 +42,33 @@ describe("argQuery", () => {
       cmd: "flock",
       token: "eng",
     });
+  });
+});
+
+describe("mentionQuery", () => {
+  it("opens on an @token being typed", () => {
+    expect(mentionQuery("@")).toEqual({ token: "", atStart: true });
+    expect(mentionQuery("@mi")).toEqual({ token: "mi", atStart: true });
+    expect(mentionQuery("can @mi")).toEqual({ token: "mi", atStart: false });
+  });
+
+  it("marks only a leading @ as atStart, because only that invokes", () => {
+    // routes/chat.py strips the message before testing startswith("@"), so
+    // leading whitespace still invokes and the picker must agree
+    expect(mentionQuery("   @grow")?.atStart).toBe(true);
+    expect(mentionQuery("ask @grow")?.atStart).toBe(false);
+  });
+
+  it("is not an ssh target or an email localpart", () => {
+    // services/mentions.py refuses these too — offering a name here would
+    // suggest a mention the backend never matches
+    expect(mentionQuery("run ssh root@scout")).toBeNull();
+    expect(mentionQuery("mail ava@example")).toBeNull();
+  });
+
+  it("closes once the name is complete", () => {
+    expect(mentionQuery("@mira ")).toBeNull();
+    expect(mentionQuery("@mira please look")).toBeNull();
+    expect(mentionQuery("no mention here")).toBeNull();
   });
 });

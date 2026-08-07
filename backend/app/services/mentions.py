@@ -31,7 +31,14 @@ def _roster() -> dict[str, tuple[str, str]]:
     }
 
 
+# fenced and inline code, dropped before any token is read. Chat is where
+# people paste shell and YAML, and `curl -H "X-User: @mira"` is not a mention
+# — it notified mira, and the chat guard then told the author it had not.
+_CODE = re.compile(r"```.*?```|`[^`]*`", re.S)
+
+
 def _tokens(text: str) -> list[str]:
+    text = _CODE.sub(" ", text)
     return list(dict.fromkeys(m.group(1).lower() for m in _MENTION.finditer(text)))
 
 
@@ -42,21 +49,25 @@ def _match(roster: dict[str, tuple[str, str]], token: str) -> tuple[str, str] | 
     return roster.get(token) or roster.get(token.rstrip("._-"))
 
 
-def names_in(text: str) -> tuple[list[str], list[str]]:
+def names_in(text: str, actor: str = "") -> tuple[list[str], list[str]]:
     """(people, agents) named by an @token, in roster casing.
 
     Shares _tokens and _match with scan() on purpose: a surface that reports
     what a mention WILL do must not use a second parser, or it names people
-    scan never matches and stays silent about ones it does.
+    scan never matches and stays silent about ones it does. `actor` is dropped
+    for the same reason scan drops it — a self-mention is not directed
+    attention, and reporting one tells the author to file something that would
+    notify nobody.
     """
     if not text or "@" not in text:
         return [], []
+    skip = actor.strip().lower()
     roster = _roster()
     people: list[str] = []
     agents: list[str] = []
     for token in _tokens(text):
         hit = _match(roster, token)
-        if hit:
+        if hit and hit[0].lower() != skip:
             (agents if hit[1] == "agent" else people).append(hit[0])
     return people, agents
 
