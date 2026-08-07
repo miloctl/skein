@@ -131,8 +131,9 @@ def answer_question(
 
 
 def list_questions(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
-    # NOBODY is the default because most callers are jobs and agent tools, and
-    # the workspace tier is exactly what those must read (docs/VISIBILITY.md)
+    # NOBODY is the default so a caller that passes nothing reads the
+    # workspace tier, which is what a job, an agent tool or an MCP call must
+    # read anyway (docs/VISIBILITY.md). The REST door passes a real viewer.
     frag, vp = scope.visible_filter(viewer, "questions")
     if status:
         return db.query(
@@ -366,9 +367,9 @@ def list_decisions(
     limit: int = 50, status: str = "", category: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "decisions")
-    # the scope fragment joins the AND list rather than being appended to a
-    # clause that may be empty — a builder that can emit no WHERE is one of
-    # the three shapes that silently drops the filter
+    # the scope fragment SEEDS the AND list rather than being appended to a
+    # clause that may be empty: a builder that can emit no WHERE at all drops
+    # the filter silently, and `where` starting non-empty prevents that
     where, params = [frag], list(vp)
     if status:
         where.append("status = ?")

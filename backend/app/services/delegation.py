@@ -84,6 +84,27 @@ def _check_not_forbidden(actor: str) -> None:
         raise ValueError(f"'{actor}' is forbidden on tasks — ask a human to lift it")
 
 
+def _assert_readable_or_missing(task: dict, actor: str, task_id: int) -> None:
+    """A task that exists but is not this actor's answers like one that does
+    not exist, UNLESS the actor could read it anyway.
+
+    The informative refusals below ("not delegated to you", "written by its
+    delegate or sponsor only") are worth keeping — they tell a legitimate
+    caller what went wrong. They are also a 400 where an absent id gives a
+    404, so on a row the caller cannot read the pair reports existence, and
+    ids are sequential (services/scope.py::Viewer.for_actor names the attack).
+    Readable, the message discloses nothing the caller could not already
+    fetch. Unreadable, it is the only thing that says the row is there.
+    """
+    if not scope.can_read(
+        task["visibility"],
+        task["crew_id"],
+        scope.Viewer.for_actor(actor),
+        task.get("created_by", ""),
+    ):
+        raise scope.missing("tasks", task_id)
+
+
 def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     """The agent picks up its delegated task: todo -> in_progress. Direct
     (not review-gated) — status motion on the agent's own delegation is
@@ -94,6 +115,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     if not task:
         raise scope.missing("tasks", task_id)
     if task["delegated_agent"] != actor:
+        _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] not in ("todo", "blocked"):
         raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
@@ -132,13 +154,14 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
     # worklog note is the task's text, and a workspace child under a scoped
     # task publishes what the task was scoped to hide
     task = db.query_one(
-        "SELECT delegated_agent, sponsor, status, title, visibility, crew_id"
+        "SELECT delegated_agent, sponsor, status, title, visibility, crew_id, created_by"
         " FROM tasks WHERE id = ?",
         (task_id,),
     )
     if not task:
         raise scope.missing("tasks", task_id)
     if actor not in (task["delegated_agent"], task["sponsor"]):
+        _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id}'s worklog is written by its delegate or sponsor only")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is done — its worklog is history now")
@@ -235,6 +258,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     if not task:
         raise scope.missing("tasks", task_id)
     if task["delegated_agent"] != actor:
+        _assert_readable_or_missing(task, actor, task_id)
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] == "done":
         raise ValueError(f"task #{task_id} is already done")
@@ -255,8 +279,10 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         "update",
         {"summary": summary.strip()},
         # scope.detail, not an f-string: this summary is served by
-        # GET /api/review and quoted into a `team` notification, so a crew
-        # task's title reached the whole roster through the review queue
+        # GET /api/review, by my_day's pending_reviews, and by rituals'
+        # week-close artifact on disk — so a crew task's title reached the
+        # roster three ways. This call passes notify_team=False, so the team
+        # notification is NOT one of them.
         summary=scope.detail(
             task["visibility"],
             f"accept task #{task_id}",
@@ -518,10 +544,11 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped.
 
-    `viewer=None` means the agent is reading its OWN inbox (the tool and MCP
-    doors, which pass agent_identity()) and the rows stay unfiltered: a crew
-    task delegated to an agent is work that agent has to see, and a Viewer
-    blanks every machine name so any filter here would empty it.
+    `viewer=None` means the agent is reading its OWN inbox — the tool door
+    passes agent_identity(), the MCP door passes its ACTOR — and the rows stay
+    unfiltered: a crew task delegated to an agent is work that agent has to
+    see, and an agent is in no crew, so a Viewer built from its name would
+    empty the inbox.
 
     GET /api/agents/{agent}/inbox is the other door. It takes the agent name
     off the URL and answers any CurrentUser, so it passes the CALLER's viewer

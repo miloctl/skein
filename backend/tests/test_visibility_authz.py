@@ -805,6 +805,27 @@ def test_a_crew_pack_carries_the_crew_rows_and_reaches_members_only(fresh_db):
     assert context_pack.get_pack(actor="ava", viewer=scope.NOBODY)["content"]
 
 
+def test_publishing_a_crew_pack_is_no_weaker_a_door_than_reading_one(fresh_db):
+    """Publish takes the crew id off a query string, writes that crew's rows
+    to an artifact file and bumps the version every member cites. Gated on a
+    self-asserted name while the READ was gated on strong identity, it was
+    simply the weaker door to the same rows."""
+    from app.services import context_pack, crews
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    cid = crews.create_crew("Platform", actor="ava")["id"]
+    ava = scope.Viewer("ava", True)
+
+    with pytest.raises(db.NotFound):  # a member the server cannot identify
+        context_pack.publish_pack(actor="ava", crew_id=cid, viewer=scope.Viewer("ava", False))
+    with pytest.raises(db.NotFound):  # and a non-member
+        context_pack.publish_pack(actor="bo", crew_id=cid, viewer=scope.Viewer("bo", True))
+    assert context_pack.publish_pack(actor="ava", crew_id=cid, viewer=ava)["version"] == 1
+    # the TEAM pack stays open — it carries workspace rows only
+    assert context_pack.publish_pack(actor="scheduler")["version"] >= 1
+
+
 def test_each_crew_versions_its_pack_independently(fresh_db):
     """A shared counter would bump every crew's version whenever any one of
     them published, and the version is what a reader cites."""
@@ -818,7 +839,7 @@ def test_each_crew_versions_its_pack_independently(fresh_db):
     assert context_pack.get_pack(actor="ava", crew_id=a, viewer=ava)["version"] == 1
     assert context_pack.get_pack(actor="ava", crew_id=b, viewer=ava)["version"] == 1
     collab.record_decision("new", "x", decided_by="ava", actor="ava", visibility="crew", crew_id=a)
-    assert context_pack.publish_pack(actor="ava", crew_id=a)["version"] == 2
+    assert context_pack.publish_pack(actor="ava", crew_id=a, viewer=ava)["version"] == 2
     assert context_pack.latest_pack(b)["version"] == 1
     assert context_pack.latest_pack(0)["version"] == 1
 
@@ -834,7 +855,7 @@ def test_a_crew_pack_is_a_separate_artifact_file(fresh_db):
     users.ensure_user("ava")
     a = crews.create_crew("Alpha", actor="ava")["id"]
     context_pack.publish_pack(actor="ava")
-    context_pack.publish_pack(actor="ava", crew_id=a)
+    context_pack.publish_pack(actor="ava", crew_id=a, viewer=scope.Viewer("ava", True))
     names = {
         p.name for p in (pathlib.Path(config.DATA_DIR) / "artifacts" / "context-pack").glob("*")
     }

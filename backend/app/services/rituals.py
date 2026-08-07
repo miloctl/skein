@@ -176,11 +176,11 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
 
 
 def _week_open_run(today: date, week: str, actor: str) -> dict:
-    """Every one of the four queries below takes WORKSPACE_ONLY. They render
-    into ONE markdown artifact, written at the workspace tier by
+    """Every query below that reads a CLASSIFIED table takes WORKSPACE_ONLY.
+    They render into ONE markdown artifact, written at the workspace tier by
     _write_artifact — so a scoped row quoted here reaches the whole roster
     through GET /api/artifacts, the file on disk, and job_outcomes.detail.
-    Three of the four were unfiltered because the first one was not.
+    The roster query reads `users`, which carries no tier (scope.UNSCOPED).
     """
     horizon = (today + timedelta(days=7)).isoformat()
     humans = db.query(

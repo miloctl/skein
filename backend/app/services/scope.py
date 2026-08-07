@@ -10,8 +10,10 @@ inspects SQL. So the design is a fragment plus an inventory that CI checks,
 modeled on `activity.visible_actor_filter` — which is the only precedent, and
 which reached three callers on discipline alone.
 
-Counts are deliberately absent from this file. Four of them were wrong within
-one branch of being written, and a stale number reads as a measurement.
+A count belongs here only when something recomputes it. The two below are
+properties of the schema (four tables carrying both an author column and a
+`created_by`) and of one measured page, not tallies of call sites — those
+went stale inside a single branch, and a stale number reads as a measurement.
 
 **What makes `private` private is not this filter.** The filter only ever
 matches a private row for its own author. What keeps it private is the set of
@@ -573,7 +575,12 @@ UNSCOPED: dict[str, str] = {
         " rule would be republished permanently."
     ),
     "finding_dispositions": "points at findings above",
-    "context_packs": "assembled from the workspace tier only, and versioned globally",
+    "context_packs": (
+        "a published pack, not authored content. The TEAM pack is the workspace"
+        " tier; a crew pack appends that crew's own rows and versions"
+        " independently (migration 005), and context_pack.get_pack gates it on"
+        " the reader's crew membership rather than on a column here"
+    ),
     # --- infrastructure: no user-authored content ---
     "agent_authority": "the agent write matrix, not content",
     "api_keys": "credentials, owner-scoped, never listed to anyone else",

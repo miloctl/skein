@@ -136,7 +136,9 @@ def _is_private(entity: str, entity_id: int) -> bool:
     body in the FTS index — where /ask, semantic search, the MCP
     search_workspace tool and the by-id fetch all read it, and where deleting
     the row later does not take back what was already served. One SELECT on a
-    primary key, inside a transaction the caller already opened.
+    primary key — inside the caller's transaction where there is one, and on
+    its own connection where there is not (intake.submit_request indexes after
+    its transaction closes).
     """
     table = _ENTITY_TABLE.get(entity)
     if table is None or table not in scope.CLASSIFIED:

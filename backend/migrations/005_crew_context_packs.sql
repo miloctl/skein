@@ -15,6 +15,10 @@
 -- comment awareness, and the tail half becomes a statement. An apostrophe is
 -- fine -- `--` runs to end of line, and SQLite opens no string literal there.
 
+-- No IF EXISTS, deliberately. This file has already been applied, and
+-- CLAUDE.md forbids editing an applied migration's statements. The index is
+-- created by 001_baseline.sql, so the only way this fails is a hand-dropped
+-- index -- and that is a new migration, not an edit here.
 DROP INDEX ux_context_packs_version;
 
 ALTER TABLE context_packs ADD COLUMN crew_id INTEGER REFERENCES crews(id);

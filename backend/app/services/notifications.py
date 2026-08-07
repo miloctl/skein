@@ -117,8 +117,9 @@ def flush_digest_tier(*, claim: bool = False) -> dict:
         # rule at every notify() call site. A count carries nothing, whatever
         # a future caller writes.
         #
-        # Nothing is lost: this post is a NUDGE. The bodies are already in the
-        # app, and every line here links to them.
+        # Nothing is lost: this post is a NUDGE. Every body is already an
+        # in-app notification row, which is where the reader opens it — the
+        # post itself carries no link, only the count and the app's name.
         #
         # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
         by_user: dict[str, int] = {}

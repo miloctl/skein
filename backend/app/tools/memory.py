@@ -74,7 +74,7 @@ def forget_memory(memory_id: int) -> str:
         {},
         lambda: memory.forget(memory_id, actor=agent_identity(), origin="agent"),
         entity_id=memory_id,
-        # scope.detail: same egress as delete_note above — the review queue
+        # scope.detail: same egress as tools/collab.py::delete_note — the review queue
         # and the team notification both carry this line
         summary=scope.detail(
             row["visibility"],

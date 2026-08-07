@@ -541,7 +541,7 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     `pending_changes` carries no tier of its own (scope.UNSCOPED) and this
     list returns the whole row — `payload` parsed, and a `summary` that four
     producers build out of the row's own text (delegation.submit_completion,
-    tools/collab.py::delete_note, tools/memory.py::forget,
+    tools/collab.py::delete_note, tools/memory.py::forget_memory,
     tools/schedule.py::cancel_event). Served unfiltered to every CurrentUser,
     the review queue is a full-text mirror of every scoped row somebody
     proposed a change to.
