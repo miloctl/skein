@@ -192,7 +192,7 @@ def _receipt_line(r: dict) -> str:
         "wrote": f"wrote {r['entity']}{ref}{actor}",
         "refused": f"refused: {r['entity']}",
         "failed": f"not written: {r['entity']}{actor}",
-        "nothing": "nothing was filed",
+        "nothing": "filed nothing",
         "unnotified": f"not notified: {r['entity']}",
     }.get(r["kind"], r["kind"])
     return f"\n\n> **{label}** — {r['detail']}\n\n"
@@ -1045,6 +1045,19 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                     payload = event["tool_stream_event"].get("data")
                     slug = payload.get("skein_consult", "") if isinstance(payload, dict) else ""
                     text = payload.get("text", "") if slug else ""
+                    channel_receipt = payload.get("receipt") if slug else None
+                    if slug and channel_receipt:
+                        # a receipt that rode the consult's own channel
+                        # (team_agent.py::_run_consult drains its isolated box
+                        # beside the text) — placement by data. The section
+                        # heading names the author, so _attributed with the
+                        # SLUG as head strips the redundant suffix, exactly as
+                        # the flock's per-member drain does.
+                        wrote = True
+                        filed = filed or channel_receipt["kind"] in ("wrote", "queued")
+                        r = _attributed(channel_receipt, slug)
+                        transcript.append(_receipt_line(r))
+                        yield _sse({"type": "receipt", **r})
                     if slug and text:
                         # keyed on the tool CALL, not the slug: the budget
                         # allows consulting one specialist twice, and keying on

@@ -38,6 +38,40 @@ def record(kind: str, entity: str, detail: str = "", ref: int = 0, actor: str = 
     box.append({"kind": kind, "entity": entity, "detail": detail[:160], "ref": ref, "actor": actor})
 
 
+def isolate() -> tuple[list[dict], list[dict] | None]:
+    """A fresh box for a nested agent whose receipts travel its own channel
+    (the consult queue, agents/team_agent.py::_run_consult), so each receipt
+    renders inside the section that names its author instead of wherever the
+    shared box's next drain happens to be. Without it, the consult's drain
+    STEALS whatever the shared box holds — another agent's receipt would ride
+    this channel and render under this specialist's heading.
+
+    Returns (box, previous); pass both to deisolate() in a sync finally.
+    By VALUE, never a contextvars Token: a closed generator is finalized in
+    whatever context runs it last (test_flock_turns.py pins that an abandoned
+    SSE stream's aclose arrives from ANOTHER task), and Token.reset raises
+    outside its birth context — killing the spill it guards, receipts and all.
+    """
+    prev = _receipts.get()
+    box: list[dict] = []
+    _receipts.set(box)
+    return box, prev
+
+
+def deisolate(box: list[dict], prev: list[dict] | None) -> None:
+    """End isolation, spilling anything stranded into the previous box —
+    where the chat route's close-out drain renders it actor-suffixed. List
+    mutation, not contextvar surgery, so the spill works from the foreign
+    finalization context too. The set() is guarded: in that foreign context
+    the var holds someone else's value, and rebinding it would aim a
+    stranger's future record() calls at this turn's box."""
+    if _receipts.get() is box:
+        _receipts.set(prev)
+    if prev is not None and box:
+        prev.extend(box)
+        box.clear()
+
+
 def reset() -> None:
     """Unset the box. Without this a box left set by one context collects
     the next context's gate writes undrained (tests share worker threads;

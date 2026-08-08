@@ -188,9 +188,9 @@ export function receiptLine(e: {
             // claims the wrong refusee — the gate refused the SPECIALIST
             `⛔ **Refused** — ${e.entity} is forbidden for ${e.actor || "this agent"}`
           : e.kind === "nothing"
-            ? `📭 **Nothing was filed**`
+            ? `📭 **Filed nothing**`
             : e.kind === "unnotified"
-              ? `📭 **Not notified** — ${e.entity}`
+              ? `🔕 **Not notified** — ${e.entity}`
               : `⚠️ **Not written** — ${e.entity}${actor}`;
   const tail = e.detail ? `: ${e.detail}` : "";
   const link =

@@ -81,7 +81,7 @@ def unnotified(
     # incomplete. Without this line, "ask @growth-mentor about tomorrow" is
     # answered with instructions for filing a task, which is not what the
     # reader asked for.
-    detail = "Nothing was filed, so there is nothing to open."
+    detail = "This turn filed nothing, so there is nothing to open."
     detail += " To reach them, start the message with a capture prefix such as `todo:`."
     # last, and "instead": placed before the sentence above, its "them" bound
     # to the specialist rather than to the names the receipt is about
