@@ -109,7 +109,10 @@ def gated_write(
         return json.dumps({"error": str(exc)})
     level = effective_level(actor, entity)
     if level == "forbidden":
-        receipts.record("refused", entity, f"{actor} is forbidden on {entity}")
+        # actor is passed even though the detail already names it: the live
+        # chip composes its own sentence ("forbidden for ...") and needs the
+        # name as data, not parsed back out of prose
+        receipts.record("refused", entity, f"{actor} is forbidden on {entity}", actor=actor)
         return json.dumps(
             {"error": f"writes to {entity} are forbidden for '{actor}' by the authority matrix"}
         )
@@ -126,10 +129,14 @@ def gated_write(
         try:
             result = direct()
         except ValueError as exc:
-            receipts.record("failed", entity, str(exc))
+            receipts.record("failed", entity, str(exc), actor=actor)
             return json.dumps({"error": str(exc)})
         receipts.record(
-            "wrote", entity, summary or lexicon.phrase(entity, action), int(result.get("id") or 0)
+            "wrote",
+            entity,
+            summary or lexicon.phrase(entity, action),
+            int(result.get("id") or 0),
+            actor=actor,
         )
         if level == "notify":
             from ..services.notifications import notify
@@ -153,9 +160,13 @@ def gated_write(
             requested_by=requester_identity(),
         )
     except ValueError as exc:
-        receipts.record("failed", entity, str(exc))
+        receipts.record("failed", entity, str(exc), actor=actor)
         return json.dumps({"error": str(exc)})
     receipts.record(
-        "queued", entity, summary or lexicon.phrase(entity, action), int(result.get("id") or 0)
+        "queued",
+        entity,
+        summary or lexicon.phrase(entity, action),
+        int(result.get("id") or 0),
+        actor=actor,
     )
     return json.dumps({**result, "note": "queued for human review"})

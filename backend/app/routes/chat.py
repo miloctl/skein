@@ -160,15 +160,38 @@ def _consult_budget(message: str) -> int:
     return max(MAX_CONSULTS_PER_TURN, len(named))
 
 
+def _attributed(r: dict, head: str) -> dict:
+    """The server-side render decision for a receipt's actor: kept only when
+    it says something the reader does not already know. Decided HERE, once,
+    because the stored transcript (_receipt_line) and the live chip
+    (runtime-provider.tsx::receiptLine) cannot share code — a rule each
+    reimplements is a rule that diverges, and history then disagrees with
+    what the reader watched happen."""
+    if r.get("actor") in ("", head):
+        return {k: v for k, v in r.items() if k != "actor"}
+    return r
+
+
 def _receipt_line(r: dict) -> str:
-    """How a receipt reads in the stored transcript (the live stream renders
-    its own chip, but history must say the same thing)."""
+    """How a receipt reads in the stored transcript.
+
+    The live chip (runtime-provider.tsx::receiptLine) words the same kinds
+    differently — "queued for review" here is "needs a human verdict" there —
+    and that split is DELIBERATE, not drift: the chip explains a state at the
+    moment it happens and links the Inbox; history compresses. What must
+    match is the CLAIM each kind makes and the actor decision (_attributed
+    above, pinned by test_specialist_consult.py and receipt-actor.test.ts),
+    never the prose register."""
     ref = f" #{r['ref']}" if r.get("ref") else ""
+    # refused carries no suffix: the gate's detail already names the actor in
+    # the truthful role — the gate refused the actor, the actor refused
+    # nothing — and a suffix would repeat the name inside one line
+    actor = f" ({r['actor']})" if r.get("actor") else ""
     label = {
-        "queued": f"queued for review: {r['entity']}{ref}",
-        "wrote": f"wrote {r['entity']}{ref}",
+        "queued": f"queued for review: {r['entity']}{ref}{actor}",
+        "wrote": f"wrote {r['entity']}{ref}{actor}",
         "refused": f"refused: {r['entity']}",
-        "failed": f"not written: {r['entity']}",
+        "failed": f"not written: {r['entity']}{actor}",
         "nothing": "nothing was filed",
         "unnotified": f"not notified: {r['entity']}",
     }.get(r["kind"], r["kind"])
@@ -329,10 +352,13 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
                     # the transcript is where it must be read — folding it
                     # into "proposals" would hide it.
                     entry["receipts"] += r["kind"] == "queued"
-                    out.put_nowait({"type": "receipt", **r})
+                    # _attributed with the MEMBER as head: a member's receipts
+                    # carry its own slug, which its section already states, so
+                    # the suppression is total by construction
+                    out.put_nowait({"type": "receipt", **_attributed(r, slug)})
         for r in receipts.drain():
             entry["receipts"] += r["kind"] == "queued"
-            out.put_nowait({"type": "receipt", **r})
+            out.put_nowait({"type": "receipt", **_attributed(r, slug)})
     except asyncio.CancelledError:
         entry["status"] = "cancelled"
         raise
@@ -356,7 +382,7 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
         # already drained) yields nothing here.
         for r in receipts.drain():
             entry["receipts"] += r["kind"] == "queued"
-            out.put_nowait({"type": "receipt", **r})
+            out.put_nowait({"type": "receipt", **_attributed(r, slug)})
         entry["ms"] = int((time.monotonic() - started) * 1000)
         if agent is not None:
             with contextlib.suppress(Exception):
@@ -950,6 +976,9 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # identity is set INSIDE the generator: tool calls run during this
         # iteration, in this context — proposals sign the persona's name
         token = set_agent_identity(persona or "agent")
+        # the head every receipt's actor is compared against (_attributed):
+        # the same name the identity above signs the turn's own writes with
+        turn_head = persona or "agent"
         # the requester is set on BOTH paths, not only for personas: proposals
         # carry the human who asked (requested_by, tools/_gate.py), and the
         # gate's write bucket keys on the (agent, requester) pair — left empty
@@ -1045,11 +1074,13 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 for r in receipts.drain():
                     wrote = True
                     filed = filed or r["kind"] in ("wrote", "queued")
+                    r = _attributed(r, turn_head)
                     transcript.append(_receipt_line(r))
                     yield _sse({"type": "receipt", **r})
             for r in receipts.drain():
                 wrote = True
                 filed = filed or r["kind"] in ("wrote", "queued")
+                r = _attributed(r, turn_head)
                 transcript.append(_receipt_line(r))
                 yield _sse({"type": "receipt", **r})
 
@@ -1080,6 +1111,16 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
             if consulted:
                 await run_in_threadpool(fieldguide.mark, user, "consult")
+            # one more drain before the turn closes: a specialist write that
+            # finishes in a threadpool AFTER pump's last drain lands in a box
+            # nothing reads again — the proposal sits in the inbox while the
+            # chat says nothing filed it. A receipt later than this drain is
+            # genuinely unreachable here; the durable inbox row is the
+            # backstop, and this comment is the record of that decision.
+            for r in receipts.drain():
+                r = _attributed(r, turn_head)
+                transcript.append(_receipt_line(r))
+                yield _sse({"type": "receipt", **r})
             await run_in_threadpool(_close_turn)
             # before the done frame, never after: the client refreshes the
             # sidebar and header when its reader loop ends, so a title written

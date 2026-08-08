@@ -385,3 +385,34 @@ def test_a_timed_out_member_still_reports_the_write_it_filed(client, fresh_db, m
         fresh_db.query_row("SELECT * FROM flock_traces ORDER BY id DESC")["members"]
     )
     assert {m["slug"]: m["receipts"] for m in members}["code-reviewer"] == 1
+
+
+def test_a_member_receipt_carries_no_actor_on_the_wire(client, monkeypatch):
+    """A member's receipts drain inside its own section, whose heading already
+    names it — routes/chat.py::_attributed with the member as head strips the
+    field by construction. An actor here would double-name every member write,
+    and its absence is what pins the suppression to the drain site rather
+    than to a second rule in the reader."""
+    from app.agents import receipts
+    from app.routes import chat as chat_route
+
+    class FilesOne:
+        def __init__(self, slug):
+            self.slug = slug
+            self.event_loop_metrics = None
+
+        async def stream_async(self, message):
+            receipts.record("queued", "note", "member filing", 5, actor=self.slug)
+            yield {"data": "Filed."}
+
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: FilesOne(k.get("persona", "")))
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={"thread_id": "fa-1", "message": "/flock engineering assess this"},
+        headers={"X-User": "tester"},
+    ) as resp:
+        assert resp.status_code == 200
+        out = resp.read().decode()
+    assert '"ref": 5' in out, "the member receipt never reached the stream"
+    assert '"actor"' not in out

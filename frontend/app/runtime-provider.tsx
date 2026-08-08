@@ -163,26 +163,35 @@ function ThreadHydrator({
 }
 
 /** A write receipt states what actually happened to your data — the gate
- *  reports it, so it is a fact rather than something the model claimed. */
-function receiptLine(e: {
+ *  reports it, so it is a fact rather than something the model claimed.
+ *  `actor` arrives only when the server decided it says something new
+ *  (routes/chat.py::_attributed) — a consulted specialist's write in the
+ *  orchestrator's turn. Exported for the pairing test that keeps this
+ *  renderer and the stored transcript (chat.py::_receipt_line) telling the
+ *  same story per kind. */
+export function receiptLine(e: {
   kind: string;
   entity: string;
   detail: string;
   ref: number;
+  actor?: string;
 }): string {
   const ref = e.ref ? ` #${e.ref}` : "";
+  const actor = e.actor ? ` (${e.actor})` : "";
   const head =
     e.kind === "queued"
-      ? `🕓 **Queued for review** — ${e.entity}${ref} needs a human verdict`
+      ? `🕓 **Queued for review** — ${e.entity}${ref}${actor} needs a human verdict`
       : e.kind === "wrote"
-        ? `✅ **Wrote ${e.entity}${ref}**`
+        ? `✅ **Wrote ${e.entity}${ref}${actor}**`
         : e.kind === "refused"
-          ? `⛔ **Refused** — ${e.entity} is forbidden for this agent`
+          ? // the sentence slot, not a suffix: "this agent" in a consult
+            // claims the wrong refusee — the gate refused the SPECIALIST
+            `⛔ **Refused** — ${e.entity} is forbidden for ${e.actor || "this agent"}`
           : e.kind === "nothing"
             ? `📭 **Nothing was filed**`
             : e.kind === "unnotified"
               ? `📭 **Not notified** — ${e.entity}`
-              : `⚠️ **Not written** — ${e.entity}`;
+              : `⚠️ **Not written** — ${e.entity}${actor}`;
   const tail = e.detail ? `: ${e.detail}` : "";
   const link =
     e.kind === "queued" && e.ref ? ` · [open in Inbox](/review)` : "";

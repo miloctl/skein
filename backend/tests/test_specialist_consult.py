@@ -727,11 +727,18 @@ def test_a_consulted_write_carries_the_specialist_identity(real_provider, monkey
 
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: FilesANote())
 
+    from app.agents import receipts
+
     async def run():
         set_requester_identity("mira")
+        receipts.start()
         await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+        return receipts.drain()
 
-    asyncio.run(run())
+    drained = asyncio.run(run())
+    # the gate signed the receipt, not the test: actor comes from
+    # agent_identity() at the choke point, so every gated write is covered
+    assert [r["actor"] for r in drained if r["kind"] == "queued"] == ["code-reviewer"]
     pending = db.query_one("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 1")
     assert pending is not None, "the write bypassed the review queue"
     assert pending["proposed_by"] == "code-reviewer"
@@ -739,3 +746,91 @@ def test_a_consulted_write_carries_the_specialist_identity(real_provider, monkey
     assert db.query_one("SELECT 1 FROM notes WHERE topic = 'risk memo'") is None, (
         "the note landed without a human verdict"
     )
+
+
+# ---- receipt attribution -----------------------------------------------------
+
+
+class _LateFiler:
+    """An orchestrator whose specialist's write lands AFTER the consult
+    section closed — the timing that motivates the actor field. The gate runs
+    in a threadpool the stream cannot see, so the receipt drains under the
+    orchestrator's framing, where placement attributes it to the wrong head."""
+
+    async def stream_async(self, message):
+        from app.agents import receipts
+
+        yield {"current_tool_use": {"toolUseId": "c-1", "name": "consult_specialist"}}
+        yield {
+            "tool_stream_event": {
+                "tool_use": {"toolUseId": "c-1"},
+                "data": {"skein_consult": "code-reviewer", "text": "Filing a risk memo."},
+            }
+        }
+        yield {"data": "That is their read."}  # the section is closed now
+        receipts.record("queued", "note", "risk memo", 7, actor="code-reviewer")
+
+
+def test_a_late_receipt_still_names_the_specialist(client, monkeypatch):
+    """Placement is timing luck; the actor is data. A proposal that drains
+    under the Chief of Staff's framing must still say who signed it — the
+    transcript is append-only, so a wrong attribution here is permanent."""
+    from app.routes import chat as chat_route
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: _LateFiler())
+    out = _read_chat(client, "ask @code-reviewer about tomorrow", "ra-1")
+
+    assert '"actor": "code-reviewer"' in out, "the wire frame does not say who signed the write"
+    saved = client.get("/api/chats/ra-1/messages", headers={"X-User": "tester"}).json()[-1]
+    assert "queued for review: note #7 (code-reviewer)" in saved["content"]
+
+
+def test_the_turn_heads_own_receipts_stay_unattributed(client, monkeypatch):
+    """Differs-only: stamping every plain-turn receipt with the head's name
+    adds noise to the path where attribution says nothing new — and "agent"
+    is the contextvar default, not a name a reader knows."""
+    from app.routes import chat as chat_route
+
+    class OwnWrite:
+        async def stream_async(self, message):
+            from app.agents import receipts
+
+            receipts.record("queued", "note", "own filing", 3, actor="agent")
+            yield {"data": "Filed."}
+
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: OwnWrite())
+    out = _read_chat(client, "file that note", "ra-2")
+    assert '"actor"' not in out
+    saved = client.get("/api/chats/ra-2/messages", headers={"X-User": "tester"}).json()[-1]
+    assert "(agent)" not in saved["content"]
+    assert "queued for review: note #3" in saved["content"]
+
+
+def test_a_receipt_after_the_final_drain_is_not_dropped(client, monkeypatch):
+    """A specialist's write finishing in a threadpool after pump's last drain
+    used to land in a box nothing read again: the proposal sat in the inbox
+    while the chat said nothing about it. The close-out drain narrows that
+    window; the inbox row is the backstop for anything later still."""
+    from app.agents import turn_guard
+    from app.routes import chat as chat_route
+
+    class Quiet:
+        async def stream_async(self, message):
+            yield {"data": "Consulting."}
+
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: Quiet())
+    # the straggler lands while the turn guard runs — after pump, before close
+    real_unfiled = turn_guard.unfiled
+
+    def late_write(message, wrote):
+        from app.agents import receipts
+
+        receipts.record("queued", "note", "straggler", 9, actor="code-reviewer")
+        return real_unfiled(message, wrote)
+
+    monkeypatch.setattr(turn_guard, "unfiled", late_write)
+    out = _read_chat(client, "hello", "ra-3")
+    assert '"ref": 9' in out, "the straggler receipt was silently dropped"
+    saved = client.get("/api/chats/ra-3/messages", headers={"X-User": "tester"}).json()[-1]
+    assert "(code-reviewer)" in saved["content"]
