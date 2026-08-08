@@ -4,6 +4,8 @@ Nothing here tests that an agent does GOOD work — that is the model's job and
 the review gate's. These pin the bounds, because the whole point of the
 feature is a turn no human is watching."""
 
+from typing import ClassVar
+
 from app import config, db
 from app.services import agent_runner, delegation, usage, work
 
@@ -230,3 +232,110 @@ def test_a_task_with_a_recent_note_is_not_quiet(fresh_db, monkeypatch):
     delegation.report_progress(task_id, "vendor replied", actor="research-agent")
 
     assert agent_runner.sweep()["swept"] == 0
+
+
+def test_the_turn_runs_as_the_agent_it_woke(fresh_db, monkeypatch):
+    """A ContextVar does NOT cross a bare threading.Thread.
+
+    Without copy_context the turn ran as "agent" — the chat identity — so its
+    inbox came back empty, every report_progress was refused, and the gate
+    resolved authority against a row that is often promoted to autonomous.
+    Every other stub in this file returns a lambda that reads no identity,
+    which is exactly why none of them caught it.
+    """
+    from app.agents.identity import agent_identity
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    seen = {}
+
+    def _capture(thread, user="", persona="", stateless=False):
+        # read INSIDE the turn, which is what runs in the worker thread
+        return lambda _msg: seen.setdefault("identity", agent_identity())
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _capture)
+    assert agent_runner.run_one("research-agent")["ran"] is True
+    assert seen["identity"] == "research-agent"
+
+
+def test_the_runs_own_spend_reaches_usage_log(fresh_db, monkeypatch):
+    """Both bounds written for the runner read usage_log, and build_agent
+    returns a bare Agent that records nothing — so an unrecorded turn leaves
+    the daily ceiling and the runaway rule reading zero forever."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    class _Metrics:
+        # ClassVar, because ruff refuses a mutable class attribute — these
+        # stand in for the strands metrics object usage.row_from_agent reads
+        accumulated_usage: ClassVar[dict] = {"inputTokens": 1234, "outputTokens": 56}
+        accumulated_metrics: ClassVar[dict] = {"latencyMs": 10}
+        cycle_count = 3
+
+    class _Agent:
+        event_loop_metrics = _Metrics()
+        model = None
+
+        def __call__(self, _msg):
+            return "done"
+
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda thread, user="", persona="", stateless=False: _Agent(),
+    )
+    agent_runner.run_one("research-agent")
+
+    row = db.query_one(
+        "SELECT input_tokens, output_tokens, cycles FROM usage_log WHERE agent_name = ?",
+        ("research-agent",),
+    )
+    assert row and row["input_tokens"] == 1234
+    assert row["cycles"] == 3
+    # and the ceiling can now see it
+    assert usage.spent_today("research-agent")["tokens"] == 1290
+
+
+def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
+    """The job runs at 05:30 and nobody looks until morning. A turn that never
+    returns must not take the rest of the fleet with it."""
+    import time
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 1)
+
+    def _hang(thread, user="", persona="", stateless=False):
+        return lambda _msg: time.sleep(30)
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _hang)
+    started = time.monotonic()
+    out = agent_runner.run_one("research-agent")
+    # the bound is the point: a join() that waits out the hang is the bug
+    assert time.monotonic() - started < 10
+    assert out["ran"] is False
+    assert "abandoned" in out["reason"]
+
+
+def test_a_failure_that_spent_nothing_does_not_eat_the_day(fresh_db, monkeypatch):
+    """catch_up is False and the cron runs once, so a 30-second provider blip
+    at 05:30 would otherwise cost every agent its whole day."""
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    def _blip(thread, user="", persona="", stateless=False):
+        raise RuntimeError("provider unreachable")
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", _blip)
+    assert agent_runner.run_one("research-agent")["ran"] is False
+
+    # the claim is back, so a retry can still run today
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda thread, user="", persona="", stateless=False: lambda _m: "ok",
+    )
+    assert agent_runner.run_one("research-agent")["ran"] is True
