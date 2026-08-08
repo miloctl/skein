@@ -162,7 +162,7 @@ describe("the Agents page and the review gate", () => {
 
 /** identity.force_review (backend/app/agents/identity.py) outranks the matrix
  *  AND SKEIN_AGENT_REVIEW for a flock member, so the levels this card renders
- *  do not describe a flock turn. refuse_in_flock REFUSES the four write paths
+ *  do not describe a flock turn. refuse_when_consultative REFUSES the four write paths
  *  that skip tools/_gate.py — those never reach the inbox, so a card promising
  *  only a queue would be false in a new direction. Neither fact depends on the
  *  gate, so the card states them in every configuration. */
@@ -171,7 +171,7 @@ describe("the authority card and a flock member", () => {
   // own — forbidden still refuses (_gate.py checks it before force_review) —
   // so the not-allowed carve-out is what makes the sentence true, and the
   // refusal clause is what keeps it from promising an inbox entry that the
-  // four refuse_in_flock paths never produce.
+  // four refuse_when_consultative paths never produce.
   const FLOCK_CARVE_OUT =
     /only\s+not allowed\s+still applies from the levels\s+below/i;
   const FLOCK_CLAIM = /every other level becomes a wait in Inbox → Approvals/i;

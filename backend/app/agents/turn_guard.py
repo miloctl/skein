@@ -34,7 +34,13 @@ def reprompt_enabled() -> bool:
     return config.TURN_GUARD and config.EFFECTIVE_PROVIDER != "mock"
 
 
-def unnotified(message: str, wrote: bool, actor: str = "", invoked: str = "") -> dict | None:
+def unnotified(
+    message: str,
+    wrote: bool,
+    actor: str = "",
+    invoked: str = "",
+    consulted: tuple[str, ...] = (),
+) -> dict | None:
     """The receipt for an @mention that reached nobody.
 
     A mention notifies through the row it is written on (services/mentions.py):
@@ -57,18 +63,34 @@ def unnotified(message: str, wrote: bool, actor: str = "", invoked: str = "") ->
     from ..services import mentions
 
     people, agents = mentions.names_in(message, actor=actor)
-    named = [n for n in [*people, *agents] if n.lower() != invoked.lower()]
+    skip = invoked.lower()
+    # A specialist the turn CONSULTED already answered in this chat, which is
+    # the most direct delivery there is. Reporting it unreached would tell the
+    # reader nothing arrived while its answer sits above the receipt.
+    spoke = {s.lower() for s in consulted}
+    named = [n for n in [*people, *agents] if n.lower() != skip and n.lower() not in spoke]
     if not named:
         return None
     # capped: a pasted standup with twenty handles wrote a receipt longer than
     # the answer, into the SSE frame and the saved transcript both
     shown = ", ".join(named[:3])
     rest = len(named) - 3
+    # A filed row reaches an agent as well as a person (services/mentions.py::
+    # scan notifies agents on purpose, and tools/portfolio.py::my_agent_inbox
+    # reads them), so the capture prefix is not wrong for a specialist — it is
+    # incomplete. Without this line, "ask @growth-mentor about tomorrow" is
+    # answered with instructions for filing a task, which is not what the
+    # reader asked for.
+    detail = "Nothing was filed, so there is nothing to open."
+    detail += " To reach them, start the message with a capture prefix such as `todo:`."
+    # last, and "instead": placed before the sentence above, its "them" bound
+    # to the specialist rather than to the names the receipt is about
+    if any(a.lower() != skip and a.lower() not in spoke for a in agents):
+        detail += " To ask a specialist instead, start the message with `@` and its name."
     return {
         "kind": "unnotified",
         "entity": f"{shown} and {rest} more" if rest > 0 else shown,
-        "detail": "Nothing was filed, so there is nothing to open."
-        " To reach them, start the message with a capture prefix such as `todo:`.",
+        "detail": detail,
         "ref": 0,
     }
 

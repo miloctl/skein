@@ -72,6 +72,23 @@ def names_in(text: str, actor: str = "") -> tuple[list[str], list[str]]:
     return people, agents
 
 
+def slugs_in(text: str, known: set[str]) -> list[str]:
+    """@tokens naming something in `known`, WITHOUT consulting the roster.
+
+    names_in above needs a users row, and a bench specialist only gets one
+    after its first /as or consult (services/users.py::ensure_user) — so it
+    cannot see a specialist nobody has called yet, which is exactly the first
+    consult. Shares _tokens with scan() for the reason names_in does: a second
+    parser matches names the first one does not.
+    """
+    out = []
+    for token in _tokens(text):
+        hit = token if token in known else token.rstrip("._-")
+        if hit in known and hit not in out:
+            out.append(hit)
+    return out
+
+
 def _reaches(tier: tuple[str, int | None] | None, person: str) -> bool:
     """Can `person` open the row this mention points at.
 

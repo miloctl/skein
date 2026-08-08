@@ -255,6 +255,26 @@ knots:
     link: /chat
     since: 2026-08-02
 
+  - id: consult
+    feature: Ask a specialist mid-conversation
+    # a BEND joins two ropes, which is the shape here: the Chief of Staff and
+    # one bench specialist, tied for a single answer. docs/LEXICON.md #6
+    # counts cards carrying a name from the wrong class.
+    knot: Hunter's Bend
+    set: bends
+    # ties when the chat route marks it — a consult's spend lands in usage_log
+    # under the specialist's slug, and `/as` writes the same row, so no query
+    # can tell the two apart. On SKEIN_MODEL_PROVIDER=mock the mark never
+    # fires: MockAgent has no tool loop, so no consult can happen. A keyless
+    # deployment reaches the bench through the deterministic routes the how:
+    # line ends with, and this card stays untied there — accepted, the way
+    # `forge` accepts ties: never.
+    ties: mark
+    pitch: Keep talking to the Chief of Staff, and let it fetch the specialist who actually knows.
+    how: "In Chat, name a specialist inside the sentence: ask @code-reviewer about tomorrow's plan. To call one directly, start the message with @ and the slug."
+    link: /chat
+    since: 2026-08-07
+
   - id: finding_converted
     feature: Finding → work
     knot: Zeppelin Bend

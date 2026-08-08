@@ -158,7 +158,7 @@ Loops · Hitches · Bends · Stoppers, then labels cards in the **Loops** set
 with `Clove Hitch`, `Cow Hitch`, `Lark's Head`, `Cleat Hitch`, `Buntline`,
 `Cat's Paw`, `Highwayman's Hitch`, `Marlinspike`, `Anchor Bend`,
 `Monkey's Fist`, `Thief Knot`, `Figure Eight` — and one Bend set card with
-`Timber Hitch`. **13 of 32 cards carry a knot from the wrong class**
+`Timber Hitch`. **13 of 33 cards carry a knot from the wrong class**
 (measured). The reader best equipped to enjoy the metaphor is the one
 guaranteed to see it break.
 
@@ -203,6 +203,26 @@ wording pass does not file it as drift.
 The member word is **member**, not "persona", inside flock copy — a persona
 is what the thing IS on the bench, a member is the role it plays in a
 flock. `docs/FLOCKS.md` and `services/flocks.py` hold that line.
+
+---
+
+### 9. Bench artifact vs the role it plays
+
+| | |
+|---|---|
+| Words in use | **persona** (`/personas` command name, API path, `backend/personas/*.md`, PERSONAS.md) · **specialist** (@ picker group heading, `/personas` reply body, the consult strings, knot cards) · **member** (a persona inside a flock — row 8) |
+| **DECIDED** | keep all three, assigned (2026-08-07) — same shape as row 5 |
+
+The split is by frame, not drift: **persona** is what the artifact IS (a
+file on the bench, the author's word — commands and API paths keep it),
+**specialist** is what it does FOR the user (the reader's word — user-facing
+prose prefers it: "The bench — specialists you can call in", the @ picker's
+"Specialists" heading, "no specialist by that name on the bench"), and
+**member** is the role inside a flock. The consult feature (2026-08-07)
+followed this: its error strings, prompt bullet, and knot card all say
+"specialist"; its code identifiers say `consult_specialist` over a
+`persona=` parameter. A future string naming the artifact for a reader uses
+specialist; naming the file or the API uses persona.
 
 ---
 

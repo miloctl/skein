@@ -6,7 +6,7 @@ import json
 from datetime import UTC
 
 from .. import db
-from ..agents.identity import refuse_in_flock
+from ..agents.identity import refuse_when_consultative
 from . import scope
 from .users import ensure_user
 
@@ -109,7 +109,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     """The agent picks up its delegated task: todo -> in_progress. Direct
     (not review-gated) — status motion on the agent's own delegation is
     reversible and the sponsor is told."""
-    refuse_in_flock("claim delegated tasks")
+    refuse_when_consultative("claim delegated tasks")
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
@@ -148,7 +148,7 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
         raise ValueError("the progress note is required")
     if len(note) > 2000:
         raise ValueError("keep progress notes under 2000 characters")
-    refuse_in_flock("write to a worklog")
+    refuse_when_consultative("write to a worklog")
     _check_not_forbidden(actor)
     # visibility and crew_id ride along on a SELECT that already runs: a
     # worklog note is the task's text, and a workspace child under a scoped
@@ -252,7 +252,7 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     # proposal: this one pings the sponsor at `immediate` tier and takes the
     # one-pending-proposal slot below, so a member asked for an opinion would
     # interrupt a human mid-consultation over work nobody requested
-    refuse_in_flock("submit work for acceptance")
+    refuse_when_consultative("submit work for acceptance")
     _check_not_forbidden(actor)
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:

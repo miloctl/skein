@@ -34,18 +34,22 @@ def _reset_telemetry_buffers(monkeypatch):
     database (or never land — tests assert counts right after record_use, so
     the 30s buffer is zeroed to flush per call). Receipts too: a box left
     set by one test's chat turn collects a later test's gate writes in the
-    same worker, and whichever test drains next fails on the leftovers."""
-    from app.agents import receipts
+    same worker, and whichever test drains next fails on the leftovers. The
+    consult budget is the same shape: a SPENT box left by one turn refuses
+    every later consult in that worker, before the sub-agent is even built."""
+    from app.agents import identity, receipts
     from app.services import adoption, fieldguide
 
     adoption.reset()
     fieldguide.reset()
     receipts.reset()
+    identity.reset_consults()
     monkeypatch.setattr(adoption, "FLUSH_SECONDS", 0.0)
     yield
     adoption.reset()
     fieldguide.reset()
     receipts.reset()
+    identity.reset_consults()
 
 
 @pytest.fixture()

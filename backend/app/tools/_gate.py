@@ -10,7 +10,7 @@ One thing outranks the matrix: agents/identity.py::force_review, set for the
 duration of a flock member's turn. It forces the proposal path whatever the
 level says and whatever SKEIN_AGENT_REVIEW is, and forbidden still outranks
 IT. Write paths that skip this gate by design carry their own guard
-(refuse_in_flock); tests/test_gate_coverage.py::UNGATED_WRITERS is the list."""
+(refuse_when_consultative); tests/test_gate_coverage.py::UNGATED_WRITERS is the list."""
 
 import json
 

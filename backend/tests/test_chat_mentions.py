@@ -109,6 +109,35 @@ def test_the_invoked_persona_is_not_reported_unreached(client):
     )
 
 
+def test_a_specialist_mention_offers_the_ask_route(client):
+    """A filed row reaches an agent too, so the capture prefix alone is not
+    wrong — it answers "ask @slug about tomorrow" with instructions for filing
+    a task. The specialist can answer instead, and only it can."""
+    users.ensure_user("backend-architect", kind="agent")
+    users.ensure_user("mira")
+    spec = turn_guard.unnotified("ask @backend-architect about tomorrow", wrote=False)
+    person = turn_guard.unnotified("ask @mira about tomorrow", wrote=False)
+    assert spec is not None and person is not None
+    assert "start the message with `@` and its name" in spec["detail"]
+    assert "start the message with `@` and its name" not in person["detail"]
+    # both keep the filing route: a specialist reads a filed row through
+    # my_agent_inbox, so dropping it would remove a real way to reach one
+    assert "todo:" in spec["detail"] and "todo:" in person["detail"]
+
+
+def test_the_invoked_specialist_is_not_offered_as_a_route(client):
+    """`invoked` is filtered out of `named`, and the advice must filter it the
+    same way — otherwise a turn answered BY the specialist tells the reader to
+    go and ask that specialist."""
+    users.ensure_user("backend-architect", kind="agent")
+    users.ensure_user("mira")
+    out = turn_guard.unnotified(
+        "@backend-architect ask @mira too", wrote=False, invoked="backend-architect"
+    )
+    assert out is not None and out["entity"] == "mira"
+    assert "start the message with `@` and its name" not in out["detail"]
+
+
 def test_a_silent_turn_reports_who_it_did_not_reach(client, monkeypatch):
     """The wiring: an agent that answers without filing must not leave the
     mention silent."""
@@ -145,7 +174,11 @@ def test_a_leading_at_person_is_not_an_invocation(client):
     # the literal string services/personas.py raises: an invented one asserts
     # the absence of text the backend never emits
     assert "no persona" not in out
-    assert "Not notified" in _last_saved(client, "cm-4") or "wrote" in out.lower()
+    # the saved turn either warned about the unreached mention or filed a row
+    # that reaches mira — one of the two must hold, in _receipt_line's exact
+    # casing ("Not notified" never matched, so this line asserted nothing)
+    saved = _last_saved(client, "cm-4")
+    assert "not notified: mira" in saved or "wrote " in saved
 
 
 def test_a_bare_at_slug_with_no_message_is_ordinary_text(client):

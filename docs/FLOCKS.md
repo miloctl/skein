@@ -38,9 +38,23 @@ side effect review-gated, every model call accounted per member.
 
 - **No orchestration engine.** The diamond — dispatch, members, optional
   synthesis — is the only shape. No nesting (a member is a persona, never
-  another flock), no chains, no conditional routing. The codebase has
-  exactly one sub-agent today (the planner in `team_agent.py`); flocks add
-  one more fixed pattern, not a framework.
+  another flock), no chains, no conditional routing. Flocks add one more
+  fixed pattern, not a framework.
+
+  Amended 2026-08-07. This bullet used to end "the codebase has exactly one
+  sub-agent today (the planner in `team_agent.py`)". Three tool-carrying
+  sub-agents now exist: the planner, a flock member, and a specialist the
+  Chief of Staff consults (`consult_specialist`, added so "ask @code-reviewer about
+  tomorrow's plan" reaches the bench instead of filing a task for it).
+  The non-goal itself stands, and the consult is bounded to keep it standing:
+  depth is one hop, enforced by construction rather than by a counter —
+  `build_agent` creates the tool only when `persona == ""`, so a specialist
+  never holds it and cannot consult anything. No chains and no routing.
+  Auto-selection is not designed for — the orchestrator is instructed to
+  consult only a specialist the user names — but it is BOUNDED rather than
+  prevented: `MAX_CONSULTS_PER_TURN` caps a fan-out the model chose on its
+  own. Read this as one more fixed pattern, not as the engine this bullet
+  refuses.
 - **No debate rounds.** Members answer independently and never see each
   other's sections. Synthesis is the only merge point.
 - **No new identity kind.** A flock is not an identity and never writes as
@@ -186,7 +200,7 @@ Execution of a flock turn:
    Four writers skip `tools/_gate.py` BY DESIGN (the delegation trio and the
    handoff generator — `tests/test_gate_coverage.py::UNGATED_WRITERS` holds
    the list, derived from a gate spy rather than declared). force_review
-   cannot reach them, so each carries `identity.refuse_in_flock` and REFUSES
+   cannot reach them, so each carries `identity.refuse_when_consultative` and REFUSES
    in a flock rather than queuing: status motion and a projected artifact
    have no proposal shape, and the member was asked for an opinion, not for
    work. A new ungated writer fails that test until it decides.

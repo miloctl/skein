@@ -183,7 +183,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     # which tools reached the gate at all. UNGATED_WRITERS is asserted against
     # this below, so the list stops being a claim someone has to remember to
     # update: a new writer that skips gated_write needs a flock guard too
-    # (identity.refuse_in_flock), and tests/test_flock_turns.py derives its
+    # (identity.refuse_when_consultative), and tests/test_flock_turns.py derives its
     # cases from the same map.
     # patched per importing module, not on _gate: each tool module does
     # `from ._gate import gated_write`, so it holds its own reference and a
@@ -287,13 +287,13 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         f" new unlisted writers: {sorted(covered - expected_writers)}"
     )
     # DERIVED, not declared: every writer that never reached gated_write also
-    # never sees identity.force_review, so it owes its own refuse_in_flock
+    # never sees identity.force_review, so it owes its own refuse_when_consultative
     # guard. Adding one here without that guard is how a flock member gets an
     # ungoverned write path back.
     assert covered - gated == set(UNGATED_WRITERS), (
         "the set of writers that bypass the gate changed —"
         f" derived {sorted(covered - gated)}, declared {sorted(UNGATED_WRITERS)}."
-        " Give the new one a refuse_in_flock guard, then list it."
+        " Give the new one a refuse_when_consultative guard, then list it."
     )
 
 
@@ -306,7 +306,7 @@ def test_the_registry_is_the_only_inclusion_source():
 
 
 # The writers that bypass gated_write on purpose. Shared, not repeated: every
-# one of them also needs a refuse_in_flock guard (tests/test_flock_turns.py
+# one of them also needs a refuse_when_consultative guard (tests/test_flock_turns.py
 # derives its cases from this map), because force_review only reaches the gate.
 UNGATED_WRITERS = {
     "claim_delegated_task": "wrote",

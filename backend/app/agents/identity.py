@@ -1,11 +1,12 @@
 """Per-request agent identity for the chat tool surface.
 
-Chat tools used to hardcode actor="agent", collapsing every chat-side agent
-into one identity — the per-agent authority matrix and trust scores could
-not tell a persona from the default Chief of Staff. The chat route sets the
-acting identity here per request; contextvars propagate through the async
-call chain, so concurrent chats with different personas do not cross-
-attribute. The MCP server keeps its own identity mechanism (SKEIN_MCP_USER).
+The chat route sets the acting identity here per request, and every chat
+tool reads it — a tool that hardcodes actor="agent" collapses every
+chat-side agent into one identity, and the per-agent authority matrix and
+trust scores cannot tell a persona from the default Chief of Staff.
+Contextvars propagate through the async call chain, so concurrent chats
+with different personas do not cross-attribute. The MCP server keeps its
+own identity mechanism (SKEIN_MCP_USER).
 """
 
 from contextvars import ContextVar, Token
@@ -76,11 +77,12 @@ _force_review: ContextVar[bool] = ContextVar("force_review", default=False)
 
 def force_review() -> bool:
     """True while the acting agent's writes must queue for a human whatever
-    the authority matrix says. Set per flock member task (docs/FLOCKS.md): a
-    flock turn is consultative, and one human message must not become N
-    unreviewed writes because the members earned autonomy one at a time.
-    tools/_gate.py and refuse_in_flock below are the only readers — a write
-    path that reaches neither is ungoverned in a flock."""
+    the authority matrix says. Set per flock member task and per consulted
+    specialist (docs/FLOCKS.md, docs/PERSONAS.md): both turns are
+    consultative, and one human message must not become N unreviewed writes
+    because the agents earned autonomy one at a time. tools/_gate.py and
+    refuse_when_consultative below are the only readers — a write path that
+    reaches neither is ungoverned in both modes."""
     return _force_review.get()
 
 
@@ -88,14 +90,73 @@ def set_force_review(on: bool) -> Token:
     return _force_review.set(on)
 
 
-def refuse_in_flock(action: str) -> None:
+def refuse_when_consultative(action: str) -> None:
     """Guard for the write paths that skip tools/_gate.py BY DESIGN — the
     delegation trio and the handoff generator (tests/test_gate_coverage.py
     holds that list). The gate is the only place force_review turns a write
-    into a proposal, so a path that never reaches it would let a flock member
-    write directly during a turn whose whole promise is that every member
+    into a proposal, so a path that never reaches it would let a consultative
+    agent write directly during a turn whose whole promise is that every such
     write is reviewed. Refusal, not a proposal: status motion and artifact
-    projection have no proposal shape, and the member was asked for an
-    opinion, not for work. See docs/FLOCKS.md."""
+    projection have no proposal shape, and the agent was asked for an
+    opinion, not for work.
+
+    The message names the MODE, not the flock: a consulted specialist reaches
+    this too (team_agent.py::build_agent), and a message naming a flock sends
+    that reader looking for a flock they never started."""
     if _force_review.get():
-        raise ValueError(f"a flock member does not {action} — ask this agent directly")
+        raise ValueError(
+            f"this agent was asked for an opinion, not for work, and does not {action}"
+            " — ask the agent directly in its own chat"
+        )
+
+
+# Per-turn consult budget. The bench roster sits in the orchestrator's prompt,
+# so the MODEL chooses how many specialists run in one turn — the only number
+# in the product that multiplies model spend and is not written by an operator
+# (services/flocks.py records why a flock's member count is file-declared).
+# The route seeds the budget from the specialists the USER named
+# (routes/chat.py::_consult_budget); this bounds the ones it did not name. The
+# rate limiter is charged per call inside the tool, not up front — unlike a
+# flock, whose member count is known before the stream opens.
+MAX_CONSULTS_PER_TURN = 2
+
+_consults: ContextVar[list[int] | None] = ContextVar("consults", default=None)
+
+
+def start_consults(budget: int = MAX_CONSULTS_PER_TURN) -> None:
+    """Open the turn's consult budget.
+
+    A LIST, not an int, for the reason agents/receipts.py holds one: strands
+    runs each tool call in its own asyncio task, which COPIES the context, so
+    an int incremented inside one consult is invisible to the next and the cap
+    never binds.
+    """
+    _consults.set([0, max(1, budget)])
+
+
+def reset_consults() -> None:
+    """Close the turn's budget. Without this a box set by one turn survives
+    into the next context that shares it — tests share worker threads, so
+    conftest resets it the way it resets receipts."""
+    _consults.set(None)
+
+
+def take_consult() -> bool:
+    """Claim one consult, or False when the turn's budget is spent.
+
+    An unopened budget opens ITSELF at the default rather than waving the call
+    through. Fails closed on purpose: the depth cap is structural, but this cap
+    lives at a call site, so a future build_agent caller with persona == "" —
+    a scheduled digest, a CLI turn — would otherwise get an unbounded
+    model-chosen fan-out and no test would fail.
+
+    The ContextVar default stays None because a mutable default is ONE list
+    shared by every context in the process."""
+    box = _consults.get()
+    if box is None:
+        box = [0, MAX_CONSULTS_PER_TURN]
+        _consults.set(box)
+    if box[0] >= box[1]:
+        return False
+    box[0] += 1
+    return True
