@@ -441,9 +441,10 @@ def health():
         "model": model_pick_state()["model"],
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "models_error": config.MODELS_ERROR,
-        # personas whose model override the menu does not list — runtime, not
-        # lint, because SKEIN_MODELS is env and CI shares no env
-        "model_warnings": unlisted_model_warnings(),
+        # personas whose model override the menu does not list, and the env
+        # default itself when the menu omits it — runtime, not lint, because
+        # SKEIN_MODELS is env and CI shares no env
+        "model_warnings": unlisted_model_warnings() + config.menu_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
         "overlay_errors": config.overlay_errors(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,

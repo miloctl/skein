@@ -141,6 +141,45 @@ def test_persona_temperature_wins_over_the_entry_params(fresh_db, real_provider)
     assert cfg["params"]["temperature"] == 0.1
 
 
+def test_the_entry_cap_beats_the_global_params_on_the_merge_branches(
+    fresh_db, real_provider, monkeypatch
+):
+    """On ollama and bedrock the registry entry's typed fields ride the same
+    merge as SKEIN_MODEL_PARAMS — layered wrong, a global max_tokens silently
+    beats the per-model cap and one registry entry means different things per
+    provider. The anthropic branch passes the cap as a constructor kwarg, so
+    only the merge branches can invert it."""
+    monkeypatch.setattr(config, "MODEL_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PARAMS", {"max_tokens": 512})
+    settings.set_model_pick("opus", actor="admin")
+    cfg = team_agent._model().get_config()
+    assert cfg["max_tokens"] == 8192
+    assert cfg["context_window_limit"] == 200_000
+    # and the global knob still wins for an entry that sets no cap — that is
+    # the documented "params reach what we did not model" contract
+    assert team_agent._model(model_id="mini").get_config()["max_tokens"] == 512
+
+
+def test_the_env_default_outside_the_menu_warns_on_health(fresh_db, real_provider):
+    """The same drift class as a persona model the menu does not list: an id
+    in force that the menu does not govern. Warns, never faults — the menu
+    constrains the admin pick, not the operator's env."""
+    assert config.menu_warnings() == ["SKEIN_MODEL_ID is not in the SKEIN_MODELS menu."]
+
+
+def test_the_env_default_inside_the_menu_is_quiet(fresh_db, real_provider, monkeypatch):
+    monkeypatch.setattr(config, "MODEL_ID", "opus")
+    assert config.menu_warnings() == []
+
+
+def test_no_menu_means_no_default_warning(fresh_db, monkeypatch):
+    """An absent menu constrains nothing — warning on it would nag every
+    deployment that never configured SKEIN_MODELS."""
+    monkeypatch.setattr(config, "MODELS", {})
+    assert config.menu_warnings() == []
+
+
 def test_a_settings_read_failure_never_stops_the_build(fresh_db, real_provider, monkeypatch):
     """The env default is a correct model, just not the picked one — a chat
     turn must not die because a settings lookup did."""

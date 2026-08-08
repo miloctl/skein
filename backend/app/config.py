@@ -193,6 +193,21 @@ if not MODEL_PROVIDER_ERROR and (_raw := os.getenv("SKEIN_MODEL_PARAMS", "").str
         MODEL_PARAMS = {}
         MODEL_PROVIDER_ERROR = f"SKEIN_MODEL_PARAMS is not a JSON object: {exc}"
 
+
+def _finite_price(v) -> bool:
+    """A usable price component: a real non-negative number. bool is an int
+    in Python, json.loads parses the bare Infinity token, and math.isfinite
+    converts to a C double first — so a 309-digit JSON integer raises
+    OverflowError, and an uncaught raise here takes down every importer of
+    config (the _ctx_num rule, and the exact trap its docstring records)."""
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return math.isfinite(v) and v >= 0
+    except OverflowError:
+        return False
+
+
 # Price table for cost estimates: {"model-id": [usd_per_mtok_in, usd_per_mtok_out]}.
 # EMPTY by default, deliberately: a shipped price table goes stale and a stale
 # price is a wrong number presented as accounting. A model with no entry gets
@@ -206,19 +221,13 @@ if _raw_prices := os.getenv("SKEIN_MODEL_PRICES", "").strip():
         if not isinstance(_parsed, dict):
             raise TypeError("not a JSON object")
         for _mid, _pair in _parsed.items():
-            # bool is an int in Python, and json.loads parses the bare
-            # Infinity token — either would price a model at a number the
-            # operator never wrote, and inf 500s /api/usage at render time
+            # _finite_price refuses bool, bare Infinity, and the huge-int
+            # OverflowError — any of them would price a model at a number the
+            # operator never wrote, or kill the import outright
             if (
                 not isinstance(_pair, (list, tuple))
                 or len(_pair) != 2
-                or not all(
-                    isinstance(x, (int, float))
-                    and not isinstance(x, bool)
-                    and math.isfinite(x)
-                    and x >= 0
-                    for x in _pair
-                )
+                or not all(_finite_price(x) for x in _pair)
             ):
                 raise TypeError(f"{_mid!r} must map to [input_usd_per_mtok, output_usd_per_mtok]")
             MODEL_PRICES[str(_mid)] = (float(_pair[0]), float(_pair[1]))
@@ -267,6 +276,20 @@ _MODEL_ENTRY_FIELDS = frozenset(
 _MODEL_PRICE_FIELDS = frozenset({"input", "output"})
 
 
+def _as_whole(v) -> int | None:
+    """The value as an int, or None when it is not a whole number. Accepts a
+    zero-fraction float on purpose — see the call sites. inf/nan fail
+    is_integer(), and a float too large for int never parses from JSON as a
+    float without becoming inf first, so no overflow path exists here."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    return None
+
+
 def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, dict]) -> list[str]:
     """Faults for one entry, appended to nothing — the caller collects. On a
     clean entry with a usable id the normalized form lands in `out` keyed by
@@ -281,20 +304,23 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
     detail = entry.get("detail")
     if detail is not None and not (isinstance(detail, str) and 0 < len(detail) <= 200):
         faults.append(f"{tag}: detail must be a string of 1 to 200 characters.")
-    # bool is an int in Python — unchecked, `"max_tokens": true` becomes a
-    # 1-token cap the operator never wrote
+    # _as_whole, not isinstance(int): JSON Schema 2020-12 "integer" admits a
+    # zero-fraction float (4096.0), so the code must too or the shipped
+    # schema approves a registry the deployment refuses. bool is still
+    # refused — unchecked, `"max_tokens": true` becomes a 1-token cap the
+    # operator never wrote.
     max_tokens = entry.get("max_tokens")
-    if max_tokens is not None and not (
-        isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens >= 1
-    ):
-        faults.append(f"{tag}: max_tokens must be a whole number of 1 or more.")
+    if max_tokens is not None:
+        max_tokens = _as_whole(max_tokens)
+        if max_tokens is None or max_tokens < 1:
+            max_tokens = None
+            faults.append(f"{tag}: max_tokens must be a whole number of 1 or more.")
     context_tokens = entry.get("context_tokens")
-    if context_tokens is not None and not (
-        isinstance(context_tokens, int)
-        and not isinstance(context_tokens, bool)
-        and context_tokens >= 1024
-    ):
-        faults.append(f"{tag}: context_tokens must be a whole number of 1024 or more.")
+    if context_tokens is not None:
+        context_tokens = _as_whole(context_tokens)
+        if context_tokens is None or context_tokens < 1024:
+            context_tokens = None
+            faults.append(f"{tag}: context_tokens must be a whole number of 1024 or more.")
     price = entry.get("price")
     pair: tuple[float, float] | None = None
     if price is not None:
@@ -305,18 +331,9 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
                 faults.append(
                     f"{tag}: price has unknown fields: {', '.join(unknown)}. Remove them."
                 )
-            bad = [
-                k
-                for k in ("input", "output")
-                if not (
-                    isinstance(price.get(k), (int, float))
-                    and not isinstance(price.get(k), bool)
-                    and math.isfinite(price[k])
-                    and price[k] >= 0
-                )
-            ]
-            for k in bad:
-                faults.append(f"{tag}: price.{k} must be a number of 0 or more.")
+            for k in ("input", "output"):
+                if not _finite_price(price.get(k)):
+                    faults.append(f"{tag}: price.{k} must be a number of 0 or more.")
             if not faults:
                 pair = (float(price["input"]), float(price["output"]))
     params = entry.get("params")
@@ -385,6 +402,19 @@ if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
         " set SKEIN_MODEL_ID to whatever the endpoint serves"
     )
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
+
+
+def menu_warnings() -> list[str]:
+    """The env default running outside its own menu — the same drift class as
+    a persona model the menu does not list (personas.unlisted_model_warnings),
+    reported beside it on /health. Legal on purpose: the menu constrains the
+    ADMIN pick, never the operator's env — so this warns, it does not fault.
+    A function, not a constant, so the suite's config monkeypatching reads
+    through."""
+    if MODELS and EFFECTIVE_PROVIDER != "mock" and MODEL_ID and MODEL_ID not in MODELS:
+        return ["SKEIN_MODEL_ID is not in the SKEIN_MODELS menu."]
+    return []
+
 
 # Ollama: the default host is the local daemon, which proxies *-cloud models
 # to Ollama Cloud when `ollama signin` has been run on the box. To skip the

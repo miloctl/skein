@@ -1106,7 +1106,11 @@ export default function SettingsPage() {
               SKEIN_MODELS to add one.
             </p>
           )}
-        {pick && pick.applies && (
+        {/* pick.override alone is enough to render: a stored pick must stay
+            visible and clearable even when the menu is gone or faulted —
+            those are two of the three ways a pick becomes ignored, and an
+            admin who cannot see it cannot account for it */}
+        {pick && (pick.applies || pick.override) && (
           <div className="space-y-2">
             {pick.ignored && pick.override && (
               // the stored pick and the reason it is not honored, both named:
@@ -1117,7 +1121,8 @@ export default function SettingsPage() {
                 {pick.ignored}
               </p>
             )}
-            {pick.menu.map((m) => (
+            {pick.applies &&
+              pick.menu.map((m) => (
               <label
                 key={m.id}
                 className={
@@ -1183,6 +1188,18 @@ export default function SettingsPage() {
                 deployment default ({pick.default}).
               </p>
             )}
+            {/* no radio is checked when the model in force is outside the
+                menu — without this line the section renders choices under
+                "the model every chat runs on" while naming that model
+                nowhere */}
+            {pick.applies &&
+              pick.model &&
+              !pick.menu.some((m) => m.id === pick.model) && (
+                <p className="text-xs text-ink-3">
+                  The deployment default ({pick.default}) is in force. It is
+                  not in the menu.
+                </p>
+              )}
             {pick.override && (
               <button
                 disabled={!strong}

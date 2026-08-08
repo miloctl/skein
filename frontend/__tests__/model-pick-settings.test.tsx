@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The model section states prices and token counts, so every rule that
@@ -44,12 +44,21 @@ const PICK = {
   provider: "anthropic",
 };
 
-const mode: { pick: unknown } = { pick: PICK };
+const mode: { pick: unknown; post: "ok" | "refuse" } = {
+  pick: PICK,
+  post: "ok",
+};
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...real,
-    api: (path: string) => {
+    api: (path: string, opts?: { method?: string }) => {
+      if (path === "/api/settings/model" && opts?.method === "POST")
+        return mode.post === "ok"
+          ? Promise.resolve(mode.pick)
+          : Promise.reject(
+              new Error("HTTP 400: unknown model — expected one of: mini, opus"),
+            );
       if (path === "/api/settings/model") return Promise.resolve(mode.pick);
       if (path === "/api/whoami")
         return Promise.resolve({
@@ -106,6 +115,60 @@ describe("the model section", () => {
     expect(warning.textContent).toMatch(/no longer in the menu/);
   });
 
+  it("keeps a stored pick visible and clearable when the menu vanishes", async () => {
+    // an admin who removes or breaks SKEIN_MODELS still has a stored pick —
+    // it must stay on screen with its clear button, or the deployment holds
+    // state its own settings page cannot see or drop
+    mode.pick = {
+      ...PICK,
+      model: "env-default",
+      ignored: "The picked model is no longer in the menu.",
+      menu: [],
+      applies: false,
+    };
+    render(<SettingsPage />);
+    const warning = await screen.findByText(/is not in use/);
+    expect(warning.textContent).toMatch(/opus/);
+    expect(
+      screen.getByRole("button", { name: /Use the deployment default/ }),
+    ).toBeTruthy();
+  });
+
+  it("names the model in force when it is outside the menu", async () => {
+    // no radio is checked in this state — without the line, the section
+    // shows choices under "the model every chat runs on" and never says
+    // which model that is
+    mode.pick = { ...PICK, model: "env-default", override: null };
+    render(<SettingsPage />);
+    const line = await screen.findByText(/is in force/);
+    expect(line.textContent).toMatch(/env-default/);
+    expect(line.textContent).toMatch(/It is not in the menu\./);
+    const radios = screen.getAllByRole("radio");
+    expect(radios.some((r) => (r as HTMLInputElement).checked)).toBe(false);
+  });
+
+  it("routes a served refusal to Not saved, never to unreachable", async () => {
+    mode.pick = PICK;
+    mode.post = "refuse";
+    render(<SettingsPage />);
+    await screen.findByText(/Opus — deep work/);
+    fireEvent.click(screen.getByRole("radio", { name: /mini/ }));
+    const status = await screen.findByText(/Not saved\./);
+    // a server that answered 400 is not an unreachable backend — saying so
+    // sends the reader to check a server that is running
+    expect(status.textContent).not.toMatch(/unreachable/i);
+    mode.post = "ok";
+  });
+
+  it("confirms a save in the settled wording", async () => {
+    mode.pick = PICK;
+    mode.post = "ok";
+    render(<SettingsPage />);
+    await screen.findByText(/Opus — deep work/);
+    fireEvent.click(screen.getByRole("radio", { name: /mini/ }));
+    await screen.findByText(/Saved\. Every chat uses it from its next message\./);
+  });
+
   it("shows the server's registry fault instead of a menu", async () => {
     mode.pick = {
       ...PICK,
@@ -145,6 +208,6 @@ describe("the model section", () => {
       text.indexOf("The model every chat runs on"),
       text.indexOf("Long chats"),
     );
-    expect(ours).not.toMatch(/!|’|'(s|re|ll|t)\b/);
+    expect(ours).not.toMatch(/!|’|'(s|re|ll|t|m|ve|d)\b/);
   });
 });
