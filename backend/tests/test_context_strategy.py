@@ -43,7 +43,7 @@ def test_an_unknown_strategy_degrades_to_sliding_and_says_so(monkeypatch):
 @pytest.mark.parametrize(
     ("env", "attr", "default"),
     [
-        ({"SKEIN_CONTEXT_WINDOW": "lots"}, "CONTEXT_WINDOW", 40),
+        ({"SKEIN_CONTEXT_WINDOW_MESSAGES": "lots"}, "CONTEXT_WINDOW_MESSAGES", 40),
         ({"SKEIN_CONTEXT_SUMMARY_RATIO": "abc"}, "CONTEXT_SUMMARY_RATIO", 0.3),
         ({"SKEIN_CONTEXT_PRESERVE_RECENT": "-"}, "CONTEXT_PRESERVE_RECENT", 10),
     ],
@@ -61,9 +61,9 @@ def test_a_non_numeric_knob_degrades_to_its_default(monkeypatch, env, attr, defa
     [
         # negative window: the SDK RAISES at construction, so every chat turn
         # would fail while /health stayed green
-        ({"SKEIN_CONTEXT_WINDOW": "-5"}, "CONTEXT_WINDOW", 40),
+        ({"SKEIN_CONTEXT_WINDOW_MESSAGES": "-5"}, "CONTEXT_WINDOW_MESSAGES", 40),
         # zero window: clears history on every reduction — a chat with no memory
-        ({"SKEIN_CONTEXT_WINDOW": "0"}, "CONTEXT_WINDOW", 40),
+        ({"SKEIN_CONTEXT_WINDOW_MESSAGES": "0"}, "CONTEXT_WINDOW_MESSAGES", 40),
         # the SDK silently CLAMPS to 0.1-0.8, so the operator would believe a
         # number that is not in effect
         ({"SKEIN_CONTEXT_SUMMARY_RATIO": "9"}, "CONTEXT_SUMMARY_RATIO", 0.3),
@@ -94,12 +94,12 @@ def test_every_fault_is_reported_not_just_the_first(monkeypatch):
     cfg = _reload(
         monkeypatch,
         SKEIN_CONTEXT_STRATEGY="magic",
-        SKEIN_CONTEXT_WINDOW="lots",
+        SKEIN_CONTEXT_WINDOW_MESSAGES="lots",
         SKEIN_CONTEXT_PRESERVE_RECENT="-4",
     )
     for expected in (
         "SKEIN_CONTEXT_STRATEGY",
-        "SKEIN_CONTEXT_WINDOW",
+        "SKEIN_CONTEXT_WINDOW_MESSAGES",
         "SKEIN_CONTEXT_PRESERVE_RECENT",
     ):
         assert expected in cfg.CONTEXT_STRATEGY_ERROR
@@ -129,7 +129,7 @@ def test_knobs_reach_the_manager(fresh_db, monkeypatch):
     from app.agents import team_agent
 
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "sliding")
-    monkeypatch.setattr(config, "CONTEXT_WINDOW", 12)
+    monkeypatch.setattr(config, "CONTEXT_WINDOW_MESSAGES", 12)
     monkeypatch.setattr(config, "CONTEXT_PIN_FIRST", 4)
     mgr = team_agent._conversation_manager()
     assert mgr.window_size == 12
@@ -540,7 +540,7 @@ def test_several_faults_read_as_sentences(monkeypatch):
     cfg = _reload(
         monkeypatch,
         SKEIN_CONTEXT_STRATEGY="magic",
-        SKEIN_CONTEXT_WINDOW="lots",
+        SKEIN_CONTEXT_WINDOW_MESSAGES="lots",
         SKEIN_CONTEXT_PIN_FIRST="5000",
     )
     err = cfg.CONTEXT_STRATEGY_ERROR
@@ -627,6 +627,17 @@ def test_an_absurdly_long_number_does_not_kill_the_import(monkeypatch):
     """math.isfinite converts to a C double first, so a 309-digit int raises
     OverflowError — and an uncaught raise in config takes down every route,
     the ICS feed, and backups with it."""
-    cfg = _reload(monkeypatch, SKEIN_CONTEXT_WINDOW="9" * 400)
-    assert cfg.CONTEXT_WINDOW == 40
-    assert "SKEIN_CONTEXT_WINDOW" in cfg.CONTEXT_STRATEGY_ERROR
+    cfg = _reload(monkeypatch, SKEIN_CONTEXT_WINDOW_MESSAGES="9" * 400)
+    assert cfg.CONTEXT_WINDOW_MESSAGES == 40
+    assert "SKEIN_CONTEXT_WINDOW_MESSAGES" in cfg.CONTEXT_STRATEGY_ERROR
+
+
+def test_the_pre_rename_window_name_faults_and_is_not_read(monkeypatch):
+    """SKEIN_CONTEXT_WINDOW was renamed to SKEIN_CONTEXT_WINDOW_MESSAGES. The
+    old name must fault, not work as a fallback: read silently, a stale
+    deployment env keeps steering the window until the fallback is dropped,
+    and the window then reverts to 40 with no report."""
+    cfg = _reload(monkeypatch, SKEIN_CONTEXT_WINDOW="12")
+    assert cfg.CONTEXT_WINDOW_MESSAGES == 40
+    assert "SKEIN_CONTEXT_WINDOW was renamed" in cfg.CONTEXT_STRATEGY_ERROR
+    assert "SKEIN_CONTEXT_WINDOW_MESSAGES" in cfg.CONTEXT_STRATEGY_ERROR

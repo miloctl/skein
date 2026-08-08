@@ -421,8 +421,15 @@ def _ctx_num(name: str, default, cast, low=None, high=None):
 
 
 # messages kept before the oldest are dropped (sliding). 0 would clear the
-# history on every reduction, which is a chat with no memory at all
-CONTEXT_WINDOW = _ctx_num("SKEIN_CONTEXT_WINDOW", 40, int, low=1)
+# history on every reduction, which is a chat with no memory at all. Named
+# _MESSAGES because it counts messages, not tokens — a knob called plain
+# "context window" reads as a token capacity and invites the wrong edit.
+CONTEXT_WINDOW_MESSAGES = _ctx_num("SKEIN_CONTEXT_WINDOW_MESSAGES", 40, int, low=1)
+# The pre-rename name is a fault, never a fallback: read silently, a stale
+# deployment env keeps steering the window until someone drops the fallback,
+# and the window then reverts to 40 with no report.
+if os.getenv("SKEIN_CONTEXT_WINDOW") is not None:
+    _CONTEXT_FAULTS.append("SKEIN_CONTEXT_WINDOW was renamed. Set SKEIN_CONTEXT_WINDOW_MESSAGES.")
 # share of the oldest messages folded into a summary when it fires (summarize).
 # bounds mirror the SDK's own clamp, so the configured number is the real one
 CONTEXT_SUMMARY_RATIO = _ctx_num("SKEIN_CONTEXT_SUMMARY_RATIO", 0.3, float, low=0.1, high=0.8)
@@ -436,7 +443,7 @@ CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low
 CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000)
 # compress before an overflow instead of after. The threshold is 70% of the
 # MODEL's TOKEN context window (the SDK assumes 200k when nothing sets
-# context_window_limit, and nothing here does) — NOT of CONTEXT_WINDOW above,
+# context_window_limit, and nothing here does) — NOT of CONTEXT_WINDOW_MESSAGES,
 # which is a message count. On a small local model this never fires.
 CONTEXT_PROACTIVE = os.getenv("SKEIN_CONTEXT_PROACTIVE", "0") == "1"
 
