@@ -74,6 +74,19 @@ def _client_timeout() -> Any:
     return httpx.Timeout(read, connect=CONNECT_TIMEOUT_S)
 
 
+def _picked_model() -> str:
+    """The administrator's model pick (services/settings.py), read per build
+    so a change applies to the next message rather than the next restart. A
+    settings read must never stop an agent from being built — without it the
+    env default is a correct model, just not the picked one."""
+    try:
+        from ..services.settings import picked_model
+
+        return picked_model()
+    except Exception:
+        return ""
+
+
 def _model(model_id: str = "", temperature: float | None = None):
     """Build the configured model provider. THE only place in the codebase
     that branches on a provider name — everything else reads a capability off
@@ -81,9 +94,21 @@ def _model(model_id: str = "", temperature: float | None = None):
 
     model_id / temperature are per-persona overrides (personas.behavior). A
     persona overrides the model ID, never the provider — a persona file must
-    not be able to redirect traffic to a different endpoint. Both persona
-    values win over SKEIN_MODEL_PARAMS: the persona is the more specific
-    operator intent, and both are operator-authored files.
+    not be able to redirect traffic to a different endpoint. The same wall
+    holds for the admin pick below: services/settings.py only stores an id
+    from config.MODELS, so nothing that reaches this function moves the
+    endpoint.
+
+    Model id precedence, resolved here and nowhere else so the planner,
+    summarizer, and consult paths all inherit it:
+    persona > admin pick > SKEIN_MODEL_ID > provider default (the last two
+    are already folded into config.MODEL_ID).
+
+    Params precedence per key: SKEIN_MODEL_PARAMS < the registry entry's
+    params < persona overrides — each layer is the more specific operator
+    intent. Registry tuning is looked up BY ID for whatever model won, so a
+    persona's model gets its own entry's cap and context size, not the
+    picked model's.
 
     Raises on a bad provider rather than falling through to a default. The
     caller (routes/chat.py) turns that into an SSE error frame the operator
@@ -94,8 +119,22 @@ def _model(model_id: str = "", temperature: float | None = None):
         raise ValueError(config.MODEL_PROVIDER_ERROR)
 
     key = config.provider_key()
-    mid = model_id or config.MODEL_ID
-    extra = {"temperature": temperature} if temperature is not None else {}
+    mid = model_id or _picked_model() or config.MODEL_ID
+    entry = config.MODELS.get(mid) or {}
+    extra = {
+        **entry.get("params", {}),
+        **({"temperature": temperature} if temperature is not None else {}),
+    }
+    # entries validate max_tokens >= 1 and context_tokens >= 1024, so `or`
+    # cannot swallow a legal 0 here
+    max_tokens = entry.get("max_tokens") or config.MAX_TOKENS
+    # context_window_limit is a BaseModelConfig key on every provider, passed
+    # only when the entry says so — unset, the SDK resolves known ids from
+    # its own table (strands/models/_defaults.py) and that resolution must
+    # not be overridden with a guess
+    ctx_kw = (
+        {"context_window_limit": entry["context_tokens"]} if entry.get("context_tokens") else {}
+    )
 
     if provider in ("openai", "openai_compatible"):
         from strands.models.openai import OpenAIModel
@@ -109,12 +148,16 @@ def _model(model_id: str = "", temperature: float | None = None):
             # local servers ignore it, but the openai client demands one
             client_args["api_key"] = "not-needed"
         client_args["timeout"] = _client_timeout()
-        # No max_tokens here on purpose: the SDK splats params straight into
-        # chat.completions.create, and reasoning models (gpt-5 included)
-        # reject max_tokens in favour of max_completion_tokens. Injecting it
-        # would turn a working provider into a hard 400, so an output cap is
-        # opt-in through SKEIN_MODEL_PARAMS.
-        return OpenAIModel(client_args=client_args, model_id=mid, **_request_params(extra))
+        # No max_tokens here on purpose — the registry entry's included: the
+        # SDK splats params straight into chat.completions.create, and
+        # reasoning models (gpt-5 included) reject max_tokens in favour of
+        # max_completion_tokens. Injecting it would turn a working provider
+        # into a hard 400, so an output cap is opt-in through
+        # SKEIN_MODEL_PARAMS or the entry's params, under the provider's own
+        # key name (schemas/skein_models.schema.json says so on max_tokens).
+        return OpenAIModel(
+            client_args=client_args, model_id=mid, **_request_params(extra), **ctx_kw
+        )
 
     if provider == "ollama":
         from strands.models.ollama import OllamaModel
@@ -126,7 +169,11 @@ def _model(model_id: str = "", temperature: float | None = None):
         return OllamaModel(
             host=config.OLLAMA_HOST,
             ollama_client_args=client_args,
-            **_model_config(mid, extra, max_tokens=config.MAX_TOKENS),
+            # ctx_kw rides inside the merge, not as a second splat: an
+            # operator's context_window_limit in SKEIN_MODEL_PARAMS alongside
+            # a separate **ctx_kw would be the duplicate-kwarg TypeError
+            # _model_config's docstring exists to prevent
+            **_model_config(mid, extra, max_tokens=max_tokens, **ctx_kw),
         )
 
     if provider == "bedrock":
@@ -137,7 +184,7 @@ def _model(model_id: str = "", temperature: float | None = None):
         # is passed, and passing one REPLACES that default instead of merging.
         # Bedrock is already bounded; hand-rolling a config here to say so
         # would unbound it the first time someone edits it and forgets.
-        return BedrockModel(**_model_config(mid, extra, max_tokens=config.MAX_TOKENS))
+        return BedrockModel(**_model_config(mid, extra, max_tokens=max_tokens, **ctx_kw))
 
     if provider == "anthropic":
         from strands.models.anthropic import AnthropicModel
@@ -147,8 +194,9 @@ def _model(model_id: str = "", temperature: float | None = None):
         return AnthropicModel(
             client_args=client_args,
             model_id=mid,
-            max_tokens=config.MAX_TOKENS,
+            max_tokens=max_tokens,
             **_request_params(extra),
+            **ctx_kw,
         )
 
     raise ValueError(f"no model builder for provider {provider!r}")

@@ -579,9 +579,11 @@ CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low
 # messages, so the pin does not survive a turn boundary. Wired for when it does.
 CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000)
 # compress before an overflow instead of after. The threshold is 70% of the
-# MODEL's TOKEN context window (the SDK assumes 200k when nothing sets
-# context_window_limit, and nothing here does) — NOT of CONTEXT_WINDOW_MESSAGES,
-# which is a message count. On a small local model this never fires.
+# MODEL's TOKEN context window — NOT of CONTEXT_WINDOW_MESSAGES, which is a
+# message count. The SDK resolves known ids from its own table
+# (strands/models/_defaults.py) and assumes 200k for the rest; a MODELS
+# entry's context_tokens overrides both (agents/team_agent.py::_model), which
+# is what makes this fire correctly on a small local model.
 CONTEXT_PROACTIVE = os.getenv("SKEIN_CONTEXT_PROACTIVE", "0") == "1"
 
 # joined with a space, not a semicolon: every fault terminates itself, and

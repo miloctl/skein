@@ -14,7 +14,8 @@ from . import config, db, ratelimit
 from .routes import api, auth, chat, private, slack, webhooks
 from .services.activity import chain_health
 from .services.jobs import JOBS, job_health, run_job
-from .services.settings import effective_context_strategy
+from .services.personas import unlisted_model_warnings
+from .services.settings import effective_context_strategy, model_pick_state
 from .telemetry import setup_telemetry
 
 logging.basicConfig(
@@ -435,8 +436,14 @@ def health():
         "auth_mode": config.AUTH_MODE,
         "auth_error": config.AUTH_ERROR,
         "provider": config.MODEL_PROVIDER,
-        "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
+        # the EFFECTIVE model, through the service: with a pick in force,
+        # config.MODEL_ID names a model the deployment is not running
+        "model": model_pick_state()["model"],
         "provider_error": config.MODEL_PROVIDER_ERROR,
+        "models_error": config.MODELS_ERROR,
+        # personas whose model override the menu does not list — runtime, not
+        # lint, because SKEIN_MODELS is env and CI shares no env
+        "model_warnings": unlisted_model_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
         "overlay_errors": config.overlay_errors(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,

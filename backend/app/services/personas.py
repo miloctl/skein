@@ -277,6 +277,25 @@ def validate_all() -> list[str]:
     return errors
 
 
+def unlisted_model_warnings() -> list[str]:
+    """Persona model overrides the model menu does not list — a soft runtime
+    warning on /health, NEVER a lint error: SKEIN_MODELS is env, and
+    validating against an env that CI does not share would make lint results
+    depend on deployment (the _known_tool_names rule). Empty when no menu is
+    configured, because an absent menu constrains nothing. Names the persona
+    and the field only — the model string itself stays in the file."""
+    from .. import config
+
+    if not config.MODELS:
+        return []
+    out = []
+    for slug in sorted(_persona_files()):
+        model = behavior(slug)["model"]
+        if model and model not in config.MODELS:
+            out.append(f"persona {slug} sets a model that the SKEIN_MODELS menu does not list.")
+    return out
+
+
 def list_personas() -> list[dict]:
     """The bench roster — everything except the prompt body."""
     out = []

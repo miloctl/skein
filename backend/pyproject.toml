@@ -65,9 +65,6 @@ ignore_names = [
     # read only by test_admin_export.py's completeness sweep, which vulture
     # does not scan
     "EXCLUDED",
-    # read only by tests until the model-pick routes land (the slice after
-    # the registry) — remove from this list when agents/status serves it
-    "MODELS_ERROR",
     # the consult budget's teardown, called only by tests/conftest.py's autouse
     # reset — the same place receipts.reset() is called from, which escapes
     # this list only because the bare name `reset` is used inside app/ too
