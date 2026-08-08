@@ -1,0 +1,741 @@
+"""The Chief of Staff consulting one bench specialist: who holds the tool, who
+answers, under whose identity, and what the user is told.
+
+The tool is a closure inside build_agent and is never in ALL_TOOLS, so the
+registry sweeps in test_gate_coverage.py do not reach it. Everything they
+would have enforced — returns a JSON string, never raises, leaves an honest
+receipt — is pinned here instead.
+"""
+
+import asyncio
+import json
+
+import pytest
+
+from app import config
+from app.agents import identity, team_agent
+from app.services import users
+
+
+class _FakeModel:
+    """Same duck type test_persona_manifest.py uses: enough for strands to
+    build a real Agent, so tool_names is assertable without a provider."""
+
+    stateful = False
+
+    def __init__(self):
+        self.config = {"model_id": "fake"}
+
+    def get_config(self):
+        return self.config
+
+    def update_config(self, **kwargs):
+        self.config.update(kwargs)
+
+
+@pytest.fixture
+def real_provider(fresh_db, monkeypatch):
+    """A build_agent that constructs a genuine Agent. build_agent returns
+    MockAgent before any tool is created on the mock provider, so the consult
+    tool does not exist at all until the provider looks real."""
+    # Import the route BEFORE anything patches build_agent. _run_consult
+    # reaches services/tuning.py::member_deadline, which imports routes/chat —
+    # and chat.py binds `from ..agents.team_agent import build_agent` at import
+    # time. First-imported under a patch, chat keeps the test's lambda for the
+    # life of the worker and every later chat test gets it instead of MockAgent.
+    import app.routes.chat  # noqa: F401
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "SESSIONS_DIR", config.DATA_DIR / "sessions")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
+    return monkeypatch
+
+
+def _consult_tool(agent):
+    tool = agent.tool_registry.registry["consult_specialist"]
+    for attr in ("original_function", "_tool_func", "func", "__wrapped__"):
+        fn = getattr(tool, attr, None)
+        if callable(fn):
+            return fn
+    raise AssertionError("consult_specialist is not an unwrappable tool")
+
+
+async def _drain(gen):
+    """Every value the tool yields. The last one is what strands hands the
+    model as the tool result; the rest are stream frames."""
+    return [ev async for ev in gen]
+
+
+class _Answering:
+    """A specialist that answers in two chunks, like a real stream."""
+
+    def __init__(self, chunks=("Tomorrow ", "looks busy.")):
+        self.chunks = chunks
+        self.event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 1}
+        )()
+
+    async def stream_async(self, message):
+        self.seen = message
+        for c in self.chunks:
+            yield {"data": c}
+
+
+# ---- who holds the tool ------------------------------------------------------
+
+
+def test_the_chief_of_staff_holds_the_tool(real_provider):
+    agent = team_agent.build_agent("t-cos")
+    assert "consult_specialist" in agent.tool_names
+
+
+def test_a_specialist_does_not_hold_the_tool(real_provider):
+    """THE depth cap, and it is the whole recursion story: a consulted
+    specialist is built with persona=<slug>, so it cannot consult anything.
+    A counter would bound depth; this makes depth 1 unreachable to exceed."""
+    agent = team_agent.build_agent("t-spec", persona="code-reviewer")
+    assert "consult_specialist" not in agent.tool_names
+    # and the flock member build, which is how a consult builds its sub-agent
+    member = team_agent.build_agent("t-spec", persona="code-reviewer", stateless=True)
+    assert "consult_specialist" not in member.tool_names
+
+
+def test_the_bench_roster_reaches_the_system_prompt(real_provider):
+    """Discovery is the prompt, not a tool: a tool the model never thinks to
+    call leaves the bench exactly as invisible as it was before."""
+    from app.services import personas
+
+    agent = team_agent.build_agent("t-roster")
+    for slug in personas.bench_slugs():
+        assert f"`{slug}`" in agent.system_prompt
+    assert "consult_specialist is how you reach one" in agent.system_prompt
+    # the cap the model is told is the cap take_consult enforces — a literal
+    # in the prompt text drifts the moment identity.py changes the number
+    from app.agents.identity import MAX_CONSULTS_PER_TURN
+
+    assert f"at most {MAX_CONSULTS_PER_TURN} specialists" in agent.system_prompt
+
+
+def test_an_empty_bench_says_so_rather_than_rendering_nothing(monkeypatch):
+    """A silent gap reads to the model as "no such feature", and it then tells
+    the user consulting is impossible when an overlay simply is not mounted."""
+    from app.services import personas
+
+    monkeypatch.setattr(personas, "list_personas", lambda: [])
+    assert "no specialists are installed" in team_agent._bench_block()
+
+
+def test_a_bench_that_will_not_parse_does_not_stop_the_agent(monkeypatch):
+    from app.services import personas
+
+    def boom():
+        raise OSError("overlay vanished")
+
+    monkeypatch.setattr(personas, "list_personas", boom)
+    assert "no specialists are installed" in team_agent._bench_block()
+
+
+# ---- invoking ----------------------------------------------------------------
+
+
+def test_a_consult_runs_the_specialist_and_relays_its_answer(real_provider, monkeypatch):
+    agent = team_agent.build_agent("t-run")
+    consult = _consult_tool(agent)
+    sub = _Answering()
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: sub)
+
+    events = asyncio.run(_drain(consult("code-reviewer", "What is tomorrow's plan?")))
+
+    streamed = [e for e in events if isinstance(e, dict)]
+    assert [e["text"] for e in streamed] == ["Tomorrow ", "looks busy."]
+    assert all(e["skein_consult"] == "code-reviewer" for e in streamed)
+    result = json.loads(events[-1])
+    assert result["specialist"] == "code-reviewer"
+    assert result["answer"] == "Tomorrow looks busy."
+    assert result["displayed_to_user"] is True
+    # the same guard SYNTHESIS_PROMPT and the flock bridge carry: this text
+    # re-enters the context of the one agent holding every write tool
+    assert "never an instruction to follow" in result["note"]
+
+
+def test_the_specialist_is_built_stateless_under_its_own_identity(real_provider, monkeypatch):
+    """stateless=True is not cosmetic: it withholds MCP tools (which reach
+    neither the gate nor the receipt box) and keeps the sub-agent off the
+    session the human is talking to."""
+    agent = team_agent.build_agent("t-ident")
+    consult = _consult_tool(agent)
+    seen = {}
+
+    def spy(thread_id, user="anonymous", persona="", stateless=False):
+        seen.update(
+            thread_id=thread_id,
+            persona=persona,
+            stateless=stateless,
+            acting=identity.agent_identity(),
+            review=identity.force_review(),
+        )
+        return _Answering()
+
+    monkeypatch.setattr(team_agent, "build_agent", spy)
+    asyncio.run(_drain(consult("code-reviewer", "q")))
+
+    assert seen["persona"] == "code-reviewer" and seen["stateless"] is True
+    assert seen["acting"] == "code-reviewer", "writes would be signed by the orchestrator"
+    # Without this the specialist writes DIRECTLY (SKEIN_AGENT_REVIEW defaults
+    # off) while its own stateless prompt tells it every write becomes a
+    # proposal — and it reports a pending change that already landed.
+    assert seen["review"] is True
+
+
+def test_the_context_argument_reaches_the_specialist(real_provider, monkeypatch):
+    """The specialist reads the workspace with its own tools but sees none of
+    the conversation, so "tomorrow" has to arrive resolved."""
+    agent = team_agent.build_agent("t-ctx")
+    consult = _consult_tool(agent)
+    sub = _Answering()
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: sub)
+
+    asyncio.run(_drain(consult("code-reviewer", "What is the plan?", "tomorrow is 2026-08-08")))
+    assert "tomorrow is 2026-08-08" in sub.seen
+    assert "What is the plan?" in sub.seen
+
+
+def test_a_consult_does_not_leak_identity_back_to_the_orchestrator(real_provider, monkeypatch):
+    """Called directly, with no task boundary to copy the context — which is
+    the point. strands' DEFAULT executor gives each tool call its own task and
+    would hide a missing restore; a sequential executor, or a direct call like
+    this one, would leave the orchestrator acting as the specialist for the
+    rest of the turn and sign its later writes with the wrong name."""
+    agent = team_agent.build_agent("t-leak")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Answering())
+
+    async def run():
+        before = identity.agent_identity(), identity.force_review()
+        await _drain(consult("code-reviewer", "q"))
+        return before, (identity.agent_identity(), identity.force_review())
+
+    before, after = asyncio.run(run())
+    assert after == before == ("agent", False)
+
+
+def test_the_identity_is_restored_even_when_the_specialist_fails(real_provider, monkeypatch):
+    """The restore lives in a finally for this case: a failed consult that
+    leaves force_review ON would silently queue every later write in the turn,
+    and the orchestrator would report proposals the user never asked for."""
+    agent = team_agent.build_agent("t-leak-fail")
+    consult = _consult_tool(agent)
+
+    class Boom:
+        event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 0}
+        )()
+
+        async def stream_async(self, message):
+            raise RuntimeError("down")
+            yield  # pragma: no cover — makes this an async generator
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Boom())
+
+    async def run():
+        await _drain(consult("code-reviewer", "q"))
+        return identity.agent_identity(), identity.force_review()
+
+    assert asyncio.run(run()) == ("agent", False)
+
+
+# ---- failure modes -----------------------------------------------------------
+
+
+def test_an_unknown_specialist_returns_an_error_and_does_not_raise(real_provider):
+    """test_gate_coverage.py enforces never-raise/return-JSON for every
+    registry tool; this tool is a closure, so it is enforced here."""
+    agent = team_agent.build_agent("t-unknown")
+    consult = _consult_tool(agent)
+    events = asyncio.run(_drain(consult("not-a-specialist", "q")))
+    err = json.loads(events[-1])
+    assert "no specialist by that name" in err["error"]
+    # the rejected value is arbitrary model text and is never echoed back
+    assert "not-a-specialist" not in err["error"]
+
+
+def test_a_specialist_that_fails_reports_the_class_not_the_provider_body(
+    real_provider, monkeypatch
+):
+    """test_flock_turns.py pins the same rule for a member: a provider SDK
+    error carries its raw HTTP body, and this string reaches the user."""
+    agent = team_agent.build_agent("t-fail")
+    consult = _consult_tool(agent)
+
+    class Boom:
+        event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 0}
+        )()
+
+        async def stream_async(self, message):
+            raise RuntimeError("sk-live-abcd leaked request_id=42")
+            yield  # pragma: no cover — makes this an async generator
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Boom())
+    out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
+    assert "RuntimeError" in out["error"]
+    assert out["error"] == "code-reviewer failed to answer (RuntimeError)"
+
+
+def test_the_turn_budget_stops_an_unbounded_fan_out(real_provider, monkeypatch):
+    """The bench roster is in the prompt, so the MODEL picks how many
+    specialists run — the one spend multiplier in the product not written by
+    an operator."""
+    agent = team_agent.build_agent("t-budget")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Answering())
+
+    async def run():
+        # inside the coroutine: called from the sync test body it rebinds the
+        # WORKER's context, and the spent box then refuses every later test
+        identity.start_consults(2)
+        out = []
+        for _ in range(3):
+            out.append(json.loads((await _drain(consult("code-reviewer", "q")))[-1]))
+        return out
+
+    first, second, third = asyncio.run(run())
+    assert "error" not in first and "error" not in second
+    assert first["answer"] and second["answer"]
+    assert "consult budget" in third["error"]
+
+
+def test_the_budget_is_shared_across_tool_calls_not_reset_by_each(real_provider, monkeypatch):
+    """The budget is a LIST in a contextvar for the reason receipts.py holds
+    one: each tool call runs in its own task with a COPIED context, so an int
+    would be incremented in a copy and the cap would never bind."""
+
+    async def two_concurrent():
+        identity.start_consults(1)
+        agent = team_agent.build_agent("t-copy")
+        consult = _consult_tool(agent)
+        monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Answering())
+        # asyncio.create_task is exactly what strands' ConcurrentToolExecutor
+        # does per tool_use, and is what copies the context
+        return await asyncio.gather(
+            asyncio.create_task(_drain(consult("code-reviewer", "a"))),
+            asyncio.create_task(_drain(consult("backend-architect", "b"))),
+        )
+
+    a, b = asyncio.run(two_concurrent())
+    outcomes = [json.loads(x[-1]) for x in (a, b)]
+    assert sum("error" in o for o in outcomes) == 1, "the second consult must be refused"
+
+
+# ---- the route side: heading, relay, transcript, guard, knot ------------------
+
+
+def _read_chat(client, message, thread, who="tester"):
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={"thread_id": thread, "message": message},
+        headers={"X-User": who},
+    ) as resp:
+        assert resp.status_code == 200
+        return resp.read().decode()
+
+
+class _Relaying:
+    """An orchestrator whose turn contains one consult: two streamed chunks
+    from the specialist, then its own framing. Shaped like the events strands
+    emits for an async-generator tool."""
+
+    def __init__(self, slug="code-reviewer", calls=("c-1",)):
+        self.slug = slug
+        self.calls = calls
+
+    async def stream_async(self, message):
+        for call in self.calls:
+            yield {"current_tool_use": {"toolUseId": call, "name": "consult_specialist"}}
+            for chunk in ("Tomorrow is thin. ", "Ship the migration."):
+                yield {
+                    "tool_stream_event": {
+                        "tool_use": {"toolUseId": call},
+                        "data": {"skein_consult": self.slug, "text": chunk},
+                    }
+                }
+        yield {"data": "That is their read."}
+
+
+def test_a_consulted_answer_reaches_the_user_under_one_heading(client, monkeypatch):
+    """The whole route half of the feature: without it the specialist's text
+    never leaves the tool and the reader sees a frozen tool chip."""
+    from app.routes import chat as chat_route
+    from app.services import flocks
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: _Relaying())
+    out = _read_chat(client, "ask @code-reviewer about tomorrow", "cs-1")
+
+    card = flocks.member_cards(["code-reviewer"])[0]
+    assert card["name"] in out, "the specialist answered with no attribution"
+    assert out.count(card["name"]) == 1, "one heading for one consult, not one per chunk"
+    assert "Tomorrow is thin." in out and "Ship the migration." in out
+    assert "That is their read." in out
+    # the saved transcript must say what the stream said — chat.py builds it
+    # separately, so the two can drift
+    saved = client.get("/api/chats/cs-1/messages", headers={"X-User": "tester"}).json()[-1]
+    assert card["name"] in saved["content"] and "Ship the migration." in saved["content"]
+
+
+def test_a_specialist_that_answered_is_not_reported_unreached(client, monkeypatch):
+    """The turn writes nothing, so the mention guard would fire — but the
+    specialist answered in this chat, which is the most direct delivery there
+    is. Reporting it unreached contradicts the answer above the receipt."""
+    from app.routes import chat as chat_route
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: _Relaying())
+    out = _read_chat(client, "ask @code-reviewer about tomorrow", "cs-2")
+    assert "unnotified" not in out
+
+
+def test_a_consult_ties_the_field_guide_knot(client, monkeypatch):
+    from app.routes import chat as chat_route
+    from app.services import fieldguide
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: _Relaying())
+    _read_chat(client, "ask @code-reviewer about tomorrow", "cs-3")
+    assert "consult" in fieldguide._tied("tester"), "the knot never ties"
+
+
+def test_two_consults_of_one_specialist_each_get_a_heading(client, monkeypatch):
+    """The budget permits consulting the same slug twice. Keyed on the slug
+    rather than the tool call, the second answer loses its heading and merges
+    into the first."""
+    from app.routes import chat as chat_route
+    from app.services import flocks
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: _Relaying(calls=("c-1", "c-2")))
+    out = _read_chat(client, "ask @code-reviewer twice", "cs-4")
+    card = flocks.member_cards(["code-reviewer"])[0]
+    assert out.count(card["name"]) == 2
+
+
+def test_a_stream_event_without_a_consult_key_renders_nothing(client, monkeypatch):
+    """Any future async-generator tool yields ToolStreamEvent too. Only a
+    payload this feature produced may be rendered as chat text."""
+    from app.routes import chat as chat_route
+
+    class Other:
+        async def stream_async(self, message):
+            yield {"tool_stream_event": {"tool_use": {"toolUseId": "x"}, "data": {"raw": "junk"}}}
+            yield {"data": "done"}
+
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: Other())
+    out = _read_chat(client, "hello", "cs-5")
+    assert "junk" not in out and "done" in out
+
+
+def test_the_budget_counts_the_specialists_the_user_named(client):
+    from app.agents.identity import MAX_CONSULTS_PER_TURN
+    from app.routes.chat import _consult_budget
+
+    users.ensure_user("mira")
+    assert _consult_budget("no names here") == MAX_CONSULTS_PER_TURN
+    assert _consult_budget("ask @mira") == MAX_CONSULTS_PER_TURN, "a person buys no budget"
+    assert _consult_budget("@code-reviewer") == MAX_CONSULTS_PER_TURN, "never below the floor"
+    # a bench slug counts BEFORE it has a users row — names_in could not see
+    # one, and the first consult of a specialist is exactly that case
+    assert _consult_budget("@code-reviewer @backend-architect @growth-mentor") == 3
+
+
+class _Metered:
+    """Answers, and reports token usage the way a real provider's agent does."""
+
+    def __init__(self, chunks=("Done.",), fail_after=False):
+        self.chunks = chunks
+        self.fail_after = fail_after
+        self.model = type("M", (), {"get_config": lambda self: {"model_id": "glm-test"}})()
+        self.event_loop_metrics = type(
+            "M",
+            (),
+            {
+                "accumulated_usage": {"inputTokens": 11, "outputTokens": 7},
+                "accumulated_metrics": {"latencyMs": 42},
+                "cycle_count": 2,
+            },
+        )()
+
+    async def stream_async(self, message):
+        for c in self.chunks:
+            yield {"data": c}
+        if self.fail_after:
+            raise RuntimeError("died after answering")
+
+
+def test_a_consult_records_its_own_spend(real_provider, monkeypatch, fresh_db):
+    """plan_project loses 100% of its spend because nobody records a sub-agent.
+    A consult must not repeat that: /api/usage and the monthly budget both read
+    usage_log, so an unrecorded consult is spend the deployment cannot see."""
+    from app import db
+
+    agent = team_agent.build_agent("t-cost")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Metered())
+    asyncio.run(_drain(consult("code-reviewer", "q")))
+
+    row = db.query_one("SELECT * FROM usage_log WHERE thread_id = ?", ("t-cost",))
+    assert row is not None, "the consult's tokens are invisible to /api/usage"
+    assert row["agent_name"] == "code-reviewer", "spend attributed to the wrong head"
+    assert row["input_tokens"] == 11 and row["output_tokens"] == 7
+    assert row["model_id"] == "glm-test", "priced at the deployment model, not the persona's"
+
+
+def test_a_specialist_that_dies_mid_answer_keeps_what_it_said(real_provider, monkeypatch):
+    """A truncated answer must reach the user AND say it is truncated —
+    otherwise the sentence just stops and nothing marks why."""
+    agent = team_agent.build_agent("t-partial")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(
+        team_agent,
+        "build_agent",
+        lambda *a, **k: _Metered(chunks=("Half an answer.",), fail_after=True),
+    )
+    events = asyncio.run(_drain(consult("code-reviewer", "q")))
+
+    streamed = "".join(e["text"] for e in events if isinstance(e, dict))
+    assert "Half an answer." in streamed
+    assert "failed to answer" in streamed, "the reader sees a sentence stop with no reason"
+    out = json.loads(events[-1])
+    assert out["answer"] == "Half an answer."
+    assert out["incomplete"], "the model cannot say why the answer stops"
+    assert "RuntimeError" in out["incomplete"] and "died after answering" not in out["incomplete"]
+
+
+def test_a_specialist_that_never_answers_hits_the_deadline(real_provider, monkeypatch):
+    """The deadline bounds the SPECIALIST. Wrapped around the yield loop it
+    would instead cancel this generator mid-suspension, and strands would
+    record a toolUse with no toolResult — which 400s the thread for good."""
+    from app.services import tuning
+
+    monkeypatch.setattr(tuning, "member_deadline", lambda: 0.05)
+
+    class Hangs:
+        event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 0}
+        )()
+
+        async def stream_async(self, message):
+            await asyncio.sleep(30)
+            yield {"data": "too late"}
+
+    agent = team_agent.build_agent("t-slow")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Hangs())
+    events = asyncio.run(_drain(consult("code-reviewer", "q")))
+
+    assert isinstance(events[-1], str), "the LAST yield is the tool result — it must exist"
+    assert "before the deadline" in json.loads(events[-1])["error"]
+
+
+def test_a_slow_reader_still_gets_a_tool_result(real_provider, monkeypatch):
+    """The regression that shaped this code. With the deadline wrapped around
+    the yield loop, a consumer slower than the deadline made the cancel land
+    outside the timeout scope: no TimeoutError, no final yield, and a toolUse
+    with no matching toolResult persisted into the session."""
+    from app.services import tuning
+
+    monkeypatch.setattr(tuning, "member_deadline", lambda: 0.05)
+    agent = team_agent.build_agent("t-backpressure")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Metered(chunks=("a", "b", "c")))
+
+    async def slow_reader():
+        out = []
+        async for ev in consult("code-reviewer", "q"):
+            out.append(ev)
+            await asyncio.sleep(0.08)  # slower than the deadline, on purpose
+        return out
+
+    events = asyncio.run(slow_reader())
+    assert isinstance(events[-1], str), "no tool result: the session would hold a bare toolUse"
+    out = json.loads(events[-1])
+    assert "error" not in out
+    # and the reader's own slowness must not be charged to the specialist: a
+    # wall-clock budget marks a healthy three-chunk answer truncated
+    assert not out["incomplete"], "a slow client made a finished answer look cut off"
+    assert out["answer"] == "abc"
+
+
+def test_a_closed_generator_still_records_the_spend(real_provider, monkeypatch, fresh_db):
+    """The stop button closes this generator AT a yield, so nothing after the
+    loop runs. A stopped turn still produced spend, and spend the ledger
+    cannot see is the bug row_from_agent exists to prevent."""
+    from app import db
+
+    agent = team_agent.build_agent("t-stopped")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Metered(chunks=("a", "b", "c")))
+
+    async def stop_after_first_chunk():
+        gen = consult("code-reviewer", "q")
+        await anext(gen)
+        await gen.aclose()  # what the SSE loop's teardown does on a stop
+
+    asyncio.run(stop_after_first_chunk())
+    row = db.query_one("SELECT * FROM usage_log WHERE thread_id = ?", ("t-stopped",))
+    assert row is not None, "a stopped consult's tokens vanished from /api/usage"
+    assert row["agent_name"] == "code-reviewer"
+
+
+def test_the_strands_wrapper_always_receives_a_tool_result(real_provider, monkeypatch):
+    """Through the REAL decorator, not the unwrapped function: the last yield
+    becomes the tool result (strands/tools/decorator.py), and a result must
+    exist on the failure paths too — a toolUse persisted without a toolResult
+    400s the thread on a strict provider."""
+    from strands.types._events import ToolResultEvent
+
+    agent = team_agent.build_agent("t-wrapper")
+    tool = agent.tool_registry.registry["consult_specialist"]
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Metered())
+
+    async def run(specialist):
+        tool_use = {
+            "toolUseId": "w-1",
+            "name": "consult_specialist",
+            "input": {"specialist": specialist, "question": "q"},
+        }
+        return [ev async for ev in tool.stream(tool_use, {})]
+
+    for specialist in ("code-reviewer", "not-on-the-bench"):
+        events = asyncio.run(run(specialist))
+        assert isinstance(events[-1], ToolResultEvent), f"no tool result for {specialist}"
+        result = events[-1].tool_result
+        assert result["status"] == "success"
+        json.loads(result["content"][0]["text"])  # the model reads JSON, not a repr
+
+
+def test_specialist_receipts_reach_the_turn_that_asked(real_provider, monkeypatch):
+    """The tool must NOT call receipts.start(): the box is a shared list, and
+    rebinding it in the tool's copied context drains every specialist receipt
+    into a list nobody reads. Run in a create_task like strands does, so the
+    context IS a copy and the rebind would actually detach it."""
+    from app.agents import receipts
+
+    agent = team_agent.build_agent("t-receipts")
+    consult = _consult_tool(agent)
+
+    class Writes:
+        event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 0}
+        )()
+
+        async def stream_async(self, message):
+            receipts.record("queued", "note", "specialist filed", 7)
+            yield {"data": "filed."}
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Writes())
+
+    async def run():
+        receipts.start()
+        await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+        return receipts.drain()
+
+    drained = asyncio.run(run())
+    assert [r["ref"] for r in drained] == [7], "the specialist's receipt drained into nowhere"
+
+
+def test_a_rate_limited_consult_returns_the_refusal(real_provider, monkeypatch):
+    """RETURNED, never raised — a raise aborts a turn that already spent
+    tokens. And the refusal must reach the model, or it retries forever."""
+    from app import ratelimit
+
+    agent = team_agent.build_agent("t-limited")
+    consult = _consult_tool(agent)
+    built = []
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: built.append(1) or _Answering())
+
+    def refuse(surface, user, cost=1):
+        raise ratelimit.RateLimited("chat is over its limit. Wait 60 seconds.", 60)
+
+    monkeypatch.setattr(ratelimit, "check", refuse)
+    out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
+    assert "over its limit" in out["error"]
+    assert not built, "a refused consult still built (and would have run) the specialist"
+
+
+def test_a_held_slug_returns_the_error_instead_of_raising(real_provider, monkeypatch):
+    """ensure_user refuses a bench slug a human already holds. The refusal is
+    a tool ERROR, not an exception — the wrapper turns a raise into an SDK
+    string with the message embedded."""
+    from app.services import users as users_svc
+
+    agent = team_agent.build_agent("t-held")
+    consult = _consult_tool(agent)
+
+    def held(name, kind="human"):
+        raise ValueError("that name belongs to a teammate")
+
+    monkeypatch.setattr(users_svc, "ensure_user", held)
+    out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
+    assert "belongs to a teammate" in out["error"]
+
+
+def test_the_slug_survives_composer_shaped_input(real_provider, monkeypatch):
+    """The model copies slugs out of the user's sentence, so it arrives the
+    way people type it: with the @, capitalized, or dragging punctuation."""
+    agent = team_agent.build_agent("t-shapes")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Answering())
+    for shape in ("@code-reviewer", "Code-Reviewer", " code-reviewer ", "code-reviewer,"):
+        out = json.loads(asyncio.run(_drain(consult(shape, "q")))[-1])
+        assert out.get("specialist") == "code-reviewer", f"rejected the shape {shape!r}"
+
+
+def test_a_persona_allowlist_cannot_name_the_consult_tool(fresh_db):
+    """The omission from _known_tool_names is deliberate (the comment there
+    records why): a persona never holds the tool, so accepting the name would
+    validate an allowlist entry that silently grants nothing."""
+    from app.services import personas
+
+    assert "consult_specialist" not in personas._known_tool_names()
+
+
+def test_a_consulted_write_carries_the_specialist_identity(real_provider, monkeypatch, fresh_db):
+    """End to end through the gate: the write is PROPOSED by the specialist,
+    REQUESTED by the human, and lands nowhere until a verdict. The wiring spy
+    above proves the arguments; this proves the outcome."""
+    from app import db
+    from app.agents.identity import set_requester_identity
+    from app.tools.collab import save_note
+
+    agent = team_agent.build_agent("t-writes")
+    consult = _consult_tool(agent)
+
+    class FilesANote:
+        event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 0}
+        )()
+
+        async def stream_async(self, message):
+            # what a real specialist's tool call does, minus the model
+            fn = save_note
+            for attr in ("original_function", "_tool_func", "func"):
+                fn = getattr(fn, attr, fn)
+            fn(topic="risk memo", content="tomorrow is thin")
+            yield {"data": "Filed a note."}
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: FilesANote())
+
+    async def run():
+        set_requester_identity("mira")
+        await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+
+    asyncio.run(run())
+    pending = db.query_one("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 1")
+    assert pending is not None, "the write bypassed the review queue"
+    assert pending["proposed_by"] == "code-reviewer"
+    assert pending["requested_by"] == "mira"
+    assert db.query_one("SELECT 1 FROM notes WHERE topic = 'risk memo'") is None, (
+        "the note landed without a human verdict"
+    )

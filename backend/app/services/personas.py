@@ -198,6 +198,10 @@ def _known_tool_names() -> set[str]:
         if name:
             names.add(str(name))
     names.add("plan_project")
+    # consult_specialist is omitted on purpose. agents/team_agent.py builds it
+    # only for the Chief of Staff (persona == ""), so a persona can never hold
+    # it — accepting the name here would validate an allowlist entry that
+    # silently grants nothing. Refusing it tells the author at lint time.
     return names
 
 

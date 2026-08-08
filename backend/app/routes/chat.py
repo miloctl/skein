@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from .. import config, ratelimit
+from .. import ratelimit
 from ..agents import commands, receipts, session_log, turn_guard
 from ..agents.identity import (
     reset_agent_identity,
@@ -28,11 +28,13 @@ from ..agents.identity import (
     set_force_review,
     set_requester_identity,
     set_requester_viewer,
+    start_consults,
 )
 from ..agents.team_agent import build_agent, build_synthesizer, build_titler
-from ..services import capture, chat_threads, fieldguide, flocks, personas
+from ..services import capture, chat_threads, fieldguide, flocks, mentions, personas
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
+from ..services.usage import row_from_agent as _usage_row
 from .deps import CurrentUser, ViewerDep
 
 router = APIRouter()
@@ -66,17 +68,12 @@ MEMBER_TIMEOUT_S = 180.0
 
 
 def _member_deadline() -> float:
-    """The deadline in force for THIS turn. Read through per turn so an
-    administrator's change applies to the next message rather than the next
-    restart (services/tuning.py). Falls back to the constant above when the
-    settings read fails: a turn must not die because a lookup did."""
-    try:
-        from ..services.tuning import override_of
+    """The deadline in force for THIS turn. Delegates to
+    services/tuning.py::member_deadline, which agents/team_agent.py's consult
+    tool reads too. Callers: the flock path below and tests/test_tuning.py."""
+    from ..services.tuning import member_deadline
 
-        got = override_of("member_timeout_s")
-        return float(got) if got is not None else MEMBER_TIMEOUT_S
-    except Exception:
-        return MEMBER_TIMEOUT_S
+    return member_deadline()
 
 
 class ChatRequest(BaseModel):
@@ -144,6 +141,25 @@ def delete_chat(thread_id: str, user: CurrentUser):
     return chat_threads.delete_thread(thread_id, user)
 
 
+def _consult_budget(message: str) -> int:
+    """This turn's consult budget: how many BENCH specialists the user named,
+    never fewer than the default.
+
+    mentions.slugs_in, not names_in: the latter matches the users table, and a
+    specialist has no row until its first consult — so "ask @a and @b and @c"
+    would seed 2 rather than 3 on the very turn that needs 3.
+    """
+    from ..agents.identity import MAX_CONSULTS_PER_TURN
+
+    try:
+        named = mentions.slugs_in(message, personas.bench_slugs())
+    except Exception:
+        # a roster or glob failure must not kill the stream before its error
+        # handler exists — _bench_block degrades the same way
+        return MAX_CONSULTS_PER_TURN
+    return max(MAX_CONSULTS_PER_TURN, len(named))
+
+
 def _receipt_line(r: dict) -> str:
     """How a receipt reads in the stored transcript (the live stream renders
     its own chip, but history must say the same thing)."""
@@ -157,42 +173,6 @@ def _receipt_line(r: dict) -> str:
         "unnotified": f"not notified: {r['entity']}",
     }.get(r["kind"], r["kind"])
     return f"\n\n> **{label}** — {r['detail']}\n\n"
-
-
-def _usage_row(agent, thread_id: str, agent_name: str = "chief-of-staff") -> dict | None:
-    """Token accounting from strands event-loop metrics, EXTRACTED only — all
-    in-memory reads, no DB. The INSERT is the caller's problem, and where the
-    caller runs matters: the flock path extracts on the event loop in a
-    cancelled-safe finally, then hands the row to _close_turn's threadpool.
-    Written inline where it was extracted, one INSERT per member ran on the
-    loop that carries every open SSE stream, against SQLite's single write
-    lock — one lost lock race froze every chat in the process for up to
-    busy_timeout."""
-    try:
-        metrics = agent.event_loop_metrics
-        usage = dict(getattr(metrics, "accumulated_usage", {}) or {})
-        latency = dict(getattr(metrics, "accumulated_metrics", {}) or {})
-        input_t = int(usage.get("inputTokens", 0))
-        output_t = int(usage.get("outputTokens", 0))
-        if not (input_t or output_t):
-            return None
-        # the AGENT's model, not the deployment default: a persona override
-        # runs a different model, and pricing its turns at the deployment
-        # model's rate misattributes and miscosts every overridden turn
-        model_id = config.MODEL_ID
-        with contextlib.suppress(Exception):
-            model_id = agent.model.get_config().get("model_id") or model_id
-        return {
-            "thread_id": thread_id,
-            "agent_name": agent_name,
-            "model_id": model_id,
-            "input_tokens": input_t,
-            "output_tokens": output_t,
-            "cycles": int(getattr(metrics, "cycle_count", 0)),
-            "latency_ms": int(latency.get("latencyMs", 0)),
-        }
-    except Exception:
-        return None
 
 
 def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
@@ -266,7 +246,9 @@ async def _summarize_title(thread_id: str, user: str) -> None:
 # Kept out of _masthead because the merge input is built from _masthead(c):
 # a rule there is UI chrome the synthesizer is asked to reconcile. It still
 # reaches the saved transcript and the session bridge, like every other head.
-# Skipped above the FIRST member (_flock_stream) — nothing precedes it.
+# Two consumers now, and BOTH skip it when nothing precedes it in the bubble
+# (_flock_stream above its first member, pump above a consult that opens the
+# turn): a bubble starting on a horizontal line reads as a torn-off fragment.
 _SECTION_RULE = "\n\n---"
 
 
@@ -950,6 +932,15 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
 
     async def stream():
         seen_tools: set[str] = set()
+        # slugs whose answer already carries a heading this turn, and the
+        # record of which specialists actually spoke — the turn guard reads it
+        # so a consulted name is not then reported as unreached
+        consulted: set[str] = set()
+        headed: set[str] = set()
+        # a specialist's heading owns every line under it until something ends
+        # the block. The orchestrator is told to add framing AFTER a consult,
+        # so without this its words render as the specialist's.
+        open_section = False
         transcript: list[str] = [masthead] if masthead else []
         wrote = False  # ANY receipt — silences the guard (it told the truth)
         filed = False  # wrote/queued only — a failed write must not tie a knot
@@ -968,6 +959,13 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         rv_token = set_requester_viewer(viewer)
         if masthead:
             yield _sse({"type": "text", "text": masthead})
+        # Seeded from the specialists the USER named, not from the constant
+        # alone: the cap exists to bound consults the MODEL chose on its own,
+        # and a message naming three specialists must not have the third
+        # silently dropped. Only the Chief of Staff holds the tool, so a
+        # persona turn opens no budget (agents/team_agent.py::build_agent).
+        if not persona:
+            start_consults(await run_in_threadpool(_consult_budget, message))
         receipts.start()
         _inflight[thread_id] += 1
         closed = False
@@ -991,9 +989,14 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         async def pump(prompt: str):
             """One model exchange, rendered. Factored out so the turn guard can
             run a second one without duplicating the event handling."""
-            nonlocal wrote, filed
+            nonlocal wrote, filed, open_section
             async for event in agent.stream_async(prompt):
                 if "data" in event:
+                    if open_section:
+                        open_section = False
+                        close = _SECTION_RULE + "\n\n"
+                        transcript.append(close)
+                        yield _sse({"type": "text", "text": close})
                     transcript.append(event["data"])
                     yield _sse({"type": "text", "text": event["data"]})
                 elif "current_tool_use" in event:
@@ -1004,6 +1007,38 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                         name = tool_use.get("name", "")
                         transcript.append(f"\n\n*🔧 {name}…*\n\n")
                         yield _sse({"type": "tool", "name": name})
+                elif "tool_stream_event" in event:
+                    # A consulted specialist, streaming its own answer while
+                    # the tool that built it is still running. Without this
+                    # branch the reader watches a frozen `*🔧 …*` line for a
+                    # whole agent loop: strands surfaces an async-generator
+                    # tool's yields as ToolStreamEvent and nothing else does.
+                    payload = event["tool_stream_event"].get("data")
+                    slug = payload.get("skein_consult", "") if isinstance(payload, dict) else ""
+                    text = payload.get("text", "") if slug else ""
+                    if slug and text:
+                        # keyed on the tool CALL, not the slug: the budget
+                        # allows consulting one specialist twice, and keying on
+                        # the slug would drop the second heading and merge two
+                        # answers into one block (_masthead says why)
+                        call = event["tool_stream_event"].get("tool_use", {}).get("toolUseId", slug)
+                        if call not in headed:
+                            # the heading is rendered HERE, not by the model
+                            # and not by the tool: who answered must never
+                            # depend on whether the model signs its work
+                            # (the same rule the /as masthead above follows)
+                            headed.add(call)
+                            consulted.add(slug)
+                            open_section = True
+                            card = (await run_in_threadpool(flocks.member_cards, [slug]))[0]
+                            # the rule separates two sections; above the FIRST
+                            # thing in the bubble it reads as a torn-off
+                            # fragment, which is why _flock_stream skips it too
+                            head = (_SECTION_RULE if transcript else "") + _masthead(card)
+                            transcript.append(head)
+                            yield _sse({"type": "text", "text": head})
+                        transcript.append(text)
+                        yield _sse({"type": "text", "text": text})
                 # a write's outcome is a FACT the UI states, not a claim the
                 # model makes — drained as it happens, so it lands with the
                 # tool call that caused it
@@ -1035,12 +1070,16 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 # only when `note` did not fire: on "todo: ask @mira ..." that
                 # filed nothing both fire, and this one's detail tells the
                 # author to use the capture prefix they already typed
-                miss = await run_in_threadpool(turn_guard.unnotified, message, wrote, user, persona)
+                miss = await run_in_threadpool(
+                    turn_guard.unnotified, message, wrote, user, persona, tuple(consulted)
+                )
                 if miss:
                     transcript.append(_receipt_line(miss))
                     yield _sse({"type": "receipt", **miss})
             if not note and filed and capture.PREFIX.match(message):
                 await run_in_threadpool(fieldguide.mark, user, "chat_capture")
+            if consulted:
+                await run_in_threadpool(fieldguide.mark, user, "consult")
             await run_in_threadpool(_close_turn)
             # before the done frame, never after: the client refreshes the
             # sidebar and header when its reader loop ends, so a title written

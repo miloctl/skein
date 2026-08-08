@@ -146,6 +146,31 @@ def _member_timeout() -> float:
     return chat.MEMBER_TIMEOUT_S
 
 
+def member_deadline() -> float:
+    """The consultative-turn deadline in force right now — a flock member's
+    whole turn, and a consulted specialist's (agents/team_agent.py).
+
+    Read per turn so an administrator's change applies to the next message
+    rather than the next restart. Falls back to the code default when the
+    settings read fails: a turn must not die because a lookup did.
+
+    Lives here so agents/team_agent.py reads the number through the service
+    layer instead of importing a route. _member_timeout below still reaches
+    routes/chat.py for the DEFAULT, so the import is deferred rather than
+    removed — what this buys is one lazy hop at call time in place of a second
+    literal in team_agent.py, which the comment on team_agent.py::READ_TIMEOUT_S
+    forbids: a duplicated bound goes stale the moment one side moves, and the
+    ordering _check_pairs enforces is then enforced against a number nothing
+    reads.
+    """
+    default = _member_timeout()
+    try:
+        got = override_of("member_timeout_s")
+    except Exception:
+        return default
+    return float(got) if got is not None else default
+
+
 def _read_timeout() -> float:
     from ..agents import team_agent
 

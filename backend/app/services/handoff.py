@@ -5,14 +5,14 @@ can be layered on later, same pattern as digest._narrate."""
 from pathlib import Path
 
 from .. import config, db
-from ..agents.identity import refuse_in_flock
+from ..agents.identity import refuse_when_consultative
 from . import scope
 
 
 def generate_handoff(
     engagement_id: int, *, actor: str = "system", viewer: scope.Viewer = scope.NOBODY
 ) -> dict:
-    refuse_in_flock("generate handoffs")
+    refuse_when_consultative("generate handoffs")
     # Filtered by the CALLER, not locked to the workspace tier. Locked, a crew
     # member saw their engagement in GET /api/engagements and got "not found"
     # asking for its handoff — a correct refusal with a misleading sentence.

@@ -59,8 +59,14 @@ validator covers overlay files and labels them `(overlay)`.
   trust scores, review verdicts, and Mission Control presence.
 - **Invocation** — `/as <persona> <message>` in chat (autocompletes like
   every command; `/personas` lists the bench). The route resolves the
-  persona BEFORE the model: unknown slug is a deterministic error listing
-  the bench. `/flock` resolves a whole group the same way. Under `/as` each
+  persona BEFORE the model on this path: unknown slug is a deterministic
+  error listing the bench. A **consult** is the third invocation and the one
+  exception — the Chief of Staff calls `consult_specialist` with a slug the
+  MODEL supplied, so the check happens inside the tool
+  (`team_agent.py`) against `bench_slugs()`, and the answer streams back into
+  the orchestrator's turn under a route-rendered masthead. Depth stops at one
+  hop: the tool is built only when `persona == ""`, so a specialist never
+  holds it. `/flock` resolves a whole group the same way. Under `/as` each
   persona gets its own session thread (`{thread}--{slug}`), so switching
   personas doesn't cross-contaminate conversation memory. A flock member
   keeps no session at all — a flock turn is a one-shot consultation, not a
@@ -78,9 +84,12 @@ validator covers overlay files and labels them `(overlay)`.
   authority like any agent; their writes become proposals; `forbidden`
   works per persona per entity. A persona can't do anything the Chief of
   Staff couldn't — it just thinks differently and signs its own name.
-  IN A FLOCK the same persona is strictly more constrained: every write
-  becomes a proposal whatever its level says, it holds no MCP tools, and the
-  four writers that skip the gate refuse outright (docs/FLOCKS.md).
+  IN A FLOCK, AND IN A CONSULT, the same persona is strictly more
+  constrained: every write becomes a proposal whatever its level says
+  (`identity.force_review`), it holds no MCP tools, and the four writers that
+  skip the gate refuse outright (`identity.refuse_when_consultative`,
+  docs/FLOCKS.md). Both modes are consultative — the human addressed the Chief
+  of Staff and never granted THIS agent the autonomy its matrix row carries.
 
 ## UI
 
@@ -109,8 +118,10 @@ validator covers overlay files and labels them `(overlay)`.
   construction, the matrix gates each write per entity at call time — the
   stricter of the two wins in both directions.
 - No persona-to-persona conversation (see ideation A4 for handoffs).
-- No auto-selection of personas (the human picks; the CoS remains the
-  default head).
+- No auto-selection of personas: the human names the specialist and the CoS
+  remains the default head. Bounded rather than prevented on the consult path
+  — the model supplies the slug, so `MAX_CONSULTS_PER_TURN` caps a fan-out it
+  chose on its own.
 
 
 ## Design notes (from the 5-agent review)

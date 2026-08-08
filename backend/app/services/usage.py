@@ -7,6 +7,7 @@ price gets cost NULL — honest, not zero — and every rollup reports how many
 rows went unpriced, so a sum is never mistaken for a total.
 """
 
+import contextlib
 from datetime import UTC, datetime
 
 from .. import config, db
@@ -19,6 +20,49 @@ def cost_for(model_id: str, input_tokens: int, output_tokens: int) -> float | No
     if pair is None:
         return None
     return (input_tokens / 1_000_000) * pair[0] + (output_tokens / 1_000_000) * pair[1]
+
+
+def row_from_agent(agent, thread_id: str, agent_name: str = "chief-of-staff") -> dict | None:
+    """Token accounting from strands event-loop metrics, EXTRACTED only — all
+    in-memory reads, no DB. The INSERT is the caller's problem, and where the
+    caller runs matters: the flock path extracts on the event loop in a
+    cancelled-safe finally, then hands the row to routes/chat.py::_close_turn's threadpool.
+    Written inline where it was extracted, one INSERT per member ran on the
+    loop that carries every open SSE stream, against SQLite's single write
+    lock — one lost lock race froze every chat in the process for up to
+    busy_timeout.
+
+    Lives in the service layer, not in routes/chat.py where its callers are,
+    because agents/team_agent.py's consult tool records its own sub-agent's
+    spend: an agents -> routes import to reach it would invert the layering,
+    and a sub-agent whose spend nobody records is invisible to /api/usage and
+    to the monthly budget (the bug plan_project still has).
+    """
+    try:
+        metrics = agent.event_loop_metrics
+        usage = dict(getattr(metrics, "accumulated_usage", {}) or {})
+        latency = dict(getattr(metrics, "accumulated_metrics", {}) or {})
+        input_t = int(usage.get("inputTokens", 0))
+        output_t = int(usage.get("outputTokens", 0))
+        if not (input_t or output_t):
+            return None
+        # the AGENT's model, not the deployment default: a persona override
+        # runs a different model, and pricing its turns at the deployment
+        # model's rate misattributes and miscosts every overridden turn
+        model_id = config.MODEL_ID
+        with contextlib.suppress(Exception):
+            model_id = agent.model.get_config().get("model_id") or model_id
+        return {
+            "thread_id": thread_id,
+            "agent_name": agent_name,
+            "model_id": model_id,
+            "input_tokens": input_t,
+            "output_tokens": output_t,
+            "cycles": int(getattr(metrics, "cycle_count", 0)),
+            "latency_ms": int(latency.get("latencyMs", 0)),
+        }
+    except Exception:
+        return None
 
 
 def record_chat_usage(

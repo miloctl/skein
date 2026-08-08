@@ -35,7 +35,11 @@ export function argQuery(
  *
  * `atStart` decides whether bench personas are offered, because only a
  * LEADING @slug invokes one (routes/chat.py rewrites it into the /as form).
- * Offering a specialist mid-sentence would promise an answer that never comes.
+ * `atStart` gates the specialists because only a LEADING @slug invokes one
+ * deterministically (routes/chat.py rewrites it into the /as form). A
+ * mid-sentence @slug can still be answered — the orchestrator may call
+ * consult_specialist — but only on a real provider and only if it chooses to,
+ * so the picker must not promise it.
  */
 export function mentionQuery(
   text: string,

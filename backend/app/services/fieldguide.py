@@ -76,6 +76,10 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # tied by the chat route when a capture-prefixed turn actually writes —
     # the write lands under the AGENT's name, so no actor predicate can find it
     "chat_capture": None,
+    # tied by the chat route when a consulted specialist actually spoke. No
+    # query works: a consult's spend is a usage_log row under the specialist's
+    # slug, and `/as` writes exactly the same row
+    "consult": None,
     "activity_feed": None,  # read-only page — tied by mark() on the feed route
     "chat_engagement": lambda u: _has(
         "SELECT 1 FROM chat_threads WHERE owner = ? AND engagement_id IS NOT NULL", (u,)

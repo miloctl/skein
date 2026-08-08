@@ -233,10 +233,13 @@ def test_every_ungated_writer_refuses_in_a_flock(client, fresh_db):
     set_force_review(True)
     try:
         for name, call in calls.items():
-            with pytest.raises(ValueError, match="flock member") as exc:
+            # matched on the MODE, not on "flock": a consulted specialist
+            # reaches the same four writers, so the message must not name a
+            # flock the reader never started
+            with pytest.raises(ValueError, match="asked for an opinion") as exc:
                 call()
             assert name  # the failing case is identifiable in the report
-            assert "ask this agent directly" in str(exc.value)
+            assert "ask the agent directly in its own chat" in str(exc.value)
     finally:
         set_force_review(False)
     assert (
