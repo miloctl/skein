@@ -40,7 +40,7 @@ knots:
 
   - id: task_done
     feature: Finish a task
-    knot: Figure Eight
+    knot: Figure-Eight Loop
     set: loops
     pitch: Done tasks feed cycle time, throughput, and the slip forecast.
     how: Mark any task of yours done on Work → Browse.
@@ -58,7 +58,7 @@ knots:
 
   - id: question_asked
     feature: Ask a question
-    knot: Clove Hitch
+    knot: Angler's Loop
     set: loops
     pitch: Assigned questions notify the assignee and wait visibly.
     how: "`q: who owns the staging cert?` in ⌘K, or assign one on Work → Browse."
@@ -67,16 +67,18 @@ knots:
 
   - id: question_answered
     feature: Answer a question
-    knot: Cow Hitch
+    # the SAME knot as the Angler's Loop, under its other name — which is
+    # the pairing: one knot, seen from the asker's end and the answerer's
+    knot: Perfection Loop
     set: loops
-    pitch: The other half of Clove Hitch — someone is waiting on you.
+    pitch: The Angler's Loop under its other name — someone is waiting on you.
     how: Open questions assigned to you sit on My Day under Unblock.
     link: /
     since: 2026-07-31
 
   - id: convention
     feature: Convention notes
-    knot: Lark's Head
+    knot: Farmer's Loop
     set: loops
     pitch: "`convention:` topics feed the context pack every agent reads."
     how: "Save a note whose topic starts with `convention`, for example how the team names branches."
@@ -85,7 +87,7 @@ knots:
 
   - id: search
     feature: Search & /ask
-    knot: Thief Knot
+    knot: Running Bowline
     set: loops
     # ties when a route calls fieldguide.mark — the feature is a read,
     # so there is no write to detect
@@ -97,7 +99,7 @@ knots:
 
   - id: timeaway
     feature: Time away
-    knot: Cleat Hitch
+    knot: Honda Knot
     set: loops
     pitch: PTO and focus windows the weekly draft and staffing projections respect.
     how: Log it on Work → Browse, in the Time-away card.
@@ -106,7 +108,7 @@ knots:
 
   - id: intake
     feature: Intake requests
-    knot: Buntline
+    knot: Scaffold Knot
     set: loops
     pitch: Work enters through a scored queue, not a hallway conversation.
     how: "`req: …` in ⌘K or Inbox → Requests. RICE-lite scores it for triage."
@@ -115,7 +117,7 @@ knots:
 
   - id: promise
     feature: Promises
-    knot: Anchor Bend
+    knot: Water Bowline
     set: loops
     pitch: Promises with an audience and a due date, ledgered until settled.
     how: "`promised: demo to client by Friday` in ⌘K."
@@ -124,7 +126,7 @@ knots:
 
   - id: growth
     feature: Growth interests
-    knot: Monkey's Fist
+    knot: Directional Figure Eight
     set: loops
     pitch: What you want to grow into, visible when staffing decisions happen.
     how: Declare yours in Settings — they show up in what-if staffing.
@@ -133,7 +135,7 @@ knots:
 
   - id: chat
     feature: Chat & the bench
-    knot: Cat's Paw
+    knot: Spanish Bowline
     set: loops
     pitch: The Chief of Staff, ten specialist personas, and slash commands that run without a model.
     how: "Open Chat. Try `/help`, or `/as growth-mentor …` to call the bench."
@@ -154,7 +156,7 @@ knots:
 
   - id: chat_capture
     feature: File it from chat
-    knot: Highwayman's Hitch
+    knot: Poacher's Knot
     set: loops
     # ties when a route calls fieldguide.mark — the feature is a read,
     # so there is no write to detect
@@ -166,7 +168,7 @@ knots:
 
   - id: offweb
     feature: CLI & MCP
-    knot: Marlinspike
+    knot: Artillery Loop
     set: loops
     pitch: The whole platform without a browser — same DB, same provenance.
     how: "`pipx install ./cli`, then `skein my-day`. Settings shows the key setup."
@@ -226,7 +228,7 @@ knots:
 
   - id: forge
     feature: Code forge webhook
-    knot: Timber Hitch
+    knot: Double Fisherman's
     set: bends
     # the forge acts for the whole team under one actor and names nobody, so
     # there is no first USE to attribute to a person. The card is the setup

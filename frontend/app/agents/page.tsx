@@ -565,7 +565,7 @@ export default function Agents() {
               </datalist>
               <select
                 value={entity}
-                aria-label="Entity"
+                aria-label="Record type (task, decision, note)"
                 onChange={(e) => setEntity(e.target.value)}
                 className="rounded border border-line-strong bg-transparent px-2 py-1 text-xs"
               >
@@ -647,7 +647,7 @@ export default function Agents() {
           )}
         </Card>
 
-        <Card title="Team memory — steers agent conversations (personal ones only their owner's)">
+        <Card title="Team memory — steers agent chats (personal ones only their owner's)">
           {errors.memories ? (
             failed("memories")
           ) : memories === null ? (

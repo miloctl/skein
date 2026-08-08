@@ -62,7 +62,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
       <input
         autoFocus
         defaultValue={title}
-        aria-label="Conversation name"
+        aria-label="Chat name"
         maxLength={120}
         onKeyDown={(e) => {
           if (e.key === "Enter") save((e.target as HTMLInputElement).value);
@@ -82,9 +82,9 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
         ref={btnRef}
         onClick={() => title && setEditing(true)}
         // the title FIRST: this button truncates, so the tooltip is the only
-        // place a long conversation name survives, and spending it entirely on
+        // place a long chat name survives, and spending it entirely on
         // the affordance hint loses the one thing the reader cannot see
-        title={title ? `${title} — rename this conversation` : undefined}
+        title={title ? `${title} — rename this chat` : undefined}
         className="block max-w-full truncate rounded px-1 py-0.5 text-left font-display text-[15px]/[1.2] font-semibold tracking-[-0.01em] text-ink hover:bg-raised disabled:hover:bg-transparent"
         disabled={!title}
       >
