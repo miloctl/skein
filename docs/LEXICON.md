@@ -22,8 +22,9 @@ multi-line JSX prose. Counts below are from the corrected pass. No ruling
 changed, but any future count must come from rendered screens (Phase 1),
 not a regex: a static sweep cannot see what a component assembles.
 
-Status: rows 1, 1b and the rule questions R1-R4 are **DECIDED and applied**
-(2026-08-04). Rows 2-7 remain open.
+Status: rows 1, 1b, the rule questions R1-R4 (2026-08-04), and rows 2, 3,
+5, 6 and 9 (2026-08-07) are **DECIDED and applied**. Rows 4, 7 and 8 are
+closed as no-change. Nothing in this file is open.
 
 ---
 
@@ -75,7 +76,7 @@ weekly line is a **commitment**; a debt to a person is a **promise**.
 |---|---|
 | Words in use | **chat** (29 / 9) · **conversation** (4 / 3) · **thread** (1 visible) |
 | Where they split | Everything says "chat"; the rename field says "Conversation name"; `thread` is the code word |
-| Recommendation | **chat** |
+| **DECIDED** | **chat** (2026-08-07) — applied: the rename field label, its tooltip, the Settings long-chats copy, and the Team memory card title. `thread` stays the code identifier |
 
 Why: 29 to 4 is not a contest, it is an oversight. "Thread" stays as the code
 identifier (`thread_id`) and inside the weaving metaphor ("All threads even"
@@ -91,7 +92,7 @@ Cost: 4 string edits, `thread-title.tsx` and `agents/page.tsx`.
 |---|---|
 | Words in use | **entity** (7 / 5) — unglossed on the surface that needs it most |
 | Problem | Not a synonym clash: the word is jargon with no definition where a user must act on it (the Authority dropdown label is bare "Entity") |
-| Recommendation | keep **entity** as the identifier, but never show it unglossed |
+| **DECIDED** | keep **entity** as the identifier, never show it unglossed (2026-08-07) — applied: the Authority dropdown reads "Record type (task, decision, note)"; the visible option labels already glossed themselves |
 
 Why: the concept is real and has no plain-English one-word equivalent
 ("record type" is two words and vaguer). The fix is a gloss at the point of
@@ -128,7 +129,7 @@ prop, and a regex over source counts one of the two.
 | | |
 |---|---|
 | Words in use | **charter entry** (title label, submit button) · **agreement** (body label, placeholder, replacement field) |
-| Recommendation | keep both, but assign them: the record is a **charter entry**, its text is the **agreement** |
+| **DECIDED** | keep both, assigned (2026-08-07): the record is a **charter entry**, its text is the **agreement**. The shipped strings already conform ("Charter entry title" / "The agreement itself" / "The replacement agreement") — zero edits; this row exists so the split reads as chosen, not accidental |
 
 Why: these may be two real things rather than drift — the entry is the row,
 the agreement is what it says. Today the split is accidental, not stated.
@@ -143,7 +144,7 @@ Cost: 0–2 strings, depending on the call.
 | | |
 |---|---|
 | Words in use | **card** (the UI noun) · **knot** (`knots.yaml`, API errors — AND rendered on every card face) |
-| Recommendation | keep **card** as the noun and the tied/untied vocabulary; FIX the per-card knot name |
+| **DECIDED** | keep **card** as the noun and the tied/untied vocabulary; the 13 wrong-class knot names were REASSIGNED (2026-08-07) so every label names a knot of its printed set — the label now tells you which set you are in, which is the "ornament into information" option below |
 
 CORRECTION (2026-08-04): this row previously called "knot" internal. It is
 not. `frontend/app/guide/page.tsx:132` renders `{c.knot}` as a label on
@@ -158,9 +159,11 @@ Loops · Hitches · Bends · Stoppers, then labels cards in the **Loops** set
 with `Clove Hitch`, `Cow Hitch`, `Lark's Head`, `Cleat Hitch`, `Buntline`,
 `Cat's Paw`, `Highwayman's Hitch`, `Marlinspike`, `Anchor Bend`,
 `Monkey's Fist`, `Thief Knot`, `Figure Eight` — and one Bend set card with
-`Timber Hitch`. **13 of 33 cards carry a knot from the wrong class**
-(measured). The reader best equipped to enjoy the metaphor is the one
-guaranteed to see it break.
+`Timber Hitch`. **13 of 33 cards carried a knot from the wrong class**
+(measured; fixed 2026-08-07 — every replacement is a genuine member of its
+set's class, and the asked/answered pair became Angler's Loop / Perfection
+Loop, one knot under its two names, recorded in knots.yaml where the pair
+lives).
 
 Two fixes: reassign `knot:` in knots.yaml so each name matches its set's
 real class (turns ornament into information — the label would then tell you

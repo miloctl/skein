@@ -1040,7 +1040,7 @@ export default function SettingsPage() {
 
       <Section title="Long chats (team)">
         <p className="mb-3 text-sm text-ink-3">
-          A model holds only so much of a conversation. When a chat outgrows
+          A model holds only so much of a chat. When a chat outgrows
           that, Skein either drops the oldest messages or summarizes them. This
           setting applies to everyone. Only an administrator can change it, with
           a personal API key (step 2).
