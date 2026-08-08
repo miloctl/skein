@@ -33,13 +33,12 @@ export function argQuery(
  * Erring narrow costs a picker that stays shut where a mention would still
  * work; erring wide offers a name inside `root@scout`, which never matches.
  *
- * `atStart` decides whether bench personas are offered, because only a
- * LEADING @slug invokes one (routes/chat.py rewrites it into the /as form).
- * `atStart` gates the specialists because only a LEADING @slug invokes one
- * deterministically (routes/chat.py rewrites it into the /as form). A
- * mid-sentence @slug can still be answered — the orchestrator may call
- * consult_specialist — but only on a real provider and only if it chooses to,
- * so the picker must not promise it.
+ * `atStart` separates the two ways an @slug reaches the bench: a LEADING
+ * slug is the deterministic handoff (routes/chat.py rewrites it into the /as
+ * form, on every provider), a mid-sentence slug reaches it through the
+ * orchestrator's consult tool — which needs a real provider. The picker
+ * (components/thread.tsx) decides eligibility from this flag plus the
+ * provider; this function only reports the position.
  */
 export function mentionQuery(
   text: string,
