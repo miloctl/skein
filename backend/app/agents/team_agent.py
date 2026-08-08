@@ -104,11 +104,15 @@ def _model(model_id: str = "", temperature: float | None = None):
     persona > admin pick > SKEIN_MODEL_ID > provider default (the last two
     are already folded into config.MODEL_ID).
 
-    Params precedence per key: SKEIN_MODEL_PARAMS < the registry entry's
-    params < persona overrides — each layer is the more specific operator
-    intent. Registry tuning is looked up BY ID for whatever model won, so a
-    persona's model gets its own entry's cap and context size, not the
-    picked model's.
+    Params precedence per key: SKEIN_MODEL_PARAMS < the registry entry
+    (typed fields AND params) < persona overrides — each layer is the more
+    specific operator intent, and the ordering must hold on every provider
+    branch: on the merge branches (ollama, bedrock) the entry's typed cap
+    must ride in extra's layer, because in base position it loses to a
+    global max_tokens in SKEIN_MODEL_PARAMS and one registry entry then
+    means different things per provider. Registry tuning is looked up BY ID
+    for whatever model won, so a persona's model gets its own entry's cap
+    and context size, not the picked model's.
 
     Raises on a bad provider rather than falling through to a default. The
     caller (routes/chat.py) turns that into an SSE error frame the operator
@@ -135,6 +139,13 @@ def _model(model_id: str = "", temperature: float | None = None):
     ctx_kw = (
         {"context_window_limit": entry["context_tokens"]} if entry.get("context_tokens") else {}
     )
+    # the entry's typed fields for the MERGE branches (ollama, bedrock),
+    # layered after SKEIN_MODEL_PARAMS and before the entry's own params —
+    # see the precedence paragraph above
+    entry_kw = {
+        **({"max_tokens": entry["max_tokens"]} if entry.get("max_tokens") else {}),
+        **ctx_kw,
+    }
 
     if provider in ("openai", "openai_compatible"):
         from strands.models.openai import OpenAIModel
@@ -169,11 +180,13 @@ def _model(model_id: str = "", temperature: float | None = None):
         return OllamaModel(
             host=config.OLLAMA_HOST,
             ollama_client_args=client_args,
-            # ctx_kw rides inside the merge, not as a second splat: an
-            # operator's context_window_limit in SKEIN_MODEL_PARAMS alongside
-            # a separate **ctx_kw would be the duplicate-kwarg TypeError
-            # _model_config's docstring exists to prevent
-            **_model_config(mid, extra, max_tokens=max_tokens, **ctx_kw),
+            # entry_kw rides inside the merge, not as a second splat: an
+            # operator's max_tokens or context_window_limit in
+            # SKEIN_MODEL_PARAMS alongside a separate splat would be the
+            # duplicate-kwarg TypeError _model_config's docstring exists to
+            # prevent. It merges in extra's layer so the per-model cap beats
+            # the global knob.
+            **_model_config(mid, {**entry_kw, **extra}, max_tokens=config.MAX_TOKENS),
         )
 
     if provider == "bedrock":
@@ -184,7 +197,9 @@ def _model(model_id: str = "", temperature: float | None = None):
         # is passed, and passing one REPLACES that default instead of merging.
         # Bedrock is already bounded; hand-rolling a config here to say so
         # would unbound it the first time someone edits it and forgets.
-        return BedrockModel(**_model_config(mid, extra, max_tokens=max_tokens, **ctx_kw))
+        return BedrockModel(
+            **_model_config(mid, {**entry_kw, **extra}, max_tokens=config.MAX_TOKENS)
+        )
 
     if provider == "anthropic":
         from strands.models.anthropic import AnthropicModel
@@ -217,7 +232,11 @@ def _model_config(mid: str, extra: dict | None = None, **base) -> dict:
     Merged rather than splatted alongside explicit kwargs: `f(max_tokens=x,
     **{"max_tokens": y})` is a TypeError, and `{"max_tokens": ...}` is the most
     obvious thing an operator puts in SKEIN_MODEL_PARAMS. SKEIN_MODEL_PARAMS
-    wins over the built-in kwargs; persona overrides merge last of all.
+    wins over the built-in GLOBAL kwargs in `base`; the registry entry's
+    typed fields must arrive inside `extra` (the _model caller merges them
+    there), or the per-model cap loses to the global knob and one registry
+    entry means different things per provider. Persona overrides merge last
+    of all.
     """
     return {"model_id": mid, **base, **config.MODEL_PARAMS, **(extra or {})}
 

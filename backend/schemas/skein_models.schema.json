@@ -13,7 +13,8 @@
       "id": {
         "type": "string",
         "minLength": 1,
-        "description": "Model id exactly as the provider serves it."
+        "pattern": "\\S",
+        "description": "Model id exactly as the provider serves it. Must contain a non-space character - the server refuses a whitespace-only id."
       },
       "label": {
         "type": "string",

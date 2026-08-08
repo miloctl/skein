@@ -44,6 +44,9 @@ VALID = [
     },
     # every optional field absent — the minimal legal entry
     {"id": "gpt-oss:120b-cloud"},
+    # zero-fraction floats: JSON Schema 2020-12 "integer" admits them, so the
+    # code must too, or a green ConfigMap editor produces a red /health
+    {"id": "float-tuned", "max_tokens": 4096.0, "context_tokens": 32768.0},
 ]
 
 # Rejected by BOTH the schema and config.py. Each entry is one distinct fault;
@@ -54,6 +57,8 @@ INVALID = [
     {"not": "a list"},
     [{"label": "no id"}],
     [{"id": ""}],
+    [{"id": "   "}],
+    [{"id": "m", "max_tokens": 2048.5}],
     [{"id": "m", "pricee": {"input": 1, "output": 2}}],
     [{"id": "m", "label": ""}],
     [{"id": "m", "label": "x" * 81}],
@@ -76,7 +81,7 @@ INVALID = [
 def test_a_valid_registry_parses(monkeypatch):
     cfg = _reload(monkeypatch, VALID)
     assert cfg.MODELS_ERROR == ""
-    assert set(cfg.MODELS) == {"claude-opus-4-8", "gpt-oss:120b-cloud"}
+    assert set(cfg.MODELS) == {"claude-opus-4-8", "gpt-oss:120b-cloud", "float-tuned"}
     full = cfg.MODELS["claude-opus-4-8"]
     assert full["price"] == (15.0, 75.0)
     assert full["context_tokens"] == 200_000
@@ -84,6 +89,11 @@ def test_a_valid_registry_parses(monkeypatch):
     assert minimal["label"] == "gpt-oss:120b-cloud"  # label falls back to id
     assert minimal["price"] is None
     assert minimal["params"] == {}
+    # normalized to real ints, so the SDK never sees a float where a token
+    # count belongs
+    floaty = cfg.MODELS["float-tuned"]
+    assert floaty["max_tokens"] == 4096 and isinstance(floaty["max_tokens"], int)
+    assert floaty["context_tokens"] == 32768 and isinstance(floaty["context_tokens"], int)
 
 
 def test_no_registry_means_no_menu_and_no_error(monkeypatch):
@@ -145,6 +155,29 @@ def test_a_bare_infinity_is_refused(monkeypatch):
     cfg = _reload(monkeypatch, '[{"id": "m", "price": {"input": Infinity, "output": 2}}]')
     assert cfg.MODELS == {}
     assert "price.input" in cfg.MODELS_ERROR
+
+
+def test_a_huge_integer_price_degrades_instead_of_killing_the_import(monkeypatch):
+    """math.isfinite converts to a C double first, so a 309-digit JSON int
+    raises OverflowError — and an uncaught raise in config takes down every
+    route, the ICS feed, and backups with it (the _ctx_num trap, in the
+    registry's price path)."""
+    huge = "1" + "0" * 400
+    cfg = _reload(monkeypatch, f'[{{"id": "m", "price": {{"input": {huge}, "output": 2}}}}]')
+    assert cfg.MODELS == {}
+    assert "price.input" in cfg.MODELS_ERROR
+
+
+def test_a_huge_integer_in_the_price_table_degrades_too(monkeypatch):
+    """The same OverflowError trap in the SKEIN_MODEL_PRICES sibling — one
+    guard covers both tables."""
+    huge = "1" + "0" * 400
+    monkeypatch.setenv("SKEIN_MODEL_PRICES", f'{{"m": [{huge}, 2]}}')
+    import importlib
+
+    cfg = importlib.reload(config)
+    assert cfg.MODEL_PRICES == {}
+    assert "SKEIN_MODEL_PRICES is unusable" in cfg.MODEL_PRICES_ERROR
 
 
 def test_unparseable_json_degrades_and_says_so(monkeypatch):
