@@ -12,6 +12,7 @@ import "./globals.css";
 import { CapturePalette } from "@/components/capture-palette";
 import { Nav } from "@/components/nav";
 import { StatusRegion } from "@/components/status-region";
+import { TaskPeek } from "@/components/task-peek";
 import { ThemeSync } from "@/components/theme-sync";
 import { themeBootScript } from "@/lib/theme-boot";
 
@@ -123,6 +124,10 @@ export default function RootLayout({
         <Nav />
         <CapturePalette />
         {children}
+        {/* mounted once for the whole app: any surface that names a task can
+            link to ?task=<id>, and the panel opens over whatever page the
+            reader was already on instead of navigating them away from it */}
+        <TaskPeek />
       </body>
     </html>
   );

@@ -122,6 +122,9 @@ export default function Agents() {
     model: string;
     provider_error: string;
     review_gate: boolean;
+    trust_blocked: string;
+    runner_agents: string[];
+    runner_daily_tokens: number;
     context_strategy: string;
     context_error: string;
   } | null>(null);
@@ -192,6 +195,9 @@ export default function Agents() {
       model: string;
       provider_error: string;
       review_gate: boolean;
+      trust_blocked: string;
+      runner_agents: string[];
+      runner_daily_tokens: number;
       context_strategy: string;
       context_error: string;
     }>("/api/agents/status")
@@ -617,6 +623,40 @@ export default function Agents() {
             from the header alone can be set by anyone, so it must not walk an
             agent toward acting alone.
           </p>
+          {/* The deployment settings that make a streak unreachable, stated
+              where the empty card is. Without this the card reads "no data
+              yet" in a deployment that can never produce data, and an
+              operator waits instead of changing a setting. Rendered above the
+              rows too, not only on the empty case: verdicts that cannot count
+              still create rows, so a filled card can be just as stuck. */}
+          {/* Whether anything wakes an agent at all. Empty is the default and
+              must be VISIBLE rather than assumed — an operator who turned the
+              runner on in .env and mistyped a name sees the same empty page
+              as one who never turned it on. */}
+          {/* `?.` on a field this page does not own: a status payload without
+              it renders nothing here rather than throwing, and a throw takes
+              the authority matrix and the whole page down with it — one card
+              must never cost the page (same rule as the spend card). */}
+          {status?.runner_agents ? (
+            <p className="mb-2 text-xs text-ink-3">
+              {status.runner_agents.length === 0 ? (
+                <>
+                  Nothing runs an agent unattended. Whoever runs the server can
+                  set SKEIN_AGENT_RUNNER to name the agents it wakes.
+                </>
+              ) : (
+                <>
+                  Runs unattended once a day: {status.runner_agents.join(", ")}.
+                  {status.runner_daily_tokens
+                    ? ` Each stops after ${status.runner_daily_tokens.toLocaleString()} tokens a day.`
+                    : " No daily token ceiling is set."}
+                </>
+              )}
+            </p>
+          ) : null}
+          {status?.trust_blocked ? (
+            <p className="mb-2 text-xs text-weld">{status.trust_blocked}</p>
+          ) : null}
           {errors.trust ? (
             failed("trust")
           ) : trust === null ? (

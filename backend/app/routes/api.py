@@ -30,6 +30,7 @@ from ..services import (
     memory,
     notifications,
     personas,
+    planning,
     playbooks,
     portfolio,
     promises,
@@ -75,6 +76,18 @@ def get_milestones(user: CurrentUser, viewer: ViewerDep, project: str = "", stat
 @router.get("/tasks")
 def get_tasks(user: CurrentUser, viewer: ViewerDep):
     return work.list_tasks_joined(viewer)
+
+
+@router.get("/tasks/{task_id}")
+def get_task(user: CurrentUser, viewer: ViewerDep, task_id: int):
+    """The side peek's read. Declared BEFORE /tasks/{task_id}/worklog is
+    irrelevant to routing here (the paths differ in segment count), but it
+    must stay after the literal /tasks route above — FastAPI matches in
+    declaration order, and a bare "/tasks/{task_id}" first would swallow it."""
+    try:
+        return work.get_task(task_id, viewer)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("/tasks/{task_id}/worklog")
@@ -691,6 +704,17 @@ def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser, viewer: Vie
     return portfolio.what_if(request_id, body.people, body.percent, viewer)
 
 
+@router.get("/planning")
+def get_planning(user: CurrentUser, viewer: ViewerDep, weeks: int = 6):
+    """The Monday cockpit: one read, in meeting order (services/planning.py).
+
+    CurrentUser, not AdminUser: the manager controls this page hosts are
+    ordinary CurrentUser writes today, and gating the READ would be a new
+    authorization rule invented in a route rather than in routes/deps.py.
+    The viewer carries the scope, so the page shows what its caller may see."""
+    return planning.cockpit(viewer, ahead_weeks=weeks)
+
+
 @router.get("/week")
 def get_week(user: CurrentUser, week: str = ""):
     return weekly.week_view(week)
@@ -850,6 +874,16 @@ def get_agents_status(user: CurrentUser):
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "models_error": config.MODELS_ERROR,
         "review_gate": config.AGENT_REVIEW,
+        # why the trust card cannot fill, when it cannot. An empty card reads
+        # as "no data yet" — under a gate-off or weak-identity deployment the
+        # truth is "cannot produce data", which is an operator's fix, not a
+        # wait (services/delegation.py::trust_blocked)
+        "trust_blocked": delegation.trust_blocked(),
+        # the unattended runner: which agents it may wake, and whether the
+        # model half can run at all. Empty list = nothing wakes an agent,
+        # which is the default and must be visible rather than assumed.
+        "runner_agents": config.AGENT_RUNNER,
+        "runner_daily_tokens": config.AGENT_DAILY_TOKENS,
         # empty on mock: no Strands agent is built, so no strategy applies and
         # claiming one would describe machinery that is not running
         "context_strategy": (
@@ -1028,7 +1062,27 @@ class DelegateIn(BaseModel):
 
 
 @router.post("/tasks/{task_id}/delegate")
-def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser):
+def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser, request: Request):
+    # capped like every other content write: this UPDATEs a task, appends a
+    # hash-chained activity row, and notifies the sponsor — the amplifier
+    # patch_task's own comment names. It became a one-click control when the
+    # task peek shipped.
+    ratelimit.check("write", user)
+    # Delegating to an EXISTING agent is ordinary work. Delegating to a name
+    # that does not exist MINTS an agent identity (delegate_task calls
+    # ensure_user), and routes/deps.py refuses an agent name at every door —
+    # so an unproven caller could register a teammate's name before they join
+    # and lock them out of sign-in, repairable only through rename_user. The
+    # scarce credential is the bar for creating an identity, matching
+    # POST /api/keys; using one that already exists is not gated.
+    if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
+        raise HTTPException(
+            403,
+            "Skein did not create the agent identity: that requires a personal API key."
+            " Delegate to an agent that already exists, or get your first key from whoever"
+            " runs the server (python -m app.bootstrap_key <you>) and paste it in"
+            " Settings, step 2.",
+        )
     return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
 
 

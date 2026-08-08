@@ -128,7 +128,7 @@ def generate_handoff(
         safe_name = f"engagement-{engagement_id}"
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / safe_name
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    path = artifacts_dir / f"{db.now()[:10]}-handoff.md"
+    path = artifacts_dir / f"{db.today().isoformat()}-handoff.md"
     path.write_text(markdown)
 
     aid = db.execute(

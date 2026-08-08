@@ -102,14 +102,15 @@ def pulse_tally(weeks: int = 8) -> list[dict]:
     down = it added effort. Counts only — never who said what (the one burden
     signal telemetry can't measure honestly if people feel watched)."""
     rows = db.query(
-        "SELECT substr(created_at, 1, 10) AS day, verdict FROM feedback"
-        " WHERE kind = 'pulse' ORDER BY id DESC LIMIT 500"
+        "SELECT created_at, verdict FROM feedback WHERE kind = 'pulse' ORDER BY id DESC LIMIT 500"
     )
     from datetime import date
 
     buckets: dict[str, dict] = {}
     for r in rows:
-        iso = date.fromisoformat(r["day"]).isocalendar()
+        # local day, not substr(created_at) — the ISO week these roll into
+        # is rendered beside weekly.current_week(), which is local
+        iso = date.fromisoformat(db.local_day(r["created_at"])).isocalendar()
         wk = f"{iso.year}-W{iso.week:02d}"
         b = buckets.setdefault(wk, {"week": wk, "up": 0, "down": 0})
         if r["verdict"] in ("up", "down"):

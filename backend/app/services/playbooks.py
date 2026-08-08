@@ -3,7 +3,7 @@ into an engagement + milestones + tasks + kickoff events. Relevant lessons from
 past engagements of the same class are attached as a kickoff note."""
 
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +89,7 @@ def instantiate(
     origin: str = "human",
 ) -> dict:
     pb = get_playbook(slug)
-    start = date.fromisoformat(start_date) if start_date else datetime.now(UTC).date()
+    start = date.fromisoformat(start_date) if start_date else db.today()
     with db.transaction():
         return _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
 

@@ -11,6 +11,7 @@ Setup:
 Examples:
     skein capture "todo: ship the API"
     skein standup --today "auth flow" --blockers "waiting on vendor"
+    skein standup --draft --today "auth flow"   # yesterday from your activity
     skein my-day
     skein tasks
     skein tasks done 12
@@ -117,10 +118,21 @@ def cmd_capture(args):
 
 
 def cmd_standup(args):
+    yesterday = args.yesterday
+    if args.draft and not yesterday:
+        # Own data, to yourself: the same string the web My Day prefills
+        # (services/briefing.py::_standup_suggestion), so the terminal user
+        # stops paying a tax the browser user does not. An explicit
+        # --yesterday always wins; --draft never overwrites what was typed.
+        yesterday = api("GET", "/api/briefing")["your_work"].get("standup_suggestion", "")
+        if not yesterday:
+            print("No activity to draft from. The standup is posted with an empty yesterday.")
+        else:
+            print(f"drafted yesterday: {yesterday}")
     api(
         "POST",
         "/api/standups",
-        {"yesterday": args.yesterday, "today": args.today, "blockers": args.blockers},
+        {"yesterday": yesterday, "today": args.today, "blockers": args.blockers},
     )
     print("standup posted" + (" (blocker auto-filed)" if args.blockers else ""))
 
@@ -427,6 +439,11 @@ def main():
     c.add_argument("--yesterday", default="")
     c.add_argument("--today", default="")
     c.add_argument("--blockers", default="")
+    c.add_argument(
+        "--draft",
+        action="store_true",
+        help="fill --yesterday from your own activity (the web My Day does this)",
+    )
     c.set_defaults(fn=cmd_standup)
 
     c = sub.add_parser("my-day", help="your briefing")

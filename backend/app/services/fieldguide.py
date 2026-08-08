@@ -9,7 +9,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import yaml
@@ -315,7 +315,7 @@ def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict 
     ]
     if not candidates:
         return None
-    week = datetime.now(UTC).date().isocalendar().week
+    week = db.today().isocalendar().week
     k = candidates[week % len(candidates)]
     return {"id": k["id"], "feature": k["feature"], "pitch": k["pitch"], "link": k["link"]}
 
@@ -400,7 +400,7 @@ def unadopted(grace_days: int = UNADOPTED_GRACE_DAYS) -> list[dict]:
     )
     for h in humans:
         detect(h["name"])
-    cutoff = (datetime.now(UTC).date() - timedelta(days=grace_days)).isoformat()
+    cutoff = (db.today() - timedelta(days=grace_days)).isoformat()
     out = []
     for k in registry():
         if str(k["since"]) > cutoff:

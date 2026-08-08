@@ -396,6 +396,32 @@ def update_task(
     return {"id": task_id, "updated": list(fields)}
 
 
+def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """One task with its milestone and engagement names, for the side peek.
+
+    Raises scope.missing for an unreadable row exactly as for an absent one:
+    task ids are sequential integers, so any other pairing answers "does #12
+    exist" for every id a caller cares to walk (services/scope.py::Viewer).
+
+    The two joined titles take their OWN filters on the nullable side of the
+    join, the way list_tasks_joined records: in WHERE they would drop every
+    task with no milestone and turn the join INNER, and unfiltered they serve
+    a private milestone's title beside a workspace task."""
+    frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
+    mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
+    efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    row = db.query_one(
+        "SELECT t.*, m.title AS milestone_title, e.name AS engagement_name"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
+        f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        f" WHERE t.id = ? AND {frag}",
+        (*mp, *ep, task_id, *vp),
+    )
+    if not row:
+        raise scope.missing("tasks", task_id)
+    return row
+
+
 def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """Browse listing: tasks with their milestone title, priority-ordered."""
     # Two filters, two placements. `t` is the LEFT JOIN's driving side, so it

@@ -9,9 +9,10 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
+from . import config
 from .config import DB_PATH
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
@@ -54,6 +55,80 @@ class TerminalReject(ValueError):
 
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def today() -> date:
+    """The team's current calendar day (config.SKEIN_TZ), for every surface a
+    human reads as "today": due-soon, week rituals, digests, month boundaries.
+
+    NOT interchangeable with now()[:10]. That is the UTC day, and east of UTC
+    they are a different date for part of every day — a due-today list built
+    from one and a digest built from the other disagree, in public.
+
+    Stored timestamps stay UTC (now()), so a row written at 21:00 in New York
+    carries the next UTC day. Comparisons that ask "which team-day did this
+    happen on" must convert, not slice — see local_day()."""
+    return datetime.now(config.TZ).date()
+
+
+def _local_midnight(d: date) -> datetime:
+    """The first instant of team-day d, as an aware UTC datetime.
+
+    "First instant", not "midnight": in zones whose DST transition lands at
+    00:00 (America/Havana, America/Santiago, Asia/Beirut) local midnight does
+    not exist on the spring date, and the day begins at 01:00. Converting to
+    UTC resolves it to that real instant, which is the bound every caller
+    wants — a window anchored to a wall time that never happened would either
+    start an hour early or drop the hour entirely."""
+    return datetime.combine(d, time.min, tzinfo=config.TZ).astimezone(UTC)
+
+
+def local_midnight_utc(d: date) -> str:
+    """The bound for "since the start of team-day d" against a column written
+    by now(). A query that filters created_at (UTC) with a bare local date
+    compares a timestamp against a 10-character string: it works
+    lexicographically but anchors the window to UTC midnight, which is a
+    different moment than local midnight everywhere except UTC. Use today()
+    only against date columns, which carry no zone at all.
+
+    Matches now()'s shape — offset-aware, seconds. Never use it against
+    events.starts_at, which is stored NAIVE (services/schedule.py::_canon):
+    an event at exactly local midnight sorts BEFORE this string, because the
+    shorter value is a prefix of it, and drops out of its own day."""
+    return _local_midnight(d).isoformat(timespec="seconds")
+
+
+def local_day(ts: str) -> str:
+    """The team-day a stored timestamp falls on, as YYYY-MM-DD. Slicing
+    ts[:10] answers a different question — the UTC day — and buckets evening
+    work under tomorrow for any zone behind UTC. Use this whenever a bucket
+    key is compared against a today()-derived date, or the two key spaces
+    disagree and the comparison silently never matches.
+
+    A naive value is UTC by the storage contract (now(), schedule.py::_canon).
+    A date-only value passes through: it was never a moment, so it has no
+    zone to convert from."""
+    if len(ts) <= 10:
+        return ts[:10]
+    parsed = datetime.fromisoformat(ts)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(config.TZ).date().isoformat()
+
+
+def local_event_window(d: date) -> tuple[str, str]:
+    """[start, end) for team-day d against events.starts_at, in that column's
+    own shape — naive UTC "YYYY-MM-DDTHH:MM" (services/schedule.py::_canon
+    converts every offset away before storing).
+
+    A separate function from local_midnight_utc rather than a parameter: the
+    two shapes are not interchangeable, and the failure of using the wrong one
+    is silent — an event missing from the day it belongs to, never an error."""
+    fmt = "%Y-%m-%dT%H:%M"
+    return (
+        _local_midnight(d).strftime(fmt),
+        _local_midnight(d + timedelta(days=1)).strftime(fmt),
+    )
 
 
 def validate_date(label: str, value: str, allow_clear: bool = True) -> None:

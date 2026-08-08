@@ -3,7 +3,7 @@ is configured with keys, the digest is additionally narrated by the agent —
 otherwise the markdown is published as-is."""
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
@@ -11,8 +11,9 @@ from .scope import WORKSPACE_ONLY
 from .slas import DIGEST_STALLED_DAYS
 
 
-def _utc_today():
-    return datetime.now(UTC).date()
+def _today() -> date:
+    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    return db.today()
 
 
 def _stalled_tasks(days: int = DIGEST_STALLED_DAYS) -> list[dict]:
@@ -49,7 +50,7 @@ def _opener(has_escalations: bool, all_clear: bool, seed: str) -> str:
 
 
 def build_digest() -> str:
-    today = _utc_today().isoformat()
+    today = _today().isoformat()
     lines = [f"# Daily digest — {today}", ""]
 
     from .insights import digest_findings
@@ -90,7 +91,7 @@ def build_digest() -> str:
         ]
         lines.append("")
 
-    week = (_utc_today() + timedelta(days=7)).isoformat()
+    week = (_today() + timedelta(days=7)).isoformat()
     due = db.query(
         f"SELECT * FROM milestones WHERE status != 'done' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
@@ -105,9 +106,9 @@ def build_digest() -> str:
     events = db.query(
         f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY starts_at",
-        (today, (_utc_today() + timedelta(days=1)).isoformat()),
+        db.local_event_window(_today()),
     )
-    if _utc_today().weekday() == 0:  # Monday: the one-question pulse
+    if _today().weekday() == 0:  # Monday: the one-question pulse
         lines.append(
             "## 🌡️ Weekly pulse\n"
             "- Did Skein reduce or increase coordination effort last week?"
@@ -150,7 +151,7 @@ def _narrate(markdown: str) -> str:
 
 
 def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
-    today = _utc_today().isoformat()
+    today = _today().isoformat()
     # build BEFORE claiming: a narration/build failure must not burn the
     # day's claim and silently cancel the digest until tomorrow
     markdown = _narrate(build_digest())

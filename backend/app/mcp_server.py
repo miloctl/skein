@@ -152,6 +152,26 @@ def report_progress(task_id: int, note: str) -> str:
 
 
 @mcp.tool()
+def read_worklog(task_id: int, limit: int = 20) -> str:
+    """Read the progress notes already on a delegated task. Read this before
+    continuing work you started on an earlier day — it is where you recorded
+    what you found, what you decided, and what you were waiting on."""
+    record_use(ACTOR, "mcp")
+    try:
+        # actor=ACTOR is the door, and the limit is clamped in the service —
+        # this twin passed the model's number straight into LIMIT, where a
+        # negative value means NO limit in SQLite
+        return json.dumps(
+            {
+                "task_id": task_id,
+                "worklog": delegation.list_worklog(task_id, limit, actor=ACTOR),
+            }
+        )
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
 def submit_for_acceptance(task_id: int, summary: str) -> str:
     """Submit your delegated task for the sponsor's acceptance. ALWAYS a
     proposal — never claim the task is done after calling this; say it

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { SkeinMark } from "@/components/mark";
+import { NavSearch } from "@/components/nav-search";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
@@ -25,7 +26,7 @@ const GROUPS: { href: string; label: string; paths: string[] }[][] = [
     {
       href: "/portfolio",
       label: "Work",
-      paths: ["/portfolio", "/dashboard", "/insights"],
+      paths: ["/planning", "/portfolio", "/dashboard", "/insights"],
     },
     {
       href: "/review",
@@ -141,6 +142,29 @@ export function Nav() {
     };
   }, []);
 
+  // The attention count in the TAB TITLE, which is the only part of Skein a
+  // person sees while they are in their editor. Without it the immediate
+  // notification tier means "the next time you happen to open the app".
+  //
+  // A MutationObserver, not a plain assignment: Next re-applies the route's
+  // metadata title on every navigation, and whether that lands before or
+  // after this effect is not ours to order. Observing the node means the
+  // count survives whoever writes last. Re-entry is bounded — the callback
+  // only writes when the text differs from what it wants.
+  useEffect(() => {
+    const el = document.querySelector("title");
+    if (!el) return;
+    const base = () => el.textContent?.replace(/^\(\d+\)\s+/, "") || "Skein";
+    const apply = () => {
+      const wanted = attention ? `(${attention}) ${base()}` : base();
+      if (el.textContent !== wanted) el.textContent = wanted;
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(el, { childList: true, characterData: true, subtree: true });
+    return () => observer.disconnect();
+  }, [attention]);
+
   const anonymous = user === "anonymous";
 
   return (
@@ -178,6 +202,10 @@ export function Nav() {
             drifted --nav-h by 56px — one whole row. Shrinking makes the name's
             truncate absorb whatever the pack costs. */}
           <div className="ml-auto flex h-14 min-w-0 items-center gap-3 md:order-2 md:ml-4">
+            {/* hidden for an anonymous visitor: every result is scoped to a
+                caller, so an unnamed one would search as nobody and read an
+                empty index as "the team has nothing" */}
+            {!anonymous && <NavSearch />}
             <span aria-hidden className="hidden h-4 w-px bg-line md:block" />
             <div className="relative min-w-0">
               <button

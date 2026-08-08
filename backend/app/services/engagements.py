@@ -454,7 +454,7 @@ def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     The percent sums over every tier and the NAME is masked per row — see
     scope.visible_name for why the total must stay honest.
     """
-    today = db.now()[:10]
+    today = db.today().isoformat()  # vs absences.starts_on/ends_on, date columns
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     rows = db.query(
         "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks

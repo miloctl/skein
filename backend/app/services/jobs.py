@@ -79,6 +79,18 @@ def _context_pack():
     return publish_pack(actor="scheduler")
 
 
+def _agent_run():
+    from .agent_runner import run
+
+    return run()
+
+
+def _health_snapshot():
+    from .adoption import snapshot_health
+
+    return snapshot_health()
+
+
 def _forecast_snapshot():
     from .adoption import snapshot_forecasts
 
@@ -127,6 +139,13 @@ JOBS: tuple[JobSpec, ...] = (
     ),
     JobSpec("context-pack", _context_pack, {"trigger": "cron", "hour": 5, "minute": 0}, 24),
     JobSpec(
+        "health-snapshot",
+        _health_snapshot,
+        {"trigger": "cron", "hour": 5, "minute": 10},
+        24,
+        True,
+    ),
+    JobSpec(
         "forecast-snapshot",
         _forecast_snapshot,
         {"trigger": "cron", "hour": 5, "minute": 15},
@@ -165,6 +184,17 @@ JOBS: tuple[JobSpec, ...] = (
         {"trigger": "cron", "day_of_week": "mon", "hour": 6, "minute": 15},
         168,
         True,
+    ),
+    JobSpec(
+        "agent-run",
+        _agent_run,
+        # after the context pack (05:00) so a woken agent reads a fresh one,
+        # and well before the 07:00 digest so its proposals are in the inbox
+        # the digest reports on. catch_up=False on purpose: this SPENDS, and a
+        # restart must not buy a turn nobody scheduled — the per-agent claim
+        # key would stop a second run, but only after the decision to run.
+        {"trigger": "cron", "hour": 5, "minute": 30},
+        24,
     ),
     JobSpec("stale-decisions", _stale_decisions, {"trigger": "cron", "hour": 6, "minute": 30}, 24),
     JobSpec("findings", _findings, {"trigger": "cron", "hour": 6, "minute": 50}, 24, True),

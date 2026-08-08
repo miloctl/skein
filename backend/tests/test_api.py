@@ -83,6 +83,9 @@ def test_agents_status_shape(client):
         "provider_error",
         "models_error",
         "review_gate",
+        "trust_blocked",
+        "runner_agents",
+        "runner_daily_tokens",
         "context_strategy",
         "context_error",
     }

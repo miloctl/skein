@@ -271,9 +271,9 @@ def supersede_decision(
             )
         if old["category"] == "charter" and not review_by:
             # charter replacements keep riding the sweep — default the 90-day push
-            from datetime import date, timedelta
+            from datetime import timedelta
 
-            review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
+            review_by = (db.today() + timedelta(days=90)).isoformat()
         new = record_decision(
             title,
             decision,
@@ -306,7 +306,7 @@ def sweep_stale_decisions() -> list[dict]:
     for d in db.query(
         "SELECT * FROM decisions WHERE status = 'active'"
         " AND review_by IS NOT NULL AND review_by < ?",
-        (db.now()[:10],),
+        (db.today().isoformat(),),  # vs review_by, a date column
     ):
         claimed = db.execute_rowcount(
             "UPDATE decisions SET status = 'stale' WHERE id = ? AND status = 'active'", (d["id"],)
@@ -354,7 +354,7 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
     if review_by and not DATE_RE.match(review_by):
         raise ValueError("review_by must be YYYY-MM-DD")
     if not review_by:
-        review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
+        review_by = (db.today() + timedelta(days=90)).isoformat()
     db.execute(
         "UPDATE decisions SET status = 'active', review_by = ? WHERE id = ?",
         (review_by, decision_id),

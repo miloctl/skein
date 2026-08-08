@@ -261,6 +261,37 @@ def report_progress(task_id: int, note: str) -> str:
 
 
 @tool
+def read_worklog(task_id: int, limit: int = 20) -> str:
+    """Read the progress notes already logged on a delegated task — yours and
+    your sponsor's. Read this BEFORE continuing work you started earlier: it
+    is where you recorded what you found, what you decided, and what you were
+    waiting on.
+
+    Args:
+        task_id: ID of the task.
+        limit: How many of the most recent notes to return (default 20).
+    """
+    # The continuity record for multi-day work. Without a reader, an agent
+    # resuming on day 3 restarted from the task title: the chat session that
+    # held the rest is gone (the conversation manager drops the oldest
+    # messages, and pin_first is inert across turns —
+    # agents/team_agent.py::_conversation_manager).
+    #
+    # actor=, so the delegation itself is the door: an agent holds no crew
+    # membership, so on a crew task the tier filter alone would refuse the
+    # worklog this agent is WRITING (services/delegation.py::list_worklog).
+    # The viewer stays NOBODY — the workspace tier — for every other task, and
+    # nothing here is ever unfiltered.
+    try:
+        notes = delegation.list_worklog(task_id, limit, actor=agent_identity())
+        # a read, so no receipt: receipts record WRITES, and the gate-coverage
+        # suite asserts a receipt only where the DB was mutated
+        return json.dumps({"task_id": task_id, "worklog": notes})
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@tool
 def submit_for_acceptance(task_id: int, summary: str) -> str:
     """Submit a delegated task as finished. This ALWAYS files a proposal —
     your sponsor's verdict marks it done (and every verdict builds or costs

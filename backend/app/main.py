@@ -26,12 +26,16 @@ log = logging.getLogger("skein")
 
 
 def _start_scheduler():
-    """Background jobs (UTC), one per services.jobs.JOBS entry. Jobs are
-    once-only via db.claim_job or CAS status flips, so an accidental
-    multi-worker deployment can't double-run them."""
+    """Background jobs in the TEAM's zone (config.TZ_NAME), one per
+    services.jobs.JOBS entry. Jobs are once-only via db.claim_job or CAS status
+    flips, so an accidental multi-worker deployment can't double-run them.
+
+    The hours in JOBS are the hours a person experiences: the 07:00 digest is
+    07:00 where the team works. APScheduler resolves the DST edges — a job at
+    an hour that a spring-forward skips runs once, not zero times."""
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
+    scheduler = BackgroundScheduler(daemon=True, timezone=config.TZ_NAME)
     for spec in JOBS:
         scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **spec.trigger)
     scheduler.start()
@@ -451,6 +455,11 @@ def health():
         # and two surfaces disagreeing about one fact is the bug this avoids
         "context_strategy": effective_context_strategy(),
         "context_error": config.CONTEXT_STRATEGY_ERROR,
+        # the zone the scheduler and every "today" run in, and the fault when
+        # the configured name degraded to UTC — an operator whose rituals fire
+        # at the wrong hour reads it here first
+        "timezone": config.TZ_NAME,
+        "timezone_error": config.TZ_ERROR,
         "jobs": job_health(),
         "activity_chain": chain_health(),
     }

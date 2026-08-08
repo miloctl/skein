@@ -96,7 +96,7 @@ def list_absences(
     person: str = "", from_date: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
     """Upcoming-and-current by default — history stays queryable via from_date."""
-    cutoff = from_date or db.now()[:10]
+    cutoff = from_date or db.today().isoformat()  # vs ends_on, a date column
     frag, vp = scope.visible_filter(viewer, "absences")
     if person:
         return db.query(
@@ -129,7 +129,7 @@ def away_today(kind: str = "pto") -> dict[str, str]:
     # does not move. The right-hand comparand is the MASKED value already
     # stored — correct in every ordering, but a new sentinel that collides
     # with a real kind would break it.
-    today = db.now()[:10]
+    today = db.today().isoformat()  # vs starts_on/ends_on, date columns
     rows = db.query(
         "SELECT person, kind, visibility FROM absences WHERE starts_on <= ? AND ends_on >= ?",
         (today, today),

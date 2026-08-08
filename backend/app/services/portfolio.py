@@ -2,7 +2,7 @@
 slip forecasting, what-if intake, and the exec readout. All deterministic SQL
 over data the team already records — receipts shown for every verdict."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 from .. import db
 from . import scope
@@ -10,9 +10,14 @@ from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS
 from .stats import median as _median
 
+# the n floor docs/INSIGHTS.md holds every verdict to. One spelling, so a
+# rule that starts making a claim cannot pick a friendlier number.
+_SHARE_FLOOR_N = 8
+
 
 def _today() -> date:
-    return datetime.now(UTC).date()
+    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    return db.today()
 
 
 # a wait on a resolved/done/kept target is satisfied — it must stop yellowing
@@ -24,6 +29,67 @@ _WAIT_SATISFIED = {
     "blocker": "SELECT id FROM blockers WHERE status = 'resolved' AND id IN ({marks})",
     "promise": "SELECT id FROM promises WHERE status != 'open' AND id IN ({marks})",
 }
+
+
+def health_changes(health: list[dict], since: date | None = None) -> list[dict]:
+    """Which engagements MOVED since their last snapshot, and which way.
+
+    The first question asked of a readout is direction, not state: "is Atlas
+    newly yellow" has a different answer from "is Atlas yellow", and only one
+    of them tells anybody to do something. engagement_health computes state at
+    request time and keeps no history, so this reads the daily snapshots
+    (services/adoption.py::snapshot_health) written for exactly this.
+
+    `since` is the moment being compared BACK TO, and it must match what the
+    caller's heading claims. Defaulting to yesterday answers "moved since
+    yesterday" — which for a WEEKLY artifact is the wrong 24 hours six days
+    out of seven: an engagement that went yellow on Wednesday reads as
+    unchanged in Monday's readout, under a heading promising exactly that
+    change. Callers pass the date their last one covered.
+
+    Compared against the most recent snapshot at or before `since`, never
+    today's: today's snapshot is today's state, and nothing would ever appear
+    to have moved. An engagement with no earlier snapshot is new to the
+    comparison and is reported as such rather than as a change from green —
+    it never was green, and inventing a previous state is inventing a trend.
+    """
+    since = since or (_today() - timedelta(days=1))
+    if not health:
+        return []
+    ids = [h["id"] for h in health]
+    marks = ",".join("?" * len(ids))
+    prior = {
+        r["engagement_id"]: r["health"]
+        for r in db.query(
+            "SELECT engagement_id, health FROM health_snapshots s"  # noqa: S608 — placeholders only
+            f" WHERE engagement_id IN ({marks}) AND day <= ?"
+            " AND day = (SELECT MAX(day) FROM health_snapshots"
+            "            WHERE engagement_id = s.engagement_id AND day <= ?)",
+            (*ids, since.isoformat(), since.isoformat()),
+        )
+    }
+    out = []
+    for h in health:
+        was = prior.get(h["id"])
+        if was == h["health"]:
+            continue
+        out.append(
+            {
+                "id": h["id"],
+                "name": h["name"],
+                "from": was,  # None = first time this engagement is scored
+                "to": h["health"],
+            }
+        )
+    return out
+
+
+def _iso_week(day: str) -> str:
+    """The ISO week label a YYYY-MM-DD belongs to, in the same shape
+    committed_week stores (2026-W31). One spelling, because the interrupt
+    ratio compares its output directly against that column."""
+    iso = date.fromisoformat(day).isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
 
 
 def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
@@ -58,16 +124,24 @@ def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     )
 
 
-def engagement_health(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+def engagement_health(
+    viewer: scope.Viewer = scope.NOBODY, *, name_assignees: bool = True
+) -> list[dict]:
     """R/Y/G per non-closed engagement, each signal listed as a receipt.
 
     Filtered, defaulting to NOBODY: /portfolio passes the caller's viewer, and
     the exec readout (services/readout.py) writes a markdown file with no
     viewer at all — which is exactly the workspace tier this default gives it.
+
+    name_assignees=False drops the one receipt that carries a person's name.
+    Callers that EGRESS their output pass it — see the stale-WIP receipt below.
     """
     today = _today().isoformat()
-    stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
-    silence_cutoff = (_today() - timedelta(days=SILENCE_DAYS)).isoformat()
+    # stale_cutoff and silence_cutoff bound updated_at, a timestamp column, so
+    # they are instants. Bound to a bare local date they begin at UTC midnight
+    # and call work stale up to a day early west of UTC.
+    stale_cutoff = db.local_midnight_utc(_today() - timedelta(days=STALE_WIP_DAYS))
+    silence_cutoff = db.local_midnight_utc(_today() - timedelta(days=SILENCE_DAYS))
     frag, vp = scope.visible_filter(viewer, "engagements")
     engagements = db.query(
         f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks
@@ -146,10 +220,16 @@ def engagement_health(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
             if b["status"] == "open":
                 receipts.append(f"blocker #{b['id']} '{b['title']}' open")
         for t in stale_by.get(eng["id"], []):
-            receipts.append(
-                f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d"
-                f" (@{t['assignee'] or 'unassigned'})"
-            )
+            # The assignee is named for a surface that asks "who do I go talk
+            # to" — planning the future, the permitted direction. It is
+            # dropped for a caller that will WRITE this receipt into a
+            # forwardable artifact: "@ava let this sit for over a week", in
+            # front of an audience outside the team, is the past-judging use
+            # the anti-surveillance rule exists to prevent (readout.py passes
+            # name_assignees=False, and the aggregate WIP line there has the
+            # full reasoning).
+            who = f" (@{t['assignee'] or 'unassigned'})" if name_assignees else ""
+            receipts.append(f"task #{t['id']} '{t['title']}' in progress >{STALE_WIP_DAYS}d{who}")
         for t in waits_by.get(eng["id"], []):
             if (t["waiting_on_type"], t["waiting_on_id"]) in satisfied:
                 continue
@@ -158,7 +238,11 @@ def engagement_health(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
                 f" {t['waiting_on_type']} #{t['waiting_on_id']}"
             )
         last_ts = last_by.get(eng["id"], "")
-        silent = bool(open_by.get(eng["id"]) and last_ts and last_ts[:10] < silence_cutoff)
+        # the WHOLE timestamp against a timestamp bound: last_ts[:10] is a
+        # UTC date, and silence_cutoff is now an instant, so the sliced
+        # form compares a 10-character prefix and calls an engagement
+        # silent up to a day early
+        silent = bool(open_by.get(eng["id"]) and last_ts and last_ts < silence_cutoff)
         if silent:
             receipts.append(f"no task activity since {last_ts[:10]}")
 
@@ -200,12 +284,83 @@ def allocation_conflicts(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     )
 
 
+def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    """Allocation per person per week, for the next `weeks` weeks.
+
+    allocation_conflicts and what_if both bind their window predicates to
+    TODAY, so they answer one question: who is over right now. The staffing
+    questions a manager actually holds are forward-shaped — "who frees up when
+    Atlas closes in three weeks", "does accepting this conflict with Dana's
+    allocation that STARTS next month" — and a request accepted today against
+    today's numbers is a conflict Skein notices only when the date arrives.
+
+    A table, one row per week, never a Gantt: docs/ROADMAP.md records the Gantt
+    as a deliberate refusal, and a week grid answers the staffing question
+    without pretending to schedule the work.
+
+    Person-level and forward-looking, which is the direction the
+    anti-surveillance rule permits — this plans the future, it does not score
+    the past. Names the viewer cannot read are masked the way
+    allocation_conflicts masks them.
+    """
+    weeks = max(1, min(weeks, 26))
+    monday = _today() - timedelta(days=_today().weekday())
+    name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
+    out = []
+    for i in range(weeks):
+        start = monday + timedelta(weeks=i)
+        end = start + timedelta(days=6)
+        rows = db.query(
+            "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+            f" GROUP_CONCAT({name} || ' (' || a.percent || '%)', ', ') AS detail"
+            " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
+            " WHERE e.status != 'closed'"
+            # overlap, not containment: an allocation that covers ANY day of
+            # the week loads that week. Containment would hide every
+            # allocation shorter than seven days.
+            " AND (a.starts_on IS NULL OR a.starts_on <= ?)"
+            " AND (a.ends_on IS NULL OR a.ends_on >= ?)"
+            " GROUP BY a.person ORDER BY total_percent DESC",
+            (*np, end.isoformat(), start.isoformat()),
+        )
+        # visibility rides along, because the KIND is masked on a scoped row.
+        # services/absences.py::away_today makes the same split at length: the
+        # unavailability is the honest core, the REASON is not, and a private
+        # `focus` or `oncall` window that announced itself by name is the leak
+        # that rule exists to stop. Unmasked here it reached every CurrentUser
+        # through GET /api/planning.
+        away = db.query(
+            "SELECT person, kind, visibility FROM absences WHERE starts_on <= ? AND ends_on >= ?",
+            (end.isoformat(), start.isoformat()),
+        )
+        iso = start.isocalendar()
+        out.append(
+            {
+                "week": f"{iso.year}-W{iso.week:02d}",
+                "starts_on": start.isoformat(),
+                "people": rows,
+                "over": [r["person"] for r in rows if (r["total_percent"] or 0) > 100],
+                # away is capacity the allocations do not know about — a
+                # person at 100% who is on PTO that week is not staffed, and
+                # a grid that showed only the percent would say they were
+                "away": [
+                    {
+                        "person": a["person"],
+                        "kind": a["kind"] if a["visibility"] == scope.WORKSPACE else "away",
+                    }
+                    for a in away
+                ],
+            }
+        )
+    return out
+
+
 def flow_metrics(weeks: int = 8) -> dict:
     """Cycle time / throughput / WIP from timestamps the platform already has.
     No estimates, no story points."""
-    cutoff = (_today() - timedelta(weeks=weeks)).isoformat()
+    cutoff = db.local_midnight_utc(_today() - timedelta(weeks=weeks))
     done = db.query(
-        "SELECT created_at, completed_at,"
+        "SELECT created_at, completed_at, committed_week,"
         " ROUND(julianday(completed_at) - julianday(created_at), 1) AS days"
         " FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ?",
         (cutoff,),
@@ -227,14 +382,57 @@ def flow_metrics(weeks: int = 8) -> dict:
     }
     throughput: dict[str, int] = {}
     for r in done:
-        d = date.fromisoformat(r["completed_at"][:10]).isocalendar()
+        # local_day, not [:10] — that slice is the UTC day, and the current
+        # week this chart is plotted against comes from db.today(). Mixed, a
+        # task finished on Sunday evening in New York lands in NEXT week's bar
+        d = date.fromisoformat(db.local_day(r["completed_at"])).isocalendar()
         throughput[f"{d.year}-W{d.week:02d}"] = throughput.get(f"{d.year}-W{d.week:02d}", 0) + 1
+    # Interrupt ratio: work that arrived AND finished inside the same week,
+    # having never been on that week's committed line. It is the receipt
+    # behind a weak kept-% — "we planned badly" and "we absorbed an incident"
+    # have opposite remedies, and the commitment line alone cannot tell them
+    # apart. Derived, so it costs nobody a new habit.
+    #
+    # TEAM ratio only, never per person: this judges the past, and the
+    # anti-surveillance rule allows person-level data only for planning the
+    # future (docs/FEATURES.md).
+    planned = unplanned = 0
+    for r in done:
+        if not r["completed_at"]:
+            continue
+        finished_week = _iso_week(db.local_day(r["completed_at"]))
+        if r["committed_week"] == finished_week:
+            planned += 1
+        elif r["created_at"] and _iso_week(db.local_day(r["created_at"])) == finished_week:
+            unplanned += 1
+    settled = planned + unplanned
+    interrupts = {
+        "planned": planned,
+        "unplanned": unplanned,
+        # NAMED for what it measures. The denominator is planned + unplanned,
+        # and a task that CARRIED OVER — committed to an earlier week, finished
+        # in this one — is in neither, so this is not a share of all finished
+        # work. Carryover is exactly what a weak kept-% is about, so a field
+        # called `unplanned_share` beside a sentence saying "of finished work"
+        # would overstate on the number people quote.
+        "same_week_unplanned_share": (
+            round(unplanned / settled, 2)
+            # withheld under the n floor docs/INSIGHTS.md sets for every other
+            # verdict here: "50% of work was unplanned" over two tasks is noise
+            # wearing a percentage sign, and this renders on the manager's page
+            if settled >= _SHARE_FLOOR_N
+            else None
+        ),
+        "n": settled,
+        "carried_over": len(done) - settled,
+        "window_weeks": weeks,
+    }
     wip = db.query(
         "SELECT COALESCE(NULLIF(assignee, ''), 'unassigned') AS person,"
         " COUNT(*) AS in_progress FROM tasks WHERE status = 'in_progress'"
         " GROUP BY person ORDER BY in_progress DESC"
     )
-    stale_cutoff = (_today() - timedelta(days=STALE_WIP_DAYS)).isoformat()
+    stale_cutoff = db.local_midnight_utc(_today() - timedelta(days=STALE_WIP_DAYS))
     stale = db.query(
         # the workspace tier: unlike the counts above, this list carries
         # TITLES, and nudge_stale_wip notifies each assignee by name from it
@@ -249,6 +447,7 @@ def flow_metrics(weeks: int = 8) -> dict:
         "throughput_by_week": dict(sorted(throughput.items())),
         "wip_by_person": wip,
         "stale_wip": stale,
+        "interrupts": interrupts,
     }
 
 

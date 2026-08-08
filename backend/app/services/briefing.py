@@ -4,7 +4,7 @@ unblock / commit / review / notice) and each carries a "why you're seeing
 this" reason. An LLM narrative can be layered on top later (see digest.py)."""
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from .. import db
 from . import scope
@@ -206,11 +206,15 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     """
     from .review import _readable
 
-    # UTC dates to match db.now() timestamps on the rows
-    utc_today = datetime.now(UTC).date()
-    today = utc_today.isoformat()
-    week = (utc_today + timedelta(days=7)).isoformat()
-    yesterday = (utc_today - timedelta(days=1)).isoformat()
+    # The team's day (config.SKEIN_TZ): due_date and committed_week carry no
+    # zone, so "due today" must mean the day the reader is living in.
+    local_today = db.today()
+    today = local_today.isoformat()
+    week = (local_today + timedelta(days=7)).isoformat()
+    # created_at is a UTC timestamp, so this bound is an instant, not a date —
+    # a bare local date here would start the window at UTC midnight and drop
+    # the evening's work west of UTC (db.local_midnight_utc)
+    yesterday = db.local_midnight_utc(local_today - timedelta(days=1))
 
     q_f, q_p = scope.visible_filter(viewer, "questions")
     b_f, b_p = scope.visible_filter(viewer, "blockers")
@@ -299,7 +303,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             "recently_shipped": db.query(
                 f"SELECT id, name, closed_at FROM engagements WHERE status = 'closed'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
                 f" AND {WORKSPACE_ONLY} AND closed_at >= ?",
-                ((utc_today - timedelta(days=2)).isoformat(),),
+                (db.local_midnight_utc(local_today - timedelta(days=2)),),
             ),
             "escalated_blockers": db.query(
                 f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
@@ -308,7 +312,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             "todays_events": db.query(
                 f"SELECT * FROM events WHERE starts_at >= ? AND starts_at < ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
                 f" AND {WORKSPACE_ONLY} ORDER BY starts_at",
-                (today, (utc_today + timedelta(days=1)).isoformat()),
+                db.local_event_window(local_today),
             ),
             # scoped like /activity: your own strand plus agents and system —
             # My Day must not be the surface where colleagues watch each other

@@ -2,7 +2,7 @@
 no leaderboards, no individual scores. Seasons are 6-week buckets so nothing
 accrues forever."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 from .. import db
 
@@ -11,7 +11,8 @@ SEASON_DAYS = 42
 
 
 def _today() -> date:
-    return datetime.now(UTC).date()
+    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    return db.today()
 
 
 def season() -> dict:
@@ -23,6 +24,12 @@ def season() -> dict:
         "label": f"{start.year}·S{n + 1}",
         "start": start.isoformat(),
         "end": end.isoformat(),
+        # `start` is the DATE, for display and for date columns. `start_ts` is
+        # the same boundary as an instant, for the timestamp columns
+        # (created_at, resolved_at, closed_at) that every season count filters
+        # on. Bound to the date, those windows begin at UTC midnight — so work
+        # finished in the last evening of a season counts into the next one.
+        "start_ts": db.local_midnight_utc(start),
         "days_left": (end - _today()).days,
     }
 
@@ -34,7 +41,7 @@ def standup_chain() -> dict:
     Roster = active humans who posted at least one standup in the last 30 days.
     This keeps 'anonymous' rows, typo'd X-User names, and service accounts from
     zeroing the chain forever — you join the chain by playing."""
-    cutoff = (_today() - timedelta(days=30)).isoformat()
+    cutoff = db.local_midnight_utc(_today() - timedelta(days=30))
     humans = [
         u["name"]
         for u in db.query(
@@ -52,14 +59,19 @@ def standup_chain() -> dict:
     # loop step — up to 90 scans per call. 130 days covers the 90 loop steps
     # plus the weekend rewind below; the range predicate rides
     # idx_standups_created.
-    lookback = (_today() - timedelta(days=130)).isoformat()
+    lookback = db.local_midnight_utc(_today() - timedelta(days=130))
     by_day: dict[str, set[str]] = {}
+    # Bucketed in Python by TEAM day, not by substr(created_at) — that is the
+    # UTC day, and the loop below walks local dates. Mixed, a standup posted
+    # after 20:00 in New York lands in tomorrow's bucket, can never satisfy
+    # the day it was written on, and silently resets the team's whole chain.
+    # Still one range scan on idx_standups_created: the GROUP BY moved into
+    # the set, it did not become a per-day probe.
     for r in db.query(
-        "SELECT substr(created_at, 1, 10) AS day, author FROM standups"
-        " WHERE created_at >= ? GROUP BY 1, 2",
+        "SELECT created_at, author FROM standups WHERE created_at >= ?",
         (lookback,),
     ):
-        by_day.setdefault(r["day"], set()).add(r["author"])
+        by_day.setdefault(db.local_day(r["created_at"]), set()).add(r["author"])
     chain = 0
     day = _today()
     if day.weekday() >= 5:
@@ -81,7 +93,7 @@ def standup_chain() -> dict:
 def blocker_speedrun() -> list[dict]:
     """Average + best clear time per impact tier, this season. Raising blockers
     is scoring, not failing — only clear times are shown, never who."""
-    start = season()["start"]
+    start = season()["start_ts"]  # a timestamp column — see season()
     rows = db.query(
         "SELECT impact,"
         " COUNT(*) AS cleared,"
@@ -100,12 +112,14 @@ def pulse() -> dict:
     s = season()
     open_blockers = db.query_one("SELECT COUNT(*) AS n FROM blockers WHERE status != 'resolved'")
     spotted = db.query_one(
-        "SELECT COUNT(*) AS n FROM blockers WHERE created_at >= ?", (s["start"],)
+        "SELECT COUNT(*) AS n FROM blockers WHERE created_at >= ?", (s["start_ts"],)
     )
-    lessons = db.query_one("SELECT COUNT(*) AS n FROM lessons WHERE created_at >= ?", (s["start"],))
+    lessons = db.query_one(
+        "SELECT COUNT(*) AS n FROM lessons WHERE created_at >= ?", (s["start_ts"],)
+    )
     shipped = db.query_one(
         "SELECT COUNT(*) AS n FROM engagements WHERE status = 'closed' AND closed_at >= ?",
-        (s["start"],),
+        (s["start_ts"],),
     )
     return {
         "season": s,

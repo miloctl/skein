@@ -72,6 +72,64 @@ def row_from_agent(agent, thread_id: str, agent_name: str = "chief-of-staff") ->
         return None
 
 
+class BudgetSpent(ValueError):
+    """An agent has spent its day's allowance. A ValueError so every existing
+    catch still works, and its own class so the unattended runner can tell
+    "stop, and it is not your fault" from a real failure and settle the run
+    instead of retrying into the ceiling."""
+
+
+def spent_today(agent: str) -> dict:
+    """What one agent identity has spent since the start of the team day.
+
+    Tokens, not dollars: an unpriced model costs NULL, and a ceiling that only
+    binds on priced models is no ceiling at all on the deployment most likely
+    to need one (keyless local or subscription cloud). Cost rides along for
+    the report."""
+    row = (
+        db.query_one(
+            "SELECT COUNT(*) AS calls, COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens,"
+            " SUM(cost_usd) AS cost FROM usage_log WHERE agent_name = ? AND created_at >= ?",
+            (agent, db.local_midnight_utc(db.today())),
+        )
+        or {}
+    )
+    return {
+        "agent": agent,
+        "calls": int(row.get("calls") or 0),
+        "tokens": int(row.get("tokens") or 0),
+        "cost_usd": row.get("cost"),
+    }
+
+
+def assert_within_budget(agent: str) -> None:
+    """Refuse the NEXT turn once an agent is past its daily token ceiling.
+
+    Checked before a turn, never mid-turn: a partial turn leaves the agent's
+    tool loop half-applied, and the gate has no undo. So the ceiling is a
+    threshold that stops the following run, not a hard cap on any one.
+
+    OFF by default (0). It exists for the unattended runner
+    (services/agent_runner.py), where no human is watching the stream. The
+    monthly budget finding does not cover that case: it is denominated in
+    DOLLARS, so on the deployment most likely to want a ceiling — keyless, or
+    a subscription cloud where every model is unpriced — it reports "cannot be
+    measured" and never fires at all.
+
+    A human chat turn is watched by the human in it, and capping that would
+    refuse a person mid-conversation for an agent's overnight behavior."""
+    ceiling = config.AGENT_DAILY_TOKENS
+    if not ceiling:
+        return
+    spend = spent_today(agent)
+    if spend["tokens"] >= ceiling:
+        raise BudgetSpent(
+            f"{agent} has spent {spend['tokens']:,} tokens today, at or over the"
+            f" {ceiling:,} daily ceiling. The next run is on the next team day."
+            " To raise the ceiling, set a larger SKEIN_AGENT_DAILY_TOKENS."
+        )
+
+
 def record_chat_usage(
     thread_id: str,
     agent_name: str,
@@ -147,7 +205,7 @@ def engagement_costs(
 def month_to_date() -> dict:
     """This calendar month's estimated spend, with the unpriced count that
     says how much of it the estimate cannot see."""
-    start = datetime.now(UTC).date().replace(day=1).isoformat()
+    start = db.today().replace(day=1).isoformat()
     row = db.query_row(
         "SELECT ROUND(SUM(cost_usd), 4) AS cost_usd,"
         " COUNT(*) - COUNT(cost_usd) AS unpriced_calls, COUNT(*) AS calls"

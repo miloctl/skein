@@ -11,6 +11,15 @@ os.environ["SKEIN_EMBEDDINGS"] = "0"
 # leak into the suite. Empty survives load_dotenv and means "no overlay".
 os.environ["SKEIN_PLAYBOOKS_DIR"] = ""
 os.environ["SKEIN_PERSONAS_DIR"] = ""
+# Same reason: a deployment that curates a menu in backend/.env otherwise
+# gives every menu-sensitive assertion (agents/status, /health warnings,
+# personas.unlisted_model_warnings) a registry the test never wrote.
+os.environ["SKEIN_MODELS"] = ""
+# Same reason again, and this one bites only in the evening: with the
+# deployment's zone in force, db.today() and db.now()[:10] are the same string
+# west of UTC only until 20:00 local. A suite that reads the developer's zone
+# passes all day and fails after dinner, and CI (UTC, no .env) never sees it.
+os.environ["SKEIN_TZ"] = ""
 
 from datetime import UTC
 

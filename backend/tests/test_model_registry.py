@@ -97,7 +97,10 @@ def test_a_valid_registry_parses(monkeypatch):
 
 
 def test_no_registry_means_no_menu_and_no_error(monkeypatch):
-    monkeypatch.delenv("SKEIN_MODELS", raising=False)
+    # "" and not delenv, for the reason conftest.py records: the reload below
+    # runs load_dotenv(), which re-fills an ABSENT variable from backend/.env,
+    # so delenv passes only on a box whose operator curated no menu.
+    monkeypatch.setenv("SKEIN_MODELS", "")
     cfg = importlib.reload(config)
     assert cfg.MODELS == {}
     assert cfg.MODELS_ERROR == ""

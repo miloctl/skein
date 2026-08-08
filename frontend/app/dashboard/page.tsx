@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VisibilityBadge } from "@/components/visibility-picker";
+import { PeekLink } from "@/components/task-peek";
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
@@ -321,6 +322,25 @@ const CONCLUSION_HINTS: Record<string, string> = {
   stopped: "halted early on purpose",
 };
 
+const SHIPPED_WINDOW_DAYS = 7;
+
+/** Done tasks from the last week, newest first. A module function, not an
+ * expression in the component body: the clock read belongs outside render,
+ * the way lib/time.ts::timeAgo holds its own. The rows are already in the
+ * Tasks payload and thrown away by that section's filter, so this costs no
+ * request. completed_at is a UTC timestamp, so the window compares instants
+ * rather than slicing a date out of a string. */
+function shippedRecently(tasks: Row[] | undefined): Row[] {
+  const cutoff = Date.now() - SHIPPED_WINDOW_DAYS * 86_400_000;
+  return (tasks ?? [])
+    .filter((t) => {
+      if (t.status !== "done" || !t.completed_at) return false;
+      const at = Date.parse(String(t.completed_at));
+      return Number.isFinite(at) && at >= cutoff;
+    })
+    .sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
+}
+
 export default function Dashboard() {
   const [data, setData] = useState<Record<string, Row[]>>({});
   const [pulse, setPulse] = useState<Pulse | null>(null);
@@ -460,6 +480,8 @@ export default function Dashboard() {
       reportStatus(actionError(e));
     }
   };
+
+  const recentlyShipped = shippedRecently(data.tasks);
 
   // full-page error only before the first successful load — after that a
   // failed refresh keeps the data on screen with a banner (My Day idiom)
@@ -881,7 +903,9 @@ export default function Dashboard() {
                 className="flex items-center justify-between gap-2 text-sm"
               >
                 <span className="min-w-0 break-words">
-                  <span className="text-ink-3">#{t.id}</span> {t.title}
+                  <PeekLink taskId={Number(t.id)}>
+                    <span className="text-ink-3">#{t.id}</span> {t.title}
+                  </PeekLink>
                   <VisibilityBadge
                     visibility={t.visibility as string}
                     crewId={t.crew_id as number}
@@ -924,6 +948,47 @@ export default function Dashboard() {
               </li>
             )
           }
+        />
+        <Section
+          title="Recently shipped"
+          // The Tasks section above hides done work, so a merge that closes a
+          // task removes it and its forge link in the same second — the one
+          // moment worth showing had no surface. Independent of the
+          // commitment line ON PURPOSE: Health's week plan lists done work
+          // only when it was committed to a week, which is most of it missing.
+          rows={recentlyShipped}
+          empty={`Nothing shipped in the last ${SHIPPED_WINDOW_DAYS} days.`}
+          render={(t) => (
+            <li
+              key={t.id}
+              className="flex items-center justify-between gap-2 text-sm"
+            >
+              <span className="min-w-0 break-words">
+                <PeekLink taskId={Number(t.id)}>
+                  <span className="text-ink-3">#{t.id}</span> {t.title}
+                </PeekLink>
+                <VisibilityBadge
+                  visibility={t.visibility as string}
+                  crewId={t.crew_id as number}
+                />
+                {t.forge_url ? (
+                  // same bare-href reasoning as the Tasks section above
+                  <a
+                    href={String(t.forge_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Code for task #${t.id}: ${t.title} (opens a new tab)`}
+                    className="ml-2 text-xs text-ink-3 underline hover:text-ink-2"
+                  >
+                    code <span aria-hidden>↗</span>
+                  </a>
+                ) : null}
+              </span>
+              <span className="shrink-0 text-xs text-ink-3">
+                {String(t.completed_at ?? "").slice(0, 10)}
+              </span>
+            </li>
+          )}
         />
         <Section
           title="Open questions"

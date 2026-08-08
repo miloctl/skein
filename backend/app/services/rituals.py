@@ -32,7 +32,7 @@ def _release_claim(job: str, week: str) -> None:
 
 
 def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> str:
-    day = db.now()[:10]
+    day = db.today().isoformat()  # must match the heading and the claim key
     out_dir = Path(config.DATA_DIR) / "artifacts" / "rituals"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{day}-{slug}.md"
@@ -57,7 +57,7 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
     """Friday sweep: what this week leaves open — due/overdue promises,
     engagements stuck closing, proposals nobody has judged, questions still
     waiting. One packet, one notification, zero page-hopping."""
-    today = datetime.now(UTC).date()
+    today = db.today()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-close"
     if not _claim_week("week_close", week, force):
         return {"week": week, "skipped": "already ran this week"}
@@ -164,7 +164,7 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
     """Monday brief: each person's OWN obligations for the week — the
     promises they made, decisions they own past review-by, questions waiting
     on them, tasks due. Personal notifications, team artifact."""
-    today = datetime.now(UTC).date()
+    today = db.today()
     week = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}-open"
     if not _claim_week("week_open", week, force):
         return {"week": week, "skipped": "already ran this week"}

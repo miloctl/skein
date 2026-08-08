@@ -56,9 +56,9 @@ def test_monday_digest_asks_the_pulse(fresh_db, monkeypatch):
         def today(cls):  # pragma: no cover - helper
             return cls(2026, 7, 20)
 
-    monkeypatch.setattr(digest, "_utc_today", lambda: date(2026, 7, 20))  # a Monday
+    monkeypatch.setattr(digest, "_today", lambda: date(2026, 7, 20))  # a Monday
     assert "Weekly pulse" in digest.build_digest()
-    monkeypatch.setattr(digest, "_utc_today", lambda: date(2026, 7, 21))  # a Tuesday
+    monkeypatch.setattr(digest, "_today", lambda: date(2026, 7, 21))  # a Tuesday
     assert "Weekly pulse" not in digest.build_digest()
 
 

@@ -4,7 +4,7 @@ output. One row per (day, user, surface); counts only, no content."""
 
 import contextlib
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from threading import Lock
 
 from .. import db
@@ -59,7 +59,7 @@ def record_use(user: str, surface: str, *, counts: bool = True) -> None:
     if not user or user == "anonymous":
         return
     surface = surface if surface in SURFACES else "api"
-    day = datetime.now(UTC).date().isoformat()
+    day = db.today().isoformat()
     with _pending_lock:
         key = (day, user, surface)
         _pending[key] = _pending.get(key, 0) + (1 if counts else 0)
@@ -97,8 +97,8 @@ def adoption(weeks: int = 4) -> dict:
     (docs/INSIGHTS.md): >50% of actions originate outside the web UI."""
     flush()  # buffered counts belong in the numbers this reports
     weeks = max(1, min(int(weeks), 520))
-    cutoff = (datetime.now(UTC).date() - timedelta(weeks=weeks)).isoformat()
-    week_ago = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
+    cutoff = (db.today() - timedelta(weeks=weeks)).isoformat()
+    week_ago = (db.today() - timedelta(days=7)).isoformat()
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1 AND name != 'anonymous'"
     )
@@ -137,12 +137,36 @@ def adoption(weeks: int = 4) -> dict:
     }
 
 
+def snapshot_health() -> dict:
+    """Daily: record each engagement's R/Y/G so the readout can say which way
+    it is MOVING. Idempotent per (day, engagement) through the unique index.
+
+    Shares this module with snapshot_forecasts for the same reason: both are
+    "write today's derived state down so tomorrow can compare", and both are
+    read by services/insights.py and services/readout.py rather than here."""
+    from .portfolio import engagement_health
+
+    day = db.today().isoformat()
+    n = 0
+    # name_assignees=False: nothing here stores a receipt, but the flag keeps
+    # this caller honest if that ever changes — a snapshot is history, and
+    # history is the direction the anti-surveillance rule refuses
+    for h in engagement_health(name_assignees=False):
+        db.execute(
+            "INSERT OR IGNORE INTO health_snapshots"
+            " (day, engagement_id, health, status, created_at) VALUES (?, ?, ?, ?, ?)",
+            (day, h["id"], h["health"], h.get("status", ""), db.now()),
+        )
+        n += 1
+    return {"snapshotted": n}
+
+
 def snapshot_forecasts() -> dict:
     """Daily: record today's slip forecasts so calibration can be measured
     against actuals later. Idempotent per (day, milestone)."""
     from .portfolio import slip_forecast
 
-    day = datetime.now(UTC).date().isoformat()
+    day = db.today().isoformat()
     n = 0
     for f in slip_forecast()["forecasts"]:
         try:

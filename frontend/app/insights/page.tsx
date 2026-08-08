@@ -49,6 +49,14 @@ type Insights = {
     median_days_to_disposition: number | null;
     dispositioned_n: number;
   };
+  forecast_calibration: {
+    n: number;
+    window_days: number;
+    median_error_days: number | null;
+    median_abs_error_days: number | null;
+    hit_rate: number | null;
+    hits: number | null;
+  };
   token_spend_weekly: { week: string; tokens: number }[];
   adoption: {
     weekly_active_users: number;
@@ -435,6 +443,47 @@ export default function InsightsPage() {
           median {d.intake_funnel.median_days_to_disposition ?? "—"} days to
           disposition (n={d.intake_funnel.dispositioned_n})
         </p>
+      </Card>
+
+      <Card title="Forecast calibration">
+        {/* The slip forecast gets quoted to stakeholders. snapshot_forecasts
+            has recorded every forecast since it shipped so this could be
+            scored, and nothing read the table — a forecast nobody scores is
+            a decoration. Withheld under n=8, like every other claim here. */}
+        {d.forecast_calibration.n === 0 ? (
+          <p className="text-sm text-ink-3">
+            No forecast has been scored yet. A milestone must finish first.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm">
+              {d.forecast_calibration.hit_rate === null ? (
+                <>Not enough finished milestones to state a hit rate.</>
+              ) : (
+                <>
+                  {Math.round(d.forecast_calibration.hit_rate * 100)}% finished on
+                  or before the forecast date
+                </>
+              )}
+            </p>
+            <p className="text-xs text-ink-3">
+              median error{" "}
+              {d.forecast_calibration.median_error_days ?? "—"}d (signed),{" "}
+              {d.forecast_calibration.median_abs_error_days ?? "—"}d absolute
+              (n={d.forecast_calibration.n})
+            </p>
+            {d.forecast_calibration.hit_rate === null ? (
+              <p className="mt-1 text-xs text-warn">
+                Too few finished milestones for a rate claim (n&lt;8) — numbers
+                shown, verdict withheld.
+              </p>
+            ) : null}
+            <p className="mt-1 text-xs text-ink-3">
+              Scored on the first forecast made for each milestone — the date a
+              stakeholder was given.
+            </p>
+          </>
+        )}
       </Card>
 
       <Card title="Token spend by week">
