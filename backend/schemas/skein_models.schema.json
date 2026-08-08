@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skein.internal/schemas/skein_models.schema.json",
+  "title": "SKEIN_MODELS - the model menu for this deployment",
+  "description": "The models an administrator can pick between in Settings. The operator sets this variable; the UI never writes it. Ids must be unique in the list (enforced by the server - JSON Schema cannot express unique-by-key). Any invalid entry voids the whole list, and the fault is reported on /health and the agent strip.",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "required": ["id"],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Model id exactly as the provider serves it."
+      },
+      "label": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Display name in the picker. Defaults to id."
+      },
+      "detail": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "One line under the label - what this model is for."
+      },
+      "max_tokens": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Output token cap for this model. Defaults to SKEIN_MAX_TOKENS. Applied where SKEIN_MAX_TOKENS applies (anthropic, bedrock, ollama). The openai family refuses a generic cap - reasoning models return 400 - so there set the provider's own key in params instead."
+      },
+      "context_tokens": {
+        "type": "integer",
+        "minimum": 1024,
+        "description": "Context capacity in tokens. Sets the SDK's context_window_limit for this model. Leave unset for models the SDK already knows - it resolves their capacity from its own table."
+      },
+      "price": {
+        "type": "object",
+        "required": ["input", "output"],
+        "additionalProperties": false,
+        "properties": {
+          "input": { "type": "number", "minimum": 0 },
+          "output": { "type": "number", "minimum": 0 }
+        },
+        "description": "USD per million tokens. Wins over SKEIN_MODEL_PRICES for this id. cached_input is deliberately absent: usage accounting multiplies input and output only, and a price nothing multiplies is a believed number not in effect."
+      },
+      "params": {
+        "type": "object",
+        "description": "Provider pass-through (temperature, top_p, reasoning budgets, ...). Merged over SKEIN_MODEL_PARAMS - the per-model key wins."
+      }
+    }
+  }
+}

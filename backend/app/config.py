@@ -237,6 +237,143 @@ except (ValueError, OverflowError):
         "SKEIN_MONTHLY_BUDGET_USD is not a usable number. The budget rule is off."
     )
 
+# ---- model registry (SKEIN_MODELS) ----------------------------------------
+# The menu of models an administrator may pick between in Settings, each with
+# optional per-model tuning. env-only ON PURPOSE: the operator curates the
+# menu, the admin picks from it (services/settings.py) — the same two-tier
+# split the tuning.py docstring records for provider and credential settings.
+# Registry content must never be persisted to app_settings: that table
+# travels in every export and backup (services/admin.py::TABLES), and params
+# values are a plausible place an operator put a credential.
+#
+# Fault discipline extends SKEIN_MODEL_PRICES': ANY invalid entry voids the
+# WHOLE list — a partial menu looks complete, which is worse than no menu,
+# because an old validator cannot tell a future field from a typo and the
+# admin picks from whatever renders. Every fault across every entry is
+# collected in one pass (the _ctx_num rule: one at a time makes an operator
+# with two typos restart twice). A fault names entry positions, ids, and
+# field NAMES only, never field values: this string reaches every signed-in
+# user through /api/agents/status and /health.
+#
+# schemas/skein_models.schema.json is the same contract for ConfigMap
+# editors; tests/test_model_registry.py pins the two against each other.
+_MODEL_ENTRY_FIELDS = frozenset(
+    {"id", "label", "detail", "max_tokens", "context_tokens", "price", "params"}
+)
+# price carries only keys the accounting multiplies (usage.py::cost_for reads
+# input and output). cached_input is deliberately absent until usage_log
+# carries cache-read tokens — a price nothing multiplies is a believed number
+# not in effect.
+_MODEL_PRICE_FIELDS = frozenset({"input", "output"})
+
+
+def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, dict]) -> list[str]:
+    """Faults for one entry, appended to nothing — the caller collects. On a
+    clean entry with a usable id the normalized form lands in `out` keyed by
+    id. `mid` is None when the caller already faulted the id — field checks
+    still run so one restart reports everything, but nothing is stored."""
+    faults = []
+    if unknown := sorted(set(entry) - _MODEL_ENTRY_FIELDS):
+        faults.append(f"{tag} has unknown fields: {', '.join(unknown)}. Remove them.")
+    label = entry.get("label")
+    if label is not None and not (isinstance(label, str) and 0 < len(label) <= 80):
+        faults.append(f"{tag}: label must be a string of 1 to 80 characters.")
+    detail = entry.get("detail")
+    if detail is not None and not (isinstance(detail, str) and 0 < len(detail) <= 200):
+        faults.append(f"{tag}: detail must be a string of 1 to 200 characters.")
+    # bool is an int in Python — unchecked, `"max_tokens": true` becomes a
+    # 1-token cap the operator never wrote
+    max_tokens = entry.get("max_tokens")
+    if max_tokens is not None and not (
+        isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens >= 1
+    ):
+        faults.append(f"{tag}: max_tokens must be a whole number of 1 or more.")
+    context_tokens = entry.get("context_tokens")
+    if context_tokens is not None and not (
+        isinstance(context_tokens, int)
+        and not isinstance(context_tokens, bool)
+        and context_tokens >= 1024
+    ):
+        faults.append(f"{tag}: context_tokens must be a whole number of 1024 or more.")
+    price = entry.get("price")
+    pair: tuple[float, float] | None = None
+    if price is not None:
+        if not isinstance(price, dict):
+            faults.append(f"{tag}: price must be a JSON object with input and output.")
+        else:
+            if unknown := sorted(set(price) - _MODEL_PRICE_FIELDS):
+                faults.append(
+                    f"{tag}: price has unknown fields: {', '.join(unknown)}. Remove them."
+                )
+            bad = [
+                k
+                for k in ("input", "output")
+                if not (
+                    isinstance(price.get(k), (int, float))
+                    and not isinstance(price.get(k), bool)
+                    and math.isfinite(price[k])
+                    and price[k] >= 0
+                )
+            ]
+            for k in bad:
+                faults.append(f"{tag}: price.{k} must be a number of 0 or more.")
+            if not faults:
+                pair = (float(price["input"]), float(price["output"]))
+    params = entry.get("params")
+    if params is not None and not isinstance(params, dict):
+        faults.append(f"{tag}: params must be a JSON object.")
+    if not faults and mid:
+        out[mid] = {
+            "id": mid,
+            "label": (label or mid),
+            "detail": detail or "",
+            "max_tokens": max_tokens,
+            "context_tokens": context_tokens,
+            "price": pair,
+            "params": params or {},
+        }
+    return faults
+
+
+MODELS: dict[str, dict] = {}
+MODELS_ERROR = ""
+if _raw_models := os.getenv("SKEIN_MODELS", "").strip():
+    _model_faults: list[str] = []
+    _parsed_models: list | None = None
+    try:
+        _decoded = json.loads(_raw_models)
+        if not isinstance(_decoded, list):
+            _model_faults.append("the value is not a JSON array.")
+        elif not _decoded:
+            _model_faults.append("the array is empty. Remove the variable or add an entry.")
+        else:
+            _parsed_models = _decoded
+    except json.JSONDecodeError as exc:
+        # str(exc) carries position only ("line 1 column 5"), never the text
+        # around it — safe for a string every signed-in user can read
+        _model_faults.append(f"the value is not JSON ({exc}).")
+    if _parsed_models is not None:
+        for _i, _entry in enumerate(_parsed_models):
+            if not isinstance(_entry, dict):
+                _model_faults.append(f"entry {_i + 1} is not a JSON object.")
+                continue
+            _raw_entry_id = _entry.get("id")
+            _entry_id: str | None = None
+            if not (isinstance(_raw_entry_id, str) and _raw_entry_id.strip()):
+                _tag = f"entry {_i + 1}"
+                _model_faults.append(f"{_tag} has no usable id.")
+            else:
+                _entry_id = _raw_entry_id.strip()
+                _tag = f"entry {_i + 1} ({_entry_id})"
+                if _entry_id in MODELS:
+                    _model_faults.append(f"{_tag} repeats an earlier id.")
+            _model_faults.extend(_model_entry_faults(_tag, _entry_id, _entry, MODELS))
+    if _model_faults:
+        MODELS = {}
+        MODELS_ERROR = (
+            "SKEIN_MODELS is unusable: " + " ".join(_model_faults) + " The model menu is off."
+        )
+
 # What the agent layer actually runs. Degrades to mock on any fault above so
 # the app boots and every deterministic surface keeps working.
 EFFECTIVE_PROVIDER = "mock" if MODEL_PROVIDER_ERROR else MODEL_PROVIDER

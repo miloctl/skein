@@ -1,0 +1,188 @@
+"""The SKEIN_MODELS registry: strict parse, whole-list void on any fault, and
+the shipped JSON Schema staying true to the code that actually validates."""
+
+import importlib
+import json
+import os
+from pathlib import Path
+
+import jsonschema
+import pytest
+
+from app import config
+
+SCHEMA_PATH = Path(config.BASE_DIR) / "schemas" / "skein_models.schema.json"
+SCHEMA = json.loads(SCHEMA_PATH.read_text())
+
+
+def _reload(monkeypatch, models):
+    value = models if isinstance(models, str) else json.dumps(models)
+    monkeypatch.setenv("SKEIN_MODELS", value)
+    return importlib.reload(config)
+
+
+@pytest.fixture(autouse=True)
+def _restore_config():
+    yield
+    # scrub BEFORE reloading, the test_context_strategy.py rule: fixture
+    # finalization can run while a test's env is still live, and reloading
+    # then bakes that test's registry into the module for the next test
+    for key in ("SKEIN_MODELS", "SKEIN_MODEL_PRICES"):
+        os.environ.pop(key, None)
+    importlib.reload(config)
+
+
+VALID = [
+    {
+        "id": "claude-opus-4-8",
+        "label": "Opus — deep work",
+        "detail": "Slow and expensive. Reads a whole engagement in one pass.",
+        "max_tokens": 8192,
+        "context_tokens": 200_000,
+        "price": {"input": 15, "output": 75},
+        "params": {"temperature": 0.7},
+    },
+    # every optional field absent — the minimal legal entry
+    {"id": "gpt-oss:120b-cloud"},
+]
+
+# Rejected by BOTH the schema and config.py. Each entry is one distinct fault;
+# test_schema_and_code_agree walks them so the shipped schema cannot drift
+# looser or stricter than the code.
+INVALID = [
+    [],
+    {"not": "a list"},
+    [{"label": "no id"}],
+    [{"id": ""}],
+    [{"id": "m", "pricee": {"input": 1, "output": 2}}],
+    [{"id": "m", "label": ""}],
+    [{"id": "m", "label": "x" * 81}],
+    [{"id": "m", "detail": "x" * 201}],
+    [{"id": "m", "max_tokens": 0}],
+    [{"id": "m", "max_tokens": True}],
+    [{"id": "m", "context_tokens": 512}],
+    [{"id": "m", "price": {"input": 1}}],
+    [{"id": "m", "price": {"input": -1, "output": 2}}],
+    [{"id": "m", "price": {"input": True, "output": 2}}],
+    [{"id": "m", "price": [1, 2]}],
+    [{"id": "m", "params": "hot"}],
+    # pins the v1 decision: no cached_input until usage_log carries
+    # cache-read tokens — a price nothing multiplies is a believed number
+    # not in effect
+    [{"id": "m", "price": {"input": 1, "output": 2, "cached_input": 0.1}}],
+]
+
+
+def test_a_valid_registry_parses(monkeypatch):
+    cfg = _reload(monkeypatch, VALID)
+    assert cfg.MODELS_ERROR == ""
+    assert set(cfg.MODELS) == {"claude-opus-4-8", "gpt-oss:120b-cloud"}
+    full = cfg.MODELS["claude-opus-4-8"]
+    assert full["price"] == (15.0, 75.0)
+    assert full["context_tokens"] == 200_000
+    minimal = cfg.MODELS["gpt-oss:120b-cloud"]
+    assert minimal["label"] == "gpt-oss:120b-cloud"  # label falls back to id
+    assert minimal["price"] is None
+    assert minimal["params"] == {}
+
+
+def test_no_registry_means_no_menu_and_no_error(monkeypatch):
+    monkeypatch.delenv("SKEIN_MODELS", raising=False)
+    cfg = importlib.reload(config)
+    assert cfg.MODELS == {}
+    assert cfg.MODELS_ERROR == ""
+
+
+def test_one_bad_entry_voids_the_whole_list(monkeypatch):
+    """A partial menu looks complete — an admin picks from whatever renders,
+    so the menu is all-or-nothing."""
+    cfg = _reload(monkeypatch, [VALID[0], {"id": "m", "max_tokens": 0}])
+    assert cfg.MODELS == {}
+    assert "entry 2 (m)" in cfg.MODELS_ERROR
+    assert "max_tokens" in cfg.MODELS_ERROR
+
+
+def test_every_fault_is_reported_not_just_the_first(monkeypatch):
+    """One at a time makes an operator with two typos restart twice."""
+    cfg = _reload(
+        monkeypatch,
+        [{"id": "a", "max_tokens": 0}, {"id": "b", "context_tokens": 1}],
+    )
+    assert "entry 1 (a)" in cfg.MODELS_ERROR
+    assert "entry 2 (b)" in cfg.MODELS_ERROR
+
+
+def test_an_entry_with_no_id_still_reports_its_field_faults(monkeypatch):
+    """Both faults in one restart, even when the id itself is the problem —
+    and no import-time raise (the KeyError trap on entry["id"])."""
+    cfg = _reload(monkeypatch, [{"max_tokens": 0}])
+    assert "entry 1 has no usable id" in cfg.MODELS_ERROR
+    assert "max_tokens" in cfg.MODELS_ERROR
+
+
+def test_a_fault_names_fields_never_values(monkeypatch):
+    """MODELS_ERROR reaches every signed-in user via agents/status, and a
+    params or price value is a plausible place an operator put a credential."""
+    cfg = _reload(
+        monkeypatch,
+        [{"id": "m", "price": {"input": "sk-skein-oops-a-secret", "output": 2}}],
+    )
+    assert cfg.MODELS == {}
+    assert "price.input" in cfg.MODELS_ERROR
+    assert "sk-skein-oops-a-secret" not in cfg.MODELS_ERROR
+
+
+def test_duplicate_ids_are_refused(monkeypatch):
+    """Which entry wins is otherwise silent — the menu must not guess."""
+    cfg = _reload(monkeypatch, [{"id": "m"}, {"id": "m"}])
+    assert cfg.MODELS == {}
+    assert "repeats an earlier id" in cfg.MODELS_ERROR
+
+
+def test_a_bare_infinity_is_refused(monkeypatch):
+    """json.loads parses the bare Infinity token — a price the operator never
+    wrote, and inf breaks every cost sum it touches."""
+    cfg = _reload(monkeypatch, '[{"id": "m", "price": {"input": Infinity, "output": 2}}]')
+    assert cfg.MODELS == {}
+    assert "price.input" in cfg.MODELS_ERROR
+
+
+def test_unparseable_json_degrades_and_says_so(monkeypatch):
+    cfg = _reload(monkeypatch, "{nope")
+    assert cfg.MODELS == {}
+    assert "not JSON" in cfg.MODELS_ERROR
+
+
+def test_the_registry_price_wins_over_the_price_table(monkeypatch):
+    monkeypatch.setenv("SKEIN_MODEL_PRICES", json.dumps({"m": [1, 2], "other": [3, 4]}))
+    _reload(monkeypatch, [{"id": "m", "price": {"input": 10, "output": 20}}])
+    from app.services import usage
+
+    # 1M in + 1M out: registry says 10+20, the table's 1+2 must lose
+    assert usage.cost_for("m", 1_000_000, 1_000_000) == 30.0
+    # a model outside the registry still prices from the table
+    assert usage.cost_for("other", 1_000_000, 1_000_000) == 7.0
+    # no price anywhere = None — honest, not zero
+    assert usage.cost_for("unknown", 1_000_000, 1_000_000) is None
+
+
+def test_an_unpriced_registry_model_falls_back_to_the_price_table(monkeypatch):
+    monkeypatch.setenv("SKEIN_MODEL_PRICES", json.dumps({"m": [1, 2]}))
+    _reload(monkeypatch, [{"id": "m"}])
+    from app.services import usage
+
+    assert usage.cost_for("m", 1_000_000, 1_000_000) == 3.0
+
+
+def test_schema_and_code_agree(monkeypatch):
+    """The shipped schema is the ConfigMap editor's contract. It must accept
+    what the code accepts and reject what the code rejects, or an operator's
+    green editor produces a red /health."""
+    jsonschema.validate(VALID, SCHEMA)
+    assert _reload(monkeypatch, VALID).MODELS_ERROR == ""
+    for bad in INVALID:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(bad, SCHEMA)
+        cfg = _reload(monkeypatch, bad)
+        assert cfg.MODELS == {}, f"code accepted what the schema rejects: {bad}"
+        assert cfg.MODELS_ERROR != ""
