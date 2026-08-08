@@ -118,6 +118,12 @@ that hasn't passed it will fail on push-to-main.
 - Tools return JSON strings; services return dicts/lists.
 - Keep frontend components small and Tailwind-styled; no extra UI libraries.
 - Python: match the existing terse style. Comments follow "Code comments" below.
+- A new test must fail against the unfixed code before it is worth keeping,
+  and its fixtures must come from a running instance. A row no code path
+  emits, a name absent from the namespace the test says is refused, a date
+  far from the window edge — each passes against the broken behavior and
+  pins nothing. The first shipped a parser that opened the task panel on a
+  blocker id (`frontend/__tests__/activity-task-refs.test.tsx`).
 
 ### User-visible wording
 

@@ -7,14 +7,33 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  engagement, and the slip forecast printed "likely <date>" off zero
  *  completed milestones — no information dressed as a prediction. */
 
-// every endpoint the pages read needs its real SHAPE: returning [] for the
-// forecast makes `forecast.basis` throw, and the page renders nothing at all
+// Every endpoint the pages read needs its real SHAPE: returning [] for the
+// forecast makes `forecast.basis` throw, and the page renders nothing at all.
+//
+// HAND-AUTHORED, and the one place in this suite that is. It has to be: these
+// are the payloads of an EMPTY deployment, which is exactly the state a
+// running instance with seed data cannot produce, and the defects this file
+// pins are all "a page made a claim with no data behind it". The cost is
+// drift — `/api/portfolio/flow` silently fell three keys behind
+// services/portfolio.py::flow_metrics before anyone noticed, because the page
+// reads them optionally. When a key is added there, add it here; the test
+// stays green either way, so nothing else will tell you.
 const BASE: Record<string, unknown> = {
   "/api/portfolio/flow": {
     cycle_time: { tasks_done: 0, avg_days: null, median_days: null },
     throughput_by_week: {},
     wip_by_person: [],
+    wip_total: 0,
+    wip_people: 0,
     stale_wip: [],
+    interrupts: {
+      planned: 0,
+      unplanned: 0,
+      same_week_unplanned_share: null,
+      n: 0,
+      carried_over: 0,
+      window_weeks: 8,
+    },
   },
   "/api/week": { week: "2026-W32", committed: 0, done: 0, kept_percent: null, tasks: [] },
   "/api/portfolio/forecast": {
