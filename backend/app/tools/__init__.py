@@ -58,6 +58,11 @@ from .work import (
     update_task,
 )
 
+# No tool wraps services/settings.py or services/tuning.py, on purpose: the
+# context strategy, the model pick, and the tuning knobs change what every
+# chat costs and how the deployment behaves, and an agent that can move them
+# can be talked into moving them. Those setters are REST + AdminUser only
+# (routes/api.py) — do not add a wrapper here.
 ALL_TOOLS = [
     create_milestone,
     update_milestone,

@@ -843,8 +843,12 @@ def get_agents_status(user: CurrentUser):
 
     return {
         "provider": config.MODEL_PROVIDER,
-        "model": config.MODEL_ID if config.EFFECTIVE_PROVIDER != "mock" else "",
+        # through the service, not config.MODEL_ID: with a pick in force the
+        # strip would otherwise claim a model the deployment is not running —
+        # the exact lie the CONTEXT_STRATEGY comment in config.py forbids
+        "model": settings.model_pick_state()["model"],
         "provider_error": config.MODEL_PROVIDER_ERROR,
+        "models_error": config.MODELS_ERROR,
         "review_gate": config.AGENT_REVIEW,
         # empty on mock: no Strands agent is built, so no strategy applies and
         # claiming one would describe machinery that is not running
@@ -886,6 +890,48 @@ def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
     ratelimit.check("write", user)
     try:
         return settings.set_context_strategy(body.strategy, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class ModelPickIn(BaseModel):
+    # extra=forbid + no default: same trap ContextStrategyIn names — a
+    # mistyped field falling through to "" is the CLEAR sentinel
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(max_length=200)
+
+
+@router.get("/settings/model")
+def get_model_pick(user: CurrentUser):
+    """Reads for everyone — agents/status already names the model to every
+    signed-in user, and the menu's prices are list prices, not capacity
+    reconnaissance. Writing is admin-only."""
+    from .. import config
+
+    return {
+        **settings.model_pick_state(),
+        # entry params are NOT served: they are operator-authored request
+        # bodies, and a token an operator parked there must not reach every
+        # signed-in browser. The picker renders the fields below only.
+        "menu": [
+            {k: e[k] for k in ("id", "label", "detail", "max_tokens", "context_tokens", "price")}
+            for e in config.MODELS.values()
+        ],
+        "menu_error": config.MODELS_ERROR,
+        "applies": config.EFFECTIVE_PROVIDER != "mock" and bool(config.MODELS),
+        "provider": config.MODEL_PROVIDER,
+    }
+
+
+@router.post("/settings/model")
+def post_model_pick(body: ModelPickIn, user: AdminUser):
+    """AdminUser: the pick changes what every chat costs for the whole team.
+    Rate-capped because each call appends to the activity ledger, which is
+    never pruned. The service refuses ids outside the menu — hiding the
+    picker on a faulted registry is UI, this refusal is the enforcement."""
+    ratelimit.check("write", user)
+    try:
+        return settings.set_model_pick(body.model, actor=user)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

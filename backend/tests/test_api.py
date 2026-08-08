@@ -81,6 +81,7 @@ def test_agents_status_shape(client):
         "provider",
         "model",
         "provider_error",
+        "models_error",
         "review_gate",
         "context_strategy",
         "context_error",
