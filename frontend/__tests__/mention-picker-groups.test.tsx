@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 /** The @ picker offers two different actions behind one symbol: naming a
  *  PERSON files something they can open, naming a SPECIALIST answers you in
- *  this turn. Only a LEADING @slug invokes a specialist (routes/chat.py
- *  rewrites it into the /as form), so offering one mid-sentence would promise
- *  an answer that never arrives. */
+ *  this turn. A LEADING @slug is the deterministic handoff (routes/chat.py
+ *  rewrites it into the /as form); a mid-sentence slug reaches the bench
+ *  through the orchestrator's consult tool, so those rows depend on a real
+ *  provider — this file runs with one. mention-picker-keyless.test.tsx pins
+ *  the mock side, where mid-sentence rows must stay hidden. */
 
 class NoopResizeObserver {
   observe() {}
@@ -36,7 +38,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
                 emoji: "🌱",
               },
             ])
-          : Promise.resolve([]),
+          : path === "/api/agents/status"
+            ? Promise.resolve({ provider: "ollama" })
+            : Promise.resolve([]),
     getUser: () => "tester",
   };
 });
@@ -93,12 +97,15 @@ describe("the @ picker", () => {
     expect(groupNames("Specialists")).toContain("@growth-mentor🌱 coaching");
   });
 
-  it("offers people only once the @ is mid-sentence", async () => {
+  it("offers specialists mid-sentence too, on a real provider", async () => {
+    // the consult feature's own headline case is "ask @code-reviewer about
+    // tomorrow's plan" — a picker that only helped at position zero made the
+    // user type the slug from memory exactly where the feature lives
     render(<Harness />);
-    await type("can @");
+    await type("ask @");
     await screen.findByRole("listbox");
     expect(groupNames("People")).toContain("@mira");
-    expect(screen.queryByRole("group", { name: "Specialists" })).toBeNull();
+    expect(groupNames("Specialists")).toContain("@growth-mentor🌱 coaching");
   });
 
   it("never offers a name the backend cannot match", async () => {

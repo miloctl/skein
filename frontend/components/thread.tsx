@@ -155,6 +155,24 @@ const MENTIONABLE = /^[a-z0-9][a-z0-9._-]*$/i;
 // person who joins mid-session is not offered until the page reloads. The
 // picker missing a brand-new name costs one manual @type; a fetch per thread
 // switch costs a request on every switch, in every open tab.
+// Whether a mid-sentence @slug can reach the bench at all: the orchestrator
+// consults only on a real provider, and the mock has no tool loop — offering
+// a specialist there promises an answer the keyless path cannot give. The
+// leading-@ rows never read this: /as is deterministic on every provider.
+// A failed fetch leaves it unresolved and the rows hidden, which fails
+// toward the path that always works.
+let statusCache: Promise<{ provider: string }> | null = null;
+function agentStatus(): Promise<{ provider: string }> {
+  if (!statusCache) {
+    const attempt = api<{ provider: string }>("/api/agents/status").catch((e) => {
+      if (statusCache === attempt) statusCache = null;
+      throw e;
+    });
+    statusCache = attempt;
+  }
+  return statusCache;
+}
+
 let peopleCache: Promise<Person[]> | null = null;
 function peopleList(): Promise<Person[]> {
   if (!peopleCache) {
@@ -191,6 +209,7 @@ const Composer = () => {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [flocks, setFlocks] = useState<Flock[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
+  const [consultReady, setConsultReady] = useState(false);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   // set while the person is walking input history, and NOT reset by resetKey
@@ -221,6 +240,9 @@ const Composer = () => {
       .catch(() => {});
     peopleList()
       .then(setPeople)
+      .catch(() => {});
+    agentStatus()
+      .then((s) => setConsultReady(s.provider !== "mock"))
       .catch(() => {});
     personaList()
       .then((list) => {
@@ -284,9 +306,11 @@ const Composer = () => {
             mention: p.name,
             group: "People",
           })),
-        // only at the start of the message: that is the only position that
-        // invokes one (lib/slash.ts::mentionQuery)
-        ...(at.atStart
+        // a leading @slug is the deterministic handoff (/as) and is offered
+        // on every provider; a mid-sentence slug reaches the bench through
+        // the orchestrator's consult tool, so those rows appear only when a
+        // real provider answers the chat (agentStatus above)
+        ...(at.atStart || consultReady
           ? personas
               .filter((x) => x.slug.startsWith(at.token))
               .map((x) => ({
