@@ -107,6 +107,36 @@ export default function SettingsPage() {
   const [ctxLoaded, setCtxLoaded] = useState(false);
   const [ctxLoadError, setCtxLoadError] = useState("");
   const [ctxStatus, setCtxStatus] = useState("");
+  type ModelMenuEntry = {
+    id: string;
+    label: string;
+    detail: string;
+    max_tokens: number | null;
+    context_tokens: number | null;
+    price: [number, number] | null;
+  };
+  type ModelPick = {
+    model: string;
+    override: {
+      provider: string;
+      model_id: string;
+      set_by: string;
+      updated_at: string;
+    } | null;
+    ignored: string;
+    default: string;
+    menu: ModelMenuEntry[];
+    menu_error: string;
+    applies: boolean;
+    provider: string;
+  };
+  const [pick, setPick] = useState<ModelPick | null>(null);
+  // three states, the ctx rule above: before the first fetch settles nothing
+  // has failed, and an error rendered during normal loading describes
+  // something that did not happen
+  const [pickLoaded, setPickLoaded] = useState(false);
+  const [pickLoadError, setPickLoadError] = useState("");
+  const [pickStatus, setPickStatus] = useState("");
   type Tunable = {
     name: string;
     label: string;
@@ -196,6 +226,20 @@ export default function SettingsPage() {
       .finally(() => setCtxLoaded(true));
   }, []);
   useEffect(loadCtx, [loadCtx]);
+
+  const loadPick = useCallback(() => {
+    api<ModelPick>("/api/settings/model")
+      .then((r) => {
+        setPick(r);
+        setPickLoadError("");
+      })
+      .catch((e) => {
+        setPick(null);
+        setPickLoadError(loadError(e)); // routes to backendUnreachable itself
+      })
+      .finally(() => setPickLoaded(true));
+  }, []);
+  useEffect(loadPick, [loadPick]);
 
   useEffect(() => {
     api<{ review_gate: boolean }>("/api/agents/status")
@@ -1034,6 +1078,147 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Model (team)">
+        <p className="mb-3 text-sm text-ink-3">
+          The model every chat runs on. Whoever runs the server curates the
+          menu. An administrator picks from it here, with a personal API key
+          (step 2). The pick applies to everyone from their next message.
+          {pick && pick.provider === "mock" && (
+            <> No model is connected. This setting is not in use.</>
+          )}
+        </p>
+        {pickLoaded && !pick && (
+          <p className="text-sm text-ink-3">{pickLoadError}</p>
+        )}
+        {pick && pick.menu_error && (
+          <p className="text-sm text-weld">{pick.menu_error}</p>
+        )}
+        {pick &&
+          !pick.menu_error &&
+          pick.menu.length === 0 &&
+          pick.provider !== "mock" && (
+            <p className="text-sm text-ink-3">
+              The deployment has no model menu. Whoever runs the server can set
+              SKEIN_MODELS to add one.
+            </p>
+          )}
+        {pick && pick.applies && (
+          <div className="space-y-2">
+            {pick.ignored && pick.override && (
+              // the stored pick and the reason it is not honored, both named:
+              // hiding either tells the administrator the deployment is
+              // configured one way while it runs another
+              <p className="text-xs text-weld">
+                The stored pick ({pick.override.model_id}) is not in use.{" "}
+                {pick.ignored}
+              </p>
+            )}
+            {pick.menu.map((m) => (
+              <label
+                key={m.id}
+                className={
+                  "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 " +
+                  (pick.model === m.id
+                    ? "border-thread-solid bg-thread-solid/5"
+                    : "border-line hover:border-line-strong")
+                }
+              >
+                <input
+                  type="radio"
+                  name="model-pick"
+                  className="mt-1"
+                  disabled={!strong}
+                  checked={pick.model === m.id}
+                  onChange={async () => {
+                    try {
+                      await api("/api/settings/model", {
+                        method: "POST",
+                        body: JSON.stringify({ model: m.id }),
+                      });
+                      setPickStatus(
+                        "Saved. Every chat uses it from its next message.",
+                      );
+                      loadPick();
+                    } catch (e) {
+                      setPickStatus(
+                        isUnreachable(e)
+                          ? backendUnreachable()
+                          : `Not saved. ${actionError(e)}`,
+                      );
+                    }
+                  }}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-ink">
+                    {m.label}
+                  </span>
+                  {m.detail && (
+                    <span className="block text-xs text-ink-3">{m.detail}</span>
+                  )}
+                  {(m.price || m.context_tokens) && (
+                    <span className="block text-xs text-ink-3">
+                      {[
+                        m.price
+                          ? `$${m.price[0]} in / $${m.price[1]} out per million tokens`
+                          : "",
+                        m.context_tokens
+                          ? `${m.context_tokens.toLocaleString("en-US")}-token context`
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+            {pick.override && !pick.ignored && (
+              <p className="text-xs text-ink-3">
+                Set by {pick.override.set_by} on{" "}
+                {pick.override.updated_at.slice(0, 10)}. Overrides the
+                deployment default ({pick.default}).
+              </p>
+            )}
+            {pick.override && (
+              <button
+                disabled={!strong}
+                onClick={async () => {
+                  try {
+                    await api("/api/settings/model", {
+                      method: "POST",
+                      body: JSON.stringify({ model: "" }),
+                    });
+                    setPickStatus(
+                      `Cleared. Back to the deployment default (${pick.default}).`,
+                    );
+                    loadPick();
+                  } catch (e) {
+                    setPickStatus(
+                      isUnreachable(e)
+                        ? backendUnreachable()
+                        : `Not cleared. ${actionError(e)}`,
+                    );
+                  }
+                }}
+                className="rounded-lg bg-weld/15 px-3 py-1 text-xs font-medium text-weld hover:bg-weld/25 disabled:opacity-40"
+              >
+                Use the deployment default ({pick.default})
+              </button>
+            )}
+            <p
+              role="status"
+              aria-live="polite"
+              className="min-h-4 text-xs text-ink-3"
+            >
+              {pickStatus ||
+                (strong
+                  ? ""
+                  : "Needs your API key (step 2 above) and administrator access.")}
+            </p>
           </div>
         )}
       </Section>

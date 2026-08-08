@@ -136,10 +136,11 @@ def model_pick_state() -> dict:
     stored = _stored_pick()
     ignored = ""
     if stored:
+        # full sentences: the Settings section renders these verbatim
         if stored["provider"] != config.EFFECTIVE_PROVIDER:
-            ignored = "the model provider changed after this pick was made"
+            ignored = "The model provider changed after this pick was made."
         elif stored["model_id"] not in config.MODELS:
-            ignored = "the picked model is no longer in the menu"
+            ignored = "The picked model is no longer in the menu."
     effective = stored["model_id"] if stored and not ignored else config.MODEL_ID
     return {
         "model": effective if config.EFFECTIVE_PROVIDER != "mock" else "",

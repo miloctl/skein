@@ -353,3 +353,13 @@ knots:
     how: Generate one from an engagement on Work → Browse.
     link: /dashboard
     since: 2026-07-31
+
+  - id: model_pick
+    feature: Pick the team model
+    knot: Adjustable Grip Hitch
+    set: manager
+    role: manager
+    pitch: Slide the whole team onto the right model for the week — no redeploy, no ticket, one knot to shift the load.
+    how: On Settings under Model (team), select a model from the menu. The change applies to each chat from its next message.
+    link: /settings
+    since: 2026-08-08

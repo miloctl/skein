@@ -56,6 +56,19 @@ vi.mock("@/lib/api", async (importOriginal) => {
           choices: ["sliding", "summarize"],
           applies: true,
         });
+      // the model section reads pick.menu.length — the bare [] fallback
+      // below crashes the render before section 4 ever appears
+      if (path === "/api/settings/model")
+        return Promise.resolve({
+          model: "",
+          override: null,
+          ignored: "",
+          default: "",
+          menu: [],
+          menu_error: "",
+          applies: false,
+          provider: "mock",
+        });
       if (path === "/api/agents/entities") {
         if (gate.entitiesFail)
           return Promise.reject(new Error("backend is unreachable"));

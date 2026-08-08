@@ -120,6 +120,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "ritual": lambda u: _act(u, "week_open") or _act(u, "week_close"),
     "readout": lambda u: _act(u, "exec_readout"),
     "handoff": lambda u: _act(u, "generate_handoff"),
+    "model_pick": lambda u: _act(u, "set_model_pick"),
 }
 
 _registry_cache: list[dict] | None = None
