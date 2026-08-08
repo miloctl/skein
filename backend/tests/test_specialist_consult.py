@@ -615,11 +615,12 @@ def test_the_strands_wrapper_always_receives_a_tool_result(real_provider, monkey
         json.loads(result["content"][0]["text"])  # the model reads JSON, not a repr
 
 
-def test_specialist_receipts_reach_the_turn_that_asked(real_provider, monkeypatch):
-    """The tool must NOT call receipts.start(): the box is a shared list, and
-    rebinding it in the tool's copied context drains every specialist receipt
-    into a list nobody reads. Run in a create_task like strands does, so the
-    context IS a copy and the rebind would actually detach it."""
+def test_specialist_receipts_ride_the_consult_channel(real_provider, monkeypatch):
+    """A receipt travels the same queue as the specialist's text, so it
+    renders inside the section that names its author — placement by data.
+    The shared box stays EMPTY: a receipt in both places would render twice.
+    Run in a create_task like strands does, so the isolated box lives in a
+    real context copy."""
     from app.agents import receipts
 
     agent = team_agent.build_agent("t-receipts")
@@ -631,18 +632,91 @@ def test_specialist_receipts_reach_the_turn_that_asked(real_provider, monkeypatc
         )()
 
         async def stream_async(self, message):
-            receipts.record("queued", "note", "specialist filed", 7)
+            receipts.record("queued", "note", "specialist filed", 7, actor="code-reviewer")
             yield {"data": "filed."}
 
     monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: Writes())
 
     async def run():
         receipts.start()
-        await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+        events = await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+        return events, receipts.drain()
+
+    events, leaked = asyncio.run(run())
+    riding = [e for e in events if isinstance(e, dict) and "receipt" in e]
+    assert [e["receipt"]["ref"] for e in riding] == [7], "the receipt missed the channel"
+    assert riding[0]["skein_consult"] == "code-reviewer"
+    # actor stays ON the event: the route strips it against the section head,
+    # and stripping it here would blind the shared-box spillway path
+    assert riding[0]["receipt"]["actor"] == "code-reviewer"
+    assert leaked == [], "a receipt in the channel AND the shared box renders twice"
+
+
+def test_a_stopped_consult_spills_its_receipts_to_the_shared_box(real_provider, monkeypatch):
+    """The stop button closes the generator before the channel drains run.
+    deisolate spills the stranded receipts into the shared box, where the
+    close-out drain renders them actor-suffixed — late, but never lost.
+
+    The consult runs in its own task (the shared box must be PROVABLY the one
+    the caller reads — iterated directly, isolate rebinds the caller's own
+    context and the test measures the isolated box, which passes with the
+    spillway deleted), and aclose arrives from ANOTHER task — the foreign
+    finalization context test_flock_turns.py pins for an abandoned stream,
+    where a contextvars Token restore raises and loses everything."""
+    from app.agents import receipts
+
+    agent = team_agent.build_agent("t-spill")
+    consult = _consult_tool(agent)
+
+    class SlowAfterFiling:
+        event_loop_metrics = type(
+            "M", (), {"accumulated_usage": {}, "accumulated_metrics": {}, "cycle_count": 0}
+        )()
+
+        async def stream_async(self, message):
+            receipts.record("queued", "note", "stranded filing", 11, actor="code-reviewer")
+            yield {"data": "one chunk"}
+            await asyncio.sleep(30)
+
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: SlowAfterFiling())
+
+    async def run():
+        receipts.start()
+        gen = consult("code-reviewer", "q")
+        # the first yield is the text; the receipt drain follows it, so
+        # closing HERE strands the receipt in the isolated box
+        await asyncio.create_task(anext(gen))
+        await asyncio.create_task(gen.aclose())
         return receipts.drain()
 
-    drained = asyncio.run(run())
-    assert [r["ref"] for r in drained] == [7], "the specialist's receipt drained into nowhere"
+    spilled = asyncio.run(run())
+    assert [r["ref"] for r in spilled] == [11], "a stopped consult lost its receipt"
+    assert spilled[0]["actor"] == "code-reviewer"
+
+
+def test_a_consult_cannot_steal_another_agents_receipt(real_provider, monkeypatch):
+    """The reason the box is isolated at all: the consult drains beside its
+    own text, and without isolation that drain empties the SHARED box —
+    a receipt some other agent already left there would ride this channel
+    and render under this specialist's heading, attributed to an agent that
+    never touched it."""
+    from app.agents import receipts
+
+    agent = team_agent.build_agent("t-theft")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(team_agent, "build_agent", lambda *a, **k: _Answering())
+
+    async def run():
+        receipts.start()
+        # another agent's receipt, already in the turn's shared box
+        receipts.record("queued", "task", "someone else's write", 21, actor="agent")
+        events = await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+        return events, receipts.drain()
+
+    events, kept = asyncio.run(run())
+    riding = [e["receipt"]["ref"] for e in events if isinstance(e, dict) and "receipt" in e]
+    assert 21 not in riding, "the consult stole a receipt it did not produce"
+    assert [r["ref"] for r in kept] == [21], "the shared box lost the other agent's receipt"
 
 
 def test_a_rate_limited_consult_returns_the_refusal(real_provider, monkeypatch):
@@ -732,13 +806,15 @@ def test_a_consulted_write_carries_the_specialist_identity(real_provider, monkey
     async def run():
         set_requester_identity("mira")
         receipts.start()
-        await asyncio.create_task(_drain(consult("code-reviewer", "q")))
-        return receipts.drain()
+        events = await asyncio.create_task(_drain(consult("code-reviewer", "q")))
+        return events, receipts.drain()
 
-    drained = asyncio.run(run())
+    events, drained = asyncio.run(run())
+    riding = [e["receipt"] for e in events if isinstance(e, dict) and "receipt" in e]
     # the gate signed the receipt, not the test: actor comes from
     # agent_identity() at the choke point, so every gated write is covered
-    assert [r["actor"] for r in drained if r["kind"] == "queued"] == ["code-reviewer"]
+    assert [r["actor"] for r in riding if r["kind"] == "queued"] == ["code-reviewer"]
+    assert drained == []
     pending = db.query_one("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 1")
     assert pending is not None, "the write bypassed the review queue"
     assert pending["proposed_by"] == "code-reviewer"
@@ -834,3 +910,91 @@ def test_a_receipt_after_the_final_drain_is_not_dropped(client, monkeypatch):
     assert '"ref": 9' in out, "the straggler receipt was silently dropped"
     saved = client.get("/api/chats/ra-3/messages", headers={"X-User": "tester"}).json()[-1]
     assert "(code-reviewer)" in saved["content"]
+
+
+def test_a_channel_receipt_renders_inside_the_section_unsuffixed(client, monkeypatch):
+    """Placement by data: the receipt chip lands between the specialist's
+    heading and the orchestrator's framing, and carries no "(slug)" suffix —
+    the heading above it already names the author. It still counts as this
+    turn's write, so the unfiled guard stays quiet."""
+    from app.routes import chat as chat_route
+    from app.services import flocks
+
+    class RelaysAReceipt:
+        async def stream_async(self, message):
+            yield {"current_tool_use": {"toolUseId": "c-1", "name": "consult_specialist"}}
+            yield {
+                "tool_stream_event": {
+                    "tool_use": {"toolUseId": "c-1"},
+                    "data": {"skein_consult": "code-reviewer", "text": "Filing it."},
+                }
+            }
+            yield {
+                "tool_stream_event": {
+                    "tool_use": {"toolUseId": "c-1"},
+                    "data": {
+                        "skein_consult": "code-reviewer",
+                        "receipt": {
+                            "kind": "queued",
+                            "entity": "note",
+                            "detail": "risk memo",
+                            "ref": 7,
+                            "actor": "code-reviewer",
+                        },
+                    },
+                }
+            }
+            yield {"data": "That is their read."}
+
+    users.ensure_user("code-reviewer", kind="agent")
+    monkeypatch.setattr(chat_route, "build_agent", lambda *a, **k: RelaysAReceipt())
+    _read_chat(client, "todo: ask @code-reviewer to file the risk memo", "ch-1")
+
+    saved = client.get("/api/chats/ch-1/messages", headers={"X-User": "tester"}).json()[-1]
+    content = saved["content"]
+    card = flocks.member_cards(["code-reviewer"])[0]
+    assert content.index(card["name"]) < content.index("queued for review: note #7")
+    assert content.index("queued for review: note #7") < content.index("That is their read.")
+    assert "(code-reviewer)" not in content, "suffixed under a heading that already names it"
+    # the receipt counted as a write: a capture-prefixed message that files
+    # through a consult must not ALSO warn that it filed nothing
+    assert "filed nothing" not in content
+
+
+def test_deisolate_from_another_turns_context_does_not_rebind_it(real_provider, monkeypatch):
+    """The guard on deisolate's restore. An abandoned stream is finalized in
+    whatever context runs it last — which can be ANOTHER turn's. An unguarded
+    set(prev) would repoint that turn's box at this turn's, and every receipt
+    it records afterwards would land in a stranger's transcript."""
+    from app.agents import receipts
+
+    agent = team_agent.build_agent("t-foreign")
+    consult = _consult_tool(agent)
+    monkeypatch.setattr(
+        team_agent,
+        "build_agent",
+        lambda *a, **k: _Metered(chunks=("one chunk",), fail_after=False),
+    )
+
+    async def run():
+        receipts.start()  # turn A's shared box
+        gen = consult("code-reviewer", "q")
+        await asyncio.create_task(anext(gen))
+
+        async def turn_b():
+            receipts.start()  # a DIFFERENT turn's box, in this task's context
+            # recorded BEFORE the close: an unguarded restore repoints this
+            # context at turn A's box, and a drain that follows the same
+            # wrong pointer still sees its own later writes — only a receipt
+            # already in turn B's real box exposes the swap by going missing
+            receipts.record("queued", "task", "turn B, before the close", 30, actor="agent")
+            await gen.aclose()  # finalizes turn A's consult in turn B's context
+            receipts.record("queued", "note", "turn B, after the close", 31, actor="agent")
+            return receipts.drain()
+
+        b_receipts = await asyncio.create_task(turn_b())
+        return b_receipts, receipts.drain()
+
+    b_receipts, a_receipts = asyncio.run(run())
+    assert [r["ref"] for r in b_receipts] == [30, 31], "the close cost turn B its own receipts"
+    assert [r["ref"] for r in a_receipts] == []

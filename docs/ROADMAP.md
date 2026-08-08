@@ -128,26 +128,6 @@ A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
   symbolic references (`$1.id`) resolved at apply time, per-bundle approval
   with a per-step untick, and an atomic apply. Deferred until the simpler
   pieces prove out.
-- **A6 receipt channel-forwarding for consults** (2026-08-07) — a consulted
-  specialist's receipts drain from the shared box into wherever the stream
-  happens to be; the `actor` field makes a misplaced receipt honest, but
-  placement is still timing luck. The flock already has the right design:
-  receipts travel the member's own queue, so position itself attributes.
-  `_run_consult` can do the same — take its own box, forward
-  `{"skein_consult": slug, "receipt": r}` events, render them in pump's
-  `tool_stream_event` branch. Costs that made it a follow-up rather than
-  part of the actor change: `tests/test_specialist_consult.py` pins "the
-  tool must NOT call receipts.start()" (its cure is adding the reader, but
-  the test and the load-bearing comment in `team_agent.py` must be rewritten
-  with it), a receipt event must never be the tool generator's LAST yield
-  (the last yield IS the tool result), and `receipts.start()` inside the
-  tool needs the same save/restore the identity has for a sequential
-  executor. Re-entry trigger: a user reports a receipt rendering under the
-  wrong heading in practice.
-- Receipt chip nits (2026-08-07 wording audit): `nothing` and `unnotified`
-  share one emoji (📭) — two conditions, one glyph; "nothing was filed" is
-  the map's only passive. Both cosmetic, both in
-  `frontend/app/runtime-provider.tsx::receiptLine`.
 - Rejected proposals nag agent inboxes forever. An `acked_at` column ends it.
 - Notify-tier writes link to an empty `/review`.
 - The review registry has no registration-time assertion on apply-handler
