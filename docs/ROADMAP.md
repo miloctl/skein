@@ -230,12 +230,14 @@ These are not features. Each one needs a decision.
   `name_assignees=False`, which drops the one `engagement_health` receipt
   that named a person against past inactivity. The rule applied was
   "names on a planning surface that has a viewer, totals in anything built
-  to be forwarded". **Still open, and it is the wider door:** the agent tool
-  `get_flow_metrics` (`tools/portfolio.py`, in `ALL_TOOLS`, so every persona
-  holds it) returns raw `wip_by_person` PLUS `stale_wip` with titles and
-  assignees, and an agent's reply is text a manager pastes anywhere. Decide
-  whether a model reply counts as egress. If it does, the same
-  `name_assignees` treatment applies there and to the MCP twin.
+  to be forwarded". **SETTLED 2026-08-08: a model reply DOES count as
+  egress.** The agent tool has no viewer and no audience control, and its
+  answer is text somebody pastes elsewhere. `flow_metrics` gained
+  `name_people`, and both callers whose output leaves — `get_flow_metrics`
+  and the exec readout — pass it; `/portfolio` keeps the names, because it is
+  a planning surface with a viewer. An agent that needs to know who has room
+  reads `team_capacity`, which is the planning-shaped tool. Nothing is left
+  of this item.
 - **`promised:` audience is ambiguous at capture time.**
 - **The Slack `fb:` refusal is documented but not stated in the Slack copy.**
   The code fails closed, so this is a documentation gap only.

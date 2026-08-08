@@ -7,10 +7,9 @@ import { PeekLink } from "@/components/task-peek";
 
 /** Search and /ask, in the nav.
  *
- *  Both endpoints shipped working and had no consumer anywhere in the app:
- *  the two features that answer "where did we decide that" were reachable
- *  only by curl or the CLI, so the answer people actually used was Slack
- *  scrollback — the leak Skein exists to close.
+ *  This box is the only consumer of GET /api/search and GET /api/ask. With
+ *  no surface, the answer to "where did we decide that" is Slack scrollback,
+ *  which is the leak Skein exists to close.
  *
  *  One input, two backends. A leading `?` asks /api/ask, which answers with
  *  citations rather than rows; anything else searches. The prefix is the same

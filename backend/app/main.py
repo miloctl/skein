@@ -92,6 +92,15 @@ async def lifespan(app: FastAPI):
             mcp_user,
             mcp_user,
         )
+    if config.TZ_ERROR:
+        # the rejected value, for whoever runs the server. TZ_ERROR itself is
+        # served on /health and never carries it (config.py::TZ_REJECTED) —
+        # the same split the auth fault below makes, for the same reason.
+        log.warning(
+            "time zone is misconfigured (SKEIN_TZ=%r): %s",
+            config.TZ_REJECTED,
+            config.TZ_ERROR,
+        )
     if config.AUTH_ERROR:
         # the rejected value goes to the LOG, never to the 503 body: that
         # response is served to unauthenticated callers, and an operator who

@@ -65,3 +65,52 @@ describe("the open panel", () => {
     outside.remove();
   });
 });
+
+describe("focus on close", () => {
+  it("returns focus to the trigger", async () => {
+    window.history.pushState({}, "", "/");
+    const { container } = render(
+      <>
+        <PeekLink taskId={4}>#4 Build the happy path</PeekLink>
+        <TaskPeek />
+      </>,
+    );
+    const trigger = screen.getByRole("button", { name: /Build the happy path/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Close/ }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(container).toBeTruthy();
+  });
+
+  it("falls back to the search box when the trigger has unmounted", async () => {
+    // The search dropdown closes on activation, so the row that opened the
+    // panel is DETACHED by the time focus is restored — and .focus() on a
+    // detached node silently no-ops, dropping the reader on <body>, which is
+    // the exact failure the restore ref exists to prevent.
+    window.history.pushState({}, "", "/");
+    const search = document.createElement("input");
+    search.id = "nav-search";
+    document.body.appendChild(search);
+
+    const holder = document.createElement("div");
+    document.body.appendChild(holder);
+    const { unmount } = render(<PeekLink taskId={4}>#4 gone soon</PeekLink>, {
+      container: holder,
+    });
+    render(<TaskPeek />);
+
+    const trigger = screen.getByRole("button", { name: /gone soon/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    unmount(); // the dropdown closes and takes its row with it
+
+    fireEvent.click(screen.getByRole("button", { name: /Close/ }));
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    expect(document.activeElement).not.toBe(document.body);
+    search.remove();
+    holder.remove();
+  });
+});

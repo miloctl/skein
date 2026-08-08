@@ -1078,10 +1078,13 @@ def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser, request: Re
     if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
         raise HTTPException(
             403,
-            "Skein did not create the agent identity: that requires a personal API key."
-            " Delegate to an agent that already exists, or get your first key from whoever"
-            " runs the server (python -m app.bootstrap_key <you>) and paste it in"
-            " Settings, step 2.",
+            # lowercase fragment, like the other 187: the frontend joins a
+            # refusal into its own sentence (docs/LEXICON.md, "Backend
+            # refusal shape")
+            "creating an agent identity requires a personal API key."
+            " Delegate to an agent that already exists, or get your first key from"
+            " whoever runs the server (python -m app.bootstrap_key <you>) and paste"
+            " it in Settings, step 2.",
         )
     return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
 

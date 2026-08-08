@@ -452,7 +452,7 @@ export default function InsightsPage() {
             a decoration. Withheld under n=8, like every other claim here. */}
         {d.forecast_calibration.n === 0 ? (
           <p className="text-sm text-ink-3">
-            No forecast has been scored yet. A milestone must finish first.
+            No forecast is scored yet. A milestone must finish first.
           </p>
         ) : (
           <>

@@ -53,7 +53,9 @@ type Cockpit = {
   intake: { id: number; title: string; requester: string; score: number | null }[];
   stale_decisions: { id: number; title: string; review_by: string | null }[];
   health: { id: number; name: string; health: string; status: string }[];
-  health_changes: { id: number; name: string; from: string | null; to: string }[];
+  // `from` is non-null by the time it reaches here — the service drops a
+  // first-ever score, which is not a change (services/planning.py)
+  health_changes: { id: number; name: string; from: string; to: string }[];
   today: string;
 };
 
@@ -146,13 +148,15 @@ export default function Planning() {
                 Withheld under n=8 by the service, like every other verdict. */}
             Over {d.interrupts.window_weeks} weeks,{" "}
             {Math.round(share * 100)}% of the work that started and finished
-            inside one week was never on that week&apos;s line (
+            inside one week was never on that week&apos;s commitment line (
             {d.interrupts.unplanned} of {d.interrupts.n}).
             {d.interrupts.carried_over > 0 ? (
               <>
                 {" "}
                 {d.interrupts.carried_over} more carried over from an earlier
-                week and is counted in neither.
+                week and{" "}
+                {d.interrupts.carried_over === 1 ? "is" : "are"} counted in
+                neither number.
               </>
             ) : null}
           </p>
@@ -220,9 +224,9 @@ export default function Planning() {
       </Card>
 
       {/* 4 — what wants in */}
-      <Card title={`4 · Waiting to be triaged (${d.intake.length})`}>
+      <Card title={`4 · Waiting for triage (${d.intake.length})`}>
         {d.intake.length === 0 ? (
-          <p className="text-sm text-ink-3">Nothing awaiting triage.</p>
+          <p className="text-sm text-ink-3">Nothing is waiting for triage.</p>
         ) : (
           <ul className="space-y-1 text-sm">
             {d.intake.map((r) => (
@@ -253,7 +257,11 @@ export default function Planning() {
               {d.health_changes.map((c) => (
                 <li key={c.id}>
                   {DOT[c.to]} <span className="font-medium">{c.name}</span>:{" "}
-                  {c.from ? `${c.from} → ${c.to}` : `now scored, ${c.to}`}
+                  {/* `from` is always set: services/planning.py filters a
+                      first-ever score out, because it is not a change and
+                      this heading says one. A fallback string here would be
+                      copy no reader can reach. */}
+                  {c.from} → {c.to}
                 </li>
               ))}
             </ul>
@@ -308,8 +316,8 @@ export default function Planning() {
           File the week-open brief
         </button>
         <p className="mt-2 text-xs text-ink-3">
-          One personal notification each, plus an artifact. It applies to
-          everyone, so run it once.
+          The brief sends one personal notification to each teammate and
+          files an artifact. It reaches everyone, so run it once.
         </p>
       </Card>
     </main>

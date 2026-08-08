@@ -7,12 +7,8 @@ from datetime import date, timedelta
 from .. import db
 from . import scope
 from .scope import WORKSPACE_ONLY
-from .slas import SILENCE_DAYS, STALE_WIP_DAYS
+from .slas import SILENCE_DAYS, STALE_WIP_DAYS, VERDICT_FLOOR_N
 from .stats import median as _median
-
-# the n floor docs/INSIGHTS.md holds every verdict to. One spelling, so a
-# rule that starts making a claim cannot pick a friendlier number.
-_SHARE_FLOOR_N = 8
 
 
 def _today() -> date:
@@ -85,9 +81,11 @@ def health_changes(health: list[dict], since: date | None = None) -> list[dict]:
 
 
 def _iso_week(day: str) -> str:
-    """The ISO week label a YYYY-MM-DD belongs to, in the same shape
-    committed_week stores (2026-W31). One spelling, because the interrupt
-    ratio compares its output directly against that column."""
+    """The ISO week label a YYYY-MM-DD belongs to, in the shape committed_week
+    stores (2026-W31). Takes a DATE STRING, which is what makes it worth a
+    helper: the interrupt ratio compares its output against that column, and
+    the conversion from a stored timestamp has to happen first. Callers that
+    already hold a date object format it inline."""
     iso = date.fromisoformat(day).isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
 
@@ -244,7 +242,12 @@ def engagement_health(
         # silent up to a day early
         silent = bool(open_by.get(eng["id"]) and last_ts and last_ts < silence_cutoff)
         if silent:
-            receipts.append(f"no task activity since {last_ts[:10]}")
+            # local_day, not [:10]: the comment above says that slice is a
+            # UTC date, and this receipt is READ BY A HUMAN in the forwarded
+            # exec readout. Naming the hazard on one line and committing it on
+            # the next is the strongest possible invitation to fix the wrong
+            # one — so the render converts, like every other date a person sees.
+            receipts.append(f"no task activity since {db.local_day(last_ts)}")
 
         if escalated or len(overdue) >= 2:
             color = "red"
@@ -300,8 +303,9 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
 
     Person-level and forward-looking, which is the direction the
     anti-surveillance rule permits — this plans the future, it does not score
-    the past. Names the viewer cannot read are masked the way
-    allocation_conflicts masks them.
+    the past, so `a.person` is served raw. It is the ENGAGEMENT name that
+    scope.visible_name masks, the way allocation_conflicts masks the same
+    column.
     """
     weeks = max(1, min(weeks, 26))
     monday = _today() - timedelta(days=_today().weekday())
@@ -355,9 +359,16 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
     return out
 
 
-def flow_metrics(weeks: int = 8) -> dict:
+def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     """Cycle time / throughput / WIP from timestamps the platform already has.
-    No estimates, no story points."""
+    No estimates, no story points.
+
+    name_people=False aggregates the two person-named parts — wip_by_person
+    and the stale_wip assignees — for a caller whose output EGRESSES. Same
+    split, and the same reason, as engagement_health's name_assignees: an
+    agent's reply is text a manager pastes somewhere, and this function is
+    judging the past. `team_capacity` is the planning-shaped read an agent
+    should reach for when the question is who has room."""
     cutoff = db.local_midnight_utc(_today() - timedelta(weeks=weeks))
     done = db.query(
         "SELECT created_at, completed_at, committed_week,"
@@ -420,7 +431,7 @@ def flow_metrics(weeks: int = 8) -> dict:
             # withheld under the n floor docs/INSIGHTS.md sets for every other
             # verdict here: "50% of work was unplanned" over two tasks is noise
             # wearing a percentage sign, and this renders on the manager's page
-            if settled >= _SHARE_FLOOR_N
+            if settled >= VERDICT_FLOOR_N
             else None
         ),
         "n": settled,
@@ -445,8 +456,15 @@ def flow_metrics(weeks: int = 8) -> dict:
     return {
         "cycle_time": cycle,
         "throughput_by_week": dict(sorted(throughput.items())),
-        "wip_by_person": wip,
-        "stale_wip": stale,
+        # the two person-named parts, collapsed for an egressing caller
+        "wip_by_person": wip if name_people else [],
+        "wip_total": sum(int(w["in_progress"]) for w in wip),
+        "wip_people": len(wip),
+        "stale_wip": (
+            stale
+            if name_people
+            else [{k: v for k, v in t.items() if k != "assignee"} for t in stale]
+        ),
         "interrupts": interrupts,
     }
 

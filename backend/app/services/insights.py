@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from .. import db
 from . import scope, stats
 from .scope import WORKSPACE_ONLY
-from .slas import AGING_WIP_DAYS
+from .slas import AGING_WIP_DAYS, VERDICT_FLOOR_N
 
 WINDOW_DAYS = 28
 # Round trips inside ONE turn's tool loop before it is worth a human's
@@ -192,11 +192,10 @@ def intake_funnel(weeks: int = 12) -> dict:
 def forecast_calibration(window_days: int = 180) -> dict:
     """How often the slip forecast was right, scored against what happened.
 
-    adoption.snapshot_forecasts has written a row per open milestone per day
-    since it shipped, with the docstring "so calibration can be measured
-    against actuals later" — and nothing ever read the table, so "later" never
-    came. A forecast nobody scores is a decoration, and this one gets quoted
-    to stakeholders.
+    This is the only reader of forecast_snapshots, which
+    adoption.snapshot_forecasts fills one row per open milestone per day for
+    exactly this purpose. A forecast nobody scores is a decoration, and this
+    one gets quoted to stakeholders.
 
     Scored on the EARLIEST snapshot per milestone: the question a manager is
     answering is "can I trust the date I was given", and the date they were
@@ -214,7 +213,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
     # raised. UNIQUE (day, milestone_id) makes the minimum unambiguous.
     rows = db.query(
         "SELECT f.milestone_id, MIN(f.day) AS first_day, f.forecast_date,"
-        " m.completed_at, m.due_date"
+        " m.completed_at"
         " FROM forecast_snapshots f JOIN milestones m ON m.id = f.milestone_id"
         # bounded on the MILESTONE's completion, never the snapshot's creation:
         # as a WHERE on f.created_at it prunes rows BEFORE MIN() runs, so a
@@ -250,11 +249,11 @@ def forecast_calibration(window_days: int = 180) -> dict:
         "median_abs_error_days": _median([abs(e) for e in errors]),
         # withheld under the same floor every other claim here uses — a hit
         # rate over three milestones is noise wearing a percentage sign
-        "hit_rate": round(on_or_before / n, 2) if n >= 8 else None,
+        "hit_rate": round(on_or_before / n, 2) if n >= VERDICT_FLOOR_N else None,
         # withheld with the rate it reconstructs: hits/n IS hit_rate, so
         # serving it under the floor hands back the number the floor exists
         # to withhold (docs/INSIGHTS.md)
-        "hits": on_or_before if n >= 8 else None,
+        "hits": on_or_before if n >= VERDICT_FLOOR_N else None,
     }
 
 
@@ -745,11 +744,15 @@ def _r_turn_runaway() -> list[dict]:
         _finding(
             "turn_runaway",
             "medium",
-            f"{_n(len(rows), 'chat turn')} in the last 7 days ran"
+            # "agent turn", not "chat turn": the case this rule was written
+            # for is an UNATTENDED run (services/agent_runner.py), whose
+            # thread no chat list shows — and LEXICON fixes `chat` to a
+            # conversation a person had
+            f"{_n(len(rows), 'agent turn')} in the last 7 days ran"
             f" {TURN_CYCLE_ALARM} or more model round trips."
             f" The largest was {worst['cycles']} round trips by"
             f" {worst['agent_name'] or 'the chat agent'}, spending"
-            f" {worst['tokens']:,} tokens. Read the thread before it repeats.",
+            f" {worst['tokens']:,} tokens. Read the turn before it repeats.",
             {"turns": rows},
             subject=f"turns:{worst['id']}",
             n=len(rows),
