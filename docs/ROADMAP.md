@@ -119,15 +119,22 @@ did not ship:
 
 A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
 
-- **A3 gated agent morning sweep** — a new `nudge` registry entity where apply
-  means notify. Daily rules over existing reads file 5 proposals per day at
-  most, deduped weekly the way findings are. The cheapest authority on-ramp.
+- **A3 gated agent morning sweep** — SHIPPED 2026-08-08 in a different shape:
+  `services/agent_runner.py::sweep` notifies each delegated task's SPONSOR
+  rather than filing `nudge` proposals. The proposal-entity design was
+  dropped because the sweep's output has one accountable reader by
+  construction (the sponsor), and a proposal nobody must approve is a
+  notification with extra steps. Deterministic and keyless, as designed.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
   symbolic references (`$1.id`) resolved at apply time, per-bundle approval
-  with a per-step untick, and an atomic apply. Deferred until the simpler
-  pieces prove out.
+  with a per-step untick, and an atomic apply. **Still deferred, and the
+  trigger is now precise:** the unattended runner shipped 2026-08-08 and is
+  OFF by default, so no deployment has yet produced a week of unattended
+  proposals. Build this when one has, and shape the bundle around what that
+  week actually filed. Its first named consumer stays the flock synthesis
+  step, which is built with no tools and therefore cannot propose anything.
 - Rejected proposals nag agent inboxes forever. An `acked_at` column ends it.
 - Notify-tier writes link to an empty `/review`.
 - The review registry has no registration-time assertion on apply-handler
@@ -194,8 +201,18 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 
 These are not features. Each one needs a decision.
 
-- **Time zone.** Every human rhythm is hardcoded to UTC. A team outside UTC
-  gets a digest at the wrong hour. A `SKEIN_TZ` setting has zero hits today.
+- **Time zone.** DECIDED and shipped 2026-08-08: `SKEIN_TZ` takes an IANA
+  Region/City name (the deployment runs `America/New_York`). The scheduler
+  fires in that zone, `db.today()` is the team day, and storage stays UTC.
+  A fixed-offset key (`EST`) is refused with its reason, and a host with no
+  tzdata degrades to UTC and says so on `/health`.
+  **One open deploy note, not a build:** daily and weekly job claim keys
+  (`db.claim_job`) changed from the UTC day to the team day, and old keys are
+  never reconciled. Deploying between 20:00 and 24:00 local can therefore
+  skip exactly one run of a daily job whose next-day key was already claimed
+  by that evening's UTC-keyed run. Deploy outside that window, or accept one
+  missed digest. `retention-prune`'s month key moved with it, so a zone more
+  than 4 hours east of UTC no longer skips a whole month.
 - **The OIDC and API-key identity bridge** — DECIDED and shipped 2026-08-02:
   `SKEIN_AUTH_MODE` (`trusted-header | api-key | oidc`), in-process JWT
   validation in `app/oidc.py`, and the `AdminUser` split (`SKEIN_ADMINS` /
@@ -208,6 +225,17 @@ These are not features. Each one needs a decision.
 - **`docs/FEATURES.md` claims person-level data never judges the past, and
   `services/portfolio.py` still returns `wip_by_person`.** Narrow the claim or
   aggregate the display. Leaving both is the only wrong answer.
+  **Half-settled 2026-08-08.** The egress half shipped: the exec readout
+  writes an aggregate WIP line (`readout.py::_wip_summary`) and passes
+  `name_assignees=False`, which drops the one `engagement_health` receipt
+  that named a person against past inactivity. The rule applied was
+  "names on a planning surface that has a viewer, totals in anything built
+  to be forwarded". **Still open, and it is the wider door:** the agent tool
+  `get_flow_metrics` (`tools/portfolio.py`, in `ALL_TOOLS`, so every persona
+  holds it) returns raw `wip_by_person` PLUS `stale_wip` with titles and
+  assignees, and an agent's reply is text a manager pastes anywhere. Decide
+  whether a model reply counts as egress. If it does, the same
+  `name_assignees` treatment applies there and to the MCP twin.
 - **`promised:` audience is ambiguous at capture time.**
 - **The Slack `fb:` refusal is documented but not stated in the Slack copy.**
   The code fails closed, so this is a documentation gap only.
@@ -255,6 +283,129 @@ Skein exists to stop.
 - **K4 `?task=` side peek** — a linkable, back-button-safe task panel.
   Named consumers exist today: `/ask` citations, attention items, and
   activity rows all reference tasks with nowhere to land.
+
+## From the product-gap review (2026-08-08)
+
+Three commissioned perspectives — manager, IC, and the agent layer as a
+multi-agent system — reviewed the shipped product against this backlog.
+Transcripts and rankings: `docs/reviews/2026-08-08-product-gaps.md`. The
+shared diagnosis: the backend runs ahead of its surfaces — search,
+usage, the worklog, and forecast calibration are computed and never
+delivered to where a person looks.
+
+Promotions of items that already live above, with the review's reasons:
+
+- **K4** ranks first of everything: briefing attention items, `/ask`
+  citations, and activity rows all name a row and land at the top of a
+  thirteen-section page. G9 and the delegate affordance land on the
+  panel it adds.
+- **Self-serve 1 and F8 together**: one nav input, a `?` prefix flips
+  search to `/ask`. Neither endpoint has a single frontend consumer.
+- **Self-serve 3**, with G9: the Agents empty state advertises
+  delegation and no UI does it, in either direction.
+- **Self-serve 7**, the strip variant: a merge closes a task and Browse
+  hides it the same second — the reward moment deletes its own receipt.
+- **P5's CLI half** and **D2**, with G8 as the browser half of D2.
+- **P1** as the frame for the manager items: the weekly ritual is the
+  product's spine and has no room built for it. G1, G2, G10, C2's
+  chaser output and the usage card (G7's UI half) are cards inside it,
+  and building them first means bolting more cards onto an already
+  six-card `/portfolio`.
+- **C2** and **P4** as-is.
+- **A3** as the deterministic core of G5.
+- **A5**, with the flock synthesis step as its first named consumer: a
+  flock ends in N essays because the merge agent is built with no
+  tools, and a bundle is the missing work-shaped output. Its deferral
+  condition — "until the simpler pieces prove out" — is met.
+- **Evidence pack** (cut table): trigger effectively met — the first
+  real promotion decision would stand on counts alone. Enters as the
+  second half of G6.
+
+New items:
+
+- **G1 health snapshots and the readout delta** — R/Y/G is computed at
+  request time and discarded (`portfolio.py::engagement_health`), so a
+  readout cannot say "newly yellow". A daily snapshot job on the
+  `forecast-snapshot` precedent, plus a "since last readout" section:
+  newly red or yellow, newly green, newly shipped. Deterministic SQL. [M]
+- **G2 forecast calibration reader** — `snapshot_forecasts` promises
+  "measured against actuals later" in its own docstring and nothing
+  reads the table. One query joining snapshots to milestone
+  `completed_at`; a hit-rate and median-error line on `/insights`
+  beside MTTR — medians over means, n shown, verdicts withheld under
+  small n, the house style. [S–M]
+- **G3 agent worklog read-back** — `report_progress` writes the
+  continuity record for multi-day delegated work and no tool in
+  `ALL_TOOLS` reads it, so on day 3 an agent restarts from the task
+  title. A `read_worklog` tool or worklog rows inlined into
+  `my_agent_inbox`, plus MCP parity. Reshapes D4: the read side, not
+  only the write side. [S]
+- **G4 per-turn budget and circuit breaker** — the head agent's turn
+  has no total deadline, cycle cap, or token ceiling; only flock
+  members and consults carry the 180s member deadline, and the monthly
+  budget finding reports without refusing. A per-turn cycle/deadline
+  cap plus a per-agent-per-day spend ceiling, checked where spend is
+  already seen (the gate and `_log_usage`), refuse-and-report. Hard
+  prerequisite for G5. [M]
+- **G5 budgeted worker sweep** — nothing ever runs an agent turn
+  unattended: the JOBS registry drives 16 deterministic jobs and zero
+  agent turns, so the inbox is an ambient wake-up view with no waker.
+  One bounded turn per agent with open delegated work per day, against
+  `my_agent_inbox` and the per-engagement context pack (built for
+  exactly this), under G4's ceilings; every write still a gated
+  proposal. A3's rule-based sweep is the keyless core; the agent run is
+  the LLM upgrade. Also the only realistic source of the verdict
+  volume the trust flywheel currently starves without. [L]
+- **G6 trust-flywheel honesty, then the evidence pack** — with the
+  review gate off, review-level writes apply with no verdict; under
+  weak identity, verdicts never count toward streaks. The trust card
+  reads as "no data" where the truth is "cannot produce data" — state
+  the dependency on `/agents`. Then the evidence pack: a promotion
+  decision needs what was approved, not how many times. [S, then M]
+- **G7 turn-anomaly findings rules, with the usage UI** — reshapes "a
+  UI surface for `/api/usage`" above: same tables, one pass.
+  Deterministic rules over `usage_log` and `flock_traces` (pathological
+  cycle count in one turn, member failure streak, proposal-rejection
+  streak outside the weekly authority review), and the usage page
+  presents unpriced calls as unpriced. Per-model rows make the Settings
+  model menu comparative. [S–M]
+- **G8 browser attention signal** — the immediate tier is a My Day
+  card, so "immediate" means "next visit". A document-title count or
+  nav dot fed from the briefing the nav already polls; own-data-only,
+  so anti-surveillance-clean. D2 is the terminal half. [S]
+- **G9 worklog panel** — `GET /api/tasks/{id}/worklog` is
+  sponsor-readable before the verdict by design and appears nowhere in
+  the frontend. Lands on K4's panel. [S]
+- **G10 forward capacity view** — `allocation_conflicts` and `what_if`
+  bind both window predicates to today, so a request accepted today can
+  be a conflict on its real start date and Skein notices when the date
+  arrives. A per-week table over the next 4–8 weeks from `allocations`
+  plus `absences` — a table, never a Gantt, honoring the existing
+  refusal. Person-level data planning the future is the permitted
+  direction. [M]
+
+**Shipped 2026-08-08 (G4, G5, A3):** `services/agent_runner.py` is the motor.
+`sweep()` is deterministic and keyless — it tells each sponsor what their
+delegated work is doing, and is the whole feature on `mock`. `run()` adds one
+bounded unattended turn per allowlisted agent per day, under a daily token
+ceiling (`SKEIN_AGENT_DAILY_TOKENS`), a wall clock
+(`SKEIN_AGENT_RUN_SECONDS`), a per-(agent, team-day) claim key, and the
+`forbidden` kill switch. `SKEIN_AGENT_RUNNER` is an allowlist and is empty by
+default, so nothing wakes an agent until an operator names it. Every write
+still passes the same gate a chat turn's writes pass.
+
+**G6's evidence pack stays open**, and its trigger is unchanged: it is worth
+building when a real promotion decision is near, and that needs verdict volume
+the runner has not produced yet. G6's honesty half DID ship — `/agents` now
+states when trust cannot accrue at all (`delegation.trust_blocked`).
+
+Suggested order: one pass of the S items first (G3, G6's honesty half,
+G8, P5's CLI half, self-serve 7, the readout decision below), then
+three arcs in parallel or in sequence — deliver-what-is-computed (K4,
+then nav search and `/ask`, then G7), the manager frame (P1 hosting G1,
+G2, G10, C2, P4), and the agent motor (G4, then G5), which is the
+largest bet and the one that makes "agents as teammates" a description
+instead of a promise.
 
 ## Cut, with re-entry triggers
 
