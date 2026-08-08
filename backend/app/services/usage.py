@@ -15,8 +15,15 @@ from . import scope
 
 
 def cost_for(model_id: str, input_tokens: int, output_tokens: int) -> float | None:
-    """Estimated USD for one turn, or None when the model has no price."""
-    pair = config.MODEL_PRICES.get(model_id)
+    """Estimated USD for one turn, or None when the model has no price.
+
+    The ONLY place the two price tables merge: the model registry entry wins,
+    SKEIN_MODEL_PRICES covers everything else. A second call site checking
+    the tables itself will disagree with this accounting the day the
+    precedence moves.
+    """
+    entry = config.MODELS.get(model_id)
+    pair = (entry["price"] if entry else None) or config.MODEL_PRICES.get(model_id)
     if pair is None:
         return None
     return (input_tokens / 1_000_000) * pair[0] + (output_tokens / 1_000_000) * pair[1]
