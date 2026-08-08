@@ -379,7 +379,7 @@ def _conversation_manager():
             proactive_compression=proactive,
         )
     return SlidingWindowConversationManager(
-        window_size=config.CONTEXT_WINDOW,
+        window_size=config.CONTEXT_WINDOW_MESSAGES,
         pin_first=pin,
         proactive_compression=proactive,
     )
