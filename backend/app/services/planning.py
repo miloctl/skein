@@ -10,13 +10,16 @@ ORDER, which is the part that was missing. Nothing is computed twice and no
 new write path exists — a cockpit that could write would be a sixth place to
 change a task.
 
-Order is the meeting's order, and it is load-bearing:
-  1. how last week went          (kept-%, carryover)
-  2. what the week already holds (the draft, capacity against it)
-  3. what wants in               (intake awaiting triage)
-  4. what has gone stale         (decisions past review_by)
-Reversed, the manager commits the week before seeing whether the last one
-landed, which is the mistake the ritual exists to prevent.
+Order is the meeting's order, and it is load-bearing: how last week went
+(kept-%, carryover) comes before what this week already holds, which comes
+before the weeks ahead, what wants in, what has gone stale, and the one write
+the meeting ends with. Reversed, the manager commits the week before seeing
+whether the last one landed, which is the mistake the ritual exists to
+prevent.
+
+The numbers a reader sees are the CARD TITLES in frontend/app/planning/
+page.tsx, not a list here — two numberings of one order drift apart, and a
+reader cross-referencing them lands on the wrong card.
 """
 
 from datetime import timedelta

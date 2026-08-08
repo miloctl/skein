@@ -17,12 +17,12 @@ def _today() -> date:
     return db.today()
 
 
-def _wip_summary(wip: list[dict]) -> str:
+def _wip_summary(tasks: int, people: int) -> str:
     """Team totals for a forwardable artifact — see the call site for why the
-    names do not travel. Sentence-form counts agree with their nouns
+    names do not travel. Takes the COUNTS, not the per-person list: this
+    module asks flow_metrics for the aggregated shape, so the list it used to
+    sum is empty here by design. Sentence-form counts agree with their nouns
     (CLAUDE.md wording): "1 task across 1 person", "4 tasks across 2 people"."""
-    people = len(wip)
-    tasks = sum(int(w["in_progress"]) for w in wip)
     if not people:
         return "none in progress"
     return (
@@ -36,7 +36,9 @@ def exec_readout(*, actor: str = "system") -> dict:
     # name_assignees=False: this markdown is built to be forwarded
     health = engagement_health(name_assignees=False)
     conflicts = allocation_conflicts()
-    flow = flow_metrics()
+    # name_people=False for the same reason engagement_health takes
+    # name_assignees=False below: this markdown is built to be forwarded
+    flow = flow_metrics(name_people=False)
     s = season()
     shipped = db.query(
         f"SELECT name, closed_at FROM engagements WHERE status = 'closed' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
@@ -63,9 +65,10 @@ def exec_readout(*, actor: str = "system") -> dict:
             lines.append(f"  - {r}")
     if not health:
         lines.append("- none active")
-    # Direction, before state. A readout that lists colours makes the reader
+    # Direction, before state. A readout that lists colors makes the reader
     # diff it against the last one by eye across two markdown files, which is
     # the work this section exists to remove.
+
     # the date the PREVIOUS readout covered, so the heading is true. Without
     # it the section compares back to yesterday and silently swallows every
     # change that happened earlier in the week — for a weekly artifact, six
@@ -89,7 +92,11 @@ def exec_readout(*, actor: str = "system") -> dict:
     if moved:
         lines += [
             "",
-            f"## What changed since {since.isoformat() if since else 'the last check'}",
+            # "yesterday", not "the last check": `check` is reserved for the user
+            # action (docs/LEXICON.md), and the fallback fires exactly when
+            # health_changes defaulted to yesterday — so any other word here
+            # claims a window the code did not use, in a forwardable document
+            f"## What changed since {since.isoformat() if since else 'yesterday'}",
         ]
         for m in moved:
             lines.append(f"- {dot[m['to']]} **{m['name']}**: {m['from']} → {m['to']}")
@@ -126,7 +133,7 @@ def exec_readout(*, actor: str = "system") -> dict:
         # the rest of the product runs on are what that costs.
         # flow["wip_by_person"] stays available to /portfolio, which is a
         # planning surface with a viewer. Do not re-expand this line.
-        "- WIP: " + _wip_summary(flow["wip_by_person"]),
+        "- WIP: " + _wip_summary(flow["wip_total"], flow["wip_people"]),
     ]
     markdown = "\n".join(lines)
 

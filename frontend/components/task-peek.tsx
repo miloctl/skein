@@ -295,18 +295,19 @@ export function TaskPeek() {
               </a>
             ) : null}
 
-            {/* Delegation, from the UI. The Agents page empty state has
-                advertised this since it shipped and the only paths were the
-                CLI and asking the chat agent. Sponsor defaults to the caller
+            {/* Delegation, from the UI. The Agents page empty state points
+                at this control, so removing it leaves that copy advertising
+                something nothing offers. Sponsor defaults to the caller
                 server-side, which is the honest default: whoever hands the
                 work out answers for it. */}
             {!task.delegated_agent && task.status !== "done" ? (
               <Delegate taskId={task.id} onDone={reload} />
             ) : null}
 
-            {/* The worklog: readable BEFORE the sponsor's verdict by design,
-                and until now visible only through curl or the CLI. This is
-                where a sponsor watches delegated work actually progress. */}
+            {/* The worklog is readable BEFORE the sponsor's verdict by
+                design (services/delegation.py::list_worklog) — this panel is
+                where a sponsor watches delegated work progress, and the only
+                place in the web app that shows it. */}
             <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
               Worklog
             </h3>

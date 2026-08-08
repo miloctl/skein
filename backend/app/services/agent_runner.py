@@ -3,9 +3,9 @@
 Everything needed to carry a delegated task end to end was already built —
 claim, report_progress, submit_for_acceptance, the sponsor binding, the
 authority matrix, the inbox docs/FEATURES.md calls an "ambient wake-up view".
-There was no waker. The JOBS registry drove sixteen deterministic jobs and
-zero agent turns, so "agents as teammates" meant "agents as very well-audited
-chat responses": every action started with a human typing.
+There was no waker. Every job in the JOBS registry was deterministic and none
+of them ran an agent turn, so "agents as teammates" meant "agents as very
+well-audited chat responses": every action started with a human typing.
 
 Two layers, and the split is the keyless rule:
 
@@ -131,7 +131,8 @@ def sweep() -> dict:
             notify(
                 task["sponsor"],
                 f"{agent} holds task #{task['id']} '{task['title']}'"
-                f" with no progress note for {QUIET_DAYS} days.{said}",
+                f" with no progress note for {QUIET_DAYS}"
+                f" day{'' if QUIET_DAYS == 1 else 's'}.{said}",
                 tier="digest",
                 link="/agents",
             )
@@ -187,9 +188,8 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
             return {"agent": agent, "ran": False, "reason": "no agent could be built"}
         # A DAEMON thread, not a ThreadPoolExecutor: the executor joins its
         # workers both on context exit AND through an atexit hook, so either
-        # one waits out the very hang this bound exists to escape — measured
-        # at the full hang duration each way before this was written like
-        # this. A daemon thread lets the job return and the process exit.
+        # one waits out the full hang this bound exists to escape. A daemon
+        # thread lets the job return and lets the process exit.
         #
         # The thread is left running on timeout. Nothing in Python can kill
         # it, and the provider call it is blocked on is the orphan

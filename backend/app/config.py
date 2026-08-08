@@ -643,6 +643,9 @@ CORS_ORIGINS = [
 # (main.py) and every human-facing date reads db.today().
 TZ_NAME = os.getenv("SKEIN_TZ", "").strip() or "UTC"
 TZ_ERROR = ""
+# the rejected value, for the boot log only — never for TZ_ERROR, which
+# /health serves to every signed-in caller (main.py logs this)
+TZ_REJECTED = ""
 # tzinfo, not ZoneInfo: the fallback below must never need tzdata. ZoneInfo
 # is an ordinary tzdata lookup even for "UTC", so a slim/alpine/distroless
 # image with no /usr/share/zoneinfo raises INSIDE the handler that exists to
@@ -666,10 +669,11 @@ def _zone(name: str) -> tzinfo:
 try:
     TZ = _zone(TZ_NAME)
 except ValueError:
-    # the value goes to the LOG, never the body: TZ_ERROR is served on
-    # /health, and AUTH_ERROR 110 lines below makes the same choice for the
-    # same reason (docs/FEATURES.md records it as deliberate)
-    _tz_rejected = TZ_NAME
+    # The rejected value is kept for the BOOT LOG and never put in TZ_ERROR:
+    # that string is served on /health to every signed-in caller, and
+    # AUTH_ERROR makes the same split for the same reason. main.py logs this,
+    # exactly as it logs the rejected auth mode.
+    TZ_REJECTED = TZ_NAME
     TZ_ERROR = (
         "SKEIN_TZ is not an IANA Region/City time zone name. Set a name like"
         " America/New_York. An abbreviation like EST is a fixed offset and ignores"
@@ -681,10 +685,15 @@ except (ZoneInfoNotFoundError, KeyError):
     # a name with no zone data (a typo), and a HOST with no zone data at all
     # (a slim image missing the tzdata package, where every name fails). Say
     # which by testing a name that certainly exists in any real database.
+    TZ_REJECTED = TZ_NAME
     try:
         ZoneInfo("America/New_York")
+        # This branch is reached only after America/New_York RESOLVED, so the
+        # host does have zone data and one NAME does not. Saying the host is
+        # broken here would give both faults the same wrong answer, which is
+        # the split the comment above exists to make.
         TZ_ERROR = (
-            "This host has no time zone data for SKEIN_TZ."
+            "SKEIN_TZ names a time zone this host has no data for."
             " Check the spelling against the IANA database."
             " Skein uses UTC until you correct the value."
         )
@@ -700,9 +709,16 @@ except (ZoneInfoNotFoundError, KeyError):
 # Ceilings for turns NO HUMAN IS WATCHING (services/agent_runner.py). A chat
 # turn is bounded by the person in it; an overnight run is bounded only here.
 #
-# 0 disables each, and both are 0 by default: an operator turns the runner on
-# deliberately, and a ceiling that shipped enabled would refuse work on a
-# deployment that never asked for the runner.
+# The RUNNER is off by default (empty allowlist below), because an operator
+# turns unattended runs on deliberately. The token ceiling is 0, meaning no
+# ceiling, for the same reason: one that shipped enabled would refuse work on
+# a deployment that never asked for the runner.
+#
+# The wall clock is NOT one of those. It defaults to 300 and its floor is 30,
+# so SKEIN_AGENT_RUN_SECONDS=0 does not disable it — _ctx_num clamps out of
+# range values back to the default and records a fault. A zero-second bound
+# on a turn would mean every turn is abandoned, which is not a setting
+# anybody wants; backend/.env.example documents the same split.
 #
 # Tokens, not dollars: an unpriced model costs NULL (SKEIN_MODEL_PRICES is
 # empty by default and Ollama Cloud bills by subscription), so a dollar

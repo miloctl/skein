@@ -140,3 +140,38 @@ def test_a_short_allocation_still_loads_its_week(fresh_db):
     )
     people = portfolio.capacity_ahead(1)[0]["people"]
     assert [p["person"] for p in people] == ["dana"]
+
+
+def test_person_names_never_leave_through_an_egressing_caller(fresh_db):
+    """The anti-surveillance rule allows person-level data for planning the
+    future, never for judging the past. flow_metrics judges the past, so the
+    two callers whose output LEAVES — the exec readout artifact and the agent
+    tool, whose reply is text somebody pastes elsewhere — take the aggregated
+    shape. /portfolio keeps the names: it is a planning surface with a viewer.
+
+    A mutation proved this class of leak uncovered once already (the absence
+    kind in capacity_ahead), so it is pinned rather than trusted."""
+    import json
+
+    from app.services import portfolio, readout, work
+    from app.services.users import ensure_user
+    from app.tools.portfolio import get_flow_metrics
+
+    ensure_user("ava", kind="human")
+    t = work.create_task("long runner", assignee="ava", actor="tester")
+    work.update_task(t["id"], status="in_progress", actor="tester")
+
+    # the planning surface still names people
+    assert [w["person"] for w in portfolio.flow_metrics()["wip_by_person"]] == ["ava"]
+
+    # the agent tool does not, and its stale list carries no assignee column
+    tool = json.loads(get_flow_metrics())
+    assert tool["wip_by_person"] == []
+    assert tool["wip_total"] == 1
+    assert all("assignee" not in row for row in tool["stale_wip"])
+    assert "ava" not in json.dumps(tool)
+
+    # nor does the artifact built to be forwarded
+    md = readout.exec_readout(actor="tester")["markdown"]
+    assert "1 task in progress across 1 person" in md
+    assert "ava" not in md

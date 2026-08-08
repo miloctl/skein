@@ -124,8 +124,10 @@ def assert_within_budget(agent: str) -> None:
     spend = spent_today(agent)
     if spend["tokens"] >= ceiling:
         raise BudgetSpent(
-            f"{agent} has spent {spend['tokens']:,} tokens today, at or over the"
-            f" {ceiling:,} daily ceiling. The next run is on the next team day."
+            # simple past, never present perfect (STE 3.4): "has spent" is an
+            # auxiliary construction, and this string carries numbers
+            f"{agent} spent {spend['tokens']:,} tokens today, at or over the"
+            f" {ceiling:,} daily ceiling. The next run is tomorrow, in the team's time zone."
             " To raise the ceiling, set a larger SKEIN_AGENT_DAILY_TOKENS."
         )
 

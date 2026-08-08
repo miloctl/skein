@@ -194,10 +194,10 @@ def list_worklog(
 
     A private task cannot carry a delegate at all (delegate_task refuses one),
     so this door opens onto crew and workspace rows only."""
-    # Clamped HERE, not at each door: two callers reach this (the agent tool
-    # and the MCP twin) and one of them forgot. A negative LIMIT in SQLite
-    # means NO limit, so an unclamped model-supplied value pulls every note on
-    # the task into a context window.
+    # Clamped HERE, not at each door: every caller that forwards a
+    # model-supplied limit would otherwise have to remember, and the MCP twin
+    # (app/mcp_server.py) did not. A negative LIMIT in SQLite means NO limit,
+    # so an unclamped value pulls every note on the task into a context window.
     limit = max(1, min(int(limit or 50), 50))
     # A party to the delegation reads it whatever the tier says — the write
     # rule in report_progress, applied to the read. Resolved from the task's
@@ -453,9 +453,9 @@ def trust_blocked() -> str:
     if total and not strong:
         return (
             f"Skein recorded {total} verdict{'' if total == 1 else 's'}."
-            " No verdict was made with a personal API key."
+            " Nobody used a personal API key to approve or reject."
             " Only key-authenticated verdicts count toward a promotion streak."
-            " Paste your key in Settings, step 2, before you approve."
+            " Before you approve, paste your key in Settings, step 2."
         )
     return ""
 

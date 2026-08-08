@@ -22,8 +22,13 @@ def get_portfolio_health() -> str:
 @tool
 def get_flow_metrics() -> str:
     """Team flow metrics from real timestamps: cycle time, weekly throughput,
-    WIP per person, and stale in-progress tasks."""
-    return json.dumps(portfolio.flow_metrics())
+    total work in progress, and stale in-progress tasks. Use team_capacity
+    when the question is who has room."""
+    # name_people=False: an agent's reply is text somebody pastes elsewhere,
+    # and this read judges the PAST — which the anti-surveillance rule allows
+    # only as a team aggregate (docs/FEATURES.md). The names stay on
+    # /portfolio, which is a planning surface with a viewer and an audience.
+    return json.dumps(portfolio.flow_metrics(name_people=False))
 
 
 @tool

@@ -646,7 +646,8 @@ export default function Agents() {
                 </>
               ) : (
                 <>
-                  Runs unattended once a day: {status.runner_agents.join(", ")}.
+                  These agents run unattended once a day:{" "}
+                  {status.runner_agents.join(", ")}.
                   {status.runner_daily_tokens
                     ? ` Each stops after ${status.runner_daily_tokens.toLocaleString()} tokens a day.`
                     : " No daily token ceiling is set."}

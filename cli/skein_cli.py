@@ -126,7 +126,7 @@ def cmd_standup(args):
         # --yesterday always wins; --draft never overwrites what was typed.
         yesterday = api("GET", "/api/briefing")["your_work"].get("standup_suggestion", "")
         if not yesterday:
-            print("No activity to draft from. The standup is posted with an empty yesterday.")
+            print("No activity to draft from. Skein posts the standup with an empty --yesterday.")
         else:
             print(f"drafted yesterday: {yesterday}")
     api(
