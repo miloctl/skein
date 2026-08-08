@@ -16,6 +16,7 @@ work is in `docs/ROADMAP.md` under "Open backlog".
 | `2026-07-24-synthesis.md` | The decision record over the three files above. Its cut table moved to ROADMAP. |
 | `2026-07-25-ideation-run.md` | Mechanism sketches and per-agent reasoning for the proposals that moved to ROADMAP. |
 | `2026-07-27-theme-review.md` | The definition site for TD1, TD2, TD6, TP3, TP5 and TP6. `globals.css`, `theme.ts` and `whimsy.ts` cite those IDs in source comments. |
+| `2026-08-08-product-gaps.md` | The definition site for G1–G10 and the rankings behind the 2026-08-08 promotions. Records the two-quarters-ahead diagnosis, the trust-flywheel dead-end under the live configuration, and the readout WIP egress fact. |
 
 ## Deleted 2026-08-02
 
