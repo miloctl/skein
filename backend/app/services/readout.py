@@ -2,30 +2,46 @@
 Lives outside portfolio.py so portfolio and insights never import each other;
 this module is the one place that composes both."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 from .. import config, db
 from .insights import digest_findings
-from .portfolio import allocation_conflicts, engagement_health, flow_metrics
+from .portfolio import allocation_conflicts, engagement_health, flow_metrics, health_changes
 from .pulse import season
 from .scope import WORKSPACE_ONLY
 
 
 def _today() -> date:
-    return datetime.now(UTC).date()
+    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    return db.today()
+
+
+def _wip_summary(wip: list[dict]) -> str:
+    """Team totals for a forwardable artifact — see the call site for why the
+    names do not travel. Sentence-form counts agree with their nouns
+    (CLAUDE.md wording): "1 task across 1 person", "4 tasks across 2 people"."""
+    people = len(wip)
+    tasks = sum(int(w["in_progress"]) for w in wip)
+    if not people:
+        return "none in progress"
+    return (
+        f"{tasks} task{'' if tasks == 1 else 's'} in progress"
+        f" across {people} {'person' if people == 1 else 'people'}"
+    )
 
 
 def exec_readout(*, actor: str = "system") -> dict:
     """Written as a markdown artifact so it can be forwarded as-is."""
-    health = engagement_health()
+    # name_assignees=False: this markdown is built to be forwarded
+    health = engagement_health(name_assignees=False)
     conflicts = allocation_conflicts()
     flow = flow_metrics()
     s = season()
     shipped = db.query(
         f"SELECT name, closed_at FROM engagements WHERE status = 'closed' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND closed_at >= ? ORDER BY closed_at DESC",
-        (s["start"],),
+        (s["start_ts"],),  # a timestamp column — services/pulse.py::season
     )
     due_soon = db.query(
         f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
@@ -47,6 +63,37 @@ def exec_readout(*, actor: str = "system") -> dict:
             lines.append(f"  - {r}")
     if not health:
         lines.append("- none active")
+    # Direction, before state. A readout that lists colours makes the reader
+    # diff it against the last one by eye across two markdown files, which is
+    # the work this section exists to remove.
+    # the date the PREVIOUS readout covered, so the heading is true. Without
+    # it the section compares back to yesterday and silently swallows every
+    # change that happened earlier in the week — for a weekly artifact, six
+    # days out of seven.
+    prior = db.query_one(
+        "SELECT created_at FROM artifacts WHERE kind = 'readout' AND created_at < ?"
+        " ORDER BY created_at DESC LIMIT 1",
+        (db.now(),),
+    )
+    # local_day, never [:10]: artifacts.created_at is a UTC timestamp and
+    # health_snapshots.day is the TEAM day (migrations/006). Sliced, a readout
+    # written after 20:00 Eastern yields tomorrow's key, health_changes then
+    # selects TODAY's snapshot, every engagement compares equal, and the whole
+    # delta section vanishes with no error.
+    since = date.fromisoformat(db.local_day(prior["created_at"])) if prior else None
+    # filtered BEFORE the heading: a first-ever observation is not a change,
+    # and on the first run after health snapshots shipped every engagement had
+    # one — the section printed a verdict heading with nothing under it, in a
+    # document built to be forwarded
+    moved = [m for m in health_changes(health, since) if m["from"]]
+    if moved:
+        lines += [
+            "",
+            f"## What changed since {since.isoformat() if since else 'the last check'}",
+        ]
+        for m in moved:
+            lines.append(f"- {dot[m['to']]} **{m['name']}**: {m['from']} → {m['to']}")
+
     lines += ["", "## Shipped this season"]
     lines += [f"- {r['name']} ({r['closed_at'][:10]})" for r in shipped] or ["- none yet"]
     lines += ["", "## Top risks"]
@@ -71,8 +118,15 @@ def exec_readout(*, actor: str = "system") -> dict:
             if ct["tasks_done"]
             else ""
         ),
-        "- WIP: "
-        + (", ".join(f"{w['person']} {w['in_progress']}" for w in flow["wip_by_person"]) or "none"),
+        # AGGREGATED on purpose, never per person. This artifact is built to
+        # be forwarded outside the team, and the anti-surveillance rule allows
+        # person-level data only for planning the future. Named WIP counts
+        # here are person-level data judging the past, in front of the exact
+        # audience the rule exists to keep it from — and the honest standups
+        # the rest of the product runs on are what that costs.
+        # flow["wip_by_person"] stays available to /portfolio, which is a
+        # planning surface with a viewer. Do not re-expand this line.
+        "- WIP: " + _wip_summary(flow["wip_by_person"]),
     ]
     markdown = "\n".join(lines)
 

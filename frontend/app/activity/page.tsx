@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, loadError } from "@/lib/api";
 import { Card } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
+import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 
 type Entry = {
@@ -26,6 +27,37 @@ const WHO_BADGE: Record<Entry["who"], string> = {
   agent: "bg-raised text-weld",
   system: "bg-raised text-ink-2",
 };
+
+/** The task id an activity row names, or null.
+ *
+ *  Keyed on the ACTION, never on the shape of `detail`. Real rows read
+ *  "escalated a blocker — #5 …" and "minted an API key — #29 bootstrap":
+ *  the entity word lives in the SENTENCE the verb registry produces, and the
+ *  detail is a bare `#N` for every entity alike. A parser that read the
+ *  detail therefore opened the task panel on a blocker id or an API-key id —
+ *  the wrong row, or a row that does not exist, and both look like the
+ *  feature working.
+ *
+ *  The action is authoritative because services/activity.py's registry is
+ *  what names the entity in the first place. An action missing from this set
+ *  simply gets no link, which is the safe direction: a row with no link is a
+ *  row the reader expands, exactly as before. */
+const TASK_ACTIONS = new Set([
+  "create_task",
+  "update_task",
+  "complete_task",
+  "delegate_task",
+  "claim_task",
+  "report_progress",
+]);
+
+export function taskRef(action: string, detail: string): number | null {
+  if (!TASK_ACTIONS.has(String(action ?? ""))) return null;
+  const m = /(?:^|\s)#(\d+)\b/.exec(String(detail ?? ""));
+  if (!m) return null;
+  const id = Number(m[1]);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 export default function ActivityPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -176,6 +208,20 @@ export default function ActivityPage() {
                       </div>
                       {e.detail && (
                         <div className="break-all">detail: {e.detail}</div>
+                      )}
+                      {/* In the EXPANDED panel, not the row: the row is a
+                          <button>, and a link inside a button is invalid and
+                          unreachable for a keyboard reader. It is also where
+                          a reader who wants this row's detail already is. */}
+                      {taskRef(e.action, e.detail) !== null && (
+                        <div className="mt-1">
+                          <PeekLink taskId={taskRef(e.action, e.detail) as number}>
+                            {/* "task #31", not "open task #31": PeekLink
+                                already prefixes an sr-only "Open ", so the
+                                accessible name was "Open open task #31" */}
+                            task #{taskRef(e.action, e.detail)}
+                          </PeekLink>
+                        </div>
                       )}
                     </div>
                   )}

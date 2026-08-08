@@ -18,6 +18,11 @@ dependencies = [
     "pyyaml>=6.0",
     "strands-agents-tools>=0.2",
     "pyjwt[crypto]>=2.8",
+    # SKEIN_TZ resolves through zoneinfo, which reads /usr/share/zoneinfo and
+    # NOTHING else. The slim/alpine/distroless images this ships on carry no
+    # system tzdata, so without this every zone lookup fails and the whole
+    # deployment silently runs in UTC.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

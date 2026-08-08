@@ -123,8 +123,12 @@ def test_agent_cannot_delegate_to_itself(fresh_db):
 
 def test_delegate_task_and_inbox(client, fresh_db):
     t = client.post("/api/tasks", json={"title": "agent work"}).json()
+    # a key: 'scribe' does not exist yet, and MINTING an agent identity takes
+    # the scarce credential (routes/api.py::post_delegate)
     out = client.post(
-        f"/api/tasks/{t['id']}/delegate", json={"agent": "scribe", "sponsor": "tester"}
+        f"/api/tasks/{t['id']}/delegate",
+        json={"agent": "scribe", "sponsor": "tester"},
+        headers=_strong(),
     ).json()
     assert out["delegated_agent"] == "scribe"
     users = {u["name"]: u for u in client.get("/api/users").json()}
@@ -140,7 +144,11 @@ def test_delegate_task_and_inbox(client, fresh_db):
 
 def test_reassign_ends_delegation(client, fresh_db):
     t = client.post("/api/tasks", json={"title": "work"}).json()
-    client.post(f"/api/tasks/{t['id']}/delegate", json={"agent": "helper", "sponsor": "tester"})
+    client.post(
+        f"/api/tasks/{t['id']}/delegate",
+        json={"agent": "helper", "sponsor": "tester"},
+        headers=_strong(),
+    )
     client.patch(f"/api/tasks/{t['id']}", json={"assignee": "zoe"})
     row = fresh_db.query_one("SELECT * FROM tasks WHERE id = ?", (t["id"],))
     assert row["delegated_agent"] == "" and row["sponsor"] == ""

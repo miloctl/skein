@@ -72,6 +72,34 @@ type PromiseRow = {
 const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
 
 
+type Usage = {
+  models: {
+    model_id: string;
+    calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number | null;
+    unpriced_calls: number;
+  }[];
+  engagements: {
+    engagement: string;
+    engagement_id: number | null;
+    calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number | null;
+    unpriced_calls: number;
+  }[];
+  month: {
+    month: string;
+    cost_usd: number | null;
+    unpriced_calls: number;
+    calls: number;
+    budget_usd: number | null;
+  };
+  prices_error: string;
+};
+
 export default function Portfolio() {
   const [health, setHealth] = useState<Health[] | null>(null);
   // null until loaded, like every other card here: [] renders the verdict
@@ -82,6 +110,7 @@ export default function Portfolio() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [promises, setPromises] = useState<PromiseRow[] | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const [readout, setReadout] = useState<string | null>(null);
   const [ritualOut, setRitualOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -116,6 +145,7 @@ export default function Portfolio() {
     api<PromiseRow[]>("/api/promises")
       .then(ok(setPromises, "promises"))
       .catch(fail("promises", "promises"));
+    api<Usage>("/api/usage").then(ok(setUsage, "usage")).catch(fail("usage", "model spend"));
   }, []);
 
   /** What a card shows before its data arrives: the failure if there was
@@ -314,6 +344,74 @@ export default function Portfolio() {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      <Card title="Model spend">
+        {/* The budget finding pointed people at a raw JSON endpoint. Spend
+            belongs beside engagement health because that is where the
+            question is asked: what is the AI layer costing, and on what. */}
+        {errors.usage ? (
+          <p className="text-sm text-danger">{errors.usage}</p>
+        ) : /* a payload with no month is a payload this card cannot read.
+               Reaching into it renders nothing and throws instead, and an
+               exception here takes down HEALTH, CONFLICTS and the week plan
+               with it — one card must never cost the page. */
+        !usage?.month ? (
+          <p className="text-sm text-ink-3">Loading…</p>
+        ) : usage.month.calls === 0 ? (
+          <p className="text-sm text-ink-3">
+            No model calls recorded this month.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm">
+              {usage.month.month}: {usage.month.calls.toLocaleString()} call
+              {usage.month.calls === 1 ? "" : "s"}
+              {usage.month.cost_usd !== null ? (
+                <> · ${usage.month.cost_usd.toFixed(2)} estimated</>
+              ) : null}
+              {usage.month.budget_usd ? (
+                <> of a ${usage.month.budget_usd.toFixed(2)} ceiling</>
+              ) : null}
+            </p>
+            {/* An unpriced call is reported as unpriced, never as zero: a sum
+                that silently omits calls reads as a total (services/usage.py) */}
+            {usage.month.unpriced_calls > 0 ? (
+              <p className="text-xs text-weld">
+                {usage.month.unpriced_calls.toLocaleString()} call
+                {usage.month.unpriced_calls === 1 ? " carries" : "s carry"} no
+                price, so the cost above is not a total. Set a price for the
+                model in SKEIN_MODELS or SKEIN_MODEL_PRICES.
+              </p>
+            ) : null}
+            <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">
+              By engagement
+            </h3>
+            <ul className="space-y-1 text-sm">
+              {usage.engagements.map((e) => (
+                <li key={e.engagement_id ?? "unlinked"}>
+                  {e.engagement}: {e.calls.toLocaleString()} call
+                  {e.calls === 1 ? "" : "s"} ·{" "}
+                  {(e.input_tokens + e.output_tokens).toLocaleString()} tokens
+                  {e.cost_usd !== null ? <> · ${e.cost_usd.toFixed(2)}</> : null}
+                </li>
+              ))}
+            </ul>
+            <h3 className="mt-3 text-xs uppercase tracking-wide text-ink-3">
+              By model
+            </h3>
+            <ul className="space-y-1 text-sm">
+              {usage.models.map((m) => (
+                <li key={m.model_id}>
+                  {m.model_id}: {m.calls.toLocaleString()} call
+                  {m.calls === 1 ? "" : "s"} ·{" "}
+                  {(m.input_tokens + m.output_tokens).toLocaleString()} tokens
+                  {m.cost_usd !== null ? <> · ${m.cost_usd.toFixed(2)}</> : null}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </Card>
 

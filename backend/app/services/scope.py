@@ -581,6 +581,12 @@ UNSCOPED: dict[str, str] = {
     "search_index_data": "FTS5 shadow table, rebuilt with search_index",
     "search_index_docsize": "FTS5 shadow table, rebuilt with search_index",
     "search_index_idx": "FTS5 shadow table, rebuilt with search_index",
+    "health_snapshots": (
+        "written by a job, and jobs read the workspace tier only — the same"
+        " rule as forecast_snapshots below. It stores a health LETTER and a"
+        " status, never a receipt: receipts quote row titles, and the exec"
+        " readout that reads this egresses."
+    ),
     "forecast_snapshots": (
         "written by a job, and jobs read the workspace tier only — the same"
         " rule that covers job_outcomes below, not a property of milestones"

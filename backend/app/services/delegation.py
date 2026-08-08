@@ -5,7 +5,7 @@ scores computed from the review inbox — promotion is suggested, never automati
 import json
 from datetime import UTC
 
-from .. import db
+from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
 from .users import ensure_user
@@ -175,17 +175,53 @@ def report_progress(task_id: int, note: str, *, actor: str, origin: str = "agent
     return {"id": wid, "task_id": task_id}
 
 
-def list_worklog(task_id: int, limit: int = 50, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+def list_worklog(
+    task_id: int, limit: int = 50, viewer: scope.Viewer = scope.NOBODY, *, actor: str = ""
+) -> list[dict]:
+    """The worklog on a task, for a reader who may see it.
+
+    `actor` is the delegation door, and it exists because READ has to match
+    WRITE. report_progress lets exactly two identities write here — the task's
+    delegated_agent and its sponsor — and gates on those columns alone. With
+    only the tier filter, an agent delegated a CREW task could write notes it
+    could not read back, and got `no task #N` for a task it was working.
+
+    An agent holds no crew membership (crews.add_member refuses agent
+    identities), so no Viewer built from its name would ever reach that row.
+    Passing an unfiltered `1 = 1` instead — the shape agent_inbox uses — would
+    reach EVERY private worklog by walking sequential ids, so the door is the
+    delegation itself, checked per task, and nothing wider.
+
+    A private task cannot carry a delegate at all (delegate_task refuses one),
+    so this door opens onto crew and workspace rows only."""
+    # Clamped HERE, not at each door: two callers reach this (the agent tool
+    # and the MCP twin) and one of them forgot. A negative LIMIT in SQLite
+    # means NO limit, so an unclamped model-supplied value pulls every note on
+    # the task into a context window.
+    limit = max(1, min(int(limit or 50), 50))
+    # A party to the delegation reads it whatever the tier says — the write
+    # rule in report_progress, applied to the read. Resolved from the task's
+    # own columns, per task, so it can never widen into "agents read
+    # everything".
+    party = False
+    if actor:
+        row = db.query_one("SELECT delegated_agent, sponsor FROM tasks WHERE id = ?", (task_id,))
+        party = row is not None and actor in (row["delegated_agent"], row["sponsor"])
     # the existence check takes the same filter as the worklog below, so an
     # unreadable task answers exactly like an absent one. Unfiltered, a
     # private task returned 200 [] and an absent id returned 404 — which reads
     # off which ids exist, for sequential integers (scope.Viewer.for_actor).
     tfrag, tp = scope.visible_filter(viewer, "tasks")
-    if not db.query_one(
+    if not party and not db.query_one(
         f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
         (task_id, *tp),
     ):
         raise scope.missing("tasks", task_id)
+    if party:
+        return db.query(
+            "SELECT * FROM task_worklog WHERE task_id = ? ORDER BY id DESC LIMIT ?",
+            (task_id, limit),
+        )
     # the worklog is the task's own text, and its parent may be invisible to
     # this reader — the child has to be filtered on its own tier, not the
     # task's existence check above
@@ -358,9 +394,9 @@ def set_authority(
     # re-granting.
     review_by = None
     if level in ("autonomous", "notify"):
-        from datetime import date, timedelta
+        from datetime import timedelta
 
-        review_by = (date.fromisoformat(db.now()[:10]) + timedelta(days=90)).isoformat()
+        review_by = (db.today() + timedelta(days=90)).isoformat()
     db.execute(
         "INSERT INTO agent_authority (agent, entity, level, updated_by, updated_at, review_by)"
         " VALUES (?, ?, ?, ?, ?, ?)"
@@ -386,6 +422,42 @@ def authority_matrix(agent: str = "") -> list[dict]:
     if agent:
         return db.query("SELECT * FROM agent_authority WHERE agent = ? ORDER BY entity", (agent,))
     return db.query("SELECT * FROM agent_authority ORDER BY agent, entity")
+
+
+def trust_blocked() -> str:
+    """Why no trust CAN accrue, or "" when it can. An empty trust card reads
+    as "nobody has proposed anything yet" — but two deployment settings make
+    the streak structurally unreachable, and under those the card is telling
+    an operator to wait for something that will never arrive.
+
+    Deterministic and observed, never predicted: the second case counts real
+    verdicts rather than guessing what the auth mode will produce."""
+    if not config.AGENT_REVIEW:
+        # with the gate off, a review-level write applies directly and files
+        # no proposal at all — so there is no verdict to earn trust with
+        # (tools/_gate.py takes the direct branch on `not config.AGENT_REVIEW`)
+        return (
+            "The review gate is off, so agent writes apply directly and record no verdict."
+            " Trust cannot increase. To collect verdicts, set SKEIN_AGENT_REVIEW=1."
+        )
+    settled = (
+        db.query_one(
+            "SELECT COUNT(*) AS n, SUM(reviewed_strong = 1 AND reviewed_override = 0) AS strong"
+            " FROM pending_changes WHERE status != 'pending'"
+        )
+        # an aggregate always returns one row, but query_one is typed Optional
+        # and a bare index here is what mypy refuses
+        or {}
+    )
+    total, strong = int(settled.get("n") or 0), int(settled.get("strong") or 0)
+    if total and not strong:
+        return (
+            f"Skein recorded {total} verdict{'' if total == 1 else 's'}."
+            " No verdict was made with a personal API key."
+            " Only key-authenticated verdicts count toward a promotion streak."
+            " Paste your key in Settings, step 2, before you approve."
+        )
+    return ""
 
 
 def trust_scores() -> list[dict]:
@@ -598,10 +670,33 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     )
     if viewer is not None:
         notifications = [{k: v for k, v in n.items() if k != "message"} for n in notifications]
+    # The agent's own last note per open task — the continuity an agent
+    # resuming on a later day has nowhere else to get. Its chat session does
+    # not carry it: the conversation manager drops the oldest messages and
+    # pin_first is inert across turns (agents/team_agent.py). Without this,
+    # day 3 restarts from the task title and repeats day 1's dead ends.
+    #
+    # Own notes only, and the REST door gets none: this is the agent's
+    # working memory, and GET /api/agents/{agent}/inbox takes the agent name
+    # off the URL and answers any CurrentUser — the same reason `message`
+    # is stripped from notifications above. read_worklog is the full record,
+    # filtered on its own tier.
+    last_notes: list[dict] = []
+    if viewer is None and tasks:
+        # bare `note`/`created_at` beside MAX(id) resolve to the row that
+        # HELD the max — a documented SQLite guarantee for min/max aggregates,
+        # not the undefined pick other engines make of a bare column
+        last_notes = db.query(
+            "SELECT task_id, MAX(id) AS id, note, created_at FROM task_worklog"  # noqa: S608 — the interpolation below emits bound marks only
+            f" WHERE author = ? AND task_id IN ({','.join('?' * len(tasks))})"
+            " GROUP BY task_id ORDER BY task_id",
+            (agent, *[t["id"] for t in tasks]),
+        )
     return {
         "agent": agent,
         "delegated_tasks": tasks,
         "open_questions": questions,
         "rejected_proposals": rejected,
         "notifications": notifications,
+        "last_progress": last_notes,
     }

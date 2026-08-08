@@ -636,6 +636,13 @@ VERBS: dict[str, tuple[str, str]] = {
     "edit_intake": ("edited an intake request", "normal"),
     "accept_without_engagement": ("accepted a request without an engagement", "normal"),
     "delegate_task": ("delegated a task", "normal"),
+    # The actor is the SCHEDULER, not the agent — the scheduler is what the
+    # feed shows to every viewer, and an agent name here would put one
+    # agent's row in front of the whole team under a system actor's exemption.
+    # So the verb names what the scheduler did, and the agent is in the
+    # detail. Loud: a turn nobody watched, and the only feed row that says it
+    # happened at all (services/agent_runner.py).
+    "agent_run": ("started an unattended agent run", "loud"),
     "claim_task": ("claimed a delegated task", "normal"),
     "report_progress": ("logged progress on a task", "normal"),
     "add_absence": ("recorded time away", "normal"),

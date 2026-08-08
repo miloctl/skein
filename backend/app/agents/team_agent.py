@@ -5,7 +5,6 @@ import asyncio
 import contextlib
 import json
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from .. import config, db, ratelimit
@@ -1003,7 +1002,7 @@ def build_agent(
     from .identity import MAX_CONSULTS_PER_TURN
 
     system = SYSTEM_PROMPT.format(
-        today=datetime.now(UTC).date().isoformat(),
+        today=db.today().isoformat(),
         user=user,
         bench=_bench_block() if not persona else "(you cannot consult another specialist)",
         # formatted in, never a literal in the prompt text: the number the

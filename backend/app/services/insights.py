@@ -7,7 +7,7 @@ individual data is for planning, team aggregates for judging the past).
 All reads go through the same SQL the rest of the platform uses."""
 
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 from .. import db
 from . import scope, stats
@@ -15,6 +15,10 @@ from .scope import WORKSPACE_ONLY
 from .slas import AGING_WIP_DAYS
 
 WINDOW_DAYS = 28
+# Round trips inside ONE turn's tool loop before it is worth a human's
+# attention. A normal turn is single digits; a loop that cannot satisfy its
+# tool climbs without bound. Deliberately absolute — see _r_turn_runaway.
+TURN_CYCLE_ALARM = 25
 
 
 def _n(count: int, word: str) -> str:
@@ -22,10 +26,24 @@ def _n(count: int, word: str) -> str:
 
 
 def _today() -> date:
-    return datetime.now(UTC).date()
+    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    return db.today()
 
 
 def _iso(d: date) -> str:
+    """A local date as a bound.
+
+    DECIDED, not overlooked: the analytics windows in this module ("the last
+    28 days", "the last 8 weeks") bind this against created_at and updated_at,
+    which are UTC timestamps — so each window is anchored to UTC midnight of a
+    local date and runs one UTC offset wide at its edge. That is hours of
+    smear on multi-week medians, and every rule in the file shares it, so the
+    counts stay comparable with each other.
+
+    Where a boundary is a CLAIM rather than a window, it is converted instead:
+    the month boundary below (db.today().replace(day=1)) and the day and week
+    keys the dedupe uses. A rule that starts asserting something about a
+    single day must take db.local_midnight_utc, not this."""
     return d.isoformat()
 
 
@@ -171,16 +189,84 @@ def intake_funnel(weeks: int = 12) -> dict:
     }
 
 
+def forecast_calibration(window_days: int = 180) -> dict:
+    """How often the slip forecast was right, scored against what happened.
+
+    adoption.snapshot_forecasts has written a row per open milestone per day
+    since it shipped, with the docstring "so calibration can be measured
+    against actuals later" — and nothing ever read the table, so "later" never
+    came. A forecast nobody scores is a decoration, and this one gets quoted
+    to stakeholders.
+
+    Scored on the EARLIEST snapshot per milestone: the question a manager is
+    answering is "can I trust the date I was given", and the date they were
+    given is the first one. A mean over every snapshot would flatter the
+    forecast, because the last snapshot before completion is nearly always
+    close.
+
+    Medians and an n, withheld under n=8 — docs/INSIGHTS.md, and the same bar
+    the MTTR card holds.
+    """
+    # MIN(f.day) is the ONLY aggregate here on purpose: SQLite then takes the
+    # bare f.forecast_date from the row that produced that minimum. Add a
+    # second aggregate (a COUNT, a MAX) and forecast_date silently becomes an
+    # arbitrary row's value — every error below is then wrong, with no error
+    # raised. UNIQUE (day, milestone_id) makes the minimum unambiguous.
+    rows = db.query(
+        "SELECT f.milestone_id, MIN(f.day) AS first_day, f.forecast_date,"
+        " m.completed_at, m.due_date"
+        " FROM forecast_snapshots f JOIN milestones m ON m.id = f.milestone_id"
+        # bounded on the MILESTONE's completion, never the snapshot's creation:
+        # as a WHERE on f.created_at it prunes rows BEFORE MIN() runs, so a
+        # milestone older than the window gets scored on its earliest
+        # IN-WINDOW forecast — the converged one — which flatters the forecast
+        # in exactly the way choosing the earliest snapshot exists to prevent
+        " WHERE m.status = 'done' AND m.completed_at IS NOT NULL AND m.completed_at >= ?"
+        " GROUP BY f.milestone_id",
+        (db.local_midnight_utc(_today() - timedelta(days=window_days)),),
+    )
+    errors: list[float] = []
+    on_or_before = 0
+    for r in rows:
+        if not r["forecast_date"]:
+            continue
+        try:
+            actual = date.fromisoformat(db.local_day(r["completed_at"]))
+            forecast = date.fromisoformat(r["forecast_date"])
+        except (TypeError, ValueError):
+            continue  # a malformed stored date must not take down /insights
+        delta = (actual - forecast).days
+        errors.append(float(delta))
+        if delta <= 0:
+            on_or_before += 1
+    n = len(errors)
+    return {
+        "n": n,
+        "window_days": window_days,
+        # signed: a forecast that is habitually EARLY and one that is
+        # habitually late are different problems, and |error| hides which
+        "median_error_days": _median(errors),
+        # the absolute miss, for "how far off is it typically"
+        "median_abs_error_days": _median([abs(e) for e in errors]),
+        # withheld under the same floor every other claim here uses — a hit
+        # rate over three milestones is noise wearing a percentage sign
+        "hit_rate": round(on_or_before / n, 2) if n >= 8 else None,
+        # withheld with the rate it reconstructs: hits/n IS hit_rate, so
+        # serving it under the floor hands back the number the floor exists
+        # to withhold (docs/INSIGHTS.md)
+        "hits": on_or_before if n >= 8 else None,
+    }
+
+
 def token_spend_weekly(weeks: int = 8) -> list[dict]:
     since = _iso(_today() - timedelta(weeks=weeks))
     rows = db.query(
-        "SELECT substr(created_at, 1, 10) AS day, input_tokens, output_tokens"
-        " FROM usage_log WHERE created_at >= ?",
+        "SELECT created_at, input_tokens, output_tokens FROM usage_log WHERE created_at >= ?",
         (since,),
     )
     buckets: dict[str, int] = {}
     for r in rows:
-        wk = _week(date.fromisoformat(r["day"]))
+        wk = _week(date.fromisoformat(db.local_day(r["created_at"])))
         buckets[wk] = buckets.get(wk, 0) + r["input_tokens"] + r["output_tokens"]
     return [{"week": w, "tokens": t} for w, t in sorted(buckets.items())]
 
@@ -195,6 +281,7 @@ def insights() -> dict:
         "automation_ratio": automation_ratio(),
         "review_trend": review_trend(),
         "intake_funnel": intake_funnel(),
+        "forecast_calibration": forecast_calibration(),
         "token_spend_weekly": token_spend_weekly(),
         # adoption() is team-rolled by construction — the per-person tally that
         # the anti-surveillance rule refuses was removed at the source, so it
@@ -635,6 +722,85 @@ def _r_token_anomaly() -> list[dict]:
     return []
 
 
+def _r_turn_runaway() -> list[dict]:
+    """ONE turn that looped. The weekly token rule above catches a spend
+    trend; it cannot see a single agent that burned a hundred cycles in an
+    afternoon, because a week's total absorbs it.
+
+    A cycle is one model round trip inside a turn's tool loop, so a high count
+    is the shape of an agent arguing with a tool it cannot satisfy — the
+    failure an unattended run makes expensive. Absolute, not a ratio: there is
+    no honest baseline for "normal cycles" until a deployment has months of
+    turns, and a ratio over a tiny sample fires on the second turn ever."""
+    rows = db.query(
+        "SELECT id, agent_name, model_id, cycles, input_tokens + output_tokens AS tokens,"
+        " created_at FROM usage_log WHERE cycles >= ? AND created_at >= ?"
+        " ORDER BY cycles DESC LIMIT 5",
+        (TURN_CYCLE_ALARM, db.local_midnight_utc(_today() - timedelta(days=7))),
+    )
+    if not rows:
+        return []
+    worst = rows[0]
+    return [
+        _finding(
+            "turn_runaway",
+            "medium",
+            f"{_n(len(rows), 'chat turn')} in the last 7 days ran"
+            f" {TURN_CYCLE_ALARM} or more model round trips."
+            f" The largest was {worst['cycles']} round trips by"
+            f" {worst['agent_name'] or 'the chat agent'}, spending"
+            f" {worst['tokens']:,} tokens. Read the thread before it repeats.",
+            {"turns": rows},
+            subject=f"turns:{worst['id']}",
+            n=len(rows),
+            window="7d",
+        )
+    ]
+
+
+def _r_flock_failures() -> list[dict]:
+    """Members that failed inside a flock turn. flock_traces has recorded a
+    per-member status since flocks shipped and nothing has ever read it, so a
+    persona that fails every time it is called looks, from every surface, like
+    a persona nobody uses."""
+    rows = db.query(
+        "SELECT members FROM flock_traces WHERE created_at >= ?",
+        (db.local_midnight_utc(_today() - timedelta(days=7)),),
+    )
+    failed: dict[str, int] = {}
+    total: dict[str, int] = {}
+    for r in rows:
+        try:
+            members = json.loads(r["members"] or "[]")
+        except (TypeError, ValueError):
+            continue  # a malformed trace must not take down the findings run
+        for m in members:
+            slug = str(m.get("slug", ""))
+            if not slug:
+                continue
+            total[slug] = total.get(slug, 0) + 1
+            if m.get("status") not in ("ok", None):
+                failed[slug] = failed.get(slug, 0) + 1
+    # every call failing is the signal — a persona that sometimes fails is a
+    # slow model, and a rule that fires on that gets ignored
+    broken = sorted(s for s, n in failed.items() if n == total.get(s) and n >= 2)
+    if not broken:
+        return []
+    return [
+        _finding(
+            "flock_member_failing",
+            "medium",
+            f"{_n(len(broken), 'flock specialist')} failed every time"
+            f" {'it was' if len(broken) == 1 else 'they were'} called in the last"
+            f" 7 days: {', '.join(broken)}. Check the persona file and the model it names.",
+            {"slugs": broken, "calls": {s: total[s] for s in broken}},
+            subject=f"slugs:{','.join(broken)}",
+            n=sum(total[s] for s in broken),
+            window="7d",
+        )
+    ]
+
+
 def _r_experiment_overdue() -> list[dict]:
     overdue = db.query(
         f"SELECT id, name, timebox_end, kill_criteria FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
@@ -843,7 +1009,7 @@ def _r_budget() -> list[dict]:
     # bounded to the CALENDAR month, same bound month_to_date uses — a finding
     # that says August is over budget must not name July's biggest spender as
     # its evidence, and timedelta arithmetic drifts at month edges
-    month_start = datetime.now(UTC).date().replace(day=1).isoformat()
+    month_start = db.today().replace(day=1).isoformat()
     top = [
         {"engagement": e["engagement"], "cost_usd": e["cost_usd"]}
         for e in engagement_costs(since=month_start)[:3]
@@ -861,7 +1027,7 @@ def _r_budget() -> list[dict]:
             f"Estimated model spend for {month['month']} is"
             f" ${month['cost_usd']:.2f}, at or over the"
             f" ${config.MONTHLY_BUDGET_USD:.2f} monthly budget.{unpriced}"
-            " Review the engagement costs on /api/usage.",
+            " Read the spend per engagement on Work \u2192 Health.",
             {"month": month, "top_engagements": top},
             subject=f"month:{month['month']}",
             window="month-to-date",
@@ -881,6 +1047,8 @@ RULES = (
     _r_question_aging,
     _r_decision_decay,
     _r_token_anomaly,
+    _r_turn_runaway,
+    _r_flock_failures,
     _r_job_stale,
     _r_experiment_overdue,
     _r_authority_stale,

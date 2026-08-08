@@ -3,7 +3,9 @@
 import json
 import math
 import os
+from datetime import UTC, tzinfo
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -625,6 +627,95 @@ CORS_ORIGINS = [
     for o in os.getenv("SKEIN_CORS_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
+
+# ---- team time zone --------------------------------------------------------
+# The zone the TEAM's rhythms run in: which hour a ritual fires, and which
+# calendar day "today" means. STORAGE is unaffected — db.now() stays UTC
+# ISO-8601 and every stored timestamp keeps that shape, because a stored local
+# time is ambiguous for one hour every autumn.
+#
+# An IANA name, never a fixed offset: "EST" is UTC-5 all year, so a team that
+# writes it gets rituals an hour late for eight months of the year.
+# America/New_York carries the DST rule and is what a US East Coast team means.
+#
+# A bad zone degrades to UTC and reports, the way a bad model provider degrades
+# to mock: a typo here must not take down the API. The scheduler reads TZ_NAME
+# (main.py) and every human-facing date reads db.today().
+TZ_NAME = os.getenv("SKEIN_TZ", "").strip() or "UTC"
+TZ_ERROR = ""
+# tzinfo, not ZoneInfo: the fallback below must never need tzdata. ZoneInfo
+# is an ordinary tzdata lookup even for "UTC", so a slim/alpine/distroless
+# image with no /usr/share/zoneinfo raises INSIDE the handler that exists to
+# recover — and a raise at module scope means `import app.config` fails and
+# the whole REST API is dead at boot, which is the opposite of degrading.
+# datetime.UTC is a fixed offset built into the interpreter.
+TZ: tzinfo = UTC
+
+
+def _zone(name: str) -> tzinfo:
+    """The configured zone, or a raise this module's caller turns into a
+    fault. Region/City or exactly UTC, because tzdata ALSO carries fixed-offset
+    keys: ZoneInfo("EST") resolves happily and is UTC-5 all year, so a team
+    that writes the abbreviation they say out loud gets rituals an hour late
+    for the eight months of DST, with /health reporting green."""
+    if name != "UTC" and "/" not in name:
+        raise ValueError(name)
+    return ZoneInfo(name)
+
+
+try:
+    TZ = _zone(TZ_NAME)
+except ValueError:
+    # the value goes to the LOG, never the body: TZ_ERROR is served on
+    # /health, and AUTH_ERROR 110 lines below makes the same choice for the
+    # same reason (docs/FEATURES.md records it as deliberate)
+    _tz_rejected = TZ_NAME
+    TZ_ERROR = (
+        "SKEIN_TZ is not an IANA Region/City time zone name. Set a name like"
+        " America/New_York. An abbreviation like EST is a fixed offset and ignores"
+        " daylight time. Skein uses UTC until you correct the value."
+    )
+    TZ_NAME, TZ = "UTC", UTC
+except (ZoneInfoNotFoundError, KeyError):
+    # Two different faults reach here and an operator fixes them differently:
+    # a name with no zone data (a typo), and a HOST with no zone data at all
+    # (a slim image missing the tzdata package, where every name fails). Say
+    # which by testing a name that certainly exists in any real database.
+    try:
+        ZoneInfo("America/New_York")
+        TZ_ERROR = (
+            "This host has no time zone data for SKEIN_TZ."
+            " Check the spelling against the IANA database."
+            " Skein uses UTC until you correct the value."
+        )
+    except (ZoneInfoNotFoundError, KeyError):
+        TZ_ERROR = (
+            "This host has no time zone database, so Skein cannot use SKEIN_TZ."
+            " Install the tzdata package in the image."
+            " Skein uses UTC until you correct the value."
+        )
+    TZ_NAME, TZ = "UTC", UTC
+
+# ---- unattended agent runs -------------------------------------------------
+# Ceilings for turns NO HUMAN IS WATCHING (services/agent_runner.py). A chat
+# turn is bounded by the person in it; an overnight run is bounded only here.
+#
+# 0 disables each, and both are 0 by default: an operator turns the runner on
+# deliberately, and a ceiling that shipped enabled would refuse work on a
+# deployment that never asked for the runner.
+#
+# Tokens, not dollars: an unpriced model costs NULL (SKEIN_MODEL_PRICES is
+# empty by default and Ollama Cloud bills by subscription), so a dollar
+# ceiling binds on nothing exactly where a keyless deployment needs it most.
+AGENT_DAILY_TOKENS = _ctx_num("SKEIN_AGENT_DAILY_TOKENS", 0, int, low=0, high=100_000_000)
+# Wall-clock bound on one unattended turn. The provider socket timeout caps a
+# STALL; it never caps a turn that keeps making progress in a loop it cannot
+# finish, which is the shape of a runaway.
+AGENT_RUN_SECONDS = _ctx_num("SKEIN_AGENT_RUN_SECONDS", 300, int, low=30, high=3600)
+# Agents the runner may wake, comma-separated. Empty = the runner is OFF.
+# An allowlist, never "every agent with open work": a runner that discovers
+# its own fleet grows one every time somebody delegates to a new name.
+AGENT_RUNNER = [a.strip() for a in os.getenv("SKEIN_AGENT_RUNNER", "").split(",") if a.strip()]
 
 # Background jobs (blocker sweep, daily digest, daily backup). Disabled in tests.
 # Run the scheduler in exactly ONE process (the default single-worker uvicorn).

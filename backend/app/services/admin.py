@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config, db
@@ -86,6 +85,7 @@ TABLES = (
     # a trace carries slugs, timings and token counts, never message text
     "flock_traces",
     "forecast_snapshots",
+    "health_snapshots",
     "job_runs",
     "job_outcomes",
     "finding_dispositions",
@@ -106,7 +106,7 @@ def _backups_dir() -> Path:
 
 
 def _today() -> str:
-    return datetime.now(UTC).date().isoformat()
+    return db.today().isoformat()
 
 
 def _backup_one(src: sqlite3.Connection, dest: Path, keep: int) -> None:

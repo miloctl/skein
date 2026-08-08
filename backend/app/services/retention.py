@@ -12,6 +12,7 @@ from . import wording
 # table name to a reader
 PRUNE_LABEL = {
     "forecast_snapshots": "forecast snapshot",
+    "health_snapshots": "health snapshot",
     "notifications": "read notification",
     "job_runs": "job run",
     "job_outcomes": "job outcome",
@@ -28,7 +29,12 @@ def _cutoff(days: int) -> str:
 
 
 def prune(*, actor: str = "scheduler") -> dict:
-    month = db.now()[:7]
+    # the TEAM month, matching the local 1st-of-month the scheduler now fires
+    # on (config.TZ_NAME). Keyed on the UTC month, a zone more than 4 hours
+    # east of UTC computes the PREVIOUS month at 04:00 local on the 1st — the
+    # key is already claimed, the prune silently never runs, and the trigger
+    # does not come back for a month.
+    month = db.today().isoformat()[:7]
     if not db.claim_job("retention-prune", month):
         return {"skipped": "already pruned this month"}
     # usage_log is deliberately absent from this list: it is the platform's
@@ -43,6 +49,12 @@ def prune(*, actor: str = "scheduler") -> dict:
     removed = {
         "forecast_snapshots": db.execute_rowcount(
             "DELETE FROM forecast_snapshots WHERE created_at < ?",
+            (_cutoff(FORECAST_SNAPSHOT_DAYS),),
+        ),
+        # the same one-row-per-entity-per-day growth, and the same horizon:
+        # the readout compares back weeks, never years
+        "health_snapshots": db.execute_rowcount(
+            "DELETE FROM health_snapshots WHERE created_at < ?",
             (_cutoff(FORECAST_SNAPSHOT_DAYS),),
         ),
         "notifications": db.execute_rowcount(

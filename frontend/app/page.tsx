@@ -9,6 +9,7 @@ import { StandupComposer } from "@/components/standup-card";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
+import { PeekLink } from "@/components/task-peek";
 
 type Row = Record<string, string | number | null>;
 
@@ -504,7 +505,9 @@ export default function MyDay() {
             {b.your_work.tasks.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-2">
                 <span>
-                  <span className="text-ink-3">#{t.id}</span> {t.title}{" "}
+                  <PeekLink taskId={Number(t.id)}>
+                    <span className="text-ink-3">#{t.id}</span> {t.title}
+                  </PeekLink>{" "}
                   <span className="text-xs text-ink-3">
                     [{t.priority}/{t.status}]
                   </span>
@@ -541,7 +544,16 @@ export default function MyDay() {
             {b.your_work.due_soon.length > 0 && (
               <li className="pt-1 text-xs text-weld">
                 Due within a week:{" "}
-                {b.your_work.due_soon.map((t) => `#${t.id} ${t.title}`).join(" · ")}
+                {/* links, not a joined string: this line names the exact row
+                    and used to be the dead end the task peek was built for */}
+                {b.your_work.due_soon.map((t, i) => (
+                  <span key={t.id}>
+                    {i > 0 ? " · " : ""}
+                    <PeekLink taskId={Number(t.id)}>
+                      #{t.id} {t.title}
+                    </PeekLink>
+                  </span>
+                ))}
               </li>
             )}
             <li className="pt-2 text-xs text-ink-3">

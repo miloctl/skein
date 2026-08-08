@@ -7,6 +7,9 @@ import { usePathname } from "next/navigation";
  *  a top-level destination keeps its URL — the tabs are plain links. */
 const SETS = {
   work: [
+    // first in the set: it is the Monday running order, and the pages after
+    // it are where the individual numbers are edited
+    { href: "/planning", label: "Plan the week" },
     { href: "/portfolio", label: "Health" },
     { href: "/dashboard", label: "Browse" },
     { href: "/insights", label: "Insights" },

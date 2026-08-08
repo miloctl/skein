@@ -574,6 +574,31 @@ _UNFILTERED_READS = {
         "cycle-time numbers and a per-person WIP count. No title, no id, and"
         " the person is the allocation's own — same rule as pulse below."
     ),
+    "delegation.py::list_worklog": (
+        "the `party` branch only, and it is gated per task on that task's own"
+        " delegated_agent/sponsor columns — the same two identities"
+        " report_progress lets WRITE there. It exists because an agent holds"
+        " no crew membership, so the tier filter refused a crew worklog the"
+        " agent was writing. A private task can never carry a delegate"
+        " (delegate_task refuses one), so this reaches crew and workspace"
+        " rows only. The non-party branch below is filtered."
+    ),
+    "portfolio.py::capacity_ahead": (
+        "TWO reads, and this scanner keys on the FUNCTION, so both need the"
+        " reason here. Allocations: percent per person per week plus the"
+        " engagement NAME, masked by scope.visible_name against the caller's"
+        " viewer — the same treatment allocation_conflicts gives that column."
+        " Absences: person and dates are the honest core of unavailability,"
+        " and the KIND is masked to 'away' on any non-workspace row, matching"
+        " absences.away_today. Reading only the first query is how the"
+        " absence leak got here — visible_name anywhere in a body satisfies"
+        " this scan for every other query in it."
+    ),
+    "insights.py::forecast_calibration": (
+        "julianday differences between a snapshot's forecast_date and a"
+        " milestone's completed_at. No title, no id, no name — the same shape"
+        " as slip_forecast below, which reads the same table"
+    ),
     "portfolio.py::slip_forecast": (
         "the slip HISTORY: one julianday difference per done milestone, no"
         " title and no id. The open-milestone list beside it is filtered."
