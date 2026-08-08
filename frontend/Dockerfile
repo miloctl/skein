@@ -9,8 +9,12 @@ COPY . .
 # NEXT_PUBLIC_* values are baked into the bundle at build time.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_API_TOKEN=
+# app/layout.tsx feeds this to metadataBase, which resolves every relative
+# OG/canonical URL. Unset, the whole deployment advertises localhost:3000.
+ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_API_TOKEN=$NEXT_PUBLIC_API_TOKEN \
+    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
