@@ -1,8 +1,9 @@
 # One knob for team access: set SKEIN_HOST to the VM's hostname/IP so
 # teammates' browsers can reach both services, e.g.
 #   SKEIN_HOST=my-vm.internal docker compose up --build
-# NEXT_PUBLIC_* values are BAKED AT BUILD TIME — changing SKEIN_HOST or
-# SKEIN_API_TOKEN requires `up --build`, not just a restart.
+# NEXT_PUBLIC_* values are BAKED AT BUILD TIME — changing SKEIN_HOST,
+# SKEIN_API_TOKEN or SKEIN_FRONTEND_PORT requires `up --build`, not just a
+# restart.
 services:
   backend:
     build: ./backend
@@ -46,6 +47,9 @@ services:
         # The URL the BROWSER uses to reach the backend.
         NEXT_PUBLIC_API_URL: "http://${SKEIN_HOST:-localhost}:8000"
         NEXT_PUBLIC_API_TOKEN: ${SKEIN_API_TOKEN:-}
+        # The web app's own origin, for metadataBase. Carries the host port,
+        # which NEXT_PUBLIC_API_URL does not — the frontend port is a knob.
+        NEXT_PUBLIC_SITE_URL: "http://${SKEIN_HOST:-localhost}:${SKEIN_FRONTEND_PORT:-3000}"
     init: true
     ports:
       # Host port is a knob — if another app owns :3000 on the host, use
