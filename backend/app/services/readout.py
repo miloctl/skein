@@ -102,7 +102,11 @@ def exec_readout(*, actor: str = "system") -> dict:
             lines.append(f"- {dot[m['to']]} **{m['name']}**: {m['from']} → {m['to']}")
 
     lines += ["", "## Shipped this season"]
-    lines += [f"- {r['name']} ({r['closed_at'][:10]})" for r in shipped] or ["- none yet"]
+    # local_day, not [:10] — the rule this file states 19 lines above and
+    # then broke here. closed_at is a UTC timestamp, and this artifact is
+    # forwarded outside the team, so the slice ships a date a reader in the
+    # team's zone did not experience.
+    lines += [f"- {r['name']} ({db.local_day(r['closed_at'])})" for r in shipped] or ["- none yet"]
     lines += ["", "## Top risks"]
     risk_lines = [f"- Escalated blocker #{b['id']}: {b['title']}" for b in escalated]
     risk_lines += [f"- {c['person']} at {c['total_percent']}% ({c['detail']})" for c in conflicts]

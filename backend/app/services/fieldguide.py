@@ -364,7 +364,11 @@ def guide(person: str) -> dict:
             "link": k["link"],
             "role": k.get("role", ""),
             "tied": t is not None,
-            "tied_on": t["first_at"][:10] if t else "",
+            # local_day: first_at is a UTC timestamp, and this date is read
+            # by the person who earned it. The last [:10] in the backend —
+            # leaving one behind makes the slice look sometimes-acceptable,
+            # and the next reader cannot tell which sites were considered.
+            "tied_on": db.local_day(t["first_at"]) if t else "",
         }
         cards.append(card)
         if t and not t["seen"]:

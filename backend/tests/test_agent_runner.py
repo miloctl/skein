@@ -300,7 +300,18 @@ def test_the_runs_own_spend_reaches_usage_log(fresh_db, monkeypatch):
 
 def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
     """The job runs at 05:30 and nobody looks until morning. A turn that never
-    returns must not take the rest of the fleet with it."""
+    returns must not take the rest of the fleet with it.
+
+    The hang is an Event this test RELEASES, never a bare sleep. run_one
+    deliberately abandons the worker, so a sleep leaves a live thread running
+    for the rest of its duration — and db.DB_PATH is read per connection
+    (db.py::connect) while fresh_db repoints it per test, so a late write
+    lands in whichever test's database is installed at that moment. Nothing
+    in the CODE prevents that write: it is prevented only by this fake having
+    no event_loop_metrics, and the fake twelve tests below has them. That is
+    the shape of the reload(db) flake this suite already paid for once.
+    """
+    import threading
     import time
 
     _delegated("research-agent")
@@ -308,16 +319,37 @@ def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "AGENT_RUN_SECONDS", 1)
 
+    released = threading.Event()
+
     def _hang(thread, user="", persona="", stateless=False):
-        return lambda _msg: time.sleep(30)
+        return lambda _msg: released.wait(30)
 
     monkeypatch.setattr("app.agents.team_agent.build_agent", _hang)
-    started = time.monotonic()
-    out = agent_runner.run_one("research-agent")
-    # the bound is the point: a join() that waits out the hang is the bug
-    assert time.monotonic() - started < 10
-    assert out["ran"] is False
-    assert "abandoned" in out["reason"]
+    try:
+        started = time.monotonic()
+        out = agent_runner.run_one("research-agent")
+        # the bound is the point: a join() that waits out the hang is the bug
+        assert time.monotonic() - started < 10
+        assert out["ran"] is False
+        assert "abandoned" in out["reason"]
+
+        # the thread is still alive, which is what "abandoned" MEANS — a
+        # future join() with no timeout would make this vanish and the test
+        # above would still pass
+        worker = next(
+            (t for t in threading.enumerate() if t.name == "agent-run-research-agent"),
+            None,
+        )
+        assert worker is not None and worker.is_alive()
+    finally:
+        # hand the thread back before the next test installs its database
+        released.set()
+        if worker := next(
+            (t for t in threading.enumerate() if t.name == "agent-run-research-agent"),
+            None,
+        ):
+            worker.join(timeout=5)
+            assert not worker.is_alive()
 
 
 def test_a_failure_that_spent_nothing_does_not_eat_the_day(fresh_db, monkeypatch):
@@ -339,3 +371,37 @@ def test_a_failure_that_spent_nothing_does_not_eat_the_day(fresh_db, monkeypatch
         lambda thread, user="", persona="", stateless=False: lambda _m: "ok",
     )
     assert agent_runner.run_one("research-agent")["ran"] is True
+
+
+def test_the_run_is_recorded_under_the_scheduler_not_the_agent(fresh_db, monkeypatch):
+    """The actor on this row decides who can SEE it.
+
+    `scheduler` is in activity.SYSTEM_ACTORS, and visible_actor_filter shows a
+    system actor's rows to EVERY viewer. An edit that "improves" this row by
+    passing the agent name instead would put one agent's turn in front of the
+    whole team under that exemption — and the anti-surveillance rule is what
+    buys the team's honest data entry. Nothing else enforces the choice.
+
+    The row is also the only feed entry saying an unattended turn happened at
+    all, so a rename that drops it out of the verb registry silently demotes
+    it to the generic unregistered sentence.
+    """
+    from app.services import activity
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda thread, user="", persona="", stateless=False: lambda _m: "done",
+    )
+    assert agent_runner.run_one("research-agent", actor="scheduler")["ran"] is True
+
+    rows = db.query("SELECT actor, action, detail FROM activity WHERE action = 'agent_run'")
+    assert len(rows) == 1
+    assert rows[0]["actor"] == "scheduler"
+    assert rows[0]["actor"] != "research-agent"
+    assert "research-agent" in rows[0]["detail"]
+    # registered, so the feed renders its own sentence rather than the
+    # honest-but-generic fallback for an unknown action
+    assert rows[0]["action"] in activity.VERBS

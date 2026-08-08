@@ -113,7 +113,10 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         (
             "Engagements stuck in 'closing' for 7+ days",
             [
-                f"- #{e['id']} {_clean(e['name'])} (since {e['updated_at'][:10]})"
+                # local_day: updated_at is UTC, and this line goes into a
+                # ritual artifact that leaves the team (services/readout.py
+                # makes the same conversion for the same reason)
+                f"- #{e['id']} {_clean(e['name'])} (since {db.local_day(e['updated_at'])})"
                 for e in stuck_closing
             ],
         ),
