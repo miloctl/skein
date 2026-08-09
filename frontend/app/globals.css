@@ -723,6 +723,37 @@ body {
   padding: 0.25rem 0.5rem;
 }
 
+/* Auth gate (components/auth-gate.tsx): six strands settle into the mark's
+   formation. The keyframes animate FROM the scatter, so each element's
+   resting style IS the finished composition — reduced motion gets the final
+   frame by skipping the animation, with no second drawing to keep in sync. */
+.gate-strand {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: strand-settle 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes strand-settle {
+  from {
+    opacity: 0;
+    transform: var(--from);
+  }
+}
+.gate-rise {
+  animation: gate-rise 420ms ease-out 500ms backwards;
+}
+@keyframes gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gate-strand,
+  .gate-rise {
+    animation: none;
+  }
+}
+
 /* forced-colors escape — last in the file on purpose: the base component
    rules and the equal-specificity per-pack flourishes above must lose to it
    on source order. WHCM forces background-color but NOT background-image —

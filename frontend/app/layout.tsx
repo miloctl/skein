@@ -9,6 +9,7 @@ import {
 } from "next/font/google";
 import "./globals.css";
 
+import { AuthGate } from "@/components/auth-gate";
 import { CapturePalette } from "@/components/capture-palette";
 import { Nav } from "@/components/nav";
 import { StatusRegion } from "@/components/status-region";
@@ -123,7 +124,9 @@ export default function RootLayout({
         </a>
         <Nav />
         <CapturePalette />
-        {children}
+        {/* locked deployments (oidc, api-key): until an identity exists the
+            gate renders instead of the page — see components/auth-gate.tsx */}
+        <AuthGate>{children}</AuthGate>
         {/* mounted once for the whole app: any surface that names a task can
             link to ?task=<id>, and the panel opens over whatever page the
             reader was already on instead of navigating them away from it */}

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { VisibilityPicker } from "@/components/visibility-picker";
 import { actionError, api } from "@/lib/api";
+import { isGated, subscribeGated } from "@/lib/gated";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
 // the truth about where a line will land, so the grammar is afforded, not
@@ -55,6 +56,7 @@ const CHIPS: { prefix: string; label: string }[] = [
 
 export function CapturePalette() {
   const [open, setOpen] = useState(false);
+  const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
@@ -169,7 +171,9 @@ export function CapturePalette() {
     inputRef.current?.focus();
   };
 
-  if (!open) return null;
+  // the gate out-ranks nothing on z-index (this is z-50, the gate z-30), so
+  // without this ⌘K opened a capture box over the gate that could only 401
+  if (!open || gated) return null;
   const kind = text.trim() ? previewKind(text) : "";
   return (
     <div
