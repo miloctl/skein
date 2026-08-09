@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { actionError, api } from "@/lib/api";
 import { SectionTabs } from "@/components/section-tabs";
+import { Shortcut } from "@/components/shortcut";
 
 type IngestResult = {
   proposals: { id: number; kind: string; line: string }[];
@@ -171,7 +172,7 @@ export default function IngestPage() {
                   {result.unclassified.length - 20} more{" "}
                   {result.unclassified.length - 20 === 1 ? "line is" : "lines are"} not
                   shown. Paste a smaller batch to file them here, or capture them
-                  with ⌘K.
+                  with <Shortcut />.
                 </p>
               )}
               {/* the heading above counts every line, the list renders 20:

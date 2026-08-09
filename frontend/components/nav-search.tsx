@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { actionError, api } from "@/lib/api";
 import { PeekLink } from "@/components/task-peek";
+import { Shortcut } from "@/components/shortcut";
 
 /** Search and /ask, in the nav.
  *
@@ -145,7 +146,12 @@ function CaptureHint() {
   return (
     <p className="mt-1 text-xs text-ink-3">
       To file a new record, use quick capture
-      <span className="[@media(any-pointer:coarse)]:hidden"> (⌘K)</span>.
+      <span className="[@media(any-pointer:coarse)]:hidden">
+        {" ("}
+        <Shortcut />
+        {")"}
+      </span>
+      .
     </p>
   );
 }

@@ -39,7 +39,11 @@ describe("search and quick capture signpost each other", () => {
     await waitFor(() =>
       expect(document.body.textContent).toContain("use quick capture"),
     );
+    // BOTH spellings are in the markup and globals.css drops the wrong one —
+    // a hint that names only ⌘K is the reported bug, since the binding is
+    // metaKey OR ctrlKey and most readers are on the ctrl half
     expect(document.body.textContent).toContain("⌘K");
+    expect(document.body.textContent).toContain("Ctrl+K");
   });
 
   it("teaches quick capture when an ask answers with no citations", async () => {

@@ -786,7 +786,7 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 {
                     "type": "text",
                     "text": "Feedback notes are private — chat sends messages"
-                    " to the model and the session log. Use ⌘K capture or the"
+                    " to the model and the session log. Use quick capture or the"
                     " People page instead.",
                 }
             )

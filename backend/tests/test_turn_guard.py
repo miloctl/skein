@@ -21,7 +21,10 @@ def test_a_filing_request_that_wrote_nothing_is_reported(message):
     note = turn_guard.unfiled(message, wrote=False)
     assert note is not None
     assert note["kind"] == "nothing"
-    assert "⌘K" in note["detail"]
+    # names the action, not the key: this detail reaches chat's markdown
+    # renderer, which cannot swap a ⌘K token for the reader's keyboard
+    assert "quick capture" in note["detail"]
+    assert "⌘" not in note["detail"]
 
 
 @pytest.mark.parametrize(
@@ -98,7 +101,7 @@ def test_the_guard_fires_in_the_stream_when_the_turn_writes_nothing(client, monk
         "/api/chat", json={"thread_id": "t-silent", "message": "todo: ship the guard"}
     ).text
     assert '"kind": "nothing"' in body
-    assert "\\u2318K" in body or "⌘K" in body
+    assert "quick capture" in body
 
 
 def test_a_capture_prefixed_chat_write_ties_the_knot(client):

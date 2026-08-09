@@ -45,7 +45,7 @@ URL is directly linkable.
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
 | — | `/settings` | Name, theme, API key, growth interests, team roster |
-| ⌘K anywhere | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, commitment, request (`req:`) or private feedback (`fb:`) |
+| Ctrl+K anywhere (⌘K on a Mac) | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, commitment, request (`req:`) or private feedback (`fb:`) |
 
 ## Architecture
 
@@ -307,7 +307,7 @@ end-to-end: streaming chat, tool calls, and usage accounting.
 
 ## Try it (keyless)
 
-- Press **⌘K**: `blocked on vendor contract` → lands in the blocker register.
+- Press **Ctrl+K** (**⌘K** on a Mac): `blocked on vendor contract` → lands in the blocker register.
 - Chat: `/plan incident Payments outage` → engagement + milestones + tasks +
   rituals from the incident playbook, with past incident lessons attached.
 - Chat: `/briefing`, `/search cutover`, `/help`.

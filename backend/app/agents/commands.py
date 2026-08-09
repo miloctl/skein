@@ -146,7 +146,7 @@ async def _remember(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator
     if args.lower().startswith("fb:"):
         yield {
             "data": "Feedback notes are private — memories are team-visible."
-            " Use ⌘K capture with your key instead."
+            " Use quick capture with your key instead."
         }
         return
     yield _tool_event("remember")
