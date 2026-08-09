@@ -37,6 +37,7 @@ URL is directly linkable.
 | | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
+| | `/artifacts` | Reports: every digest, week brief, close-out, readout and handoff, rendered |
 | **Inbox** | `/review` | Approve or reject proposed changes. This is the agent approval gate |
 | | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
 | | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |

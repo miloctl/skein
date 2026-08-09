@@ -78,6 +78,97 @@ function Section({
   );
 }
 
+/** The paid-for lessons, with a filter by the class of work that produced
+ *  them.
+ *
+ *  `list_lessons` and its `project_class` filter shipped with the retro loop
+ *  and the Season band has counted lessons ever since — but nothing listed
+ *  one, so the count led nowhere and search rendered a lesson hit as dead
+ *  text. A lesson the team cannot re-read is one it pays for twice.
+ *
+ *  Filters on the SERVER, not over the rows already fetched: the list is
+ *  capped, and a client-side filter would quietly search only the newest
+ *  page while looking like it searched everything. */
+function LessonsCard() {
+  const [rows, setRows] = useState<Row[] | null>(null);
+  const [cls, setCls] = useState("");
+  const [error, setError] = useState("");
+  // classes come from the rows themselves — playbooks.py owns the real list
+  // and a hardcoded copy here would drift the first time one is added
+  const [classes, setClasses] = useState<string[]>([]);
+
+  useEffect(() => {
+    const q = cls ? `?project_class=${encodeURIComponent(cls)}` : "";
+    api<Row[]>(`/api/lessons${q}`)
+      .then((r) => {
+        setRows(r);
+        setError("");
+        // only from the unfiltered read: a filtered one knows about one class
+        if (!cls)
+          setClasses([
+            ...new Set(r.map((l) => String(l.project_class || "")).filter(Boolean)),
+          ].sort());
+      })
+      .catch((e) => {
+        setRows([]);
+        setError(loadError(e));
+      });
+  }, [cls]);
+
+  return (
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+          Lessons
+        </h2>
+        {classes.length > 0 ? (
+          <select
+            aria-label="Filter lessons by type of work"
+            value={cls}
+            onChange={(e) => setCls(e.target.value)}
+            className="rounded-lg border border-line-strong bg-card px-2 py-1 text-xs outline-none"
+          >
+            <option value="">All</option>
+            {classes.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+      {error ? (
+        <p className="text-sm text-danger">{error}</p>
+      ) : rows === null ? (
+        <p className="text-sm text-ink-3">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-ink-3">
+          {cls
+            ? `No lesson recorded from ${cls} work yet.`
+            : "No lesson recorded yet. Close an engagement to write the first one."}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((l) => (
+            <li key={l.id} id={`lesson-${l.id}`} className="text-sm">
+              <span className="text-ink-3">#{l.id}</span> {l.lesson}
+              {l.recommendation ? (
+                <span className="block text-xs text-ink-3">
+                  → {l.recommendation}
+                </span>
+              ) : null}
+              <span className="block text-xs text-ink-3">
+                {l.project_class ? `${l.project_class} · ` : ""}
+                {l.created_by}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function StandupCard({ rows }: { rows: Row[] }) {
   return (
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
@@ -1120,6 +1211,7 @@ export default function Dashboard() {
           )}
         />
         <StandupCard rows={data.standups ?? []} />
+        <LessonsCard />
         <Section
           title="Calendar"
           rows={data.events ?? []}

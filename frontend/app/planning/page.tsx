@@ -194,17 +194,35 @@ export default function Planning() {
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-ink-3">
                 <th scope="col" className="py-1 pr-3">Week</th>
-                <th scope="col" className="py-1 pr-3">Over 100%</th>
+                <th scope="col" className="py-1 pr-3">Load</th>
                 <th scope="col" className="py-1">Away</th>
               </tr>
             </thead>
             <tbody>
               {d.capacity_ahead.map((w) => (
-                <tr key={w.week} className="border-t border-line">
+                <tr key={w.week} className="border-t border-line align-top">
                   <td className="py-1 pr-3 whitespace-nowrap">{w.week}</td>
+                  {/* `people` carries every allocated person and their
+                      percent; `over` is derived from it as the subset above
+                      100. The table read only `over`, so a week where three
+                      people sat at 95% looked identical to an empty one —
+                      which is the staffing call this card exists to make. */}
                   <td className="py-1 pr-3">
-                    {w.over.length ? (
-                      <span className="text-weld">{w.over.join(", ")}</span>
+                    {w.people.length ? (
+                      <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        {w.people.map((p) => (
+                          <span
+                            key={p.person}
+                            className={
+                              p.total_percent > 100 ? "text-weld" : "text-ink-2"
+                            }
+                            title={p.detail}
+                          >
+                            {p.person}{" "}
+                            <span className="tabular-nums">{p.total_percent}%</span>
+                          </span>
+                        ))}
+                      </span>
                     ) : (
                       <span className="text-ink-3">—</span>
                     )}
@@ -262,6 +280,25 @@ export default function Planning() {
                       this heading says one. A fallback string here would be
                       copy no reader can reach. */}
                   {c.from} → {c.to}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {/* Where the portfolio stands, under where it moved. The movement
+            list answers "what changed" and is silent about an engagement
+            that has been red all month — the one most likely to need the
+            meeting's attention. */}
+        {d.health.length > 0 ? (
+          <>
+            <h3 className="text-xs uppercase tracking-wide text-ink-3">
+              Where each engagement stands
+            </h3>
+            <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+              {d.health.map((h) => (
+                <li key={h.id}>
+                  {DOT[h.health]} {h.name}
+                  <span className="ml-1 text-xs text-ink-3">{h.status}</span>
                 </li>
               ))}
             </ul>

@@ -161,7 +161,7 @@ def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / "digests"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     path = artifacts_dir / f"{today}-digest.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
 
     # same-day reruns overwrite the file, so upsert the artifact row too —
     # N rows pointing at one file would imply history that doesn't exist

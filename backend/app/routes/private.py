@@ -6,6 +6,7 @@ entry may reference these records."""
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from .. import ratelimit
 from ..services import private_notes
 from .deps import StrongUser, ViewerDep
 
@@ -25,11 +26,18 @@ def get_notes(user: StrongUser, person: str = ""):
 
 @router.post("/notes")
 def post_note(body: NoteIn, user: StrongUser):
+    # its own bucket (app/ratelimit.py): rows here are excluded from backup,
+    # export, FTS and every agent surface, so a flood is invisible to every
+    # other guard — and sharing the `write` budget would let a busy planning
+    # session lock a person out of their own 1:1 notes
+    ratelimit.check("private", user)
     return private_notes.add_note(user, body.person, body.body, kind=body.kind)
 
 
 @router.delete("/notes/{note_id}")
 def delete_note(note_id: int, user: StrongUser):
+    # a delete here writes a tombstone AND an audit row, so it grows the store
+    ratelimit.check("private", user)
     return private_notes.delete_note(user, note_id)
 
 

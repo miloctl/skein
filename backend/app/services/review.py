@@ -62,6 +62,35 @@ def _registry() -> dict:
     }
 
 
+def unappliable(entity: str, payload: dict) -> str:
+    """Why the service would refuse this payload at apply time, or "".
+
+    A proposal is stored now and applied LATER, through the same service the
+    REST door uses. A payload the service will refuse becomes a row that can
+    only ever be rejected, and the reviewer is told why at the verdict — long
+    after whoever wrote it could fix it. Worse, the row is already in the queue
+    when the bound ships, so a deploy strands it.
+
+    Only the free-text bounds are checked, which are the ones a pasted line or
+    a model can exceed. Every other refusal a service makes (a missing
+    milestone, a bad date) is about state that can change between the proposal
+    and the verdict, and guessing at it here would drop proposals that WOULD
+    have applied.
+    """
+    from .intake import DETAIL_LEN
+    from .work import DESCRIPTION_LEN, TITLE_LEN
+
+    caps = {
+        "task": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
+        "milestone": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
+        "intake": (("detail", DETAIL_LEN),),
+    }
+    for field, cap in caps.get(entity, ()):
+        if len(str(payload.get(field) or "")) > cap:
+            return f"{entity} {field} must be {cap} characters or fewer"
+    return ""
+
+
 def propose_change(
     entity: str,
     action: str,
@@ -85,6 +114,12 @@ def propose_change(
     # oversized payloads would also fail at apply and wedge in the queue
     if len(json.dumps(payload)) > 20_000:
         raise ValueError("proposal payload too large — keep it under 20k characters")
+    # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
+    # ingester both file proposals, and a guard in either one leaves the other
+    # storing rows that can never be approved.
+    refusal = unappliable(entity, payload)
+    if refusal:
+        raise ValueError(refusal)
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by)"

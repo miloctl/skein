@@ -116,11 +116,16 @@ def get_chat_folders(user: CurrentUser):
 
 @router.post("/api/chats/folders")
 def post_chat_folder(body: FolderIn, user: CurrentUser):
+    # a folder is never deleted by writing another one, and list_folders UNIONs
+    # over every distinct folder string ever set — so a loop here grows every
+    # later read of the sidebar, not just this one write
+    ratelimit.check("write", user)
     return chat_threads.create_folder(user, body.name)
 
 
 @router.delete("/api/chats/folders/{name}")
 def delete_chat_folder(name: str, user: CurrentUser):
+    ratelimit.check("delete", user)
     return chat_threads.delete_folder(user, name)
 
 
@@ -131,6 +136,7 @@ def get_chat_messages(thread_id: str, user: CurrentUser):
 
 @router.patch("/api/chats/{thread_id}")
 def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
+    ratelimit.check("write", user)
     return chat_threads.update_thread(
         thread_id, user, title=body.title, folder=body.folder, engagement_id=body.engagement_id
     )
@@ -138,6 +144,9 @@ def patch_chat(thread_id: str, body: ChatPatch, user: CurrentUser):
 
 @router.delete("/api/chats/{thread_id}")
 def delete_chat(thread_id: str, user: CurrentUser):
+    # deletes the transcript AND the model-side session rows, so it is the
+    # most expensive delete a person can issue from the sidebar
+    ratelimit.check("delete", user)
     return chat_threads.delete_thread(thread_id, user)
 
 

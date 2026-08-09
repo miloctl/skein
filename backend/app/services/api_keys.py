@@ -88,12 +88,29 @@ def verify_key(key: str) -> str | None:
     return row["owner"]
 
 
+# ACTIVE first in both lists below, so the cap can only drop rows that are
+# already revoked until a caller passes LIST_LIMIT *live* keys — past that the
+# oldest live one falls off, which is exactly the long-lived key an
+# administrator hunting a spoofed mint is looking for. Neither list is a count:
+# use active_key_count for that.
+LIST_LIMIT = 200
+
+
 def list_keys(owner: str) -> list[dict]:
     return db.query(
         "SELECT id, prefix, label, active, created_at, last_used_at"
-        " FROM api_keys WHERE owner = ? ORDER BY id DESC",
-        (owner,),
+        " FROM api_keys WHERE owner = ? ORDER BY active DESC, id DESC LIMIT ?",
+        (owner, LIST_LIMIT),
     )
+
+
+def active_key_count(owner: str) -> int:
+    """Counted in SQL, never by measuring a capped page: a number computed over
+    a truncated list under-reports without saying so."""
+    row = db.query_one(
+        "SELECT COUNT(*) AS n FROM api_keys WHERE owner = ? AND active = 1", (owner,)
+    )
+    return int(row["n"]) if row else 0
 
 
 def revoke_key(key_id: int, owner: str) -> dict:
@@ -112,7 +129,8 @@ def list_all_keys() -> list[dict]:
     minted under a spoofed identity discoverable and revocable."""
     return db.query(
         "SELECT id, prefix, owner, label, active, created_at, last_used_at"
-        " FROM api_keys ORDER BY active DESC, id DESC"
+        " FROM api_keys ORDER BY active DESC, id DESC LIMIT ?",
+        (LIST_LIMIT,),
     )
 
 

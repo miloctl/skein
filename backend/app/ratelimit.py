@@ -68,6 +68,12 @@ LIMITS = {
     "absence": 10,
     "ritual": 4,
     "memory": 10,
+    # its own bucket, not the shared `write` one: the private journal is the
+    # single store that backup, export, FTS, MCP and every agent surface
+    # structurally never open, so nothing else would notice a flood — and a
+    # manager who spends the write budget planning a week must still be able
+    # to record a 1:1 note. Same reasoning that gave `forge` its own bucket.
+    "private": 20,
     "chat": 20,
     "write": 30,  # generic create-endpoint cap — content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call

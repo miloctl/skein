@@ -93,9 +93,24 @@ export default function IntakePage() {
     outcome: "",
   });
 
-  const openPanel = (id: number, mode: PanelMode) => {
-    setPanel({ id, mode });
-    setRice({ reach: 3, impact: 3, confidence: 3, effort: 3 });
+  /** Takes the ROW, not the id: re-scoring opened on 3/3/3/3 and threw away
+   *  the numbers already on record, so correcting one of the four meant
+   *  remembering and retyping the other three. An unscored row is stored as
+   *  0/0/0/1 (migration 001), which the 1-5 inputs cannot represent — those
+   *  open on the neutral 3s instead. `score > 0` is the same test the row's
+   *  RICE chip uses to decide it has been scored at all. */
+  const openPanel = (r: Req, mode: PanelMode) => {
+    setPanel({ id: r.id, mode });
+    setRice(
+      r.score > 0
+        ? {
+            reach: r.reach,
+            impact: r.impact,
+            confidence: r.confidence,
+            effort: r.effort,
+          }
+        : { reach: 3, impact: 3, confidence: 3, effort: 3 },
+    );
     setVerdict({
       reason: "",
       experiment: false,
@@ -290,7 +305,7 @@ export default function IntakePage() {
             {manage && (r.status === "submitted" || r.status === "scored") && (
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
-                  onClick={() => openPanel(r.id, "score")}
+                  onClick={() => openPanel(r, "score")}
                   className="rounded bg-thread/15 px-2 py-1 text-xs font-medium text-thread hover:bg-thread/20"
                 >
                   score…
@@ -298,19 +313,19 @@ export default function IntakePage() {
                 {r.status === "scored" && (
                   <>
                     <button
-                      onClick={() => openPanel(r.id, "accepted")}
+                      onClick={() => openPanel(r, "accepted")}
                       className="rounded bg-ok/15 px-2 py-1 text-xs font-medium text-ok hover:bg-ok/20"
                     >
                       accept…
                     </button>
                     <button
-                      onClick={() => openPanel(r.id, "deferred")}
+                      onClick={() => openPanel(r, "deferred")}
                       className="rounded bg-raised px-2 py-1 text-xs font-medium text-ink-2 hover:bg-line"
                     >
                       defer…
                     </button>
                     <button
-                      onClick={() => openPanel(r.id, "declined")}
+                      onClick={() => openPanel(r, "declined")}
                       className="rounded bg-danger/15 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/20"
                     >
                       decline…

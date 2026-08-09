@@ -21,27 +21,30 @@ and `frontend/lib/whimsy.ts`.
 
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
-CORRECTIONS rule 5 names three bounds. Only the PATCH-vs-create parity check
-is enforced by a test. The other two are review obligations, and a review
-found real gaps behind both:
+The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
+(`tests/test_bounded_routes.py`). What is left:
 
-- **Rate caps.** About 46 mutating routes never call `ratelimit.check`,
-  including `PATCH /api/tasks/{id}`, `PATCH /api/questions/{id}`, the
-  `/api/private/*` writes, and the chat folder/thread writes. Needed: a
-  structural test that reflects over the route table and asserts every
-  mutating route either calls the check or carries an `# unbounded:` marker
-  with a row in the exemptions table.
-- **Unbounded lists.** `chat_threads.list_threads`, `get_messages`,
-  `api_keys.list_keys` and `list_all_keys` have no LIMIT.
-  (`private_notes.list_notes` got its LIMIT on the `if person:` branch.)
 - **Uncapped-on-both-sides fields.** The parity test compares a PATCH to its
   create model, so a field left uncapped on BOTH passes. Four were found and
-  capped; a census would prove there are no more.
-- **The service layer is uncapped where the route is capped.** `create_task`
-  and `create_milestone` bound only non-emptiness, so the agent and MCP paths
-  write unbounded LLM-authored titles that the now-capped PATCH route then
-  refuses — a row the system wrote that its own UI cannot edit. Either cap at
-  the service, or have the route accept what the service already stored.
+  capped; a census would prove there are no more. This is the one bound of
+  the four that still has no structural test.
+- **The service layer is uncapped where the route is capped, for five more
+  entities.** `work.py` (task and milestone title/description) and
+  `intake.py` (request detail) took their bounds 2026-08-09, and
+  `review.propose_change` refuses a proposal those two would reject at apply
+  time. The same asymmetry is still live for **blockers, questions,
+  decisions, notes and promises**: `raise_blocker` bounds nothing while
+  `BlockerEditIn.detail` caps at 4000, so `PATCH /api/blockers/{id}` refuses
+  to edit a blocker quick capture itself filed. Bound them in the service and
+  add them to `review.unappliable`, which is keyed by entity and today knows
+  three.
+- **Four routes the ratchet exempts as UNCAPPED, with their cost named.**
+  They are listed in `test_bounded_routes.py::EXEMPT` so nothing new can join
+  them silently, and each wants a cap or a written reason it does not need
+  one: `POST /api/findings/run` (a full rule-engine sweep on demand),
+  `POST /api/context-pack/publish` (rebuilds and versions a pack),
+  `POST /api/playbooks/instantiate` (writes an engagement, milestones and
+  tasks), `POST /api/intake/{request_id}/what-if` (a projection, no write).
 
 ## Self-serve UX (from the 2026-07-24 fresh-user review)
 
@@ -50,20 +53,32 @@ engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
 Items 1 (nav search), 3 (delegate control in the task peek) and 7 (the
 Recently shipped strip) shipped 2026-08-08/09 and were dropped. The numbers
-below stay as the review transcripts cite them.
+below stay as the review transcripts cite them; item 9 continues the
+numbering and was found later, on 2026-08-09.
 
 2. [M] What-if staffing button on scored intake rows. This closes the dangling
    "shown in staffing what-ifs" reference in Settings.
 4. [M] Generate-handoff button on closing engagements and closed engagements.
 5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
-   on the pulse banner, origin glossary beside Review.
+   on the pulse banner. (The origin glossary this item also named shipped
+   2026-08-09 as the origin chip on each Approvals row.)
 8. [S] A mistyped task is permanent. `docs/CORRECTIONS.md` rule 2 says
    records that carry history get a terminal state instead of a delete, and
    Task already has `done` — so this is not a contract gap. It is an
    ergonomics one: nothing distinguishes "finished" from "never should have
    existed", which is why demo and validation rows accumulate. A `void`
    disposition, or accept it and say so in CORRECTIONS.
+9. [S] The search results panel is cut off at phone width. It is 320px wide
+   (`w-80` in `components/nav-search.tsx`) and anchored `right-0` to the
+   search field, whose right edge sits about 209px from the left of a 360px
+   viewport — so about a third of every result hangs off the left edge.
+   Measured at 360px on 2026-08-09: `left: -111`. This is invisible to
+   `e2e/responsive.spec.ts` because content off the LEFT edge does not grow
+   `scrollWidth`, so no overflow is reported and the walks stay green. The
+   fix is a positioning change, not a width one: anchor the panel to the
+   header or the viewport below `sm`, rather than to a field that is itself
+   near the left of the row.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
@@ -266,12 +281,59 @@ Still open from that review:
   shipped; the terminal has `skein search` and no ask. Lives in
   "Developer loop" above. [S]
 
-Suggested order for what is left, now that the deliver-what-is-computed
-arc and the agent motor have landed: the manager frame next — C2, C3,
-C4 and P4's rule land as cards in the cockpit that now exists — then
-the CLI arc (F8, D2, D3, D5, F6, F7), which the web half has outrun,
-and the bounded-input census, which is the highest safety value per
-hour in this file.
+The suggested order this section carried (manager frame, then CLI,
+then census) was revised by the 2026-08-09 product-strategy review —
+the current order lives in that section below.
+
+## From the product-strategy review (2026-08-09)
+
+A three-lens review — developer, manager, and the product as a
+human-and-AI operating system — of everything shipped. Transcript:
+`docs/reviews/2026-08-09-product-review.md`, the definition site for
+R1–R7. The diagnosis repeats 2026-08-08 in a smaller radius, plus one
+new theme: computed value still fails to reach a reader in places, and
+several loops stop at 80% — the trust flywheel has no flow, playbooks
+never learn from their own engagements, and waiting-on edges give the
+person typing them nothing back.
+
+R1 (the dropped-payload renders), R2 (the artifact reader) and R7 (the
+lessons browser) shipped 2026-08-09 and are documented in
+`docs/FEATURES.md`.
+
+- **R3 provenance at the verdict** [M] — each pending proposal on
+  `/review` carries the proposer's approval rate on that entity, the
+  current streak, and origin, with "one more approval suggests
+  promotion" when true. The reviewer currently judges blind while the
+  data sits on `/agents` (`review_stats`, `trust_scores`).
+- **R4 downstream visibility** [M] — the reverse of `waiting_on`:
+  "this task unblocks …" in the task peek and My Day, and a
+  top-unblocking-move line in the cockpit, computed from `waiting_on`
+  plus `blockers.task_id`. This is what makes edges worth maintaining
+  for the person who types them.
+- **R5 findings tools for the agent** [S] — read-only `get_findings`
+  and `get_attention` tools plus a system-prompt line, so "what should
+  worry me" in chat answers from the findings engine instead of being
+  unanswerable. Later the same tools seed the unattended runner's wake
+  prompt.
+- **R6 playbook close-out** [M] — at engagement close, diff the
+  instantiated plan against what happened (dates, added and removed
+  tasks, skipped rituals) and auto-draft the lesson from the variance,
+  filed as a proposal. Playbooks currently never learn.
+
+Not a build, and blocking two triggers: put flow through the trust
+loop in our own deployment — `SKEIN_AGENT_REVIEW=1`, real delegations
+with real sponsors, one agent named in `SKEIN_AGENT_RUNNER`. A5 and
+G6 both wait, by their own stated triggers, on the verdict volume this
+produces.
+
+**Suggested order (supersedes 2026-08-08).** The surfacing pass (R1, R2,
+R7) and the census ratchet shipped 2026-08-09. Next: R3 and R5, with the
+dogfooding note above — those two are what put readings on the trust
+loop. Then the developer arc — R4 plus the CLI items (F8, D2, D3, D5,
+F6, F7) — promoted ahead of the manager frame because every manager
+surface reads developer exhaust, and the terminal is where that exhaust
+is thinnest. Then the manager frame (C2, C3, C4, P4's rule) as cockpit
+cards, unchanged from its spec above. R6 closes the arc.
 
 ## Cut, with re-entry triggers
 

@@ -26,13 +26,12 @@ type AttentionItem = {
 type Briefing = {
   user: string;
   date: string;
-  needs_you: {
-    open_questions: Row[];
-    pending_reviews: Row[];
-    your_blockers: Row[];
-    intake_to_triage: Row[];
-    notifications: Row[];
-  };
+  // `needs_you` (the same five lists, uncategorized) is deliberately absent:
+  // `attention` IS those rows, already grouped by the judgment each one asks
+  // for and carrying its own reason line, and rendering both would ask the
+  // reader to notice they are the same work twice. The payload still carries
+  // it for `skein my-day` and the /briefing chat command, which have no
+  // grouped renderer — see services/briefing.py.
   attention: AttentionItem[];
   pending_reviews_total?: number;
   your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };

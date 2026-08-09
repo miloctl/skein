@@ -83,6 +83,14 @@ def ingest_notes(text: str, *, actor: str) -> dict:
             unclassified.append(line)
             continue
         body = PREFIX.sub("", line).strip() or line
+        # Asked BEFORE proposing, and answered by review.py so the agent gate
+        # and this ingester cannot drift apart. propose_change would raise on
+        # the same payload, which would abandon the rest of the paste — hand
+        # the line back as unclassified instead, because that list is shown to
+        # the person who pasted it while they still have the text.
+        if review.unappliable(_ENTITY.get(kind, kind), _payload(kind, body, actor)):
+            unclassified.append(line)
+            continue
         p = review.propose_change(
             _ENTITY.get(kind, kind),
             "create",

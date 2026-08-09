@@ -308,6 +308,11 @@ def get_artifacts(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
     return handoff.list_artifacts(engagement_id, viewer)
 
 
+@router.get("/artifacts/{artifact_id}")
+def get_artifact(artifact_id: int, user: CurrentUser, viewer: ViewerDep):
+    return handoff.read_artifact(artifact_id, viewer)
+
+
 @router.get("/users")
 def get_users(user: CurrentUser, all: bool = False):
     # all=1 includes deactivated rows — the Settings roster needs them so
@@ -542,7 +547,7 @@ def post_field_guide_dismiss(body: DismissKnot, user: CurrentUser):
 def get_whoami(user: CurrentUser, request: Request):
     """Who the API thinks you are and how strongly — the Settings page uses
     this to validate a pasted key without the user needing to know anything."""
-    from ..services.api_keys import list_keys
+    from ..services import api_keys
     from .deps import is_named_admin
 
     strong = bool(getattr(request.state, "strong_auth", False))
@@ -562,7 +567,7 @@ def get_whoami(user: CurrentUser, request: Request):
         # same fact GET /keys refuses to weak callers. Zero is also what
         # Settings must act on here — a caller with no proven key needs the
         # bootstrap command, whatever the roster holds.
-        "keys_minted": sum(1 for k in list_keys(user) if k["active"]) if strong else 0,
+        "keys_minted": api_keys.active_key_count(user) if strong else 0,
     }
 
 
@@ -1197,8 +1202,11 @@ def get_usage(user: CurrentUser, viewer: ViewerDep):
 
 
 class MilestoneIn(BaseModel):
-    title: str = Field(max_length=200)
-    description: str = Field("", max_length=4000)
+    # from services/work.py, never a literal: the service enforces the same two
+    # bounds on every write path, and a second copy of the number here is how
+    # the REST door and the agent door drift apart again
+    title: str = Field(max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
     project: str = Field("default", max_length=120)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
@@ -1218,8 +1226,8 @@ def post_milestone(body: MilestoneIn, user: CurrentUser):
 class MilestonePatch(BaseModel):
     # caps match MilestoneIn — see the note on TaskPatch
     status: str = Field("", max_length=20)
-    title: str = Field("", max_length=200)
-    description: str = Field("", max_length=4000)
+    title: str = Field("", max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0  # relink (-1 unlinks)
@@ -1231,8 +1239,8 @@ def patch_milestone(milestone_id: int, body: MilestonePatch, user: CurrentUser):
 
 
 class TaskIn(BaseModel):
-    title: str = Field(max_length=200)
-    description: str = Field("", max_length=4000)
+    title: str = Field(max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
     milestone_id: int = 0
     assignee: str = Field("", max_length=64)
     priority: str = Field("medium", max_length=10)
@@ -1258,8 +1266,8 @@ class TaskPatch(BaseModel):
     assignee: str = Field("", max_length=64)
     priority: str = Field("", max_length=10)
     due_date: str = Field("", max_length=10)
-    description: str = Field("", max_length=4000)
-    title: str = Field("", max_length=200)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
+    title: str = Field("", max_length=work.TITLE_LEN)
     committed_week: str = Field("", max_length=10)
     waiting_on: str = Field("", max_length=32)  # "blocker:12" | "task:3" | "-"
     milestone_id: int = 0  # relink (-1 unlinks)
@@ -1302,6 +1310,10 @@ class QuestionPatch(BaseModel):
 
 @router.patch("/questions/{question_id}")
 def patch_question(question_id: int, body: QuestionPatch, user: CurrentUser):
+    # assignment NOTIFIES the named person every time (services/collab.py), so
+    # this is a send, not an edit — the one PATCH here that a loop turns into
+    # somebody else's flooded inbox
+    ratelimit.check("write", user)
     return collab.assign_question(question_id, body.assigned_to, actor=user)
 
 
