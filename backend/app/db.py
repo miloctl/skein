@@ -116,6 +116,31 @@ def local_day(ts: str) -> str:
     return parsed.astimezone(config.TZ).date().isoformat()
 
 
+def local_moment(ts: str) -> str:
+    """A stored timestamp as prose in the TEAM's zone: "09 Aug at 14:30".
+
+    local_day's time-carrying sibling, and it exists for the same reason: a
+    naive value is UTC by the storage contract, so printing it unconverted
+    tells a reader in Denver that a 09:00 meeting ran at 15:00. A date-only
+    value keeps its date and gains no time — it was never a moment, and
+    "09 Aug at 00:00" invents one.
+    """
+    if len(ts) <= 10:
+        return _pretty_date(ts[:10])
+    parsed = datetime.fromisoformat(ts)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    local = parsed.astimezone(config.TZ)
+    return f"{local.strftime('%d %b')} at {local.strftime('%H:%M')}"
+
+
+def _pretty_date(day: str) -> str:
+    try:
+        return date.fromisoformat(day).strftime("%d %b")
+    except ValueError:
+        return day
+
+
 def local_event_window(d: date) -> tuple[str, str]:
     """[start, end) for team-day d against events.starts_at, in that column's
     own shape — naive UTC "YYYY-MM-DDTHH:MM" (services/schedule.py::_canon

@@ -339,3 +339,48 @@ def test_a_truncated_list_never_contradicts_the_count_beside_it(client):
         work.create_task(f"extra {i}", milestone_id=made["milestones"][0]["id"], actor="ava")
     fix = playbooks._variance_lesson(playbooks.close_out_diff(eid), "Alpha")[1]
     assert "and 4 more" in fix
+
+
+def test_a_milestone_delivered_early_is_not_slip(client):
+    """A finish date settles the question either way. Reported as slip, the
+    drafted lesson pads the playbook for work that came in ahead — the
+    headline feature teaching the template the opposite of what happened."""
+    made = _born()
+    mil = made["milestones"][0]
+    planned = playbooks.snapshot_for(made["engagement"]["id"])["milestones"][0]["due_date"]
+    # the team moved the date out, then delivered before the ORIGINAL date
+    work.update_milestone(
+        mil["id"],
+        due_date=(date.fromisoformat(planned) + timedelta(days=9)).isoformat(),
+        status="done",
+        actor="ava",
+    )
+    db.execute(
+        "UPDATE milestones SET completed_at = ? WHERE id = ?",
+        (
+            f"{(date.fromisoformat(planned) - timedelta(days=6)).isoformat()}T09:00:00+00:00",
+            mil["id"],
+        ),
+    )
+    diff = playbooks.close_out_diff(made["engagement"]["id"])
+    assert not [s for s in diff["slipped"] if s["title"] == mil["title"]], diff["slipped"]
+
+
+def test_the_panel_does_not_promise_a_lesson_it_will_not_file(client):
+    """The close-out control says "closing drafts a lesson from this". With
+    the flag gated on tier alone it said that for a diff with no fixable
+    variance, filed nothing, and sent the reader to an empty queue."""
+    made = _born()
+    eid = made["engagement"]["id"]
+    # unfinished work only — real variance, but nothing to change in the YAML
+    assert playbooks.close_out_diff(eid)["drafts_lesson"] is False
+    engagements.update_engagement(eid, status="closed", conclusion="partial", actor="ava")
+    assert not [p for p in review.list_changes("pending") if p["entity"] == "lesson"]
+
+    made2 = _born("Second one")
+    work.update_milestone(
+        made2["milestones"][0]["id"],
+        due_date=(db.today() + timedelta(days=90)).isoformat(),
+        actor="ava",
+    )
+    assert playbooks.close_out_diff(made2["engagement"]["id"])["drafts_lesson"] is True

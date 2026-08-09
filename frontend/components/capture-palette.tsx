@@ -17,6 +17,10 @@ const RULES: [string, RegExp][] = [
   // BEFORE the `waiting on` blocker heuristic below, which would otherwise
   // claim the same sentence. Without this rule the preview said "note" while
   // the backend (services/capture.py) filed a received promise.
+  // `waiting for:` and `waiting on` are one phrase to a reader and opposite
+  // entities to the parser, so only the COLON form routes here — the bare
+  // `waiting on` heuristic below still means blocker, and docs/LEXICON.md
+  // settles the colon form as a promise
   ["awaiting", /^\s*(awaiting|waiting for):/i],
   ["request", /^\s*(req:|request:)/i],
   ["task", /^\s*(todo:|task:)/i],
@@ -53,7 +57,7 @@ const CHIPS: { prefix: string; label: string }[] = [
   { prefix: "blocked on", label: "blocker" },
   { prefix: "decision:", label: "decision" },
   { prefix: "promised:", label: "promise" },
-  { prefix: "awaiting:", label: "awaiting" },
+  { prefix: "awaiting:", label: "promise (to us)" },
   { prefix: "req:", label: "request" },
   { prefix: "note:", label: "note" },
   { prefix: "fb:", label: "private feedback" },

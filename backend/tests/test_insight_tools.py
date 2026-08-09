@@ -55,12 +55,31 @@ def test_findings_come_back_with_their_receipts(client, fresh_db):
     assert "receipt" in out[0]
 
 
-def test_findings_bounds_are_clamped_not_trusted(client):
-    assert len(_call(get_findings, limit=10_000)) <= 50
-    # a zero or negative window would silently return nothing and read as "all
-    # clear", which is the one answer this tool must never invent
-    assert isinstance(_call(get_findings, weeks=0), list)
-    assert isinstance(_call(get_findings, weeks=-5), list)
+def test_findings_bounds_are_clamped_not_trusted(client, fresh_db):
+    """Seeded PAST the cap first. With an empty table every assertion here
+    passed against the clamp deleted — `0 <= 50` and `isinstance([], list)`
+    are true either way, and `weeks=-5` returning `[]` IS the silent "all
+    clear" the comment says must never be invented."""
+    from app.services import collab
+
+    # through the service, not the REST door: 60 posts trip the write cap, and
+    # the cap is not what this test is about
+    for i in range(60):
+        collab.ask_question(question=f"open {i}?", asked_by="ava", actor="ava")
+    fresh_db.execute(
+        "UPDATE questions SET created_at = ?",
+        ((datetime.now(UTC) - timedelta(days=6)).isoformat(),),
+    )
+    insights.run_findings()
+    stored = fresh_db.query_one("SELECT COUNT(*) AS n FROM findings")["n"]
+    assert stored > 50, f"the fixture did not clear the cap ({stored} findings)"
+
+    assert len(_call(get_findings, limit=10_000)) == 50
+    # a zero or negative window must read as the smallest real window, never
+    # as an empty result
+    assert _call(get_findings, weeks=0) == _call(get_findings, weeks=1)
+    assert _call(get_findings, weeks=-5) == _call(get_findings, weeks=1)
+    assert _call(get_findings, weeks=0), "a clamped window still has to return rows"
 
 
 def test_attention_answers_for_the_requester_and_takes_no_name(client):

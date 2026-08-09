@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
-from . import scope
+from . import scope, wording
 
 # Newest first, so the cap drops the oldest report. Both branches carry it:
 # docs/CORRECTIONS.md states the rule as "on every branch", and the Reports
@@ -85,7 +85,7 @@ def generate_handoff(
     lines = [
         f"# Handoff package — {name}",
         "",
-        f"*Class: {eng['project_class']} · Lead: {eng['lead'] or 'unset'} ·"
+        f"*Class: {wording.flatten(eng['project_class'])} · Lead: {eng['lead'] or 'unset'} ·"
         f" Status: {eng['status']} · Generated: {db.now()} by {actor}*",
         "",
         f"## Summary\n{eng['summary'] or '(none recorded)'}",
@@ -94,28 +94,29 @@ def generate_handoff(
     ]
     for m in milestones:
         lines.append(
-            f"- [{m['status']}] #{m['id']} {m['title']}"
+            f"- [{m['status']}] #{m['id']} {wording.flatten(m['title'])}"
             + (f" — due {m['due_date']}" if m["due_date"] else "")
         )
     lines += ["", "## Open tasks"]
     lines += [
-        f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"
+        f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.flatten(t['title'])}"
         f" (@{t['assignee'] or 'unassigned'})"
         for t in tasks
     ] or ["- none"]
     lines += ["", "## Unresolved blockers (this engagement)"]
     lines += [
-        f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}"
+        f"- [{b['status']}/{b['impact']}] #{b['id']} {wording.flatten(b['title'])}"
         f" (owner: {b['owner'] or 'unowned'})"
         for b in blockers
     ] or ["- none"]
     lines += ["", "## Unanswered questions (team-wide)"]
     lines += [
-        f"- #{q['id']} {q['question']} (→ {q['assigned_to'] or 'unassigned'})" for q in questions
+        f"- #{q['id']} {wording.flatten(q['question'])} (→ {q['assigned_to'] or 'unassigned'})"
+        for q in questions
     ] or ["- none"]
     lines += ["", "## Recent decisions (with rationale)"]
     lines += [
-        f"- **{d['title']}** — {d['decision']}"
+        f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}"
         + (f" *(context: {d['context']})*" if d["context"] else "")
         for d in decisions
     ] or ["- none"]
@@ -125,7 +126,8 @@ def generate_handoff(
     ]
     lines += ["", "## Lessons relevant to this class"]
     lines += [
-        f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
+        f"- {wording.flatten(les['lesson'])}"
+        + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
         for les in lessons
     ] or ["- none"]
 

@@ -52,8 +52,6 @@ type Cockpit = {
   conflicts: { person: string; total_percent: number; detail: string }[];
   intake: { id: number; title: string; requester: string; score: number | null }[];
   stale_decisions: { id: number; title: string; review_by: string | null }[];
-  // promises made TO the team: the half of the ledger the Monday meeting
-  // could not see (migration 007)
   // open threads with people outside the roster (services/stakeholders.py)
   stakeholders: {
     party: string;
@@ -77,6 +75,10 @@ type Cockpit = {
     title: string;
     assignee: string;
     unblocks: number;
+    // carried, not dropped: on a truncated walk the count is a FLOOR, and
+    // services/planning.py says the peek and this card must not read
+    // differently about the same chain
+    depth_capped?: boolean;
   } | null;
   today: string;
 };
@@ -304,7 +306,11 @@ export default function Planning() {
           </p>
           <p className="mt-1 text-xs text-ink-3">
             Finishing it releases {d.top_unblocking_move.unblocks} task
-            {d.top_unblocking_move.unblocks === 1 ? "" : "s"} that wait on it,
+            {d.top_unblocking_move.unblocks === 1 ? "" : "s"} that wait on it
+            {d.top_unblocking_move.depth_capped
+              ? " (the chain runs deeper than Skein follows)"
+              : ""}
+            ,
             directly or behind another.
           </p>
         </Card>

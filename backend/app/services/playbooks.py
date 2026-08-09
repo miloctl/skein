@@ -248,9 +248,12 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
     plans.mkdir(parents=True, exist_ok=True)
     path = plans / f"{eng['id']}-plan-snapshot.json"
     path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
-    return db.execute(
-        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+    # the engagement's own tier, threaded like handoff.py does and for the
+    # same reason: the row carries a PATH to every milestone and task title,
+    # and list_artifacts must not hand it to somebody who could not read them
+    aid = db.execute(
+        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
+        " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             eng["id"],
             "plan-snapshot",
@@ -258,8 +261,14 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
             str(path),
             actor,
             db.now(),
+            eng.get("visibility") or scope.WORKSPACE,
+            eng.get("crew_id") or None,
         ),
     )
+    # provenance, like every other write. handoff.py logs its artifact and this
+    # is the same shape: a file on disk that a later close reads back.
+    db.log_activity(actor, "plan_snapshot", f"engagement #{eng['id']} -> artifact #{aid}")
+    return aid
 
 
 def _exists(table: str, row_id: int) -> bool:
@@ -338,6 +347,11 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
         if not planned:
             continue
         if row["completed_at"]:
+            # A finish date SETTLES the question, early or late — the `continue`
+            # is outside the `days > 0` test on purpose. Nested inside it, a
+            # milestone delivered six days early still fell through to the
+            # re-dated branch and reported the moved date as slip, so the
+            # drafted lesson padded the playbook for work that came in ahead.
             days = (date.fromisoformat(row["completed_at"][:10]) - date.fromisoformat(planned)).days
             if days > 0:
                 slipped.append(
@@ -348,7 +362,7 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
                         "basis": "finished",
                     }
                 )
-                continue
+            continue
         if row["due_date"] and row["due_date"] != planned:
             days = (date.fromisoformat(row["due_date"]) - date.fromisoformat(planned)).days
             slipped.append(
@@ -403,26 +417,35 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
         if _exists("events", r["id"]):
             return {}
         skipped_rituals.append(r["title"])
-    return {
+    diff = {
         "playbook": plan["playbook"],
-        # whether closing will actually file a draft. The close-out control
-        # promises one, and engagements.py::_playbook_lesson draws the line at
-        # the workspace tier — a panel that promises a lesson a scoped
-        # engagement never gets is the panel lying about its own button
-        "drafts_lesson": eng_tier == scope.WORKSPACE,
+        # whether closing will actually file a draft — BOTH conditions, not
+        # just the tier. engagements.py::_playbook_lesson draws the line at
+        # the workspace tier, and _variance_lesson files nothing when the diff
+        # has no fixable variance. Reporting only the first told the reader a
+        # lesson was coming, then filed none and said nothing, and they went
+        # to Review to find an empty queue.
         "slipped": slipped,
         "unfinished_tasks": unfinished,
         "dropped_tasks": dropped_tasks,
         "added_tasks": added,
         "skipped_rituals": skipped_rituals,
     }
+    # BOTH conditions, not just the tier: engagements.py::_playbook_lesson
+    # gates on workspace, and _variance_lesson files nothing when the diff has
+    # no fixable variance. Reporting only the first told the reader a lesson
+    # was coming, filed none, said nothing, and sent them to an empty queue.
+    # The engagement name is irrelevant to whether a lesson EXISTS, so a
+    # placeholder is passed rather than threading one in for a boolean.
+    diff["drafts_lesson"] = eng_tier == scope.WORKSPACE and bool(_variance_lesson(diff, "x")[0])
+    return diff
 
 
 def _listing(items: list[str], show: int = 3) -> str:
     """Up to `show` names, then what was left out.
 
     A bare `[:3]` beside "7 tasks" prints three and claims seven, and any
-    string carrying a number has to be exact (docs/CLAUDE.md).
+    string carrying a number has to be exact (CLAUDE.md).
     """
     if len(items) <= show:
         return ", ".join(items)
@@ -436,7 +459,7 @@ def _variance_lesson(diff: dict, engagement_name: str) -> tuple[str, str]:
     teaches the next reader nothing and costs a reviewer a verdict.
     """
     # One fact per sentence, and no semicolons — this text lands in a kickoff
-    # note that the next team reads cold (docs/CLAUDE.md wording standard).
+    # note that the next team reads cold (the wording standard in CLAUDE.md).
     # Verb agreement is computed, because "1 task were added" is the sentence
     # a reader stops trusting the number in.
     parts, fixes = [], []

@@ -434,7 +434,11 @@ def _print_attention(args, count: str) -> None:
             print(count)
         return
     if not count:
-        print("Skein did not answer. Run `skein my-day` to see the error.")
+        # NOT "did not answer": api_quiet returns the HTTPError for anything
+        # the server ANSWERED with (401, 429, 5xx), and telling a reader their
+        # server is down when it replied sends them to check the wrong thing.
+        # `skein my-day` uses `api`, which prints the real cause.
+        print("Skein could not give a count. Run `skein my-day` to see why.")
         return
     n = int(count) if count.isdecimal() else 0
     print(f"{count} thing{'' if n == 1 else 's'} waiting on you")
@@ -653,7 +657,12 @@ id=$(printf '%s' "$branch" | sed -n -e 's|^task/\\([0-9][0-9]*\\)$|\\1|p' -e 's|
 # `Refs-Task: #42` then got a `Closes-Task: #42` appended, turning a commit
 # that REFERENCED a task into one that closes it.
 grep -qiE '^(Closes|Refs)-Task:' "$1" && exit 0
-printf '\\nCloses-Task: #%s\\n' "$id" >> "$1"
+# REFS, not CLOSES. Every commit on a task branch gets this trailer, and most
+# of them are work in progress — `Closes-Task:` here marked the task done and
+# stamped completed_at on the first "wip" commit, which then fed cycle time,
+# throughput and the interrupt-load finding with a lie. `skein pr-body` emits
+# Closes-Task where a merge genuinely ends the work.
+printf '\\nRefs-Task: #%s\\n' "$id" >> "$1"
 exit 0
 """
 
@@ -693,13 +702,23 @@ def cmd_install_hooks(args):
         sys.exit("error: not a git repository")
     hooks = Path(git_dir.stdout.strip()) / "hooks"
     hooks.mkdir(exist_ok=True)
+    wrote = False
     for name, body in (("post-commit", HOOK), ("prepare-commit-msg", COMMIT_MSG_HOOK)):
         path = hooks / name
+        # An existing hook is somebody's configuration — commitizen, gitlint
+        # and husky all own these two slots — and overwriting it loses work
+        # that cannot be recovered. Refuse, name the file, and let the reader
+        # decide. --force is the way to say "I know".
+        if path.exists() and not getattr(args, "force", False) and body not in path.read_text():
+            print(f"kept {path} — a hook is already there. Use --force to replace it.")
+            continue
         path.write_text(body)
         path.chmod(0o755)
+        wrote = True
         print(f"installed {path}")
-    print('commits with "Closes-Task: #12" (or Refs-Task) now sync to the platform')
-    print("on a task/<id>-... branch the trailer is added for you")
+    if wrote:
+        print('commits with "Closes-Task: #12" (or Refs-Task) now sync to the platform')
+        print("on a task/<id>-... branch a Refs-Task trailer is added for you")
 
 
 TRAILER = re.compile(r"^(Closes|Refs)-Task:\s*#?(\d+)", re.I | re.M)
@@ -947,6 +966,7 @@ def main():
     c.set_defaults(fn=cmd_pr_body)
 
     c = sub.add_parser("install-hooks", help="install the git commit hooks")
+    c.add_argument("--force", action="store_true", help="replace a hook that is already there")
     c.set_defaults(fn=cmd_install_hooks)
 
     c = sub.add_parser("install-prompt", help="print a shell-prompt snippet for the count")

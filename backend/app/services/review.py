@@ -736,12 +736,12 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
             # Only when this verdict is the one that closes the streak AND a
             # promotion is actually available from here — trust_scores makes
             # the same `review` check for its own suggestion.
-            # asks delegation, never restates its rule: `review_authority`
-            # skips task_completion and authority outright, refuses the
-            # ALWAYS_REVIEW and NO_AUTHORITY entities, and stays silent for 28
-            # days after a human declines. task_completion is the entity a
-            # delegated agent proposes on MOST, so a restatement here promised
-            # a promotion that could never be filed, on the common case.
+            # asks delegation, never restates its rule: promotion_blocked
+            # refuses the ALWAYS_REVIEW and NO_AUTHORITY entities and stays
+            # silent for 28 days after a human declines. task_completion is
+            # in NO_AUTHORITY and is also the entity a delegated agent
+            # proposes on MOST, so a restatement here promised a promotion
+            # that could never be filed, on the common case.
             "promotes_at": (
                 TRUST_STREAK
                 if t["recent_streak"] == TRUST_STREAK - 1

@@ -175,3 +175,29 @@ def test_agent_delegated_done_proposal_auto_rejects_not_wedges(client, fresh_db)
     assert row["status"] == "rejected"  # settled, not boomeranged to pending
     # and the task itself stayed open — the escape is still closed
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (tid,))["status"] != "done"
+
+
+def test_the_trust_read_never_reports_a_human(client):
+    """Humans are in `pending_changes` too — services/ingest.py files every
+    pasted line under the person who pasted it — so an unfiltered read put one
+    teammate's approval rate and rejection streak in front of the whole
+    roster. The filter belongs in the service, not in a caller."""
+    from app.services import delegation, review, users
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    client.post(
+        "/api/ingest",
+        json={"text": "todo: ship it\ntodo: write it"},
+        headers={"X-User": "mira"},
+    )
+    p = review.propose_change("task", "create", {"title": "from an agent"}, actor="scout")
+    for row in review.list_changes("pending"):
+        review.approve_change(row["id"], actor="ava")
+    assert p
+
+    rows = delegation.trust_scores()
+    assert {r["agent"] for r in rows} == {"scout"}
+    # and the route that renders it agrees
+    served = client.get("/api/agents/trust").json()
+    assert "mira" not in {r["agent"] for r in served}

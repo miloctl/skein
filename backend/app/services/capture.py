@@ -233,7 +233,7 @@ def capture(
         return {"kind": "feedback", **result}
     kind, _entity, _payload = plan(text, actor=actor)
     body = PREFIX.sub("", text).strip() or text
-    # one dict, splatted into all seven branches: the branches below are a
+    # one dict, splatted into every branch below (eight of them): the branches below are a
     # hand-written mirror of plan()'s payloads, so a tier added to one and
     # not the others would apply to some captured kinds and silently not
     # to the rest

@@ -235,3 +235,66 @@ def test_my_day_shows_what_you_owe_not_what_you_are_owed(client):
     day = client.get("/api/briefing").json()
     labels = " ".join(str(i.get("label", "")) for i in day["attention"])
     assert "redlines Acme owes us" not in labels
+
+
+def test_a_scoped_promise_with_no_routable_reader_is_never_broadcast(client):
+    """ "team" is EVERY viewer, so the agent fallback turns a personal nudge
+    into a broadcast. An agent-authored PRIVATE promise reached the whole
+    roster through it."""
+    from app.services import users
+
+    users.ensure_user("scout", kind="agent")
+    due = (db.today() - timedelta(days=3)).isoformat()
+    pid = promises.add_promise(
+        "the confidential term sheet, 40M floor",
+        to_whom="acme",
+        due_date=due,
+        direction="received",
+        actor="scout",
+    )["id"]
+    db.execute("UPDATE promises SET visibility = 'private' WHERE id = ?", (pid,))
+
+    out = promises.chase_received()
+    assert out["nudged"] == 0
+    assert out["unroutable"] == 1, "the skip must be reported, not silent"
+    team = " ".join(n["message"] for n in db.query("SELECT * FROM notifications WHERE user='team'"))
+    assert "40M floor" not in team
+
+
+def test_the_escalation_withholds_a_body_that_carries_a_name(client):
+    """The capture grammar leaves the party in the BODY whenever the line
+    carries no dash, so withholding `to_whom` alone does not stop a teammate
+    being named to the whole roster."""
+    from app.services import users
+
+    users.ensure_user("dana")
+    due = (db.today() - timedelta(days=3)).isoformat()
+    pid = promises.add_promise(
+        "dana will send the redlines", due_date=due, direction="received", actor="ava"
+    )["id"]
+    promises.chase_received()
+    db.execute(
+        "UPDATE promises SET last_nudged_at = ? WHERE id = ?",
+        ((datetime.now(UTC) - timedelta(hours=promises.NUDGE_CYCLE_HOURS + 1)).isoformat(), pid),
+    )
+    assert promises.chase_received()["escalated"] == 1
+    team = " ".join(n["message"] for n in db.query("SELECT * FROM notifications WHERE user='team'"))
+    assert "dana" not in team
+    assert "Plan the week" in team, "the reader still needs a way to find it"
+
+
+def test_editing_the_wording_does_not_restart_the_chase(client):
+    """An edit form that round-trips the current values reset the chase on
+    every save, deferring the escalation forever and firing an extra nudge
+    inside the same cycle."""
+    pid = _overdue(client, "the signed contract")
+    promises.chase_received()
+    before = db.query_one("SELECT nudge_count, last_nudged_at FROM promises WHERE id = ?", (pid,))
+    row = db.query_one("SELECT due_date FROM promises WHERE id = ?", (pid,))
+    promises.edit_promise(
+        pid, promise="the countersigned contract", due_date=row["due_date"], actor="ava"
+    )
+    after = db.query_one("SELECT nudge_count, last_nudged_at FROM promises WHERE id = ?", (pid,))
+    assert after["nudge_count"] == before["nudge_count"] == 1
+    assert after["last_nudged_at"] == before["last_nudged_at"]
+    assert promises.chase_received()["nudged"] == 0

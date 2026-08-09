@@ -8,7 +8,7 @@
 -- `direction` on the SAME table rather than a new one: a promise is a promise
 -- is a promise. It has a due date, an other party, and one of the same four
 -- terminal states, and every reader it already has (the exec readout, the
--- findings rules, `waiting_on: promise:N`) should keep working without
+-- findings rules, `waiting_on: promise:N`) keeps working without
 -- learning a second shape. 'given' is the default, so every existing row
 -- means exactly what it meant before this migration ran.
 --

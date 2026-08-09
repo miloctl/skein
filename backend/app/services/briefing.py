@@ -4,7 +4,7 @@ unblock / commit / review / notice) and each carries a "why you're seeing
 this" reason. An LLM narrative can be layered on top later (see digest.py)."""
 
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from .. import db
 from . import scope
@@ -26,7 +26,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 # the agenda is what makes this answerable: "did this produce
                 # anything" is a question about what it was FOR
                 "reason": (
-                    f"it ran {_when(ev['starts_at'])} and no outcome is recorded"
+                    f"it ran {db.local_moment(ev['starts_at'])} and no outcome is recorded"
                     + (f" — agenda: {ev['agenda'][:60]}" if ev["agenda"] else "")
                 ),
                 # /ingest is where an outcome gets written up. My Day carries
@@ -133,15 +133,6 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
             }
         )
     return items
-
-
-def _when(stamp: str) -> str:
-    """A stored naive-UTC stamp as prose. Raw ISO with the `T` in a sentence is
-    a machine string in front of a reader."""
-    try:
-        return datetime.fromisoformat(stamp).strftime("%d %b at %H:%M")
-    except ValueError:
-        return stamp[:16]
 
 
 def _ellipsize(text: str, limit: int) -> str:

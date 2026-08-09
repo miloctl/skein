@@ -67,7 +67,11 @@ type Change = {
  *  When no streak can form the run is WITHHELD and the reason is given: in
  *  trusted-header mode every verdict is weak, so a bare "no run of approvals"
  *  beside "8 of 8 approved" states a perfect record and no run in one breath.
- *  Team → Agents renders the same sentence above its trust card. */
+ *  Team → Agents shows the same NUMBERS as a stat row rather than this
+ *  sentence — a dense list is not prose and takes the label form. What both
+ *  must agree on is the zero case: neither may print a bare `streak 0`,
+ *  which reads as a score rather than as "the last verdict was not an
+ *  approval". */
 function TrackRecord({
   record,
   label,
@@ -82,8 +86,12 @@ function TrackRecord({
   const settled = `${record.approved} of ${record.proposed}`;
   return (
     <p className="mt-1 text-xs text-ink-3">
-      <span className="tabular-nums">{settled}</span> settled {label}{" "}
-      proposal{record.proposed === 1 ? "" : "s"} approved (
+      {/* "proposals to <verb phrase>", not "settled <label> proposals" —
+          services/lexicon.py stores every entity as a VERB phrase ("add a
+          task", "make a promise"), so slotting one into a noun position
+          reads "settled add a task proposals" on every real entity */}
+      <span className="tabular-nums">{settled}</span> settled proposal
+      {record.proposed === 1 ? "" : "s"} to {label} approved (
       {Math.round(record.approval_rate * 100)}%).{" "}
       {record.streak_blocked ? (
         <span>{record.streak_blocked}</span>
@@ -120,12 +128,18 @@ function OriginChip({ origin }: { origin: string }) {
         ? { word: "person", why: "A person proposed this write." }
         : { word: origin, why: `Recorded origin: ${origin}.` };
   return (
+    // sr-only text, NOT aria-label: the attribute is prohibited on a bare
+    // span (role=generic) and Chrome drops it from the tree entirely, so the
+    // distinction this chip exists to draw — a transcription to check versus
+    // a model's judgment to check — reached no screen-reader user at all.
+    // axe does not flag it, because its aria-prohibited-attr rule skips
+    // elements that have text content.
     <span
-      aria-label={said.why}
       title={said.why}
       className="rounded-full bg-raised px-1.5 py-0.5 text-[10px] text-ink-3"
     >
       {said.word}
+      <span className="sr-only"> — {said.why}</span>
     </span>
   );
 }

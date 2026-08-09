@@ -30,7 +30,7 @@ def _classify_strict(line: str) -> str | None:
 
 
 def _payload(kind: str, body: str, actor: str) -> dict:
-    from .capture import split_assignee, split_review_by
+    from .capture import split_assignee, split_by_date, split_party, split_review_by
 
     if kind == "question":
         assignee, body = split_assignee(body)
@@ -42,6 +42,19 @@ def _payload(kind: str, body: str, actor: str) -> dict:
         return {"title": body[:80], "decision": body, "decided_by": actor, "review_by": review_by}
     if kind == "promise":
         return {"promise": body}
+    if kind == "awaiting":
+        # the other direction of the same table (migration 007). Built here
+        # rather than reusing capture.py's branch because ingest proposes and
+        # capture writes — the payload has to survive review.unappliable and
+        # then reach promises.add_promise unchanged at apply time.
+        who, rest = split_party(body)
+        due, rest = split_by_date(rest or body)
+        return {
+            "promise": rest or body,
+            "to_whom": who,
+            "due_date": due,
+            "direction": "received",
+        }
     if kind == "task":
         return {"title": body[:120], "description": body if len(body) > 120 else ""}
     if kind == "request":
@@ -49,8 +62,13 @@ def _payload(kind: str, body: str, actor: str) -> dict:
     return {"topic": body[:60], "content": body, "author": actor}
 
 
-# capture kinds → review-registry entities where the names differ
-_ENTITY = {"request": "intake"}
+# capture kinds → review-registry entities where the names differ.
+# Every kind services/capture.py::PATTERNS can classify MUST resolve here or
+# fall through to a real entity name: an unmapped kind reaches
+# review.propose_change, which raises, which abandons the rest of the paste
+# after some of its lines are already stored. `awaiting` shipped in capture
+# without this line and did exactly that.
+_ENTITY = {"request": "intake", "awaiting": "promise"}
 
 
 def ingest_notes(text: str, *, actor: str) -> dict:

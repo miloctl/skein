@@ -18,7 +18,7 @@ def _past(
     """A finished meeting. Naive UTC, which is what `_canon` stores — a bare
     `datetime.now()` here would share the bug it is meant to catch."""
     start = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
-    return schedule.schedule_event(
+    eid = schedule.schedule_event(
         title,
         start.isoformat(timespec="minutes"),
         ends_at=(start + timedelta(hours=length)).isoformat(timespec="minutes"),
@@ -26,6 +26,15 @@ def _past(
         agenda="decide the thing",
         actor="ava",
     )["id"]
+    # A meeting is on the calendar BEFORE it runs. Creating a past-dated event
+    # right now is a different thing entirely — a playbook ritual, or a meeting
+    # typed in afterwards — and meetings_awaiting_outcome excludes those on
+    # purpose, so a fixture that skips this pins the wrong rule.
+    db.execute(
+        "UPDATE events SET created_at = ? WHERE id = ?",
+        ((datetime.now(UTC) - timedelta(days=1, hours=hours)).isoformat(), eid),
+    )
+    return eid
 
 
 def test_a_finished_meeting_with_no_outcome_reaches_my_day(client):
@@ -139,6 +148,7 @@ def test_the_interrupt_ratio_becomes_a_finding(client):
     got = [f for f in insights.list_findings() if f["rule_id"] == "interrupt_load"]
     assert got, f"nothing fired for week {week}"
     assert "commitment line" in got[0]["message"]
+    assert "belonged to" in got[0]["message"]
     assert got[0]["receipt"]["unplanned"] >= 8
 
 
@@ -152,3 +162,75 @@ def test_the_interrupt_rule_is_silent_under_the_small_n_floor(client):
         work.update_task(t, status="done", actor="ava")
     insights.run_findings()
     assert not [f for f in insights.list_findings() if f["rule_id"] == "interrupt_load"]
+
+
+def test_a_meeting_written_down_after_it_started_is_not_asked_about(client):
+    """A playbook ritual is scheduled at a fixed hour on the kickoff DAY, so
+    instantiating one in the afternoon writes an event in the past that nobody
+    sat in. Skein asked what came out of a meeting nobody attended."""
+    from app.services import playbooks
+
+    made = playbooks.instantiate("incident", "Afternoon kickoff", lead="ava", actor="ava")
+    titles = {e["title"] for e in made["events"]}
+    asked = {e["title"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
+    assert not (titles & asked), "a ritual created after its own start time was asked about"
+
+    # a meeting that WAS on the calendar before it ran is still asked about
+    eid = _past(schedule.OUTCOME_ASK_AFTER_HOURS + 1)
+    assert eid in {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
+
+
+def test_a_departed_teammates_meeting_is_still_never_named(client):
+    """`list_users()` defaults to active members only, so a teammate who left
+    dropped out of the guard while their recurring 1:1 stayed in the table.
+    This finding reaches the digest and the exec readout, which leaves."""
+    from app.services import users
+
+    users.ensure_user("Priya")
+    db.execute("UPDATE users SET active = 0 WHERE name = 'Priya'")
+    for week in range(schedule.OUTCOME_SILENT_WEEKS):
+        _past(24 * (1 + 7 * week) + 5, title="Priya weekly review")
+    insights.run_findings()
+    named = [f for f in insights.list_findings() if f["rule_id"] == "meeting_no_outcome"]
+    assert not [f for f in named if "Priya" in f["message"]]
+
+
+def test_an_event_that_is_not_there_is_a_404_not_a_400(client):
+    """The id is in the PATH, which scope.missing_text says is the 404 case.
+    db.NotFound subclasses ValueError, so a bare except swallowed it — and the
+    sibling stakeholders route already answers 404 for the same row."""
+    assert client.post("/api/events/9999/outcome", json={"outcome": "none"}).status_code == 404
+    # a bad VALUE in the body stays a 400: the addressed row exists
+    eid = _past(schedule.OUTCOME_ASK_AFTER_HOURS + 1)
+    assert client.post(f"/api/events/{eid}/outcome", json={"outcome": "maybe"}).status_code == 400
+
+
+def test_an_ordinary_title_is_not_suppressed_by_a_short_name(client):
+    """`name in title` is the trap: a roster holding Ram, Ian and Ana
+    suppressed "Program review", "Alliance sync" and "Analytics review" —
+    three ordinary titles out of four, and silently, because a suppressed
+    finding looks exactly like a team with nothing wrong."""
+    from app.services import users
+
+    for n in ("Ram", "Ian", "Ana"):
+        users.ensure_user(n)
+    for title in ("Program review", "Alliance sync", "Analytics review", "Roadmap sync"):
+        for week in range(schedule.OUTCOME_SILENT_WEEKS):
+            _past(24 * (1 + 7 * week) + 5, title=title, attendees="a, b, c, d, e, f")
+    insights.run_findings()
+    fired = {
+        f["receipt"]["title"]
+        for f in insights.list_findings()
+        if f["rule_id"] == "meeting_no_outcome"
+    }
+    assert fired == {"Program review", "Alliance sync", "Analytics review", "Roadmap sync"}
+
+    # and the guard still holds where it is meant to
+    for week in range(schedule.OUTCOME_SILENT_WEEKS):
+        _past(24 * (1 + 7 * week) + 5, title="1:1 Ram / Ana", attendees="a, b")
+    insights.run_findings()
+    assert not [
+        f
+        for f in insights.list_findings()
+        if f["rule_id"] == "meeting_no_outcome" and "1:1" in f["receipt"]["title"]
+    ]

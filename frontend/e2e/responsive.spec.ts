@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 /** The half of the app the smoke walks never saw: every page, at phone width,
- *  and in dark. smoke.spec.ts covers six pages, light, at one desktop width,
+ *  and in dark. smoke.spec.ts covers seven pages, light, at one desktop width,
  *  plus /portfolio in dark — so a defect that only appears at 360px or only in
  *  dark could not be caught by anything here. Four of those shipped at once:
  *  a `<select>` with no name, a `<p>` inside a `<ul>`, three keyboard-
@@ -21,6 +21,7 @@ const PAGES = [
   "/dashboard",
   "/insights",
   "/artifacts",
+  "/planning",
   "/review",
   "/intake",
   "/ingest",

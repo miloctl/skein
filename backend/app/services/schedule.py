@@ -240,7 +240,7 @@ def ics_feed() -> str:
 
 
 # A meeting older than this with no outcome recorded is worth asking about.
-# Hours, not days: a morning meeting should be answerable the same afternoon,
+# Hours, not days: a morning meeting must be answerable the same afternoon,
 # while the room is still in memory.
 OUTCOME_ASK_AFTER_HOURS = 4
 # how far back My Day looks for an unanswered meeting. Past this the ask is
@@ -284,9 +284,17 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     # history on My Day the morning it is deployed — it defaults them all to
     # 'pending' and backfills nothing. A meeting nobody wrote up inside a week
     # is not going to be written up now.
+    #
+    # `created_at <= starts_at` below drops the rows that were never a meeting
+    # anybody sat in. A playbook ritual is scheduled at a fixed hour on the
+    # kickoff DAY (playbooks/*.yaml `time:`), so instantiating one in the
+    # afternoon writes a 09:00 event in the past, and this rule asked what came
+    # out of it. Writing a meeting down after the fact is the other case, and
+    # it needs no ask either: whoever types it in knows what it produced.
     floor = (now - timedelta(days=OUTCOME_ASK_LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M")
     return db.query(
         f"SELECT * FROM events WHERE outcome_status = 'pending'"  # noqa: S608 — scope.visible_filter emits only bound marks
-        f" AND starts_at < ? AND starts_at >= ? AND {frag} ORDER BY starts_at DESC LIMIT 20",
+        f" AND starts_at < ? AND starts_at >= ? AND created_at <= starts_at"
+        f" AND {frag} ORDER BY starts_at DESC LIMIT 20",
         (cutoff, floor, *vp),
     )

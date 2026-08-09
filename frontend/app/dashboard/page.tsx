@@ -91,7 +91,11 @@ function Section({
  *  capped, and a client-side filter would quietly search only the newest
  *  page while looking like it searched everything. */
 function LessonsCard() {
-  const [rows, setRows] = useState<Row[] | null>(null);
+  // rows carry the filter they belong to. A plain list plus a synchronous
+  // clear at the top of the effect is the same idea, but setState directly
+  // inside an effect is what react-hooks/set-state-in-effect forbids — and
+  // this shape also survives an out-of-order response without a second guard.
+  const [rows, setRows] = useState<{ cls: string; list: Row[] } | null>(null);
   const [cls, setCls] = useState("");
   const [error, setError] = useState("");
   // classes come from the rows themselves — playbooks.py owns the real list
@@ -99,10 +103,17 @@ function LessonsCard() {
   const [classes, setClasses] = useState<string[]>([]);
 
   useEffect(() => {
+    // `live` is the point: switch the filter twice and the FIRST response can
+    // land last, leaving one class's rows under another class's label with no
+    // way for the reader to tell. Clearing rows first means the card says
+    // "loading" instead of showing the previous filter's rows for the whole
+    // in-flight window.
+    let live = true;
     const q = cls ? `?project_class=${encodeURIComponent(cls)}` : "";
     api<Row[]>(`/api/lessons${q}`)
       .then((r) => {
-        setRows(r);
+        if (!live) return;
+        setRows({ cls, list: r });
         setError("");
         // only from the unfiltered read: a filtered one knows about one class
         if (!cls)
@@ -111,10 +122,17 @@ function LessonsCard() {
           ].sort());
       })
       .catch((e) => {
-        setRows([]);
+        if (!live) return;
+        setRows({ cls, list: [] });
         setError(loadError(e));
       });
+    return () => {
+      live = false;
+    };
   }, [cls]);
+  // showing the PREVIOUS filter's rows under the new label is the bug this
+  // closes; a mismatch is the loading state
+  const list = rows && rows.cls === cls ? rows.list : null;
 
   return (
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
@@ -140,9 +158,9 @@ function LessonsCard() {
       </div>
       {error ? (
         <p className="text-sm text-danger">{error}</p>
-      ) : rows === null ? (
+      ) : list === null ? (
         <p className="text-sm text-ink-3">Loading…</p>
-      ) : rows.length === 0 ? (
+      ) : list.length === 0 ? (
         <p className="text-sm text-ink-3">
           {cls
             ? `No lesson recorded from ${cls} work yet.`
@@ -150,7 +168,7 @@ function LessonsCard() {
         </p>
       ) : (
         <ul className="space-y-2">
-          {rows.map((l) => (
+          {list.map((l) => (
             <li key={l.id} id={`lesson-${l.id}`} className="text-sm">
               <span className="text-ink-3">#{l.id}</span> {l.lesson}
               {l.recommendation ? (
@@ -482,6 +500,9 @@ export default function Dashboard() {
   // opens rather than with the engagement list: it is one read per close, and
   // every engagement carrying its own diff would be N reads nobody looks at.
   const [planDiff, setPlanDiff] = useState<PlanDiff | null>(null);
+  // which engagement the open panel belongs to, readable synchronously by the
+  // in-flight plan-diff fetch below
+  const closingRef = useRef<number | null>(null);
   const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
@@ -809,19 +830,24 @@ export default function Dashboard() {
                   <button
                     onClick={() => {
                       const want = Number(e.id);
+                      closingRef.current = want;
                       setClosing(want);
                       setPlanDiff(null);
                       api<PlanDiff>(`/api/engagements/${e.id}/plan-diff`)
                         // the id guard is the point: open close-out on A, then
                         // on B before A resolves, and B's panel would show A's
                         // variance directly above the button that closes B
-                        .then((d) =>
-                          setClosing((cur) => {
-                            if (cur === want) setPlanDiff(d.playbook ? d : null);
-                            return cur;
-                          }),
-                        )
-                        .catch(() => setPlanDiff(null));
+                        // a ref, not a setState updater: React requires
+                        // updaters to be pure, and StrictMode double-invokes
+                        // them. The catch needs the same guard, or a late
+                        // failure for A clears B's diff.
+                        .then((d) => {
+                          if (closingRef.current === want)
+                            setPlanDiff(d.playbook ? d : null);
+                        })
+                        .catch(() => {
+                          if (closingRef.current === want) setPlanDiff(null);
+                        });
                     }}
                     className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
@@ -833,7 +859,11 @@ export default function Dashboard() {
               {closing === e.id && (
                 <span
                   className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs"
-                  onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
+                  onKeyDown={(ev) => {
+                    if (ev.key !== "Escape") return;
+                    closingRef.current = null;
+                    setClosing(null);
+                  }}
                 >
                   {planDiff ? (
                     <span className="w-full rounded bg-raised px-2 py-1.5 text-[11px] text-ink-2">
@@ -874,6 +904,7 @@ export default function Dashboard() {
                               ? out.lesson_proposal_id
                               : null,
                           );
+                          closingRef.current = null;
                           setClosing(null);
                           setPlanDiff(null);
                           // closing removes the engagement's allocations from
@@ -895,7 +926,10 @@ export default function Dashboard() {
                     </button>
                   ))}
                   <button
-                    onClick={() => setClosing(null)}
+                    onClick={() => {
+                      closingRef.current = null;
+                      setClosing(null);
+                    }}
                     className="text-ink-3 hover:text-ink"
                   >
                     cancel

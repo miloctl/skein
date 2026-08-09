@@ -196,7 +196,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
         viewBox={`0 0 ${W} ${H}`}
         // EXACTLY its own width, never `w-full`. A viewBox keeps its aspect
         // ratio, so a stretched diagram grows taller too: at 1070px of card
-        // this 656x240 drawing rendered 1070x391, and three of them made a
+        // this 656x260 drawing rendered 1070x391, and three of them made a
         // card taller than the viewport. Fixed at W it also never scales its
         // 11px labels down (a 4-member diagram hit 5.6px on a phone once), and
         // the overflow-x-auto wrapper on /agents does the scrolling instead.
