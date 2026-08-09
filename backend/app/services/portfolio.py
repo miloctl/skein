@@ -378,9 +378,9 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     # A denominator that includes rows a reader will never find is a wrong
     # number before it is a leak.
     done = db.query(
-        "SELECT created_at, completed_at, committed_week,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT created_at, completed_at, committed_week,"
         " ROUND(julianday(completed_at) - julianday(created_at), 1) AS days"
-        f" FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ? AND {WORKSPACE_ONLY}",
+        " FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ?",
         (cutoff,),
     )
     # a NULL cycle time (an unparseable created_at from a restore or import)
