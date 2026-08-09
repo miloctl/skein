@@ -215,6 +215,44 @@ def deindex_record(entity: str, entity_id: int) -> None:
         )
 
 
+# Function words the OR fallback drops. Without this, "why is the vendor
+# contract blocked" ORs in `the`, which matches most rows in the database:
+# the one relevant blocker came back ranked beside four unrelated tasks whose
+# only tie to the question was that word. Words of 1-2 characters never reach
+# here (the length filter below takes them), so this holds 3+ only.
+#
+# Closed-class words ONLY. A status or a domain noun has to survive, because
+# those ARE what people search for -- `done`, `open`, `out` (out-of-scope),
+# `off` (off-call), `new`, `own`, `need`, `want` are all absent on purpose.
+# `will` and `may` are absent for a second reason: one is a person's name and
+# the other is a month, and this list cannot tell either from the auxiliary.
+# fmt: off
+_STOPWORDS = frozenset({
+    # articles, conjunctions, prepositions
+    "the", "and", "but", "for", "nor", "yet", "with", "from",
+    "into", "onto", "over", "under", "about", "after", "before", "between",
+    "during", "than", "upon", "via", "per",
+    # pronouns and determiners
+    "you", "your", "yours", "our", "ours", "their", "theirs", "its",
+    "his", "her", "hers", "they", "them", "this", "that", "these",
+    "those", "there", "here",
+    # question words
+    "what", "which", "who", "whom", "whose", "why", "when", "where",
+    "how",
+    # quantifiers
+    "any", "all", "some", "each", "every", "other", "another", "such",
+    "both", "same",
+    # auxiliaries
+    "are", "was", "were", "been", "being", "has", "have", "had",
+    "does", "did", "doing", "can", "could", "should", "shall", "might",
+    "must",
+    # degree and negation
+    "not", "only", "just", "also", "very", "too", "more", "most",
+    "less", "least", "then",
+})
+# fmt: on
+
+
 def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
     its row (entity #id), findings-style. Degrades honestly keyless — an LLM
@@ -229,8 +267,13 @@ def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
     if not hits:
         # natural phrasing rarely matches as a phrase — fall back to OR of
         # the meaningful words, bm25-ranked, and say so
-        words = [w for w in q.split() if len(w) > 2]
-        if len(words) > 1:
+        tokens = q.split()
+        words = [w for w in tokens if len(w) > 2 and w.strip(".,;:!?").lower() not in _STOPWORDS]
+        # One meaningful word is worth trying when the question carried more
+        # than that ("what is skein" -> skein). It is NOT worth trying when the
+        # question was already that one word: search() just ran it and missed,
+        # so re-running it costs a second scan for the same nothing.
+        if words and (len(words) > 1 or len(words) != len(tokens)):
             hits = search(" OR ".join(_fts_quote(w) for w in words), limit, raw=True, viewer=viewer)
             if hits:
                 note = "no exact match — loosely related results (word overlap)"
@@ -415,7 +458,13 @@ def semantic_search(q: str, limit: int = 10) -> list[dict]:
                 "embeddings: unreadable vector for %s #%s", r["entity"], r["entity_id"]
             )
             continue
-        scored.append(
-            {"entity": r["entity"], "entity_id": r["entity_id"], "score": cos(qv, vector)}
-        )
+        score = cos(qv, vector)
+        # the floor is what makes "no semantic match" expressible. Sorting
+        # alone always yields `limit` rows, so without this a query sharing
+        # nothing with the corpus still fills the page and search can never
+        # answer "nothing matches" once embeddings are on (config.py records
+        # how to retune it for a different embedding model).
+        if score < config.EMBED_MIN_SCORE:
+            continue
+        scored.append({"entity": r["entity"], "entity_id": r["entity_id"], "score": score})
     return sorted(scored, key=lambda r: -r["score"])[:limit]

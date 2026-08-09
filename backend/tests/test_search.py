@@ -85,3 +85,48 @@ def test_deindex_removes_the_row_from_search_results(fresh_db):
     # the docstring's promise: search must never cite a record that no
     # longer exists — the FTS row goes with the record, not only the vector
     assert search.search("ectoplasm") == []
+
+
+def test_ask_falls_back_to_word_overlap_when_the_phrase_misses(fresh_db):
+    from app.services import blockers, search
+
+    blockers.raise_blocker("Vendor contract unsigned", detail="blocks the integration")
+    # the phrase matches nothing, so the natural question would come back
+    # empty without the fallback — this IS what the `?` prefix buys
+    assert search.search("why is the vendor contract blocked") == []
+    answer = search.ask("why is the vendor contract blocked")
+    assert [c["ref"] for c in answer["citations"]] == ["blocker #1"]
+    assert "word overlap" in answer["note"]
+
+
+def test_ask_does_not_widen_a_question_on_its_function_words(fresh_db):
+    from app.services import search, work
+
+    # every one of these carries "the" and nothing else in common with the
+    # question. Before the stopword filter they all came back, because `the`
+    # was OR'd in and matches most rows anyone ever writes.
+    for title in ("Interview the requester", "Build the happy path", "Rebuild the wiki"):
+        work.create_task(title)
+    answer = search.ask("why is the pager quiet")
+    assert answer["citations"] == []
+    assert answer["note"] == "nothing indexed matches — try different words"
+
+
+def test_ask_keeps_a_status_word_the_team_actually_searches_for(fresh_db):
+    from app.services import search, work
+
+    # `done` reads like a function word and is not: it is a task status.
+    # Stopwording it would make one of the commonest questions unanswerable.
+    work.create_task("Ship the done-list export")
+    answer = search.ask("what is done here")
+    assert [c["ref"] for c in answer["citations"]] == ["task #1"]
+
+
+def test_ask_tries_the_one_meaningful_word_left_in_a_question(fresh_db):
+    from app.services import collab, search
+
+    collab.save_note(topic="skein", content="many strands, one formation", author="a")
+    # "what is skein" strips to a single word. The old guard needed two and
+    # skipped the fallback entirely, so a three-word question answered nothing.
+    answer = search.ask("what is skein")
+    assert [c["ref"] for c in answer["citations"]] == ["note #1"]
