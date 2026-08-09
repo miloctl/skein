@@ -58,7 +58,17 @@ export function themeBootScript(): string {
     `var p=localStorage.getItem(${JSON.stringify(PACK_KEY)});` +
     `if(${nonDefault(PACKS, DEFAULT_PACK)}.indexOf(p)>=0)d.dataset.pack=p;` +
     `if(localStorage.getItem(${JSON.stringify(SIDEBAR_KEY)})==="1")` +
-    `d.dataset.chatSidebar="collapsed"` +
+    `d.dataset.chatSidebar="collapsed";` +
+    // Which keyboard the reader has, for the capture shortcut (globals.css
+    // hides the wrong spelling, components/shortcut.tsx writes both). It
+    // rides in THIS script because the answer must be on the element before
+    // first paint -- a second inline script would parse-block again for one
+    // attribute, and reading it in React instead would either flash the wrong
+    // key or mismatch on hydration. userAgentData first, because
+    // navigator.platform is deprecated and lies under some emulation.
+    `var pl=(navigator.userAgentData&&navigator.userAgentData.platform)` +
+    `||navigator.platform||"";` +
+    `if(/Mac|iPhone|iPad|iPod/.test(pl))d.dataset.os="mac"` +
     `}catch(e){}})()`
   );
 }

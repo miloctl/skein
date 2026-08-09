@@ -10,6 +10,12 @@
 # "manager" marks cards for the manager toggle so IC completionists know).
 #
 # Voice rules: dry, terse, no exclamation marks, no praise adjectives.
+#
+# Write the capture shortcut as the literal ⌘K. It is a TOKEN, not the text
+# the reader gets: the guide page renders pitch/how through
+# components/shortcut.tsx, which spells it ⌘K on an Apple keyboard and Ctrl+K
+# on every other one. Writing "Ctrl+K" here defeats that and is then wrong on
+# a Mac.
 # Never add counters, streaks, or tiers. Shipping a user-facing feature?
 # Add its card in the same PR — a new locked card IS the release note.
 #

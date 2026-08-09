@@ -10,6 +10,7 @@ import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
 import { PeekLink } from "@/components/task-peek";
+import { Shortcut, ShortcutText } from "@/components/shortcut";
 
 type Row = Record<string, string | number | null>;
 
@@ -388,7 +389,12 @@ export default function MyDay() {
                               ○ {s.label}
                             </Link>
                           )}
-                          <span className="ml-1 block pl-4 text-xs text-ink-3">{s.hint}</span>
+                          <span className="ml-1 block pl-4 text-xs text-ink-3">
+                            {/* onboarding.py writes the ⌘K token — this is
+                                the step that teaches capture, so the key it
+                                names has to be the reader's */}
+                            <ShortcutText text={s.hint} />
+                          </span>
                         </>
                       )}
                     </li>
@@ -536,7 +542,9 @@ export default function MyDay() {
               <li className="text-ink-3">
                 No tasks assigned to you — use quick capture
                 <span className="[@media(any-pointer:coarse)]:hidden">
-                  {" (⌘K)"}
+                  {" ("}
+                  <Shortcut />
+                  {")"}
                 </span>{" "}
                 and type &lsquo;todo: …&rsquo;.
               </li>

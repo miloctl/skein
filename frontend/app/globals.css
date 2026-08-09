@@ -460,6 +460,20 @@ body {
   font-family: var(--font-body), system-ui, sans-serif;
 }
 
+/* The capture shortcut is ⌘K on an Apple keyboard and Ctrl+K on every other
+   one. Both spellings are written into the HTML and CSS drops the wrong one,
+   so there is no client-side branch to mismatch on hydration and no flash of
+   the wrong key — lib/theme-boot.ts sets data-os before first paint.
+   display:none rather than visibility or opacity, because it must leave the
+   accessibility tree too: a screen reader that reads both announces a
+   shortcut the reader's keyboard does not have. */
+:root:not([data-os="mac"]) .os-mac {
+  display: none;
+}
+:root[data-os="mac"] .os-other {
+  display: none;
+}
+
 /* The native select popup is painted by the browser chrome, not the page.
    With no author style on option, some engines (Firefox on Windows, Chrome
    on a light-theme OS) give the popup a LIGHT panel while the options

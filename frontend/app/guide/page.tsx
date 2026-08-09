@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { api, getUser, loadError, subscribeUser } from "@/lib/api";
+import { ShortcutText } from "@/components/shortcut";
 
 type Knot = {
   id: string;
@@ -132,14 +133,21 @@ export default function GuidePage() {
                         {c.knot}
                       </span>
                     </div>
-                    <p className="mb-2 text-xs text-ink">{c.pitch}</p>
+                    <p className="mb-2 text-xs text-ink">
+                      <ShortcutText text={c.pitch} />
+                    </p>
                     {/* how: stays after the card ties. It is the only place
                         some grammars are written down — the search card
                         teaches `#42` — and hiding it on first use deletes the
                         documentation exactly when someone starts using it.
                         ink-2, not ink-3: a tied card sits on surface-raised,
                         where 12px ink-3 measures 4.48:1 and misses AA. */}
-                    <p className="mb-2 text-xs text-ink-2">{c.how}</p>
+                    {/* knots.yaml writes the ⌘K token, and `how:` is where
+                        several grammars are documented at all — the key it
+                        names must be the one on the reader's keyboard */}
+                    <p className="mb-2 text-xs text-ink-2">
+                      <ShortcutText text={c.how} />
+                    </p>
                     {c.tied ? (
                       <p className="text-xs text-ink-2">Tied · {c.tied_on}</p>
                     ) : (

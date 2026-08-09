@@ -6,7 +6,10 @@ from .. import db
 
 # (id, label, link, hint, scope) — every step must be actionable from the UI:
 # the link goes where the step happens, the hint says HOW, so nobody needs to
-# have read the docs to finish setup. A link starting with "#" names an action
+# have read the docs to finish setup. A hint writes the capture shortcut as
+# the literal ⌘K, which is a TOKEN: app/page.tsx renders hints through
+# components/shortcut.tsx, which spells it for the reader's own keyboard
+# (Ctrl+K off Apple hardware). A link starting with "#" names an action
 # on the CURRENT page (app/page.tsx runStep) rather than a route: capture and
 # standup both happen on My Day, and pointing them at "/" made the checklist
 # item a dead self-link for the first-run reader it exists to help. Personal steps come first — a new

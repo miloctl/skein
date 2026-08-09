@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { SkeinMark } from "@/components/mark";
 import { NavSearch } from "@/components/nav-search";
+import { Shortcut } from "@/components/shortcut";
 // identity/key changes notify via the storage event (cross-tab natively,
 // same-tab dispatched by the lib/api writers)
 import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
@@ -413,20 +414,23 @@ export function Nav() {
                 window.dispatchEvent(new Event("skein-capture-open"));
               }}
               aria-label="Quick capture"
-              title="Quick capture (⌘K)"
+              // no shortcut here: a title is a plain string, so it cannot
+              // carry the per-keyboard spelling the button itself renders,
+              // and a hard-coded ⌘K names the wrong key on most keyboards
+              title="Quick capture"
               className="flex shrink-0 items-center gap-1 rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
             >
               {/* The visible text must NAME the action, not the keystroke.
                   This button read "⌘K" on desktop while its accessible name
                   was "Quick capture" — a WCAG 2.5.3 Label in Name failure
                   (nothing on screen matched the name a voice-control user
-                  must speak), and next to a search box "⌘K" reads as the
-                  command-palette convention it is not: this writes a row.
-                  The shortcut stays as a hint, aria-hidden so it cannot get
-                  back into the accessible name and re-break the match. */}
+                  must speak), and next to a search box a bare shortcut reads
+                  as the command-palette convention it is not: this writes a
+                  row. The shortcut stays as a hint, aria-hidden so it cannot
+                  get back into the accessible name and re-break the match. */}
               <span>+ Capture</span>
               <span aria-hidden className="hidden text-ink-3 md:inline">
-                ⌘K
+                <Shortcut />
               </span>
             </button>
           </div>

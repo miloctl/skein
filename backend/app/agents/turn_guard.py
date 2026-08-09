@@ -110,6 +110,9 @@ def unfiled(message: str, wrote: bool) -> dict | None:
     return {
         "kind": "nothing",
         "entity": kind,
-        "detail": f"To file it as a {kind}, press ⌘K and use the same text.",
+        # names the action, never the key: this reaches the reader through
+        # chat's markdown renderer, which does not pass components/shortcut.tsx,
+        # so a ⌘K token here ships raw and is the wrong key on most keyboards
+        "detail": f"To file it as a {kind}, use quick capture with the same text.",
         "ref": 0,
     }
