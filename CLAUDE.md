@@ -57,7 +57,7 @@ model and constraints, is archived at
   that needs the context gets one line naming what shipped, not a
   resurrected entry.
 - **A filename names the behavior, not the session that made it.** This is
-  what `app/services/` already does: 46 files, each named for its subject.
+  what `app/services/` already does: 56 files, each named for its subject.
   Name a test for what it pins (`test_delegation.py`), never for the wave,
   round, audit or review that produced it. Name a doc for its function.
   Dates belong in `docs/reviews/`, which holds closed transcripts only.

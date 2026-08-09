@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from .. import config, db
-from . import scope
+from . import scope, wording
 from .scope import WORKSPACE_ONLY
 
 
@@ -40,7 +40,7 @@ def build_pack(crew_id: int = 0) -> str:
     health = engagement_health()
     for h in health:
         lines.append(
-            f"- **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'},"
+            f"- **{wording.flatten(h['name'])}** ({h['status']}, lead: {h['lead'] or 'unset'},"
             f" health: {h['health']})"
         )
     if not health:
@@ -53,7 +53,7 @@ def build_pack(crew_id: int = 0) -> str:
         " ORDER BY id DESC LIMIT 25"
     )
     for d in decisions:
-        line = f"- **{d['title']}** — {d['decision']}"
+        line = f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}"
         if d["review_by"]:
             line += f" *(review by {d['review_by']})*"
         lines.append(line)
@@ -66,7 +66,7 @@ def build_pack(crew_id: int = 0) -> str:
     if stale:
         lines.append("")
         lines.append("Stale (past review-by — confirm before relying on):")
-        lines += [f"- #{d['id']} {d['title']}" for d in stale]
+        lines += [f"- #{d['id']} {wording.flatten(d['title'])}" for d in stale]
     lines.append("")
 
     lines.append("## Lessons the team already paid for")
@@ -74,8 +74,8 @@ def build_pack(crew_id: int = 0) -> str:
         f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
     )
     lines += [
-        f"- [{les['project_class']}] {les['lesson']}"
-        + (f" → {les['recommendation']}" if les["recommendation"] else "")
+        f"- [{wording.flatten(les['project_class'])}] {wording.flatten(les['lesson'])}"
+        + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
         for les in lessons
     ] or ["- none recorded"]
     lines.append("")
@@ -85,9 +85,9 @@ def build_pack(crew_id: int = 0) -> str:
         f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 15"
     )
-    lines += [f"- {n['topic']}: {n['content']}" for n in conventions] or [
-        "- none recorded (save notes with topic 'convention: ...' to add)"
-    ]
+    lines += [
+        f"- {wording.flatten(n['topic'])}: {wording.flatten(n['content'])}" for n in conventions
+    ] or ["- none recorded (save notes with topic 'convention: ...' to add)"]
     lines.append("")
 
     lines.append("## Open questions nobody has answered")
@@ -95,9 +95,10 @@ def build_pack(crew_id: int = 0) -> str:
         f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
-    lines += [f"- #{q['id']} {q['question']} (asked by {q['asked_by']})" for q in questions] or [
-        "- none recorded"
-    ]
+    lines += [
+        f"- #{q['id']} {wording.flatten(q['question'])} (asked by {wording.flatten(q['asked_by'])})"
+        for q in questions
+    ] or ["- none recorded"]
     lines.append("")
 
     lines.append("## How to plug in")
@@ -132,9 +133,9 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     if not eng:
         raise scope.missing("engagements", engagement_id)
     lines = [
-        f"# Engagement context: {eng['name']}",
+        f"# Engagement context: {wording.flatten(eng['name'])}",
         "",
-        f"*Class: {eng['project_class']} · kind: {eng['kind']} · status: {eng['status']}"
+        f"*Class: {wording.flatten(eng['project_class'])} · kind: {eng['kind']} · status: {eng['status']}"
         f" · lead: {eng['lead'] or 'unset'}*",
         "",
     ]
@@ -155,7 +156,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         (engagement_id, *mp),
     )
     lines += [
-        f"- [{m['status']}] #{m['id']} {m['title']}"
+        f"- [{m['status']}] #{m['id']} {wording.flatten(m['title'])}"
         + (f" — due {m['due_date']}" if m["due_date"] else "")
         for m in milestones
     ] or ["- none recorded"]
@@ -170,9 +171,9 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         (*tp, engagement_id, engagement_id),
     )
     for t in tasks:
-        line = f"- [{t['status']}/{t['priority']}] #{t['id']} {t['title']}"
+        line = f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.flatten(t['title'])}"
         if t["assignee"]:
-            line += f" (@{t['assignee']})"
+            line += f" (@{wording.flatten(t['assignee'])})"
         if t["waiting_on_type"]:
             line += f" — waiting on {t['waiting_on_type']} #{t['waiting_on_id']}"
         lines.append(line)
@@ -183,9 +184,10 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
 
     blockers = _linked_blockers(engagement_id, viewer)
     lines.append("## Unresolved blockers")
-    lines += [f"- [{b['status']}/{b['impact']}] #{b['id']} {b['title']}" for b in blockers] or [
-        "- none recorded"
-    ]
+    lines += [
+        f"- [{b['status']}/{b['impact']}] #{b['id']} {wording.flatten(b['title'])}"
+        for b in blockers
+    ] or ["- none recorded"]
     lines.append("")
     lines.append("## Lessons from this class")
     lessons = db.query(
@@ -194,7 +196,8 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         (*lp, engagement_id, eng["project_class"]),
     )
     lines += [
-        f"- {les['lesson']}" + (f" → {les['recommendation']}" if les["recommendation"] else "")
+        f"- {wording.flatten(les['lesson'])}"
+        + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
         for les in lessons
     ] or ["- none recorded"]
     lines.append("")
@@ -203,7 +206,9 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
-    lines += [f"- **{d['title']}** — {d['decision']}" for d in decisions] or ["- none recorded"]
+    lines += [
+        f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}" for d in decisions
+    ] or ["- none recorded"]
     return "\n".join(lines)
 
 
@@ -218,30 +223,32 @@ def _crew_section(crew_id: int) -> list[str]:
 
     crew = crews.get_crew(crew_id)  # raises NotFound on an unknown id
     scoped = "visibility = 'crew' AND crew_id = ?"
-    lines = ["", f"## {crew['name']} only", ""]
+    lines = ["", f"## {wording.flatten(crew['name'])} only", ""]
     if crew["summary"]:
         lines += [crew["summary"], ""]
     for heading, sql, fmt in (
         (
             "Decisions",
             f"SELECT * FROM decisions WHERE status = 'active' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
-            lambda r: f"- **{r['title']}** — {r['decision']}",
+            lambda r: f"- **{wording.flatten(r['title'])}** — {wording.flatten(r['decision'])}",
         ),
         (
             "Conventions",
             f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
-            lambda r: f"- {r['topic']}: {r['content']}",
+            lambda r: f"- {wording.flatten(r['topic'])}: {wording.flatten(r['content'])}",
         ),
         (
             "Open questions",
             f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
-            lambda r: f"- #{r['id']} {r['question']} (asked by {r['asked_by']})",
+            lambda r: (
+                f"- #{r['id']} {wording.flatten(r['question'])} (asked by {wording.flatten(r['asked_by'])})"
+            ),
         ),
         (
             "Open work",
             f"SELECT * FROM tasks WHERE status != 'done' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: (
-                f"- [{r['status']}] #{r['id']} {r['title']} (@{r['assignee'] or 'unassigned'})"
+                f"- [{r['status']}] #{r['id']} {wording.flatten(r['title'])} (@{r['assignee'] or 'unassigned'})"
             ),
         ),
     ):
@@ -313,7 +320,7 @@ def publish_pack(
     # otherwise overwrite one file and the artifact would name the wrong pack
     stem = f"crew{crew_id}-v{version}" if crew_id else f"v{version}"
     path = pack_dir / f"context-pack-{stem}.md"
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     db.log_activity(actor, "publish_context_pack", f"{stem} ({digest})")
     return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 

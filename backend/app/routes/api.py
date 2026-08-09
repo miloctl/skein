@@ -42,6 +42,7 @@ from ..services import (
     scope,
     search,
     settings,
+    stakeholders,
     tuning,
     usage,
     users,
@@ -308,6 +309,11 @@ def get_artifacts(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
     return handoff.list_artifacts(engagement_id, viewer)
 
 
+@router.get("/artifacts/{artifact_id}")
+def get_artifact(artifact_id: int, user: CurrentUser, viewer: ViewerDep):
+    return handoff.read_artifact(artifact_id, viewer)
+
+
 @router.get("/users")
 def get_users(user: CurrentUser, all: bool = False):
     # all=1 includes deactivated rows — the Settings roster needs them so
@@ -542,7 +548,7 @@ def post_field_guide_dismiss(body: DismissKnot, user: CurrentUser):
 def get_whoami(user: CurrentUser, request: Request):
     """Who the API thinks you are and how strongly — the Settings page uses
     this to validate a pasted key without the user needing to know anything."""
-    from ..services.api_keys import list_keys
+    from ..services import api_keys
     from .deps import is_named_admin
 
     strong = bool(getattr(request.state, "strong_auth", False))
@@ -562,7 +568,7 @@ def get_whoami(user: CurrentUser, request: Request):
         # same fact GET /keys refuses to weak callers. Zero is also what
         # Settings must act on here — a caller with no proven key needs the
         # bootstrap command, whatever the roster holds.
-        "keys_minted": sum(1 for k in list_keys(user) if k["active"]) if strong else 0,
+        "keys_minted": api_keys.active_key_count(user) if strong else 0,
     }
 
 
@@ -736,8 +742,14 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
 
 
 @router.get("/promises")
-def get_promises(user: CurrentUser, viewer: ViewerDep, status: str = "", audience: str = ""):
-    return promises.list_promises(status, audience, viewer)
+def get_promises(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    status: str = "",
+    audience: str = "",
+    direction: str = "",
+):
+    return promises.list_promises(status, audience, viewer, direction)
 
 
 class PromiseIn(BaseModel):
@@ -746,6 +758,8 @@ class PromiseIn(BaseModel):
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
     audience: str = Field("external", max_length=20)
+    # 'received' records a promise made TO the team (migration 007)
+    direction: str = Field("given", max_length=10)
     # No reader check on `to_whom`: it is deliberately not a roster name (the
     # default audience is external) — promises.add_promise says why.
     # the tier the writer picked, checked in the service: crew membership only.
@@ -1197,8 +1211,11 @@ def get_usage(user: CurrentUser, viewer: ViewerDep):
 
 
 class MilestoneIn(BaseModel):
-    title: str = Field(max_length=200)
-    description: str = Field("", max_length=4000)
+    # from services/work.py, never a literal: the service enforces the same two
+    # bounds on every write path, and a second copy of the number here is how
+    # the REST door and the agent door drift apart again
+    title: str = Field(max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
     project: str = Field("default", max_length=120)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
@@ -1218,8 +1235,8 @@ def post_milestone(body: MilestoneIn, user: CurrentUser):
 class MilestonePatch(BaseModel):
     # caps match MilestoneIn — see the note on TaskPatch
     status: str = Field("", max_length=20)
-    title: str = Field("", max_length=200)
-    description: str = Field("", max_length=4000)
+    title: str = Field("", max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0  # relink (-1 unlinks)
@@ -1231,8 +1248,8 @@ def patch_milestone(milestone_id: int, body: MilestonePatch, user: CurrentUser):
 
 
 class TaskIn(BaseModel):
-    title: str = Field(max_length=200)
-    description: str = Field("", max_length=4000)
+    title: str = Field(max_length=work.TITLE_LEN)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
     milestone_id: int = 0
     assignee: str = Field("", max_length=64)
     priority: str = Field("medium", max_length=10)
@@ -1258,8 +1275,8 @@ class TaskPatch(BaseModel):
     assignee: str = Field("", max_length=64)
     priority: str = Field("", max_length=10)
     due_date: str = Field("", max_length=10)
-    description: str = Field("", max_length=4000)
-    title: str = Field("", max_length=200)
+    description: str = Field("", max_length=work.DESCRIPTION_LEN)
+    title: str = Field("", max_length=work.TITLE_LEN)
     committed_week: str = Field("", max_length=10)
     waiting_on: str = Field("", max_length=32)  # "blocker:12" | "task:3" | "-"
     milestone_id: int = 0  # relink (-1 unlinks)
@@ -1302,6 +1319,10 @@ class QuestionPatch(BaseModel):
 
 @router.patch("/questions/{question_id}")
 def patch_question(question_id: int, body: QuestionPatch, user: CurrentUser):
+    # assignment NOTIFIES the named person every time (services/collab.py), so
+    # this is a send, not an edit — the one PATCH here that a loop turns into
+    # somebody else's flooded inbox
+    ratelimit.check("write", user)
     return collab.assign_question(question_id, body.assigned_to, actor=user)
 
 
@@ -1390,12 +1411,54 @@ def post_note(body: NoteIn, user: CurrentUser):
     )
 
 
+class OutcomeIn(BaseModel):
+    outcome: str = Field(max_length=10)
+
+
+@router.get("/stakeholders")
+def get_stakeholders(user: CurrentUser, viewer: ViewerDep):
+    """Open threads with people outside the roster. Read-only: every row is
+    already written by somebody doing ordinary work (services/stakeholders.py)."""
+    return stakeholders.open_threads(viewer)
+
+
+@router.get("/events/{event_id}/stakeholders")
+def get_event_stakeholders(event_id: int, user: CurrentUser, viewer: ViewerDep):
+    """What is open with the outside people attending this meeting — useful in
+    the hour before you speak to them, which a digest of everything is not."""
+    return stakeholders.brief_for_event(event_id, viewer)
+
+
+@router.post("/events/{event_id}/outcome")
+def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
+    """What came out of a meeting. Set by a reader, never inferred: guessing
+    from "was anything written near this time" is wrong in both directions —
+    an outcome recorded an hour later reads as empty, an unrelated note reads
+    as an outcome (migration 008)."""
+    ratelimit.check("write", user)
+    try:
+        return schedule.record_outcome(event_id, body.outcome, actor=user)
+    except db.NotFound:
+        # db.NotFound subclasses ValueError, so a bare `except ValueError`
+        # turned "no event #12" into a 400. The id is in the PATH here, which
+        # scope.missing_text says is the 404 case — and the sibling route
+        # GET /events/{id}/stakeholders already answers 404 for the same row.
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class EventIn(BaseModel):
     title: str = Field(max_length=200)
     starts_at: str = Field(max_length=25)
     ends_at: str = Field("", max_length=25)
     description: str = Field("", max_length=4000)
     attendees: str = Field("", max_length=500)
+    # what the meeting is FOR, written before it runs (migration 008). The
+    # post-meeting attention item quotes it back, which is what makes "did
+    # this produce anything" answerable by whoever attended.
+    agenda: str = Field("", max_length=2000)
+    engagement_id: int = 0
     # the tier the writer picked, checked in the service: crew membership only.
     # No assignee check here — `attendees` is free text, not a roster join.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
@@ -1665,6 +1728,17 @@ class EngagementPatch(BaseModel):
 @router.patch("/engagements/{engagement_id}")
 def patch_engagement(engagement_id: int, body: EngagementPatch, user: CurrentUser):
     return engagements.update_engagement(engagement_id, **body.model_dump(), actor=user)
+
+
+@router.get("/engagements/{engagement_id}/plan-diff")
+def get_plan_diff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+    """Planned versus what happened, for an engagement born from a playbook.
+
+    `{}` for one created by hand — the close-out control renders nothing
+    rather than an empty section, because "no variance" and "no plan to vary
+    from" are different statements.
+    """
+    return playbooks.close_out_diff(engagement_id, viewer)
 
 
 class AllocationIn(BaseModel):

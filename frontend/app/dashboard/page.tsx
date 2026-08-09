@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VisibilityBadge } from "@/components/visibility-picker";
@@ -73,6 +74,115 @@ function Section({
         <p className="text-sm text-ink-3">{empty}</p>
       ) : (
         <ul className="space-y-2">{rows.map((r) => render(r))}</ul>
+      )}
+    </section>
+  );
+}
+
+/** The paid-for lessons, with a filter by the class of work that produced
+ *  them.
+ *
+ *  `list_lessons` and its `project_class` filter shipped with the retro loop
+ *  and the Season band has counted lessons ever since — but nothing listed
+ *  one, so the count led nowhere and search rendered a lesson hit as dead
+ *  text. A lesson the team cannot re-read is one it pays for twice.
+ *
+ *  Filters on the SERVER, not over the rows already fetched: the list is
+ *  capped, and a client-side filter would quietly search only the newest
+ *  page while looking like it searched everything. */
+function LessonsCard() {
+  // rows carry the filter they belong to. A plain list plus a synchronous
+  // clear at the top of the effect is the same idea, but setState directly
+  // inside an effect is what react-hooks/set-state-in-effect forbids — and
+  // this shape also survives an out-of-order response without a second guard.
+  const [rows, setRows] = useState<{ cls: string; list: Row[] } | null>(null);
+  const [cls, setCls] = useState("");
+  const [error, setError] = useState("");
+  // classes come from the rows themselves — playbooks.py owns the real list
+  // and a hardcoded copy here would drift the first time one is added
+  const [classes, setClasses] = useState<string[]>([]);
+
+  useEffect(() => {
+    // `live` is the point: switch the filter twice and the FIRST response can
+    // land last, leaving one class's rows under another class's label with no
+    // way for the reader to tell. Clearing rows first means the card says
+    // "loading" instead of showing the previous filter's rows for the whole
+    // in-flight window.
+    let live = true;
+    const q = cls ? `?project_class=${encodeURIComponent(cls)}` : "";
+    api<Row[]>(`/api/lessons${q}`)
+      .then((r) => {
+        if (!live) return;
+        setRows({ cls, list: r });
+        setError("");
+        // only from the unfiltered read: a filtered one knows about one class
+        if (!cls)
+          setClasses([
+            ...new Set(r.map((l) => String(l.project_class || "")).filter(Boolean)),
+          ].sort());
+      })
+      .catch((e) => {
+        if (!live) return;
+        setRows({ cls, list: [] });
+        setError(loadError(e));
+      });
+    return () => {
+      live = false;
+    };
+  }, [cls]);
+  // showing the PREVIOUS filter's rows under the new label is the bug this
+  // closes; a mismatch is the loading state
+  const list = rows && rows.cls === cls ? rows.list : null;
+
+  return (
+    <section className="rounded-xl border border-line bg-card p-4 shadow-card">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+          Lessons
+        </h2>
+        {classes.length > 0 ? (
+          <select
+            aria-label="Filter lessons by type of work"
+            value={cls}
+            onChange={(e) => setCls(e.target.value)}
+            className="rounded-lg border border-line-strong bg-card px-2 py-1 text-xs outline-none"
+          >
+            <option value="">All</option>
+            {classes.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+      {error ? (
+        <p className="text-sm text-danger">{error}</p>
+      ) : list === null ? (
+        <p className="text-sm text-ink-3">Loading…</p>
+      ) : list.length === 0 ? (
+        <p className="text-sm text-ink-3">
+          {cls
+            ? `No lesson recorded from ${cls} work yet.`
+            : "No lesson recorded yet. Close an engagement to write the first one."}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {list.map((l) => (
+            <li key={l.id} id={`lesson-${l.id}`} className="text-sm">
+              <span className="text-ink-3">#{l.id}</span> {l.lesson}
+              {l.recommendation ? (
+                <span className="block text-xs text-ink-3">
+                  → {l.recommendation}
+                </span>
+              ) : null}
+              <span className="block text-xs text-ink-3">
+                {l.project_class ? `${l.project_class} · ` : ""}
+                {l.created_by}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );
@@ -313,6 +423,46 @@ const CONCLUSIONS = [
   "stopped",
 ] as const;
 
+type PlanDiff = {
+  playbook: string;
+  drafts_lesson: boolean;
+  slipped: { title: string; days: number; to: string; basis: string }[];
+  unfinished_tasks: string[];
+  dropped_tasks: string[];
+  added_tasks: string[];
+  skipped_rituals: string[];
+};
+
+/** The variance in one line. Counts only — the drafted lesson carries the
+ *  detail, and a reviewer reads it there rather than inside a close button. */
+function planDiffSummary(d: PlanDiff): string {
+  const parts: string[] = [];
+  const late = d.slipped.filter((s) => s.days > 0);
+  if (late.length) {
+    const worst = late.reduce((a, b) => (b.days > a.days ? b : a));
+    // the same two bases the backend computes: a milestone that LANDED late
+    // and one that was re-dated are different facts about the plan
+    const how = worst.basis === "finished" ? "landed late" : "moved";
+    parts.push(
+      `${late.length} milestone${late.length === 1 ? "" : "s"} ${how}, the largest by ${worst.days} day${worst.days === 1 ? "" : "s"}`,
+    );
+  }
+  const unfinished = d.unfinished_tasks.length + d.dropped_tasks.length;
+  if (unfinished)
+    parts.push(
+      `${unfinished} planned task${unfinished === 1 ? "" : "s"} never finished`,
+    );
+  if (d.added_tasks.length)
+    parts.push(
+      `${d.added_tasks.length} task${d.added_tasks.length === 1 ? "" : "s"} added`,
+    );
+  if (d.skipped_rituals.length)
+    parts.push(
+      `${d.skipped_rituals.length} ritual${d.skipped_rituals.length === 1 ? "" : "s"} did not happen`,
+    );
+  return parts.length ? `${parts.join(", ")}.` : "it went to plan.";
+}
+
 const CONCLUSION_HINTS: Record<string, string> = {
   achieved: "the outcome landed",
   partial: "some of it landed",
@@ -346,6 +496,14 @@ export default function Dashboard() {
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<number | null>(null);
+  // What the playbook said, against what happened. Fetched when the control
+  // opens rather than with the engagement list: it is one read per close, and
+  // every engagement carrying its own diff would be N reads nobody looks at.
+  const [planDiff, setPlanDiff] = useState<PlanDiff | null>(null);
+  // which engagement the open panel belongs to, readable synchronously by the
+  // in-flight plan-diff fetch below
+  const closingRef = useRef<number | null>(null);
+  const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
   const [editing, setEditing] = useState<{
@@ -619,6 +777,22 @@ export default function Dashboard() {
             )}
           </section>
         )}
+        {draftedLesson ? (
+          <p className="rounded border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+            A close-out lesson is drafted from the plan variance.{" "}
+            <Link href="/review" className="underline hover:text-ink">
+              Approve or reject it on Review
+            </Link>
+            . An approved one reaches the next kickoff of this class. It names
+            the playbook file for a human to edit, and edits nothing itself.{" "}
+            <button
+              onClick={() => setDraftedLesson(null)}
+              className="text-ink-3 underline hover:text-ink"
+            >
+              dismiss
+            </button>
+          </p>
+        ) : null}
         <Section
           title="Engagements"
           rows={data.engagements ?? []}
@@ -654,7 +828,27 @@ export default function Dashboard() {
               <span className="flex shrink-0 items-center gap-2">
                 {e.status !== "closed" && closing !== e.id && (
                   <button
-                    onClick={() => setClosing(Number(e.id))}
+                    onClick={() => {
+                      const want = Number(e.id);
+                      closingRef.current = want;
+                      setClosing(want);
+                      setPlanDiff(null);
+                      api<PlanDiff>(`/api/engagements/${e.id}/plan-diff`)
+                        // the id guard is the point: open close-out on A, then
+                        // on B before A resolves, and B's panel would show A's
+                        // variance directly above the button that closes B
+                        // a ref, not a setState updater: React requires
+                        // updaters to be pure, and StrictMode double-invokes
+                        // them. The catch needs the same guard, or a late
+                        // failure for A clears B's diff.
+                        .then((d) => {
+                          if (closingRef.current === want)
+                            setPlanDiff(d.playbook ? d : null);
+                        })
+                        .catch(() => {
+                          if (closingRef.current === want) setPlanDiff(null);
+                        });
+                    }}
                     className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
                     close out…
@@ -665,8 +859,25 @@ export default function Dashboard() {
               {closing === e.id && (
                 <span
                   className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs"
-                  onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
+                  onKeyDown={(ev) => {
+                    if (ev.key !== "Escape") return;
+                    closingRef.current = null;
+                    setClosing(null);
+                  }}
                 >
+                  {planDiff ? (
+                    <span className="w-full rounded bg-raised px-2 py-1.5 text-[11px] text-ink-2">
+                      <span className="font-medium">
+                        Against the {planDiff.playbook} playbook:
+                      </span>{" "}
+                      {planDiffSummary(planDiff)}
+                      <span className="mt-0.5 block text-ink-3">
+                        {planDiff.drafts_lesson
+                          ? "Closing drafts a lesson from this, for somebody to approve on Review. Editing the playbook file stays a human job."
+                          : "This engagement is not workspace-wide, so closing drafts no lesson."}
+                      </span>
+                    </span>
+                  ) : null}
                   <span className="text-ink-3">How did it end?</span>
                   <span className="w-full text-[11px] text-ink-3">
                     invalidated = disproved on time (a win) · unmeasured =
@@ -678,14 +889,24 @@ export default function Dashboard() {
                       autoFocus={ci === 0}
                       onClick={async () => {
                         try {
-                          await api(`/api/engagements/${e.id}`, {
+                          const out = await api<{
+                            lesson_proposal_id?: number;
+                          }>(`/api/engagements/${e.id}`, {
                             method: "PATCH",
                             body: JSON.stringify({
                               status: "closed",
                               conclusion: c,
                             }),
                           });
+                          setDraftedLesson(
+                            typeof out?.lesson_proposal_id === "number" &&
+                              out.lesson_proposal_id > 0
+                              ? out.lesson_proposal_id
+                              : null,
+                          );
+                          closingRef.current = null;
                           setClosing(null);
+                          setPlanDiff(null);
                           // closing removes the engagement's allocations from
                           // capacity and ships a recap note — both render here
                           refresh([
@@ -705,7 +926,10 @@ export default function Dashboard() {
                     </button>
                   ))}
                   <button
-                    onClick={() => setClosing(null)}
+                    onClick={() => {
+                      closingRef.current = null;
+                      setClosing(null);
+                    }}
                     className="text-ink-3 hover:text-ink"
                   >
                     cancel
@@ -1120,6 +1344,7 @@ export default function Dashboard() {
           )}
         />
         <StandupCard rows={data.standups ?? []} />
+        <LessonsCard />
         <Section
           title="Calendar"
           rows={data.events ?? []}

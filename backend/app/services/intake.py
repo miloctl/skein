@@ -26,6 +26,14 @@ def _can_read(row: dict, person: str) -> bool:
     return True
 
 
+# The same bound routes/api.py::IntakeIn declares, enforced HERE because this
+# is the only write path. Capture's `req:` prefix accepts 10,000 characters and
+# handed the whole body through as `detail`, so a captured request stored a row
+# the REST door refuses to accept — the create/edit asymmetry the bounded-input
+# census exists to close (tests/test_bounded_routes.py).
+DETAIL_LEN = 4000
+
+
 def _score(reach: int, impact: int, confidence: int, effort: int) -> float:
     effort = max(1, effort)
     return round(reach * impact * confidence / effort, 2)
@@ -42,6 +50,8 @@ def submit_request(
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
 ) -> dict:
+    if len(detail) > DETAIL_LEN:
+        raise ValueError(f"request detail must be {DETAIL_LEN} characters or fewer")
     if not title.strip():
         raise ValueError("request title is required")
     ts = db.now()

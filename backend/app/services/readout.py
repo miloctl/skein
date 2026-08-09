@@ -6,10 +6,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .. import config, db
+from . import wording
 from .insights import digest_findings
 from .portfolio import allocation_conflicts, engagement_health, flow_metrics, health_changes
 from .pulse import season
 from .scope import WORKSPACE_ONLY
+from .wording import count
 
 
 def _today() -> date:
@@ -46,7 +48,11 @@ def exec_readout(*, actor: str = "system") -> dict:
         (s["start_ts"],),  # a timestamp column — services/pulse.py::season
     )
     due_soon = db.query(
-        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction = 'given' — the readout LEAVES, and a promise made TO the
+        # team listed under "our external promises" tells a stakeholder the
+        # opposite of the truth
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 — scope filters emit only bound marks
+        f" AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         ((_today() + timedelta(days=14)).isoformat(),),
     )
@@ -59,7 +65,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     lines.append("## Engagements")
     for h in health:
         lines.append(
-            f"- {dot[h['health']]} **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'})"
+            f"- {dot[h['health']]} **{wording.flatten(h['name'])}** ({h['status']}, lead: {h['lead'] or 'unset'})"
         )
         for r in h["receipts"][:3]:
             lines.append(f"  - {r}")
@@ -99,31 +105,38 @@ def exec_readout(*, actor: str = "system") -> dict:
             f"## What changed since {since.isoformat() if since else 'yesterday'}",
         ]
         for m in moved:
-            lines.append(f"- {dot[m['to']]} **{m['name']}**: {m['from']} → {m['to']}")
+            lines.append(
+                f"- {dot[m['to']]} **{wording.flatten(m['name'])}**: {m['from']} → {m['to']}"
+            )
 
     lines += ["", "## Shipped this season"]
     # local_day, not [:10] — the rule this file states 19 lines above and
     # then broke here. closed_at is a UTC timestamp, and this artifact is
     # forwarded outside the team, so the slice ships a date a reader in the
     # team's zone did not experience.
-    lines += [f"- {r['name']} ({db.local_day(r['closed_at'])})" for r in shipped] or ["- none yet"]
+    lines += [
+        f"- {wording.flatten(r['name'])} ({db.local_day(r['closed_at'])})" for r in shipped
+    ] or ["- none yet"]
     lines += ["", "## Top risks"]
-    risk_lines = [f"- Escalated blocker #{b['id']}: {b['title']}" for b in escalated]
+    risk_lines = [
+        f"- Escalated blocker #{b['id']}: {wording.flatten(b['title'])}" for b in escalated
+    ]
     risk_lines += [f"- {c['person']} at {c['total_percent']}% ({c['detail']})" for c in conflicts]
     lines += risk_lines or ["- none flagged"]
     findings = digest_findings()
     if findings:
         lines += ["", "## This week's findings"]
-        lines += [f"- [{f['severity']}] {f['message']}" for f in findings]
+        lines += [f"- [{f['severity']}] {wording.flatten(f['message'])}" for f in findings]
     lines += ["", "## External promises due in 14 days"]
     lines += [
-        f"- {c['due_date']}: {c['promise']} (to {c['to_whom'] or 'unspecified'})" for c in due_soon
+        f"- {c['due_date']}: {wording.flatten(c['promise'])} (to {c['to_whom'] or 'unspecified'})"
+        for c in due_soon
     ] or ["- none recorded"]
     ct = flow["cycle_time"]
     lines += [
         "",
         "## Flow",
-        f"- {ct['tasks_done']} tasks done in 8 weeks"
+        f"- {count(ct['tasks_done'], 'task')} done in 8 weeks"
         + (
             f", median cycle {ct['median_days']}d, avg {ct['avg_days']}d"
             if ct["tasks_done"]
@@ -144,7 +157,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     readout_dir = Path(config.DATA_DIR) / "artifacts" / "portfolio"
     readout_dir.mkdir(parents=True, exist_ok=True)
     path = readout_dir / f"{_today().isoformat()}-exec-readout.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
     # same-day reruns overwrite the file, so upsert the artifact row too —
     # N rows pointing at one file would imply history that doesn't exist
     existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))

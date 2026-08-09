@@ -460,17 +460,36 @@ def trust_blocked() -> str:
     return ""
 
 
-def trust_scores() -> list[dict]:
+def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     """Approval stats per (proposer, entity) from pending_changes — every
-    review verdict is already a labeled trust signal."""
+    review verdict is already a labeled trust signal.
+
+    `pairs` narrows the work to the (proposer, entity) rows a caller will
+    actually read. The per-pair loop below runs three queries EACH, so an
+    unfiltered call costs three times every pair the deployment has ever
+    settled — a cost that grows with its age. The Approvals queue asks about
+    the handful on one page (services/review.py::_trust_by_pair).
+
+    AGENTS ONLY, and the filter lives HERE rather than in a caller. Humans
+    are in `pending_changes` too — services/ingest.py files every pasted line
+    under the person who pasted it — so an unfiltered read is one teammate's
+    approval rate, rejection streak and settled count in front of the whole
+    roster. That is person-level data judging the PAST, which is the one
+    thing the anti-surveillance rule forbids (docs/INSIGHTS.md: no
+    leaderboards, ever). `GET /api/agents/trust` served exactly that while a
+    caller-side filter made the surface look covered.
+    """
     rows = db.query(
-        "SELECT proposed_by AS agent, entity,"
+        "SELECT p.proposed_by AS agent, p.entity,"
         " COUNT(*) AS proposed,"
-        " SUM(status = 'approved') AS approved,"
-        " SUM(status = 'rejected') AS rejected"
-        " FROM pending_changes WHERE status != 'pending'"
-        " GROUP BY proposed_by, entity ORDER BY proposed DESC"
+        " SUM(p.status = 'approved') AS approved,"
+        " SUM(p.status = 'rejected') AS rejected"
+        " FROM pending_changes p JOIN users u ON u.name = p.proposed_by AND u.kind = 'agent'"
+        " WHERE p.status != 'pending'"
+        " GROUP BY p.proposed_by, p.entity ORDER BY proposed DESC"
     )
+    if pairs is not None:
+        rows = [r for r in rows if (r["agent"], r["entity"]) in pairs]
     for r in rows:
         # promotion suggestions count only strong-identity verdicts — a
         # spoofed X-User must not be able to walk an agent to autonomous
@@ -505,6 +524,52 @@ def trust_scores() -> list[dict]:
 DEMOTION_STREAK = 3
 
 
+def promotion_blocked(agent: str, entity: str, level: str) -> str:
+    """Why a promotion cannot be proposed for this pair, or "".
+
+    ONE definition, because two surfaces act on it: `review_authority` files
+    the proposal, and the Approvals queue tells a reviewer that the next
+    approval will file one. A restatement in either place is a promise the
+    other does not keep — `task_completion` is the highest-volume entity a
+    delegated agent proposes on, and it can never be promoted at all.
+    """
+    from ..tools._gate import ALWAYS_REVIEW
+    from .users import is_agent
+
+    if not is_agent(agent):
+        return "authority levels apply to agent identities only"
+    if entity in NO_AUTHORITY:
+        # set_authority refuses these outright, so a filed proposal would
+        # wedge in the queue rather than apply
+        return f"'{entity}' never carries an authority level"
+    if entity in ALWAYS_REVIEW:
+        # the gate takes the review path for these BEFORE it reads the level
+        return f"'{entity}' always waits for a human"
+    if level != "review":
+        return "a promotion climbs one rung, from 'needs approval'"
+    if _authority_recently_judged(agent, entity):
+        return "a human judged this pair's authority in the last 28 days"
+    return ""
+
+
+def _authority_recently_judged(agent: str, entity: str) -> bool:
+    """A pending authority proposal, or one a human declined inside 28 days.
+    Refiling either is nagging, so `review_authority` stays silent — and the
+    queue must not advertise what the job will decline to file."""
+    from datetime import datetime, timedelta
+
+    cutoff = (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
+    for p in db.query(
+        "SELECT payload FROM pending_changes WHERE entity = 'authority'"
+        " AND (status = 'pending' OR (status = 'rejected' AND reviewed_at > ?))",
+        (cutoff,),
+    ):
+        row = json.loads(p["payload"])
+        if row.get("agent") == agent and row.get("entity") == entity:
+            return True
+    return False
+
+
 def review_authority(*, actor: str = "scheduler") -> dict:
     """A2: turn earned trust into FILED PROPOSALS instead of a buried hint.
     Promotions climb one rung (review -> notify) on a strong-verdict approval
@@ -525,18 +590,16 @@ def review_authority(*, actor: str = "scheduler") -> dict:
             (recent_cutoff,),
         )
     }
-    from .users import is_agent
-
-    # authority levels only mean something for agent identities on entities
-    # the gate consults: streaks from humans, the scheduler, or the meta
-    # entities would mint nonsense agent rows if proposed
-    skip_entities = {"authority", "task_completion"}
+    # authority levels only mean something on entities the gate consults —
+    # the meta entities in NO_AUTHORITY would mint nonsense agent rows if
+    # proposed. `trust_scores` is agents-only in the service now, so no
+    # is_agent filter is needed here.
     for r in trust_scores():
-        if r["entity"] in skip_entities or not is_agent(r["agent"]):
-            continue
         target = None
         why = ""
-        if r["recent_streak"] >= TRUST_STREAK and r["current_level"] == "review":
+        if r["recent_streak"] >= TRUST_STREAK and not promotion_blocked(
+            r["agent"], r["entity"], r["current_level"]
+        ):
             target = "notify"
             why = f"{r['recent_streak']} straight strong-verdict approvals"
         elif r["rejection_streak"] >= DEMOTION_STREAK and r["current_level"] in (

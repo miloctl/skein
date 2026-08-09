@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 /** The half of the app the smoke walks never saw: every page, at phone width,
- *  and in dark. smoke.spec.ts covers six pages, light, at one desktop width,
+ *  and in dark. smoke.spec.ts covers seven pages, light, at one desktop width,
  *  plus /portfolio in dark — so a defect that only appears at 360px or only in
  *  dark could not be caught by anything here. Four of those shipped at once:
  *  a `<select>` with no name, a `<p>` inside a `<ul>`, three keyboard-
@@ -20,6 +20,8 @@ const PAGES = [
   "/portfolio",
   "/dashboard",
   "/insights",
+  "/artifacts",
+  "/planning",
   "/review",
   "/intake",
   "/ingest",
@@ -170,6 +172,31 @@ test.describe("desktop", () => {
     test.use({ colorScheme: "dark" });
     walk("every page holds at 1280px, dark", { phone: false, dark: true });
   });
+});
+
+/** The name is HIDDEN below `sm` and must still be announced. At 360px the
+ *  header holds the logo, the search field, the identity chip and the capture
+ *  button in 328px, and the name at 7rem left the search field 10px wide — so
+ *  the chip shows the avatar alone and carries the name as sr-only text. Drop
+ *  that text instead of hiding it and the button announces "You" to a screen
+ *  reader, with no way to tell which identity is in force. */
+test("the identity chip announces who you are at phone width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
+  await page.goto("/");
+  await page.evaluate(() => document.fonts.ready);
+  const chip = page.getByRole("button", { name: /ava/ });
+  await expect(chip).toBeAttached();
+  // visually hidden, not display:none — a name the browser does not render is
+  // also a name it does not expose
+  const shown = await page
+    .locator("header span", { hasText: /^ava$/ })
+    .first()
+    .evaluate((el) => getComputedStyle(el).display !== "none");
+  expect(shown).toBe(true);
 });
 
 /** The header is sticky, so a target scrolled to the top of the viewport lands

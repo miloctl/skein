@@ -16,6 +16,25 @@ from .scope import WORKSPACE_ONLY
 # notice (worth knowing) — the frontend renders them in this order
 def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
     items = []
+    for ev in needs.get("meetings_awaiting_outcome", []):
+        items.append(
+            {
+                "kind": "meeting",
+                "ref_id": ev["id"],
+                "group": "notice",
+                "label": f"meeting: {ev['title'][:80]}",
+                # the agenda is what makes this answerable: "did this produce
+                # anything" is a question about what it was FOR
+                "reason": (
+                    f"it ran {db.local_moment(ev['starts_at'])} and no outcome is recorded"
+                    + (f" — agenda: {ev['agenda'][:60]}" if ev["agenda"] else "")
+                ),
+                # /ingest is where an outcome gets written up. My Day carries
+                # its own two buttons for the answer itself (app/page.tsx), so
+                # the loop closes without leaving the page.
+                "link": "/ingest",
+            }
+        )
     for q in needs["open_questions"]:
         items.append(
             {
@@ -75,7 +94,11 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
             }
         )
     for c in db.query(
-        f"SELECT id, promise, due_date, audience FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction = 'given': these are YOUR promises. A received one is somebody
+        # else's commitment to the team and has its own reader (the cockpit's
+        # waiting-on card), so listing it here reads as work you owe.
+        f"SELECT id, promise, due_date, audience FROM promises"  # noqa: S608 — scope filters emit only bound marks
+        f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (week,),
     ):
@@ -220,7 +243,13 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     b_f, b_p = scope.visible_filter(viewer, "blockers")
     t_f, t_p = scope.visible_filter(viewer, "tasks")
 
+    from .schedule import meetings_awaiting_outcome
+
     needs_you = {
+        # meetings that have finished with nothing recorded. Viewer-scoped
+        # like every other list here, and a NOTICE rather than a decide: the
+        # reader is being told something, not asked to judge it.
+        "meetings_awaiting_outcome": meetings_awaiting_outcome(viewer),
         "open_questions": db.query(
             f"SELECT * FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " ORDER BY id",

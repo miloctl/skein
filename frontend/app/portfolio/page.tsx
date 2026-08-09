@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import Link from "next/link";
 
 import { actionError, api } from "@/lib/api";
 import { dismissStatus, reportStatus } from "@/lib/status";
@@ -71,6 +73,56 @@ type PromiseRow = {
 
 const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
 
+/** Weekly throughput, one row per week. `flow_metrics` has returned this
+ *  series since it shipped and nothing read it, so cycle time answered "how
+ *  long does one task take" while "how many land per week" had no surface.
+ *
+ *  Bars are scaled to the busiest week in the window, never to a fixed
+ *  ceiling: throughput has no target here, and a bar drawn against an
+ *  invented maximum reads as progress toward a goal nobody set. */
+function Throughput({ weeks }: { weeks: Record<string, number> }) {
+  const rows = Object.entries(weeks);
+  if (rows.length === 0)
+    return (
+      // said, not omitted: a card that simply drops the section reads as a
+      // rendering fault next to the cycle-time line above it
+      <p className="text-xs text-ink-3">No task finished in the last 8 weeks.</p>
+    );
+  const peak = Math.max(...rows.map(([, n]) => n));
+  return (
+    <div>
+      <h3 className="text-xs uppercase tracking-wide text-ink-3">
+        Finished per week
+      </h3>
+      {/* the bars carry no number a screen reader can use, and the scale is
+          the whole point of them — say it once, in text */}
+      <p className="text-xs text-ink-3">Each bar is drawn against the busiest week.</p>
+      <ul className="mt-1 space-y-0.5">
+        {rows.map(([week, n]) => (
+          <li key={week} className="flex items-center gap-2 text-xs">
+            <span className="w-16 shrink-0 text-ink-3">{week}</span>
+            <span
+              className="inline-block h-2 w-28 shrink-0 overflow-hidden rounded bg-raised align-middle"
+              aria-hidden
+            >
+              <span
+                className="block h-2 rounded bg-thread-solid"
+                // peak is >= 1 whenever a row exists, so this never divides
+                // by zero: a week with no finished task is absent from the
+                // series rather than present as 0.
+                style={{ width: `${Math.round((n / peak) * 100)}%` }}
+              />
+            </span>
+            <span className="tabular-nums">
+              {n} task{n === 1 ? "" : "s"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 
 type Usage = {
   models: {
@@ -111,9 +163,18 @@ export default function Portfolio() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [promises, setPromises] = useState<PromiseRow[] | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
-  const [readout, setReadout] = useState<string | null>(null);
-  const [ritualOut, setRitualOut] = useState<string | null>(null);
+  // the artifact each button FILED, not its body: the markdown now has a
+  // reader (Work → Reports), and a <pre> dump beside the button was the one
+  // place it was ever shown formatted-as-source
+  const [readout, setReadout] = useState<number | null>(null);
+  const [ritualOut, setRitualOut] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  // a ref beside the state: the click guards below read it synchronously, and
+  // a second click inside the same tick would otherwise see the stale value
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
   // Three states per card, not two. A card whose fetch FAILED is still null,
   // so a null-means-loading check leaves it saying "Loading…" forever — a
   // claim that work is in progress after the work stopped. The toast alone
@@ -163,8 +224,13 @@ export default function Portfolio() {
   // Mutations: never silent — failures land in the status region, and every
   // mutation re-fetches so the page shows reality, which can be a teammate's
   // concurrent edit rather than this tab's own write.
+  // `busy` no longer DISABLES a control: disabling the element that has focus
+  // blurs it, and re-enabling never brings focus back — a keyboard reader was
+  // dropped to the top of the document on every action. The guard moved into
+  // the handlers, and the buttons carry aria-busy instead.
   const mutate = useCallback(
     (p: Promise<unknown>) => {
+      if (busyRef.current) return Promise.resolve();
       setBusy(true);
       dismissStatus();
       return p
@@ -290,7 +356,7 @@ export default function Portfolio() {
           </button>
           {draft && draft.items.length > 0 && (
             <button
-              disabled={busy}
+              aria-busy={busy}
               onClick={() =>
                 mutate(
                   api("/api/week/plan", {
@@ -434,6 +500,7 @@ export default function Portfolio() {
               {flow.wip_by_person.map((w) => `${w.person} ${w.in_progress}`).join(" · ") ||
                 "none"}
             </p>
+            <Throughput weeks={flow.throughput_by_week} />
             {flow.stale_wip.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-weld">Stale in-progress:</p>
@@ -517,7 +584,7 @@ export default function Portfolio() {
                       {(["kept", "missed"] as const).map((s) => (
                         <button
                           key={s}
-                          disabled={busy}
+                          aria-busy={busy}
                           onClick={() =>
                             mutate(
                               api(`/api/promises/${c.id}/status`, {
@@ -568,12 +635,19 @@ export default function Portfolio() {
             {(["week-open", "week-close"] as const).map((r) => (
               <button
                 key={r}
-                disabled={busy}
+                aria-busy={busy}
                 onClick={() => {
+                  if (busyRef.current) return;
                   dismissStatus();
                   setBusy(true);
-                  api<{ markdown: string }>(`/api/rituals/${r}`, { method: "POST" })
-                    .then((res) => setRitualOut(res.markdown))
+                  // These two routes pass force=True, and _claim_week returns
+                  // `claimed or force` — so a button run always runs and always
+                  // files an artifact. The {skipped} shape belongs to the
+                  // scheduler's call, which never reaches a browser.
+                  api<{ artifact_id: number }>(`/api/rituals/${r}`, {
+                    method: "POST",
+                  })
+                    .then((res) => setRitualOut(res.artifact_id))
                     .catch((e) => reportStatus(actionError(e)))
                     .finally(() => setBusy(false));
                 }}
@@ -584,23 +658,29 @@ export default function Portfolio() {
             ))}
           </div>
           <div aria-live="polite">
-            {ritualOut && (
-              <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
-                {ritualOut}
-              </pre>
-            )}
+            {ritualOut ? (
+              <p className="mt-3 text-xs">
+                <Link
+                  href={`/artifacts?id=${ritualOut}`}
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+                >
+                  Read it on Work → Reports
+                </Link>
+              </p>
+            ) : null}
           </div>
         </Card>
       )}
       {manage && (
         <Card title="Exec readout">
           <button
-            disabled={busy}
+            aria-busy={busy}
             onClick={() => {
+              if (busyRef.current) return;
               dismissStatus();
               setBusy(true);
-              api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
-                .then((r) => setReadout(r.markdown))
+              api<{ artifact_id: number }>("/api/portfolio/readout", { method: "POST" })
+                .then((r) => setReadout(r.artifact_id))
                 .catch((e) => reportStatus(actionError(e)))
                 .finally(() => setBusy(false));
             }}
@@ -608,11 +688,18 @@ export default function Portfolio() {
           >
             {busy ? "Working…" : "Generate readout"}
           </button>
-          {readout && (
-            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
-              {readout}
-            </pre>
-          )}
+          <div aria-live="polite">
+            {readout ? (
+              <p className="mt-3 text-xs">
+                <Link
+                  href={`/artifacts?id=${readout}`}
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+                >
+                  Read it on Work → Reports
+                </Link>
+              </p>
+            ) : null}
+          </div>
         </Card>
       )}
       </div>

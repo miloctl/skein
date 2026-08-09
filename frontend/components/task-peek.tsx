@@ -38,6 +38,11 @@ export type PeekTask = {
   forge_url?: string | null;
   waiting_on_type?: string | null;
   waiting_on_id?: number | null;
+  // the other direction: what finishing THIS releases (services/work.py).
+  // `unblocks` is one hop, `unblocks_total` counts the chain behind it.
+  unblocks?: { id: number; title: string; status: string; assignee: string }[];
+  unblocks_total?: number;
+  depth_capped?: boolean;
   visibility?: string;
   crew_id?: number | null;
 };
@@ -265,6 +270,11 @@ export function TaskPeek() {
               <Row label="Priority" value={task.priority} />
               <Row label="Assignee" value={task.assignee ? `@${task.assignee}` : ""} />
               <Row label="Due" value={task.due_date} />
+              {/* set by work.py only on the move into `done`, so it is absent
+                  on every open task and Row drops the line entirely — the
+                  panel says when a task finished without claiming a date for
+                  one that has not */}
+              <Row label="Finished" value={task.completed_at} />
               <Row label="Week" value={task.committed_week} />
               <Row label="Milestone" value={task.milestone_title} />
               <Row label="Engagement" value={task.engagement_name} />
@@ -316,6 +326,41 @@ export function TaskPeek() {
                 work out answers for it. */}
             {!task.delegated_agent && task.status !== "done" ? (
               <Delegate taskId={task.id} onDone={reload} />
+            ) : null}
+
+            {/* The other direction. `waiting_on` above says what this task is
+                stuck behind; the edge cost the person who typed it and paid
+                them nothing until this line existed. Absent when nothing
+                waits — a "Unblocks: nothing" heading on most tasks would be
+                noise on every panel to serve the few. */}
+            {task.unblocks && task.unblocks.length > 0 ? (
+              <>
+                <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                  Finishing this unblocks
+                </h3>
+                <ul className="mt-1 space-y-0.5 text-xs">
+                  {task.unblocks.map((u) => (
+                    <li key={u.id}>
+                      <PeekLink taskId={u.id}>
+                        <span className="text-ink-3">#{u.id}</span> {u.title}
+                      </PeekLink>
+                      {u.assignee ? (
+                        <span className="ml-1 text-ink-3">@{u.assignee}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {/* the chain behind the direct list, stated only when it adds
+                    something the list above does not already show */}
+                {(task.unblocks_total ?? 0) > task.unblocks.length ? (
+                  <p className="mt-1 text-xs text-ink-3">
+                    {task.unblocks_total} task
+                    {task.unblocks_total === 1 ? "" : "s"} in total, counting
+                    the work waiting behind these
+                    {task.depth_capped ? " (the chain runs deeper than Skein follows)" : ""}.
+                  </p>
+                ) : null}
+              </>
             ) : null}
 
             {/* The worklog is readable BEFORE the sponsor's verdict by

@@ -11,6 +11,27 @@ TASK_STATUSES = ("todo", "in_progress", "blocked", "done")
 PRIORITIES = ("low", "medium", "high", "urgent")
 WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 
+# Bounds for the two free-text fields, enforced HERE because this is the only
+# write path. routes/api.py imports these for its own Field(max_length=...) so
+# the two doors cannot drift: the REST models capped these and the service did
+# not, so an agent or MCP caller wrote a title the PATCH route then refused —
+# a row the system wrote that its own UI could not edit.
+TITLE_LEN = 200
+DESCRIPTION_LEN = 4000
+
+
+def _bounded(entity: str, title: str, description: str) -> None:
+    """Names the entity, like every refusal beside it ("task title is
+    required"). A caller writing a milestone and a task in one turn otherwise
+    reads a refusal that does not say which write failed."""
+    if len(title) > TITLE_LEN:
+        raise ValueError(f"{entity} title must be {TITLE_LEN} characters or fewer")
+    if len(description) > DESCRIPTION_LEN:
+        raise ValueError(
+            f"{entity} description must be {DESCRIPTION_LEN} characters or fewer."
+            " Shorten it, or save the long text as a note."
+        )
+
 
 def create_milestone(
     title: str,
@@ -26,6 +47,7 @@ def create_milestone(
 ) -> dict:
     if not title.strip():
         raise ValueError("milestone title is required")
+    _bounded("milestone", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
     # resolve the engagement link at write time — the name join is display
@@ -87,6 +109,7 @@ def update_milestone(
 ) -> dict:
     if status and status not in MILESTONE_STATUSES:
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
+    _bounded("milestone", title, description)
     db.validate_date("due_date", due_date)
     current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
     if not current:
@@ -175,6 +198,7 @@ def create_task(
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
+    _bounded("task", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
@@ -260,6 +284,7 @@ def update_task(
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
+    _bounded("task", title, description)
     db.validate_date("due_date", due_date)
     if priority and priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
@@ -419,7 +444,86 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     )
     if not row:
         raise scope.missing("tasks", task_id)
-    return row
+    # what finishing it releases, resolved here so the peek and any other
+    # reader of one task get the same answer
+    return {**row, **downstream(task_id, viewer)}
+
+
+# How deep `downstream` follows the chain. Cycles are closed by the visited
+# set in `downstream`, NOT here — this bounds chain LENGTH, so one long chain
+# cannot turn a task-peek open into a hundred queries. Ten is far past any
+# real chain; the deepest the team has recorded is two. TRUNCATION is
+# reported, never arrival: a chain of exactly this many hops is counted in
+# full and must not claim it was cut short.
+_WAIT_DEPTH = 10
+
+
+def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
+    """Tasks waiting directly on any of these tasks.
+
+    `waiting_on: task:N` is the ONLY edge a task completion clears. The other
+    two targets do not belong here and the omission is deliberate:
+
+    `blocker:N` looks like a second edge and is not. `blockers.task_id` names
+    the task the blocker BLOCKS — raise_blocker sets that task to 'blocked'
+    (services/blockers.py) — so a blocker is never caused by a task, and
+    counting through it claimed that finishing a task released work when the
+    same blocker was what stopped that task from finishing at all. Resolving
+    a blocker is a blocker verb, not a task one.
+
+    `promise:N` is settled by a promise verdict, never by finishing a task.
+    """
+    if not task_ids:
+        return []
+    frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
+    marks = ",".join("?" * len(task_ids))
+    return db.query(
+        # status != 'done': a finished task is not waiting on anything, and
+        # listing it as released work would double-count what already landed
+        f"SELECT t.id, t.title, t.status, t.assignee, t.priority"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
+        f" FROM tasks t WHERE t.status != 'done' AND {frag}"
+        f" AND t.waiting_on_type = 'task' AND t.waiting_on_id IN ({marks})"
+        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.id",
+        (*vp, *tuple(task_ids)),
+    )
+
+
+def downstream(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """What finishing this task releases: the tasks waiting on it directly,
+    and how many wait behind those.
+
+    `waiting_on` recorded what a task is stuck BEHIND and nothing read the
+    other direction, so the edge cost the person who typed it and paid them
+    nothing back. This is the payment: "finish this and three people move".
+
+    Viewer-scoped at every hop — a task nobody may read must not be countable
+    through the chain either, and a bare count would leak its existence.
+    """
+    seen: set[int] = {task_id}
+    direct = _blocked_by({task_id}, viewer)
+    frontier = {t["id"] for t in direct}
+    seen |= frontier
+    transitive, depth, truncated = len(frontier), 1, False
+    while frontier:
+        nxt = {t["id"] for t in _blocked_by(frontier, viewer)} - seen
+        # the next hop is read BEFORE the depth test, so `truncated` means work
+        # was really left uncounted rather than "the walk reached ten". A chain
+        # of exactly _WAIT_DEPTH hops is counted in full, and the peek must not
+        # tell that reader the chain runs deeper than it does.
+        if not nxt:
+            break
+        if depth >= _WAIT_DEPTH:
+            truncated = True
+            break
+        seen |= nxt
+        transitive += len(nxt)
+        frontier, depth = nxt, depth + 1
+    return {
+        "unblocks": direct,
+        "unblocks_total": transitive,
+        "depth_capped": truncated,
+    }
 
 
 def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:

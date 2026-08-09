@@ -33,10 +33,11 @@ URL is directly linkable.
 |---|---|---|
 | **My Day** | `/` | What changed and what needs *you*, in under 30 seconds |
 | **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) — or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
-| **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, one commit |
+| **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, open threads with people outside the team, one commit |
 | | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
+| | `/artifacts` | Reports: every digest, week brief, close-out, readout and handoff, rendered |
 | **Inbox** | `/review` | Approve or reject proposed changes. This is the agent approval gate |
 | | `/intake` | Engagement front door — submit → RICE-lite score → accept/defer/decline → what-if staffing |
 | | `/ingest` | Paste meeting notes. A deterministic pass turns them into proposals you batch-approve |
@@ -46,7 +47,7 @@ URL is directly linkable.
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
 | — | `/settings` | Name, theme, API key, growth interests, team roster |
-| Ctrl+K anywhere (⌘K on a Mac) | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, commitment, request (`req:`) or private feedback (`fb:`) |
+| Ctrl+K anywhere (⌘K on a Mac) | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, a promise the team made (`promised:`), a promise made TO the team (`awaiting:`), request (`req:`) or private feedback (`fb:`) |
 
 ## Architecture
 
@@ -54,7 +55,7 @@ URL is directly linkable.
 backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
-  ├─ app/tools/      56 Strands @tool wrappers over the same services
+  ├─ app/tools/      58 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
@@ -201,7 +202,7 @@ the agent's prompt) work keyless, in-app.
   *attribute* automation, and satisfy the shared token gate.
 - **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
   `skein config --url … --key …` and
-  `skein capture|standup|my-day|tasks|blockers|promises|search|week|eval|context`.
+  `skein capture|standup|my-day|tasks|blockers|promises|search|ask|attention|week|review|inbox|answer|worklog|absences|eval|context|task start|pr-body`.
 - **`skein eval`** — replays the capture classifier against its labeled
   feedback corpus (`POST /api/feedback`); exits 1 on regressions.
 - **`skein context --write AGENTS.md`** — emits the versioned team context

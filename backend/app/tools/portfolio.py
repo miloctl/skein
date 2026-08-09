@@ -8,7 +8,17 @@ from strands import tool
 
 from ..agents import receipts
 from ..agents.identity import agent_identity, requester_viewer
-from ..services import absences, collab, context_pack, delegation, portfolio, promises, scope
+from ..services import (
+    absences,
+    briefing,
+    collab,
+    context_pack,
+    delegation,
+    insights,
+    portfolio,
+    promises,
+    scope,
+)
 from ._gate import gated_write
 
 
@@ -365,3 +375,48 @@ def list_absences(person: str = "") -> str:
         person: Optional filter.
     """
     return json.dumps(absences.list_absences(person))
+
+
+@tool
+def get_findings(weeks: int = 2, limit: int = 10) -> str:
+    """What the findings engine noticed: deterministic rules over blockers,
+    stale work, promises, the review queue, intake, decisions, spend and jobs.
+
+    Read this before you answer "what needs attention", "what is at risk" or
+    "what should worry me" about the TEAM. Every finding carries its receipt
+    (the row ids and numbers it fired on) and its severity. Cite the receipt
+    and the severity. Do not restate the message.
+
+    Args:
+        weeks: How far back to look, in weeks (1-52).
+        limit: The maximum number of findings to return (1-50).
+    """
+    # A read, so no gate: it writes nothing and takes no authority level.
+    # Team aggregates only — the rules never key on a person, which is what
+    # the anti-surveillance rule requires of anything judging the PAST.
+    weeks = max(1, min(int(weeks), 52))
+    limit = max(1, min(int(limit), 50))
+    return json.dumps(insights.list_findings(weeks=weeks, limit=limit))
+
+
+@tool
+def get_attention() -> str:
+    """What is waiting on the person you are talking to, grouped by the
+    judgment each item asks for: decide, unblock, commit, review, notice.
+
+    Read this before you answer "what should I do today" or "what is on me".
+    Every item carries a `reason` field. Say that reason. The reason is what
+    makes the item actionable.
+    """
+    # The REQUESTER's day, never the agent's own, and filtered by their
+    # viewer: my_day takes a Viewer because these lists are addressed to a
+    # person by name, and a name is self-asserted in trusted-header mode
+    # (services/briefing.py). No argument names a person, for the same reason
+    # my_agent_inbox takes none — tests/test_privacy.py pins that shape.
+    rv = requester_viewer()
+    # isinstance, not a truth test: the contextvar is typed `object | None`
+    # because identity.py must not import services (the same narrow
+    # my_agent_inbox makes, a few tools up).
+    if not isinstance(rv, scope.Viewer) or not rv.name:
+        return json.dumps({"error": "this turn has no requester — ask the person what is on them"})
+    return json.dumps(briefing.my_day(rv.name, rv)["attention"])
