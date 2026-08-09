@@ -194,9 +194,10 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 5000")
     # SQLite's own lower() is ASCII-only, so "Été" and "été" compare unequal
     # and a case-insensitive lookup written with lower() silently stops
-    # folding the moment a name leaves ASCII. `skfold` is the SAME
-    # normalization every identity comparison uses (services/users.py::fold),
-    # so a query and a Python check cannot disagree about what one name is.
+    # folding the moment a name leaves ASCII. `skfold` exposes
+    # services/users.py::fold to SQL, so a query and a Python check cannot
+    # disagree about what one name is. Used by chat_threads::_snap_folder;
+    # users.py still folds in Python, and says so at each site.
     conn.create_function("skfold", 1, _sqlite_fold, deterministic=True)
     return conn
 

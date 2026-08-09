@@ -355,8 +355,10 @@ export default function Planning() {
         </Card>
       ) : null}
 
-      {/* what the team is waiting ON. Beside the triage queue rather than in
-          it: these are not decisions to make, they are people to chase. */}
+      {/* what the team is AWAITING (docs/LEXICON.md row 1a — `waiting on`
+          is blocker vocabulary, and capture-palette.tsx routes the bare
+          phrase there). Beside the triage queue rather than in it: these are
+          not decisions to make, they are people to chase. */}
       {d.awaiting.length > 0 ? (
         <Card title={`Awaiting from other people (${d.awaiting.length})`}>
           <ul className="space-y-1 text-sm">

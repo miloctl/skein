@@ -73,11 +73,13 @@ parenthetical. `received` stays in the column and in service code because
 `direction` is a pair and `given`/`received` reads as a pair — `awaiting`
 has no opposite that means `given`.
 
-What must change to comply, and has not yet: the planning cockpit card
-titled "Open with other people" (`frontend/app/planning/page.tsx`) and the
-FEATURES row heading. `one-wording.test.ts` does not yet enforce this row —
-add it when the card is renamed, or the test fails on the string it is
-meant to protect.
+Applied on the cockpit card, which now reads "Awaiting from other people".
+Two strings still lose: the FEATURES row heading `**Promises made TO the
+team**` (`docs/FEATURES.md`), and the capture chip's own label, which reads
+`promise (to us)` while the prefix beside it says `awaiting:` — a fifth
+reading, and the one the eye actually lands on. `one-wording.test.ts` sweeps
+`frontend/{app,components,lib}`, so adding this row to it fails on that chip
+label today. Settle the chip, then enforce the row.
 
 ### 1b. CARVE-OUT (DECIDED, applied): "the weekly commitment line" stays
 

@@ -281,12 +281,17 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     now = datetime.now(UTC)
     cutoff = (now - timedelta(hours=OUTCOME_ASK_AFTER_HOURS)).strftime("%Y-%m-%dT%H:%M")
     # A date-only row sorts BEFORE every timestamp on its own day
-    # ('2026-08-09' < '2026-08-09T04:00'), so the four-hour guard did nothing
+    # ('2026-08-09' < '2026-08-09T04:00'), so the four-hour guard does nothing
     # for an all-day block: it entered the window at 04:00 UTC, during the day
-    # it covers. Excluding today's date-only rows is the whole fix — _canon
-    # keeps an all-day VEVENT date-only on purpose, so there is no start time
-    # to add four hours to.
-    today_only = db.today().isoformat()
+    # it covers. _canon keeps an all-day VEVENT date-only on purpose, so there
+    # is no start time to add four hours to.
+    #
+    # The predicate below asks TODAY OR LATER, not `!= today`. Equality alone
+    # compares a team-local date against a naive-UTC window, so in any zone
+    # west of about UTC-5 the UTC day rolls over while the local day has not —
+    # and tomorrow's all-day block entered the window for the last hours of
+    # every evening. Los Angeles, Denver, Anchorage and Honolulu all showed it.
+    today_local = db.today().isoformat()
     # A lower bound, or migration 008 puts every meeting in the table's whole
     # history on My Day the morning it is deployed — it defaults them all to
     # 'pending' and backfills nothing. A meeting nobody wrote up inside a week
@@ -302,6 +307,7 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     return db.query(
         f"SELECT * FROM events WHERE outcome_status = 'pending'"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" AND starts_at < ? AND starts_at >= ? AND created_at <= starts_at"
-        f" AND starts_at != ? AND {frag} ORDER BY starts_at DESC LIMIT 20",
-        (cutoff, floor, today_only, *vp),
+        f" AND (length(starts_at) > 10 OR starts_at < ?)"
+        f" AND {frag} ORDER BY starts_at DESC LIMIT 20",
+        (cutoff, floor, today_local, *vp),
     )

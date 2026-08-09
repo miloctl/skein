@@ -133,8 +133,15 @@ def api_quiet(method: str, path: str, body: dict | None = None, timeout: float =
         return _request(method, path, body, timeout=timeout)
     except urllib.error.HTTPError as exc:
         return exc
-    except Exception:
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        # TRANSPORT only. The bare `except` below also catches a
+        # JSONDecodeError from a live server answering 200 with a proxy error
+        # page — marking that unreachable suppressed the flush AND queued a
+        # capture the server had already accepted, which duplicates on the
+        # next run.
         _mark_unreachable()
+        return None
+    except Exception:
         return None
 
 

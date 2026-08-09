@@ -335,6 +335,36 @@ the unread kickoff half of that loop, and the untracked YAML edit under
 loop"; C4's morning rule under "Manager and workflow"; and the
 uncapped-on-both-sides census bullet at the top of this file.
 
+## Left by the pre-merge review (2026-08-09)
+
+Named here because the rest of that review shipped and these did not.
+
+- **The Monday agenda has unnumbered cards** [XS] — `/planning` reads
+  `1 ·` through `4 ·`, then three cards with no number, then `5 ·` and
+  `6 ·`. A manager reads the page down in a meeting, and the gap is where
+  they lose their place. Either number them or move them after 6.
+- **`docs/LEXICON.md` row 1a is decided and unenforced** [XS] — the
+  cockpit card and the FEATURES heading now say `awaiting`, and the
+  capture chip still labels the `awaiting:` prefix `promise (to us)`.
+  `one-wording.test.ts` cannot take the row until that label settles,
+  so nothing stops the losing synonyms coming back.
+- **A live region that is mounted and filled in one tick** [S] —
+  `components/status-region.tsx` returns `null` with no message and
+  remounts per message, so the node is absent from the accessibility
+  tree until its text is already inside. That is the pattern NVDA and
+  JAWS most often miss, and on the exec-readout rerun the confirmation
+  is the only signal there is. Mount it empty and fill it.
+- **The focus ring is marginal in dark mode** [XS] — `--thread-solid`
+  against `--surface-raised` measures 2.90 to 2.99 on loom, ledger,
+  hermes and phosphor, under the 3:1 floor for a non-text indicator.
+  Against the page background it passes everywhere, so only the inner
+  edge is short. `scripts/check_theme_contrast.py` sweeps that token
+  under white text, not this pairing.
+- **`/planning` has no h1** [XS] — every heading on the page is an `h2`.
+  The one axe finding in scope, pre-existing.
+- **`PARTY_CAP` caps parties, not items** [XS] — one party carrying 600
+  open threads still reaches the page height the cap was added to fix.
+
 ## Cut, with re-entry triggers
 
 Deliberate refusals, from the 2026-07-24 synthesis and the 2026-08-02 buzz

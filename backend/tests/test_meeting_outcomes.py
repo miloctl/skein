@@ -6,7 +6,7 @@ team's calendar and the hardest to see, because every instance looks
 reasonable on its own.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from app import db
 from app.services import insights, schedule, scope
@@ -236,10 +236,22 @@ def test_an_ordinary_title_is_not_suppressed_by_a_short_name(client):
     ]
 
 
-def test_an_all_day_block_today_is_not_asked_about_during_it(client):
+def test_an_all_day_block_today_is_not_asked_about_during_it(client, monkeypatch):
     """A date-only row sorts before every timestamp on its own day, so the
     four-hour "not during the meeting" guard did nothing for an all-day block
     — it entered the window at 04:00 UTC, during the day it covers."""
+
+    # The clock is FROZEN mid-day. Unfrozen, the bug is `starts_at < now - 4h`,
+    # so a date-only row only enters the window once UTC passes 04:00 — and
+    # this test passed against the broken code on any run before then. A CI
+    # job that happens to run overnight gets a green from a test that
+    # discriminates nothing.
+    class _Noon(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 9, 12, 30, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(schedule, "datetime", _Noon)
     today = db.today().isoformat()
     eid = schedule.schedule_event("All-hands offsite", today, attendees="a, b", actor="ava")["id"]
     db.execute(
@@ -258,3 +270,32 @@ def test_an_all_day_block_today_is_not_asked_about_during_it(client):
         ((datetime.now(UTC) - timedelta(days=3)).isoformat(), past),
     )
     assert past in {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
+
+
+def test_a_future_all_day_block_is_silent_when_the_utc_day_has_turned(client, monkeypatch):
+    """`starts_at != today` compared a TEAM-LOCAL date against a naive-UTC
+    window. West of about UTC-5 the UTC day rolls over while the local day has
+    not, so tomorrow's all-day block entered the window for the last hours of
+    every evening — measured in Los Angeles, Denver, Anchorage and Honolulu.
+
+    Patching db.today and the clock together IS that state: 06:00 UTC on the
+    10th is 23:00 on the 9th in Denver.
+    """
+
+    class _Rolled(datetime):
+        @classmethod
+        def now(cls, tzinfo=None):
+            return datetime(2026, 8, 10, 6, 0, tzinfo=tzinfo or UTC)
+
+    monkeypatch.setattr(schedule, "datetime", _Rolled)
+    monkeypatch.setattr(schedule.db, "today", lambda: date(2026, 8, 9))
+
+    eid = schedule.schedule_event("Offsite", "2026-08-10", attendees="a", actor="ava")["id"]
+    db.execute("UPDATE events SET created_at = ? WHERE id = ?", ("2026-08-01T09:00+00:00", eid))
+    asked = {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
+    assert eid not in asked, "asked about an all-day block that has not started"
+
+    # yesterday's all-day block is over, and is still asked about
+    over = schedule.schedule_event("Past offsite", "2026-08-08", attendees="a", actor="ava")["id"]
+    db.execute("UPDATE events SET created_at = ? WHERE id = ?", ("2026-08-01T09:00+00:00", over))
+    assert over in {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}

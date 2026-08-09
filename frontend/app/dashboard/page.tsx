@@ -59,15 +59,24 @@ function Section({
   rows,
   render,
   empty,
+  headingRef,
 }: {
   title: string;
   rows: Row[];
   render: (r: Row) => React.ReactNode;
   empty: string;
+  // a focus target for a caller whose action removed the control the reader
+  // was on. The HEADING rather than the section, because a screen reader
+  // announces its text and the reader learns where they landed.
+  headingRef?: React.Ref<HTMLHeadingElement>;
 }) {
   return (
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
-      <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+      <h2
+        ref={headingRef}
+        tabIndex={headingRef ? -1 : undefined}
+        className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3 outline-none focus:ring-2 focus:ring-thread-solid"
+      >
         {title}
       </h2>
       {rows.length === 0 ? (
@@ -147,7 +156,7 @@ function LessonsCard() {
               same shape /artifacts uses for reports. */}
           {list && list.length >= LESSON_PAGE
             ? `Lessons (newest ${LESSON_PAGE})`
-            : "Lessons"}
+            : `Lessons${list ? ` (${list.length})` : ""}`}
         </h2>
         {classes.length > 0 ? (
           <select
@@ -512,19 +521,28 @@ export default function Dashboard() {
   // which engagement the open panel belongs to, readable synchronously by the
   // in-flight plan-diff fetch below
   const closingRef = useRef<number | null>(null);
-  // the `close out…` button that opened the panel. Escape, cancel and a
-  // conclusion click all removed the panel and dropped focus to <body>, which
-  // sends a keyboard reader back to the top of a long page.
-  const closeTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const restoreFocus = useCallback(() => {
-    const el = closeTriggerRef.current;
-    if (el && document.body.contains(el)) el.focus();
+  // Escape and cancel remove the panel and put the `close out…` button back.
+  // Refocus it by STABLE ID, not through a cached node: React unmounts that
+  // button on the very click that opens the panel, so a ref captured from
+  // ev.currentTarget points at a detached element and `focus()` never fires —
+  // the reader lands on <body> at the top of a long page. Same idiom as
+  // refocusEdit below, and the setTimeout is load-bearing for the same
+  // reason: the button does not exist until React has re-rendered.
+  const restoreFocus = useCallback((id: number) => {
+    setTimeout(() => document.getElementById(`close-out-${id}`)?.focus(), 0);
   }, []);
   const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
   // A CONCLUSION click removes the trigger with the row, so there is nothing
   // to restore to — focus lands on the banner the click produced instead,
   // which is also the thing the reader most needs to hear about.
+  // `focus:`, not `focus-visible:`, on both of these. Chrome does not match
+  // :focus-visible on an element focused PROGRAMMATICALLY when the preceding
+  // interaction was a mouse click — so `outline-none` won and focus teleported
+  // from the clicked button to a paragraph with nothing drawn on it. A
+  // tabIndex={-1} target is only ever focused deliberately, so there is no
+  // stray-outline cost to the wider selector.
   const bannerRef = useRef<HTMLParagraphElement | null>(null);
+  const engagementsRef = useRef<HTMLHeadingElement | null>(null);
   useEffect(() => {
     if (draftedLesson !== null) bannerRef.current?.focus();
   }, [draftedLesson]);
@@ -802,15 +820,19 @@ export default function Dashboard() {
             )}
           </section>
         )}
-        {/* role=status: the banner appears ABOVE the list after a close, and
-            focus is back on the close-out button below it — without a live
-            region a screen-reader user is never told the lesson was filed */}
+        {/* Focus moves HERE after a close that drafted something (the effect
+            beside bannerRef), which is what reads it out — a region mounted
+            and filled in the same tick is not a change to an existing live
+            region, so role=status alone would announce nothing on most screen
+            readers. The role stays for the ones that do handle it, and
+            tabIndex={-1} keeps it out of the tab order. A close that drafts
+            NOTHING focuses the Engagements heading instead. */}
         {draftedLesson ? (
           <p
             ref={bannerRef}
             role="status"
             tabIndex={-1}
-            className="rounded border border-line bg-raised px-3 py-2 text-xs text-ink-2 outline-none focus-visible:ring-2 focus-visible:ring-thread-solid"
+            className="rounded border border-line bg-raised px-3 py-2 text-xs text-ink-2 outline-none focus:ring-2 focus:ring-thread-solid"
           >
             A close-out lesson is drafted from the plan variance.{" "}
             <Link href="/review" className="underline hover:text-ink">
@@ -827,6 +849,7 @@ export default function Dashboard() {
           </p>
         ) : null}
         <Section
+          headingRef={engagementsRef}
           title="Engagements"
           rows={data.engagements ?? []}
           empty="No engagements — accept a request (Inbox → Requests) or start one from a playbook."
@@ -861,10 +884,10 @@ export default function Dashboard() {
               <span className="flex shrink-0 items-center gap-2">
                 {e.status !== "closed" && closing !== e.id && (
                   <button
-                    onClick={(ev) => {
+                    id={`close-out-${e.id}`}
+                    onClick={() => {
                       const want = Number(e.id);
                       closingRef.current = want;
-                      closeTriggerRef.current = ev.currentTarget;
                       setClosing(want);
                       setPlanDiff(null);
                       api<PlanDiff>(`/api/engagements/${e.id}/plan-diff`)
@@ -897,7 +920,7 @@ export default function Dashboard() {
                     if (ev.key !== "Escape") return;
                     closingRef.current = null;
                     setClosing(null);
-                    restoreFocus();
+                    restoreFocus(Number(e.id));
                   }}
                 >
                   {planDiff ? (
@@ -933,12 +956,18 @@ export default function Dashboard() {
                               conclusion: c,
                             }),
                           });
-                          setDraftedLesson(
+                          const drafted =
                             typeof out?.lesson_proposal_id === "number" &&
-                              out.lesson_proposal_id > 0
+                            out.lesson_proposal_id > 0
                               ? out.lesson_proposal_id
-                              : null,
-                          );
+                              : null;
+                          setDraftedLesson(drafted);
+                          // A close with no variance drafts NOTHING, which is
+                          // the ordinary case — no banner renders, so the
+                          // banner-focus effect never fires and focus was left
+                          // on <body>. The trigger unmounts with the row, so
+                          // the fallback is the list's own heading.
+                          if (drafted === null) engagementsRef.current?.focus();
                           closingRef.current = null;
                           setClosing(null);
                           setPlanDiff(null);
@@ -964,7 +993,7 @@ export default function Dashboard() {
                     onClick={() => {
                       closingRef.current = null;
                       setClosing(null);
-                      restoreFocus();
+                      restoreFocus(Number(e.id));
                     }}
                     className="text-ink-3 hover:text-ink"
                   >

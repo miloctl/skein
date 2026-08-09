@@ -3,7 +3,7 @@ an authority matrix per (agent, entity), a mission-control view, and trust
 scores computed from the review inbox — promotion is suggested, never automatic."""
 
 import json
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
@@ -465,9 +465,11 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     review verdict is already a labeled trust signal.
 
     `pairs` narrows the work to the (proposer, entity) rows a caller will
-    actually read. The per-pair loop below runs three queries EACH, so an
-    unfiltered call costs three times every pair the deployment has ever
-    settled — a cost that grows with its age. The Approvals queue asks about
+    actually read. The per-pair loop below runs TWO queries each — the recent
+    verdicts and the authority level — so an unfiltered call costs twice every
+    pair the deployment has ever settled, a cost that grows with its age. The
+    authority scan the suggestion needs is hoisted out of the loop below;
+    inside it, that would be a third. The Approvals queue asks about
     the handful on one page (services/review.py::_trust_by_pair).
 
     AGENTS ONLY, and the filter lives HERE rather than in a caller. Humans
@@ -490,6 +492,11 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     )
     if pairs is not None:
         rows = [r for r in rows if (r["agent"], r["entity"]) in pairs]
+    # ONE scan for the whole loop. The suggestion below asks
+    # promotion_blocked per row, and unprefetched that is a full scan of the
+    # authority proposals per pair — the Approvals page went from 122 queries
+    # to 202 the moment agents started earning streaks.
+    judged = _judged_pairs(_authority_cutoff())
     for r in rows:
         # promotion suggestions count only strong-identity verdicts — a
         # spoofed X-User must not be able to walk an agent to autonomous
@@ -518,7 +525,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         # `notify`, and it skipped promotion_blocked entirely — so it offered
         # a promotion on task_completion, which is in NO_AUTHORITY and can
         # never be filed, and that is the entity a delegated agent proposes on
-        # most. Three statements of one rule; this was the wrong one twice.
+        # most.
         # promotion_blocked is LAST in the chain on purpose: it costs queries,
         # and the two cheap tests before it are false for nearly every row, so
         # `and` short-circuits it away. Measured over 36 pairs: 73 queries with
@@ -528,7 +535,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
             f"{streak} straight approvals — consider promoting to notify"
             if streak >= TRUST_STREAK
             and r["current_level"] == "review"
-            and not promotion_blocked(r["agent"], r["entity"], r["current_level"])
+            and not promotion_blocked(r["agent"], r["entity"], r["current_level"], judged)
             else ""
         )
     return rows
@@ -537,7 +544,32 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
 DEMOTION_STREAK = 3
 
 
-def promotion_blocked(agent: str, entity: str, level: str) -> str:
+def _authority_cutoff() -> str:
+    """How far back a human verdict still buys silence. One definition."""
+    return (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
+
+
+def _judged_pairs(cutoff: str) -> set[tuple[str, str]]:
+    """(agent, entity) with an authority proposal pending or freshly rejected.
+
+    ONE scan. `pending_changes WHERE entity='authority'` is unindexed —
+    idx_pending_changes_proposer_entity is on (proposed_by, entity) and cannot
+    serve it — and it carries a json.loads per row, so running it per pair
+    inside a loop costs the whole table times the roster.
+    """
+    return {
+        (json.loads(p["payload"]).get("agent"), json.loads(p["payload"]).get("entity"))
+        for p in db.query(
+            "SELECT payload FROM pending_changes WHERE entity = 'authority'"
+            " AND (status = 'pending' OR (status = 'rejected' AND reviewed_at > ?))",
+            (cutoff,),
+        )
+    }
+
+
+def promotion_blocked(
+    agent: str, entity: str, level: str, judged: set[tuple[str, str]] | None = None
+) -> str:
     """Why a promotion cannot be proposed for this pair, or "".
 
     ONE definition, because two surfaces act on it: `review_authority` files
@@ -545,11 +577,19 @@ def promotion_blocked(agent: str, entity: str, level: str) -> str:
     approval will file one. A restatement in either place is a promise the
     other does not keep — `task_completion` is the highest-volume entity a
     delegated agent proposes on, and it can never be promoted at all.
+
+    `judged` is the pre-scanned set from _judged_pairs, for a caller in a
+    loop. Without it every call re-scans the authority proposals, so a page
+    showing N pairs pays N table scans — the N+1 this module removed from
+    trust_scores, reintroduced one function over.
     """
     from ..tools._gate import ALWAYS_REVIEW
     from .users import is_agent
 
-    if not is_agent(agent):
+    # skipped when the caller already proved it. trust_scores JOINs
+    # `users u ON u.kind = 'agent'`, so asking again is a roster read per row
+    # for an answer that cannot be false.
+    if judged is None and not is_agent(agent):
         return "authority levels apply to agent identities only"
     if entity in NO_AUTHORITY:
         # set_authority refuses these outright, so a filed proposal would
@@ -560,7 +600,12 @@ def promotion_blocked(agent: str, entity: str, level: str) -> str:
         return f"'{entity}' always waits for a human"
     if level != "review":
         return "a promotion climbs one rung, from 'needs approval'"
-    if _authority_recently_judged(agent, entity):
+    recent = (
+        (agent, entity) in judged
+        if judged is not None
+        else _authority_recently_judged(agent, entity)
+    )
+    if recent:
         return "a human judged this pair's authority in the last 28 days"
     return ""
 
@@ -569,8 +614,6 @@ def _authority_recently_judged(agent: str, entity: str) -> bool:
     """A pending authority proposal, or one a human declined inside 28 days.
     Refiling either is nagging, so `review_authority` stays silent — and the
     queue must not advertise what the job will decline to file."""
-    from datetime import datetime, timedelta
-
     cutoff = (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
     for p in db.query(
         "SELECT payload FROM pending_changes WHERE entity = 'authority'"
@@ -589,20 +632,12 @@ def review_authority(*, actor: str = "scheduler") -> dict:
     streak; demotions to review fire on a strong-verdict rejection streak.
     The system only proposes — a human approves, and agents can never
     approve anything, so there is no self-promotion path."""
-    from datetime import datetime, timedelta
-
     filed = []
     # don't refile what's pending, and don't nag weekly about what a human
     # just declined — a rejection buys 28 days of silence for that pair
-    recent_cutoff = (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
-    seen = {
-        (json.loads(p["payload"]).get("agent"), json.loads(p["payload"]).get("entity"))
-        for p in db.query(
-            "SELECT payload FROM pending_changes WHERE entity = 'authority'"
-            " AND (status = 'pending' OR (status = 'rejected' AND reviewed_at > ?))",
-            (recent_cutoff,),
-        )
-    }
+    # the same set promotion_blocked consults, built once and handed down —
+    # two definitions of "recently judged" is how they drift apart
+    seen = _judged_pairs(_authority_cutoff())
     # authority levels only mean something on entities the gate consults —
     # the meta entities in NO_AUTHORITY would mint nonsense agent rows if
     # proposed. `trust_scores` is agents-only in the service now, so no
@@ -611,7 +646,7 @@ def review_authority(*, actor: str = "scheduler") -> dict:
         target = None
         why = ""
         if r["recent_streak"] >= TRUST_STREAK and not promotion_blocked(
-            r["agent"], r["entity"], r["current_level"]
+            r["agent"], r["entity"], r["current_level"], seen
         ):
             target = "notify"
             why = f"{r['recent_streak']} straight strong-verdict approvals"

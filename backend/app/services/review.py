@@ -703,7 +703,14 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     call cost 123 queries to render a queue that needed one — the cost grew
     with the deployment's age rather than with the page.
     """
-    from .delegation import TRUST_STREAK, promotion_blocked, trust_blocked, trust_scores
+    from .delegation import (
+        TRUST_STREAK,
+        _authority_cutoff,
+        _judged_pairs,
+        promotion_blocked,
+        trust_blocked,
+        trust_scores,
+    )
     from .users import is_agent
 
     # Why no streak CAN form, when none can — the same sentence Team → Agents
@@ -713,6 +720,9 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     # perfect record and no run of approvals in one breath, and the promotion
     # line could never appear. An operator's fix, not a wait.
     blocked = trust_blocked()
+    # one scan for the whole page: promotion_blocked below would otherwise
+    # re-read every authority proposal per row (services/delegation.py)
+    judged = _judged_pairs(_authority_cutoff())
     out: dict[tuple[str, str], dict] = {}
     for t in trust_scores(wanted):
         # AGENT proposers only. Ingest files proposals under the person who
@@ -745,7 +755,7 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
             "promotes_at": (
                 TRUST_STREAK
                 if t["recent_streak"] == TRUST_STREAK - 1
-                and not promotion_blocked(t["agent"], t["entity"], t["current_level"])
+                and not promotion_blocked(t["agent"], t["entity"], t["current_level"], judged)
                 else 0
             ),
         }
