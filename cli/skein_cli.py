@@ -510,8 +510,14 @@ def cmd_promises(args):
     rows = api("GET", "/api/promises" + ("" if args.all else "?status=open"))
     for c in rows:
         due = f" due {c['due_date']}" if c["due_date"] else ""
-        who = f" → {c['to_whom']}" if c["to_whom"] else ""
-        print(f"[{c['status']}] #{c['id']} {c['promise']}{who}{due} ({c['audience']})")
+        # the arrow carries the direction: what we owe points out, what we are
+        # owed points in. Printed direction-blind, the two read identically
+        # and a promise the team is WAITING ON looks like one it broke.
+        received = c.get("direction") == "received"
+        arrow = "←" if received else "→"
+        who = f" {arrow} {c['to_whom']}" if c["to_whom"] else ""
+        kind = "awaiting" if received else c["audience"]
+        print(f"[{c['status']}] #{c['id']} {c['promise']}{who}{due} ({kind})")
     if not rows:
         print('no open promises — capture one with `skein capture "promised: ..."`')
 

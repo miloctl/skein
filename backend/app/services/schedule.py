@@ -1,7 +1,7 @@
 """Team calendar services."""
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from .. import db
 from . import scope
@@ -18,6 +18,8 @@ def schedule_event(
     ends_at: str = "",
     description: str = "",
     attendees: str = "",
+    agenda: str = "",
+    engagement_id: int = 0,
     *,
     actor: str = "system",
     origin: str = "human",
@@ -26,6 +28,17 @@ def schedule_event(
 ) -> dict:
     if not title.strip():
         raise ValueError("event title is required")
+    # the same guard add_promise puts on its own engagement link: unchecked,
+    # a bad id raises IntegrityError (a 500 from a value the caller sent) and
+    # a readable-looking id lets an event attach to another crew's private
+    # engagement — which migration 008 exists to attribute hours to
+    if engagement_id:
+        efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
+        if not db.query_one(
+            f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (engagement_id, *ep),
+        ):
+            raise ValueError(scope.missing_text("engagements", engagement_id))
 
     def _canon(label: str, value: str) -> str:
         # normalize at write time: fromisoformat accepts space separators and
@@ -51,14 +64,16 @@ def schedule_event(
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
         eid = db.execute(
             "INSERT INTO events (title, description, starts_at, ends_at, attendees,"
-            " origin, created_by, created_at, visibility, crew_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " agenda, engagement_id, origin, created_by, created_at, visibility, crew_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 title,
                 description,
                 starts_at,
                 ends_at or None,
                 attendees,
+                agenda,
+                engagement_id or None,
                 origin,
                 actor,
                 db.now(),
@@ -203,7 +218,7 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     for c in db.query(
-        f"SELECT id, promise, due_date FROM promises WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, promise, due_date, direction FROM promises WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " AND status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
         start = _ics_dt_lines("DTSTART", c["due_date"])
@@ -213,8 +228,65 @@ def ics_feed() -> str:
             "BEGIN:VEVENT",
             f"UID:promise-{c['id']}@skein",
             *start,
-            f"SUMMARY:{_ics_escape('promised: ' + c['promise'][:80])}",
+            # the direction is in the WORD: a received promise on a calendar
+            # labelled "promised:" reads as the reader's own commitment, and
+            # this feed renders inside somebody's mail client beside real
+            # meetings
+            f"SUMMARY:{_ics_escape(('awaiting: ' if c['direction'] == 'received' else 'promised: ') + c['promise'][:80])}",
             "END:VEVENT",
         ]
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines) + "\r\n"
+
+
+# A meeting older than this with no outcome recorded is worth asking about.
+# Hours, not days: a morning meeting should be answerable the same afternoon,
+# while the room is still in memory.
+OUTCOME_ASK_AFTER_HOURS = 4
+# how far back My Day looks for an unanswered meeting. Past this the ask is
+# archaeology, and on the morning migration 008 lands it would be a flood.
+OUTCOME_ASK_LOOKBACK_DAYS = 7
+# How long a recurring meeting has to produce nothing before it is a finding.
+OUTCOME_SILENT_WEEKS = 3
+
+
+def record_outcome(event_id: int, outcome: str, *, actor: str = "system") -> dict:
+    """Mark what came out of a meeting. `recorded` or `none` are BOTH answers
+    — a meeting that produced nothing is a fact worth having, and the finding
+    below counts exactly those."""
+    if outcome not in ("recorded", "none"):
+        raise ValueError("outcome must be 'recorded' or 'none'")
+    row = db.query_one("SELECT * FROM events WHERE id = ?", (event_id,))
+    if not row:
+        raise scope.missing("events", event_id)
+    scope.assert_editable("events", row, actor, verb="update")
+    db.execute("UPDATE events SET outcome_status = ? WHERE id = ?", (outcome, event_id))
+    db.log_activity(actor, "record_outcome", f"#{event_id} {outcome}")
+    return {"id": event_id, "outcome_status": outcome}
+
+
+def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    """Meetings that have finished and whose outcome nobody has recorded.
+
+    The window opens OUTCOME_ASK_AFTER_HOURS after the start, not at it: a
+    meeting is not over when it begins, and asking during it is noise.
+
+    `starts_at` is naive UTC — `_canon` above stores
+    `astimezone(UTC).replace(tzinfo=None)` — so the cutoff is naive UTC too. A
+    bare `datetime.now()` is the HOST's clock, which is a different instant on
+    any machine that is not on UTC: west of it the window opened hours late,
+    and east of it it opened during the meeting.
+    """
+    frag, vp = scope.visible_filter(viewer, "events")
+    now = datetime.now(UTC)
+    cutoff = (now - timedelta(hours=OUTCOME_ASK_AFTER_HOURS)).strftime("%Y-%m-%dT%H:%M")
+    # A lower bound, or migration 008 puts every meeting in the table's whole
+    # history on My Day the morning it is deployed — it defaults them all to
+    # 'pending' and backfills nothing. A meeting nobody wrote up inside a week
+    # is not going to be written up now.
+    floor = (now - timedelta(days=OUTCOME_ASK_LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M")
+    return db.query(
+        f"SELECT * FROM events WHERE outcome_status = 'pending'"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" AND starts_at < ? AND starts_at >= ? AND {frag} ORDER BY starts_at DESC LIMIT 20",
+        (cutoff, floor, *vp),
+    )

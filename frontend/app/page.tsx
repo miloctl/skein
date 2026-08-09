@@ -249,6 +249,21 @@ export default function MyDay() {
     load();
   };
 
+  // The daily ask has to be answerable where it is asked. Without these the
+  // only way to clear a meeting notice was a POST by hand, so the same
+  // meeting came back every morning forever.
+  const recordOutcome = async (id: number, outcome: "recorded" | "none") => {
+    try {
+      await api(`/api/events/${id}/outcome`, {
+        method: "POST",
+        body: JSON.stringify({ outcome }),
+      });
+    } catch (e) {
+      reportStatus(actionError(e));
+    }
+    load();
+  };
+
   if (error && !b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6 text-sm text-danger">
@@ -471,6 +486,24 @@ export default function MyDay() {
                               >
                                 resolve
                               </button>
+                            )}
+                            {a.kind === "meeting" && (
+                              <span className="flex shrink-0 gap-1">
+                                <button
+                                  onClick={() => recordOutcome(a.ref_id, "recorded")}
+                                  className="rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                                  title="something came out of it — write it up on Capture"
+                                >
+                                  wrote it up
+                                </button>
+                                <button
+                                  onClick={() => recordOutcome(a.ref_id, "none")}
+                                  className="rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
+                                  title="nothing came out of it — this is what the weekly finding counts"
+                                >
+                                  nothing
+                                </button>
+                              </span>
                             )}
                             {a.kind === "notification" && (
                               <button

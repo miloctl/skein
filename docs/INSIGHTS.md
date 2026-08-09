@@ -48,7 +48,7 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (21 rule IDs)
+## The findings rules (23 rule IDs)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
@@ -86,7 +86,13 @@ authority on what runs; this list explains each rule's why.
 
 21. **Ledger rows adopted** — an `adopt_unchained` receipt landed: the nightly job chained rows that were written outside the chain and lowered the baseline. Adoption heals the chain instead of alarming forever; this finding is the push signal that replaces the permanent alarm. An adoption that no 'activity chain append failed' warning in the server log explains is the tamper signal. Severity medium; subject = `adopt:<seq>`, so each adoption fires exactly once.
 
-(22. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
+22. **Meeting with no outcome** — a recurring meeting (grouped by title) whose instances all sit at `outcome_status` `pending` or `none` across `OUTCOME_SILENT_WEEKS` (3) weeks, with at least that many instances. `none` counts HERE and only here: answering "nothing came out of it" clears the daily ask on My Day, and it is the exact fact this rule totals up — filtering it out would let a series escape by admitting every week that it produced nothing.
+
+    Two guards make the number and the subject defensible. **The receipt is computed per instance in Python, never as a SQL aggregate**: a date-only `starts_at` is an all-day block whose real length nobody recorded, so it contributes zero hours rather than 24, and the attendee count comes from each instance's own list rather than `MAX()` over the series. When no instance was timed the hours clause is dropped from the message entirely — "at least 0.0 attendee-hours" is a worse argument than the instance count alone, and a guessed duration is how a receipt stops being checkable. **A title carrying any roster name is skipped**, not anonymized. A 1:1 is both the meeting most likely to produce no recordable outcome and the one whose title is two people's names; a redacted one is still identifiable from its hours and cadence. Severity medium; subject = `meeting-<title>`.
+
+23. **Interrupt load** — at or past `INTERRUPT_SHARE_ALARM` (50%) of a week's finished work was never planned before that week, n≥8 (`portfolio.py::VERDICT_FLOOR_N` returns `None` below the floor, and the rule short-circuits on it). The interrupt ledger shipped with the planning cockpit and nothing read it, so the number reached whoever opened that page on a Monday and nobody else. Team ratio, no per-person split. Severity medium; subject = the ISO week.
+
+(24. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as

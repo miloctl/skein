@@ -14,6 +14,11 @@ PATTERNS = [
     ("blocker", re.compile(r"^\s*(blocked|blocker|stuck)\b[:\s]", re.I)),
     ("decision", re.compile(r"^\s*(decision:|decided\b)", re.I)),
     ("promise", re.compile(r"^\s*(promised?:|commitment:)", re.I)),
+    # the other direction, and its own prefix rather than a flag on `promised:`
+    # — the person typing is recording somebody ELSE's commitment, and one
+    # prefix that means two opposite things is the mistake this grammar exists
+    # to avoid
+    ("awaiting", re.compile(r"^\s*(awaiting:|waiting for:)", re.I)),
     ("request", re.compile(r"^\s*(req:|request:)", re.I)),
     ("task", re.compile(r"^\s*(todo:|task:)", re.I)),
     ("note", re.compile(r"^\s*(note:|fyi:|til:)", re.I)),
@@ -26,7 +31,7 @@ PATTERNS = [
 
 PREFIX = re.compile(
     r"^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck"
-    r"|promised?|commitment|req|request):\s*",
+    r"|promised?|commitment|awaiting|waiting for|req|request):\s*",
     re.I,
 )
 
@@ -39,8 +44,49 @@ _Q_ASSIGN = re.compile(
     r"\s*(?:\u2014|\u2013|:|\s-\s)\s*(?P<body>.+)$",
     re.S,
 )
+# A sentence that happens to carry a dash starts with one of these; a party
+# name does not. "the redlines — soon" must stay one body, or the chaser
+# nudges about a party called "the redlines".
+_NOT_A_NAME = frozenset(
+    ("the", "a", "an", "this", "that", "these", "those", "we", "they", "it", "our", "his", "her")
+)
 # `decision: … review by 2026-10-01` feeds the half-life sweep
 _REVIEW_BY = re.compile(r"[\s,;\u2014\u2013-]*\breview by\s+(?P<date>\d{4}-\d{2}-\d{2})\s*$", re.I)
+# `awaiting: legal — the redlines by 2026-09-01`. The date is what the chaser
+# runs on, so a received promise with no date is recorded and never nudged.
+_BY_DATE = re.compile(r"[\s,;\u2014\u2013-]*\bby\s+(?P<date>\d{4}-\d{2}-\d{2})\s*$", re.I)
+
+
+def split_party(body: str) -> tuple[str, str]:
+    """(who, rest) for `awaiting: legal — the redlines`.
+
+    Takes the name whether or not it matches the roster, unlike
+    split_assignee. The party we wait on is usually a vendor, a customer or
+    another team — services/promises.py::add_promise records the same reason
+    for not checking `to_whom` against crew membership. An assignee has to be
+    a real person because work is handed TO them; this name is only ever
+    quoted back in a nudge.
+    """
+    m = _Q_ASSIGN.match(body)
+    if m:
+        who = m.group("person").strip()
+        # A separator inside a sentence is not a name: "the redlines — soon".
+        # Word count plus a leading-article check, NOT "no spaces" — the
+        # parties this exists for are "acme corp" and "the vendor's counsel",
+        # and rejecting every multi-word name dropped `to_whom` on the exact
+        # rows services/stakeholders.py is built to gather.
+        words = who.split()
+        if who and len(who) <= 40 and 1 <= len(words) <= 3 and words[0].lower() not in _NOT_A_NAME:
+            return who, m.group("body").strip()
+    return "", body
+
+
+def split_by_date(body: str) -> tuple[str, str]:
+    """(due_date, rest) when the body ends with `by YYYY-MM-DD`."""
+    m = _BY_DATE.search(body)
+    if m:
+        return m.group("date"), body[: m.start()].strip()
+    return "", body
 
 
 def _known_user(name: str) -> str:
@@ -120,6 +166,19 @@ def plan(text: str, *, actor: str = "system") -> tuple[str, str, dict]:
         )
     if kind == "promise":
         return kind, "promise", {"promise": body}
+    if kind == "awaiting":
+        who, rest = split_party(body)
+        due, rest = split_by_date(rest or body)
+        return (
+            kind,
+            "promise",
+            {
+                "promise": rest or body,
+                "to_whom": who,
+                "due_date": due,
+                "direction": "received",
+            },
+        )
     if kind == "request":
         return kind, "intake", {"title": body[:120], "detail": body}
     if kind == "task":
@@ -202,6 +261,21 @@ def capture(
         )
     elif kind == "promise":
         result = promises.add_promise(body, actor=actor, origin=origin, **tier)
+    elif kind == "awaiting":
+        # `to_whom` is who OWES it here (migration 007), and it is free text:
+        # the party we wait on is usually a vendor, a customer or another
+        # team, which is why split_party does not check the roster.
+        who, rest = split_party(body)
+        due, rest = split_by_date(rest or body)
+        result = promises.add_promise(
+            rest or body,
+            to_whom=who,
+            due_date=due,
+            direction="received",
+            actor=actor,
+            origin=origin,
+            **tier,
+        )
     elif kind == "request":
         # requests arrive where people already type — route them into intake
         # instead of letting them die as notes

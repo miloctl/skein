@@ -33,7 +33,7 @@ URL is directly linkable.
 |---|---|---|
 | **My Day** | `/` | What changed and what needs *you*, in under 30 seconds |
 | **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) — or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
-| **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, one commit |
+| **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, open threads with people outside the team, one commit |
 | | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
@@ -47,7 +47,7 @@ URL is directly linkable.
 | | `/activity` | The provenance ledger as one sentence per row, hash-chained and tamper-evident |
 | — | `/guide` | [Field guide](docs/FIELD-GUIDE.md) — every shipped feature as a card you tie by using it. The "what's new" surface |
 | — | `/settings` | Name, theme, API key, growth interests, team roster |
-| Ctrl+K anywhere (⌘K on a Mac) | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, commitment, request (`req:`) or private feedback (`fb:`) |
+| Ctrl+K anywhere (⌘K on a Mac) | — | Quick capture. Freeform text auto-routes to task, question, note, decision, blocker, a promise the team made (`promised:`), a promise made TO the team (`awaiting:`), request (`req:`) or private feedback (`fb:`) |
 
 ## Architecture
 

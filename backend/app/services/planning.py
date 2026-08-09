@@ -25,7 +25,7 @@ reader cross-referencing them lands on the wrong card.
 from datetime import timedelta
 
 from .. import db
-from . import collab, intake, portfolio, scope, weekly, work
+from . import collab, intake, portfolio, promises, scope, stakeholders, weekly, work
 
 # How many direct-waiter leaders get the full transitive walk. Each walk is
 # two queries at minimum, so this is the page's bound on a cost that was
@@ -76,6 +76,13 @@ def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dic
             r for r in intake.list_requests(viewer=viewer) if r["status"] in ("submitted", "scored")
         ],
         "stale_decisions": collab.list_decisions(status="stale", viewer=viewer),
+        # what is open with people outside the roster, so the manager reads it
+        # BEFORE the week's meetings rather than after them
+        "stakeholders": stakeholders.open_threads(viewer),
+        # what the team is WAITING ON, which is the half of the ledger the
+        # Monday meeting could not see: a promise made to the team goes quiet
+        # in exactly one way, and nobody was watching (migration 007)
+        "awaiting": promises.list_promises(status="open", viewer=viewer, direction="received"),
         "health": health,
         # Back SEVEN DAYS (not "to last Monday" — that is only the same
         # thing when the page is opened on a Monday), matching the weekly

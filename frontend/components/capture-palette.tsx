@@ -14,6 +14,10 @@ const RULES: [string, RegExp][] = [
   ["blocker", /^\s*(blocked|blocker|stuck)\b[:\s]/i],
   ["decision", /^\s*(decision:|decided\b)/i],
   ["promise", /^\s*(promised?:|commitment:)/i],
+  // BEFORE the `waiting on` blocker heuristic below, which would otherwise
+  // claim the same sentence. Without this rule the preview said "note" while
+  // the backend (services/capture.py) filed a received promise.
+  ["awaiting", /^\s*(awaiting|waiting for):/i],
   ["request", /^\s*(req:|request:)/i],
   ["task", /^\s*(todo:|task:)/i],
   ["note", /^\s*(note:|fyi:|til:)/i],
@@ -28,7 +32,7 @@ const RULES: [string, RegExp][] = [
 // memory keeps working); the kind on the wire and on screen is promise
 // (docs/LEXICON.md row 1)
 const KNOWN_PREFIX =
-  /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|req|request|fb):\s*/i;
+  /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|awaiting|waiting for|req|request|fb):\s*/i;
 
 function previewKind(text: string): string {
   const lines = text.split("\n");
@@ -49,6 +53,7 @@ const CHIPS: { prefix: string; label: string }[] = [
   { prefix: "blocked on", label: "blocker" },
   { prefix: "decision:", label: "decision" },
   { prefix: "promised:", label: "promise" },
+  { prefix: "awaiting:", label: "awaiting" },
   { prefix: "req:", label: "request" },
   { prefix: "note:", label: "note" },
   { prefix: "fb:", label: "private feedback" },

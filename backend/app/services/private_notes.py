@@ -253,7 +253,9 @@ def one_on_one_brief(person: str, days: int = 14, viewer: scope.Viewer = scope.N
             (person, *f["tasks"][1], since),
         ),
         "promises_made": db.query(
-            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ? AND {f['promises'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            # direction = 'given': the heading says "promises they made"
+            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ?"  # noqa: S608 — scope filters emit only bound marks
+            f" AND direction = 'given' AND {f['promises'][0]}"
             " ORDER BY id DESC",
             (person, since, *f["promises"][1]),
         ),

@@ -47,7 +47,11 @@ def exec_readout(*, actor: str = "system") -> dict:
         (s["start_ts"],),  # a timestamp column — services/pulse.py::season
     )
     due_soon = db.query(
-        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction = 'given' — the readout LEAVES, and a promise made TO the
+        # team listed under "our external promises" tells a stakeholder the
+        # opposite of the truth
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 — scope filters emit only bound marks
+        f" AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         ((_today() + timedelta(days=14)).isoformat(),),
     )

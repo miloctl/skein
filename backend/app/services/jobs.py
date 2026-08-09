@@ -31,6 +31,12 @@ def _blocker_sweep():
     return sweep_escalations()
 
 
+def _chase_received():
+    from .promises import chase_received
+
+    return chase_received()
+
+
 def _daily_digest():
     from .digest import publish_digest
 
@@ -129,6 +135,10 @@ def _retention_prune():
 
 JOBS: tuple[JobSpec, ...] = (
     JobSpec("blocker-sweep", _blocker_sweep, {"trigger": "interval", "hours": 1}, 1, True),
+    # hourly like the blocker sweep, and for the same reason: the job runs
+    # often so a due date is noticed the day it passes, while the nudge itself
+    # is once per cycle (services/promises.py::NUDGE_CYCLE_HOURS)
+    JobSpec("promise-chase", _chase_received, {"trigger": "interval", "hours": 1}, 1, True),
     JobSpec("daily-backup", _daily_backup, {"trigger": "cron", "hour": 3, "minute": 0}, 24, True),
     JobSpec(
         "activity-verify",

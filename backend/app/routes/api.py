@@ -42,6 +42,7 @@ from ..services import (
     scope,
     search,
     settings,
+    stakeholders,
     tuning,
     usage,
     users,
@@ -741,8 +742,14 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
 
 
 @router.get("/promises")
-def get_promises(user: CurrentUser, viewer: ViewerDep, status: str = "", audience: str = ""):
-    return promises.list_promises(status, audience, viewer)
+def get_promises(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    status: str = "",
+    audience: str = "",
+    direction: str = "",
+):
+    return promises.list_promises(status, audience, viewer, direction)
 
 
 class PromiseIn(BaseModel):
@@ -751,6 +758,8 @@ class PromiseIn(BaseModel):
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
     audience: str = Field("external", max_length=20)
+    # 'received' records a promise made TO the team (migration 007)
+    direction: str = Field("given", max_length=10)
     # No reader check on `to_whom`: it is deliberately not a roster name (the
     # default audience is external) — promises.add_promise says why.
     # the tier the writer picked, checked in the service: crew membership only.
@@ -1402,12 +1411,48 @@ def post_note(body: NoteIn, user: CurrentUser):
     )
 
 
+class OutcomeIn(BaseModel):
+    outcome: str = Field(max_length=10)
+
+
+@router.get("/stakeholders")
+def get_stakeholders(user: CurrentUser, viewer: ViewerDep):
+    """Open threads with people outside the roster. Read-only: every row is
+    already written by somebody doing ordinary work (services/stakeholders.py)."""
+    return stakeholders.open_threads(viewer)
+
+
+@router.get("/events/{event_id}/stakeholders")
+def get_event_stakeholders(event_id: int, user: CurrentUser, viewer: ViewerDep):
+    """What is open with the outside people attending this meeting — useful in
+    the hour before you speak to them, which a digest of everything is not."""
+    return stakeholders.brief_for_event(event_id, viewer)
+
+
+@router.post("/events/{event_id}/outcome")
+def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
+    """What came out of a meeting. Set by a reader, never inferred: guessing
+    from "was anything written near this time" is wrong in both directions —
+    an outcome recorded an hour later reads as empty, an unrelated note reads
+    as an outcome (migration 008)."""
+    ratelimit.check("write", user)
+    try:
+        return schedule.record_outcome(event_id, body.outcome, actor=user)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class EventIn(BaseModel):
     title: str = Field(max_length=200)
     starts_at: str = Field(max_length=25)
     ends_at: str = Field("", max_length=25)
     description: str = Field("", max_length=4000)
     attendees: str = Field("", max_length=500)
+    # what the meeting is FOR, written before it runs (migration 008). The
+    # post-meeting attention item quotes it back, which is what makes "did
+    # this produce anything" answerable by whoever attended.
+    agenda: str = Field("", max_length=2000)
+    engagement_id: int = 0
     # the tier the writer picked, checked in the service: crew membership only.
     # No assignee check here — `attendees` is free text, not a roster join.
     visibility: str = Field(scope.WORKSPACE, max_length=16)

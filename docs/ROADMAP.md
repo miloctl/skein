@@ -87,22 +87,13 @@ numbering and was found later, on 2026-08-09.
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
 C1 (week rituals), P2 (absences), P5 (both halves — the My Day prefill and
-`skein standup --draft`), and P1 (the planning cockpit, `/planning`) shipped.
-These did not ship:
+`skein standup --draft`), P1 (the planning cockpit, `/planning`), and — on
+2026-08-09 — C2, C3, C4 and P4's rule all shipped; they are documented in
+`docs/FEATURES.md`. C4 shipped its read and its cockpit card; the morning
+rule that ATTACHES the brief to a meeting did not, and
+`GET /api/events/{id}/stakeholders` is the seam it would use. These did not
+ship:
 
-- **C2 received-promise chaser** — `commitments.direction ('given'|'received')`
-  plus `last_nudged_at` in a migration. Capture grammar
-  `awaiting: <who> — <what> by <date>`. An hourly rule nudges the creator and
-  escalates to the manager after 2 silent cycles. `waiting_on: commitment:N`
-  already works.
-- **C3 meeting outcome loop** — `events` gains agenda, engagement_id and
-  outcome_status. A post-meeting attention item deep-links to `/ingest`. A
-  weekly finding names a recurring meeting with no captured outcome for 3 weeks
-  and gives the hours-burned receipt.
-- **C4 stakeholder open-threads brief** — a read-only union over
-  `commitments.to_whom`, `intake.requester`, `questions.asked_by` and
-  `events.attendees` for names outside the team. A morning rule attaches the
-  brief to meetings with external attendees.
 - **C5 decision links and cascade** — a `decision_links` table, populated at
   record time and by scanning references. Consumed by scoped context packs,
   supersede notifications, and handoffs.
@@ -111,10 +102,6 @@ These did not ship:
   has shipped (`docs/VISIBILITY.md`: `private` / `crew` / `workspace` plus
   crew membership), but a pairwise scope is a fourth case that design does
   not cover, so it still gets designed at the time.
-- **P4's findings rule** — the interrupt ledger itself shipped: a task created
-  after the week line locked and finished in the same week counts as
-  unplanned, and the team-level ratio is in the cockpit
-  (`portfolio.py::interrupts`). No findings rule reads it yet.
 
 ## Agent layer (2026-07-25)
 
@@ -276,7 +263,6 @@ Still open from that review:
 - **G7's last clause** — per-model spend rows exist on Work → Health,
   and the Settings model menu shows no cost beside a model, so the
   menu is not yet comparative. [S]
-- **P4's findings rule** — see "Manager and workflow" above. [S]
 
 The suggested order this section carried (manager frame, then CLI,
 then census) was revised by the 2026-08-09 product-strategy review —
@@ -320,14 +306,18 @@ with real sponsors, one agent named in `SKEIN_AGENT_RUNNER`. A5 and
 G6 both wait, by their own stated triggers, on the verdict volume this
 produces.
 
-**Suggested order (supersedes 2026-08-08).** The dogfooding note above is
-now the binding one: R3 renders a record that only real verdicts can fill,
-and in the default trusted-header mode no verdict counts at all. Next: the
-developer arc — R4 plus the CLI items (F8, D2, D3, D5,
-F6, F7) — promoted ahead of the manager frame because every manager
-surface reads developer exhaust, and the terminal is where that exhaust
-is thinnest. Then the manager frame (C2, C3, C4, P4's rule) as cockpit
-cards, unchanged from its spec above. R6 closes the arc.
+**Suggested order (supersedes 2026-08-08).** Everything this review named
+has now shipped except R6 and R8, both still open above: the surfacing
+pass (R1, R2, R7) and the census ratchet, then the trust-loop pair (R3,
+R5), then the developer arc (R4 plus F8, D2, D3, D5, F7), then the
+manager frame (C2, C3, C4, P4's rule) — all 2026-08-09.
+
+The dogfooding note above is the binding one now, and it is not a build:
+R3 renders a record that only real verdicts can fill, and in the default
+trusted-header mode no verdict counts at all. What the arc left behind is
+small and named where it belongs — R8 and R6 in this section, F6 and D5's
+idempotency key in "Developer loop", C4's morning rule in "Manager and
+workflow", and the uncapped-on-both-sides census bullet at the top.
 
 ## Cut, with re-entry triggers
 

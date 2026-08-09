@@ -52,6 +52,19 @@ type Cockpit = {
   conflicts: { person: string; total_percent: number; detail: string }[];
   intake: { id: number; title: string; requester: string; score: number | null }[];
   stale_decisions: { id: number; title: string; review_by: string | null }[];
+  // promises made TO the team: the half of the ledger the Monday meeting
+  // could not see (migration 007)
+  // open threads with people outside the roster (services/stakeholders.py)
+  stakeholders: {
+    party: string;
+    items: { kind: string; text: string; when: string }[];
+  }[];
+  awaiting: {
+    id: number;
+    promise: string;
+    to_whom: string;
+    due_date: string | null;
+  }[];
   health: { id: number; name: string; health: string; status: string }[];
   // `from` is non-null by the time it reaches here — the service drops a
   // first-ever score, which is not a change (services/planning.py)
@@ -293,6 +306,59 @@ export default function Planning() {
             Finishing it releases {d.top_unblocking_move.unblocks} task
             {d.top_unblocking_move.unblocks === 1 ? "" : "s"} that wait on it,
             directly or behind another.
+          </p>
+        </Card>
+      ) : null}
+
+      {/* who is owed what, outside the team. Read before the week's meetings
+          rather than after them, which is when it was answerable at all. */}
+      {d.stakeholders.length > 0 ? (
+        <Card title={`Open outside the team (${d.stakeholders.length})`}>
+          <ul className="space-y-2 text-sm">
+            {d.stakeholders.map((s) => (
+              <li key={s.party}>
+                <span className="font-medium">{s.party}</span>
+                <ul className="ml-4 list-disc text-xs text-ink-3">
+                  {s.items.map((i, n) => (
+                    <li key={n}>
+                      {i.text}
+                      <span className="ml-1">
+                        ({i.kind}
+                        {i.when ? `, due ${i.when}` : ""})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      {/* what the team is waiting ON. Beside the triage queue rather than in
+          it: these are not decisions to make, they are people to chase. */}
+      {d.awaiting.length > 0 ? (
+        <Card title={`Open with other people (${d.awaiting.length})`}>
+          <ul className="space-y-1 text-sm">
+            {d.awaiting.map((p) => {
+              const late = p.due_date !== null && p.due_date < d.today;
+              return (
+                <li key={p.id}>
+                  <span className={late ? "text-weld" : ""}>{p.promise}</span>
+                  <span className="ml-2 text-xs text-ink-3">
+                    {p.to_whom ? `${p.to_whom} owes it` : "nobody named"}
+                    {p.due_date ? ` · due ${p.due_date}` : " · no date"}
+                    {late ? " · overdue" : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-ink-3">
+            Skein chases an overdue one once a day. If two chases get no
+            answer, it tells the team once, and it names nobody. Capture one
+            with &ldquo;awaiting: acme corp — the signed SOW by
+            YYYY-MM-DD&rdquo;.
           </p>
         </Card>
       ) : null}
