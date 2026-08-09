@@ -115,6 +115,7 @@ def api(method: str, path: str, body: dict | None = None) -> dict | list:
             detail = str(exc)
         sys.exit(f"error: {detail}")
     except urllib.error.URLError as exc:
+        _mark_unreachable()
         sys.exit(f"error: cannot reach {base_url()} ({exc.reason}) — run `skein config --url ...`")
 
 
@@ -133,7 +134,21 @@ def api_quiet(method: str, path: str, body: dict | None = None, timeout: float =
     except urllib.error.HTTPError as exc:
         return exc
     except Exception:
+        _mark_unreachable()
         return None
+
+
+# Set when a call in THIS process failed to reach the server at all. The
+# outbox flush runs after every command, and against a dead host it paid a
+# second full timeout re-sending the row the command had just queued — 30
+# seconds for `skein capture`, the command that exists so a thought is never
+# lost. A transport failure already answers the only question the flush asks.
+_UNREACHABLE = False
+
+
+def _mark_unreachable() -> None:
+    global _UNREACHABLE
+    _UNREACHABLE = True
 
 
 OUTBOX = CONFIG_PATH.parent / "outbox.jsonl"
@@ -172,7 +187,7 @@ def flush_outbox() -> int:
     Two shells flushing at once each claim a different file rather than both
     sending the same rows.
     """
-    if not OUTBOX.exists():
+    if _UNREACHABLE or not OUTBOX.exists():
         return 0
     claim = OUTBOX.with_suffix(f".{os.getpid()}.sending")
     try:

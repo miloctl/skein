@@ -274,3 +274,14 @@ def test_an_unnamed_thread_is_one_per_person(client):
     assert "default" not in (mine[0], theirs[0])
     # each caller's own id is stable across requests
     assert [c["id"] for c in client.get("/api/chats").json()] == mine
+
+
+def test_a_folder_differing_only_in_accent_case_is_the_same_folder(client):
+    """SQLite's lower() is ASCII-only, so this function stopped folding the
+    moment a name left ASCII — which is the duplicate it exists to stop."""
+    from app.services import chat_threads
+
+    chat_threads.create_folder("ava", "Été")
+    chat_threads.create_folder("ava", "été")
+    folders = chat_threads.list_folders("ava")
+    assert folders.count("Été") + folders.count("été") == 1, folders

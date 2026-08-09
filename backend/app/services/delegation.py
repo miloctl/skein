@@ -513,9 +513,17 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         r["recent_streak"] = streak
         r["rejection_streak"] = rejection_streak
         r["current_level"] = authority_level(r["agent"], r["entity"])
+        # The rung review_authority ACTUALLY files, and the same predicate it
+        # asks. This said "autonomous" where a promotion climbs one rung to
+        # `notify`, and it skipped promotion_blocked entirely — so it offered
+        # a promotion on task_completion, which is in NO_AUTHORITY and can
+        # never be filed, and that is the entity a delegated agent proposes on
+        # most. Three statements of one rule; this was the wrong one twice.
         r["suggestion"] = (
-            f"{streak} straight approvals — consider promoting to autonomous"
-            if streak >= TRUST_STREAK and r["current_level"] == "review"
+            f"{streak} straight approvals — consider promoting to notify"
+            if streak >= TRUST_STREAK
+            and r["current_level"] == "review"
+            and not promotion_blocked(r["agent"], r["entity"], r["current_level"])
             else ""
         )
     return rows

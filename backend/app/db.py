@@ -192,7 +192,19 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    # SQLite's own lower() is ASCII-only, so "Été" and "été" compare unequal
+    # and a case-insensitive lookup written with lower() silently stops
+    # folding the moment a name leaves ASCII. `skfold` is the SAME
+    # normalization every identity comparison uses (services/users.py::fold),
+    # so a query and a Python check cannot disagree about what one name is.
+    conn.create_function("skfold", 1, _sqlite_fold, deterministic=True)
     return conn
+
+
+def _sqlite_fold(value: str | None) -> str:
+    from .services.users import fold
+
+    return fold(value or "")
 
 
 # SQLite checkpoints and DELETES the WAL when the last connection to the

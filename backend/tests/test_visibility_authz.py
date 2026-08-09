@@ -606,10 +606,6 @@ _UNFILTERED_READS = {
     "pulse.py::blocker_speedrun": "resolution times by impact, no titles",
     "pulse.py::pulse": "season counters over the same aggregates",
     "onboarding.py::checklist": "COUNT per entity, to decide which step is done",
-    "portfolio.py::flow_metrics": (
-        "cycle-time numbers and a per-person WIP count. No title, no id, and"
-        " the person is the allocation's own — same rule as pulse below."
-    ),
     "delegation.py::list_worklog": (
         "the `party` branch only, and it is gated per task on that task's own"
         " delegated_agent/sponsor columns — the same two identities"

@@ -131,3 +131,21 @@ def test_wait_satisfied_queries_cover_every_waiting_on_type():
     # a type added to work.WAITING_ON_TYPES without a satisfied-query in
     # portfolio._WAIT_SATISFIED KeyErrors _satisfied_targets and 500s /portfolio
     assert set(portfolio._WAIT_SATISFIED) == set(work.WAITING_ON_TYPES)
+
+
+def test_the_team_flow_numbers_count_only_what_the_team_can_see(client):
+    """flow_metrics has no viewer — every caller is team-wide or egressing
+    (the exec readout, the interrupt_load finding, the cockpit, the agent
+    tool). Counting private work put rows the audience cannot find into a
+    number presented to them as theirs."""
+    from app import db
+    from app.services import portfolio, work
+
+    open_t = work.create_task("visible work", actor="ava")["id"]
+    work.update_task(open_t, status="done", actor="ava")
+    hidden = work.create_task("private work", actor="ava")["id"]
+    work.update_task(hidden, status="done", actor="ava")
+    db.execute("UPDATE tasks SET visibility = 'private' WHERE id = ?", (hidden,))
+
+    flow = portfolio.flow_metrics()
+    assert flow["cycle_time"]["tasks_done"] == 1

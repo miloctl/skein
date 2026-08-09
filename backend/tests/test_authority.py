@@ -190,7 +190,9 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
     trust = client.get("/api/agents/trust").json()
     row = next(r for r in trust if r["agent"] == "scribe")
     assert row["approved"] == 5 and row["recent_streak"] == 5
-    assert "autonomous" in row["suggestion"]
+    # `notify`, because that is the rung review_authority files — a promotion
+    # climbs one, and this line said `autonomous` for as long as it existed
+    assert "notify" in row["suggestion"]
 
 
 def test_weak_identity_verdicts_never_suggest_promotion(client, fresh_db):
@@ -431,3 +433,39 @@ def test_the_card_learns_which_entities_always_wait(client, fresh_db):
 
     served = client.get("/api/agents/entities").json()
     assert set(served["always_review"]) == set(ALWAYS_REVIEW)
+
+
+def test_the_suggestion_names_the_rung_the_code_actually_files(client, fresh_db):
+    """`review_authority` climbs one rung to `notify`. The suggestion said
+    `autonomous`, and skipped promotion_blocked entirely — so it offered a
+    promotion on task_completion, which is in NO_AUTHORITY and can never be
+    filed, and is the entity a delegated agent proposes on most."""
+    from app.services import delegation, review, users
+    from app.services.api_keys import create_key
+
+    users.ensure_user("scribe", kind="agent")
+    headers = {"Authorization": f"Bearer {create_key('tester', 't')['key']}"}
+    for i in range(delegation.TRUST_STREAK):
+        p = review.propose_change(
+            "note", "create", {"topic": f"n{i}", "content": "c"}, actor="scribe"
+        )
+        client.post(f"/api/review/{p['id']}/approve", json={}, headers=headers)
+    row = next(r for r in delegation.trust_scores() if r["entity"] == "note")
+    assert "notify" in row["suggestion"]
+    assert "autonomous" not in row["suggestion"]
+
+    # settled rows written straight in: task_completion proposals cannot be
+    # APPLIED against a task that does not exist, and the apply path is not
+    # what this pins — the streak is read from the table either way
+    for _ in range(delegation.TRUST_STREAK):
+        fresh_db.execute(
+            "INSERT INTO pending_changes (entity, action, payload, summary, proposed_by,"
+            " origin, status, reviewed_by, reviewed_at, created_at, reviewed_strong,"
+            " reviewed_override) VALUES ('task_completion', 'update', '{}', 's', 'scribe',"
+            " 'agent', 'approved', 'ava', ?, ?, 1, 0)",
+            (fresh_db.now(), fresh_db.now()),
+        )
+    blocked = next(r for r in delegation.trust_scores() if r["entity"] == "task_completion")
+    assert blocked["recent_streak"] >= delegation.TRUST_STREAK, "the fixture did not build a streak"
+    assert delegation.promotion_blocked("scribe", "task_completion", blocked["current_level"])
+    assert blocked["suggestion"] == "", "a promotion that could never be filed"

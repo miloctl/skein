@@ -234,3 +234,27 @@ def test_an_ordinary_title_is_not_suppressed_by_a_short_name(client):
         for f in insights.list_findings()
         if f["rule_id"] == "meeting_no_outcome" and "1:1" in f["receipt"]["title"]
     ]
+
+
+def test_an_all_day_block_today_is_not_asked_about_during_it(client):
+    """A date-only row sorts before every timestamp on its own day, so the
+    four-hour "not during the meeting" guard did nothing for an all-day block
+    — it entered the window at 04:00 UTC, during the day it covers."""
+    today = db.today().isoformat()
+    eid = schedule.schedule_event("All-hands offsite", today, attendees="a, b", actor="ava")["id"]
+    db.execute(
+        "UPDATE events SET created_at = ? WHERE id = ?",
+        ((datetime.now(UTC) - timedelta(days=3)).isoformat(), eid),
+    )
+    asked = {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
+    assert eid not in asked
+
+    # yesterday's all-day block is over, and is still asked about
+    past = schedule.schedule_event(
+        "Past offsite", (db.today() - timedelta(days=1)).isoformat(), attendees="a", actor="ava"
+    )["id"]
+    db.execute(
+        "UPDATE events SET created_at = ? WHERE id = ?",
+        ((datetime.now(UTC) - timedelta(days=3)).isoformat(), past),
+    )
+    assert past in {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}

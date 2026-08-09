@@ -409,6 +409,19 @@ async def database_busy_handler(request: Request, exc: sqlite3.OperationalError)
     )
 
 
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request: Request, exc: RuntimeError):
+    # The 500 CLASS is right — these are our own state, never something a
+    # caller sent (services/handoff.py::read_artifact explains its three).
+    # What was wrong is the SHAPE: with no handler, Starlette answers a bare
+    # `Internal Server Error` in text/plain, so the operator instruction
+    # written into the message ("Check that the volume holding data/artifacts
+    # is mounted.") reached nobody, and lib/api.ts fell back to the status
+    # line. An error response is always JSON (CLAUDE.md).
+    logging.getLogger("skein").exception("unhandled runtime error", exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+
 @app.exception_handler(OverflowError)
 async def overflow_error_handler(request: Request, exc: OverflowError):
     # absurd ints (ids > 2^63, weeks=1e18) must be a 400, never a 500

@@ -325,15 +325,18 @@ def _snap_folder(owner: str, wanted: str) -> str:
     was filed. A decision computed over a truncated list is the bug
     api_keys.active_key_count exists to avoid, one file over.
     """
+    # skfold, not lower(): SQLite's lower() is ASCII-only, so "Été" and "été"
+    # were two folders again — the exact duplicate this function exists to
+    # stop. db.py registers it from services/users.py::fold.
     row = db.query_one(
-        "SELECT name FROM chat_folders WHERE owner = ? AND lower(name) = lower(?)",
+        "SELECT name FROM chat_folders WHERE owner = ? AND skfold(name) = skfold(?)",
         (owner, wanted),
     )
     if row:
         return str(row["name"])
     legacy = db.query_one(
         "SELECT folder AS name FROM chat_threads"
-        " WHERE owner = ? AND folder != '' AND lower(folder) = lower(?) LIMIT 1",
+        " WHERE owner = ? AND folder != '' AND skfold(folder) = skfold(?) LIMIT 1",
         (owner, wanted),
     )
     return str(legacy["name"]) if legacy else wanted
