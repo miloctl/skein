@@ -495,6 +495,18 @@ if EMBEDDINGS_ENABLED:
 # Ready = enabled and correctly configured. The single gate search.py reads.
 EMBED_READY = EMBEDDINGS_ENABLED and not EMBEDDINGS_ERROR
 
+# Cosine floor a semantic hit must clear. Without one, semantic_search returns
+# the top N vectors by similarity NO MATTER how dissimilar they are, so a
+# nonsense query comes back with a full page of unrelated rows and the "nothing
+# matches those words" answer becomes unreachable — measured on a 35-record
+# corpus, `zzzznotarealterm` scored 0.49 against records it shares no word with.
+#
+# The right value is per model, because each embedding space has its own noise
+# floor: nomic-embed-text puts unrelated text near 0.5 and real matches near
+# 0.65, while text-embedding-3-small runs much lower on both. To retune, embed
+# a deliberate nonsense query, read the top score, and set this above it.
+EMBED_MIN_SCORE = float(os.getenv("SKEIN_EMBED_MIN_SCORE", "0.5") or 0.5)
+
 
 def embed_key() -> str:
     """Credential for the embeddings endpoint. Same rules as provider_key():
