@@ -99,7 +99,7 @@ knots:
     # so there is no write to detect
     ties: mark
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
-    how: "`/search` in chat, `skein search` in a terminal, or GET a question at /api/ask. Type `#42` and task 42 is the first result. `blocker 3` finds blocker 3."
+    how: "The nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and task 42 is the first result. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing — it retries on the separate words and marks the results as loose."
     link: /chat
     since: 2026-07-31
 

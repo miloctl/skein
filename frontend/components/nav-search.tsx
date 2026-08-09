@@ -13,9 +13,13 @@ import { Shortcut } from "@/components/shortcut";
  *  no surface, the answer to "where did we decide that" is Slack scrollback,
  *  which is the leak Skein exists to close.
  *
- *  One input, two backends. A leading `?` asks /api/ask, which answers with
- *  citations rather than rows; anything else searches. The prefix is the same
- *  grammar the capture palette already teaches, so it costs no new concept.
+ *  One input, two backends. A leading `?` runs /api/ask, anything else
+ *  /api/search. Both read the same FTS index and neither calls a model: ask
+ *  adds a word-overlap retry when the phrase matches nothing, and says so.
+ *  With embeddings on, search() blends semantic hits itself, so the two
+ *  return the same rows for an ordinary question and the prefix only shows
+ *  through on a query whose real keyword is buried in words that miss. That
+ *  is why the placeholder no longer advertises it.
  */
 
 type Hit = { entity: string; entity_id: number; title: string; snippet: string };
@@ -204,7 +208,7 @@ export function NavSearch() {
   return (
     <div ref={boxRef} className="relative">
       <label className="sr-only" htmlFor="nav-search">
-        Search Skein, or start with ? to ask a question
+        Search Skein
       </label>
       <input
         id="nav-search"
@@ -212,7 +216,13 @@ export function NavSearch() {
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && run()}
         onFocus={() => (hits || answer || error) && setOpen(true)}
-        placeholder="Search — or ? to ask"
+        // "or ? to ask" promised a question-answerer and delivered a second
+        // pass over the same keyword index. Once semantic hits blend into
+        // search() itself, the two return the SAME rows for a natural
+        // question — measured — so the prefix no longer earns a place in a
+        // 208px box. It still works, and the field guide still teaches it,
+        // where there is room to say what it actually does.
+        placeholder="Search"
         className="w-36 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid sm:w-52"
       />
       {open && (
