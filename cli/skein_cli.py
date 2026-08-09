@@ -187,7 +187,7 @@ def flush_outbox() -> int:
     Two shells flushing at once each claim a different file rather than both
     sending the same rows.
     """
-    if _UNREACHABLE or not OUTBOX.exists():
+    if not OUTBOX.exists():
         return 0
     claim = OUTBOX.with_suffix(f".{os.getpid()}.sending")
     try:

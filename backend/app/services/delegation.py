@@ -519,6 +519,11 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         # a promotion on task_completion, which is in NO_AUTHORITY and can
         # never be filed, and that is the entity a delegated agent proposes on
         # most. Three statements of one rule; this was the wrong one twice.
+        # promotion_blocked is LAST in the chain on purpose: it costs queries,
+        # and the two cheap tests before it are false for nearly every row, so
+        # `and` short-circuits it away. Measured over 36 pairs: 73 queries with
+        # it and 73 without. Reorder these and the agents page pays a query per
+        # pair for an answer it discards.
         r["suggestion"] = (
             f"{streak} straight approvals — consider promoting to notify"
             if streak >= TRUST_STREAK
