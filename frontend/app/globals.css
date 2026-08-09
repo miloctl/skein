@@ -460,6 +460,18 @@ body {
   font-family: var(--font-body), system-ui, sans-serif;
 }
 
+/* The native select popup is painted by the browser chrome, not the page.
+   With no author style on option, some engines (Firefox on Windows, Chrome
+   on a light-theme OS) give the popup a LIGHT panel while the options
+   inherit the page's dark-mode ink — near-white text on white, unreadable
+   (the Delegate-to picker was the report). option background/color is the
+   one styling every engine applies inside the popup, so it must stay here
+   even though selects in the page render fine without it. */
+select option {
+  background-color: var(--surface-card);
+  color: var(--text-1);
+}
+
 *:focus-visible {
   outline: 2px solid var(--thread);
   outline-offset: 2px;
