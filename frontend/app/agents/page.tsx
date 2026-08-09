@@ -672,8 +672,27 @@ export default function Agents() {
                 <li key={`${t.agent}-${t.entity}`}>
                   <span className="font-medium">{t.agent}</span> on {t.entity}:{" "}
                   {t.approved}/{t.proposed} approved (
-                  {Math.round(t.approval_rate * 100)}%) · streak{" "}
-                  {t.recent_streak}
+                  {Math.round(t.approval_rate * 100)}%) ·{" "}
+                  {/* never a bare `streak 0` — a zero there reads as a score.
+                      The approvals row states the same condition in prose
+                      (app/review/page.tsx). */}
+                  {t.recent_streak === 0
+                    ? "last verdict was not an approval"
+                    : `streak ${t.recent_streak}`}
+                  {/* The level the streak is measured FROM. Without it the
+                      promotion hint below names a destination with no origin,
+                      and a reader cannot tell an agent one approval away from
+                      its first grant from one already acting alone. Same
+                      helper as the authority card, so a gate-off deployment
+                      gets the same honest wording in both places. */}
+                  <span className="ml-1 text-xs text-ink-3">
+                    · today:{" "}
+                    {levelLabel(
+                      t.current_level,
+                      gateOn,
+                      alwaysReview.includes(t.entity),
+                    )}
+                  </span>
                   {/* text-ok, not a raw palette green: scripts/check_theme_contrast.py
                     sweeps the tokens parsed out of globals.css and theme.ts, so a
                     hardcoded hex is the one color here proved against no pack */}

@@ -215,11 +215,24 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
     db.execute("UPDATE chat_threads SET updated_at = ? WHERE id = ?", (now, thread_id))
 
 
+# The sidebar's own bound. Most-recently-touched first, so the cap drops the
+# threads nobody has opened in longest — the least wrong ones to drop, not
+# none: past this number the oldest thread does leave the sidebar, and only a
+# delete removes its rows.
+THREAD_LIMIT = 500
+# alphabetical, so the cap drops the tail of the list rather than the newest
+FOLDER_LIMIT = 200
+# One transcript. A thread that reaches this has already been trimmed on the
+# model side by the conversation manager (agents/team_agent.py), so the cap
+# bounds the RESPONSE, not the conversation.
+MESSAGE_LIMIT = 1000
+
+
 def list_threads(owner: str) -> list[dict]:
     return db.query(
         "SELECT id, title, folder, engagement_id, created_at, updated_at FROM chat_threads"
-        " WHERE owner = ? ORDER BY updated_at DESC, rowid DESC",
-        (owner,),
+        " WHERE owner = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+        (owner, THREAD_LIMIT),
     )
 
 
@@ -251,10 +264,16 @@ def thread_contains(thread_id: str, needle: str) -> bool:
 
 def get_messages(thread_id: str, owner: str) -> list[dict]:
     _own(thread_id, owner)
-    return db.query(
-        "SELECT role, content, created_at FROM chat_messages WHERE thread_id = ? ORDER BY id",
-        (thread_id,),
+    # newest MESSAGE_LIMIT, handed back oldest-first. Ordering DESC in the
+    # query and reversing here is what keeps the cap on the right end: a plain
+    # "ORDER BY id LIMIT n" returns the START of a long thread and hides
+    # everything the reader was last talking about.
+    rows = db.query(
+        "SELECT role, content, created_at FROM chat_messages WHERE thread_id = ?"
+        " ORDER BY id DESC LIMIT ?",
+        (thread_id, MESSAGE_LIMIT),
     )
+    return rows[::-1]
 
 
 FOLDER_LEN = 40
@@ -274,11 +293,14 @@ def create_folder(owner: str, name: str) -> dict:
 
 def list_folders(owner: str) -> list[str]:
     """Union of registered folders and any legacy folder still on a thread."""
+    # Bounded like the two lists beside it. This one grows on a second axis —
+    # the UNION picks up every distinct folder string ever set on a thread, so
+    # it counts names that no chat_folders row remembers.
     rows = db.query(
         "SELECT name FROM chat_folders WHERE owner = ?"
         " UNION SELECT DISTINCT folder FROM chat_threads WHERE owner = ? AND folder != ''"
-        " ORDER BY 1",
-        (owner, owner),
+        " ORDER BY 1 LIMIT ?",
+        (owner, owner, FOLDER_LIMIT),
     )
     return [r["name"] for r in rows]
 
@@ -295,11 +317,26 @@ def delete_folder(owner: str, name: str) -> dict:
 
 
 def _snap_folder(owner: str, wanted: str) -> str:
-    """Case-insensitively reuse an existing folder spelling."""
-    for existing in list_folders(owner):
-        if existing.lower() == wanted.lower():
-            return existing
-    return wanted
+    """Case-insensitively reuse an existing folder spelling.
+
+    Asks the database rather than scanning `list_folders`, which is capped:
+    past FOLDER_LIMIT the scan stopped finding `zebra` for `Zebra`, and the
+    unique index is BINARY-collated, so a second folder differing only in case
+    was filed. A decision computed over a truncated list is the bug
+    api_keys.active_key_count exists to avoid, one file over.
+    """
+    row = db.query_one(
+        "SELECT name FROM chat_folders WHERE owner = ? AND lower(name) = lower(?)",
+        (owner, wanted),
+    )
+    if row:
+        return str(row["name"])
+    legacy = db.query_one(
+        "SELECT folder AS name FROM chat_threads"
+        " WHERE owner = ? AND folder != '' AND lower(folder) = lower(?) LIMIT 1",
+        (owner, wanted),
+    )
+    return str(legacy["name"]) if legacy else wanted
 
 
 def update_thread(

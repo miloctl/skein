@@ -62,6 +62,35 @@ def _registry() -> dict:
     }
 
 
+def unappliable(entity: str, payload: dict) -> str:
+    """Why the service would refuse this payload at apply time, or "".
+
+    A proposal is stored now and applied LATER, through the same service the
+    REST door uses. A payload the service will refuse becomes a row that can
+    only ever be rejected, and the reviewer is told why at the verdict — long
+    after whoever wrote it could fix it. Worse, the row is already in the queue
+    when the bound ships, so a deploy strands it.
+
+    Only the free-text bounds are checked, which are the ones a pasted line or
+    a model can exceed. Every other refusal a service makes (a missing
+    milestone, a bad date) is about state that can change between the proposal
+    and the verdict, and guessing at it here would drop proposals that WOULD
+    have applied.
+    """
+    from .intake import DETAIL_LEN
+    from .work import DESCRIPTION_LEN, TITLE_LEN
+
+    caps = {
+        "task": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
+        "milestone": (("title", TITLE_LEN), ("description", DESCRIPTION_LEN)),
+        "intake": (("detail", DETAIL_LEN),),
+    }
+    for field, cap in caps.get(entity, ()):
+        if len(str(payload.get(field) or "")) > cap:
+            return f"{entity} {field} must be {cap} characters or fewer"
+    return ""
+
+
 def propose_change(
     entity: str,
     action: str,
@@ -85,6 +114,12 @@ def propose_change(
     # oversized payloads would also fail at apply and wedge in the queue
     if len(json.dumps(payload)) > 20_000:
         raise ValueError("proposal payload too large — keep it under 20k characters")
+    # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
+    # ingester both file proposals, and a guard in either one leaves the other
+    # storing rows that can never be approved.
+    refusal = unappliable(entity, payload)
+    if refusal:
+        raise ValueError(refusal)
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by)"
@@ -637,6 +672,10 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
     else:
         rows = db.query("SELECT * FROM pending_changes ORDER BY id DESC LIMIT 100")
     rows = _readable(rows, viewer)
+    # only the pairs on THIS page: trust_scores computes for every pair in
+    # the settled history, and a queue of 200 rows from one proposer would
+    # otherwise pay for every agent the deployment has ever had.
+    record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
     for r in rows:
         r["payload"] = json.loads(r["payload"])
         # what this proposal is CALLED, resolved here so the header, the
@@ -645,4 +684,69 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
         # the UI shows whose verdict this is — acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)
+        r["record"] = record.get((r["proposed_by"], r["entity"]))
     return rows
+
+
+def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
+    """This proposer's record on THIS entity, keyed for the queue.
+
+    The reviewer judged every proposal blind: approval rate and streak were
+    computed already and lived two pages away on /agents, so the one screen
+    where the number decides something was the one screen without it. Read
+    from `delegation.trust_scores` rather than recomputed — a second
+    definition of "streak" that disagreed with the promotion job would be
+    worse than none.
+
+    Scoped to the pairs the page actually shows. `trust_scores` runs a
+    per-pair lookup for every pair in the settled history, so an unfiltered
+    call cost 123 queries to render a queue that needed one — the cost grew
+    with the deployment's age rather than with the page.
+    """
+    from .delegation import TRUST_STREAK, promotion_blocked, trust_blocked, trust_scores
+    from .users import is_agent
+
+    # Why no streak CAN form, when none can — the same sentence Team → Agents
+    # renders above its trust card. In trusted-header mode (the default) a
+    # verdict is weak, so `recent_streak` is 0 for everyone: without this the
+    # row read "8 of 8 approved (100%) · no run of approvals", which states a
+    # perfect record and no run of approvals in one breath, and the promotion
+    # line could never appear. An operator's fix, not a wait.
+    blocked = trust_blocked()
+    out: dict[tuple[str, str], dict] = {}
+    for t in trust_scores(wanted):
+        # AGENT proposers only. Ingest files proposals under the person who
+        # pasted the notes (services/ingest.py, origin='human'), and /review is
+        # team-visible — so keying this on the proposer alone would put one
+        # teammate's approval history in front of the whole roster, which is
+        # person-level data judging the PAST. The anti-surveillance rule is
+        # enforced in the service layer, not by hoping a caller filters.
+        # It is also the wrong question: the record exists to decide whether an
+        # AGENT has earned more autonomy. Nobody scores a colleague's rate.
+        if not is_agent(t["agent"]):
+            continue
+        out[(t["agent"], t["entity"])] = {
+            "approved": t["approved"],
+            "proposed": t["proposed"],
+            "approval_rate": t["approval_rate"],
+            "streak": t["recent_streak"],
+            "streak_blocked": blocked,
+            "level": t["current_level"],
+            # said at the verdict, where the approval that earns it happens.
+            # Only when this verdict is the one that closes the streak AND a
+            # promotion is actually available from here — trust_scores makes
+            # the same `review` check for its own suggestion.
+            # asks delegation, never restates its rule: promotion_blocked
+            # refuses the ALWAYS_REVIEW and NO_AUTHORITY entities and stays
+            # silent for 28 days after a human declines. task_completion is
+            # in NO_AUTHORITY and is also the entity a delegated agent
+            # proposes on MOST, so a restatement here promised a promotion
+            # that could never be filed, on the common case.
+            "promotes_at": (
+                TRUST_STREAK
+                if t["recent_streak"] == TRUST_STREAK - 1
+                and not promotion_blocked(t["agent"], t["entity"], t["current_level"])
+                else 0
+            ),
+        }
+    return out

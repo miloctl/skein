@@ -15,8 +15,9 @@ from .scope import WORKSPACE_ONLY
 
 def _clean(text: str, width: int = 80) -> str:
     """User text goes into markdown bullets — a newline in a promise must not
-    forge a section header in the packet."""
-    return " ".join(str(text).split())[:width]
+    forge a section header in the packet. The shared rule lives in
+    services/wording.py::flatten, which every generator now uses."""
+    return wording.flatten(text, width)
 
 
 def _claim_week(job: str, week: str, force: bool) -> bool:
@@ -31,12 +32,16 @@ def _release_claim(job: str, week: str) -> None:
     db.execute("DELETE FROM job_runs WHERE job = ? AND run_key = ?", (job, week))
 
 
-def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> str:
+def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[int, str]:
+    """Returns (artifact id, path). The id is what a caller hands a reader:
+    the path is a server-side filename that no browser can open, and the
+    ritual's own response is the only place the id is knowable without
+    re-listing every artifact and matching on the title."""
     day = db.today().isoformat()  # must match the heading and the claim key
     out_dir = Path(config.DATA_DIR) / "artifacts" / "rituals"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{day}-{slug}.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
     # forced same-day reruns overwrite the file — upsert the row to match
     existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
     if existing:
@@ -44,13 +49,12 @@ def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> str:
             "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
             (actor, db.now(), existing["id"]),
         )
-    else:
-        db.execute(
-            "INSERT INTO artifacts (kind, title, path, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            ("ritual", title, str(path), actor, db.now()),
-        )
-    return str(path)
+        return int(existing["id"]), str(path)
+    aid = db.execute(
+        "INSERT INTO artifacts (kind, title, path, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
+        ("ritual", title, str(path), actor, db.now()),
+    )
+    return int(aid), str(path)
 
 
 def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
@@ -71,7 +75,10 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
 def _week_close_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
     due_promises = db.query(
-        f"SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction = 'given': the close-out asks what the team owes and has
+        # not settled. A received promise is chased by its own hourly job.
+        f"SELECT id, promise, to_whom, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
+        f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (horizon,),
     )
@@ -145,7 +152,9 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         lines.append("Nothing dangling. Close the laptop — the week is settled.")
 
     markdown = "\n".join(lines)
-    path = _write_artifact("week-close", f"Week close-out {today.isoformat()}", markdown, actor)
+    aid, path = _write_artifact(
+        "week-close", f"Week close-out {today.isoformat()}", markdown, actor
+    )
     db.log_activity(actor, "week_close", wording.count(total, "open item"))
     if total:
         from .notifications import notify
@@ -160,7 +169,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
             tier="digest",
             link="/portfolio",
         )
-    return {"week": week, "items": total, "path": path, "markdown": markdown}
+    return {"week": week, "items": total, "artifact_id": aid, "path": path, "markdown": markdown}
 
 
 def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
@@ -197,7 +206,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     for h in humans:
         name = h["name"]
         promises = db.query(
-            f"SELECT id, promise, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            # direction = 'given', like the close-out above: this brief tells a
+            # person what THEY owe
+            f"SELECT id, promise, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
+            f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
             " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
             (name, horizon),
         )
@@ -256,7 +268,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     agent_recorded = db.query(
         "SELECT c.id, c.promise, c.due_date FROM promises c"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
-        f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open'"
+        # 'given' only, like every other reader of this table: a RECEIVED
+        # promise needs no owner on this side, and the chaser
+        # (services/promises.py::chase_received) already watches it
+        f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open' AND c.direction = 'given'"
         " AND (c.due_date IS NULL OR c.due_date <= ?)"
         " ORDER BY c.due_date",
         (horizon,),
@@ -276,6 +291,12 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         lines.append("No outstanding obligations — a clean slate of a Monday.")
 
     markdown = "\n".join(lines)
-    path = _write_artifact("week-open", f"Week open {today.isoformat()}", markdown, actor)
+    aid, path = _write_artifact("week-open", f"Week open {today.isoformat()}", markdown, actor)
     db.log_activity(actor, "week_open", f"{wording.count(briefed, 'person')} briefed")
-    return {"week": week, "briefed": briefed, "path": path, "markdown": markdown}
+    return {
+        "week": week,
+        "briefed": briefed,
+        "artifact_id": aid,
+        "path": path,
+        "markdown": markdown,
+    }

@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .. import config, db
+from . import wording
 from .scope import WORKSPACE_ONLY
 from .slas import DIGEST_STALLED_DAYS
 
@@ -61,7 +62,8 @@ def build_digest() -> str:
         for f in findings:
             mark = {"high": "🔴", "medium": "🟡", "low": "·", "positive": "🟢"}[f["severity"]]
             lines.append(
-                f"- {mark} {f['message']}" + (f" *(n={f['n']}, {f['window']})*" if f["n"] else "")
+                f"- {mark} {wording.flatten(f['message'])}"
+                + (f" *(n={f['n']}, {f['window']})*" if f["n"] else "")
             )
         lines.append("")
 
@@ -69,7 +71,7 @@ def build_digest() -> str:
     if esc:
         lines.append("## ⛔ Escalated blockers")
         lines += [
-            f"- #{b['id']} **{b['title']}** (owner: {b['owner'] or 'unowned'},"
+            f"- #{b['id']} **{wording.flatten(b['title'])}** (owner: {b['owner'] or 'unowned'},"
             f" impact: {b['impact']})"
             for b in esc
         ]
@@ -78,7 +80,10 @@ def build_digest() -> str:
     stalled = _stalled_tasks()
     if stalled:
         lines.append(f"## 🐌 Stalled tasks (no update in {DIGEST_STALLED_DAYS}+ days)")
-        lines += [f"- #{t['id']} {t['title']} (@{t['assignee'] or 'unassigned'})" for t in stalled]
+        lines += [
+            f"- #{t['id']} {wording.flatten(t['title'])} (@{t['assignee'] or 'unassigned'})"
+            for t in stalled
+        ]
         lines.append("")
 
     open_q = db.query(
@@ -87,7 +92,8 @@ def build_digest() -> str:
     if open_q:
         lines.append("## ❓ Unanswered questions")
         lines += [
-            f"- #{q['id']} {q['question']} (→ {q['assigned_to'] or 'unassigned'})" for q in open_q
+            f"- #{q['id']} {wording.flatten(q['question'])} (→ {q['assigned_to'] or 'unassigned'})"
+            for q in open_q
         ]
         lines.append("")
 
@@ -99,7 +105,10 @@ def build_digest() -> str:
     )
     if due:
         lines.append("## 🎯 Milestones due within a week")
-        lines += [f"- #{m['id']} {m['title']} — due {m['due_date']} ({m['status']})" for m in due]
+        lines += [
+            f"- #{m['id']} {wording.flatten(m['title'])} — due {m['due_date']} ({m['status']})"
+            for m in due
+        ]
         lines.append("")
 
     pending = db.query_one("SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'")
@@ -118,7 +127,7 @@ def build_digest() -> str:
     lines.append("## 📋 Today")
     lines.append(f"- Pending reviews awaiting a human: {pending['n'] if pending else 0}")
     lines += [
-        f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''} {e['title']}"
+        f"- 📅 {e['starts_at'][11:16] if len(e['starts_at']) > 10 else ''} {wording.flatten(e['title'])}"
         for e in events
     ]
     all_clear = not (esc or stalled or open_q or due)
@@ -161,7 +170,7 @@ def publish_digest(*, actor: str = "scheduler", force: bool = False) -> dict:
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / "digests"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     path = artifacts_dir / f"{today}-digest.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
 
     # same-day reruns overwrite the file, so upsert the artifact row too —
     # N rows pointing at one file would imply history that doesn't exist

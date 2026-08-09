@@ -28,7 +28,7 @@ const GROUPS: { href: string; label: string; paths: string[] }[][] = [
     {
       href: "/portfolio",
       label: "Work",
-      paths: ["/planning", "/portfolio", "/dashboard", "/insights"],
+      paths: ["/planning", "/portfolio", "/dashboard", "/insights", "/artifacts"],
     },
     {
       href: "/review",
@@ -272,15 +272,20 @@ export function Nav() {
                   {anonymous ? "?" : user[0]}
                 </span>
                 {anonymous ? (
+                  // no search box for an anonymous visitor, so the row has the
+                  // width to say this — and it must, because picking a name is
+                  // the one thing that visitor has to do
                   <span className="text-ink-3">anonymous</span>
                 ) : (
-                  // 7rem at phone width, not 9: the logo (65px) plus this
-                  // cluster must fit 328px of content box, and at 9rem a
-                  // 22-character name made the cluster 273px and wrapped the
-                  // header into a THIRD row — 166px against a --nav-h of 100,
-                  // which pushes the chat composer off-screen. globals.css
-                  // publishes --nav-h on the promise that this cannot happen.
-                  <span className="min-w-0 max-w-[7rem] truncate sm:max-w-[9rem]">
+                  // Read, not seen, below `sm`. The header holds the logo, the
+                  // search field, this chip and the capture button in 328px of
+                  // content box at 360px; the name at 7rem left the search
+                  // field 10px wide. The avatar carries identity on a phone and
+                  // the menu spells it out, so the name stays in the
+                  // accessibility tree rather than being dropped: sr-only keeps
+                  // the button's accessible name, which is what a screen reader
+                  // and voice control both read.
+                  <span className="sr-only min-w-0 sm:not-sr-only sm:block sm:max-w-[9rem] sm:truncate">
                     {user}
                   </span>
                 )}

@@ -26,13 +26,12 @@ type AttentionItem = {
 type Briefing = {
   user: string;
   date: string;
-  needs_you: {
-    open_questions: Row[];
-    pending_reviews: Row[];
-    your_blockers: Row[];
-    intake_to_triage: Row[];
-    notifications: Row[];
-  };
+  // `needs_you` (the same five lists, uncategorized) is deliberately absent:
+  // `attention` IS those rows, already grouped by the judgment each one asks
+  // for and carrying its own reason line, and rendering both would ask the
+  // reader to notice they are the same work twice. The payload still carries
+  // it for `skein my-day` and the /briefing chat command, which have no
+  // grouped renderer — see services/briefing.py.
   attention: AttentionItem[];
   pending_reviews_total?: number;
   your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };
@@ -243,6 +242,21 @@ export default function MyDay() {
       await api(`/api/blockers/${id}/resolve`, {
         method: "POST",
         body: JSON.stringify({ resolution: "resolved from My Day" }),
+      });
+    } catch (e) {
+      reportStatus(actionError(e));
+    }
+    load();
+  };
+
+  // The daily ask has to be answerable where it is asked. Without these the
+  // only way to clear a meeting notice was a POST by hand, so the same
+  // meeting came back every morning forever.
+  const recordOutcome = async (id: number, outcome: "recorded" | "none") => {
+    try {
+      await api(`/api/events/${id}/outcome`, {
+        method: "POST",
+        body: JSON.stringify({ outcome }),
       });
     } catch (e) {
       reportStatus(actionError(e));
@@ -472,6 +486,24 @@ export default function MyDay() {
                               >
                                 resolve
                               </button>
+                            )}
+                            {a.kind === "meeting" && (
+                              <span className="flex shrink-0 gap-1">
+                                <button
+                                  onClick={() => recordOutcome(a.ref_id, "recorded")}
+                                  className="rounded bg-ok/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ok hover:bg-ok/20"
+                                  title="something came out of it — write it up on Capture"
+                                >
+                                  wrote it up
+                                </button>
+                                <button
+                                  onClick={() => recordOutcome(a.ref_id, "none")}
+                                  className="rounded bg-ink-3/15 px-2 py-1.5 md:py-0.5 text-xs font-medium text-ink-2 hover:bg-ink-3/20"
+                                  title="nothing came out of it — this is what the weekly finding counts"
+                                >
+                                  nothing
+                                </button>
+                              </span>
                             )}
                             {a.kind === "notification" && (
                               <button

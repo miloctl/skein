@@ -413,9 +413,11 @@
      At 6.25rem it under-reported by 8px, so the chat pane was 8px too tall
      and its composer sat below the fold on an 800px screen.
      min-height cannot pin a row count: what keeps this to two rows is the
-     name cap in nav.tsx (max-w-[7rem] at phone), because the logo plus the
-     identity cluster has to fit 328px of content box. Widen that cap and the
-     header wraps to a third row, and this number is wrong again. */
+     phone layout in nav.tsx, where the name is sr-only below sm and
+     nav-search.tsx takes the slack (flex-1 min-w-0) — the logo plus the
+     identity cluster has to fit 328px of content box. Give the name a
+     visible width back at phone size and the header wraps to a third row,
+     and this number is wrong again. */
   --nav-h: 6.75rem;
 }
 

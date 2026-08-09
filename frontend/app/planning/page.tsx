@@ -52,10 +52,34 @@ type Cockpit = {
   conflicts: { person: string; total_percent: number; detail: string }[];
   intake: { id: number; title: string; requester: string; score: number | null }[];
   stale_decisions: { id: number; title: string; review_by: string | null }[];
+  // open threads with people outside the roster (services/stakeholders.py)
+  stakeholders: {
+    party: string;
+    items: { kind: string; text: string; when: string }[];
+  }[];
+  awaiting: {
+    id: number;
+    promise: string;
+    to_whom: string;
+    due_date: string | null;
+  }[];
   health: { id: number; name: string; health: string; status: string }[];
   // `from` is non-null by the time it reaches here — the service drops a
   // first-ever score, which is not a change (services/planning.py)
   health_changes: { id: number; name: string; from: string; to: string }[];
+  // the open task whose finish releases the most other work. null when
+  // nothing waits on anything — a zeroed row would be a sentence about work
+  // that does not exist (services/planning.py)
+  top_unblocking_move: {
+    id: number;
+    title: string;
+    assignee: string;
+    unblocks: number;
+    // carried, not dropped: on a truncated walk the count is a FLOOR, and
+    // services/planning.py says the peek and this card must not read
+    // differently about the same chain
+    depth_capped?: boolean;
+  } | null;
   today: string;
 };
 
@@ -194,17 +218,35 @@ export default function Planning() {
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-ink-3">
                 <th scope="col" className="py-1 pr-3">Week</th>
-                <th scope="col" className="py-1 pr-3">Over 100%</th>
+                <th scope="col" className="py-1 pr-3">Load</th>
                 <th scope="col" className="py-1">Away</th>
               </tr>
             </thead>
             <tbody>
               {d.capacity_ahead.map((w) => (
-                <tr key={w.week} className="border-t border-line">
+                <tr key={w.week} className="border-t border-line align-top">
                   <td className="py-1 pr-3 whitespace-nowrap">{w.week}</td>
+                  {/* `people` carries every allocated person and their
+                      percent; `over` is derived from it as the subset above
+                      100. The table read only `over`, so a week where three
+                      people sat at 95% looked identical to an empty one —
+                      which is the staffing call this card exists to make. */}
                   <td className="py-1 pr-3">
-                    {w.over.length ? (
-                      <span className="text-weld">{w.over.join(", ")}</span>
+                    {w.people.length ? (
+                      <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        {w.people.map((p) => (
+                          <span
+                            key={p.person}
+                            className={
+                              p.total_percent > 100 ? "text-weld" : "text-ink-2"
+                            }
+                            title={p.detail}
+                          >
+                            {p.person}{" "}
+                            <span className="tabular-nums">{p.total_percent}%</span>
+                          </span>
+                        ))}
+                      </span>
                     ) : (
                       <span className="text-ink-3">—</span>
                     )}
@@ -246,6 +288,87 @@ export default function Planning() {
         </p>
       </Card>
 
+      {/* the one move that releases the most work. Sits with the week's plan
+          rather than with the stale list: it is a choice about what to start,
+          not something that has gone wrong. */}
+      {d.top_unblocking_move ? (
+        <Card title="The move that unblocks the most">
+          <p className="text-sm">
+            <PeekLink taskId={d.top_unblocking_move.id}>
+              <span className="text-ink-3">#{d.top_unblocking_move.id}</span>{" "}
+              {d.top_unblocking_move.title}
+            </PeekLink>
+            {d.top_unblocking_move.assignee ? (
+              <span className="ml-2 text-xs text-ink-3">
+                @{d.top_unblocking_move.assignee}
+              </span>
+            ) : null}
+          </p>
+          <p className="mt-1 text-xs text-ink-3">
+            Finishing it releases {d.top_unblocking_move.unblocks} task
+            {d.top_unblocking_move.unblocks === 1 ? "" : "s"} that wait on it
+            {d.top_unblocking_move.depth_capped
+              ? " (the chain runs deeper than Skein follows)"
+              : ""}
+            ,
+            directly or behind another.
+          </p>
+        </Card>
+      ) : null}
+
+      {/* who is owed what, outside the team. Read before the week's meetings
+          rather than after them, which is when it was answerable at all. */}
+      {d.stakeholders.length > 0 ? (
+        <Card title={`Open outside the team (${d.stakeholders.length})`}>
+          <ul className="space-y-2 text-sm">
+            {d.stakeholders.map((s) => (
+              <li key={s.party}>
+                <span className="font-medium">{s.party}</span>
+                <ul className="ml-4 list-disc text-xs text-ink-3">
+                  {s.items.map((i, n) => (
+                    <li key={n}>
+                      {i.text}
+                      <span className="ml-1">
+                        ({i.kind}
+                        {i.when ? `, due ${i.when}` : ""})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      {/* what the team is waiting ON. Beside the triage queue rather than in
+          it: these are not decisions to make, they are people to chase. */}
+      {d.awaiting.length > 0 ? (
+        <Card title={`Open with other people (${d.awaiting.length})`}>
+          <ul className="space-y-1 text-sm">
+            {d.awaiting.map((p) => {
+              const late = p.due_date !== null && p.due_date < d.today;
+              return (
+                <li key={p.id}>
+                  <span className={late ? "text-weld" : ""}>{p.promise}</span>
+                  <span className="ml-2 text-xs text-ink-3">
+                    {p.to_whom ? `${p.to_whom} owes it` : "nobody named"}
+                    {p.due_date ? ` · due ${p.due_date}` : " · no date"}
+                    {late ? " · overdue" : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-ink-3">
+            Skein chases an overdue one once a day. If two chases get no
+            answer, it tells the team once, and it names nobody. Capture one
+            with &ldquo;awaiting: acme corp — the signed SOW by
+            YYYY-MM-DD&rdquo;.
+          </p>
+        </Card>
+      ) : null}
+
       {/* 5 — what has gone stale, and which way the portfolio moved */}
       <Card title="5 · Needs a decision">
         {d.health_changes.length > 0 ? (
@@ -262,6 +385,25 @@ export default function Planning() {
                       this heading says one. A fallback string here would be
                       copy no reader can reach. */}
                   {c.from} → {c.to}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {/* Where the portfolio stands, under where it moved. The movement
+            list answers "what changed" and is silent about an engagement
+            that has been red all month — the one most likely to need the
+            meeting's attention. */}
+        {d.health.length > 0 ? (
+          <>
+            <h3 className="text-xs uppercase tracking-wide text-ink-3">
+              Where each engagement stands
+            </h3>
+            <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+              {d.health.map((h) => (
+                <li key={h.id}>
+                  {DOT[h.health]} {h.name}
+                  <span className="ml-1 text-xs text-ink-3">{h.status}</span>
                 </li>
               ))}
             </ul>

@@ -173,9 +173,13 @@ def test_authority_matrix_gate(client, fresh_db, monkeypatch):
 
 
 def test_trust_scores_streak_suggestion(client, fresh_db):
-    from app.services import review
+    from app.services import review, users
     from app.services.api_keys import create_key
 
+    # the agent has a users row on any running instance, and trust_scores
+    # joins on it — humans propose too (services/ingest.py), and their
+    # approval record must never reach this surface
+    users.ensure_user("scribe", kind="agent")
     # promotion streaks count only strong-identity verdicts
     headers = {"Authorization": f"Bearer {create_key('tester', 't')['key']}"}
     for i in range(5):
@@ -190,7 +194,9 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
 
 
 def test_weak_identity_verdicts_never_suggest_promotion(client, fresh_db):
-    from app.services import review
+    from app.services import review, users
+
+    users.ensure_user("scribe", kind="agent")
 
     for i in range(5):
         p = review.propose_change(

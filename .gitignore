@@ -4,3 +4,9 @@ __pycache__/
 
 # agent worktrees (Claude Code tooling scratch, never project state)
 .claude/worktrees/
+
+# session scaffolding: the spec/plan/todo a working session writes. The open
+# backlog has ONE home (docs/ROADMAP.md) and a closed plan is archived to
+# docs/reviews/ with a date — a third copy is what the 2026-08-02
+# consolidation existed to undo.
+tasks/

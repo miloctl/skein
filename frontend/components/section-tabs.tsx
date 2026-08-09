@@ -13,6 +13,9 @@ const SETS = {
     { href: "/portfolio", label: "Health" },
     { href: "/dashboard", label: "Browse" },
     { href: "/insights", label: "Insights" },
+    // last in the set: everything here is a record of a ritual that already
+    // ran, so it is read after the week is planned rather than during it
+    { href: "/artifacts", label: "Reports" },
   ],
   inbox: [
     { href: "/review", label: "Approvals" },
@@ -30,7 +33,11 @@ const SETS = {
 export function SectionTabs({ set }: { set: keyof typeof SETS }) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Section" className="mb-5 flex gap-1.5">
+    // wraps, because the Work set holds five tabs and at 360px they measure
+    // 355px against 328px of content box. Wrapping over scrolling: five short
+    // labels fit two rows, and a scroller hides whichever tab you are not on
+    // behind a gesture nobody is told about.
+    <nav aria-label="Section" className="mb-5 flex flex-wrap gap-1.5">
       {SETS[set].map((t) => (
         <Link
           key={t.href}

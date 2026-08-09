@@ -8,11 +8,16 @@ import { expect, test, type Page } from "@playwright/test";
  *  browser actually composed it. The backend is seeded (seed.py) and runs
  *  the mock provider, so every walk is deterministic and keyless. */
 
-// the five nav destinations plus Settings; paths from components/nav.tsx
+// the nav destinations plus Settings and the Reports tab; paths from
+// components/nav.tsx and components/section-tabs.tsx
 const PAGES = [
   { path: "/", name: "My Day" },
   { path: "/chat", name: "Chat" },
   { path: "/portfolio", name: "Work" },
+  // its own walk: the reader renders markdown the backend generators wrote,
+  // so a broken parse shows as a clean-but-empty page that no fetch failure
+  // would report
+  { path: "/artifacts", name: "Reports" },
   { path: "/review", name: "Inbox" },
   { path: "/agents", name: "Team" },
   { path: "/settings", name: "Settings" },

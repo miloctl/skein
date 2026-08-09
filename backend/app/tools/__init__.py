@@ -36,7 +36,9 @@ from .portfolio import (
     claim_delegated_task,
     delegate_task,
     edit_promise,
+    get_attention,
     get_context_pack,
+    get_findings,
     get_flow_metrics,
     get_portfolio_health,
     list_absences,
@@ -120,5 +122,7 @@ ALL_TOOLS = [
     read_worklog,
     submit_for_acceptance,
     add_absence,
+    get_attention,
+    get_findings,
     list_absences,
 ]

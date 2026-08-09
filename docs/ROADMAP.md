@@ -21,27 +21,30 @@ and `frontend/lib/whimsy.ts`.
 
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
-CORRECTIONS rule 5 names three bounds. Only the PATCH-vs-create parity check
-is enforced by a test. The other two are review obligations, and a review
-found real gaps behind both:
+The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
+(`tests/test_bounded_routes.py`). What is left:
 
-- **Rate caps.** About 46 mutating routes never call `ratelimit.check`,
-  including `PATCH /api/tasks/{id}`, `PATCH /api/questions/{id}`, the
-  `/api/private/*` writes, and the chat folder/thread writes. Needed: a
-  structural test that reflects over the route table and asserts every
-  mutating route either calls the check or carries an `# unbounded:` marker
-  with a row in the exemptions table.
-- **Unbounded lists.** `chat_threads.list_threads`, `get_messages`,
-  `api_keys.list_keys` and `list_all_keys` have no LIMIT.
-  (`private_notes.list_notes` got its LIMIT on the `if person:` branch.)
 - **Uncapped-on-both-sides fields.** The parity test compares a PATCH to its
   create model, so a field left uncapped on BOTH passes. Four were found and
-  capped; a census would prove there are no more.
-- **The service layer is uncapped where the route is capped.** `create_task`
-  and `create_milestone` bound only non-emptiness, so the agent and MCP paths
-  write unbounded LLM-authored titles that the now-capped PATCH route then
-  refuses — a row the system wrote that its own UI cannot edit. Either cap at
-  the service, or have the route accept what the service already stored.
+  capped; a census would prove there are no more. This is the one bound of
+  the four that still has no structural test.
+- **The service layer is uncapped where the route is capped, for five more
+  entities.** `work.py` (task and milestone title/description) and
+  `intake.py` (request detail) took their bounds 2026-08-09, and
+  `review.propose_change` refuses a proposal those two would reject at apply
+  time. The same asymmetry is still live for **blockers, questions,
+  decisions, notes and promises**: `raise_blocker` bounds nothing while
+  `BlockerEditIn.detail` caps at 4000, so `PATCH /api/blockers/{id}` refuses
+  to edit a blocker quick capture itself filed. Bound them in the service and
+  add them to `review.unappliable`, which is keyed by entity and today knows
+  three.
+- **Four routes the ratchet exempts as UNCAPPED, with their cost named.**
+  They are listed in `test_bounded_routes.py::EXEMPT` so nothing new can join
+  them silently, and each wants a cap or a written reason it does not need
+  one: `POST /api/findings/run` (a full rule-engine sweep on demand),
+  `POST /api/context-pack/publish` (rebuilds and versions a pack),
+  `POST /api/playbooks/instantiate` (writes an engagement, milestones and
+  tasks), `POST /api/intake/{request_id}/what-if` (a projection, no write).
 
 ## Self-serve UX (from the 2026-07-24 fresh-user review)
 
@@ -50,40 +53,73 @@ engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
 portfolio commitments card now names its two audiences in the card title.
 Items 1 (nav search), 3 (delegate control in the task peek) and 7 (the
 Recently shipped strip) shipped 2026-08-08/09 and were dropped. The numbers
-below stay as the review transcripts cite them.
+below stay as the review transcripts cite them; item 9 continues the
+numbering and was found later, on 2026-08-09.
 
 2. [M] What-if staffing button on scored intake rows. This closes the dangling
    "shown in staffing what-ifs" reference in Settings.
 4. [M] Generate-handoff button on closing engagements and closed engagements.
 5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
-   on the pulse banner, origin glossary beside Review.
+   on the pulse banner. (The origin glossary this item also named shipped
+   2026-08-09 as the origin chip on each Approvals row.)
 8. [S] A mistyped task is permanent. `docs/CORRECTIONS.md` rule 2 says
    records that carry history get a terminal state instead of a delete, and
    Task already has `done` — so this is not a contract gap. It is an
    ergonomics one: nothing distinguishes "finished" from "never should have
    existed", which is why demo and validation rows accumulate. A `void`
    disposition, or accept it and say so in CORRECTIONS.
+9. [S] The search results panel is cut off at phone width. It is 320px wide
+   (`w-80` in `components/nav-search.tsx`) and anchored `right-0` to the
+   search field, whose right edge sits about 209px from the left of a 360px
+   viewport — so about a third of every result hangs off the left edge.
+   Measured at 360px on 2026-08-09: `left: -111`. This is invisible to
+   `e2e/responsive.spec.ts` because content off the LEFT edge does not grow
+   `scrollWidth`, so no overflow is reported and the walks stay green. The
+   fix is a positioning change, not a width one: anchor the panel to the
+   header or the viewport below `sm`, rather than to a field that is itself
+   near the left of the row.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
-C1 (week rituals), P2 (absences), P5 (both halves — the My Day prefill and
-`skein standup --draft`), and P1 (the planning cockpit, `/planning`) shipped.
 These did not ship:
 
-- **C2 received-promise chaser** — `commitments.direction ('given'|'received')`
-  plus `last_nudged_at` in a migration. Capture grammar
-  `awaiting: <who> — <what> by <date>`. An hourly rule nudges the creator and
-  escalates to the manager after 2 silent cycles. `waiting_on: commitment:N`
-  already works.
-- **C3 meeting outcome loop** — `events` gains agenda, engagement_id and
-  outcome_status. A post-meeting attention item deep-links to `/ingest`. A
-  weekly finding names a recurring meeting with no captured outcome for 3 weeks
-  and gives the hours-burned receipt.
-- **C4 stakeholder open-threads brief** — a read-only union over
-  `commitments.to_whom`, `intake.requester`, `questions.asked_by` and
-  `events.attendees` for names outside the team. A morning rule attaches the
-  brief to meetings with external attendees.
+- **The morning stakeholder brief** [S] — a rule that ATTACHES the open
+  threads with an outside party to the meeting where you will see them.
+  The read exists; nothing pushes it at the hour it is useful.
+  `GET /api/events/{id}/stakeholders` is the seam.
+
+Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
+close diffs planned against actual, and an approved lesson reaches the
+next kickoff of that class. Three pieces stayed behind, and the first is
+what makes the other two worth anything:
+
+- **Playbook variance across engagements** [S] — the same milestone
+  slipping in three incidents running is a fact about the TEMPLATE, not
+  about any of the three, and nothing totals it. One close teaches
+  almost nothing; the third one is the argument. `close_out_diff` is the
+  seam and `lessons.project_class` already groups them.
+- **The kickoff half of the loop has no reader** [S] —
+  `playbooks._instantiate` attaches past-class lessons as a note under
+  `kickoff-lessons-<engagement>`, and nothing points at it: `/plan`
+  reports counts only, `instantiate` does not return it, and playbooks
+  have no UI. The lesson arrives and no one is standing there.
+- **Nothing tracks whether an approved lesson reached the YAML** [S] —
+  the drafted recommendation names `playbooks/<slug>.yaml` and a human
+  edits it by hand, which is right, because playbooks are code. But the
+  review's own measure for R6 was "lessons per close AND playbook YAML
+  edits per quarter", and the second half is unmeasurable in-product. A
+  findings rule over approved close-out lessons per class, against the
+  playbook file's mtime, is the smallest honest answer.
+
+Also, and smaller: a close-out proposal files under
+`proposed_by="system"` with `origin="agent"`. It is deterministic SQL
+arithmetic, which is neither of the two things the origin chip teaches a
+reviewer to read (`docs/FEATURES.md`), and `_trust_by_pair`'s `is_agent`
+filter drops it — so the R3 record chip renders nothing beside an
+agent-labelled row. Either the glossary grows a third shape or the draft
+stops claiming to be an agent.
+
 - **C5 decision links and cascade** — a `decision_links` table, populated at
   record time and by scanning references. Consumed by scoped context packs,
   supersede notifications, and handoffs.
@@ -92,10 +128,6 @@ These did not ship:
   has shipped (`docs/VISIBILITY.md`: `private` / `crew` / `workspace` plus
   crew membership), but a pairwise scope is a fourth case that design does
   not cover, so it still gets designed at the time.
-- **P4's findings rule** — the interrupt ledger itself shipped: a task created
-  after the week line locked and finished in the same week counts as
-  unplanned, and the team-level ratio is in the cockpit
-  (`portfolio.py::interrupts`). No findings rule reads it yet.
 
 ## Agent layer (2026-07-25)
 
@@ -129,23 +161,19 @@ A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
 D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 `--all-from <agent>` batch flag.
 
-- **D2 attention count in the shell prompt** — `skein attention --porcelain`
-  reads a 60-second cache at mode 0600, never blocks and never errors.
-  `skein install-prompt` writes the starship or PS1 snippet, on the
-  `install-hooks` precedent.
-- **D3 branch-aware git flow** — `skein task start 42` makes the branch
-  `task/42-slug` and sets in_progress. A prepare-commit-msg hook injects the
-  trailer from the branch name. `skein pr-body` composes task, engagement pack
-  and commits for `gh pr create`.
 - **D4 MCP mid-task parity** — `claim`, `report` and `submit` landed, and the
   read side (`read_worklog`, from G3) landed 2026-08-08 with MCP parity.
   `update_task`, `answer_question`, `resolve_blocker`, `ask` and `week` did
   not. Review approval over MCP stays deliberately absent, because an agent
   must not launder its own proposal.
-- **D5 offline capture outbox** — a JSONL outbox with an idempotency key that
-  auto-flushes on any successful command, plus `my-day --cached`.
-- **F6** CLI argument grammar normalization. **F7** `skein context --engagement`.
-  **F8** `skein ask`.
+- **D5's idempotency key** — the outbox shipped 2026-08-09 and is AT LEAST
+  ONCE: a row leaves the file only after the server accepts it, so a crash
+  between the accept and the rewrite re-sends it. Exactly-once needs a key
+  the capture route reads and dedupes on, which no route does yet. The safe
+  direction is the one it takes — a duplicate is visible and deletable, a
+  dropped row is a capture the person believed they made.
+- **F6** CLI argument grammar normalization. The commands that take an
+  action word still validate their own combinations by hand in `main()`.
 
 ## Ops (from the 2026-07-24 architecture review)
 
@@ -261,17 +289,106 @@ Still open from that review:
 - **G7's last clause** — per-model spend rows exist on Work → Health,
   and the Settings model menu shows no cost beside a model, so the
   menu is not yet comparative. [S]
-- **P4's findings rule** — see "Manager and workflow" above. [S]
-- **F8 `skein ask`** — the browser half of "one input, a `?` prefix"
-  shipped; the terminal has `skein search` and no ask. Lives in
-  "Developer loop" above. [S]
 
-Suggested order for what is left, now that the deliver-what-is-computed
-arc and the agent motor have landed: the manager frame next — C2, C3,
-C4 and P4's rule land as cards in the cockpit that now exists — then
-the CLI arc (F8, D2, D3, D5, F6, F7), which the web half has outrun,
-and the bounded-input census, which is the highest safety value per
-hour in this file.
+The suggested order this section carried (manager frame, then CLI,
+then census) was revised by the 2026-08-09 product-strategy review —
+the current order lives in that section below.
+
+## From the product-strategy review (2026-08-09)
+
+A three-lens review — developer, manager, and the product as a
+human-and-AI operating system — of everything shipped. Transcript:
+`docs/reviews/2026-08-09-product-review.md`, the definition site for
+R1–R7. The diagnosis repeats 2026-08-08 in a smaller radius, plus one
+new theme: computed value still fails to reach a reader in places, and
+several loops stop at 80% — the trust flywheel has no flow, playbooks
+never learn from their own engagements, and waiting-on edges give the
+person typing them nothing back.
+
+- **R8 runner wake reads** [S] — `agent_runner._WAKE` names only the
+  delegation tools, so an agent woken by the unattended runner reads its
+  inbox and nothing else. Seed the wake turn from `get_findings` and
+  `get_attention` as well, so an unattended turn reads the same rules a
+  chat turn does. Those two tools shipped 2026-08-09.
+- **The per-task unblock count on My Day** [S] — the task peek and the
+  cockpit card both show what finishing a task releases; My Day does not,
+  so the number is absent from the one surface people open first. The
+  `blockers.task_id` half of the original spec stays dropped on purpose —
+  `services/work.py::_blocked_by` records why a blocker edge is not
+  released work.
+
+**Dogfooding.** Not a build, and blocking two triggers: put flow through
+the trust loop in our own deployment — `SKEIN_AGENT_REVIEW=1`, real delegations
+with real sponsors, one agent named in `SKEIN_AGENT_RUNNER`. A5 and
+G6 both wait, by their own stated triggers, on the verdict volume this
+produces.
+
+That note is the binding item now. The proposer's record renders from
+real verdicts, and in the default trusted-header mode no verdict counts
+at all, so the surface is currently proving itself against an empty
+table.
+
+**Left behind by the 2026-08-09 arc, named where each belongs:** R8 and
+the per-task unblock count above; playbook variance across engagements,
+the unread kickoff half of that loop, and the untracked YAML edit under
+"Manager and workflow"; F6 and D5's idempotency key under "Developer
+loop"; C4's morning rule under "Manager and workflow"; and the
+uncapped-on-both-sides census bullet at the top of this file.
+
+## From the pre-merge review (2026-08-09)
+
+Five agents over the whole `deliver-what-is-computed` branch. What they
+found was fixed in the merge commit, except these, each verified by a
+reviewer running the code.
+
+- **The planning cockpit's outside-threads card has no cap** [S] —
+  measured at 360px it was 65% of a 4705px page, which buries the rest of
+  the Monday agenda. `/artifacts` shows the honest shape to copy
+  ("Reports (newest 50)"). The three cards added on 2026-08-09 are also
+  unnumbered, so the 1–6 agenda a manager reads down now has gaps.
+- **A lesson search hit can link to a row the page will not show** [S] —
+  `list_lessons` is `LIMIT 100` with no offset, and search is full-text
+  over all of them, so past 100 the `#lesson-N` anchor targets nothing.
+  The card should disclose its cap the way the reports card does.
+- **`/artifacts` desyncs its URL from its pane** [S] — the Reports tab is
+  a same-route link, so the component never remounts and `popstate` never
+  fires; the pane keeps the open report while the URL loses `?id=`. The
+  page exists to be pasted to a teammate, and the tab it renders itself
+  defeats that.
+- **Regenerating a readout twice in one day says nothing** [XS] — the
+  route overwrites the day's file and returns the same artifact id, so
+  the state never changes and no live region fires.
+- **Focus is lost after a close-out action** [XS] — Escape, cancel and a
+  conclusion click all drop focus to `body`, and the drafted-lesson
+  banner appears above the list with no live region to announce it.
+- **`flow_metrics` has no viewer filter** [S] — the `interrupt_load`
+  finding is team-wide and counts private and crew tasks in its
+  denominator, unlike every other rule in `insights.py`, which splices
+  `WORKSPACE_ONLY`. The number is an aggregate with no titles, so this is
+  a wrong number before it is a leak.
+- **A deliberate 500 answers `text/plain`** [XS] — `read_artifact`'s
+  RuntimeError has no handler in `main.py`, so Starlette returns a bare
+  body and the operator instruction inside it reaches nobody. An error
+  response is always JSON.
+- **`skein capture` costs 30 seconds against an unreachable host** [S] —
+  15 for the POST and 15 more re-flushing the row it just queued. The
+  command that exists so a thought is never lost is the slowest one.
+- **The promotion rule is stated in three places** [S] —
+  `promotion_blocked` is meant to be the one predicate, but
+  `delegation.suggestion` still says "autonomous" where the code promotes
+  to `notify`, and `_authority_recently_judged` re-runs per pair inside a
+  loop that already built the same set.
+- **An all-day event enters the outcome window at 04:00 UTC** [XS] —
+  `'2026-08-09' < '2026-08-09T04:00'` is true, so the four-hour "not
+  during the meeting" guard does nothing for a date-only row.
+- **`_snap_folder` folds ASCII only** [XS] — SQLite's `lower()` is
+  ASCII-only, so "Été" and "été" are two folders again, which is what
+  the change was made to stop.
+- **`awaiting` has no lexicon entry** [XS] — it ships as a user-visible
+  concept word in the capture chip, the ICS summary and the CLI, and
+  `docs/LEXICON.md` does not define it. One concept currently reads four
+  ways: `awaiting`, "open with other people", "received promise",
+  "promises made TO the team".
 
 ## Cut, with re-entry triggers
 
@@ -287,7 +404,7 @@ review. Each names the condition that reopens it.
 | Auto-quiet findings rules | The rule count or the noise grows beyond hand-tending. The maintainer retires rules at season end today. |
 | Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |
 | Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
-| Playbooks 2.0, delegation contracts, evidence pack, outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
+| Playbooks 2.0, delegation contracts, evidence pack, transactional outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
 | Employee private-prep sections | Refused until the journal separate-store pattern is proven. |
 | Post-compaction context re-injection | A real long-chat complaint — `summarize` plus the scoped context pack cover it today. If built: subclass `ConversationManager.reduce_context()`, re-inject the per-engagement pack once per session with a token ceiling to avoid a trim/re-inject loop. |
 | Honest tombstones for deleted tasks/chats | A deletion dispute the hash-chained ledger and the loud feed row do not settle — today they meet the need more strongly than a tombstone would. Private 1:1 notes and decision supersession keep their existing tombstones. |
