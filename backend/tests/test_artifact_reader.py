@@ -19,4 +19,32 @@ def test_an_unreadable_artifact_answers_json_not_plain_text(client):
     r = client.get(f"/api/artifacts/{aid}")
     assert r.status_code == 500
     assert r.headers["content-type"].startswith("application/json")
-    assert "detail" in r.json()
+    # the operator instruction is the whole point — a body with a `detail`
+    # key and none of the sentence would pass a shape check and help nobody
+    assert "data/artifacts is mounted" in r.json()["detail"]
+
+
+def test_an_unclassified_failure_is_json_and_says_nothing_about_itself():
+    """The JSON rule held for the handled classes and nothing else — a
+    KeyError or a bad-SQL OperationalError answered `Internal Server Error`
+    in text/plain, and lib/api.ts fell back to the status line.
+
+    The handler is exercised directly: TestClient re-raises a server
+    exception rather than returning the handler's response, and a second
+    client with that turned off starts its own lifespan on another thread and
+    collides with this one's SQLite connection.
+    """
+    import asyncio
+    import json as jsonlib
+
+    from app.main import app, unhandled_error_handler
+
+    assert Exception in app.exception_handlers, "the catch-all is not registered"
+
+    resp = asyncio.run(unhandled_error_handler(None, KeyError("SKEIN_MODEL_API_KEY")))
+    assert resp.status_code == 500
+    assert resp.media_type == "application/json"
+    # nothing from the exception: unclassified text is as likely to be a
+    # filesystem path or a library's internals as anything a reader can use
+    assert b"SKEIN_MODEL_API_KEY" not in resp.body
+    assert "server log" in jsonlib.loads(resp.body)["detail"]

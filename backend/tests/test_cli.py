@@ -432,9 +432,48 @@ def test_the_outbox_does_not_retry_a_host_this_process_already_missed(monkeypatc
     monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
     cli.OUTBOX.write_text(json.dumps({"path": "/api/capture", "body": {"text": "x"}}) + "\n")
 
-    calls = []
-    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: calls.append(a) or None)
-    cli._mark_unreachable()
+    # Through api_quiet with a dead transport, NOT by calling
+    # _mark_unreachable() by hand: setting the flag myself pins only that the
+    # flush READS it. Both call sites could be deleted — restoring the full
+    # 30-second double timeout — and a hand-set flag would still pass.
+    import urllib.error
+
+    tries = []
+
+    def dead(*a, **k):
+        tries.append(a)
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", dead)
+    assert cli.api_quiet("POST", "/api/capture", {"text": "x"}) is None
+    assert len(tries) == 1
+
     assert cli.flush_outbox() == 0
-    assert calls == [], "the flush retried a host the command already failed to reach"
+    assert len(tries) == 1, "the flush retried a host the command already failed to reach"
     assert cli.OUTBOX.exists(), "the queued capture must survive"
+
+
+def test_a_live_host_answering_badly_does_not_count_as_unreachable(monkeypatch, tmp_path):
+    """A JSONDecodeError is not a transport failure. Marking it one suppressed
+    the flush AND queued a capture the server had already accepted, which
+    duplicates on the next run."""
+    import io
+
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli.OUTBOX.write_text(json.dumps({"path": "/api/capture", "body": {"text": "x"}}) + "\n")
+
+    class _ProxyErrorPage(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        cli.urllib.request, "urlopen", lambda *a, **k: _ProxyErrorPage(b"<html>502</html>")
+    )
+    assert cli.api_quiet("GET", "/api/attention") is None
+    assert cli._UNREACHABLE is False, "a server that answered is not unreachable"

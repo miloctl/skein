@@ -158,6 +158,17 @@ def generate_handoff(
     return {"artifact_id": aid, "path": str(path), "markdown": markdown}
 
 
+class ArtifactUnreadable(RuntimeError):
+    """The row is there and the caller may read it, and the FILE is not.
+
+    Its own class rather than a bare RuntimeError so app/main.py can answer
+    JSON for exactly these four raises. A handler on RuntimeError itself
+    would catch every one in the process — Starlette's, anyio's, the SDK's —
+    and put its raw message in a response body, which is how an error stops
+    being ours and starts echoing something a caller never should see.
+    """
+
+
 def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     """One artifact's body, for a reader who may see the row.
 
@@ -190,7 +201,10 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
     except ValueError as e:
         # a NUL byte in the stored path — pathlib's own message would cross the
         # API boundary as our error text
-        raise RuntimeError(f"artifact #{artifact_id} has an unreadable path") from e
+        raise ArtifactUnreadable(
+            f"artifact #{artifact_id} has an unreadable stored path."
+            " Check the row against data/artifacts, then regenerate it."
+        ) from e
     if not path.is_relative_to(root):
         raise scope.missing("artifacts", artifact_id)
     # Everything past the scope filter and the containment check is OUR state,
@@ -203,7 +217,7 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
     if not path.is_file():
         # a restored database beside an empty data volume: retention never
         # prunes artifacts, so the row outliving its file means the volume did
-        raise RuntimeError(
+        raise ArtifactUnreadable(
             f"artifact #{artifact_id} has no file on disk."
             " Check that the volume holding data/artifacts is mounted."
         )
@@ -211,13 +225,18 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
     # same route the containment check is written against, and read_text pulls
     # the whole file into the worker before FastAPI serializes it again.
     if path.stat().st_size > MAX_ARTIFACT_BYTES:
-        raise RuntimeError(f"artifact #{artifact_id} is too large to read")
+        raise ArtifactUnreadable(
+            f"artifact #{artifact_id} is too large to read. Open the file on the server instead."
+        )
     try:
         return {**row, "markdown": path.read_text(encoding="utf-8")}
     except (OSError, UnicodeDecodeError) as e:
         # a generator writes UTF-8 markdown; anything else under data/artifacts
         # arrived by the same route the containment check is written against
-        raise RuntimeError(f"artifact #{artifact_id} is not readable text") from e
+        raise ArtifactUnreadable(
+            f"artifact #{artifact_id} is not readable text."
+            " Check that the file is the markdown the generator wrote."
+        ) from e
 
 
 # Machinery, not a report. `plan-snapshot` (services/playbooks.py) is a JSON

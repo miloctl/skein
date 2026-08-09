@@ -201,3 +201,45 @@ def test_the_trust_read_never_reports_a_human(client):
     # and the route that renders it agrees
     served = client.get("/api/agents/trust").json()
     assert "mira" not in {r["agent"] for r in served}
+
+
+def test_the_trust_read_scans_the_authority_proposals_once(client):
+    """`promotion_blocked` reads every authority proposal, and that table is
+    unindexed for this query (the index is on (proposed_by, entity)). Called
+    per row it turned the Approvals page from 122 queries into 202 the moment
+    agents started earning streaks — the N+1 this module removed from
+    trust_scores, reintroduced one function over. The short-circuit hides it
+    exactly while the trust program is not working.
+    """
+    from app import db
+    from app.services import delegation, users
+
+    for i in range(20):
+        users.ensure_user(f"agent{i}", kind="agent")
+        for entity in ("note", "task"):
+            for _ in range(delegation.TRUST_STREAK):
+                db.execute(
+                    "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
+                    " proposed_by, origin, status, reviewed_by, reviewed_at, created_at,"
+                    " reviewed_strong, reviewed_override) VALUES (?, 1, 'create', '{}', 's', ?,"
+                    " 'agent', 'approved', 'ava', ?, ?, 1, 0)",
+                    (entity, f"agent{i}", db.now(), db.now()),
+                )
+
+    seen = []
+    real = db.query
+
+    def counting(sql, params=()):
+        seen.append(sql)
+        return real(sql, params)
+
+    db.query = counting
+    try:
+        rows = delegation.trust_scores()
+    finally:
+        db.query = real
+
+    assert len(rows) == 40
+    assert sum(1 for r in rows if r["suggestion"]) == 40, "every pair must be promotable here"
+    scans = [s for s in seen if "entity = 'authority'" in s]
+    assert len(scans) == 1, f"{len(scans)} scans for {len(rows)} pairs — the N+1 is back"

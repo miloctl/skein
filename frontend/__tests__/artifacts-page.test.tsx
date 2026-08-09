@@ -86,3 +86,25 @@ describe("the Reports page", () => {
     }
   });
 });
+
+describe("the URL survives a same-route navigation", () => {
+  it("puts ?id= back after the Reports tab strips it", async () => {
+    // The Reports section tab is a same-route <Link>: the component never
+    // remounts and popstate never fires, so the pane kept its open report
+    // while the URL lost the param — and this page exists to be pasted.
+    const { rerender } = render(<ArtifactsPage />);
+    await screen.findByText("Body of 7");
+    expect(new URL(window.location.href).searchParams.get("id")).toBe("7");
+
+    const before = window.history.length;
+    window.history.replaceState({}, "", "/artifacts"); // what the tab leaves
+    expect(new URL(window.location.href).searchParams.get("id")).toBeNull();
+
+    rerender(<ArtifactsPage />);
+    await waitFor(() =>
+      expect(new URL(window.location.href).searchParams.get("id")).toBe("7"),
+    );
+    // replaced, not pushed: Back must not walk through re-syncs
+    expect(window.history.length).toBe(before);
+  });
+});

@@ -452,7 +452,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     )
     stale_cutoff = db.local_midnight_utc(_today() - timedelta(days=STALE_WIP_DAYS))
     stale = db.query(
-        # this list carries TITLES on top of the tier the counts above now
+        # this list carries TITLES on top of the tier the counts above
         # share, and nudge_stale_wip notifies each assignee by name from it
         "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(updated_at) AS INTEGER) AS days_stale"

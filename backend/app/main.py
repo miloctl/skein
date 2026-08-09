@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
 from .routes import api, auth, chat, private, slack, webhooks
+from .services import handoff
 from .services.activity import chain_health
 from .services.jobs import JOBS, job_health, run_job
 from .services.personas import unlisted_model_warnings
@@ -409,16 +410,20 @@ async def database_busy_handler(request: Request, exc: sqlite3.OperationalError)
     )
 
 
-@app.exception_handler(RuntimeError)
-async def runtime_error_handler(request: Request, exc: RuntimeError):
-    # The 500 CLASS is right — these are our own state, never something a
-    # caller sent (services/handoff.py::read_artifact explains its three).
-    # What was wrong is the SHAPE: with no handler, Starlette answers a bare
-    # `Internal Server Error` in text/plain, so the operator instruction
-    # written into the message ("Check that the volume holding data/artifacts
-    # is mounted.") reached nobody, and lib/api.ts fell back to the status
-    # line. An error response is always JSON (CLAUDE.md).
-    logging.getLogger("skein").exception("unhandled runtime error", exc_info=exc)
+@app.exception_handler(handoff.ArtifactUnreadable)
+async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
+    # The 500 CLASS is right — the row is readable and the FILE is not, which
+    # is our own state and belongs in the error rate. What was wrong is the
+    # SHAPE: with no handler, Starlette answers a bare `Internal Server Error`
+    # in text/plain, so the operator instruction inside the message reached
+    # nobody and lib/api.ts fell back to the status line. An error response is
+    # always JSON (CLAUDE.md).
+    #
+    # Handled on ITS OWN CLASS, not on RuntimeError: that would catch every
+    # RuntimeError in the process — Starlette's, anyio's, the SDK's — and put
+    # a raw message from one of them into a response body. The four raises
+    # this covers are written for a reader; nothing else is.
+    logging.getLogger("skein").exception("artifact unreadable", exc_info=exc)
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
@@ -426,6 +431,27 @@ async def runtime_error_handler(request: Request, exc: RuntimeError):
 async def overflow_error_handler(request: Request, exc: OverflowError):
     # absurd ints (ids > 2^63, weeks=1e18) must be a 400, never a 500
     return JSONResponse(status_code=400, content={"detail": "value out of range"})
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    """Anything with no handler above, as JSON with NOTHING from the exception.
+
+    "An error response is always JSON" (CLAUDE.md) was true for the classes
+    named above and false for every other one — a KeyError or a bad-SQL
+    OperationalError answered `Internal Server Error` in text/plain, and
+    lib/api.ts fell back to the status line. The body carries no message on
+    purpose: these are unclassified, so the text is as likely to be a
+    filesystem path or a library's internals as anything a reader can act on.
+    The log is where the detail belongs, and the 500 puts it in the error
+    rate. A handler that echoed str(exc) here would publish every stub's
+    NotImplementedError message to whoever tripped it.
+    """
+    logging.getLogger("skein").exception("unhandled error", exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something failed on the server. Read the server log for the cause."},
+    )
 
 
 @app.exception_handler(RequestValidationError)

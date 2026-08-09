@@ -685,7 +685,7 @@ export default function Portfolio() {
                 // no live region, and left the reader unable to tell it ran
                 .then((r) => {
                   setReadout(r.artifact_id);
-                  reportStatus("Exec readout regenerated.", "confirmation");
+                  reportStatus("Exec readout generated.", "confirmation");
                 })
                 .catch((e) => reportStatus(actionError(e)))
                 .finally(() => setBusy(false));
