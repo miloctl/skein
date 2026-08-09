@@ -79,14 +79,14 @@ export default function Planning() {
 
   if (error && !data)
     return (
-      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
         <p className="text-sm text-danger">{error}</p>
       </main>
     );
   if (!data)
     return (
-      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+      <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
         <SectionTabs set="work" />
         <p className="text-sm text-ink-3">Loading…</p>
       </main>
@@ -99,7 +99,7 @@ export default function Planning() {
     <main
       id="content"
       tabIndex={-1}
-      className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6"
+      className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-4 p-4 sm:p-6"
     >
       <SectionTabs set="work" />
       <p className="text-sm text-ink-3">
