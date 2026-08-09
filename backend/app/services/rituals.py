@@ -74,7 +74,10 @@ def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
 def _week_close_run(today: date, week: str, actor: str) -> dict:
     horizon = (today + timedelta(days=7)).isoformat()
     due_promises = db.query(
-        f"SELECT id, promise, to_whom, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction = 'given': the close-out asks what the team owes and has
+        # not settled. A received promise is chased by its own hourly job.
+        f"SELECT id, promise, to_whom, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
+        f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (horizon,),
     )
@@ -202,7 +205,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     for h in humans:
         name = h["name"]
         promises = db.query(
-            f"SELECT id, promise, due_date FROM promises WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            # direction = 'given', like the close-out above: this brief tells a
+            # person what THEY owe
+            f"SELECT id, promise, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
+            f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
             " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date",
             (name, horizon),
         )
@@ -261,7 +267,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     agent_recorded = db.query(
         "SELECT c.id, c.promise, c.due_date FROM promises c"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
-        f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open'"
+        # 'given' only, like every other reader of this table: a RECEIVED
+        # promise needs no owner on this side, and the chaser
+        # (services/promises.py::chase_received) already watches it
+        f" WHERE c.{WORKSPACE_ONLY} AND c.status = 'open' AND c.direction = 'given'"
         " AND (c.due_date IS NULL OR c.due_date <= ?)"
         " ORDER BY c.due_date",
         (horizon,),

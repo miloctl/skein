@@ -648,6 +648,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "add_absence": ("recorded time away", "normal"),
     "delete_absence": ("deleted a time-away entry", "loud"),
     "add_promise": ("made a promise", "normal"),
+    # the other direction: somebody outside the team owes US this one
+    "await_promise": ("recorded a promise made to the team", "normal"),
     "update_promise": ("settled a promise", "normal"),
     "edit_promise": ("edited a promise", "normal"),
     "remember": ("saved a memory", "normal"),
@@ -677,6 +679,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "generate_handoff": ("generated a handoff package", "normal"),
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),
+    "record_outcome": ("recorded what came out of a meeting", "quiet"),
     "cancel_event": ("cancelled an event", "loud"),
     "allocate": ("allocated a person to an engagement", "normal"),
     "deallocate": ("removed a person from an engagement", "normal"),

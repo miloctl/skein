@@ -452,6 +452,11 @@ _EXEMPT_FUNCTIONS = {
     "ci.py::ci_event": "resolves the blocker from its own SELECT over a webhook payload",
     "weekly.py::apply_plan": "task_ids come from the caller, each routed through update_task",
     "blockers.py::sweep_escalations": "a job over every open blocker, not one a caller named",
+    "promises.py::chase_received": "a job over every overdue received promise, not one a caller named",
+    "schedule.py::record_outcome": (
+        "guards with scope.assert_editable, and is a flag on the event the"
+        " caller named rather than a content write"
+    ),
     "collab.py::sweep_stale_decisions": "a job over every active decision",
     "engagements.py::_ship_it": "keyed on the engagement update_engagement just closed",
     "engagements.py::_experiment_lesson": "same",
@@ -564,6 +569,13 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "promises.py::chase_received": (
+        "a job, so no viewer exists. It reads every tier ON PURPOSE: the"
+        " personal nudge goes to the row's own author and leaks nothing at any"
+        " tier. What LEAVES is guarded twice — the team-wide escalation fires"
+        " only for a workspace-tier row, and it names no party, because"
+        " `to_whom` is free text that nothing stops from being a teammate"
+    ),
     # --- aggregates and counts: no row's own text leaves the function ---
     "delegation.py::mission_control": "COUNT per agent, plus a MAX(created_at)",
     "pulse.py::standup_chain": "counts standup days, never their text",

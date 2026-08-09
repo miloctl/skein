@@ -7,7 +7,7 @@ individual data is for planning, team aggregates for judging the past).
 All reads go through the same SQL the rest of the platform uses."""
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from .. import db
 from . import scope, stats
@@ -19,6 +19,11 @@ WINDOW_DAYS = 28
 # attention. A normal turn is single digits; a loop that cannot satisfy its
 # tool climbs without bound. Deliberately absolute — see _r_turn_runaway.
 TURN_CYCLE_ALARM = 25
+# What share of a week's finished work was never planned before the week is an
+# interrupt week rather than a busy one. Named here like every other threshold
+# in this file, so docs/INSIGHTS.md quotes a constant and not a number a
+# reader has to go find in a conditional.
+INTERRUPT_SHARE_ALARM = 0.5
 
 
 def _n(count: int, word: str) -> str:
@@ -28,6 +33,11 @@ def _n(count: int, word: str) -> str:
 def _today() -> date:
     """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
     return db.today()
+
+
+def _dt(stamp: str) -> datetime:
+    """A stored naive-UTC stamp as a datetime. `starts_at` has no seconds."""
+    return datetime.fromisoformat(stamp)
 
 
 def _iso(d: date) -> str:
@@ -475,7 +485,10 @@ def _r_promises_external() -> list[dict]:
     today = _iso(_today())
     soon = _iso(_today() + timedelta(days=7))
     for c in db.query(
-        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction = 'given': a RECEIVED promise also defaults to audience
+        # 'external', and this rule is about what the team owes outsiders
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 — scope filters emit only bound marks
+        f" AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ?",
         (soon,),
     ):
@@ -503,7 +516,12 @@ def _r_promises_external() -> list[dict]:
         )
     week_ago = _iso(_today() - timedelta(days=7))
     for c in db.query(
-        f"SELECT * FROM promises WHERE status = 'missed' AND {WORKSPACE_ONLY} AND updated_at >= ?",  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        # direction AND audience, like the sibling query above: a RECEIVED
+        # promise marked missed is the other party breaking it, and this rule
+        # is high severity — it reached the digest saying the team missed a
+        # promise it never made
+        f"SELECT * FROM promises WHERE status = 'missed' AND direction = 'given'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" AND audience = 'external' AND {WORKSPACE_ONLY} AND updated_at >= ?",
         (week_ago,),
     ):
         out.append(
@@ -1038,6 +1056,133 @@ def _r_budget() -> list[dict]:
     ]
 
 
+def _r_meeting_no_outcome() -> list[dict]:
+    """A recurring meeting that has produced nothing for weeks.
+
+    The most expensive thing on a team's calendar and the hardest to see,
+    because every single instance looks reasonable. Grouped by TITLE, which is
+    what makes a meeting recurring to a reader — a series id would be more
+    precise and Skein does not have one.
+
+    The receipt is hours burned: instance count times duration times attendee
+    count. That number is the argument, and without it this is an opinion
+    about somebody's calendar.
+    """
+    from .schedule import OUTCOME_SILENT_WEEKS
+    from .users import fold, list_users
+
+    # A 1:1 is both the meeting most likely to have no recordable outcome and
+    # the one whose TITLE is two people's names. Naming it here would publish
+    # a person-level judgment of the past on a team-wide surface, which is
+    # what _r_feature_unadopted earned its place by refusing to do. A title
+    # carrying any roster name is skipped rather than anonymized: a redacted
+    # 1:1 is still identifiable from the pair of hours and the cadence.
+    roster = {fold(u["name"]) for u in list_users() if len(u["name"]) > 2}
+    since = _iso(_today() - timedelta(weeks=OUTCOME_SILENT_WEEKS))
+    # Grouped in Python rather than by SQL aggregate, because every shortcut
+    # the aggregate offered inflated the number. `SUM(julianday diff)` counts
+    # an all-day row as 24 hours (schedule.py::_canon keeps a date-only
+    # starts_at date-only on purpose), a COALESCE default invents a duration
+    # for a row that has none, and MAX(attendees) multiplies EVERY instance by
+    # the largest list ever seen. A manager checks a number like "144
+    # attendee-hours" against a calendar, and one wrong receipt discredits the
+    # rule that carried it.
+    series: dict[str, dict] = {}
+    for row in db.query(
+        # 'none' counts HERE and nowhere else. Answering "nothing came out of
+        # it" clears the daily ask (schedule.py::meetings_awaiting_outcome
+        # takes 'pending' only) but it is the exact fact this rule exists to
+        # total up — filtering it out would let a series escape the weekly
+        # finding by admitting every week that it produced nothing.
+        f"SELECT * FROM events WHERE outcome_status IN ('pending', 'none')"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" AND {WORKSPACE_ONLY}"
+        # today is excluded: a meeting from this morning can still record an
+        # outcome this afternoon, and the rule runs daily
+        " AND starts_at >= ? AND starts_at < ?",
+        (since, _iso(_today())),
+    ):
+        g = series.setdefault(row["title"], {"instances": 0, "hours": 0.0, "timed": 0})
+        g["instances"] += 1
+        start, end = row["starts_at"] or "", row["ends_at"] or ""
+        # both ends timed, or the instance contributes no hours at all. A
+        # date-only pair is an all-day block whose real length nobody recorded
+        if "T" not in start or "T" not in end:
+            continue
+        span = (_dt(end) - _dt(start)).total_seconds() / 3600
+        if span <= 0:
+            continue
+        heads = len([a for a in (row["attendees"] or "").split(",") if a.strip()])
+        g["hours"] += span * max(1, heads)
+        g["timed"] += 1
+
+    out = []
+    for title, g in series.items():
+        if g["instances"] < OUTCOME_SILENT_WEEKS:
+            continue
+        if any(name in fold(title) for name in roster):
+            continue
+        hours = round(g["hours"], 1)
+        # The hours clause is dropped, not defaulted, when no instance was
+        # timed. "at least 0.0 attendee-hours" is a worse argument than the
+        # instance count alone, and a guessed duration is how the number
+        # stopped being checkable.
+        cost = f" That is at least {hours} attendee-hours." if g["timed"] else ""
+        out.append(
+            _finding(
+                "meeting_no_outcome",
+                "medium",
+                f"“{title[:60]}” ran {g['instances']} times in"
+                f" {OUTCOME_SILENT_WEEKS} weeks with no outcome recorded."
+                f"{cost} Record what came out of it, or cancel the series.",
+                {
+                    "title": title[:120],
+                    "instances": g["instances"],
+                    "attendee_hours": hours,
+                    "instances_timed": g["timed"],
+                },
+                n=int(g["instances"]),
+                window=f"{OUTCOME_SILENT_WEEKS}w",
+                subject=f"meeting-{title[:60]}",
+            )
+        )
+    return out
+
+
+def _r_interrupt_load() -> list[dict]:
+    """How much of the week's finished work was never planned.
+
+    The interrupt ledger shipped with the cockpit and nothing read it, so the
+    number was visible to whoever opened the page on Monday and to nobody
+    else. Team ratio only — this judges the PAST, and the anti-surveillance
+    rule allows person-level data only for planning the future.
+    """
+    from .portfolio import flow_metrics
+
+    got = flow_metrics()["interrupts"]
+    share = got.get("same_week_unplanned_share")
+    # withheld under the n floor, like every other verdict here: "50% was
+    # unplanned" over two tasks is noise wearing a percentage
+    if share is None or share < INTERRUPT_SHARE_ALARM:
+        return []
+    return [
+        _finding(
+            "interrupt_load",
+            "medium",
+            f"{round(share * 100)}% of the work that started and finished inside"
+            f" one week was never on that week's commitment line"
+            f" ({got['unplanned']} of {got['n']} over {got['window_weeks']} weeks).",
+            {
+                "unplanned": got["unplanned"],
+                "planned": got["planned"],
+                "carried_over": got.get("carried_over", 0),
+            },
+            n=int(got["n"]),
+            window=f"{got['window_weeks']}w",
+            subject="interrupt-load",
+        )
+    ]
+
+
 RULES = (
     _r_mttr,
     _r_escalation_spike,
@@ -1058,6 +1203,8 @@ RULES = (
     _r_feature_unadopted,
     _r_activity_chain,
     _r_budget,
+    _r_meeting_no_outcome,
+    _r_interrupt_load,
 )
 
 
