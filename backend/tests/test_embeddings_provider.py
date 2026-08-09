@@ -364,3 +364,38 @@ def test_a_corrupt_vector_costs_one_result_not_the_search(monkeypatch, fresh_db,
         results = search.semantic_search("q")
     assert [r["entity_id"] for r in results] == [90020]
     assert any("unreadable vector" in r.message for r in caplog.records)
+
+
+def test_a_semantic_hit_must_clear_the_similarity_floor(monkeypatch, fresh_db):
+    """Sorting alone always returns `limit` rows, however unrelated they are.
+
+    Enabling embeddings without a floor made every nonsense query come back
+    with a full page of records it shares nothing with, and took the "nothing
+    matches those words" answer off the table entirely -- measured on a real
+    corpus, a junk string scored 0.49 against rows with no word in common.
+    """
+    import json as _json
+
+    from app import db
+
+    # two stored vectors: one identical to the query (cosine 1.0), one
+    # orthogonal-ish (cosine well under any sane floor)
+    db.execute(
+        "INSERT INTO embeddings (entity, entity_id, model, vector) VALUES (?,?,?,?)",
+        ("task", 1, "test-embed", _json.dumps([1.0, 0.0, 0.0])),
+    )
+    db.execute(
+        "INSERT INTO embeddings (entity, entity_id, model, vector) VALUES (?,?,?,?)",
+        ("task", 2, "test-embed", _json.dumps([0.0, 1.0, 0.0])),
+    )
+    monkeypatch.setattr("openai.OpenAI", _fake_openai([]))  # embeds to [1,0,0]
+    _embed_ready(monkeypatch)
+    monkeypatch.setattr(config, "EMBED_PROVIDER", "ollama")
+
+    monkeypatch.setattr(config, "EMBED_MIN_SCORE", 0.5)
+    hits = search.semantic_search("anything", limit=10)
+    assert [(h["entity"], h["entity_id"]) for h in hits] == [("task", 1)]
+
+    # a floor of 0 is the old behavior, and returns the unrelated row too
+    monkeypatch.setattr(config, "EMBED_MIN_SCORE", 0.0)
+    assert len(search.semantic_search("anything", limit=10)) == 2
