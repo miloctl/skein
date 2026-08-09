@@ -137,24 +137,7 @@ export default function ArtifactsPage() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // The Reports section tab is a same-route <Link>, so this component never
-  // remounts and popstate never fires — the pane kept its open report while
-  // the URL lost `?id=`, and this page exists to be pasted to a teammate.
-  //
-  // NO dependency array, deliberately. `usePathname()` returns the identical
-  // "/artifacts" across that click, so an effect keyed on it never re-runs —
-  // two equal strings are the same dependency. `useSearchParams()` would see
-  // the change but puts the route behind a Suspense boundary, which
-  // idFromUrl above rejects for this page and task-peek.tsx rejects for its
-  // own. Running after every render is the remaining signal, and it costs a
-  // string compare: the guard makes it a no-op unless the URL actually lost
-  // the param. replaceState does not re-render, so this cannot loop.
-  useEffect(() => {
-    if (openId === null || idFromUrl() !== null) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set(PARAM, String(openId));
-    window.history.replaceState({}, "", url);
-  });
+
 
   // only the result that belongs to the report currently open — a body or an
   // error left over from the previous pick renders as neither
