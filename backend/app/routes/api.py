@@ -1724,6 +1724,17 @@ def patch_engagement(engagement_id: int, body: EngagementPatch, user: CurrentUse
     return engagements.update_engagement(engagement_id, **body.model_dump(), actor=user)
 
 
+@router.get("/engagements/{engagement_id}/plan-diff")
+def get_plan_diff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+    """Planned versus what happened, for an engagement born from a playbook.
+
+    `{}` for one created by hand — the close-out control renders nothing
+    rather than an empty section, because "no variance" and "no plan to vary
+    from" are different statements.
+    """
+    return playbooks.close_out_diff(engagement_id, viewer)
+
+
 class AllocationIn(BaseModel):
     person: str = Field(max_length=64)
     percent: int = 100

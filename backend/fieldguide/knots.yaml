@@ -316,7 +316,7 @@ knots:
     knot: Back Splice
     set: stoppers
     pitch: Closing requires a conclusion — invalidated-on-time is a success, not a slip.
-    how: Work → Browse, close… on the engagement. Pick the conclusion that's true.
+    how: Work → Browse, close out… on the engagement. Pick the conclusion that is true. If it started from a playbook, Skein shows the plan variance before you pick.
     link: /dashboard
     since: 2026-07-31
 
@@ -369,3 +369,13 @@ knots:
     how: On Settings under Model (team), select a model from the menu. The change applies to each chat from its next message.
     link: /settings
     since: 2026-08-08
+
+  - id: playbook_closeout
+    feature: Teach the playbook what happened
+    knot: Bowline on a Bight
+    set: manager
+    role: manager
+    pitch: The template said six weeks and every one of them ran nine. Close one out and the playbook finally hears about it.
+    how: If an engagement started from a playbook, close it on Work → Browse. Skein diffs the plan against what happened and drafts the lesson. Approve it on Review, and the next kickoff of that class reads it.
+    link: /dashboard
+    since: 2026-08-09
