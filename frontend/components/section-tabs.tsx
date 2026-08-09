@@ -42,6 +42,16 @@ export function SectionTabs({ set }: { set: keyof typeof SETS }) {
         <Link
           key={t.href}
           href={t.href}
+          // The tab for the page you are ON navigates to itself, and that
+          // navigation DISCARDS the page's query state — /artifacts kept the
+          // open report in its pane while `?id=` vanished from the URL, which
+          // is the one thing that page exists to let you paste. Every section
+          // page with query state has the same exposure. aria-current already
+          // says this tab is the destination, so refusing the click costs a
+          // reader nothing.
+          onClick={(ev) => {
+            if (pathname === t.href) ev.preventDefault();
+          }}
           aria-current={pathname === t.href ? "page" : undefined}
           className={
             "rounded-full px-3 py-1 text-[13px] transition-colors " +
