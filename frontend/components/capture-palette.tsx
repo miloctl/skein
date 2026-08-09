@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { VisibilityPicker } from "@/components/visibility-picker";
-import { actionError, api } from "@/lib/api";
+import { actionError, api, getUser, subscribeUser } from "@/lib/api";
 import { isGated, subscribeGated } from "@/lib/gated";
 
 // mirrors backend/app/services/capture.py PATTERNS — the preview must tell
@@ -57,6 +57,12 @@ const CHIPS: { prefix: string; label: string }[] = [
 export function CapturePalette() {
   const [open, setOpen] = useState(false);
   const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
+  // nav.tsx renders the search box only for a named visitor, and `gated` is a
+  // DIFFERENT condition (the auth gate standing in for the page) — so an
+  // anonymous visitor reaches this dialog with no search box in the nav. The
+  // footer must not send them to a control that is not on their screen.
+  const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
+  const canSearch = user !== "anonymous";
   const [text, setText] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [tier, setTier] = useState({ visibility: "workspace", crew_id: 0 });
@@ -278,6 +284,17 @@ export function CapturePalette() {
           Tap a chip or type a prefix — the line above the button always shows
           where your text will land. <code>req:</code> files a request for
           triage. <code>fb: name — …</code> stays private to you.
+          {/* The read/write split is the reported confusion: this dialog and
+              the nav search box look alike and do opposite things. Naming the
+              other door here is what keeps a search from being typed into the
+              one input that FILES what it is given. */}
+          {canSearch ? (
+            <>
+              {" "}
+              Quick capture writes new records only. To find a record that
+              exists, use the search box in the top bar.
+            </>
+          ) : null}
         </div>
       </div>
     </div>
