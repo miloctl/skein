@@ -10,6 +10,7 @@ from .insights import digest_findings
 from .portfolio import allocation_conflicts, engagement_health, flow_metrics, health_changes
 from .pulse import season
 from .scope import WORKSPACE_ONLY
+from .wording import count
 
 
 def _today() -> date:
@@ -123,7 +124,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     lines += [
         "",
         "## Flow",
-        f"- {ct['tasks_done']} tasks done in 8 weeks"
+        f"- {count(ct['tasks_done'], 'task')} done in 8 weeks"
         + (
             f", median cycle {ct['median_days']}d, avg {ct['avg_days']}d"
             if ct["tasks_done"]
@@ -144,7 +145,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     readout_dir = Path(config.DATA_DIR) / "artifacts" / "portfolio"
     readout_dir.mkdir(parents=True, exist_ok=True)
     path = readout_dir / f"{_today().isoformat()}-exec-readout.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
     # same-day reruns overwrite the file, so upsert the artifact row too —
     # N rows pointing at one file would imply history that doesn't exist
     existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))

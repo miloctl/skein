@@ -11,6 +11,27 @@ TASK_STATUSES = ("todo", "in_progress", "blocked", "done")
 PRIORITIES = ("low", "medium", "high", "urgent")
 WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 
+# Bounds for the two free-text fields, enforced HERE because this is the only
+# write path. routes/api.py imports these for its own Field(max_length=...) so
+# the two doors cannot drift: the REST models capped these and the service did
+# not, so an agent or MCP caller wrote a title the PATCH route then refused —
+# a row the system wrote that its own UI could not edit.
+TITLE_LEN = 200
+DESCRIPTION_LEN = 4000
+
+
+def _bounded(entity: str, title: str, description: str) -> None:
+    """Names the entity, like every refusal beside it ("task title is
+    required"). A caller writing a milestone and a task in one turn otherwise
+    reads a refusal that does not say which write failed."""
+    if len(title) > TITLE_LEN:
+        raise ValueError(f"{entity} title must be {TITLE_LEN} characters or fewer")
+    if len(description) > DESCRIPTION_LEN:
+        raise ValueError(
+            f"{entity} description must be {DESCRIPTION_LEN} characters or fewer."
+            " Shorten it, or save the long text as a note."
+        )
+
 
 def create_milestone(
     title: str,
@@ -26,6 +47,7 @@ def create_milestone(
 ) -> dict:
     if not title.strip():
         raise ValueError("milestone title is required")
+    _bounded("milestone", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
     # resolve the engagement link at write time — the name join is display
@@ -87,6 +109,7 @@ def update_milestone(
 ) -> dict:
     if status and status not in MILESTONE_STATUSES:
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
+    _bounded("milestone", title, description)
     db.validate_date("due_date", due_date)
     current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
     if not current:
@@ -175,6 +198,7 @@ def create_task(
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
+    _bounded("task", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
@@ -260,6 +284,7 @@ def update_task(
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
+    _bounded("task", title, description)
     db.validate_date("due_date", due_date)
     if priority and priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")

@@ -13,6 +13,10 @@ const PAGES = [
   { path: "/", name: "My Day" },
   { path: "/chat", name: "Chat" },
   { path: "/portfolio", name: "Work" },
+  // its own walk: the reader renders markdown the backend generators wrote,
+  // so a broken parse shows as a clean-but-empty page that no fetch failure
+  // would report
+  { path: "/artifacts", name: "Reports" },
   { path: "/review", name: "Inbox" },
   { path: "/agents", name: "Team" },
   { path: "/settings", name: "Settings" },

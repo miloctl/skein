@@ -265,6 +265,11 @@ export function TaskPeek() {
               <Row label="Priority" value={task.priority} />
               <Row label="Assignee" value={task.assignee ? `@${task.assignee}` : ""} />
               <Row label="Due" value={task.due_date} />
+              {/* set by work.py only on the move into `done`, so it is absent
+                  on every open task and Row drops the line entirely — the
+                  panel says when a task finished without claiming a date for
+                  one that has not */}
+              <Row label="Finished" value={task.completed_at} />
               <Row label="Week" value={task.committed_week} />
               <Row label="Milestone" value={task.milestone_title} />
               <Row label="Engagement" value={task.engagement_name} />

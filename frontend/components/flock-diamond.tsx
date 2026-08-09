@@ -37,13 +37,18 @@ export type FlockTrace = {
   created_at: string;
 };
 
-const H = 240;
+// H, NODE_H and the three Y positions below are one set: a node is drawn
+// centred on its Y and spans NODE_H/2 either side, so growing the box without
+// growing H clips the top node against the viewBox edge.
+const H = 260;
 // wide enough for the longest bench name at 11px ("🪡 Minimal Change Engineer"
-// measures ~137) and for the two sub-lines below it. Sized by the CONTENT: at
+// measures ~137) and for the three sub-lines below it. Sized by the CONTENT: at
 // 132 the status word pushed every member's sub-label past its own box and
 // into the next member's.
 const NODE_W = 152;
-const NODE_H = 60;
+// three sub-lines at 12 apart plus the label: at 60 the token line fell
+// outside the box and overlapped the edge beneath it.
+const NODE_H = 74;
 /** Every node keeps NODE_W with a 12-unit gap, so 4 members do not overlap.
  *  MAX_MEMBERS is 4 (backend/app/services/flocks.py), and at the old fixed
  *  560 the four boxes crossed each other by 20 units. */
@@ -106,7 +111,7 @@ function Node({
       />
       <text
         x={x}
-        y={y - 10}
+        y={y - 16}
         textAnchor="middle"
         className="fill-ink text-[11px] font-medium"
       >
@@ -116,7 +121,7 @@ function Node({
         <text
           key={line}
           x={x}
-          y={y + 5 + i * 12}
+          y={y - 1 + i * 12}
           textAnchor="middle"
           className="fill-ink-3 text-[10px]"
         >
@@ -130,12 +135,29 @@ function Node({
 export function FlockDiamond({ trace }: { trace: FlockTrace }) {
   const members = trace.members;
   const W = width(members.length);
-  const topY = 34;
+  const topY = 40;
   const midY = H / 2;
-  const botY = H - 34;
+  const botY = H - 40;
   const xs = members.map((_, i) => ((i + 1) * W) / (members.length + 1));
   const slowest = Math.max(0, ...members.map((m) => m.ms));
   const answered = members.filter((m) => m.status === "ok").length;
+  /** Wall clock is the slowest member, but SPEND is every member added up
+   *  plus the merge — the number a flock's cost ceiling is read against.
+   *  flock_traces has carried per-member tokens since flocks shipped and
+   *  nothing drew them, so a 3-member turn looked as cheap as a 1-member one. */
+  const tokensOf = (m: { tokens_in: number; tokens_out: number }) =>
+    m.tokens_in + m.tokens_out;
+  const turnTokens =
+    members.reduce((n, m) => n + tokensOf(m), 0) +
+    (trace.synthesis ? tokensOf(trace.synthesis) : 0);
+  /** A mock turn reports no usage at all: routes/chat.py fills these from the
+   *  provider's usage metadata and leaves them at 0 otherwise. "0 tokens"
+   *  against a turn the reader just watched run is a claim, not a
+   *  measurement — and the keyless deployment is the one that must work. Say
+   *  nothing there instead. */
+  const metered = turnTokens > 0;
+  const tokenWords = (n: number) =>
+    `${n.toLocaleString()} token${n === 1 ? "" : "s"}`;
 
   const synth = trace.synthesis;
   const mergeLabel = !synth
@@ -161,10 +183,12 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
       .map(
         (m) =>
           `${m.name} ${statusWord(m.status)} in ${m.ms} ms` +
-          ` and proposed ${m.receipts} write${m.receipts === 1 ? "" : "s"}.`,
+          ` and proposed ${m.receipts} write${m.receipts === 1 ? "" : "s"}` +
+          (metered ? ` for ${tokenWords(tokensOf(m))}.` : "."),
       )
       .join(" ") +
-    ` ${mergeSentence}`;
+    ` ${mergeSentence}` +
+    (metered ? ` The turn used ${tokenWords(turnTokens)} in total.` : "");
 
   return (
     <figure className="m-0">
@@ -222,6 +246,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
               sub={[
                 statusWord(m.status),
                 `${m.ms} ms · ${m.receipts} proposal(s)`,
+                ...(metered ? [tokenWords(tokensOf(m))] : []),
               ]}
               stroke={STATUS_STROKE[m.status] ?? "var(--text-3)"}
             />
@@ -233,7 +258,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
             label={mergeLabel}
             sub={
               synth
-                ? [`${synth.ms} ms`]
+                ? [`${synth.ms} ms`, ...(metered ? [tokenWords(tokensOf(synth))] : [])]
                 : [`${answered} of ${members.length} answered`]
             }
             stroke={
@@ -245,7 +270,10 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
       <figcaption className="mt-1 text-xs text-ink-3">
         The slowest member took {slowest} ms. The members ran at the same time.
         The turn took approximately {slowest} ms, not the total of all the
-        members.
+        members.{" "}
+        {metered
+          ? `The turn used ${tokenWords(turnTokens)}, which is every member plus the merge.`
+          : "This provider reported no token usage."}
       </figcaption>
     </figure>
   );

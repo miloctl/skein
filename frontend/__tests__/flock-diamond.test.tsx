@@ -67,13 +67,35 @@ describe("FlockDiamond", () => {
 
   it("carries the proposal count, which no other surface shows", () => {
     render(<FlockDiamond trace={trace({ members: [member({ receipts: 1 }), member({ slug: "b" })] })} />);
-    expect(label()).toContain("proposed 1 write.");
-    expect(label()).toContain("proposed 0 writes.");
+    expect(label()).toContain("proposed 1 write");
+    expect(label()).toContain("proposed 0 writes");
   });
 
   it("states the slowest member, because concurrency is the point", () => {
     render(<FlockDiamond trace={trace()} />);
     expect(screen.getByText(/The slowest member took 340 ms/)).toBeTruthy();
+  });
+
+  /** Wall clock is the slowest member; spend is every member added together.
+   *  A reader who takes the 340 ms caption as the whole cost of the turn
+   *  under-reads a 3-member flock by roughly a factor of three. */
+  it("draws each member's tokens and totals the turn's spend", () => {
+    render(
+      <FlockDiamond
+        trace={trace({
+          members: [
+            member({ tokens_in: 1000, tokens_out: 200 }),
+            member({ slug: "b", name: "Backend Architect", tokens_in: 300, tokens_out: 55 }),
+          ],
+          synthesis: { status: "ok", ms: 90, tokens_in: 40, tokens_out: 5 },
+        })}
+      />,
+    );
+    expect(screen.getByText("1,200 tokens")).toBeTruthy();
+    expect(screen.getByText("355 tokens")).toBeTruthy();
+    // 1200 + 355 + 45 — the merge call is spend the members do not carry
+    expect(screen.getByText(/the turn used 1,600 tokens/i)).toBeTruthy();
+    expect(label()).toContain("The turn used 1,600 tokens in total.");
   });
 
   it("says the answers are not merged when the flock does not synthesize", () => {

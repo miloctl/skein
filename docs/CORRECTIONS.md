@@ -26,7 +26,7 @@ new features are reviewed against it.
    of someone else's content ERROR instead (answers); merges backfill
    person-level fields rather than dropping them; approvals apply as the
    proposer, never the reviewer.
-5. **Bounded.** Three rules. One is enforced mechanically today. The other
+5. **Bounded.** Four bounds. Two are enforced mechanically today. The other
    two are review obligations, and this entry says which is which — a rule
    that claims an enforcement it does not have is worse than a soft rule,
    because it stops people looking.
@@ -38,20 +38,26 @@ new features are reviewed against it.
      every request model carries `max_length`, and every create refuses a
      record whose capped fields are all empty. The parity test above compares
      PATCH against create; it cannot see a field left uncapped on BOTH sides.
-   - **Writable is rate-capped, listable is LIMITed.** REVIEW OBLIGATION.
-     A mutating route calls `ratelimit.check(<surface>, user)`; a list service
-     takes a `limit` and puts `LIMIT ?` in its SQL on every branch. Neither is
-     swept today — see the ROADMAP entry for the census that would make them
-     enforced.
+   - **Writable is rate-capped.** ENFORCED.
+     `tests/test_bounded_routes.py` walks the route table and fails any
+     mutating route that neither calls `ratelimit.check(<surface>, user)` in
+     its own handler nor carries an EXEMPT row with a reason. It fails a stale
+     exemption too — one for a route since capped, or since deleted.
+   - **Listable is LIMITed.** REVIEW OBLIGATION. A list service puts `LIMIT ?`
+     in its SQL on every branch. The four reads the 2026-08-03 census named
+     were capped 2026-08-09, and `chat_threads.list_folders` beside them.
+     Nothing sweeps for the next one.
 
-   To exempt an endpoint deliberately, write `# unbounded: <reason>` above it
-   and add a row below.
+   The rate-cap exemptions live in `tests/test_bounded_routes.py::EXEMPT`,
+   not in a comment above the route: a marker the suite does not read is a
+   marker that can go stale silently, and that list is checked in both
+   directions on every run.
 
-### Bounded exemptions
-
-| Endpoint | Check waived | Reason | Declared |
-|---|---|---|---|
-| _(none)_ | | | |
+   The two review obligations carry no exemption path. Neither is
+   endpoint-shaped — a listable exemption is a service function and a
+   length exemption is a model field — so a waiver is a comment at the site,
+   stating what is unbounded and why, and it is found by reading rather than
+   by a table nobody updates.
 
 ## Status matrix (post-audit batches)
 

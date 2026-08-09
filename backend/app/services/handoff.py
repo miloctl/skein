@@ -8,6 +8,13 @@ from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
 
+# Newest first, so the cap drops the oldest report. Both branches carry it:
+# docs/CORRECTIONS.md states the rule as "on every branch", and the Reports
+# page reads the length to decide whether to call it a total.
+LIST_LIMIT = 50
+# A markdown report past this is our own generator's fault, not a caller's.
+MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
+
 
 def generate_handoff(
     engagement_id: int, *, actor: str = "system", viewer: scope.Viewer = scope.NOBODY
@@ -129,7 +136,7 @@ def generate_handoff(
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / safe_name
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     path = artifacts_dir / f"{db.today().isoformat()}-handoff.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
 
     aid = db.execute(
         "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
@@ -149,16 +156,75 @@ def generate_handoff(
     return {"artifact_id": aid, "path": str(path), "markdown": markdown}
 
 
+def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """One artifact's body, for a reader who may see the row.
+
+    Every generator here (handoff, the week rituals, the digest, the exec
+    readout) has written a markdown file and a row pointing at it, and nothing
+    could read one back: `list_artifacts` hands out a server-side PATH, which
+    a browser cannot open. The files were reachable only by shelling into the
+    container.
+    """
+    frag, vp = scope.visible_filter(viewer, "artifacts")
+    row = db.query_one(
+        f"SELECT * FROM artifacts WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (artifact_id, *vp),
+    )
+    if not row:
+        raise scope.missing("artifacts", artifact_id)
+    # `path` is a stored string, and this call turns one into a file read. Every
+    # writer today is our own generator under DATA_DIR, so the containment check
+    # is not about them — it is about the next writer, and about a restored or
+    # hand-edited row. Without it, one crafted `path` reads any file the server
+    # user can (SKEIN_MODEL_API_KEY in the environment file, the private notes
+    # DB that services/private_notes.py keeps out of every other surface).
+    root = (Path(config.DATA_DIR) / "artifacts").resolve()
+    try:
+        path = Path(row["path"]).resolve()
+    except ValueError as e:
+        # a NUL byte in the stored path — pathlib's own message would cross the
+        # API boundary as our error text
+        raise RuntimeError(f"artifact #{artifact_id} has an unreadable path") from e
+    if not path.is_relative_to(root):
+        raise scope.missing("artifacts", artifact_id)
+    # Everything past the scope filter and the containment check is OUR state,
+    # never something a caller sent — so it stays a 500 and shows up in the
+    # error rate, which is the signal an operator needs here. A 404 would say
+    # "no such artifact" about a row the reader can plainly see listed.
+    # is_file() is False for a FIFO and for a device node as well as for an
+    # absent path, and that is the half that matters: read_text() on a FIFO
+    # under data/artifacts blocks this worker thread for good.
+    if not path.is_file():
+        # a restored database beside an empty data volume: retention never
+        # prunes artifacts, so the row outliving its file means the volume did
+        raise RuntimeError(
+            f"artifact #{artifact_id} has no file on disk."
+            " Check that the volume holding data/artifacts is mounted."
+        )
+    # A generator writes a markdown report. Anything past this arrived by the
+    # same route the containment check is written against, and read_text pulls
+    # the whole file into the worker before FastAPI serializes it again.
+    if path.stat().st_size > MAX_ARTIFACT_BYTES:
+        raise RuntimeError(f"artifact #{artifact_id} is too large to read")
+    try:
+        return {**row, "markdown": path.read_text(encoding="utf-8")}
+    except (OSError, UnicodeDecodeError) as e:
+        # a generator writes UTF-8 markdown; anything else under data/artifacts
+        # arrived by the same route the containment check is written against
+        raise RuntimeError(f"artifact #{artifact_id} is not readable text") from e
+
+
 def list_artifacts(engagement_id: int = 0, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     # a row here carries a PATH to a markdown file holding the engagement's
     # work — generate_handoff tags it with that engagement's tier
     frag, vp = scope.visible_filter(viewer, "artifacts")
     if engagement_id:
         return db.query(
-            f"SELECT * FROM artifacts WHERE engagement_id = ? AND {frag} ORDER BY id DESC",  # noqa: S608 — scope.visible_filter emits only bound marks
-            (engagement_id, *vp),
+            f"SELECT * FROM artifacts WHERE engagement_id = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " ORDER BY id DESC LIMIT ?",
+            (engagement_id, *vp, LIST_LIMIT),
         )
     return db.query(
-        f"SELECT * FROM artifacts WHERE {frag} ORDER BY id DESC LIMIT 50",  # noqa: S608 — scope.visible_filter emits only bound marks
-        tuple(vp),
+        f"SELECT * FROM artifacts WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (*vp, LIST_LIMIT),
     )

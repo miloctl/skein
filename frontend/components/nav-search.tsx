@@ -51,18 +51,18 @@ function Snippet({ text }: { text: string }) {
   );
 }
 
-/** entity -> the page that lists it, for every indexed entity except task
- *  (the peek) and lesson (no list surface yet — /dashboard shows only a
- *  count, so a link would promise a row the page cannot show). An entity
- *  missing here renders as dead text, which is the exact complaint this
- *  table exists to close — services/search.py::_ENTITY_TABLE is the list
- *  to mirror when a new entity is indexed. */
+/** entity -> the page that lists it, for every indexed entity except task,
+ *  which opens the peek instead. An entity missing here renders as dead
+ *  text, which is the exact complaint this table exists to close —
+ *  services/search.py::_ENTITY_TABLE is the list to mirror when a new entity
+ *  is indexed. */
 const ENTITY_PAGE: Record<string, string> = {
   blocker: "/",
   decision: "/charter",
   engagement: "/dashboard",
   event: "/dashboard",
   intake: "/intake",
+  lesson: "/dashboard",
   memory: "/agents",
   milestone: "/dashboard",
   note: "/dashboard",
@@ -94,13 +94,18 @@ function EntityLink({
         {children}
       </PeekLink>
     );
-  // charter rows carry id="charter-entry-N" (app/charter/page.tsx), so an
-  // already-loaded charter scrolls to the row; a fresh navigation lands at
-  // the top because the rows are not in the DOM when the scroll fires.
-  const page =
+  // Rows that carry a DOM id get an anchor, so an already-loaded page scrolls
+  // to the row; a fresh navigation lands at the top because the rows are not
+  // in the DOM when the scroll fires. The id spellings live with the rows —
+  // `charter-entry-N` in app/charter/page.tsx, `lesson-N` in the dashboard's
+  // LessonsCard — and a rename there must change this line too.
+  const anchor =
     entity === "decision"
-      ? `${ENTITY_PAGE.decision}#charter-entry-${entityId}`
-      : ENTITY_PAGE[entity];
+      ? `#charter-entry-${entityId}`
+      : entity === "lesson"
+        ? `#lesson-${entityId}`
+        : "";
+  const page = ENTITY_PAGE[entity] ? `${ENTITY_PAGE[entity]}${anchor}` : "";
   if (!page) return <span>{children}</span>;
   return (
     <Link
@@ -206,7 +211,13 @@ export function NavSearch() {
   };
 
   return (
-    <div ref={boxRef} className="relative">
+    // flex-1 min-w-0 below `sm`, a fixed box above it. This field is the last
+    // thing added to the phone header, and at a fixed 144px the row needed
+    // 385px of a 360px viewport — the logo, the name and the capture button
+    // were all sized before it existed. Flexing rather than picking a smaller
+    // number is what keeps it correct in every theme pack: phosphor and
+    // atelier raise --fs-xs, so a width that fits Loom overflows those two.
+    <div ref={boxRef} className="relative min-w-0 flex-1 sm:flex-none">
       <label className="sr-only" htmlFor="nav-search">
         Search Skein
       </label>
@@ -223,7 +234,7 @@ export function NavSearch() {
         // 208px box. It still works, and the field guide still teaches it,
         // where there is room to say what it actually does.
         placeholder="Search"
-        className="w-36 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid sm:w-52"
+        className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid sm:w-52"
       />
       {open && (
         <div

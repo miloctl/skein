@@ -313,7 +313,7 @@ def publish_pack(
     # otherwise overwrite one file and the artifact would name the wrong pack
     stem = f"crew{crew_id}-v{version}" if crew_id else f"v{version}"
     path = pack_dir / f"context-pack-{stem}.md"
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     db.log_activity(actor, "publish_context_pack", f"{stem} ({digest})")
     return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 

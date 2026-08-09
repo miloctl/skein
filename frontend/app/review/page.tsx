@@ -39,6 +39,29 @@ type Change = {
   reviewed_override?: number; // 1: judged by someone other than the sponsor
 };
 
+/** How the proposal was written, which the proposer's NAME does not answer:
+ *  pasted meeting notes arrive as `human` under the person who pasted them
+ *  (services/ingest.py), and everything a tool proposed arrives as `agent`.
+ *  A reviewer reads those two differently — one is a transcription to check,
+ *  the other is a model's judgment to check — and the queue showed neither.
+ *  Any other value renders as itself rather than being mapped to a guess. */
+function OriginChip({ origin }: { origin: string }) {
+  const said =
+    origin === "agent"
+      ? { word: "agent", why: "An agent tool proposed this write." }
+      : origin === "human"
+        ? { word: "person", why: "A person proposed this write." }
+        : { word: origin, why: `Recorded origin: ${origin}.` };
+  return (
+    <span
+      title={said.why}
+      className="rounded-full bg-raised px-1.5 py-0.5 text-[10px] text-ink-3"
+    >
+      {said.word}
+    </span>
+  );
+}
+
 /** The reason input owns its draft (EditRow idiom, app/dashboard/page.tsx):
  *  keystrokes re-render this row, not the whole approvals list. */
 function VerdictAsk({
@@ -301,7 +324,7 @@ export default function ReviewPage() {
                   : ""}
               </span>
               <span className="text-xs text-ink-3">
-                by {c.proposed_by}
+                by {c.proposed_by} <OriginChip origin={c.origin} />
                 {c.requested_by ? ` · asked by ${c.requested_by}` : ""}
                 {c.sponsor
                   ? ` · sponsor ${c.sponsor}${forSponsor(c) ? " (accept individually with a reason)" : ""}`

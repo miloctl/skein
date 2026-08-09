@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import { actionError, api } from "@/lib/api";
 import { dismissStatus, reportStatus } from "@/lib/status";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
@@ -71,6 +73,56 @@ type PromiseRow = {
 
 const DOT = { red: "🔴", yellow: "🟡", green: "🟢" };
 
+/** Weekly throughput, one row per week. `flow_metrics` has returned this
+ *  series since it shipped and nothing read it, so cycle time answered "how
+ *  long does one task take" while "how many land per week" had no surface.
+ *
+ *  Bars are scaled to the busiest week in the window, never to a fixed
+ *  ceiling: throughput has no target here, and a bar drawn against an
+ *  invented maximum reads as progress toward a goal nobody set. */
+function Throughput({ weeks }: { weeks: Record<string, number> }) {
+  const rows = Object.entries(weeks);
+  if (rows.length === 0)
+    return (
+      // said, not omitted: a card that simply drops the section reads as a
+      // rendering fault next to the cycle-time line above it
+      <p className="text-xs text-ink-3">No task finished in the last 8 weeks.</p>
+    );
+  const peak = Math.max(...rows.map(([, n]) => n));
+  return (
+    <div>
+      <h3 className="text-xs uppercase tracking-wide text-ink-3">
+        Finished per week
+      </h3>
+      {/* the bars carry no number a screen reader can use, and the scale is
+          the whole point of them — say it once, in text */}
+      <p className="text-xs text-ink-3">Each bar is drawn against the busiest week.</p>
+      <ul className="mt-1 space-y-0.5">
+        {rows.map(([week, n]) => (
+          <li key={week} className="flex items-center gap-2 text-xs">
+            <span className="w-16 shrink-0 text-ink-3">{week}</span>
+            <span
+              className="inline-block h-2 w-28 shrink-0 overflow-hidden rounded bg-raised align-middle"
+              aria-hidden
+            >
+              <span
+                className="block h-2 rounded bg-thread-solid"
+                // peak is >= 1 whenever a row exists, so this never divides
+                // by zero: a week with no finished task is absent from the
+                // series rather than present as 0.
+                style={{ width: `${Math.round((n / peak) * 100)}%` }}
+              />
+            </span>
+            <span className="tabular-nums">
+              {n} task{n === 1 ? "" : "s"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 
 type Usage = {
   models: {
@@ -111,8 +163,11 @@ export default function Portfolio() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [promises, setPromises] = useState<PromiseRow[] | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
-  const [readout, setReadout] = useState<string | null>(null);
-  const [ritualOut, setRitualOut] = useState<string | null>(null);
+  // the artifact each button FILED, not its body: the markdown now has a
+  // reader (Work → Reports), and a <pre> dump beside the button was the one
+  // place it was ever shown formatted-as-source
+  const [readout, setReadout] = useState<number | null>(null);
+  const [ritualOut, setRitualOut] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   // Three states per card, not two. A card whose fetch FAILED is still null,
   // so a null-means-loading check leaves it saying "Loading…" forever — a
@@ -434,6 +489,7 @@ export default function Portfolio() {
               {flow.wip_by_person.map((w) => `${w.person} ${w.in_progress}`).join(" · ") ||
                 "none"}
             </p>
+            <Throughput weeks={flow.throughput_by_week} />
             {flow.stale_wip.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-weld">Stale in-progress:</p>
@@ -572,8 +628,14 @@ export default function Portfolio() {
                 onClick={() => {
                   dismissStatus();
                   setBusy(true);
-                  api<{ markdown: string }>(`/api/rituals/${r}`, { method: "POST" })
-                    .then((res) => setRitualOut(res.markdown))
+                  // These two routes pass force=True, and _claim_week returns
+                  // `claimed or force` — so a button run always runs and always
+                  // files an artifact. The {skipped} shape belongs to the
+                  // scheduler's call, which never reaches a browser.
+                  api<{ artifact_id: number }>(`/api/rituals/${r}`, {
+                    method: "POST",
+                  })
+                    .then((res) => setRitualOut(res.artifact_id))
                     .catch((e) => reportStatus(actionError(e)))
                     .finally(() => setBusy(false));
                 }}
@@ -584,11 +646,16 @@ export default function Portfolio() {
             ))}
           </div>
           <div aria-live="polite">
-            {ritualOut && (
-              <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
-                {ritualOut}
-              </pre>
-            )}
+            {ritualOut ? (
+              <p className="mt-3 text-xs">
+                <Link
+                  href={`/artifacts?id=${ritualOut}`}
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+                >
+                  Read it on Work → Reports
+                </Link>
+              </p>
+            ) : null}
           </div>
         </Card>
       )}
@@ -599,8 +666,8 @@ export default function Portfolio() {
             onClick={() => {
               dismissStatus();
               setBusy(true);
-              api<{ markdown: string }>("/api/portfolio/readout", { method: "POST" })
-                .then((r) => setReadout(r.markdown))
+              api<{ artifact_id: number }>("/api/portfolio/readout", { method: "POST" })
+                .then((r) => setReadout(r.artifact_id))
                 .catch((e) => reportStatus(actionError(e)))
                 .finally(() => setBusy(false));
             }}
@@ -608,11 +675,18 @@ export default function Portfolio() {
           >
             {busy ? "Working…" : "Generate readout"}
           </button>
-          {readout && (
-            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-raised p-3 text-xs">
-              {readout}
-            </pre>
-          )}
+          <div aria-live="polite">
+            {readout ? (
+              <p className="mt-3 text-xs">
+                <Link
+                  href={`/artifacts?id=${readout}`}
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+                >
+                  Read it on Work → Reports
+                </Link>
+              </p>
+            ) : null}
+          </div>
         </Card>
       )}
       </div>
