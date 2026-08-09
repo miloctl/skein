@@ -17,7 +17,7 @@ const base = {
   requested_by: null,
   origin: "agent",
   created_at: "2026-08-09T09:00:00+00:00",
-  label: "a task",
+  label: "add a task",
 };
 
 const rows: Record<string, unknown>[] = [];
@@ -57,7 +57,7 @@ describe("the proposer's record on the approvals row", () => {
     expect(await screen.findByText(/12 of 13/)).toBeTruthy();
     // "settled", so the count cannot be read as 13 proposals MADE
     // the lexicon LABEL, not the raw entity slug
-    expect(screen.getByText(/settled a task proposals approved/)).toBeTruthy();
+    expect(screen.getByText(/settled proposals to add a task approved/)).toBeTruthy();
     expect(screen.getByText(/92%/)).toBeTruthy();
     expect(screen.getByText(/4 approvals in a row/)).toBeTruthy();
     expect(screen.queryByText(/suggests a promotion/)).toBeNull();
@@ -112,8 +112,8 @@ describe("the proposer's record on the approvals row", () => {
       promotes_at: 0,
     });
     render(<ReviewPage />);
-    // singular: "1 settled a task proposals approved" is the plural bug
-    expect(await screen.findByText(/settled a task proposal approved/)).toBeTruthy();
+    // singular: "1 settled proposals to add a task" is the plural bug
+    expect(await screen.findByText(/settled proposal to add a task approved/)).toBeTruthy();
   });
 
   it("computes agreement at a streak of one", async () => {

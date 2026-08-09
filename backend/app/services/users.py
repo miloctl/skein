@@ -1,5 +1,7 @@
 """Team roster. Trust model: X-User header from the frontend name picker."""
 
+import re
+
 from .. import db
 
 
@@ -26,6 +28,28 @@ def fold(name: str) -> str:
 
     folded = unicodedata.normalize("NFKC", (name or "").strip())
     return "".join(c for c in folded if unicodedata.category(c) != "Cf").casefold()
+
+
+def names_someone(text: str, roster: set[str]) -> bool:
+    """Does this free text carry a roster name, at WORD boundaries?
+
+    `name in text` is the trap this exists to close: with a roster holding
+    Ram, Ian and Ana it suppressed "Program review", "Alliance sync" and
+    "Analytics review" — three ordinary meeting titles out of four. Callers
+    use this to decide whether a team-wide string may quote free text, so a
+    false positive costs one withheld sentence and a false negative names a
+    person beside a past failure.
+
+    `roster` holds ALREADY-FOLDED names. Multi-word names match when all their
+    parts appear, so "Dana Whitfield" is found in "1:1 dana / whitfield".
+    """
+    words = {w for w in re.split(r"[^\w]+", fold(text)) if w}
+    if not words:
+        return False
+    return any(
+        parts and parts <= words
+        for parts in ({w for w in re.split(r"[^\w]+", mate) if w} for mate in roster)
+    )
 
 
 def refuse_reserved_name(name: str) -> None:

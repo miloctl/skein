@@ -15,8 +15,9 @@ from .scope import WORKSPACE_ONLY
 
 def _clean(text: str, width: int = 80) -> str:
     """User text goes into markdown bullets — a newline in a promise must not
-    forge a section header in the packet."""
-    return " ".join(str(text).split())[:width]
+    forge a section header in the packet. The shared rule lives in
+    services/wording.py::flatten, which every generator now uses."""
+    return wording.flatten(text, width)
 
 
 def _claim_week(job: str, week: str, force: bool) -> bool:

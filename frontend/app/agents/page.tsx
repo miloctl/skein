@@ -672,8 +672,13 @@ export default function Agents() {
                 <li key={`${t.agent}-${t.entity}`}>
                   <span className="font-medium">{t.agent}</span> on {t.entity}:{" "}
                   {t.approved}/{t.proposed} approved (
-                  {Math.round(t.approval_rate * 100)}%) · streak{" "}
-                  {t.recent_streak}
+                  {Math.round(t.approval_rate * 100)}%) ·{" "}
+                  {/* never a bare `streak 0` — a zero there reads as a score.
+                      The approvals row states the same condition in prose
+                      (app/review/page.tsx). */}
+                  {t.recent_streak === 0
+                    ? "last verdict was not an approval"
+                    : `streak ${t.recent_streak}`}
                   {/* The level the streak is measured FROM. Without it the
                       promotion hint below names a destination with no origin,
                       and a reader cannot tell an agent one approval away from

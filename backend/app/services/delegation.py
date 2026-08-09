@@ -469,14 +469,24 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
     unfiltered call costs three times every pair the deployment has ever
     settled — a cost that grows with its age. The Approvals queue asks about
     the handful on one page (services/review.py::_trust_by_pair).
+
+    AGENTS ONLY, and the filter lives HERE rather than in a caller. Humans
+    are in `pending_changes` too — services/ingest.py files every pasted line
+    under the person who pasted it — so an unfiltered read is one teammate's
+    approval rate, rejection streak and settled count in front of the whole
+    roster. That is person-level data judging the PAST, which is the one
+    thing the anti-surveillance rule forbids (docs/INSIGHTS.md: no
+    leaderboards, ever). `GET /api/agents/trust` served exactly that while a
+    caller-side filter made the surface look covered.
     """
     rows = db.query(
-        "SELECT proposed_by AS agent, entity,"
+        "SELECT p.proposed_by AS agent, p.entity,"
         " COUNT(*) AS proposed,"
-        " SUM(status = 'approved') AS approved,"
-        " SUM(status = 'rejected') AS rejected"
-        " FROM pending_changes WHERE status != 'pending'"
-        " GROUP BY proposed_by, entity ORDER BY proposed DESC"
+        " SUM(p.status = 'approved') AS approved,"
+        " SUM(p.status = 'rejected') AS rejected"
+        " FROM pending_changes p JOIN users u ON u.name = p.proposed_by AND u.kind = 'agent'"
+        " WHERE p.status != 'pending'"
+        " GROUP BY p.proposed_by, p.entity ORDER BY proposed DESC"
     )
     if pairs is not None:
         rows = [r for r in rows if (r["agent"], r["entity"]) in pairs]
@@ -580,14 +590,11 @@ def review_authority(*, actor: str = "scheduler") -> dict:
             (recent_cutoff,),
         )
     }
-    from .users import is_agent
-
-    # authority levels only mean something for agent identities on entities
-    # the gate consults: streaks from humans, the scheduler, or the meta
-    # entities would mint nonsense agent rows if proposed
+    # authority levels only mean something on entities the gate consults —
+    # the meta entities in NO_AUTHORITY would mint nonsense agent rows if
+    # proposed. `trust_scores` is agents-only in the service now, so no
+    # is_agent filter is needed here.
     for r in trust_scores():
-        if not is_agent(r["agent"]):
-            continue
         target = None
         why = ""
         if r["recent_streak"] >= TRUST_STREAK and not promotion_blocked(

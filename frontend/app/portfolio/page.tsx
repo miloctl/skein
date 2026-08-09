@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Link from "next/link";
 
@@ -169,6 +169,12 @@ export default function Portfolio() {
   const [readout, setReadout] = useState<number | null>(null);
   const [ritualOut, setRitualOut] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  // a ref beside the state: the click guards below read it synchronously, and
+  // a second click inside the same tick would otherwise see the stale value
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
   // Three states per card, not two. A card whose fetch FAILED is still null,
   // so a null-means-loading check leaves it saying "Loading…" forever — a
   // claim that work is in progress after the work stopped. The toast alone
@@ -218,8 +224,13 @@ export default function Portfolio() {
   // Mutations: never silent — failures land in the status region, and every
   // mutation re-fetches so the page shows reality, which can be a teammate's
   // concurrent edit rather than this tab's own write.
+  // `busy` no longer DISABLES a control: disabling the element that has focus
+  // blurs it, and re-enabling never brings focus back — a keyboard reader was
+  // dropped to the top of the document on every action. The guard moved into
+  // the handlers, and the buttons carry aria-busy instead.
   const mutate = useCallback(
     (p: Promise<unknown>) => {
+      if (busyRef.current) return Promise.resolve();
       setBusy(true);
       dismissStatus();
       return p
@@ -345,7 +356,7 @@ export default function Portfolio() {
           </button>
           {draft && draft.items.length > 0 && (
             <button
-              disabled={busy}
+              aria-busy={busy}
               onClick={() =>
                 mutate(
                   api("/api/week/plan", {
@@ -573,7 +584,7 @@ export default function Portfolio() {
                       {(["kept", "missed"] as const).map((s) => (
                         <button
                           key={s}
-                          disabled={busy}
+                          aria-busy={busy}
                           onClick={() =>
                             mutate(
                               api(`/api/promises/${c.id}/status`, {
@@ -624,8 +635,9 @@ export default function Portfolio() {
             {(["week-open", "week-close"] as const).map((r) => (
               <button
                 key={r}
-                disabled={busy}
+                aria-busy={busy}
                 onClick={() => {
+                  if (busyRef.current) return;
                   dismissStatus();
                   setBusy(true);
                   // These two routes pass force=True, and _claim_week returns
@@ -662,8 +674,9 @@ export default function Portfolio() {
       {manage && (
         <Card title="Exec readout">
           <button
-            disabled={busy}
+            aria-busy={busy}
             onClick={() => {
+              if (busyRef.current) return;
               dismissStatus();
               setBusy(true);
               api<{ artifact_id: number }>("/api/portfolio/readout", { method: "POST" })

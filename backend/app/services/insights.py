@@ -1069,7 +1069,7 @@ def _r_meeting_no_outcome() -> list[dict]:
     about somebody's calendar.
     """
     from .schedule import OUTCOME_SILENT_WEEKS
-    from .users import fold, list_users
+    from .users import fold, list_users, names_someone
 
     # A 1:1 is both the meeting most likely to have no recordable outcome and
     # the one whose TITLE is two people's names. Naming it here would publish
@@ -1077,7 +1077,14 @@ def _r_meeting_no_outcome() -> list[dict]:
     # what _r_feature_unadopted earned its place by refusing to do. A title
     # carrying any roster name is skipped rather than anonymized: a redacted
     # 1:1 is still identifiable from the pair of hours and the cadence.
-    roster = {fold(u["name"]) for u in list_users() if len(u["name"]) > 2}
+    # The WHOLE roster, and every name in it. `list_users()` defaults to
+    # active members only, which left a departed teammate's recurring 1:1
+    # unguarded while the events stayed in the table — and this finding
+    # reaches the digest and the exec readout, which leaves. A length filter
+    # here would silently unprotect whoever has a short name.
+    # services/stakeholders.py::_roster reads the roster unfiltered for the
+    # same reason.
+    roster = {fold(u["name"]) for u in list_users(active_only=False)}
     since = _iso(_today() - timedelta(weeks=OUTCOME_SILENT_WEEKS))
     # Grouped in Python rather than by SQL aggregate, because every shortcut
     # the aggregate offered inflated the number. `SUM(julianday diff)` counts
@@ -1119,7 +1126,10 @@ def _r_meeting_no_outcome() -> list[dict]:
     for title, g in series.items():
         if g["instances"] < OUTCOME_SILENT_WEEKS:
             continue
-        if any(name in fold(title) for name in roster):
+        # WORD boundaries, not `in`: a roster holding Ram, Ian and Ana
+        # suppressed "Program review", "Alliance sync" and "Analytics review"
+        # — three ordinary titles out of four, silently.
+        if names_someone(title, roster):
             continue
         hours = round(g["hours"], 1)
         # The hours clause is dropped, not defaulted, when no instance was
@@ -1168,9 +1178,17 @@ def _r_interrupt_load() -> list[dict]:
         _finding(
             "interrupt_load",
             "medium",
-            f"{round(share * 100)}% of the work that started and finished inside"
-            f" one week was never on that week's commitment line"
-            f" ({got['unplanned']} of {got['n']} over {got['window_weeks']} weeks).",
+            # The denominator is what portfolio.py::flow_metrics actually
+            # counts: finished in the week it was committed to, OR finished in
+            # the week it was created. Carryover is in neither, so "work that
+            # started and finished inside one week" described only the
+            # unplanned half and made the percentage read against the wrong
+            # base — the comment beside `same_week_unplanned_share` warns
+            # against exactly this restatement.
+            f"{round(share * 100)}% of the work settled in the week it belonged to"
+            f" was never on that week's commitment line"
+            f" ({got['unplanned']} of {got['n']}, over {got['window_weeks']} weeks)."
+            " Work carried over from an earlier week is not counted.",
             {
                 "unplanned": got["unplanned"],
                 "planned": got["planned"],

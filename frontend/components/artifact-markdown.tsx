@@ -6,7 +6,8 @@
  *  prop, so it cannot render a string; pulling in a parser instead would add a
  *  dependency to render a handful of constructs. Those are the whole grammar
  *  the generators emit — `#`/`##`/`###` headings, `- ` bullets nested one
- *  level, blank-line paragraphs, and inline `**bold**` and `code` — against
+ *  level, blank-line paragraphs, `> quotes`, and inline `**bold**`, `*italic*`
+ *  and `code` — checked against
  *  services/{digest,readout,rituals,handoff,context_pack}.py. Anything else in
  *  the file renders as its own literal text rather than vanishing, so a
  *  generator that grows a table shows a reader raw pipes instead of nothing.
@@ -16,16 +17,18 @@
  *  text, promise wording), so treating it as HTML would make every generator
  *  an injection sink. Same reason nav-search parses FTS5's <b> into runs. */
 
-/** Splits on `**bold**` and `` `code` `` in one pass. A capturing split
- *  alternates plain, marked, plain… so the run's KIND is its index parity —
- *  no second scan that could disagree with the first. An unclosed marker
- *  matches nothing and stays literal, which is what a reader should see. */
+/** Splits on `**bold**`, `` `code` `` and `*italic*` in one pass. A capturing
+ *  split alternates plain, marked, plain… so the run's KIND is its index
+ *  parity — no second scan that could disagree with the first. An unclosed
+ *  marker matches nothing and stays literal, which is what a reader should
+ *  see. Bold is FIRST in the alternation: `*` would otherwise eat the opening
+ *  half of `**bold**` and leave a stray asterisk. */
 function inline(text: string, key: string) {
-  const parts = text.split(/\*\*([\s\S]+?)\*\*|`([^`]+?)`/g);
+  const parts = text.split(/\*\*([\s\S]+?)\*\*|`([^`]+?)`|\*([^*\n]+?)\*/g);
   return parts.map((part, i) => {
     if (part === undefined || part === "") return null;
-    // split with two capture groups emits [plain, bold, code, plain, …]
-    const kind = i % 3;
+    // split with three capture groups emits [plain, bold, code, italic, plain, …]
+    const kind = i % 4;
     if (kind === 1)
       return (
         <strong key={`${key}-${i}`} className="font-semibold text-ink">
@@ -41,6 +44,12 @@ function inline(text: string, key: string) {
           {part}
         </code>
       );
+    if (kind === 3)
+      return (
+        <em key={`${key}-${i}`} className="italic text-ink-2">
+          {part}
+        </em>
+      );
     return <span key={`${key}-${i}`}>{part}</span>;
   });
 }
@@ -50,6 +59,7 @@ type Item = { text: string; sub: string[] };
 type Block =
   | { kind: "h"; level: 1 | 2 | 3; text: string }
   | { kind: "ul"; items: Item[] }
+  | { kind: "quote"; text: string }
   | { kind: "p"; text: string };
 
 function parse(markdown: string): Block[] {
@@ -70,6 +80,14 @@ function parse(markdown: string): Block[] {
     // receipts two spaces under their engagement, and flattening those made
     // three receipts read as three more engagements
     const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
+    // digest.py wraps its LLM summary in one, and it rendered as a literal
+    // "> " at the head of the paragraph a reader starts on
+    const quote = /^>\s?(.*)$/.exec(line);
+    if (quote) {
+      flushPara();
+      blocks.push({ kind: "quote", text: quote[1] });
+      continue;
+    }
     if (heading) {
       flushPara();
       blocks.push({
@@ -139,6 +157,15 @@ export function ArtifactMarkdown({ markdown }: { markdown: string }) {
                 </li>
               ))}
             </ul>
+          );
+        if (b.kind === "quote")
+          return (
+            <blockquote
+              key={i}
+              className="my-2 border-l-2 border-line-strong pl-3 text-ink-2"
+            >
+              {inline(b.text, `q${i}`)}
+            </blockquote>
           );
         return (
           <p key={i} className="my-2">

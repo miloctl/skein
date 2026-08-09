@@ -69,3 +69,42 @@ def test_a_thread_the_reader_cannot_see_is_not_in_the_brief(client):
     db.execute("UPDATE promises SET visibility = 'private' WHERE id = ?", (pid,))
     threads = stakeholders.open_threads(scope.Viewer("someone-else", True))
     assert threads == []
+
+
+def test_a_teammate_written_short_is_still_not_a_stakeholder(client):
+    """These columns are free text, so a teammate is written "Dana W." as
+    often as in full. An exact fold let that row onto a card headed "Open
+    outside the team" with a past-due date beside it."""
+    users.ensure_user("Dana Whitfield")
+    promises.add_promise("the Q3 forecast", to_whom="Dana W.", direction="received", actor="ava")
+    promises.add_promise("the redlines", to_whom="Acme Corp", direction="received", actor="ava")
+    parties = {t["party"] for t in stakeholders.open_threads(scope.Viewer("ava", True))}
+    assert "Dana W." not in parties
+    assert "Acme Corp" in parties, "an unrelated outside party must still be listed"
+
+
+def test_one_party_written_three_ways_is_one_thread(client):
+    """Case is exactly how free-text party names arrive. Three cards each
+    claiming one open item is what this module exists to stop."""
+    for spelling in ("Acme", "acme", "ACME"):
+        promises.add_promise("a thing", to_whom=spelling, direction="received", actor="ava")
+    threads = stakeholders.open_threads(scope.Viewer("ava", True))
+    assert len(threads) == 1, [t["party"] for t in threads]
+    assert len(threads[0]["items"]) == 3
+
+
+def test_the_brief_survives_a_busy_roster(client):
+    """The roster is excluded in SQL, before the cap. Filtered afterwards,
+    roster-directed rows ate the whole budget and the brief for the meeting
+    you are about to walk into answered "nothing open"."""
+    promises.add_promise("the redlines", to_whom="Acme", direction="received", actor="ava")
+    ev = schedule.schedule_event(
+        "Acme sync", "2026-09-01T10:00", attendees="Acme, ava", actor="ava"
+    )
+    assert stakeholders.brief_for_event(ev["id"], scope.Viewer("ava", True))["threads"]
+
+    users.ensure_user("mira")
+    for i in range(stakeholders._LIMIT + 10):
+        promises.add_promise(f"internal {i}", to_whom="mira", actor="ava")
+    brief = stakeholders.brief_for_event(ev["id"], scope.Viewer("ava", True))
+    assert [t["party"] for t in brief["threads"]] == ["Acme"]

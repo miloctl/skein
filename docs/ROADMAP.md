@@ -1,10 +1,6 @@
 # Feature Roadmap — Skein
 
-> Shipped work is documented in `docs/FEATURES.md`. R4 shipped the peek section and the
-cockpit card; the per-task count on My Day did not, and the
-`blockers.task_id` half of its spec was dropped on purpose —
-`services/work.py::_blocked_by` records why a blocker edge is not
-released work. The ideation
+> Shipped work is documented in `docs/FEATURES.md`. The ideation
 > transcripts behind rounds 1–3 (all shipped or deliberately skipped) and
 > the 2026-07-24 backlog burn-down are archived in `docs/reviews/`.
 > **This file holds only un-shipped work**: the open backlog, the
@@ -86,18 +82,17 @@ numbering and was found later, on 2026-08-09.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
-C1 (week rituals), P2 (absences), P5 (both halves — the My Day prefill and
-`skein standup --draft`), P1 (the planning cockpit, `/planning`), and — on
-2026-08-09 — C2, C3, C4 and P4's rule all shipped; they are documented in
-`docs/FEATURES.md`. C4 shipped its read and its cockpit card; the morning
-rule that ATTACHES the brief to a meeting did not, and
-`GET /api/events/{id}/stakeholders` is the seam it would use. These did not
-ship:
+These did not ship:
 
-R6 (2026-08-09) closed the loop for ONE engagement: its plan is snapshot
-at kickoff, the close diffs planned against actual, and an approved
-lesson reaches the next kickoff of that class. Three pieces of it stayed
-behind, and the first is what makes the other two worth anything:
+- **The morning stakeholder brief** [S] — a rule that ATTACHES the open
+  threads with an outside party to the meeting where you will see them.
+  The read exists; nothing pushes it at the hour it is useful.
+  `GET /api/events/{id}/stakeholders` is the seam.
+
+Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
+close diffs planned against actual, and an approved lesson reaches the
+next kickoff of that class. Three pieces stayed behind, and the first is
+what makes the other two worth anything:
 
 - **Playbook variance across engagements** [S] — the same milestone
   slipping in three incidents running is a fact about the TEMPLATE, not
@@ -310,40 +305,90 @@ several loops stop at 80% — the trust flywheel has no flow, playbooks
 never learn from their own engagements, and waiting-on edges give the
 person typing them nothing back.
 
-R1 (the dropped-payload renders), R2 (the artifact reader), R7 (the
-lessons browser), R3 (the proposer's record at the verdict), R5 (the
-findings tools) and R4 (downstream visibility) shipped 2026-08-09 and are
-documented in `docs/FEATURES.md`. R4 shipped the peek section and the
-cockpit card; the per-task count on My Day did not, and the
-`blockers.task_id` half of its spec was dropped on purpose —
-`services/work.py::_blocked_by` records why a blocker edge is not
-released work.
-
 - **R8 runner wake reads** [S] — `agent_runner._WAKE` names only the
   delegation tools, so an agent woken by the unattended runner reads its
   inbox and nothing else. Seed the wake turn from `get_findings` and
-  `get_attention` as well, so an unattended turn reads the same rules a chat
-  turn does. (R5 shipped those two tools 2026-08-09; this was its stated
-  follow-on, and it is a row rather than a footnote because a planner scans
-  the bullets.)
-Not a build, and blocking two triggers: put flow through the trust
-loop in our own deployment — `SKEIN_AGENT_REVIEW=1`, real delegations
+  `get_attention` as well, so an unattended turn reads the same rules a
+  chat turn does. Those two tools shipped 2026-08-09.
+- **The per-task unblock count on My Day** [S] — the task peek and the
+  cockpit card both show what finishing a task releases; My Day does not,
+  so the number is absent from the one surface people open first. The
+  `blockers.task_id` half of the original spec stays dropped on purpose —
+  `services/work.py::_blocked_by` records why a blocker edge is not
+  released work.
+
+**Dogfooding.** Not a build, and blocking two triggers: put flow through
+the trust loop in our own deployment — `SKEIN_AGENT_REVIEW=1`, real delegations
 with real sponsors, one agent named in `SKEIN_AGENT_RUNNER`. A5 and
 G6 both wait, by their own stated triggers, on the verdict volume this
 produces.
 
-**Suggested order (supersedes 2026-08-08).** Everything this review named
-has now shipped except R8, still open above: the surfacing pass (R1, R2,
-R7) and the census ratchet, then the trust-loop pair (R3, R5), then the
-developer arc (R4 plus F8, D2, D3, D5, F7), then the manager frame (C2,
-C3, C4, P4's rule), then R6 — all 2026-08-09.
+That note is the binding item now. The proposer's record renders from
+real verdicts, and in the default trusted-header mode no verdict counts
+at all, so the surface is currently proving itself against an empty
+table.
 
-The dogfooding note above is the binding one now, and it is not a build:
-R3 renders a record that only real verdicts can fill, and in the default
-trusted-header mode no verdict counts at all. What the arc left behind is
-small and named where it belongs — R8 in this section, F6 and D5's
-idempotency key in "Developer loop", C4's morning rule in "Manager and
-workflow", and the uncapped-on-both-sides census bullet at the top.
+**Left behind by the 2026-08-09 arc, named where each belongs:** R8 and
+the per-task unblock count above; playbook variance across engagements,
+the unread kickoff half of that loop, and the untracked YAML edit under
+"Manager and workflow"; F6 and D5's idempotency key under "Developer
+loop"; C4's morning rule under "Manager and workflow"; and the
+uncapped-on-both-sides census bullet at the top of this file.
+
+## From the pre-merge review (2026-08-09)
+
+Five agents over the whole `deliver-what-is-computed` branch. What they
+found was fixed in the merge commit, except these, each verified by a
+reviewer running the code.
+
+- **The planning cockpit's outside-threads card has no cap** [S] —
+  measured at 360px it was 65% of a 4705px page, which buries the rest of
+  the Monday agenda. `/artifacts` shows the honest shape to copy
+  ("Reports (newest 50)"). The three cards added on 2026-08-09 are also
+  unnumbered, so the 1–6 agenda a manager reads down now has gaps.
+- **A lesson search hit can link to a row the page will not show** [S] —
+  `list_lessons` is `LIMIT 100` with no offset, and search is full-text
+  over all of them, so past 100 the `#lesson-N` anchor targets nothing.
+  The card should disclose its cap the way the reports card does.
+- **`/artifacts` desyncs its URL from its pane** [S] — the Reports tab is
+  a same-route link, so the component never remounts and `popstate` never
+  fires; the pane keeps the open report while the URL loses `?id=`. The
+  page exists to be pasted to a teammate, and the tab it renders itself
+  defeats that.
+- **Regenerating a readout twice in one day says nothing** [XS] — the
+  route overwrites the day's file and returns the same artifact id, so
+  the state never changes and no live region fires.
+- **Focus is lost after a close-out action** [XS] — Escape, cancel and a
+  conclusion click all drop focus to `body`, and the drafted-lesson
+  banner appears above the list with no live region to announce it.
+- **`flow_metrics` has no viewer filter** [S] — the `interrupt_load`
+  finding is team-wide and counts private and crew tasks in its
+  denominator, unlike every other rule in `insights.py`, which splices
+  `WORKSPACE_ONLY`. The number is an aggregate with no titles, so this is
+  a wrong number before it is a leak.
+- **A deliberate 500 answers `text/plain`** [XS] — `read_artifact`'s
+  RuntimeError has no handler in `main.py`, so Starlette returns a bare
+  body and the operator instruction inside it reaches nobody. An error
+  response is always JSON.
+- **`skein capture` costs 30 seconds against an unreachable host** [S] —
+  15 for the POST and 15 more re-flushing the row it just queued. The
+  command that exists so a thought is never lost is the slowest one.
+- **The promotion rule is stated in three places** [S] —
+  `promotion_blocked` is meant to be the one predicate, but
+  `delegation.suggestion` still says "autonomous" where the code promotes
+  to `notify`, and `_authority_recently_judged` re-runs per pair inside a
+  loop that already built the same set.
+- **An all-day event enters the outcome window at 04:00 UTC** [XS] —
+  `'2026-08-09' < '2026-08-09T04:00'` is true, so the four-hour "not
+  during the meeting" guard does nothing for a date-only row.
+- **`_snap_folder` folds ASCII only** [XS] — SQLite's `lower()` is
+  ASCII-only, so "Été" and "été" are two folders again, which is what
+  the change was made to stop.
+- **`awaiting` has no lexicon entry** [XS] — it ships as a user-visible
+  concept word in the capture chip, the ICS summary and the CLI, and
+  `docs/LEXICON.md` does not define it. One concept currently reads four
+  ways: `awaiting`, "open with other people", "received promise",
+  "promises made TO the team".
 
 ## Cut, with re-entry triggers
 

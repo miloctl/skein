@@ -8,7 +8,8 @@ import { expect, test, type Page } from "@playwright/test";
  *  browser actually composed it. The backend is seeded (seed.py) and runs
  *  the mock provider, so every walk is deterministic and keyless. */
 
-// the five nav destinations plus Settings; paths from components/nav.tsx
+// the nav destinations plus Settings and the Reports tab; paths from
+// components/nav.tsx and components/section-tabs.tsx
 const PAGES = [
   { path: "/", name: "My Day" },
   { path: "/chat", name: "Chat" },

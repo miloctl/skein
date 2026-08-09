@@ -66,10 +66,12 @@ def test_the_commit_hook_fires_on_a_dash_m_commit(tmp_path):
         )
         return msg.read_text()
 
-    assert "Closes-Task: #42" in message_after("")  # editor
-    assert "Closes-Task: #42" in message_after("message")  # git commit -m
-    assert "Closes-Task" not in message_after("merge")
-    assert "Closes-Task" not in message_after("squash")
+    # Refs, not Closes: every commit on a task branch gets this trailer and
+    # most of them are work in progress
+    assert "Refs-Task: #42" in message_after("")  # editor
+    assert "Refs-Task: #42" in message_after("message")  # git commit -m
+    assert "Refs-Task" not in message_after("merge")
+    assert "Refs-Task" not in message_after("squash")
 
 
 def test_the_commit_hook_ignores_a_branch_that_names_no_task(tmp_path):
@@ -160,7 +162,10 @@ def test_attention_says_what_happened_when_it_is_not_a_prompt(monkeypatch, capsy
     monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: None)
     cli.cmd_attention(Namespace(porcelain=False))
     out = capsys.readouterr().out
-    assert "did not answer" in out
+    # not "did not answer": api_quiet also returns for a server that ANSWERED
+    # with 401/429/5xx, and that wording sends the reader to check a running
+    # server
+    assert "could not give a count" in out
     assert "?" not in out
 
 
@@ -239,10 +244,10 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
         )
         return msg.read_text()
 
-    assert "Closes-Task: #42" in trailer_for("task/42-slug")
-    assert "Closes-Task: #42" in trailer_for("task/42")
-    assert "Closes-Task" not in trailer_for("task/12abc")
-    assert "Closes-Task" not in trailer_for("task/nodigits")
+    assert "Refs-Task: #42" in trailer_for("task/42-slug")
+    assert "Refs-Task: #42" in trailer_for("task/42")
+    assert "Refs-Task" not in trailer_for("task/12abc")
+    assert "Refs-Task" not in trailer_for("task/nodigits")
 
 
 def test_the_hook_leaves_an_existing_trailer_alone(tmp_path):
@@ -350,3 +355,69 @@ def test_a_capture_made_during_a_flush_is_not_destroyed(monkeypatch, tmp_path):
     assert cli.flush_outbox() == 1
     left = [json.loads(x) for x in (tmp_path / "outbox.jsonl").read_text().splitlines()]
     assert [r["body"]["text"] for r in left] == ["arrived mid-flush"]
+
+
+def test_the_commit_hook_references_a_task_and_never_closes_it(tmp_path):
+    """Every commit on a task branch gets this trailer, and most of them are
+    work in progress. `Closes-Task:` marked the task done on the first "wip"
+    commit and stamped completed_at, which then fed cycle time, throughput and
+    the interrupt-load finding with a lie. `skein pr-body` emits Closes-Task
+    where a merge genuinely ends the work."""
+    import subprocess
+
+    skein_cli = _load_cli()
+    assert "Refs-Task:" in skein_cli.COMMIT_MSG_HOOK
+    assert "Closes-Task: #%s" not in skein_cli.COMMIT_MSG_HOOK
+
+    hook = tmp_path / "prepare-commit-msg"
+    hook.write_text(skein_cli.COMMIT_MSG_HOOK)
+    hook.chmod(0o755)
+    msg = tmp_path / "MSG"
+    msg.write_text("wip: nothing works yet\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", "-b", "task/5-thing"],  # noqa: S607 — git on PATH
+        cwd=repo,
+        check=True,
+    )
+    out = subprocess.run(  # noqa: S603 — sh on PATH, tmp_path repo
+        ["sh", str(hook), str(msg)],  # noqa: S607 — sh on PATH
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert out.returncode == 0, out.stderr
+    body = msg.read_text()
+    assert "Refs-Task: #5" in body
+    assert "Closes-Task" not in body
+
+
+def test_installing_hooks_never_destroys_one_that_is_already_there(tmp_path):
+    """These two slots are commitizen, gitlint and husky territory, and the
+    loss is unrecoverable."""
+    import os
+    import subprocess
+    import types
+
+    skein_cli = _load_cli()
+    hooks = tmp_path / ".git" / "hooks"
+    hooks.mkdir(parents=True)
+    mine = hooks / "prepare-commit-msg"
+    mine.write_text("#!/bin/sh\n# hand written, years of tweaks\n")
+    (hooks / "post-commit").write_text("#!/bin/sh\n# also mine\n")
+    subprocess.run(
+        ["git", "init", "-q"],  # noqa: S607 — git on PATH
+        cwd=tmp_path,
+        check=True,
+    )
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        skein_cli.cmd_install_hooks(types.SimpleNamespace(force=False))
+        assert "years of tweaks" in mine.read_text()
+        skein_cli.cmd_install_hooks(types.SimpleNamespace(force=True))
+        assert "Refs-Task" in mine.read_text()
+    finally:
+        os.chdir(cwd)

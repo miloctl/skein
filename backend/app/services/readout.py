@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .. import config, db
+from . import wording
 from .insights import digest_findings
 from .portfolio import allocation_conflicts, engagement_health, flow_metrics, health_changes
 from .pulse import season
@@ -64,7 +65,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     lines.append("## Engagements")
     for h in health:
         lines.append(
-            f"- {dot[h['health']]} **{h['name']}** ({h['status']}, lead: {h['lead'] or 'unset'})"
+            f"- {dot[h['health']]} **{wording.flatten(h['name'])}** ({h['status']}, lead: {h['lead'] or 'unset'})"
         )
         for r in h["receipts"][:3]:
             lines.append(f"  - {r}")
@@ -104,25 +105,32 @@ def exec_readout(*, actor: str = "system") -> dict:
             f"## What changed since {since.isoformat() if since else 'yesterday'}",
         ]
         for m in moved:
-            lines.append(f"- {dot[m['to']]} **{m['name']}**: {m['from']} → {m['to']}")
+            lines.append(
+                f"- {dot[m['to']]} **{wording.flatten(m['name'])}**: {m['from']} → {m['to']}"
+            )
 
     lines += ["", "## Shipped this season"]
     # local_day, not [:10] — the rule this file states 19 lines above and
     # then broke here. closed_at is a UTC timestamp, and this artifact is
     # forwarded outside the team, so the slice ships a date a reader in the
     # team's zone did not experience.
-    lines += [f"- {r['name']} ({db.local_day(r['closed_at'])})" for r in shipped] or ["- none yet"]
+    lines += [
+        f"- {wording.flatten(r['name'])} ({db.local_day(r['closed_at'])})" for r in shipped
+    ] or ["- none yet"]
     lines += ["", "## Top risks"]
-    risk_lines = [f"- Escalated blocker #{b['id']}: {b['title']}" for b in escalated]
+    risk_lines = [
+        f"- Escalated blocker #{b['id']}: {wording.flatten(b['title'])}" for b in escalated
+    ]
     risk_lines += [f"- {c['person']} at {c['total_percent']}% ({c['detail']})" for c in conflicts]
     lines += risk_lines or ["- none flagged"]
     findings = digest_findings()
     if findings:
         lines += ["", "## This week's findings"]
-        lines += [f"- [{f['severity']}] {f['message']}" for f in findings]
+        lines += [f"- [{f['severity']}] {wording.flatten(f['message'])}" for f in findings]
     lines += ["", "## External promises due in 14 days"]
     lines += [
-        f"- {c['due_date']}: {c['promise']} (to {c['to_whom'] or 'unspecified'})" for c in due_soon
+        f"- {c['due_date']}: {wording.flatten(c['promise'])} (to {c['to_whom'] or 'unspecified'})"
+        for c in due_soon
     ] or ["- none recorded"]
     ct = flow["cycle_time"]
     lines += [

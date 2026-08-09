@@ -1438,6 +1438,12 @@ def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
     ratelimit.check("write", user)
     try:
         return schedule.record_outcome(event_id, body.outcome, actor=user)
+    except db.NotFound:
+        # db.NotFound subclasses ValueError, so a bare `except ValueError`
+        # turned "no event #12" into a 400. The id is in the PATH here, which
+        # scope.missing_text says is the 404 case — and the sibling route
+        # GET /events/{id}/stakeholders already answers 404 for the same row.
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

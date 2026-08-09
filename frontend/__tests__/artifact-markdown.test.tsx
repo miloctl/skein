@@ -73,3 +73,27 @@ describe("ArtifactMarkdown", () => {
     expect(screen.getByRole("listitem").textContent).toBe("one");
   });
 });
+
+describe("the constructs the generators actually emit", () => {
+  it("renders italics rather than showing the asterisks", () => {
+    // digest.py:64 emits *(n=1, 7d)*; handoff.py and context_pack.py emit
+    // *Class: …* — all three showed a reader their own markup
+    render(<ArtifactMarkdown markdown={"a finding *(n=1, 7d)*"} />);
+    expect(screen.getByText("(n=1, 7d)").tagName).toBe("EM");
+    expect(screen.queryByText(/\*\(n=1/)).toBeNull();
+  });
+
+  it("keeps bold intact when italics share the marker", () => {
+    render(<ArtifactMarkdown markdown={"**bold** and *slanted*"} />);
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+    expect(screen.getByText("slanted").tagName).toBe("EM");
+  });
+
+  it("renders a blockquote rather than a literal angle bracket", () => {
+    // digest.py wraps its LLM summary in one, so this is the first paragraph
+    // a reader starts on
+    render(<ArtifactMarkdown markdown={"> Critical issues remain open."} />);
+    expect(screen.getByText("Critical issues remain open.")).toBeTruthy();
+    expect(screen.queryByText(/^>/)).toBeNull();
+  });
+});

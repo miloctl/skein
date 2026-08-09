@@ -95,3 +95,42 @@ def test_failed_compound_apply_rolls_back_and_stays_pending(fresh_db, monkeypatc
 def test_ingest_counts_short_fb_lines(client, fresh_db):
     r = client.post("/api/ingest", json={"text": "todo: real work item\nfb: d—x"})
     assert r.json()["skipped_private"] == 1  # short fb: still counted, never stored
+
+
+def test_an_awaiting_line_in_pasted_notes_is_proposed_not_refused(client):
+    """`awaiting:` shipped in capture without its ingest half, so a paste
+    containing one raised past the lines already stored: the reader got an
+    error, half their notes had landed, and re-pasting duplicated them."""
+    r = client.post(
+        "/api/ingest",
+        json={
+            "text": "todo: ship the API\n"
+            "awaiting: acme corp — the signed SOW by 2026-09-01\n"
+            "todo: write the client"
+        },
+    )
+    assert r.status_code == 200, r.json()
+    from app.services import review
+
+    props = review.list_changes("pending")
+    awaiting = [p for p in props if p["entity"] == "promise"]
+    assert len(awaiting) == 1, [p["entity"] for p in props]
+    payload = awaiting[0]["payload"]
+    assert payload["direction"] == "received"
+    assert payload["to_whom"] == "acme corp"
+    assert payload["due_date"] == "2026-09-01"
+    assert len([p for p in props if p["entity"] == "task"]) == 2, "the paste was cut short"
+
+
+def test_an_awaiting_proposal_applies_at_the_verdict(client):
+    """A payload that cannot be applied is a row that can only ever be
+    rejected, and it wedges the queue."""
+    from app.services import review
+
+    client.post("/api/ingest", json={"text": "awaiting: legal — the redlines by 2026-09-01"})
+    prop = next(p for p in review.list_changes("pending") if p["entity"] == "promise")
+    review.approve_change(prop["id"], actor="ava")
+    from app import db
+
+    row = db.query_one("SELECT * FROM promises WHERE to_whom = 'legal'")
+    assert row and row["direction"] == "received" and row["due_date"] == "2026-09-01"

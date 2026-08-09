@@ -5,8 +5,9 @@ promise the team can't keep on purpose."""
 from datetime import UTC, datetime, timedelta
 
 from .. import db
-from . import scope
+from . import scope, wording
 from .search import index_record
+from .users import is_agent
 
 STATUSES = ("open", "kept", "missed", "withdrawn")
 # 'external': promises to people outside the team (exec readout material).
@@ -132,7 +133,12 @@ def edit_promise(
     # here rather than in the chaser: without it a promise moved out by a week
     # carries its old nudge_count, and the first chase after the NEW date
     # passes lands on ESCALATE_AFTER_CYCLES and goes straight to the team.
-    reset = ", nudge_count = 0, last_nudged_at = NULL" if "due_date" in fields else ""
+    # a CHANGED date, not a present one. An edit form that round-trips the
+    # current values reset the chase every save, so the team-wide escalation
+    # the feature exists for could be deferred forever, and the cleared
+    # last_nudged_at fired an extra nudge inside the same 24-hour cycle.
+    renegotiated = "due_date" in fields and fields["due_date"] != row["due_date"]
+    reset = ", nudge_count = 0, last_nudged_at = NULL" if renegotiated else ""
     db.execute(
         f"UPDATE promises SET {sets}{reset}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
         (*fields.values(), db.now(), promise_id),
@@ -183,9 +189,16 @@ NUDGE_CYCLE_HOURS = 24
 ESCALATE_AFTER_CYCLES = 2
 
 
-def _is_agent(name: str) -> bool:
-    row = db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
-    return bool(row and row["kind"] == "agent")
+def _names_a_teammate(text: str) -> bool:
+    """Does this free text carry a roster name?
+
+    The WHOLE roster, not active members only: a teammate who left is exactly
+    the person a delay verdict must not name, and services/stakeholders.py
+    reads the roster unfiltered for the same reason.
+    """
+    from .users import fold, names_someone
+
+    return names_someone(text, {fold(u["name"]) for u in db.query("SELECT name FROM users")})
 
 
 def chase_received(*, actor: str = "scheduler") -> dict:
@@ -201,7 +214,7 @@ def chase_received(*, actor: str = "scheduler") -> dict:
 
     now = datetime.now(UTC)
     today = db.today().isoformat()
-    nudged, escalated = [], []
+    nudged, escalated, unroutable = [], [], []
     # No viewer filter, deliberately: a job has no viewer, and this reads
     # every tier so a crew-scoped promise is still chased for the person who
     # recorded it. What LEAVES is the guard — see the escalation below.
@@ -225,8 +238,22 @@ def chase_received(*, actor: str = "scheduler") -> dict:
         # send an email, so the nudge would land nowhere (the same reason
         # rituals.py::week_open routes an agent-recorded promise to the team).
         target = row["created_by"] or "team"
-        if _is_agent(target):
+        # users.is_agent, not a local SELECT on `name`: that column is BINARY
+        # collation, so an exact match let "Scout" past the check and the
+        # nudge was addressed to an identity that reads no notifications —
+        # landing nowhere, silently, forever. routes/deps.py documents the
+        # same defect.
+        if is_agent(target):
             target = "team"
+        # "team" is EVERY viewer (notifications.py, `user IN (?, 'team')`), so
+        # that fallback turns a personal nudge into a broadcast. A scoped row's
+        # body must not take it: an agent-authored PRIVATE promise reached the
+        # whole roster through this line. No team-safe wording exists for a
+        # body nobody else may read, so the row is skipped and counted rather
+        # than the job going quiet about it.
+        if target == "team" and row["visibility"] != scope.WORKSPACE:
+            unroutable.append(row["id"])
+            continue
         notify(
             target,
             f"Still open with {who}: “{row['promise'][:80]}” was due {row['due_date']}.",
@@ -234,22 +261,32 @@ def chase_received(*, actor: str = "scheduler") -> dict:
             link="/planning",
         )
         nudged.append(row["id"])
-        # The team-wide escalation NAMES NOBODY. `to_whom` is free text and
-        # nothing stops it being a teammate, so quoting it here would publish
-        # a named person's missed past commitment to every viewer — the exact
-        # thing services/forge.py refuses when it declines to name a pusher.
-        # The tier check stands beside it: a crew or private promise must not
-        # reach the whole roster at all, in any wording.
+        # The team-wide escalation withholds `to_whom`, which is free text that
+        # nothing stops being a teammate — services/forge.py declines to name a
+        # pusher for the same reason. The BODY is free text too, and the
+        # capture grammar leaves a name in it whenever the line carries no dash
+        # ("awaiting: dana will send the redlines" keeps `to_whom` empty), so a
+        # body carrying a roster name is withheld as well and the reader is
+        # sent to the page that can show it under their own tier. The tier
+        # check stands beside both: a crew or private promise must not reach
+        # the whole roster at all, in any wording.
         #
         # Once, not daily. `==`, not `>=`: the recorder keeps being nudged,
         # but a team-wide message repeating the same promise every 24 hours
         # forever is how a digest gets muted.
         if cycles == ESCALATE_AFTER_CYCLES and row["visibility"] == scope.WORKSPACE:
+            body = row["promise"][:80]
+            quoted = (
+                f" “{body}”"
+                if not _names_a_teammate(f"{body} {row['to_whom'] or ''}")
+                else ". Read it on Work → Plan the week"
+            )
             notify(
                 "team",
-                f"A promise made to the team is overdue and unanswered:"
-                f" “{row['promise'][:80]}”, due {row['due_date']}."
-                " Whoever recorded it has chased it twice.",
+                f"A promise made to the team is overdue and unanswered{quoted},"
+                f" due {row['due_date']}."
+                f" Skein sent {wording.count(ESCALATE_AFTER_CYCLES, 'reminder')}"
+                " to whoever recorded it.",
                 tier="digest",
                 link="/planning",
             )
@@ -258,4 +295,11 @@ def chase_received(*, actor: str = "scheduler") -> dict:
             "UPDATE promises SET last_nudged_at = ?, nudge_count = ? WHERE id = ?",
             (db.now(), cycles, row["id"]),
         )
-    return {"nudged": len(nudged), "escalated": len(escalated), "ids": nudged}
+    return {
+        "nudged": len(nudged),
+        "escalated": len(escalated),
+        # a scoped row whose only routable target was "team" — reported, not
+        # dropped silently, or the job's own log would read as "nothing due"
+        "unroutable": len(unroutable),
+        "ids": nudged,
+    }

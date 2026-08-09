@@ -114,7 +114,7 @@ PER = {
 # What to CALL each surface in a refusal. The dict keys above are bucket
 # names, and a reader who trips the cap was shown one verbatim: "The limit
 # for keys_request is 3 per minute." A surface with no entry here reads
-# acceptably as itself (chat, write, capture, ingest, memory, delete).
+# acceptably as itself (chat, write, capture, ingest, memory, delete, private).
 NAMED = {
     "keys_request": "key requests",
     "forge_addr": "webhook deliveries",
