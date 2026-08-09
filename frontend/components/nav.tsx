@@ -414,10 +414,20 @@ export function Nav() {
               }}
               aria-label="Quick capture"
               title="Quick capture (⌘K)"
-              className="shrink-0 rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
+              className="flex shrink-0 items-center gap-1 rounded border border-line-strong bg-raised px-2 py-1.5 font-mono text-[11px] text-ink-2 hover:bg-line hover:text-ink md:px-1.5 md:py-0.5"
             >
-              <span className="md:hidden">+ Capture</span>
-              <span className="hidden md:inline">⌘K</span>
+              {/* The visible text must NAME the action, not the keystroke.
+                  This button read "⌘K" on desktop while its accessible name
+                  was "Quick capture" — a WCAG 2.5.3 Label in Name failure
+                  (nothing on screen matched the name a voice-control user
+                  must speak), and next to a search box "⌘K" reads as the
+                  command-palette convention it is not: this writes a row.
+                  The shortcut stays as a hint, aria-hidden so it cannot get
+                  back into the accessible name and re-break the match. */}
+              <span>+ Capture</span>
+              <span aria-hidden className="hidden text-ink-3 md:inline">
+                ⌘K
+              </span>
             </button>
           </div>
         </div>
