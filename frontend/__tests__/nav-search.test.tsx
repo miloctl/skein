@@ -63,6 +63,26 @@ describe("the nav search box", () => {
     expect(asked).not.toContain("%3F");
   });
 
+  it("links a non-task hit to the page that lists it", async () => {
+    render(<NavSearch />);
+    const input = screen.getByLabelText(/Search Skein/);
+    fireEvent.change(input, { target: { value: "vendor" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // a span here is the dead end the box shipped with: every hit that was
+    // not a task could be read but never opened
+    const link = await screen.findByRole("link", { name: /note #7/ });
+    expect(link.getAttribute("href")).toBe("/dashboard");
+  });
+
+  it("links a non-task citation to the page that lists it", async () => {
+    render(<NavSearch />);
+    const input = screen.getByLabelText(/Search Skein/);
+    fireEvent.change(input, { target: { value: "?what did we pick" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const link = await screen.findByRole("link", { name: /decision #3/ });
+    expect(link.getAttribute("href")).toBe("/charter#charter-entry-3");
+  });
+
   it("renders a snippet as text, never as markup", async () => {
     render(<NavSearch />);
     const input = screen.getByLabelText(/Search Skein/);
