@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { actionError, api } from "@/lib/api";
@@ -45,41 +46,72 @@ function Snippet({ text }: { text: string }) {
   );
 }
 
+/** entity -> the page that lists it, for every indexed entity except task
+ *  (the peek) and lesson (no list surface yet — /dashboard shows only a
+ *  count, so a link would promise a row the page cannot show). An entity
+ *  missing here renders as dead text, which is the exact complaint this
+ *  table exists to close — services/search.py::_ENTITY_TABLE is the list
+ *  to mirror when a new entity is indexed. */
+const ENTITY_PAGE: Record<string, string> = {
+  blocker: "/",
+  decision: "/charter",
+  engagement: "/dashboard",
+  event: "/dashboard",
+  intake: "/intake",
+  memory: "/agents",
+  milestone: "/dashboard",
+  note: "/dashboard",
+  promise: "/portfolio",
+  question: "/dashboard",
+  standup: "/dashboard",
+};
+
 /** `#42` and `task 42` already jump straight to the row server-side, and the
  *  peek is where a task belongs — so a task hit opens the panel instead of
- *  dropping the reader on a page to hunt for it. */
-function HitRow({ hit, onDone }: { hit: Hit; onDone: () => void }) {
-  const label = (
-    <>
-      <span className="text-ink-3">
-        {hit.entity} #{hit.entity_id}
-      </span>{" "}
-      {hit.title}
-    </>
-  );
+ *  dropping the reader on a page to hunt for it. Every other entity is a
+ *  link to the page that lists it. */
+function EntityLink({
+  entity,
+  entityId,
+  onDone,
+  children,
+}: {
+  entity: string;
+  entityId: number;
+  onDone: () => void;
+  children: React.ReactNode;
+}) {
+  if (entity === "task")
+    return (
+      // onDone on the BUTTON, not a wrapping span: on the span, a click
+      // landing in its padding closed the dropdown without opening anything
+      <PeekLink taskId={entityId} onActivate={onDone}>
+        {children}
+      </PeekLink>
+    );
+  // charter rows carry id="charter-entry-N" (app/charter/page.tsx), so an
+  // already-loaded charter scrolls to the row; a fresh navigation lands at
+  // the top because the rows are not in the DOM when the scroll fires.
+  const page =
+    entity === "decision"
+      ? `${ENTITY_PAGE.decision}#charter-entry-${entityId}`
+      : ENTITY_PAGE[entity];
+  if (!page) return <span>{children}</span>;
   return (
-    <li className="text-sm">
-      {hit.entity === "task" ? (
-        // onDone on the BUTTON, not a wrapping span: on the span, a click
-        // landing in its padding closed the dropdown without opening anything
-        <PeekLink taskId={hit.entity_id} onActivate={onDone}>
-          {label}
-        </PeekLink>
-      ) : (
-        <span>{label}</span>
-      )}
-      {hit.snippet ? (
-        <p className="text-xs text-ink-3">
-          <Snippet text={hit.snippet} />
-        </p>
-      ) : null}
-    </li>
+    <Link
+      href={page}
+      onClick={onDone}
+      className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+    >
+      {children}
+    </Link>
   );
 }
 
-/** `task #12` in a citation becomes a peek link; anything else stays text.
- *  Parsed rather than typed, because /api/ask returns `ref` as one string
- *  (services/search.py) and the entity is the half before the number. */
+/** `task #12` in a citation becomes a peek link, `decision #3` a charter
+ *  link, and so on through ENTITY_PAGE. Parsed rather than typed, because
+ *  /api/ask returns `ref` as one string (services/search.py) and the entity
+ *  is the half before the number. */
 function CitationRef({
   refText,
   title,
@@ -89,12 +121,32 @@ function CitationRef({
   title: string;
   onDone: () => void;
 }) {
-  const task = /^task #(\d+)$/.exec(refText.trim());
-  if (!task) return <><span className="text-ink-3">{refText}</span> {title}</>;
-  return (
-    <PeekLink taskId={Number(task[1])} onActivate={onDone}>
+  const label = (
+    <>
       <span className="text-ink-3">{refText}</span> {title}
-    </PeekLink>
+    </>
+  );
+  const m = /^([a-z]+) #(\d+)$/.exec(refText.trim());
+  if (!m) return label;
+  return (
+    <EntityLink entity={m[1]} entityId={Number(m[2])} onDone={onDone}>
+      {label}
+    </EntityLink>
+  );
+}
+
+/** An empty result is the moment read intent turns into write intent: the
+ *  reader looked for a record, there is none, and filing one is the next
+ *  useful move. Outside the nav button this is the only place the shortcut
+ *  is taught, and it hides on touch — where the nav's Capture button is the
+ *  door and no key exists to press (same split as the empty task list in
+ *  app/page.tsx). */
+function CaptureHint() {
+  return (
+    <p className="mt-1 text-xs text-ink-3">
+      To file a new record, use quick capture
+      <span className="[@media(any-pointer:coarse)]:hidden"> (⌘K)</span>.
+    </p>
   );
 }
 
@@ -178,9 +230,12 @@ export function NavSearch() {
               {/* every answer is snippets citing a row — the product never
                   asserts a fact it cannot point at */}
               {answer.citations.length === 0 ? (
-                <p className="text-sm text-ink-3">
-                  {answer.note || "Nothing matches those words."}
-                </p>
+                <>
+                  <p className="text-sm text-ink-3">
+                    {answer.note || "Nothing matches those words."}
+                  </p>
+                  <CaptureHint />
+                </>
               ) : (
                 <ul className="space-y-2">
                   {answer.citations.map((c) => (
@@ -199,15 +254,30 @@ export function NavSearch() {
               )}
             </>
           ) : hits === null ? null : hits.length === 0 ? (
-            <p className="text-sm text-ink-3">Nothing matches those words.</p>
+            <>
+              <p className="text-sm text-ink-3">Nothing matches those words.</p>
+              <CaptureHint />
+            </>
           ) : (
             <ul className="space-y-2">
               {hits.map((h) => (
-                <HitRow
-                  key={`${h.entity}-${h.entity_id}`}
-                  hit={h}
-                  onDone={() => setOpen(false)}
-                />
+                <li key={`${h.entity}-${h.entity_id}`} className="text-sm">
+                  <EntityLink
+                    entity={h.entity}
+                    entityId={h.entity_id}
+                    onDone={() => setOpen(false)}
+                  >
+                    <span className="text-ink-3">
+                      {h.entity} #{h.entity_id}
+                    </span>{" "}
+                    {h.title}
+                  </EntityLink>
+                  {h.snippet ? (
+                    <p className="text-xs text-ink-3">
+                      <Snippet text={h.snippet} />
+                    </p>
+                  ) : null}
+                </li>
               ))}
             </ul>
           )}
