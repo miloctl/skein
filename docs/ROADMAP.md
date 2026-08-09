@@ -1,6 +1,10 @@
 # Feature Roadmap — Skein
 
-> Shipped work is documented in `docs/FEATURES.md`. The ideation
+> Shipped work is documented in `docs/FEATURES.md`. R4 shipped the peek section and the
+cockpit card; the per-task count on My Day did not, and the
+`blockers.task_id` half of its spec was dropped on purpose —
+`services/work.py::_blocked_by` records why a blocker edge is not
+released work. The ideation
 > transcripts behind rounds 1–3 (all shipped or deliberately skipped) and
 > the 2026-07-24 backlog burn-down are archived in `docs/reviews/`.
 > **This file holds only un-shipped work**: the open backlog, the
@@ -144,23 +148,19 @@ A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
 D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 `--all-from <agent>` batch flag.
 
-- **D2 attention count in the shell prompt** — `skein attention --porcelain`
-  reads a 60-second cache at mode 0600, never blocks and never errors.
-  `skein install-prompt` writes the starship or PS1 snippet, on the
-  `install-hooks` precedent.
-- **D3 branch-aware git flow** — `skein task start 42` makes the branch
-  `task/42-slug` and sets in_progress. A prepare-commit-msg hook injects the
-  trailer from the branch name. `skein pr-body` composes task, engagement pack
-  and commits for `gh pr create`.
 - **D4 MCP mid-task parity** — `claim`, `report` and `submit` landed, and the
   read side (`read_worklog`, from G3) landed 2026-08-08 with MCP parity.
   `update_task`, `answer_question`, `resolve_blocker`, `ask` and `week` did
   not. Review approval over MCP stays deliberately absent, because an agent
   must not launder its own proposal.
-- **D5 offline capture outbox** — a JSONL outbox with an idempotency key that
-  auto-flushes on any successful command, plus `my-day --cached`.
-- **F6** CLI argument grammar normalization. **F7** `skein context --engagement`.
-  **F8** `skein ask`.
+- **D5's idempotency key** — the outbox shipped 2026-08-09 and is AT LEAST
+  ONCE: a row leaves the file only after the server accepts it, so a crash
+  between the accept and the rewrite re-sends it. Exactly-once needs a key
+  the capture route reads and dedupes on, which no route does yet. The safe
+  direction is the one it takes — a duplicate is visible and deletable, a
+  dropped row is a capture the person believed they made.
+- **F6** CLI argument grammar normalization. The commands that take an
+  action word still validate their own combinations by hand in `main()`.
 
 ## Ops (from the 2026-07-24 architecture review)
 
@@ -277,9 +277,6 @@ Still open from that review:
   and the Settings model menu shows no cost beside a model, so the
   menu is not yet comparative. [S]
 - **P4's findings rule** — see "Manager and workflow" above. [S]
-- **F8 `skein ask`** — the browser half of "one input, a `?` prefix"
-  shipped; the terminal has `skein search` and no ask. Lives in
-  "Developer loop" above. [S]
 
 The suggested order this section carried (manager frame, then CLI,
 then census) was revised by the 2026-08-09 product-strategy review —
@@ -297,9 +294,13 @@ never learn from their own engagements, and waiting-on edges give the
 person typing them nothing back.
 
 R1 (the dropped-payload renders), R2 (the artifact reader), R7 (the
-lessons browser), R3 (the proposer's record at the verdict) and R5 (the
-findings tools) shipped 2026-08-09 and are documented in
-`docs/FEATURES.md`.
+lessons browser), R3 (the proposer's record at the verdict), R5 (the
+findings tools) and R4 (downstream visibility) shipped 2026-08-09 and are
+documented in `docs/FEATURES.md`. R4 shipped the peek section and the
+cockpit card; the per-task count on My Day did not, and the
+`blockers.task_id` half of its spec was dropped on purpose —
+`services/work.py::_blocked_by` records why a blocker edge is not
+released work.
 
 - **R8 runner wake reads** [S] — `agent_runner._WAKE` names only the
   delegation tools, so an agent woken by the unattended runner reads its
@@ -308,11 +309,6 @@ findings tools) shipped 2026-08-09 and are documented in
   turn does. (R5 shipped those two tools 2026-08-09; this was its stated
   follow-on, and it is a row rather than a footnote because a planner scans
   the bullets.)
-- **R4 downstream visibility** [M] — the reverse of `waiting_on`:
-  "this task unblocks …" in the task peek and My Day, and a
-  top-unblocking-move line in the cockpit, computed from `waiting_on`
-  plus `blockers.task_id`. This is what makes edges worth maintaining
-  for the person who types them.
 - **R6 playbook close-out** [M] — at engagement close, diff the
   instantiated plan against what happened (dates, added and removed
   tasks, skipped rituals) and auto-draft the lesson from the variance,
@@ -347,7 +343,7 @@ review. Each names the condition that reopens it.
 | Auto-quiet findings rules | The rule count or the noise grows beyond hand-tending. The maintainer retires rules at season end today. |
 | Stakeholder signed status pages | Real stakeholder demand AND real auth. Then build it as a push-generated static artifact, never by exposing the app. |
 | Coordination-debt and closed-loop-rate metrics registry | Multi-team scale. |
-| Playbooks 2.0, delegation contracts, evidence pack, outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
+| Playbooks 2.0, delegation contracts, evidence pack, transactional outbox, capability broker | Deferred. Specs are in `docs/reviews/2026-07-24-agent-sol.md`. |
 | Employee private-prep sections | Refused until the journal separate-store pattern is proven. |
 | Post-compaction context re-injection | A real long-chat complaint — `summarize` plus the scoped context pack cover it today. If built: subclass `ConversationManager.reduce_context()`, re-inject the per-engagement pack once per session with a token ceiling to avoid a trim/re-inject loop. |
 | Honest tombstones for deleted tasks/chats | A deletion dispute the hash-chained ledger and the loud feed row do not settle — today they meet the need more strongly than a tombstone would. Private 1:1 notes and decision supersession keep their existing tombstones. |

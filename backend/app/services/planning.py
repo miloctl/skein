@@ -25,7 +25,12 @@ reader cross-referencing them lands on the wrong card.
 from datetime import timedelta
 
 from .. import db
-from . import collab, intake, portfolio, scope, weekly
+from . import collab, intake, portfolio, scope, weekly, work
+
+# How many direct-waiter leaders get the full transitive walk. Each walk is
+# two queries at minimum, so this is the page's bound on a cost that was
+# linear in the number of waiting-on edges.
+_TOP_CANDIDATES = 5
 
 
 def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dict:
@@ -89,5 +94,55 @@ def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dic
         "health_changes": [
             c for c in portfolio.health_changes(health, db.today() - timedelta(days=7)) if c["from"]
         ],
+        # The one open task whose finish releases the most other work. A
+        # waiting-on edge told the person who typed it nothing; this is the
+        # meeting's use for it — "start here and three people move".
+        "top_unblocking_move": _top_unblocking_move(viewer),
         "today": db.today().isoformat(),
     }
+
+
+def _top_unblocking_move(viewer: scope.Viewer) -> dict | None:
+    """The open task that releases the most work, or None when nothing waits.
+
+    Two steps, because the honest score is transitive and the transitive walk
+    is expensive. Step one ranks every candidate by its DIRECT waiter count in
+    a single GROUP BY. Step two walks only the shortlist. Scoring every
+    candidate cost two queries each — 602 on a workspace with 300 edges, each
+    one its own SQLite connection (services/scope.py records that a connection
+    costs two orders of magnitude more than the SELECT it carries), on a page
+    whose own docstring promises it computes nothing twice.
+
+    The shortlist can be wrong in one direction: a task with few direct
+    waiters but a long chain behind them can outrank one with many direct
+    waiters and none. Bounded and occasionally second-best beats unbounded on
+    the page a manager opens every Monday.
+    """
+    frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
+    # the waiter side is scoped too: an unscoped count would rank a task by
+    # waiters its reader cannot see, and the number would not match the peek
+    wfrag, wp = scope.visible_filter(viewer, "tasks", alias="w")
+    ranked = db.query(
+        f"SELECT t.id, t.title, t.assignee, COUNT(*) AS direct"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM tasks t JOIN tasks w ON w.waiting_on_type = 'task'"
+        f" AND w.waiting_on_id = t.id AND w.status != 'done' AND {wfrag}"
+        f" WHERE t.status != 'done' AND {frag}"
+        " GROUP BY t.id ORDER BY direct DESC, t.id LIMIT ?",
+        (*wp, *vp, _TOP_CANDIDATES),
+    )
+    best: dict | None = None
+    for t in ranked:
+        got = work.downstream(t["id"], viewer)
+        if got["unblocks_total"] and (best is None or got["unblocks_total"] > best["unblocks"]):
+            best = {
+                "id": t["id"],
+                "title": t["title"],
+                "assignee": t["assignee"],
+                "unblocks": got["unblocks_total"],
+                # carried, not dropped: the cockpit states this number as a
+                # count, and on a truncated walk it is a floor. The task peek
+                # discloses the same fact, and the two must not read
+                # differently about the same chain.
+                "depth_capped": got["depth_capped"],
+            }
+    return best

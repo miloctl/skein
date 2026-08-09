@@ -56,6 +56,15 @@ type Cockpit = {
   // `from` is non-null by the time it reaches here — the service drops a
   // first-ever score, which is not a change (services/planning.py)
   health_changes: { id: number; name: string; from: string; to: string }[];
+  // the open task whose finish releases the most other work. null when
+  // nothing waits on anything — a zeroed row would be a sentence about work
+  // that does not exist (services/planning.py)
+  top_unblocking_move: {
+    id: number;
+    title: string;
+    assignee: string;
+    unblocks: number;
+  } | null;
   today: string;
 };
 
@@ -263,6 +272,30 @@ export default function Planning() {
           reason you give.
         </p>
       </Card>
+
+      {/* the one move that releases the most work. Sits with the week's plan
+          rather than with the stale list: it is a choice about what to start,
+          not something that has gone wrong. */}
+      {d.top_unblocking_move ? (
+        <Card title="The move that unblocks the most">
+          <p className="text-sm">
+            <PeekLink taskId={d.top_unblocking_move.id}>
+              <span className="text-ink-3">#{d.top_unblocking_move.id}</span>{" "}
+              {d.top_unblocking_move.title}
+            </PeekLink>
+            {d.top_unblocking_move.assignee ? (
+              <span className="ml-2 text-xs text-ink-3">
+                @{d.top_unblocking_move.assignee}
+              </span>
+            ) : null}
+          </p>
+          <p className="mt-1 text-xs text-ink-3">
+            Finishing it releases {d.top_unblocking_move.unblocks} task
+            {d.top_unblocking_move.unblocks === 1 ? "" : "s"} that wait on it,
+            directly or behind another.
+          </p>
+        </Card>
+      ) : null}
 
       {/* 5 — what has gone stale, and which way the portfolio moved */}
       <Card title="5 · Needs a decision">

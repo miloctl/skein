@@ -202,7 +202,7 @@ the agent's prompt) work keyless, in-app.
   *attribute* automation, and satisfy the shared token gate.
 - **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
   `skein config --url … --key …` and
-  `skein capture|standup|my-day|tasks|blockers|promises|search|week|eval|context`.
+  `skein capture|standup|my-day|tasks|blockers|promises|search|ask|attention|week|review|inbox|answer|worklog|absences|eval|context|task start|pr-body`.
 - **`skein eval`** — replays the capture classifier against its labeled
   feedback corpus (`POST /api/feedback`); exits 1 on regressions.
 - **`skein context --write AGENTS.md`** — emits the versioned team context
