@@ -1,11 +1,12 @@
 # Implementation Spec — Skein
 
-> **Status (2026-07):** all phases 0–4 are BUILT and superseded by reality —
-> this document is the original build plan, kept for its rationale, data
-> model, and constraints. `docs/FEATURES.md` is the current reference for
-> what exists. As-built deviations from this plan: embeddings are OpenAI
-> vectors stored as JSON with Python cosine similarity (not sqlite-vec), and
-> the approval gate is the pending_changes registry (not Strands interrupts).
+> **Closed.** All phases 0–4 are BUILT and superseded by reality — this
+> document is the original build plan, kept for its rationale, data model,
+> and constraints. `docs/FEATURES.md` is the current reference for what
+> exists. As-built deviations from this plan: embeddings are OpenAI vectors
+> stored as JSON with Python cosine similarity (not sqlite-vec), and the
+> approval gate is the pending_changes registry (not Strands interrupts).
+> Moved here from `docs/SPEC.md` on 2026-08-09.
 
 Working constraint: **no API keys for now**. Every feature is designed with a
 deterministic core (DB + REST + UI) that works without a model; the agent layer

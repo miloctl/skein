@@ -84,7 +84,7 @@ new features are reviewed against it.
 Closed 2026-07-27 (sponsor-bound verdicts): task-acceptance verdicts belong
 to the task's sponsor, looked up at verdict time. Anyone else may still
 approve or reject, but only with a reason on the record — the verdict is
-marked `reviewed_override` (migration 030), logged "(accepted for X)", and
+marked `reviewed_override`, logged "(accepted for X)", and
 excluded from trust streaks, so promotions and demotions are backed only by
 the people who actually sponsored the work. The Inbox shows the sponsor on
 acceptance rows and turns Approve into "Accept for X…" with an inline
