@@ -296,25 +296,23 @@ several loops stop at 80% — the trust flywheel has no flow, playbooks
 never learn from their own engagements, and waiting-on edges give the
 person typing them nothing back.
 
-R1 (the dropped-payload renders), R2 (the artifact reader) and R7 (the
-lessons browser) shipped 2026-08-09 and are documented in
+R1 (the dropped-payload renders), R2 (the artifact reader), R7 (the
+lessons browser), R3 (the proposer's record at the verdict) and R5 (the
+findings tools) shipped 2026-08-09 and are documented in
 `docs/FEATURES.md`.
 
-- **R3 provenance at the verdict** [M] — each pending proposal on
-  `/review` carries the proposer's approval rate on that entity, the
-  current streak, and origin, with "one more approval suggests
-  promotion" when true. The reviewer currently judges blind while the
-  data sits on `/agents` (`review_stats`, `trust_scores`).
+- **R8 runner wake reads** [S] — `agent_runner._WAKE` names only the
+  delegation tools, so an agent woken by the unattended runner reads its
+  inbox and nothing else. Seed the wake turn from `get_findings` and
+  `get_attention` as well, so an unattended turn reads the same rules a chat
+  turn does. (R5 shipped those two tools 2026-08-09; this was its stated
+  follow-on, and it is a row rather than a footnote because a planner scans
+  the bullets.)
 - **R4 downstream visibility** [M] — the reverse of `waiting_on`:
   "this task unblocks …" in the task peek and My Day, and a
   top-unblocking-move line in the cockpit, computed from `waiting_on`
   plus `blockers.task_id`. This is what makes edges worth maintaining
   for the person who types them.
-- **R5 findings tools for the agent** [S] — read-only `get_findings`
-  and `get_attention` tools plus a system-prompt line, so "what should
-  worry me" in chat answers from the findings engine instead of being
-  unanswerable. Later the same tools seed the unattended runner's wake
-  prompt.
 - **R6 playbook close-out** [M] — at engagement close, diff the
   instantiated plan against what happened (dates, added and removed
   tasks, skipped rituals) and auto-draft the lesson from the variance,
@@ -326,10 +324,10 @@ with real sponsors, one agent named in `SKEIN_AGENT_RUNNER`. A5 and
 G6 both wait, by their own stated triggers, on the verdict volume this
 produces.
 
-**Suggested order (supersedes 2026-08-08).** The surfacing pass (R1, R2,
-R7) and the census ratchet shipped 2026-08-09. Next: R3 and R5, with the
-dogfooding note above — those two are what put readings on the trust
-loop. Then the developer arc — R4 plus the CLI items (F8, D2, D3, D5,
+**Suggested order (supersedes 2026-08-08).** The dogfooding note above is
+now the binding one: R3 renders a record that only real verdicts can fill,
+and in the default trusted-header mode no verdict counts at all. Next: the
+developer arc — R4 plus the CLI items (F8, D2, D3, D5,
 F6, F7) — promoted ahead of the manager frame because every manager
 surface reads developer exhaust, and the terminal is where that exhaust
 is thinnest. Then the manager frame (C2, C3, C4, P4's rule) as cockpit

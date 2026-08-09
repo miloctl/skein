@@ -55,7 +55,7 @@ URL is directly linkable.
 backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
-  ├─ app/tools/      56 Strands @tool wrappers over the same services
+  ├─ app/tools/      58 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
