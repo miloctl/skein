@@ -1,7 +1,12 @@
 # Implementation plan — post-review roadmap (2026-07-24)
 
-Derived from `docs/reviews/2026-07-24-synthesis.md` (final) and the
-five-agent panel (`docs/reviews/2026-07-24-panel.md`). Three waves.
+> **Closed.** All three waves shipped 2026-07-24/25. The backlogs this file
+> once carried moved to `docs/ROADMAP.md` on 2026-08-02, and the file moved
+> here from `docs/PLAN.md` on 2026-08-09. Kept for the recorded deviations
+> between what was specified and what shipped.
+
+Derived from `2026-07-24-synthesis.md` (final) and the
+five-agent panel (`2026-07-24-panel.md`). Three waves.
 Wave 1 must land pre-transition. Every wave-2/3 item must fit in ≤2
 evening-sized sessions or be split until it does.
 

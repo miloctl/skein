@@ -1,7 +1,7 @@
 # Insights & findings engine — design spec
 
 **Status: BUILT** (`services/insights.py`, `/insights` page, findings in the
-digest and exec readout; migration 011). The panel's original gate (≥4 weeks
+digest and exec readout). The panel's original gate (≥4 weeks
 of usage) was overridden by the owner — small-n discipline makes early
 emptiness honest: rules stay silent below their sample floors and the page
 labels n everywhere. The trend-comparison rules (MTTR, rejection spike,
@@ -48,12 +48,13 @@ slip-forecast calibration (median abs error from `forecast_snapshots`,
 quarterly, n≥8) · weekly-plan edit rate · blocker source mix · escalation
 rate · rejected-proposal themes · deferred-intake graveyard.
 
-## The findings rules (19 rule IDs across 18 entries)
+## The findings rules (21 rule IDs)
 
 Machinery: finding = `{rule_id, severity, message, n, window, receipt}`;
 receipt = row IDs + computed numbers JSON'd at fire time. Dedupe as built:
 a rule fires at most once per (rule_id, subject, ISO week) — no re-fire
-within a week even on severity change.
+within a week even on severity change. `services/insights.py::RULES` is the
+authority on what runs; this list explains each rule's why.
 
 1. **MTTR regression** — median resolve, 28d vs prior 28d, ratio ≥1.5, both n≥8. Receipt: medians, ns, 3 slowest blockers.
 2. **MTTR improvement** — ratio ≤0.67 (positive findings keep it from being an alarm system).
@@ -75,11 +76,17 @@ within a week even on severity change.
 
 17. **Activity chain broken** — the provenance ledger disagrees with itself: a row was changed, removed, or written outside the chain. Walks the WHOLE chain, not the nightly tail — an anchor is a claim about the past, so incremental verification can never notice an edit to a row it already passed. The full walk also cross-checks the stored anchor, the high-water seq, and the unchained baseline, so it is strictly stronger than the tail run, not a different view of it. Reports the FIRST break only and stops: every later link is computed from a value already known to be wrong, so a second break downstream stays hidden until the first is repaired. When the walk passes, the rule also replays the **anchor log** (`backups/activity-anchors.log`, mirrored off-box nightly) — the check the in-DB marks cannot make: a whole-chain re-forge that rewrites `app_settings` too walks clean, but every anchored row's digest changed with the rewrite, so it no longer matches the line recorded the night it was verified. Severity high; subject = `seq:<n>` (or `unchained`, or `anchor:<n>` for an anchor-log mismatch), so a break re-fires every week until it is dispositioned. Receipt: the broken seq + the reason.
 
-    A consequence worth knowing before writing a migration: **no migration may UPDATE or DELETE `activity` rows that carry a seq.** Migration 020 (`pulse_anonymize`) rewrote `activity.actor` in bulk; the same migration written today would break the chain permanently at its earliest touched row, with no re-baseline path other than dispositioning the finding into silence.
+    A consequence worth knowing before writing a migration: **no migration may UPDATE or DELETE `activity` rows that carry a seq.** A pre-baseline migration (`pulse_anonymize`) rewrote `activity.actor` in bulk before the chain existed; the same migration written today would break the chain permanently at its earliest touched row, with no re-baseline path other than dispositioning the finding into silence. `tests/test_migrations.py` pins the refusal.
 
 18. **Budget** — off until `SKEIN_MONTHLY_BUDGET_USD` is set. High when month-to-date estimated spend (from `SKEIN_MODEL_PRICES`, computed at write time) reaches the ceiling, with the top engagements in the receipt via the thread→engagement link. Medium "budget cannot be measured" when the budget is set but no call this month has a priced model — silence there would read as under budget while nothing was being counted. Unpriced calls are named in the message, never folded into the sum. Subject = `month:<YYYY-MM>` (or `unmeasured:<YYYY-MM>`).
 
-(19. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones.)
+19. **Turn runaway** — ONE agent turn that looped: cycle count in a single turn at or past an absolute threshold (`TURN_CYCLE_ALARM`, 25). Absolute, not a ratio — no honest baseline for "normal cycles" exists until a deployment has months of turns, and a ratio over a tiny sample fires on the second turn ever. The weekly token rule sees a spend trend; it cannot see one agent that burned a hundred cycles in an afternoon, which is the failure an unattended run makes expensive. Severity medium; subject = `turns:<usage_log id>`.
+
+20. **Flock member failing** — a bench persona that failed EVERY time it was called inside a flock in the last 7 days (n≥2). `flock_traces` recorded a per-member status since flocks shipped and nothing read it, so a persona that always fails looked, from every surface, like a persona nobody uses. Every-call failure only: a persona that sometimes fails is a slow model, and a rule that fires on that gets ignored. Severity medium; subject = `slugs:<csv>`.
+
+21. **Ledger rows adopted** — an `adopt_unchained` receipt landed: the nightly job chained rows that were written outside the chain and lowered the baseline. Adoption heals the chain instead of alarming forever; this finding is the push signal that replaces the permanent alarm. An adoption that no 'activity chain append failed' warning in the server log explains is the tamper signal. Severity medium; subject = `adopt:<seq>`, so each adoption fires exactly once.
+
+(22. PLANNED, not yet implemented: forecast miscalibration — quarterly, once `forecast_snapshots` has n≥8 completed milestones. The calibration *display* shipped on `/insights`; the rule that names a miscalibrated quarter did not.)
 
 **Dispositions** close the loop on findings: dismissed / deferred / converted
 / resolved, keyed on `(rule_id, subject)` because findings re-fire weekly as

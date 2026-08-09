@@ -77,7 +77,7 @@ a dependency for nothing).
 ```yaml
 # backend/flocks/engineering.yaml
 name: Engineering
-description: Design tension — architecture, review, and restraint on one question
+description: Design tension on one question — the architecture, the failure modes, and the smallest thing that works
 emoji: 🛠️
 members:            # 2-4 bench persona slugs, order = section order
   - backend-architect
@@ -369,13 +369,12 @@ plus axe extends to the trace section.
    passes the axe check.
 5. `./scripts/lint.sh` and the full backend suite pass.
 
-## Open questions
+## Open questions — closed (2026-08-09)
 
-- Ship how many stock flocks? One (`engineering.yaml`) proves the feature;
-  a second (for example delivery: project-shepherd, sprint-prioritizer,
-  meeting-notes) proves the plural. Lean: two.
-- Does the synthesis masthead get the goose? (Voice question, not a
-  blocker — the goose is earned only where nothing is asked of the
-  reader.)
-- Trace retention: keep forever like activity, or cap? Lean: keep — rows
-  are small and it is not the hash-chained ledger.
+- Stock flocks: two shipped, as the lean said — `engineering.yaml` and
+  `delivery.yaml` (project-shepherd, sprint-prioritizer, meeting-notes).
+- The synthesis masthead did not get the goose. A merge section asks the
+  reader to weigh answers, and the goose is earned only where nothing is
+  asked of the reader.
+- Trace retention: keep, as the lean said — nothing prunes
+  `flock_traces`. Rows are small and it is not the hash-chained ledger.

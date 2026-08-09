@@ -265,9 +265,9 @@ are the only record types". Each section now states its own failure, in
 the same wording portfolio uses for a failed card. Pinned by
 `__tests__/agents-silent-catches.test.tsx`.
 
-**T8. Three retry buttons exist in the whole app** (`/dashboard` ×2,
-`/auth/callback`). Everywhere else recovery is a manual reload, which no
-string mentions.
+**T8. One retry button exists in the whole app** (`/auth/callback` —
+recounted 2026-08-09; the two `/dashboard` buttons are gone). Everywhere
+else recovery is a manual reload, which no string mentions.
 
 Also flagged, not wording: batch selections over 100 rows were silently
 dropped (FIXED 2026-08-04 — `BatchApproveIn` accepted 200 ids while the
@@ -281,10 +281,12 @@ strong identity (`services/review.py:204`). Manager controls is a
 per-browser display toggle that "does not grant permissions", so gating
 approvals behind it would hide a permitted action without restricting
 anyone. Intake is gated because triage is a manager function; approving
-is not. `/ingest` truncates at 20 unclassified lines with no "and
-N more", authority `not allowed` fires on `onChange` with no confirmation,
-and the Agents empty state advertises "delegate a task" for which no UI
-exists (already ROADMAP item 3).
+is not. `/ingest` truncating at 20 unclassified lines with no "and
+N more" is FIXED (2026-08-08 — the count renders, pinned by
+`__tests__/ingest-truncation.test.tsx`). Authority `not allowed` fires on
+`onChange` with no confirmation. The Agents empty state advertising
+"delegate a task" is answered: the control shipped in the task peek
+(2026-08-08, ROADMAP self-serve item 3).
 
 ---
 

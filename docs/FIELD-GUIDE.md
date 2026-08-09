@@ -63,7 +63,7 @@ and judgment-laden surfaces; silent retroactive seeding; quiet cadence.
   card nobody can tie would otherwise nag forever. A predicate-less card
   that claims `predicate`, or a card with a predicate that claims anything
   else, aborts boot.
-- State: `feature_unlocks` (migration 033), append-only rows
+- State: `feature_unlocks` (in the baseline schema), append-only rows
   (person, knot, kind tied|dismissed, seen, first_at). Predicates *detect*;
   the table *holds* — activity gets pruned by retention, unlocks survive.
 - Detection: lazy on guide-page load and My Day hint, plus a sweep of all

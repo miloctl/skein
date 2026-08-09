@@ -1,6 +1,7 @@
 """The Bench: curated specialist personas, loaded from backend/personas/*.md
-plus an optional SKEIN_PERSONAS_DIR overlay (overlay wins a slug collision, and
-an overlay pack.json replaces the stock one wholesale).
+plus an optional SKEIN_PERSONAS_DIR overlay (overlay wins a slug collision;
+overlay pack.json defaults merge FIELD-BY-FIELD over the stock ones — see
+_pack_files, whose merge is the behavior docs/PERSONAS.md documents).
 
 A persona file is frontmatter (name/description/emoji/vibe) plus a system-
 prompt body. Files are edited like code (the playbooks precedent) — adapted

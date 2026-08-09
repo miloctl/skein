@@ -6,7 +6,7 @@
 
 *Inputs: `2026-07-24-agent-sol.md`, `2026-07-24-agent-fable.md`, and the
 five-agent panel review of the draft (`2026-07-24-panel.md`). The
-implementation plan lives in `docs/PLAN.md`. Context: solo builder,
+implementation plan lives in `2026-07-24-implementation-plan.md`. Context: solo builder,
 pre-EM-transition; the manager-serving layer must be ready before day 1;
 the team first sees the tool ~month 3, through value, not mandate.*
 
@@ -102,7 +102,7 @@ provider first) · per-engagement context pack filter · weekly pulse question
 · disposition analytics · shared 1:1 agendas if demanded · incident timeline
 after the first incident
 
-Full specs: `docs/PLAN.md`. Panel detail: `2026-07-24-panel.md`.
+Full specs: `2026-07-24-implementation-plan.md`. Panel detail: `2026-07-24-panel.md`.
 
 **Standing guardrail (from both reviews):** every post-transition build runs
 as a Skein experiment engagement — timebox, kill criteria, recorded

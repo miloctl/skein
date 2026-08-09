@@ -33,7 +33,8 @@ URL is directly linkable.
 |---|---|---|
 | **My Day** | `/` | What changed and what needs *you*, in under 30 seconds |
 | **Chat** | `/chat` | Chief-of-Staff agent, streaming. The mock provider works keyless. Type `/as <persona>` to switch heads — see [The Bench](docs/PERSONAS.md) — or `/flock <flock>` to ask several at one time, see [Flocks](docs/FLOCKS.md) |
-| **Work** | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
+| **Work** | `/planning` | The Monday ritual in one read: last week's kept-% and carryover, this week's draft, capacity ahead, intake awaiting triage, one commit |
+| | `/portfolio` | Engagement health (R/Y/G with receipts), weekly commitment line, capacity conflicts, flow metrics, slip forecast, commitments, exec readout |
 | | `/dashboard` | Engagements · blockers · capacity · milestones · tasks · Q&A · decisions · standups · calendar · notes |
 | | `/insights` | Findings feed with click-through receipts, and team-rolled trends (MTTR, automation ratio, adoption, token spend) |
 | **Inbox** | `/review` | Approve or reject proposed changes. This is the agent approval gate |
@@ -53,7 +54,7 @@ URL is directly linkable.
 backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/services/   ALL business logic — the single write path
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
-  ├─ app/tools/      55 Strands @tool wrappers over the same services
+  ├─ app/tools/      56 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
   ├─ migrations/     numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
@@ -70,7 +71,7 @@ Key mechanics:
   (`human | agent | agent_verified`) and `created_by`; every mutation lands in
   the activity log.
 - **A tamper-evident ledger** — each activity row commits to its own content
-  and to the row before it (SHA-256, migration 036). A nightly job verifies
+  and to the row before it (SHA-256). A nightly job verifies
   the whole chain and appends the verified tip to an anchor log mirrored
   off-box. A later rewrite must contradict a record made on an earlier day.
   Detection, never prevention — the limits are stated plainly in
@@ -200,7 +201,7 @@ the agent's prompt) work keyless, in-app.
   *attribute* automation, and satisfy the shared token gate.
 - **`skein` CLI** (stdlib-only): `pipx install ./cli`, then
   `skein config --url … --key …` and
-  `skein capture|standup|my-day|tasks|blockers|search|week|eval|context`.
+  `skein capture|standup|my-day|tasks|blockers|promises|search|week|eval|context`.
 - **`skein eval`** — replays the capture classifier against its labeled
   feedback corpus (`POST /api/feedback`); exits 1 on regressions.
 - **`skein context --write AGENTS.md`** — emits the versioned team context
@@ -268,6 +269,7 @@ Model provider in `backend/.env`:
 | `SKEIN_OLLAMA_HOST` | local daemon or `https://ollama.com` | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | only for direct Ollama Cloud (no local daemon) | — |
 | `SKEIN_AGENT_REVIEW` | `1` routes agent writes through /review | `0` |
+| `SKEIN_MODELS` | optional operator-curated model menu; an administrator picks between its entries on Settings → Model (team) — see [docs/FEATURES.md](docs/FEATURES.md) | — |
 
 Default model per provider: `gpt-oss:120b-cloud` (ollama) · `gpt-5` (openai) ·
 `claude-opus-4-8` (anthropic). **`openai_compatible` and `bedrock` have no
@@ -317,7 +319,7 @@ end-to-end: streaming chat, tool calls, and usage accounting.
 
 ## Status & roadmap
 
-Every phase of [docs/SPEC.md](docs/SPEC.md), plus the synthesized picks from
+Every phase of the [original implementation spec](docs/reviews/2026-07-23-implementation-spec.md), plus the synthesized picks from
 four ideation rounds, is **built**: the keyless operating system, the
 integrations (Slack, MCP both ways, CI, keys, CLI), delight and pulse, the
 round-3 operating-system layer (portfolio health, weekly commitment line, flow
@@ -337,9 +339,10 @@ feed, turn guard, persona bench, per-turn cost and a budget rule).
 | [docs/FIELD-GUIDE.md](docs/FIELD-GUIDE.md) | The field guide ("knots") and its design constraints |
 | [docs/PERSONAS.md](docs/PERSONAS.md) | The Bench — the persona spec |
 | [docs/FLOCKS.md](docs/FLOCKS.md) | Flocks — calling several personas with one message |
-| [docs/SPEC.md](docs/SPEC.md) | The original phase plan. Superseded, kept for the data model |
-| [docs/PLAN.md](docs/PLAN.md) | The 2026-07-24 wave plan, executed. Kept for the recorded deviations |
-| [docs/reviews/](docs/reviews/) | Design rationale — the alternatives that lost, and why |
+| [docs/VISIBILITY.md](docs/VISIBILITY.md) | The private / crew / workspace tier model and crews |
+| [docs/LEXICON.md](docs/LEXICON.md) | One concept, one word — the decided vocabulary |
+| [docs/reviews/](docs/reviews/) | Design rationale — the alternatives that lost, and why. Closed transcripts, indexed in its README. Holds the original phase plan and the 2026-07-24 wave plan |
+| [docs/brand/](docs/brand/README.md) | The mark, the tokens, and the asset inventory |
 
 ## License
 

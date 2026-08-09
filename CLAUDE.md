@@ -9,9 +9,10 @@ SDK alone (`from strands import tool`, `strands-agents*` deps) — never use it
 for anything of ours.
 
 `docs/FEATURES.md` is the reference for what is already built (surfaces,
-endpoints, jobs) — read it first. `docs/SPEC.md` is the original phase plan,
-kept for its data model and constraints; `docs/ROADMAP.md` holds the feature
-ideation and engineering backlog.
+endpoints, jobs) — read it first. `docs/ROADMAP.md` holds the feature
+ideation and engineering backlog. The original phase plan, kept for its data
+model and constraints, is archived at
+`docs/reviews/2026-07-23-implementation-spec.md`.
 
 ## Hard constraints
 
@@ -45,6 +46,16 @@ ideation and engineering backlog.
   inline. A migration must never UPDATE or DELETE an `activity` row that
   carries a `seq` — those rows are hash-chained, and a bulk rewrite breaks
   verification permanently at the earliest row it touches.
+- **A shipped item leaves `docs/ROADMAP.md` in the same commit that ships
+  it.** Delete the row; never annotate it as done — the file holds un-shipped
+  work only, and a done-marked entry is the next reader's decision to make
+  twice. `docs/FEATURES.md` gets tended by the ship commit because the
+  feature is in front of you; the backlog entry is not, so nothing catches
+  this but the rule. Two hand-drains have been needed already (2026-08-02 and
+  2026-08-09, the second one carrying fifteen shipped items and a whole
+  section that contradicted the design doc it cited). A neighbouring item
+  that needs the context gets one line naming what shipped, not a
+  resurrected entry.
 - **A filename names the behavior, not the session that made it.** This is
   what `app/services/` already does: 46 files, each named for its subject.
   Name a test for what it pins (`test_delegation.py`), never for the wave,

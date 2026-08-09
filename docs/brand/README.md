@@ -121,6 +121,8 @@ asset may become load-bearing. Nothing waits on an image to render.
 | `frontend/app/manifest.ts` | install metadata |
 | `docs/brand/image-prompts.md` | gpt-image-2 prompts for atmosphere art |
 | `docs/brand/gen_banner.py` | authors the README banner (SVG + PNG) |
+| `docs/brand/gen_icons.py` | rasterizes the icon set from the `icon.svg` polygon |
+| `frontend/public/apple-touch-icon.png` | 180×180 duplicate at the legacy path some clients request directly |
 | `docs/site/img/banner-{light,dark}.{svg,png}` | README banner |
 | `docs/site/img/hero-{light,dark}.png` | landing hero (generated) |
 
