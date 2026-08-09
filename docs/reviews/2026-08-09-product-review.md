@@ -1,9 +1,11 @@
 # Skein — Product Strategy Review
 
 **Shipped from this review on 2026-08-09:** R1 (the dropped-payload renders),
-R2 (the artifact reader, as Work → Reports) and R7 (the lessons browser),
-alongside the bounded-input census ratchet. R3, R4, R5 and R6 stay open and
-live in `docs/ROADMAP.md`.
+R2 (the artifact reader, as Work → Reports), R7 (the lessons browser), the
+bounded-input census ratchet, R3 and R5 (the trust loop), R4 (the developer
+arc, with F7, F8, D2, D3 and D5), and R6 (playbooks that learn). R8 stays
+open and lives in `docs/ROADMAP.md`, alongside the residue each item left —
+named there rather than here.
 
 *2026-08-09 · grounded in the shipped code: 55 backend services, ~140 REST endpoints, 56 gated agent tools, 17 frontend surfaces, 18 scheduled jobs, and the roadmap's own self-diagnosis. This transcript is the definition site for R1–R7, cited from `docs/ROADMAP.md`.*
 

@@ -576,6 +576,30 @@ _UNFILTERED_READS = {
         " only for a workspace-tier row, and it names no party, because"
         " `to_whom` is free text that nothing stops from being a teammate"
     ),
+    "playbooks.py::_exists": (
+        "returns one BIT and never a column. close_out_diff uses it only to"
+        " tell a deleted row from one hidden from this caller, because those"
+        " two must not produce the same sentence — a hidden ritual reported as"
+        " skipped is both a leak and a false claim. Split out under its own"
+        " name so this entry cannot excuse close_out_diff's real reads"
+    ),
+    "playbooks.py::_snapshot": (
+        "reads back the rows instantiate JUST created, by id, inside its own"
+        " transaction — there is no viewer at kickoff, and the tier of a row"
+        " this function itself wrote cannot exclude it from its own plan"
+    ),
+    "playbooks.py::snapshot_for": (
+        "reads one artifacts row for a PATH and nothing else, and the path is"
+        " useless on its own. close_out_diff is the caller that opens it, and"
+        " it re-reads every id through a viewer filter AND refuses the whole"
+        " diff when any row comes back hidden — a snapshot title is never"
+        " emitted on the strength of the snapshot alone"
+    ),
+    "engagements.py::_playbook_lesson": (
+        "reads the engagement the caller is CLOSING, which update_engagement"
+        " already proved editable by this actor. It takes name, project_class"
+        " and the tier itself, and copies that tier onto the drafted proposal"
+    ),
     # --- aggregates and counts: no row's own text leaves the function ---
     "delegation.py::mission_control": "COUNT per agent, plus a MAX(created_at)",
     "pulse.py::standup_chain": "counts standup days, never their text",

@@ -676,6 +676,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "record_feedback": ("recorded feedback", "quiet"),
     "ingest_notes": ("ingested meeting notes", "normal"),
     "instantiate_playbook": ("started an engagement from a playbook", "normal"),
+    "playbook_closeout": ("closed a playbook engagement and drafted its lesson", "normal"),
     "generate_handoff": ("generated a handoff package", "normal"),
     "exec_readout": ("published an exec readout", "normal"),
     "schedule_event": ("scheduled an event", "normal"),

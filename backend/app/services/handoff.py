@@ -166,9 +166,13 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
     container.
     """
     frag, vp = scope.visible_filter(viewer, "artifacts")
+    marks = ", ".join("?" for _ in _NOT_A_REPORT)
+    # the same exclusion list list_artifacts uses. Filtering only the LISTING
+    # would leave the JSON plan served as `markdown` to anybody who guessed a
+    # sequential id, which is the reader this reachability was built for
     row = db.query_one(
-        f"SELECT * FROM artifacts WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (artifact_id, *vp),
+        f"SELECT * FROM artifacts WHERE id = ? AND kind NOT IN ({marks}) AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (artifact_id, *_NOT_A_REPORT, *vp),
     )
     if not row:
         raise scope.missing("artifacts", artifact_id)
@@ -214,17 +218,27 @@ def read_artifact(artifact_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict
         raise RuntimeError(f"artifact #{artifact_id} is not readable text") from e
 
 
+# Machinery, not a report. `plan-snapshot` (services/playbooks.py) is a JSON
+# plan that only close_out_diff reads; Work → Reports renders every row it
+# gets through a MARKDOWN reader, so leaving it in put a raw JSON blob at the
+# top of a page whose subtitle promises digests and briefs — and it would eat
+# the LIST_LIMIT budget the card's count reasons about.
+_NOT_A_REPORT = ("plan-snapshot",)
+
+
 def list_artifacts(engagement_id: int = 0, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     # a row here carries a PATH to a markdown file holding the engagement's
     # work — generate_handoff tags it with that engagement's tier
     frag, vp = scope.visible_filter(viewer, "artifacts")
+    marks = ", ".join("?" for _ in _NOT_A_REPORT)
     if engagement_id:
         return db.query(
-            f"SELECT * FROM artifacts WHERE engagement_id = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-            " ORDER BY id DESC LIMIT ?",
-            (engagement_id, *vp, LIST_LIMIT),
+            f"SELECT * FROM artifacts WHERE engagement_id = ? AND kind NOT IN ({marks})"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f" AND {frag} ORDER BY id DESC LIMIT ?",
+            (engagement_id, *_NOT_A_REPORT, *vp, LIST_LIMIT),
         )
     return db.query(
-        f"SELECT * FROM artifacts WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (*vp, LIST_LIMIT),
+        f"SELECT * FROM artifacts WHERE kind NOT IN ({marks}) AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " ORDER BY id DESC LIMIT ?",
+        (*_NOT_A_REPORT, *vp, LIST_LIMIT),
     )

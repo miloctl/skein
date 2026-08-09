@@ -1,7 +1,14 @@
 """Playbooks: YAML templates per project class, instantiated deterministically
 into an engagement + milestones + tasks + kickoff events. Relevant lessons from
-past engagements of the same class are attached as a kickoff note."""
+past engagements of the same class are attached as a kickoff note.
 
+The plan is also SNAPSHOT at instantiate, which is what lets close-out say
+what changed. Nothing else can reconstruct it: milestones move, tasks are
+added and deleted, and a ritual that never happened leaves no row at all, so
+by the time an engagement closes the plan it started with is gone.
+"""
+
+import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -10,7 +17,7 @@ from typing import Any
 import yaml
 
 from .. import config, db
-from . import collab, engagements, schedule, work
+from . import collab, engagements, schedule, scope, wording, work
 
 PLAYBOOKS_DIR = Path(__file__).resolve().parent.parent.parent / "playbooks"
 
@@ -163,5 +170,310 @@ def _instantiate(
             origin=origin,
         )
 
+    _snapshot(created, slug, start, actor)
     db.log_activity(actor, "instantiate_playbook", f"{slug} -> {engagement_name}")
     return created
+
+
+def snapshot_for(engagement_id: int) -> dict:
+    """The plan an engagement started with, or {} when it was not born from a
+    playbook. Callers branch on the empty dict — an engagement created by hand
+    has no plan to diff against and must close exactly as it always did."""
+    row = db.query_one(
+        "SELECT path FROM artifacts WHERE engagement_id = ? AND kind = 'plan-snapshot'"
+        " ORDER BY id LIMIT 1",
+        (engagement_id,),
+    )
+    if not row:
+        return {}
+    path = Path(row["path"])
+    if not path.exists():
+        # the row outlives the file: data/artifacts/ is gitignored and a
+        # restore-from-backup brings the database back without it. A missing
+        # file is "no snapshot", never a 500 at close time.
+        return {}
+    try:
+        plan = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    # SHAPE, not just parseability. The file carries no version field, so the
+    # first change to the plan format would otherwise turn every older
+    # engagement's close-out panel into a permanent 500 — a list or a bare
+    # number parses fine and then raises TypeError on dict(), and a dict
+    # missing "milestones" raises KeyError deep inside close_out_diff.
+    if not isinstance(plan, dict) or not all(
+        isinstance(plan.get(k), list) for k in ("milestones", "tasks", "rituals")
+    ):
+        return {}
+    return plan
+
+
+def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
+    """Write the plan as JSON beside the engagement's other artifacts.
+
+    Ids, not only titles: a task renamed between kickoff and close is the same
+    task, and a diff keyed on title would report it as one removed and one
+    added.
+
+    The artifacts ROW is written inside the caller's transaction; the file is
+    not, so a rolled-back instantiate leaves an orphan JSON plan on disk that
+    nothing points at. That is the safe direction — a row with no file reads
+    as "no snapshot" (see snapshot_for), a file with no row is unreachable.
+    """
+    eng = created["engagement"]
+
+    # Read the stored rows rather than the create_* return values: those are
+    # deliberately minimal ({id, title, status}) and carry neither the due
+    # date nor the milestone link, which are the two things a diff needs.
+    def _rows(table: str, ids: list[int], cols: str) -> list[dict]:
+        return [
+            dict(r)
+            for i in ids
+            if (r := db.query_one(f"SELECT {cols} FROM {table} WHERE id = ?", (i,)))  # noqa: S608 — cols and table are literals at every call site
+        ]
+
+    plan = {
+        "playbook": slug,
+        "engagement_id": eng["id"],
+        "start_date": start.isoformat(),
+        "captured_at": db.now(),
+        "milestones": _rows(
+            "milestones", [m["id"] for m in created["milestones"]], "id, title, due_date"
+        ),
+        "tasks": _rows("tasks", [t["id"] for t in created["tasks"]], "id, title, milestone_id"),
+        "rituals": _rows("events", [e["id"] for e in created["events"]], "id, title, starts_at"),
+    }
+    safe = re.sub(r"[^a-z0-9]+", "-", eng["name"].lower()).strip("-") or f"engagement-{eng['id']}"
+    plans = Path(config.DATA_DIR) / "artifacts" / safe
+    plans.mkdir(parents=True, exist_ok=True)
+    path = plans / f"{eng['id']}-plan-snapshot.json"
+    path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
+    return db.execute(
+        "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            eng["id"],
+            "plan-snapshot",
+            f"Plan at kickoff — {eng['name']}",
+            str(path),
+            actor,
+            db.now(),
+        ),
+    )
+
+
+def _exists(table: str, row_id: int) -> bool:
+    """Is the row there at all, ignoring tier?
+
+    Split out under its own name so the visibility walker's allowlist can
+    excuse THIS probe without excusing close_out_diff's real reads, which all
+    carry a viewer filter. It returns one bit and never a column: the caller
+    uses it only to tell "deleted" from "hidden from you", and those two must
+    not produce the same sentence.
+    """
+    return bool(
+        db.query_one(
+            f"SELECT id FROM {table} WHERE id = ?",  # noqa: S608 — table is a literal at both call sites
+            (row_id,),
+        )
+    )
+
+
+def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """Planned versus what happened, for an engagement born from a playbook.
+
+    Returns {} when there is no snapshot. A playbook that never learns is the
+    whole complaint this answers: the template said six weeks, every one of
+    them ran nine, and nothing carried that back to the YAML.
+
+    Read-only and id-keyed. A ritual leaves NO row when it is cancelled
+    (schedule.py::cancel_event deletes), so a missing event id is the only
+    evidence that a planned ceremony did not happen.
+
+    Viewer-scoped on every read, and the default NOBODY (workspace tier) is
+    what the drafted lesson uses: that lesson becomes a proposal EVERY
+    reviewer reads, so a private task added to the engagement must not reach
+    it through a title. The route passes the caller's own viewer instead —
+    reading a diff is not the same act as publishing one.
+    """
+    # the engagement first, and it RAISES rather than returning {}: the diff
+    # quotes milestone and task titles, so an unreadable engagement and one
+    # that never had a playbook must not answer alike — the second is an empty
+    # section, the first is a 404 (scope.missing gives both the same sentence)
+    efrag, ep = scope.visible_filter(viewer, "engagements")
+    eng = db.query_one(
+        f"SELECT visibility FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
+    )
+    if not eng:
+        raise scope.missing("engagements", engagement_id)
+    eng_tier = eng["visibility"]
+    plan = snapshot_for(engagement_id)
+    if not plan:
+        return {}
+
+    mfrag, mp = scope.visible_filter(viewer, "milestones")
+    tfrag, tp = scope.visible_filter(viewer, "tasks")
+    efrag, ep = scope.visible_filter(viewer, "events")
+
+    slipped = []
+    for m in plan["milestones"]:
+        row = db.query_one(
+            f"SELECT title, due_date, completed_at FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (m["id"], *mp),
+        )
+        # A row the VIEWER cannot see is indistinguishable from a deleted one,
+        # and reporting it as dropped would tell a crew their finished work was
+        # abandoned. Refuse the whole diff instead: a partial plan yields a
+        # confident sentence about work this caller was never shown.
+        if not row:
+            return {}
+        # TWO bases, because they answer different questions and a team can
+        # produce either without the other. `re-dated` catches replanning;
+        # `finished` catches the case this feature exists for — a team that
+        # never touches its dates and lands nine weeks late. Measuring only
+        # the first rewards good date hygiene with a lesson and bad date
+        # hygiene with silence, which is backwards.
+        planned = m["due_date"]
+        if not planned:
+            continue
+        if row["completed_at"]:
+            days = (date.fromisoformat(row["completed_at"][:10]) - date.fromisoformat(planned)).days
+            if days > 0:
+                slipped.append(
+                    {
+                        "title": m["title"],
+                        "days": days,
+                        "to": row["completed_at"][:10],
+                        "basis": "finished",
+                    }
+                )
+                continue
+        if row["due_date"] and row["due_date"] != planned:
+            days = (date.fromisoformat(row["due_date"]) - date.fromisoformat(planned)).days
+            slipped.append(
+                {"title": m["title"], "days": days, "to": row["due_date"], "basis": "re-dated"}
+            )
+
+    unfinished, dropped_tasks = [], []
+    for t in plan["tasks"]:
+        row = db.query_one(
+            f"SELECT id, title, status FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (t["id"], *tp),
+        )
+        # the same refusal as the milestone loop above, for the same reason:
+        # this title comes from the SNAPSHOT, which passed through no filter,
+        # so appending it publishes a row the caller was just refused
+        if not row:
+            if _exists("tasks", t["id"]):
+                return {}
+            dropped_tasks.append(t["title"])
+        elif row["status"] != "done":
+            unfinished.append(t["title"])
+
+    # BOTH link paths, copied from engagements.py::_ship_it which carries the
+    # same comment: _instantiate creates its tasks with a milestone_id and NO
+    # engagement_id, so an engagement_id-only query matches almost nothing and
+    # this clause — the only one that names concrete titles to add to the
+    # YAML — silently never fires.
+    # keyed on ID like every other read here: _snapshot's docstring says why,
+    # and a title-keyed filter reports a RENAMED planned task as new work and
+    # recommends adding it to the YAML it is already in
+    planned_ids = {t["id"] for t in plan["tasks"]}
+    added = [
+        r["title"]
+        for r in db.query(
+            f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f" (SELECT id FROM milestones WHERE engagement_id = ?)) AND {tfrag} ORDER BY id",
+            (engagement_id, engagement_id, *tp),
+        )
+        if r["id"] not in planned_ids
+    ]
+    skipped_rituals = []
+    for r in plan["rituals"]:
+        if db.query_one(
+            f"SELECT id FROM events WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            (r["id"], *ep),
+        ):
+            continue
+        # cancel_event DELETES, so an absent row means the ceremony did not
+        # happen. A row that EXISTS but is hidden means the opposite, and
+        # "it did not happen" about a meeting somebody held is a false claim
+        # as well as a leak
+        if _exists("events", r["id"]):
+            return {}
+        skipped_rituals.append(r["title"])
+    return {
+        "playbook": plan["playbook"],
+        # whether closing will actually file a draft. The close-out control
+        # promises one, and engagements.py::_playbook_lesson draws the line at
+        # the workspace tier — a panel that promises a lesson a scoped
+        # engagement never gets is the panel lying about its own button
+        "drafts_lesson": eng_tier == scope.WORKSPACE,
+        "slipped": slipped,
+        "unfinished_tasks": unfinished,
+        "dropped_tasks": dropped_tasks,
+        "added_tasks": added,
+        "skipped_rituals": skipped_rituals,
+    }
+
+
+def _listing(items: list[str], show: int = 3) -> str:
+    """Up to `show` names, then what was left out.
+
+    A bare `[:3]` beside "7 tasks" prints three and claims seven, and any
+    string carrying a number has to be exact (docs/CLAUDE.md).
+    """
+    if len(items) <= show:
+        return ", ".join(items)
+    return f"{', '.join(items[:show])}, and {len(items) - show} more"
+
+
+def _variance_lesson(diff: dict, engagement_name: str) -> tuple[str, str]:
+    """(lesson, recommendation) drafted from the diff, or ("", "").
+
+    Empty when nothing moved: a lesson saying an engagement went to plan
+    teaches the next reader nothing and costs a reviewer a verdict.
+    """
+    # One fact per sentence, and no semicolons — this text lands in a kickoff
+    # note that the next team reads cold (docs/CLAUDE.md wording standard).
+    # Verb agreement is computed, because "1 task were added" is the sentence
+    # a reader stops trusting the number in.
+    parts, fixes = [], []
+    late = [s for s in diff["slipped"] if s["days"] > 0]
+    if late:
+        worst = max(late, key=lambda s: s["days"])
+        landed = "landed late" if worst["basis"] == "finished" else "moved"
+        parts.append(
+            f"{wording.count(len(late), 'milestone')} {landed}, the largest by"
+            f" {wording.count(worst['days'], 'day')} (“{worst['title'][:40]}”)."
+        )
+        fixes.append(
+            f"Add {wording.count(worst['days'], 'day')} to “{worst['title'][:40]}”"
+            f" in playbooks/{diff['playbook']}.yaml, or split it."
+        )
+    if diff["added_tasks"]:
+        n = len(diff["added_tasks"])
+        parts.append(
+            f"{wording.count(n, 'task')} outside the playbook {'was' if n == 1 else 'were'} added."
+        )
+        fixes.append(f"Add these to the playbook: {_listing(diff['added_tasks'])}.")
+    if diff["skipped_rituals"]:
+        n = len(diff["skipped_rituals"])
+        parts.append(
+            f"{wording.count(n, 'ritual')} did not happen: {_listing(diff['skipped_rituals'])}."
+        )
+        fixes.append("Remove the rituals nobody holds, or record who runs them.")
+    # Every draft costs a reviewer a verdict, and the review queue is the
+    # team's scarcest resource. A lesson with no fix in it is one sentence
+    # restating the engagement's own conclusion — an abandoned engagement
+    # would file one every time and teach the next kickoff nothing.
+    if not fixes:
+        return "", ""
+    n = len(diff["dropped_tasks"]) + len(diff["unfinished_tasks"])
+    if n:
+        parts.append(f"{wording.count(n, 'planned task')} never finished.")
+    return (
+        f"{engagement_name} ran against the {diff['playbook']} playbook. " + " ".join(parts),
+        " ".join(fixes),
+    )

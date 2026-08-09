@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VisibilityBadge } from "@/components/visibility-picker";
@@ -404,6 +405,46 @@ const CONCLUSIONS = [
   "stopped",
 ] as const;
 
+type PlanDiff = {
+  playbook: string;
+  drafts_lesson: boolean;
+  slipped: { title: string; days: number; to: string; basis: string }[];
+  unfinished_tasks: string[];
+  dropped_tasks: string[];
+  added_tasks: string[];
+  skipped_rituals: string[];
+};
+
+/** The variance in one line. Counts only — the drafted lesson carries the
+ *  detail, and a reviewer reads it there rather than inside a close button. */
+function planDiffSummary(d: PlanDiff): string {
+  const parts: string[] = [];
+  const late = d.slipped.filter((s) => s.days > 0);
+  if (late.length) {
+    const worst = late.reduce((a, b) => (b.days > a.days ? b : a));
+    // the same two bases the backend computes: a milestone that LANDED late
+    // and one that was re-dated are different facts about the plan
+    const how = worst.basis === "finished" ? "landed late" : "moved";
+    parts.push(
+      `${late.length} milestone${late.length === 1 ? "" : "s"} ${how}, the largest by ${worst.days} day${worst.days === 1 ? "" : "s"}`,
+    );
+  }
+  const unfinished = d.unfinished_tasks.length + d.dropped_tasks.length;
+  if (unfinished)
+    parts.push(
+      `${unfinished} planned task${unfinished === 1 ? "" : "s"} never finished`,
+    );
+  if (d.added_tasks.length)
+    parts.push(
+      `${d.added_tasks.length} task${d.added_tasks.length === 1 ? "" : "s"} added`,
+    );
+  if (d.skipped_rituals.length)
+    parts.push(
+      `${d.skipped_rituals.length} ritual${d.skipped_rituals.length === 1 ? "" : "s"} did not happen`,
+    );
+  return parts.length ? `${parts.join(", ")}.` : "it went to plan.";
+}
+
 const CONCLUSION_HINTS: Record<string, string> = {
   achieved: "the outcome landed",
   partial: "some of it landed",
@@ -437,6 +478,11 @@ export default function Dashboard() {
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<number | null>(null);
+  // What the playbook said, against what happened. Fetched when the control
+  // opens rather than with the engagement list: it is one read per close, and
+  // every engagement carrying its own diff would be N reads nobody looks at.
+  const [planDiff, setPlanDiff] = useState<PlanDiff | null>(null);
+  const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
   const [editing, setEditing] = useState<{
@@ -710,6 +756,22 @@ export default function Dashboard() {
             )}
           </section>
         )}
+        {draftedLesson ? (
+          <p className="rounded border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+            A close-out lesson is drafted from the plan variance.{" "}
+            <Link href="/review" className="underline hover:text-ink">
+              Approve or reject it on Review
+            </Link>
+            . An approved one reaches the next kickoff of this class. It names
+            the playbook file for a human to edit, and edits nothing itself.{" "}
+            <button
+              onClick={() => setDraftedLesson(null)}
+              className="text-ink-3 underline hover:text-ink"
+            >
+              dismiss
+            </button>
+          </p>
+        ) : null}
         <Section
           title="Engagements"
           rows={data.engagements ?? []}
@@ -745,7 +807,22 @@ export default function Dashboard() {
               <span className="flex shrink-0 items-center gap-2">
                 {e.status !== "closed" && closing !== e.id && (
                   <button
-                    onClick={() => setClosing(Number(e.id))}
+                    onClick={() => {
+                      const want = Number(e.id);
+                      setClosing(want);
+                      setPlanDiff(null);
+                      api<PlanDiff>(`/api/engagements/${e.id}/plan-diff`)
+                        // the id guard is the point: open close-out on A, then
+                        // on B before A resolves, and B's panel would show A's
+                        // variance directly above the button that closes B
+                        .then((d) =>
+                          setClosing((cur) => {
+                            if (cur === want) setPlanDiff(d.playbook ? d : null);
+                            return cur;
+                          }),
+                        )
+                        .catch(() => setPlanDiff(null));
+                    }}
                     className="whitespace-nowrap rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
                   >
                     close out…
@@ -758,6 +835,19 @@ export default function Dashboard() {
                   className="mt-1.5 flex w-full flex-wrap items-center gap-1.5 text-xs"
                   onKeyDown={(ev) => ev.key === "Escape" && setClosing(null)}
                 >
+                  {planDiff ? (
+                    <span className="w-full rounded bg-raised px-2 py-1.5 text-[11px] text-ink-2">
+                      <span className="font-medium">
+                        Against the {planDiff.playbook} playbook:
+                      </span>{" "}
+                      {planDiffSummary(planDiff)}
+                      <span className="mt-0.5 block text-ink-3">
+                        {planDiff.drafts_lesson
+                          ? "Closing drafts a lesson from this, for somebody to approve on Review. Editing the playbook file stays a human job."
+                          : "This engagement is not workspace-wide, so closing drafts no lesson."}
+                      </span>
+                    </span>
+                  ) : null}
                   <span className="text-ink-3">How did it end?</span>
                   <span className="w-full text-[11px] text-ink-3">
                     invalidated = disproved on time (a win) · unmeasured =
@@ -769,14 +859,23 @@ export default function Dashboard() {
                       autoFocus={ci === 0}
                       onClick={async () => {
                         try {
-                          await api(`/api/engagements/${e.id}`, {
+                          const out = await api<{
+                            lesson_proposal_id?: number;
+                          }>(`/api/engagements/${e.id}`, {
                             method: "PATCH",
                             body: JSON.stringify({
                               status: "closed",
                               conclusion: c,
                             }),
                           });
+                          setDraftedLesson(
+                            typeof out?.lesson_proposal_id === "number" &&
+                              out.lesson_proposal_id > 0
+                              ? out.lesson_proposal_id
+                              : null,
+                          );
                           setClosing(null);
+                          setPlanDiff(null);
                           // closing removes the engagement's allocations from
                           // capacity and ships a recap note — both render here
                           refresh([

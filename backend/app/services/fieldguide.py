@@ -121,6 +121,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "readout": lambda u: _act(u, "exec_readout"),
     "handoff": lambda u: _act(u, "generate_handoff"),
     "model_pick": lambda u: _act(u, "set_model_pick"),
+    "playbook_closeout": lambda u: _act(u, "playbook_closeout"),
 }
 
 _registry_cache: list[dict] | None = None

@@ -94,6 +94,37 @@ rule that ATTACHES the brief to a meeting did not, and
 `GET /api/events/{id}/stakeholders` is the seam it would use. These did not
 ship:
 
+R6 (2026-08-09) closed the loop for ONE engagement: its plan is snapshot
+at kickoff, the close diffs planned against actual, and an approved
+lesson reaches the next kickoff of that class. Three pieces of it stayed
+behind, and the first is what makes the other two worth anything:
+
+- **Playbook variance across engagements** [S] — the same milestone
+  slipping in three incidents running is a fact about the TEMPLATE, not
+  about any of the three, and nothing totals it. One close teaches
+  almost nothing; the third one is the argument. `close_out_diff` is the
+  seam and `lessons.project_class` already groups them.
+- **The kickoff half of the loop has no reader** [S] —
+  `playbooks._instantiate` attaches past-class lessons as a note under
+  `kickoff-lessons-<engagement>`, and nothing points at it: `/plan`
+  reports counts only, `instantiate` does not return it, and playbooks
+  have no UI. The lesson arrives and no one is standing there.
+- **Nothing tracks whether an approved lesson reached the YAML** [S] —
+  the drafted recommendation names `playbooks/<slug>.yaml` and a human
+  edits it by hand, which is right, because playbooks are code. But the
+  review's own measure for R6 was "lessons per close AND playbook YAML
+  edits per quarter", and the second half is unmeasurable in-product. A
+  findings rule over approved close-out lessons per class, against the
+  playbook file's mtime, is the smallest honest answer.
+
+Also, and smaller: a close-out proposal files under
+`proposed_by="system"` with `origin="agent"`. It is deterministic SQL
+arithmetic, which is neither of the two things the origin chip teaches a
+reviewer to read (`docs/FEATURES.md`), and `_trust_by_pair`'s `is_agent`
+filter drops it — so the R3 record chip renders nothing beside an
+agent-labelled row. Either the glossary grows a third shape or the draft
+stops claiming to be an agent.
+
 - **C5 decision links and cascade** — a `decision_links` table, populated at
   record time and by scanning references. Consumed by scoped context packs,
   supersede notifications, and handoffs.
@@ -295,11 +326,6 @@ released work.
   turn does. (R5 shipped those two tools 2026-08-09; this was its stated
   follow-on, and it is a row rather than a footnote because a planner scans
   the bullets.)
-- **R6 playbook close-out** [M] — at engagement close, diff the
-  instantiated plan against what happened (dates, added and removed
-  tasks, skipped rituals) and auto-draft the lesson from the variance,
-  filed as a proposal. Playbooks currently never learn.
-
 Not a build, and blocking two triggers: put flow through the trust
 loop in our own deployment — `SKEIN_AGENT_REVIEW=1`, real delegations
 with real sponsors, one agent named in `SKEIN_AGENT_RUNNER`. A5 and
@@ -307,15 +333,15 @@ G6 both wait, by their own stated triggers, on the verdict volume this
 produces.
 
 **Suggested order (supersedes 2026-08-08).** Everything this review named
-has now shipped except R6 and R8, both still open above: the surfacing
-pass (R1, R2, R7) and the census ratchet, then the trust-loop pair (R3,
-R5), then the developer arc (R4 plus F8, D2, D3, D5, F7), then the
-manager frame (C2, C3, C4, P4's rule) — all 2026-08-09.
+has now shipped except R8, still open above: the surfacing pass (R1, R2,
+R7) and the census ratchet, then the trust-loop pair (R3, R5), then the
+developer arc (R4 plus F8, D2, D3, D5, F7), then the manager frame (C2,
+C3, C4, P4's rule), then R6 — all 2026-08-09.
 
 The dogfooding note above is the binding one now, and it is not a build:
 R3 renders a record that only real verdicts can fill, and in the default
 trusted-header mode no verdict counts at all. What the arc left behind is
-small and named where it belongs — R8 and R6 in this section, F6 and D5's
+small and named where it belongs — R8 in this section, F6 and D5's
 idempotency key in "Developer loop", C4's morning rule in "Manager and
 workflow", and the uncapped-on-both-sides census bullet at the top.
 
