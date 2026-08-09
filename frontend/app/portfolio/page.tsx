@@ -680,7 +680,13 @@ export default function Portfolio() {
               dismissStatus();
               setBusy(true);
               api<{ artifact_id: number }>("/api/portfolio/readout", { method: "POST" })
-                .then((r) => setReadout(r.artifact_id))
+                // a same-day rerun overwrites the file and returns the SAME
+                // artifact id, so setting the id alone changed no state, fired
+                // no live region, and left the reader unable to tell it ran
+                .then((r) => {
+                  setReadout(r.artifact_id);
+                  reportStatus("Exec readout regenerated.", "confirmation");
+                })
                 .catch((e) => reportStatus(actionError(e)))
                 .finally(() => setBusy(false));
             }}

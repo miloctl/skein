@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
@@ -136,6 +137,20 @@ export default function ArtifactsPage() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  // The Reports section tab is a same-route <Link>, so this component never
+  // remounts and popstate never fires — the pane kept its open report while
+  // the URL lost `?id=`. This page exists to be pasted to a teammate, and the
+  // tab it renders itself defeated that. `usePathname()` changes identity on
+  // every same-route navigation, which is the signal the URL alone does not
+  // give.
+  const pathname = usePathname();
+  useEffect(() => {
+    if (openId === null || idFromUrl() !== null) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set(PARAM, String(openId));
+    window.history.replaceState({}, "", url);
+  }, [pathname, openId]);
 
   // only the result that belongs to the report currently open — a body or an
   // error left over from the previous pick renders as neither

@@ -370,10 +370,17 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     judging the past. `team_capacity` is the planning-shaped read an agent
     should reach for when the question is who has room."""
     cutoff = db.local_midnight_utc(_today() - timedelta(weeks=weeks))
+    # WORKSPACE_ONLY, like the `stale` read below and like every rule in
+    # services/insights.py. This function has no viewer — every caller is
+    # team-wide or egressing (the exec readout, the interrupt_load finding,
+    # the cockpit, the agent tool) — so counting private and crew tasks put
+    # work the audience cannot see into a number presented to them as theirs.
+    # A denominator that includes rows a reader will never find is a wrong
+    # number before it is a leak.
     done = db.query(
-        "SELECT created_at, completed_at, committed_week,"
+        "SELECT created_at, completed_at, committed_week,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ROUND(julianday(completed_at) - julianday(created_at), 1) AS days"
-        " FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ?",
+        f" FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ? AND {WORKSPACE_ONLY}",
         (cutoff,),
     )
     # a NULL cycle time (an unparseable created_at from a restore or import)
@@ -439,14 +446,14 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         "window_weeks": weeks,
     }
     wip = db.query(
-        "SELECT COALESCE(NULLIF(assignee, ''), 'unassigned') AS person,"
-        " COUNT(*) AS in_progress FROM tasks WHERE status = 'in_progress'"
+        "SELECT COALESCE(NULLIF(assignee, ''), 'unassigned') AS person,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f" COUNT(*) AS in_progress FROM tasks WHERE status = 'in_progress' AND {WORKSPACE_ONLY}"
         " GROUP BY person ORDER BY in_progress DESC"
     )
     stale_cutoff = db.local_midnight_utc(_today() - timedelta(days=STALE_WIP_DAYS))
     stale = db.query(
-        # the workspace tier: unlike the counts above, this list carries
-        # TITLES, and nudge_stale_wip notifies each assignee by name from it
+        # this list carries TITLES on top of the tier the counts above now
+        # share, and nudge_stale_wip notifies each assignee by name from it
         "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " CAST(julianday('now') - julianday(updated_at) AS INTEGER) AS days_stale"
         f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"

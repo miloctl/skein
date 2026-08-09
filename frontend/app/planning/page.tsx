@@ -87,6 +87,14 @@ type Row = Record<string, string | number | null>;
 
 const DOT: Record<string, string> = { red: "🔴", yellow: "🟡", green: "🟢" };
 
+// This page is an AGENDA a manager reads down in a meeting. Measured at
+// 360px the uncapped outside-threads card was 65% of a 4705px page, which
+// buries steps 5 and 6 under a list nobody reads in the room. The service
+// sorts busiest-party first, so the head of the list is the useful end, and
+// the title states the cap rather than showing a count the list contradicts
+// (the same shape /artifacts uses for reports).
+const PARTY_CAP = 8;
+
 export default function Planning() {
   const [data, setData] = useState<Cockpit | null>(null);
   const [error, setError] = useState("");
@@ -319,9 +327,15 @@ export default function Planning() {
       {/* who is owed what, outside the team. Read before the week's meetings
           rather than after them, which is when it was answerable at all. */}
       {d.stakeholders.length > 0 ? (
-        <Card title={`Open outside the team (${d.stakeholders.length})`}>
+        <Card
+          title={
+            d.stakeholders.length > PARTY_CAP
+              ? `Open outside the team (${PARTY_CAP} of ${d.stakeholders.length}, busiest first)`
+              : `Open outside the team (${d.stakeholders.length})`
+          }
+        >
           <ul className="space-y-2 text-sm">
-            {d.stakeholders.map((s) => (
+            {d.stakeholders.slice(0, PARTY_CAP).map((s) => (
               <li key={s.party}>
                 <span className="font-medium">{s.party}</span>
                 <ul className="ml-4 list-disc text-xs text-ink-3">
@@ -344,7 +358,7 @@ export default function Planning() {
       {/* what the team is waiting ON. Beside the triage queue rather than in
           it: these are not decisions to make, they are people to chase. */}
       {d.awaiting.length > 0 ? (
-        <Card title={`Open with other people (${d.awaiting.length})`}>
+        <Card title={`Awaiting from other people (${d.awaiting.length})`}>
           <ul className="space-y-1 text-sm">
             {d.awaiting.map((p) => {
               const late = p.due_date !== null && p.due_date < d.today;

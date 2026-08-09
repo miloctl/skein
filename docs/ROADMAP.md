@@ -335,61 +335,6 @@ the unread kickoff half of that loop, and the untracked YAML edit under
 loop"; C4's morning rule under "Manager and workflow"; and the
 uncapped-on-both-sides census bullet at the top of this file.
 
-## From the pre-merge review (2026-08-09)
-
-Five agents over the whole `deliver-what-is-computed` branch. What they
-found was fixed in the merge commit, except these, each verified by a
-reviewer running the code.
-
-- **The planning cockpit's outside-threads card has no cap** [S] —
-  measured at 360px it was 65% of a 4705px page, which buries the rest of
-  the Monday agenda. `/artifacts` shows the honest shape to copy
-  ("Reports (newest 50)"). The three cards added on 2026-08-09 are also
-  unnumbered, so the 1–6 agenda a manager reads down now has gaps.
-- **A lesson search hit can link to a row the page will not show** [S] —
-  `list_lessons` is `LIMIT 100` with no offset, and search is full-text
-  over all of them, so past 100 the `#lesson-N` anchor targets nothing.
-  The card should disclose its cap the way the reports card does.
-- **`/artifacts` desyncs its URL from its pane** [S] — the Reports tab is
-  a same-route link, so the component never remounts and `popstate` never
-  fires; the pane keeps the open report while the URL loses `?id=`. The
-  page exists to be pasted to a teammate, and the tab it renders itself
-  defeats that.
-- **Regenerating a readout twice in one day says nothing** [XS] — the
-  route overwrites the day's file and returns the same artifact id, so
-  the state never changes and no live region fires.
-- **Focus is lost after a close-out action** [XS] — Escape, cancel and a
-  conclusion click all drop focus to `body`, and the drafted-lesson
-  banner appears above the list with no live region to announce it.
-- **`flow_metrics` has no viewer filter** [S] — the `interrupt_load`
-  finding is team-wide and counts private and crew tasks in its
-  denominator, unlike every other rule in `insights.py`, which splices
-  `WORKSPACE_ONLY`. The number is an aggregate with no titles, so this is
-  a wrong number before it is a leak.
-- **A deliberate 500 answers `text/plain`** [XS] — `read_artifact`'s
-  RuntimeError has no handler in `main.py`, so Starlette returns a bare
-  body and the operator instruction inside it reaches nobody. An error
-  response is always JSON.
-- **`skein capture` costs 30 seconds against an unreachable host** [S] —
-  15 for the POST and 15 more re-flushing the row it just queued. The
-  command that exists so a thought is never lost is the slowest one.
-- **The promotion rule is stated in three places** [S] —
-  `promotion_blocked` is meant to be the one predicate, but
-  `delegation.suggestion` still says "autonomous" where the code promotes
-  to `notify`, and `_authority_recently_judged` re-runs per pair inside a
-  loop that already built the same set.
-- **An all-day event enters the outcome window at 04:00 UTC** [XS] —
-  `'2026-08-09' < '2026-08-09T04:00'` is true, so the four-hour "not
-  during the meeting" guard does nothing for a date-only row.
-- **`_snap_folder` folds ASCII only** [XS] — SQLite's `lower()` is
-  ASCII-only, so "Été" and "été" are two folders again, which is what
-  the change was made to stop.
-- **`awaiting` has no lexicon entry** [XS] — it ships as a user-visible
-  concept word in the capture chip, the ICS summary and the CLI, and
-  `docs/LEXICON.md` does not define it. One concept currently reads four
-  ways: `awaiting`, "open with other people", "received promise",
-  "promises made TO the team".
-
 ## Cut, with re-entry triggers
 
 Deliberate refusals, from the 2026-07-24 synthesis and the 2026-08-02 buzz

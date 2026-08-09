@@ -57,6 +57,28 @@ prefix, "we committed to") and the weekly commitment line (1b).
 
 ---
 
+### 1a. The other direction: a thing somebody owes US
+
+| | |
+|---|---|
+| Words in use | **awaiting** (capture chip, prefix `awaiting:`, `waiting for:`) · **"open with other people"** (planning cockpit card) · **"received promise"** (services, comments) · **"promises made TO the team"** (docs/FEATURES.md) |
+| Where they split | The reader types `awaiting:`; the cockpit card that lists the result says something else; the backend and the docs each say a third and fourth thing |
+| Code identifiers | one column, `promises.direction` in (`given`, `received`) — migration 007, deliberately the same table as row 1 |
+| **DECIDED** | **awaiting** for the user-visible noun, **received** for the stored value |
+
+Why: `awaiting:` is the word the reader types, which is the same test row 1
+applied to `promised:`. It is also the only one of the four that is a single
+word, and the concept needs to sit beside `promise` in a chip list without a
+parenthetical. `received` stays in the column and in service code because
+`direction` is a pair and `given`/`received` reads as a pair — `awaiting`
+has no opposite that means `given`.
+
+What must change to comply, and has not yet: the planning cockpit card
+titled "Open with other people" (`frontend/app/planning/page.tsx`) and the
+FEATURES row heading. `one-wording.test.ts` does not yet enforce this row —
+add it when the card is renamed, or the test fails on the string it is
+meant to protect.
+
 ### 1b. CARVE-OUT (DECIDED, applied): "the weekly commitment line" stays
 
 `skein week draft` (CLI), `weekly.py`, and Insights all use **commitment**

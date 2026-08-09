@@ -90,6 +90,9 @@ function Section({
  *  Filters on the SERVER, not over the rows already fetched: the list is
  *  capped, and a client-side filter would quietly search only the newest
  *  page while looking like it searched everything. */
+// mirrors services/engagements.py::list_lessons's default `limit`
+const LESSON_PAGE = 100;
+
 function LessonsCard() {
   // rows carry the filter they belong to. A plain list plus a synchronous
   // clear at the top of the effect is the same idea, but setState directly
@@ -138,7 +141,13 @@ function LessonsCard() {
     <section className="rounded-xl border border-line bg-card p-4 shadow-card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
-          Lessons
+          {/* `list_lessons` is LIMIT 100 with no offset, and nav-search links a
+              hit straight to `#lesson-N` — so past 100 the anchor targets a row
+              this card cannot show. Stating the page is the honest half; the
+              same shape /artifacts uses for reports. */}
+          {list && list.length >= LESSON_PAGE
+            ? `Lessons (newest ${LESSON_PAGE})`
+            : "Lessons"}
         </h2>
         {classes.length > 0 ? (
           <select
@@ -503,7 +512,23 @@ export default function Dashboard() {
   // which engagement the open panel belongs to, readable synchronously by the
   // in-flight plan-diff fetch below
   const closingRef = useRef<number | null>(null);
+  // the `close out…` button that opened the panel. Escape, cancel and a
+  // conclusion click all removed the panel and dropped focus to <body>, which
+  // sends a keyboard reader back to the top of a long page.
+  const closeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreFocus = useCallback(() => {
+    const el = closeTriggerRef.current;
+    if (el && document.body.contains(el)) el.focus();
+  }, []);
   const [draftedLesson, setDraftedLesson] = useState<number | null>(null);
+  // A CONCLUSION click removes the trigger with the row, so there is nothing
+  // to restore to — focus lands on the banner the click produced instead,
+  // which is also the thing the reader most needs to hear about.
+  const bannerRef = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    if (draftedLesson !== null) bannerRef.current?.focus();
+  }, [draftedLesson]);
+
   const [assigning, setAssigning] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
   const [editing, setEditing] = useState<{
@@ -777,8 +802,16 @@ export default function Dashboard() {
             )}
           </section>
         )}
+        {/* role=status: the banner appears ABOVE the list after a close, and
+            focus is back on the close-out button below it — without a live
+            region a screen-reader user is never told the lesson was filed */}
         {draftedLesson ? (
-          <p className="rounded border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+          <p
+            ref={bannerRef}
+            role="status"
+            tabIndex={-1}
+            className="rounded border border-line bg-raised px-3 py-2 text-xs text-ink-2 outline-none focus-visible:ring-2 focus-visible:ring-thread-solid"
+          >
             A close-out lesson is drafted from the plan variance.{" "}
             <Link href="/review" className="underline hover:text-ink">
               Approve or reject it on Review
@@ -828,9 +861,10 @@ export default function Dashboard() {
               <span className="flex shrink-0 items-center gap-2">
                 {e.status !== "closed" && closing !== e.id && (
                   <button
-                    onClick={() => {
+                    onClick={(ev) => {
                       const want = Number(e.id);
                       closingRef.current = want;
+                      closeTriggerRef.current = ev.currentTarget;
                       setClosing(want);
                       setPlanDiff(null);
                       api<PlanDiff>(`/api/engagements/${e.id}/plan-diff`)
@@ -863,6 +897,7 @@ export default function Dashboard() {
                     if (ev.key !== "Escape") return;
                     closingRef.current = null;
                     setClosing(null);
+                    restoreFocus();
                   }}
                 >
                   {planDiff ? (
@@ -929,6 +964,7 @@ export default function Dashboard() {
                     onClick={() => {
                       closingRef.current = null;
                       setClosing(null);
+                      restoreFocus();
                     }}
                     className="text-ink-3 hover:text-ink"
                   >

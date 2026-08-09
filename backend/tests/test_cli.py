@@ -421,3 +421,20 @@ def test_installing_hooks_never_destroys_one_that_is_already_there(tmp_path):
         assert "Refs-Task" in mine.read_text()
     finally:
         os.chdir(cwd)
+
+
+def test_the_outbox_does_not_retry_a_host_this_process_already_missed(monkeypatch, tmp_path):
+    """The flush runs after every command. Against a dead host it paid a
+    second full timeout re-sending the row the command had just queued — 30
+    seconds for `skein capture`, the command that exists so a thought is
+    never lost."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
+    cli.OUTBOX.write_text(json.dumps({"path": "/api/capture", "body": {"text": "x"}}) + "\n")
+
+    calls = []
+    monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: calls.append(a) or None)
+    cli._mark_unreachable()
+    assert cli.flush_outbox() == 0
+    assert calls == [], "the flush retried a host the command already failed to reach"
+    assert cli.OUTBOX.exists(), "the queued capture must survive"
