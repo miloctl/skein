@@ -55,6 +55,41 @@ describe("one condition, one wording across surfaces", () => {
       }
     }
   });
+
+  it("says the api-key remedy the way routes/deps.py says it", () => {
+    // The auth gate states the same condition the server states in NEED_KEY
+    // (api-key mode, no key). It cannot import a Python constant, so the
+    // sentences are pinned here instead: deps.py is the source, and a reword
+    // there fails this rather than leaving the browser saying the old thing.
+    // The gate drops the env-var prefix and the Authorization clause on
+    // purpose — a browser reader sets no headers.
+    const deps = readFileSync(
+      join(ROOT, "..", "backend", "app", "routes", "deps.py"),
+      "utf8",
+    );
+    const gate = readFileSync(join(ROOT, "components", "auth-gate.tsx"), "utf8");
+    // as written in Python, which wraps the sentences across string literals
+    const shared = [
+      "every request needs a personal API key",
+      "Get your first one from whoever runs the server",
+      "app.bootstrap_key",
+      "paste it in Settings, step 2",
+    ];
+    // Python wraps NEED_KEY across adjacent string literals and JSX wraps it
+    // across lines, so both sides are read with the quotes dropped and the
+    // whitespace collapsed — otherwise the seam falls inside a sentence.
+    const flat = (s: string) => s.replace(/"/g, "").replace(/\s+/g, " ");
+    for (const s of shared) {
+      expect(flat(deps), `deps.py no longer says: ${s}`).toContain(s);
+    }
+    for (const s of shared) {
+      // the gate capitalizes the opening sentence, so compare case-insensitively
+      expect(
+        flat(gate).toLowerCase(),
+        `auth-gate.tsx has drifted from NEED_KEY: ${s}`,
+      ).toContain(s.toLowerCase());
+    }
+  });
 });
 
 describe("the decided lexicon (docs/LEXICON.md)", () => {

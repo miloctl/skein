@@ -96,6 +96,21 @@ export function emptyState(view: string): string {
   return seeded(packPool ?? EMPTY[view] ?? EMPTY.allclear, view);
 }
 
+// The sign-off, shown by the auth gate after a CHOSEN sign-out — the person
+// is done and nothing is asked of them, which is where warmth is allowed.
+// Every line starts with "Signed out." so the state is stated before the
+// voice starts (auth-gate.test.tsx keys on that prefix). The expired-session
+// wording never comes from here: that state asks the reader to act.
+const SIGNED_OUT = [
+  "Signed out. The formation flies on.",
+  "Signed out. Your strand rests — the weave holds.",
+  "Signed out. The loom hums along without you, a little quieter.",
+];
+
+export function signedOutLine(): string {
+  return seeded(SIGNED_OUT, "signed-out");
+}
+
 const LOADING = [
   "Consulting the decision log…",
   "Counting blockers (hopefully briefly)…",

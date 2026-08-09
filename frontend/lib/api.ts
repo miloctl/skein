@@ -1,4 +1,4 @@
-import { accessToken } from "./auth";
+import { accessToken, accessTokenSync, sessionRejected } from "./auth";
 import { API_URL } from "./config";
 
 export { API_URL };
@@ -129,17 +129,26 @@ export async function api<T = unknown>(
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const auth = await bearer();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-User": getUser(),
-      "X-Client": "web",
-      ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-      ...init?.headers,
-    },
-  });
+  // built once and read back below: init.headers spreads LAST and may carry
+  // its own Authorization, so the credential this request actually sends is
+  // not always the one bearer() returned — and a 401 must be attributed to
+  // the credential that earned it
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-User": getUser(),
+    "X-Client": "web",
+    ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!res.ok) {
+    // a 401 on the stored OIDC token is about the SESSION, not this one
+    // request — sessionRejected renews it, or flips the auth gate to its
+    // re-sign-in state once, instead of every panel printing the same
+    // refusal. The comparison pins WHICH credential 401ed: a personal key or
+    // the shared token must not disturb a session that was never judged.
+    const sent = headers.Authorization?.slice(7) ?? "";
+    if (res.status === 401 && sent && sent === accessTokenSync()) sessionRejected(sent);
     let detail = `${res.status} ${res.statusText}`;
     try {
       const d = (await res.json()).detail;

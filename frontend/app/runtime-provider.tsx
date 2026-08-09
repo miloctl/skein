@@ -10,6 +10,7 @@ import {
 } from "@assistant-ui/react";
 
 import { API_URL, actionError, api, bearer, getUser } from "@/lib/api";
+import { accessTokenSync, sessionRejected } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 import { outgoing } from "@/lib/persona";
@@ -48,6 +49,11 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         signal: abortSignal,
       });
       if (!res.ok || !res.body) {
+        // chat does not go through api(), so it is also the one 401 that
+        // never reached the session handling there. A person whose only
+        // activity is chatting kept a signed-in UI until some other surface
+        // happened to fetch. Same drift the bearer() comment above records.
+        if (res.status === 401 && auth && auth === accessTokenSync()) sessionRejected(auth);
         // the body carries the usable message ("The limit for chat is 20 per
         // minute per person. Wait 34 seconds, then send the request again.",
         // length caps) — surface it, not just the code

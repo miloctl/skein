@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { actionError, api } from "@/lib/api";
+import { isGated, subscribeGated } from "@/lib/gated";
 import { reportStatus } from "@/lib/status";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { timeAgo } from "@/lib/time";
@@ -100,6 +101,7 @@ export function PeekLink({
 
 export function TaskPeek() {
   const [taskId, setTaskId] = useState<number | null>(null);
+  const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
   // Both results carry the id they belong to, and the render below ignores
   // any that does not match the open task. Storing them bare would need a
   // synchronous reset when the id changes — setState inside an effect body,
@@ -180,7 +182,11 @@ export function TaskPeek() {
   }, [taskId, nonce]);
 
   useEffect(() => {
-    if (!taskId) return;
+    // `gated` too, and not only in the render below: an effect still runs for
+    // a component that returns null, so a ?task= link on a gated page inerted
+    // every body sibling — the gate included — and locked the page out with
+    // no panel on screen to explain it.
+    if (!taskId || gated) return;
     // aria-modal prunes the screen reader's buffer; it does NOT touch the
     // browser's Tab order. Without inert, three Tabs walk out of the panel
     // into content the reader has just been told does not exist — a focus
@@ -196,12 +202,20 @@ export function TaskPeek() {
     };
     document.addEventListener("keydown", onKey);
     return () => {
+      // This gives back inert on nodes another component may also want inert
+      // (the nav, while the auth gate stands). That is safe only because
+      // nav.tsx re-asserts its own in an effect, and React runs every cleanup
+      // in a commit before any effect body — never make the nav's inert a
+      // rendered prop again, which this silently strips for good.
       others.forEach((el) => el.removeAttribute("inert"));
       document.removeEventListener("keydown", onKey);
     };
-  }, [taskId, close]);
+  }, [taskId, close, gated]);
 
-  if (!taskId) return null;
+  // a digest link carries ?task=12, and this panel opens on it unconditionally
+  // — over the gate, as an aria-modal dialog that prunes the gate from the
+  // screen reader's buffer while the gate moves focus into it
+  if (!taskId || gated) return null;
 
   // results from a previous id are ignored rather than cleared — see `loaded`
   const task = loaded?.id === taskId ? loaded.task : undefined;

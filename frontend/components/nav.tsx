@@ -11,6 +11,7 @@ import { NavSearch } from "@/components/nav-search";
 import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
+import { isGated, subscribeGated } from "@/lib/gated";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |
 // people & rules. Former top-level pages live on as tabs inside Work
@@ -119,7 +120,14 @@ export function Nav() {
     authConfig().then((c) => setMode(c.mode));
   }, []);
 
+  const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
+
   useEffect(() => {
+    // nothing to count while the auth gate stands: this can only 401, and the
+    // number it would carry describes a workspace the reader cannot open. The
+    // `gated` dependency also makes signing in re-poll at once, so the badge
+    // is current the moment the workspace comes back.
+    if (gated) return;
     let generation = 0;
     const poll = () => {
       const g = ++generation;
@@ -140,7 +148,7 @@ export function Nav() {
       clearInterval(t);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, []);
+  }, [gated]);
 
   // The attention count in the TAB TITLE, which is the only part of Skein a
   // person sees while they are in their editor. Without it the immediate
@@ -156,19 +164,41 @@ export function Nav() {
     if (!el) return;
     const base = () => el.textContent?.replace(/^\(\d+\)\s+/, "") || "Skein";
     const apply = () => {
-      const wanted = attention ? `(${attention}) ${base()}` : base();
+      // the count is dropped while the gate stands, not just left to go
+      // stale: a session that expires mid-task keeps its last number, and a
+      // locked-out reader would sit in front of a tab promising them three
+      // things to do at a workspace that will not open.
+      const wanted = attention && !gated ? `(${attention}) ${base()}` : base();
       if (el.textContent !== wanted) el.textContent = wanted;
     };
     apply();
     const observer = new MutationObserver(apply);
     observer.observe(el, { childList: true, characterData: true, subtree: true });
     return () => observer.disconnect();
-  }, [attention]);
+  }, [attention, gated]);
 
   const anonymous = user === "anonymous";
+  const headerRef = useRef<HTMLElement>(null);
+  // inert while the auth gate stands: the gate COVERS the header rather than
+  // unmounting it, so without this a keyboard user tabs into links hidden
+  // under the overlay and focus lands on nothing visible.
+  //
+  // An EFFECT writing the ATTRIBUTE, never a rendered inert={gated} prop.
+  // task-peek.tsx strips the inert attribute from every body sibling when its
+  // panel closes, and React does not re-apply an attribute it believes is
+  // already set — as a prop this survived until the first ?task= link and
+  // then never came back. React runs every cleanup in a commit before any
+  // effect body, so re-asserting here always lands after that strip, and both
+  // writers have to name the same thing for that to work.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    if (gated) el.setAttribute("inert", "");
+    else el.removeAttribute("inert");
+  }, [gated]);
 
   return (
-    <header className="sticky top-0 z-10 bg-page/85 backdrop-blur">
+    <header ref={headerRef} className="sticky top-0 z-10 bg-page/85 backdrop-blur">
       <div className="flex min-h-[var(--nav-h)] flex-wrap items-center px-4 sm:px-6 md:min-h-0">
         {/* Logo and identity share ONE non-wrapping row; only the nav below
             wraps. Without this they are two flex items of a flex-wrap parent,
@@ -319,9 +349,9 @@ export function Nav() {
                           // signOut clears the GET cache, but nothing
                           // re-fetches a card that already rendered — signing
                           // out on /people left the private 1:1 notes painted
-                          // on screen. Reloading the CURRENT page would then
-                          // answer 401 to every fetch on it, so this leaves
-                          // for My Day, which works signed out. The display
+                          // on screen. The load lands on the auth gate, which
+                          // shows the signed-out state (auth-gate.tsx reads
+                          // the reason signOut just recorded). The display
                           // name stays: oidc mode ignores X-User, so
                           // overwriting it only destroys what the person typed.
                           window.location.assign("/");
@@ -359,7 +389,9 @@ export function Nav() {
                     {signedIn
                       ? "Signed in — strong identity"
                       : mode === "oidc"
-                        ? "Signed out — sign in to write"
+                        ? hasKey
+                          ? "Strong identity active"
+                          : "Signed out — sign in to open the workspace"
                         : mode === "api-key"
                           ? hasKey
                             ? "Strong identity active"

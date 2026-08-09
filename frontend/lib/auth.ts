@@ -23,6 +23,11 @@ const TOKEN_KEY = "skein-oidc";
 // the in-flight authorization: per tab, and gone when the tab closes. A second
 // tab must not be able to complete a sign-in this one started.
 const FLOW_KEY = "skein-oidc-flow";
+// Why this tab has no session — "signed-out" | "expired" — for the auth
+// gate's wording: a person who chose to leave gets a closer, a person whose
+// token died mid-task gets the fix and their place back. Per tab on purpose:
+// a fresh tab has no story to tell and gets the plain landing.
+const ENDED_KEY = "skein-oidc-ended";
 
 export type AuthConfig = {
   mode: string;
@@ -51,11 +56,73 @@ function readStored(): Stored | null {
 
 function writeStored(t: Stored | null) {
   try {
-    if (t) window.localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
-    else window.localStorage.removeItem(TOKEN_KEY);
+    if (t) {
+      window.localStorage.setItem(TOKEN_KEY, JSON.stringify(t));
+      // a completed sign-in supersedes whatever ended the last session
+      window.sessionStorage.removeItem(ENDED_KEY);
+    } else window.localStorage.removeItem(TOKEN_KEY);
   } catch {}
   // same-tab subscribers (nav, settings) listen for this, as everywhere else
   window.dispatchEvent(new Event("storage"));
+}
+
+if (typeof window !== "undefined") {
+  // writeStored clears the reason only in the tab that writes the token, and
+  // the reason is per-tab. A tab that expired, then watched a sign-in in
+  // ANOTHER tab, kept its stale "expired" — so the next sign-out anywhere
+  // told that tab's reader their sign-in had expired, which is not what
+  // happened. Registered at import, so it runs before the component
+  // subscribers that read the reason on the same event.
+  window.addEventListener("storage", () => {
+    if (!readStored()) return;
+    try {
+      window.sessionStorage.removeItem(ENDED_KEY);
+    } catch {}
+  });
+}
+
+/** "signed-out" | "expired" | "" — why this tab has no session. */
+export function sessionEnd(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.sessionStorage.getItem(ENDED_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Set BEFORE the writeStored that clears the tokens: writeStored dispatches
+ *  the storage event, and the gate reads the reason inside that same tick. */
+function markEnded(reason: "signed-out" | "expired") {
+  try {
+    window.sessionStorage.setItem(ENDED_KEY, reason);
+  } catch {}
+}
+
+/** A 401 that arrived ON the stored access token: the server refused THIS
+ *  token, which the proactive refresh in accessToken() cannot see — the token
+ *  still looked fresh when the request left.
+ *
+ *  A refusal of the access token is not a verdict on the session while a
+ *  refresh token survives, so this DEMOTES rather than ends: it back-dates the
+ *  expiry, and the next accessToken() call renews. Ending it here instead cost
+ *  a full sign-in every token lifetime on any IdP that omits `expires_in` —
+ *  routes/auth.py stores 0 for that, accessToken() reads 0 as "no proactive
+ *  refresh", and the first 401 is therefore where such a session ALWAYS lands.
+ *  The session ends only when the renewal itself is refused (refreshOnce). */
+export function sessionRejected(token: string) {
+  const t = readStored();
+  // several in-flight requests can 401 together, and a refresh may have
+  // already replaced the token they carried — only the CURRENT token counts
+  if (!t || t.access_token !== token) return;
+  if (t.refresh_token) {
+    // any past instant works; Date.now() keeps it one comparison away from
+    // the EXPIRY_MARGIN_MS test that reads it
+    writeStored({ ...t, expires_at: Date.now() - 1 });
+    return;
+  }
+  markEnded("expired");
+  writeStored(null);
 }
 
 /** Who is signed in, or "" — for display only. What the API trusts is the
@@ -281,6 +348,7 @@ export async function accessToken(): Promise<string> {
   if (!t.refresh_token) {
     // expired with nothing to renew from: the session is over, and holding a
     // dead token would show a signed-in UI that 401s on every request
+    markEnded("expired");
     writeStored(null);
     return "";
   }
@@ -328,7 +396,10 @@ async function refreshOnce(had: string): Promise<string> {
     // only a verdict ends the session. A transient fault keeps the tokens so
     // the next call can try again — the alternative signs people out for
     // waking a laptop before the network is up.
-    if (err instanceof Rejected) writeStored(null);
+    if (err instanceof Rejected) {
+      markEnded("expired");
+      writeStored(null);
+    }
     return "";
   }
 }
@@ -342,5 +413,6 @@ export function accessTokenSync(): string {
 }
 
 export function signOut() {
+  markEnded("signed-out");
   writeStored(null);
 }
