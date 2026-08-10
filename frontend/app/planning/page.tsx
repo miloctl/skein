@@ -440,6 +440,40 @@ export default function Planning() {
         </Card>
       ) : null}
 
+      {/* what the team is AWAITING (docs/LEXICON.md row 1a — `waiting on`
+          is blocker vocabulary, and capture-palette.tsx routes the bare
+          phrase there). Beside the triage queue rather than in it: these are
+          not decisions to make, they are people to chase.
+
+          Placed ABOVE 5c, because these cards are read in the order the file
+          writes them: numbering the agenda and then rendering 5a, 5c, 5b hands
+          the reader the gap the numbering exists to prevent. */}
+      {d.awaiting.length > 0 ? (
+        <Card title={`5b · Awaiting from other people (${d.awaiting.length})`}>
+          <ul className="space-y-1 text-sm">
+            {d.awaiting.map((p) => {
+              const late = p.due_date !== null && p.due_date < d.today;
+              return (
+                <li key={p.id}>
+                  <span className={late ? "text-weld" : ""}>{p.promise}</span>
+                  <span className="ml-2 text-xs text-ink-3">
+                    {p.to_whom ? `${p.to_whom} owes it` : "nobody named"}
+                    {p.due_date ? ` · due ${p.due_date}` : " · no date"}
+                    {late ? " · overdue" : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-ink-3">
+            Skein chases an overdue one once a day. If two chases get no
+            answer, it tells the team once, and it names nobody. Capture one
+            with &ldquo;awaiting: acme corp — the signed SOW by
+            YYYY-MM-DD&rdquo;.
+          </p>
+        </Card>
+      ) : null}
+
       {/* who is owed what, outside the team. Read before the week's meetings
           rather than after them, which is when it was answerable at all.
 
@@ -473,36 +507,6 @@ export default function Planning() {
               </li>
             ))}
           </ul>
-        </Card>
-      ) : null}
-
-      {/* what the team is AWAITING (docs/LEXICON.md row 1a — `waiting on`
-          is blocker vocabulary, and capture-palette.tsx routes the bare
-          phrase there). Beside the triage queue rather than in it: these are
-          not decisions to make, they are people to chase. */}
-      {d.awaiting.length > 0 ? (
-        <Card title={`5b · Awaiting from other people (${d.awaiting.length})`}>
-          <ul className="space-y-1 text-sm">
-            {d.awaiting.map((p) => {
-              const late = p.due_date !== null && p.due_date < d.today;
-              return (
-                <li key={p.id}>
-                  <span className={late ? "text-weld" : ""}>{p.promise}</span>
-                  <span className="ml-2 text-xs text-ink-3">
-                    {p.to_whom ? `${p.to_whom} owes it` : "nobody named"}
-                    {p.due_date ? ` · due ${p.due_date}` : " · no date"}
-                    {late ? " · overdue" : ""}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-2 text-xs text-ink-3">
-            Skein chases an overdue one once a day. If two chases get no
-            answer, it tells the team once, and it names nobody. Capture one
-            with &ldquo;awaiting: acme corp — the signed SOW by
-            YYYY-MM-DD&rdquo;.
-          </p>
         </Card>
       ) : null}
 

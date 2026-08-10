@@ -44,6 +44,8 @@ type Briefing = {
   // cannot disagree with the tab title (services/briefing.py)
   attention_total?: number;
   pending_reviews_total?: number;
+  // the ISO week `committed_week` is stored against (services/briefing.py)
+  this_week?: string;
   your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };
   team: {
     recently_shipped: Row[];
@@ -176,6 +178,7 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
   const show = async () => {
     setOpen(true);
     if (threads !== null) return; // `[]` is a real answer, not a cache miss
+    setErr("");
     try {
       const r = await api<{ threads: typeof threads }>(
         `/api/events/${eventId}/stakeholders`,
@@ -187,20 +190,22 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
     }
   };
 
-  if (!open)
-    return (
-      <button
-        onClick={show}
-        aria-expanded={false}
-        className="ml-1.5 rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
-      >
-        what is open?
-      </button>
-    );
   return (
     // a DIV, not a span: it holds a list, and phrasing content cannot
-    <div className="ml-1.5 text-xs text-ink-3">
-      {err ? (
+    <div className="ml-1.5 inline text-xs text-ink-3">
+      {/* the trigger STAYS mounted and toggles. Unmounting it on activation
+          dropped a keyboard reader's focus to <body>, and left a failed fetch
+          with no control at all — no retry and no way back. Collapsing clears
+          nothing, so re-opening after a failure refetches (threads is still
+          null). */}
+      <button
+        onClick={() => (open ? setOpen(false) : show())}
+        aria-expanded={open}
+        className="rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
+      >
+        {open ? "hide" : "what is open?"}
+      </button>
+      {!open ? null : err ? (
         <p className="text-danger">{err}</p>
       ) : threads === null ? (
         <p>Loading…</p>
@@ -484,17 +489,14 @@ export default function MyDay() {
     );
   if (b.user === "anonymous") return <WhoAreYou />;
 
-  // the label `committed_week` stores (services/weekly.py) — computed here so
-  // the chip and the server's ordering agree about which week is "this" one
-  const thisWeek = (() => {
-    const d = new Date();
-    const day = (d.getDay() + 6) % 7;
-    const thu = new Date(d);
-    thu.setDate(d.getDate() - day + 3);
-    const jan1 = new Date(thu.getFullYear(), 0, 1);
-    const wk = Math.ceil(((+thu - +jan1) / 86400000 + 1) / 7);
-    return `${thu.getFullYear()}-W${String(wk).padStart(2, "0")}`;
-  })();
+  // the label `committed_week` stores (services/weekly.py), taken from the
+  // SERVER so the chip and the ordering it explains cannot disagree. Computed
+  // in the browser it was wrong twice: the ISO-week arithmetic mixed a
+  // midnight date with a current-time one, which put every week of 2027 one
+  // ahead, and even correct it would read the browser's timezone rather than
+  // the team day the server sorts by. Empty string matches no row, so an
+  // older backend simply shows no chip.
+  const thisWeek = b.this_week ?? "";
   const attention = b.attention ?? [];
   // A server that sends no `audience` (an older backend behind a newer
   // bundle) falls back to "you": every row lands in one card, rather than the

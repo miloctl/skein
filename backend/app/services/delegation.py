@@ -241,12 +241,18 @@ def accept_completion(
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
         raise scope.missing("tasks", task_id)
+    # TerminalReject, never ValueError, for both conditions below: neither can
+    # become true again, and approve_change resets a plain ValueError to
+    # pending — so the proposal boomerangs on every future verdict and the
+    # queue can only be cleared by a hand rejection. work.py settles the
+    # sponsor's own direct close before it ever reaches here; what remains is
+    # the close that came some other way.
     if task["status"] == "done":
-        raise ValueError(f"task #{task_id} is already done")
+        raise db.TerminalReject(f"task #{task_id} is already done")
     # a reassignment between submit and verdict voids the proposal — the
     # acceptance must be for work the proposer still owns
     if actor and task["delegated_agent"] != actor:
-        raise ValueError(f"task #{task_id} is no longer delegated to '{actor}'")
+        raise db.TerminalReject(f"task #{task_id} is no longer delegated to '{actor}'")
     # completed_at, not just status: flow metrics filter on it, so a delegated
     # task accepted here would otherwise count zero in cycle time AND in
     # throughput. The forge routes every delegated close to this function, so

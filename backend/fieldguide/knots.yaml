@@ -264,7 +264,7 @@ knots:
     since: 2026-08-02
 
   - id: consult
-    feature: Ask a specialist mid-conversation
+    feature: Ask a specialist mid-chat
     # a BEND joins two ropes, which is the shape here: the Chief of Staff and
     # one bench specialist, tied for a single answer. docs/LEXICON.md #6
     # counts cards carrying a name from the wrong class.
@@ -418,7 +418,7 @@ knots:
     knot: Sheet Bend
     set: bends
     role: any
-    pitch: A fact learned on one piece of work, recalled in conversations about that work and nowhere else.
+    pitch: A fact learned on one piece of work, recalled in chats about that work and nowhere else.
     how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal a person approves.
     link: /chat
     since: 2026-08-10

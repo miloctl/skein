@@ -27,6 +27,12 @@ from datetime import date, timedelta
 from .. import db
 from . import refs, scope
 
+# How many new findings one brief can carry. A reader who has been away a
+# fortnight gets the first fifty and the Insights page holds the rest — the
+# cap is on the ROWS THAT QUALIFY, so nothing new is cut off ahead of
+# something already seen.
+FINDING_CAP = 50
+
 
 def since_mark(user: str) -> str:
     """When this reader last took a delta brief, or a day ago.
@@ -58,7 +64,6 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY, mark: bool = False) ->
     preview the brief — the chat command shows it without consuming it, and
     only the surface that actually displays it moves the mark.
     """
-    from .insights import list_findings
     from .portfolio import engagement_health, health_changes
 
     since = since_mark(user)
@@ -112,9 +117,17 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY, mark: bool = False) ->
         (r["rule_id"], r["subject"])
         for r in db.query("SELECT rule_id, subject FROM findings WHERE created_at < ?", (since,))
     }
-    for f in list_findings(weeks=2, limit=100):
-        if f["disposition"] or f["created_at"] < since:
-            continue
+    # `created_at >= since` and the disposition test live in the SQL, so the
+    # cap applies to the rows that can actually appear. Read through
+    # list_findings instead, the LIMIT lands first and its ordering is week
+    # then severity — so a busy fortnight cuts a NEW low-severity finding off
+    # the end, and the brief reports "quiet" about a window that had news.
+    for f in db.query(
+        "SELECT id, rule_id, subject, severity, message FROM findings"
+        " WHERE created_at >= ? AND id NOT IN (SELECT finding_id FROM finding_dispositions)"
+        " ORDER BY created_at, id LIMIT ?",
+        (since, FINDING_CAP),
+    ):
         if (f["rule_id"], f["subject"]) in seen_subjects:
             continue
         items.append(

@@ -104,6 +104,27 @@ export default function CharterPage() {
     document.getElementById(`charter-entry-${want}`)?.focus();
   }, [decisions]);
 
+  // ...and again when only the HASH changes. Arriving from another page
+  // remounts this component, but a search hit for a general decision picked
+  // while already on /charter changes nothing else: no remount, no re-fetch,
+  // so neither the focus effect above nor the auto-widen in `load` runs and
+  // the click is a silent no-op — the exact failure this deep-link handling
+  // exists to remove, one navigation type over.
+  useEffect(() => {
+    const onHash = () => {
+      const want = hashTarget();
+      if (!want) return;
+      if (decisions?.some((d) => d.id === want)) {
+        document.getElementById(`charter-entry-${want}`)?.focus();
+      } else if (!widened.current) {
+        widened.current = true;
+        setShowAll(true);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [decisions]);
+
   const add = async () => {
     if (busy || !title.trim() || !text.trim()) return;
     setBusy(true);
@@ -354,7 +375,7 @@ export default function CharterPage() {
           <li>
             <EmptyState>
               {showAll
-                ? "No decisions recorded yet. Capture one with `decision:` in ⌘K."
+                ? "No decisions recorded yet. Capture one with ‘decision:’ in ⌘K."
                 : "No charter entries yet. Start with: who owns what, how we escalate, what quality bar we hold."}
             </EmptyState>
           </li>

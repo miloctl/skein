@@ -425,6 +425,15 @@ def update_task(
         (*fields.values(), db.now(), task_id),
     )
     db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
+    # The sponsor just answered the acceptance ask by hand, so the proposal
+    # waiting for that answer has to be settled here or it never can be: its
+    # apply calls delegation.accept_completion, which raises on a task that is
+    # already done, and approve_change resets a failed apply to pending — the
+    # verdict boomerangs on every click and the only way out is a rejection
+    # that lands on the agent's demotion streak (services/delegation.py) for
+    # work the sponsor accepted.
+    if fields.get("status") == "done" and current["delegated_agent"]:
+        _settle_acceptance(task_id, actor)
     row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if row:
         index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
@@ -473,6 +482,50 @@ def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it"
             f" can {verb}. Judge the acceptance proposal in Approvals to act for"
             " them, which puts the reason on record"
         )
+
+
+def _settle_acceptance(task_id: int, actor: str) -> None:
+    """Close the acceptance proposal the sponsor has just answered by hand.
+
+    APPROVED, not rejected. The proposal asks one question — does the sponsor
+    accept this work — and closing the task is a yes. A rejection here would
+    be a false record of the verdict AND would feed the agent's demotion
+    streak (services/delegation.py::trust_scores counts consecutive strong
+    non-override rejections), punishing it for work that was accepted.
+
+    `result_id` is the task, so provenance.lineage still finds the chain from
+    the row back to the proposal that produced it.
+
+    Only rows still pending are touched: a proposal already judged carries a
+    real verdict, and overwriting it would erase who made the call.
+    """
+    # read the ids BEFORE the update: after it they no longer match `pending`,
+    # and matching them back by review_note would also catch the proposals an
+    # earlier close of a re-opened task settled the same way
+    waiting = db.query(
+        "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
+        " AND entity_id = ? AND status = 'pending'",
+        (task_id,),
+    )
+    if not waiting:
+        return
+    db.execute(
+        "UPDATE pending_changes SET status = 'approved', reviewed_by = ?, reviewed_at = ?,"
+        " reviewed_strong = 0, reviewed_override = 0, result_id = ?,"
+        " review_note = 'the sponsor closed the task directly'"
+        " WHERE entity = 'task_completion' AND entity_id = ? AND status = 'pending'",
+        (actor, db.now(), task_id, task_id),
+    )
+    from .notifications import mark_read_matching
+
+    for row in waiting:
+        db.log_activity(
+            actor, "approve_change", f"#{row['id']} -> task #{task_id} (closed directly)"
+        )
+        # the "Review needed" ping has been answered — review._clear_review_ping
+        # does this on the approve path, and a ping that outlives its proposal
+        # sends the sponsor to a queue that no longer holds the row
+        mark_read_matching(f"Review needed: #{row['id']} ")
 
 
 def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:

@@ -40,7 +40,12 @@ const STATUS_COLORS: Record<string, string> = {
  *  as a score — services/portfolio.py::what_if states that rule.
  */
 function WhatIf({ requestId }: { requestId: number }) {
-  const [people, setPeople] = useState<string[]>([]);
+  // null until the roster answers, so a failed load cannot render as "nobody
+  // is on the roster". An empty chip row beside a disabled button is the same
+  // sentence as a real empty team, and this card exists to ask a capacity
+  // question — silently unable to ask it is the worst of the three states.
+  const [people, setPeople] = useState<string[] | null>(null);
+  const [peopleErr, setPeopleErr] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [percent, setPercent] = useState(50);
   // the shape services/portfolio.py::what_if returns, field for field
@@ -60,10 +65,14 @@ function WhatIf({ requestId }: { requestId: number }) {
 
   useEffect(() => {
     api<{ name: string; kind: string; active: number }[]>("/api/users")
-      .then((u) =>
-        setPeople(u.filter((x) => x.kind !== "agent" && x.active).map((x) => x.name)),
-      )
-      .catch(() => {});
+      .then((u) => {
+        setPeople(u.filter((x) => x.kind !== "agent" && x.active).map((x) => x.name));
+        setPeopleErr("");
+      })
+      .catch((e) => {
+        setPeople([]);
+        setPeopleErr(loadError(e));
+      });
   }, []);
 
   const run = async () => {
@@ -90,8 +99,15 @@ function WhatIf({ requestId }: { requestId: number }) {
       <p className="mb-1.5 text-xs font-medium text-ink-2">
         If you accept this, who works it?
       </p>
+      {peopleErr ? (
+        <p className="mb-2 text-xs text-danger">{peopleErr}</p>
+      ) : people === null ? (
+        <p className="mb-2 text-xs text-ink-3">Loading the roster…</p>
+      ) : people.length === 0 ? (
+        <p className="mb-2 text-xs text-ink-3">No active teammate is on the roster.</p>
+      ) : null}
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        {people.map((n) => (
+        {(people ?? []).map((n) => (
           <button
             key={n}
             aria-pressed={picked.includes(n)}

@@ -112,7 +112,11 @@ export default function EngagementBrief({
   }, [id]);
   useEffect(load, [load]);
 
-  if (error)
+  // only when there is nothing to show. `load` runs again after a handoff is
+  // written, and a failure there used to replace the whole brief the reader is
+  // standing on with one error line — the same trade My Day refuses, where a
+  // failed refresh becomes a banner over the previous state.
+  if (error && !b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
         <SectionTabs set="work" />
@@ -128,10 +132,17 @@ export default function EngagementBrief({
     );
 
   const e = b.engagement;
+  // every list the diff carries, dropped_tasks included. Counting four of the
+  // five hid an engagement whose only variance was planned work deleted after
+  // kickoff: no drift card at all, so the page claimed the plan held while the
+  // close-out summary counted the same rows as variance
+  // (app/dashboard/page.tsx) and the close button offered to draft a lesson
+  // about it (services/playbooks.py).
   const drift =
     (b.plan_diff.slipped?.length ?? 0) +
     (b.plan_diff.unfinished_tasks?.length ?? 0) +
     (b.plan_diff.added_tasks?.length ?? 0) +
+    (b.plan_diff.dropped_tasks?.length ?? 0) +
     (b.plan_diff.skipped_rituals?.length ?? 0);
 
   return (
@@ -141,6 +152,12 @@ export default function EngagementBrief({
       className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-4 p-4 sm:p-6"
     >
       <SectionTabs set="work" />
+
+      {error && (
+        <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
+          Last refresh failed ({error}) — showing the previous state.
+        </p>
+      )}
 
       {/* a way back to the list. `/engagement/<id>` is in no tab set, so no
           tab reads aria-current here and a reader arriving from Browse has no
@@ -238,8 +255,15 @@ export default function EngagementBrief({
           things about the same work (services/engagement_brief.py). */}
       <Card title="What this needs">
         {b.next_actions.length === 0 ? (
+          // states the WINDOW it read, never "nothing is wrong here". The
+          // server narrows the portfolio queue to this engagement after
+          // reading a fixed number of rows (services/engagement_brief.py), so
+          // on a busy portfolio this engagement's rows can sit behind other
+          // engagements' — and the flat claim contradicted the blockers card
+          // two cards up, which was showing an escalation at the time.
           <p className="text-sm text-ink-3">
-            Nothing in the portfolio queue belongs to this engagement.
+            Nothing for this engagement is in the top {b.queue_scanned} of the
+            portfolio queue.
           </p>
         ) : (
           <ul className="space-y-2.5 text-sm">
@@ -447,8 +471,8 @@ export default function EngagementBrief({
           <p className="mb-2 text-xs text-ink-3">
             Against the plan {b.plan_diff.playbook} laid out at kickoff, as it
             stands now. Drift is not failure. It is what the next kickoff of
-            this class needs to know, and while this engagement runs it is
-            still something the team can act on.
+            this class needs to know. While this engagement runs, the team can
+            still act on it.
           </p>
           <ul className="space-y-1 text-sm">
             {(b.plan_diff.slipped ?? []).map((m) => (
@@ -472,6 +496,14 @@ export default function EngagementBrief({
                 {t}
                 <span className="ml-1 text-xs text-ink-3">
                   added after kickoff
+                </span>
+              </li>
+            ))}
+            {(b.plan_diff.dropped_tasks ?? []).map((t) => (
+              <li key={`d${t}`}>
+                {t}
+                <span className="ml-1 text-xs text-ink-3">
+                  planned at kickoff, then deleted
                 </span>
               </li>
             ))}

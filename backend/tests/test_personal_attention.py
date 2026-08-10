@@ -121,6 +121,34 @@ def test_attention_count_matches_the_page(client):
     )
 
 
+def test_a_row_the_viewer_cannot_read_is_counted_by_neither(client, fresh_db):
+    """The pair above uses workspace rows only, so it holds for an arm that
+    tests the reader's name and skips the tier. A crew-tier row assigned to a
+    weak viewer is the case that splits them: legal to assign, invisible to the
+    page. Counting it makes the tab say "(1) waiting on you" over a page whose
+    header says 0 and whose body shows nothing to act on."""
+    from app.services import collab, crews, scope, users
+
+    for n in ("tester", "insider"):
+        users.ensure_user(n)
+    crew = crews.create_crew("ops", actor="insider")
+    crews.add_member(crew["id"], "tester", actor="insider")
+    # legal to file: the assignee IS in the crew, so assert_readable_by passes.
+    # What the reader cannot do is see it through the default trusted-header
+    # viewer, whose name is blank and whose crew list is empty.
+    collab.ask_question(
+        "Who owns infra?",
+        asked_by="insider",
+        assigned_to="tester",
+        actor="insider",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+
+    assert client.get("/api/briefing").json()["attention_total"] == 0
+    assert client.get("/api/attention").json()["yours"] == 0
+
+
 def test_committed_work_leads_the_day(client):
     """The weekly ritual produces a commitment and a priority-and-date sort
     ignores it: an unplanned high-priority row outranks the work the reader

@@ -600,12 +600,15 @@ def get_briefing(user: CurrentUser, viewer: ViewerDep):
 
 
 @router.get("/attention")
-def get_attention(user: CurrentUser):
+def get_attention(user: CurrentUser, viewer: ViewerDep):
     # `count` IS `yours`, not the Inbox number. Both readers of this field —
     # the browser tab title and `skein attention` — say "waiting on you", and
     # the Inbox total said that about a queue anyone may work. The nav badge
     # reads `inbox` for its own destination.
-    counts = briefing.attention_count(user)
+    #
+    # The viewer rides along because `yours` must equal what /briefing's header
+    # prints, and that number is viewer-scoped (services/briefing.py).
+    counts = briefing.attention_count(user, viewer)
     return {"count": counts["yours"], **counts}
 
 

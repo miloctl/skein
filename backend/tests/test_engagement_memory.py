@@ -140,6 +140,18 @@ def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
     # and it is not recalled by anyone outside the crew
     assert not memory.recall(viewer=scope.Viewer("outsider", True), engagement_id=eng["id"])
 
+    # ...but it MUST reach the prompt of somebody inside it. This is the whole
+    # point of filing one, and the tier that protects it from the roster also
+    # hides it from the default NOBODY viewer — so an injection path that does
+    # not carry a viewer produces a row that steers no conversation at all.
+    prompt = memory.memory_prompt(
+        "insider", engagement_id=eng["id"], viewer=scope.Viewer("insider", True)
+    )
+    assert "the client will not renew" in prompt
+    assert "the client will not renew" not in memory.memory_prompt(
+        "outsider", engagement_id=eng["id"], viewer=scope.Viewer("outsider", True)
+    )
+
 
 def test_a_crew_memory_proposal_is_not_announced_to_the_roster(client, fresh_db):
     """`propose_change` posts its summary to the 'team' notification feed,
@@ -168,14 +180,14 @@ def test_a_crew_memory_proposal_is_not_announced_to_the_roster(client, fresh_db)
         assert "will not renew" not in note["message"]
 
 
-def test_a_private_engagement_refuses_a_memory_it_could_never_review(client, fresh_db):
+def test_a_private_engagement_refuses_a_memory_nobody_could_review(client, fresh_db):
     from app.services import engagements, users
 
     users.ensure_user("ava")
     eng = engagements.create_engagement(
         "Solo", project_class="prototype", actor="ava", visibility=scope.PRIVATE
     )
-    with pytest.raises(ValueError, match="never be reviewed"):
+    with pytest.raises(ValueError, match="no second person can review"):
         memory.propose_engagement_memory(
             eng["id"], "a thought", actor="ava", viewer=scope.Viewer("ava", True)
         )

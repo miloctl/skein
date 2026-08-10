@@ -356,6 +356,13 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # honest total alongside the LIMITed list — the header must not read
         # "50 things need you" while the nav badge says 300
         "pending_reviews_total": pending_total["n"] if pending_total else 0,
+        # The label `committed_week` stores, sent rather than recomputed in the
+        # browser. It is the same string the ORDER BY above binds, so the "this
+        # week" chip cannot disagree with the ordering it is explaining. A
+        # hand-rolled ISO week in JavaScript got this wrong for every year
+        # whose Jan 1 is a Friday, and drifted by the browser's timezone in
+        # every other year (db.today() is the TEAM day).
+        "this_week": this_week,
         "attention": attention,
         "your_work": {
             # The plan changed, then the plan, then work already started,
@@ -440,7 +447,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     }
 
 
-def attention_count(user: str) -> dict:
+def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     """Two numbers, because two readers ask two different questions.
 
     `inbox` is the nav badge on Inbox and counts ONLY what lives there —
@@ -460,8 +467,13 @@ def attention_count(user: str) -> dict:
     same cap — with one stated exception on the proposal arm below.
     `test_attention_count_matches_the_page` holds the pair together.
 
-    `yours` is not viewer-scoped, and deliberately: every arm keys on the
-    reader's OWN name, so a row can only be counted by the person it names.
+    `yours` takes the VIEWER as well as the name, because keying on the
+    reader's own name is not enough to match the page. A crew-tier question can
+    legitimately be assigned to somebody the crew filter then hides from a weak
+    viewer: `_attention` splices `visible_filter` and drops it, so a count that
+    tested `assigned_to` alone read "(1) waiting on you" over a page whose
+    header said 0 and whose body showed nothing to act on
+    (`test_a_row_the_viewer_cannot_read_is_counted_by_neither`).
 
     `inbox` is a count over the WHOLE queue, unreadable rows included. It is
     the badge on a shared destination, and a per-viewer total would disagree
@@ -470,6 +482,8 @@ def attention_count(user: str) -> dict:
     """
     local_today = db.today()
     week = (local_today + timedelta(days=7)).isoformat()
+    q_f, q_p = scope.visible_filter(viewer, "questions")
+    b_f, b_p = scope.visible_filter(viewer, "blockers")
     row = db.query_one(
         "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
@@ -484,8 +498,8 @@ def attention_count(user: str) -> dict:
         # split exists to fix, one surface further out. The notifications that
         # DO carry an obligation raise this count through the row behind them:
         # an assigned question, an owned blocker, a sponsor's acceptance ask.
-        " (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
-        " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
+        f" (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ? AND {q_f})"
+        f" + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ? AND {b_f})"
         # a proposal this reader ASKED FOR is addressed to them, and _attention
         # marks it audience 'you' — without this arm the tab undercounts by
         # exactly the rows the page puts under "Needs you".
@@ -507,7 +521,10 @@ def attention_count(user: str) -> dict:
         f" + (SELECT MIN(COUNT(*), 5) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
         "     AND decided_by = ?)"
         " AS yours",
-        (user, user, user, user, week, user),
+        # mark order, not argument order: the questions filter binds inside the
+        # first subselect and the blockers filter inside the second, so each
+        # scope tuple follows the `?` it qualifies
+        (user, *q_p, user, *b_p, user, user, week, user),
     )
     return {
         "inbox": row["inbox"] if row else 0,

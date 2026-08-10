@@ -187,10 +187,10 @@ def test_a_failing_member_leaves_the_other_sections_intact(client, fresh_db, mon
 
     real = chat_route.build_agent
 
-    def flaky(thread_id, user="anonymous", persona="", stateless=False):
+    def flaky(thread_id, user="anonymous", persona="", stateless=False, viewer=None):
         if persona == "code-reviewer":
             raise RuntimeError("401 token sk-live-abcd request_id=42")
-        return real(thread_id, user, persona=persona, stateless=stateless)
+        return real(thread_id, user, persona=persona, stateless=stateless, viewer=viewer)
 
     monkeypatch.setattr(chat_route, "build_agent", flaky)
     out = _read_chat(client, "/flock engineering keep going", thread="flaky")
@@ -308,10 +308,10 @@ def test_a_hung_member_does_not_hold_the_turn(client, fresh_db, monkeypatch):
 
     real = chat_route.build_agent
 
-    def maybe_hang(thread_id, user="anonymous", persona="", stateless=False):
+    def maybe_hang(thread_id, user="anonymous", persona="", stateless=False, viewer=None):
         if persona == "code-reviewer":
             return Hung()
-        return real(thread_id, user, persona=persona, stateless=stateless)
+        return real(thread_id, user, persona=persona, stateless=stateless, viewer=viewer)
 
     monkeypatch.setattr(chat_route, "build_agent", maybe_hang)
     monkeypatch.setattr(chat_route, "MEMBER_TIMEOUT_S", 0.4)
@@ -372,10 +372,10 @@ def test_a_timed_out_member_still_reports_the_write_it_filed(client, fresh_db, m
 
     real = chat_route.build_agent
 
-    def maybe_hang(thread_id, user="anonymous", persona="", stateless=False):
+    def maybe_hang(thread_id, user="anonymous", persona="", stateless=False, viewer=None):
         if persona == "code-reviewer":
             return WroteThenHung()
-        return real(thread_id, user, persona=persona, stateless=stateless)
+        return real(thread_id, user, persona=persona, stateless=stateless, viewer=viewer)
 
     monkeypatch.setattr(chat_route, "build_agent", maybe_hang)
     monkeypatch.setattr(chat_route, "MEMBER_TIMEOUT_S", 0.4)

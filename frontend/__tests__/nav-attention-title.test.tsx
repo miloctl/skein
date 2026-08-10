@@ -26,8 +26,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       // three DISTINCT numbers. `yours` is what the title carries and
       // `inbox` is what the nav badge carries; `count` is the compatibility
       // alias the CLI reads. Equal values here would let a component that
-      // reads the wrong field pass every assertion by coincidence — which is
-      // exactly what the pre-split component did.
+      // reads the wrong field pass every assertion by coincidence.
       if (path.startsWith("/api/attention"))
         return Promise.resolve({ count: 0, yours: count.value, inbox: INBOX });
       if (path.endsWith("/worklog")) return Promise.resolve([]);

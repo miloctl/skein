@@ -90,6 +90,77 @@ def test_only_the_sponsor_closes_delegated_work(client, fresh_db):
     assert ok.status_code == 200
 
 
+def test_the_sponsors_own_close_settles_the_acceptance_proposal(client, fresh_db):
+    """The sponsor may close delegated work by hand, and an agent may have a
+    completion proposal already waiting. Both are legal at once, and the
+    proposal then asks a question that has been answered.
+
+    Left pending, its apply raises on a task that is already done, and
+    approve_change resets a failed apply to pending — so the verdict boomerangs
+    on every click and the only exit is a rejection that lands on the agent's
+    demotion streak for work the sponsor accepted.
+    """
+    from app import db
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    out = delegation.submit_completion(tid, "shipped it", actor="scout")
+
+    ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers={"X-User": "mira"})
+    assert ok.status_code == 200
+
+    row = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (out["proposal_id"],))
+    # approved, not rejected: closing the task IS the acceptance, and a
+    # rejection would be a false record of the verdict as well as a demotion
+    assert row["status"] == "approved"
+    assert row["reviewed_by"] == "mira"
+    assert row["result_id"] == tid
+    # and it does not sit in the queue asking again
+    assert not db.query("SELECT id FROM pending_changes WHERE status = 'pending'")
+
+
+def test_an_acceptance_that_can_never_apply_settles_instead_of_boomeranging(client, fresh_db):
+    """The close that did not come through the sponsor guard — a reassignment
+    voids the delegation, so the proposal's apply can never succeed again.
+
+    A plain ValueError there resets the row to pending, which puts it back in
+    the queue with an "apply failed" note, and the next verdict does the same.
+    """
+    from app import db
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    out = delegation.submit_completion(tid, "shipped it", actor="scout")
+    # the sponsor reassigns, which clears the delegation the proposal names
+    client.patch(f"/api/tasks/{tid}", json={"assignee": "mira"}, headers={"X-User": "mira"})
+
+    # a note is required first: the reassignment orphaned the proposal, so
+    # nobody sponsors it and review._sponsor_override demands a reason. That
+    # refusal is not the boomerang — it leaves the row pending on purpose.
+    refused = client.post(
+        f"/api/review/{out['proposal_id']}/approve", json={}, headers=_strong(client, "mira")
+    )
+    assert refused.status_code == 400
+    assert "needs a note" in refused.json()["detail"]
+
+    r = client.post(
+        f"/api/review/{out['proposal_id']}/approve",
+        json={"note": "reassigned to a person, closing the agent's ask"},
+        headers=_strong(client, "mira"),
+    )
+    assert r.status_code == 400
+    row = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (out["proposal_id"],))
+    assert row["status"] == "rejected", "a pending reset here boomerangs forever"
+    # and the settle must not read as a human judging the agent's work. Two
+    # independent guards say so, because either alone would let it through:
+    # the override marking (an orphaned delegation is nobody's verdict) and the
+    # cleared strength (nobody judged this at all).
+    assert row["reviewed_override"] == 1
+    assert row["reviewed_strong"] == 0
+
+
 def test_submit_completion_dedupes_pending(fresh_db):
     from app.services import delegation
 

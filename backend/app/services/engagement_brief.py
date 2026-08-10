@@ -95,7 +95,24 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # three round trips each, and an engagement with fifty delegated tasks paid
     # for all of them to render one line apiece. The same batching shape
     # `portfolio._satisfied_targets` uses, for the same reason.
-    delegated = _delegated(tasks, viewer)
+    #
+    # Read on its OWN query rather than out of `tasks`, for the reason the
+    # `task_ids` read below states: `tasks` is capped for display, and a
+    # delegated task that sorts past the cap would vanish from the continuity
+    # card while the acceptance queue and the worklog still name it. The
+    # predicate keeps this bounded by what is actually delegated, not by the
+    # engagement's size.
+    delegated = _delegated(
+        db.query(
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND (t.engagement_id = ? OR t.milestone_id IN"
+            "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done' AND t.delegated_agent != ''"
+            " ORDER BY t.id",
+            (*tp, engagement_id, engagement_id),
+        ),
+        viewer,
+    )
 
     # the matching set for `_mine` is EVERY open task, not the capped display
     # list: a queue row for task 51 would otherwise be dropped and the card
