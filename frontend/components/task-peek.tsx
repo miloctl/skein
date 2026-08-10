@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { actionError, api } from "@/lib/api";
 import { isGated, subscribeGated } from "@/lib/gated";
 import { reportStatus } from "@/lib/status";
+import { Provenance } from "@/components/provenance";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { timeAgo } from "@/lib/time";
 
@@ -54,6 +55,15 @@ export type PeekTask = {
     status: string;
     escalated_at?: string | null;
   }[];
+  // the finding that asked for this work, when it was converted from one
+  // (services/insights.py::convert_finding). The link was stored and never
+  // read back, so a task made because a rule fired could not say so.
+  source_finding?: {
+    id: number;
+    rule_id: string;
+    severity: string;
+    message: string;
+  } | null;
   visibility?: string;
   crew_id?: number | null;
 };
@@ -398,6 +408,25 @@ export function TaskPeek() {
                 ) : null}
               </>
             ) : null}
+
+            {task.source_finding ? (
+              <p className="text-xs text-ink-3">
+                Converted from a {task.source_finding.severity} finding:{" "}
+                <a
+                  href="/insights"
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-2"
+                >
+                  {task.source_finding.message}
+                </a>
+              </p>
+            ) : null}
+
+            {/* How this task came to exist, and what has happened since.
+                `origin` was a label on the row and the rest of the chain lived
+                in three other tables (services/provenance.py). */}
+            <div className="mt-2 border-t border-line pt-2">
+              <Provenance entity="task" entityId={task.id} />
+            </div>
 
             {/* The worklog is readable BEFORE the sponsor's verdict by
                 design (services/delegation.py::list_worklog) — this panel is

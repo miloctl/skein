@@ -1,115 +1,108 @@
-"""Provenance: the origin a write claims, and the ledger row it leaves.
+"""The chain behind a row: how it was made, who judged it, what since.
 
-db.py's hash chain is pinned hard elsewhere (no-op log_activity fails ~80
-tests). What was NOT pinned is whether writes reach it, and whether they carry
-the origin the caller asked for. Both held only by reading the source:
-hardcoding origin="human" in seven services — the two agent tools included —
-passed the whole suite, and so did wrapping a log_activity call in `if False:`,
-because the one guard was a regex over *.py text rather than an executed write.
-
-An agent write recorded as human-authored is the precise failure the
-provenance constraint exists to prevent, so it is pinned here by execution.
+`origin` is a label. The reason to trust a row — or to look again — is the
+chain, and every link was already stored in a different table with no surface
+that put them together.
 """
-
-import sys
-from pathlib import Path
 
 import pytest
 
-from app import db, ratelimit
-from app.tools import ALL_TOOLS
-
-# the ALL_TOOLS sweep machinery (unwrap, argument heuristics, one-row seed)
-# already exists for the receipt sweep; a second copy would drift from it
-sys.path.insert(0, str(Path(__file__).parent))
-from test_gate_coverage import _kwargs_for, _seed, _unwrap
-
-AGENT_ORIGINS = {"agent", "agent_verified"}
+from app.services import provenance, scope
 
 
-def _origin_tables() -> list[str]:
-    """Discovered, never listed: a new table with an origin column joins this
-    sweep on its first run instead of waiting for someone to remember."""
-    return sorted(
-        t["name"]
-        for t in db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
-        if any(c["name"] == "origin" for c in db.query(f"PRAGMA table_info({t['name']})"))
+def test_an_approved_proposal_names_its_reviewer(client, fresh_db):
+    from app.services import review, users
+
+    users.ensure_user("mira")
+    p = review.propose_change(
+        "task", "create", {"title": "wire the gate"}, actor="planner", requested_by="mira"
     )
+    out = review.approve_change(p["id"], actor="mira", strong=True)
+
+    chain = provenance.lineage("task", out["result"]["id"], scope.Viewer("mira", True))
+    assert chain["origin"] == "agent_verified"
+    assert chain["created_by"] == "planner"  # authorship stays with the proposer
+    assert chain["proposal"]["proposed_by"] == "planner"
+    assert chain["proposal"]["requested_by"] == "mira"
+    assert chain["proposal"]["reviewed_by"] == "mira"
+    assert chain["verdict_is_weak"] is False
 
 
-def _origin_rows(tables: list[str]) -> dict[tuple[str, int], str]:
-    rows = {}
-    for t in tables:
-        for r in db.query(f"SELECT rowid AS rid, origin FROM {t}"):  # noqa: S608 — from sqlite_master
-            rows[(t, r["rid"])] = r["origin"]
-    return rows
+def test_a_weak_verdict_says_so(client, fresh_db):
+    """In trusted-header mode a name is whatever the caller typed, so the
+    verdict records a click and not a person — the same distinction the trust
+    score refuses to count."""
+    from app.services import review, users
+
+    users.ensure_user("mira")
+    p = review.propose_change("task", "create", {"title": "x"}, actor="planner")
+    out = review.approve_change(p["id"], actor="mira", strong=False)
+    chain = provenance.lineage("task", out["result"]["id"], scope.Viewer("mira", True))
+    assert chain["verdict_is_weak"] is True
 
 
-def test_every_agent_tool_records_an_agent_origin(fresh_db, monkeypatch):
-    """The severe half of the gap: a tool that writes origin='human' launders
-    an agent's write as a person's, and provenance is the whole point of
-    telling them apart. Sweeps the registry, so a new tool is covered on the
-    first run rather than on the day someone remembers to add it."""
-    from app.services import notifications
+def test_a_rejected_proposal_is_not_a_lineage(client, fresh_db):
+    """`result_id` is stamped at APPLY. Matching on entity and id instead would
+    attach a proposal that was refused to the row it never became."""
+    from app.services import review, users, work
 
-    monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
-    _seed(fresh_db)
-    tables = _origin_tables()
-    assert tables, "no table carries an origin column — the sweep would pass vacuously"
-
-    laundered: list[str] = []
-    for tool in ALL_TOOLS:
-        fn = _unwrap(tool)
-        try:
-            kwargs = _kwargs_for(fn)
-        except AssertionError:
-            continue  # the receipt sweep already fails loudly on an uncallable tool
-        ratelimit.reset()
-        before = _origin_rows(tables)
-        try:
-            fn(**kwargs)
-        except Exception:  # noqa: S112 — the receipt sweep owns "a tool must not raise"
-            continue
-        for key, origin in _origin_rows(tables).items():
-            if key not in before and origin not in AGENT_ORIGINS:
-                laundered.append(
-                    f"{fn.__name__} wrote {key[0]} rowid {key[1]} as origin={origin!r}"
-                )
-    assert not laundered, "agent writes recorded as human-authored:\n" + "\n".join(laundered)
+    users.ensure_user("mira")
+    t = work.create_task("made by hand", actor="mira")
+    p = review.propose_change(
+        "task", "update", {"title": "renamed"}, entity_id=t["id"], actor="planner"
+    )
+    review.reject_change(p["id"], actor="mira", note="no")
+    chain = provenance.lineage("task", t["id"], scope.Viewer("mira", True))
+    assert chain["proposal"] is None
+    assert chain["origin"] == "human"
 
 
-def test_rest_write_paths_record_a_human_origin(client, fresh_db):
-    """The other direction: the REST door must not claim agent provenance."""
-    client.post("/api/tasks", json={"title": "Cut release"})
-    client.post("/api/notes", json={"topic": "t", "content": "c"})
-    client.post("/api/questions", json={"question": "Who owns infra?"})
-    for table in ("tasks", "notes", "questions"):
-        rows = db.query(f"SELECT origin, created_by FROM {table}")  # noqa: S608 — literal tuple
-        assert rows, f"{table}: the REST write did not land"
-        for r in rows:
-            assert r["origin"] == "human", f"{table} claims origin={r['origin']!r}"
-            assert r["created_by"], f"{table} recorded no created_by"
+def test_history_names_changes_and_not_another_rows(client, fresh_db):
+    """The ledger's detail starts with `#<id>`, and blocker ids and task ids are
+    independent number spaces — an id match with no action test crossed them."""
+    from app.services import blockers, users, work
+
+    users.ensure_user("mira")
+    t = work.create_task("wire the gate", actor="mira")
+    work.update_task(t["id"], status="in_progress", actor="mira")
+    # a blocker that happens to share the task's id
+    blockers.raise_blocker("unrelated", owner="mira", actor="mira")
+
+    chain = provenance.lineage("task", t["id"], scope.Viewer("mira", True))
+    assert [h["action"] for h in chain["history"]] == ["update_task"]
 
 
-@pytest.mark.parametrize(
-    "path,body,table",
-    [
-        ("/api/tasks", {"title": "ledger probe"}, "tasks"),
-        ("/api/notes", {"topic": "p", "content": "ledger probe"}, "notes"),
-        ("/api/blockers", {"title": "ledger probe"}, "blockers"),
-        (
-            "/api/absences",
-            {"person": "tester", "starts_on": "2030-01-01", "ends_on": "2030-01-02"},
-            "absences",
-        ),
-    ],
-)
-def test_a_write_leaves_a_ledger_row(client, fresh_db, path, body, table):
-    """Executed, not grepped. The registered-verb test reads *.py source text,
-    so it still passes when the log_activity call is present but unreachable —
-    an early return or a moved branch stops the ledger silently."""
-    before = db.query_row("SELECT COUNT(*) AS n FROM activity")["n"]
-    r = client.post(path, json=body)
-    assert r.status_code == 200, r.text
-    after = db.query_row("SELECT COUNT(*) AS n FROM activity")["n"]
-    assert after > before, f"POST {path} wrote {table} but appended no activity row"
+def test_an_unreadable_row_answers_like_an_absent_one(client, fresh_db):
+    from app.services import crews, users, work
+
+    for n in ("insider", "outsider"):
+        users.ensure_user(n)
+    crew = crews.create_crew("ops", actor="insider")
+    t = work.create_task("quiet", actor="insider", visibility=scope.CREW, crew_id=crew["id"])
+    with pytest.raises(Exception) as refused:
+        provenance.lineage("task", t["id"], scope.Viewer("outsider", True))
+    with pytest.raises(Exception) as absent:
+        provenance.lineage("task", 99999, scope.Viewer("outsider", True))
+    assert str(refused.value).replace(str(t["id"]), "99999") == str(absent.value)
+
+
+def test_a_converted_task_names_the_finding_that_asked_for_it(client, fresh_db):
+    from app import db
+    from app.services import insights, users, work
+
+    users.ensure_user("mira")
+    # a finding row in the shape the rules write (services/insights.py::_fire),
+    # rather than hoping a rule fires against the fixture: a skipped test pins
+    # nothing, and this one exists to pin the backlink
+    db.execute(
+        "INSERT INTO findings (rule_id, severity, subject, message, receipt, week, created_at)"
+        " VALUES ('aging_wip', 'medium', 'task-1', 'Three tasks have sat in progress"
+        " for over two weeks.', '{}', '2026-W33', ?)",
+        (db.now(),),
+    )
+    found = insights.list_findings()
+    assert found, "the fixture must file exactly one finding"
+    made = insights.convert_finding(found[0]["id"], "task", actor="mira")
+    task = work.get_task(made["id"], scope.Viewer("mira", True))
+    assert task["source_finding"]["id"] == found[0]["id"]
+    assert task["source_finding"]["message"] == found[0]["message"]

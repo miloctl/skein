@@ -488,7 +488,30 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         raise scope.missing("tasks", task_id)
     # what finishing it releases, resolved here so the peek and any other
     # reader of one task get the same answer
-    return {**row, **downstream(task_id, viewer), "blockers": blocking(task_id, viewer)}
+    return {
+        **row,
+        **downstream(task_id, viewer),
+        "blockers": blocking(task_id, viewer),
+        # the finding that ASKED for this work, if one did. `source_finding_id`
+        # was stamped at conversion (services/insights.py) and nothing read it
+        # back, so a task existed because a rule fired and the task could not
+        # say so — which is the half of the loop that tells a reader whether
+        # the rule was worth keeping.
+        "source_finding": _source_finding(row),
+    }
+
+
+def _source_finding(task: dict) -> dict | None:
+    """The finding a task was converted from.
+
+    `findings` carries no tier (scope.UNSCOPED), and the message is written by
+    a deterministic rule over rows the rule itself could read — so there is no
+    filter to apply, only a lookup.
+    """
+    fid = task.get("source_finding_id")
+    if not fid:
+        return None
+    return db.query_one("SELECT id, rule_id, severity, message FROM findings WHERE id = ?", (fid,))
 
 
 def blocking(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
