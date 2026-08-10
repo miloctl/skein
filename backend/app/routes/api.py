@@ -20,6 +20,7 @@ from ..services import (
     crews,
     delegation,
     digest,
+    engagement_brief,
     engagements,
     feedback,
     fieldguide,
@@ -1865,3 +1866,10 @@ def get_interventions(user: CurrentUser, viewer: ViewerDep, limit: int = 12):
     """The manager's ranked queue. Composition only — every row restates one
     an engine already produced (services/intervention.py)."""
     return intervention.interventions(viewer, limit)
+
+
+@router.get("/engagements/{engagement_id}/brief")
+def get_engagement_brief(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+    """One engagement, whole. Composition only — every number keeps its own
+    home (services/engagement_brief.py)."""
+    return engagement_brief.brief(engagement_id, viewer)
