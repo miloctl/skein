@@ -105,7 +105,15 @@ function EntityLink({
       : entity === "lesson"
         ? `#lesson-${entityId}`
         : "";
-  const page = ENTITY_PAGE[entity] ? `${ENTITY_PAGE[entity]}${anchor}` : "";
+  // an engagement has its OWN page, so the hit lands on the engagement rather
+  // than on the list that contains it — typing an engagement's name into
+  // search is the most literal form of "how is Atlas going" there is
+  const page =
+    entity === "engagement"
+      ? `/engagement/${entityId}`
+      : ENTITY_PAGE[entity]
+        ? `${ENTITY_PAGE[entity]}${anchor}`
+        : "";
   if (!page) return <span>{children}</span>;
   return (
     <Link

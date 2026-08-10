@@ -511,7 +511,14 @@ export default function Planning() {
             <ul className="mb-2 space-y-1 text-sm">
               {d.health_changes.map((c) => (
                 <li key={c.id}>
-                  {DOT[c.to]} <span className="font-medium">{c.name}</span>:{" "}
+                  {DOT[c.to]}{" "}
+                  <Link
+                    href={`/engagement/${c.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {c.name}
+                  </Link>
+                  :{" "}
                   {/* `from` is always set: services/planning.py filters a
                       first-ever score out, because it is not a change and
                       this heading says one. A fallback string here would be
@@ -534,7 +541,10 @@ export default function Planning() {
             <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
               {d.health.map((h) => (
                 <li key={h.id}>
-                  {DOT[h.health]} {h.name}
+                  {DOT[h.health]}{" "}
+                  <Link href={`/engagement/${h.id}`} className="hover:underline">
+                    {h.name}
+                  </Link>
                   <span className="ml-1 text-xs text-ink-3">{h.status}</span>
                 </li>
               ))}

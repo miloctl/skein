@@ -18,6 +18,17 @@ Composition only. No table, no write path. Every number here keeps its own home.
 
 from . import refs, scope
 
+# How many open tasks the brief lists. The page STATES this cap: a list that
+# truncates in silence reads as "this is everything", and the engagement most
+# worth reading is the one with too much open work.
+TASK_CAP = 50
+
+# How deep into the portfolio queue this brief looks before narrowing. The
+# queue is ranked across every engagement, so a shallow window silently drops
+# this engagement's rows behind another's — and the card would then say nothing
+# is escalated directly above a blocker card showing one that is.
+QUEUE_SCAN = 50
+
 
 def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     """Everything about one engagement a person needs before they act.
@@ -28,7 +39,6 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     engagements exist (services/scope.py::Viewer).
     """
     from .. import db
-    from .delegation import list_worklog
     from .handoff import list_artifacts
     from .intervention import interventions
     from .playbooks import close_out_diff
@@ -72,27 +82,20 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "      (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND t.status != 'done'"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date",
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date"
+        # capped, and the page says so: an engagement with eighty open tasks
+        # buried the drift and the reports under a wall of list
+        f" LIMIT {TASK_CAP}",
         (*tp, engagement_id, engagement_id),
     )
     # what an agent is carrying right now, with its own last note — the
-    # continuity a sponsor has nowhere else to read without opening each task
-    delegated = []
-    for t in tasks:
-        if not t["delegated_agent"]:
-            continue
-        notes = list_worklog(t["id"], limit=1, viewer=viewer, actor=viewer.name)
-        delegated.append(
-            {
-                "task_id": t["id"],
-                "title": t["title"],
-                "agent": t["delegated_agent"],
-                "sponsor": t["sponsor"],
-                "status": t["status"],
-                "last_note": notes[0]["note"] if notes else "",
-                "last_note_at": notes[0]["created_at"] if notes else "",
-            }
-        )
+    # continuity a sponsor has nowhere else to read without opening each task.
+    #
+    # ONE query for every note, not one per task: `list_worklog` costs two or
+    # three round trips each, and an engagement with fifty delegated tasks paid
+    # for all of them to render one line apiece. The same batching shape
+    # `portfolio._satisfied_targets` uses, for the same reason.
+    delegated = _delegated(tasks, viewer)
 
     blockers = _linked_blockers(engagement_id, viewer)
     return {
@@ -117,25 +120,70 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
             (*lp, engagement_id, eng["project_class"]),
         ),
         "artifacts": list_artifacts(engagement_id, viewer),
-        # {} until this engagement is closed AND was born from a playbook.
-        # Named rather than omitted: an absent key reads as "no drift", and
-        # "we never snapshotted a plan" is a different fact.
+        # {} for an engagement that was not born from a playbook. The snapshot
+        # is written at KICKOFF (`playbooks.instantiate`), so this is live
+        # drift, not a post-mortem — which is the point: a plan the team can
+        # still act on. Named rather than omitted, because an absent key reads
+        # as "no drift" and "we never snapshotted a plan" is a different fact.
         "plan_diff": close_out_diff(engagement_id, viewer),
         # the queue's own rows, narrowed to this engagement and the work under
         # it. The manager's page ranks across the portfolio; here the same
         # rows answer "what does THIS need", with the same actions and
         # receipts, so the two cannot recommend different things.
+        # QUEUE_SCAN, not the page's own cap: the queue ranks across the whole
+        # portfolio and is narrowed here, so a small window drops this
+        # engagement's rows behind other engagements' and the card then claims
+        # nothing is escalated while the blockers card shows one that is. The
+        # page states the window it read rather than asserting a fact.
         "next_actions": _mine(
-            interventions(viewer, limit=50), engagement_id, tasks, milestones, blockers
+            interventions(viewer, limit=QUEUE_SCAN), engagement_id, tasks, blockers
         ),
+        "queue_scanned": QUEUE_SCAN,
     }
+
+
+def _delegated(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
+    """Delegated tasks with their latest worklog note, in one pass.
+
+    The note is filtered on `task_worklog`'s OWN tier, never on the task's: a
+    worklog row inherits the task's tier at write time (`scope.inherit`), and
+    reading through the parent instead would trust a link rather than a filter.
+    The delegation door `list_worklog` opens for a sponsor is deliberately NOT
+    reproduced here — this list is a summary line, and a reader who needs the
+    log opens the task panel, which carries the door.
+    """
+    from .. import db
+
+    delegated = [t for t in tasks if t["delegated_agent"]]
+    if not delegated:
+        return []
+    marks = ",".join("?" * len(delegated))
+    frag, vp = scope.visible_filter(viewer, "task_worklog")
+    latest: dict[int, dict] = {}
+    for row in db.query(
+        f"SELECT task_id, note, created_at FROM task_worklog"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
+        f" WHERE task_id IN ({marks}) AND {frag} ORDER BY id",
+        (*[t["id"] for t in delegated], *vp),
+    ):
+        latest[row["task_id"]] = row  # ORDER BY id, so the last write wins
+    return [
+        {
+            "task_id": t["id"],
+            "title": t["title"],
+            "agent": t["delegated_agent"],
+            "sponsor": t["sponsor"],
+            "status": t["status"],
+            "last_note": (latest.get(t["id"]) or {}).get("note", ""),
+            "last_note_at": (latest.get(t["id"]) or {}).get("created_at", ""),
+        }
+        for t in delegated
+    ]
 
 
 def _mine(
     queue: list[dict],
     engagement_id: int,
     tasks: list[dict],
-    milestones: list[dict],
     blockers: list[dict],
 ) -> list[dict]:
     """The queue rows that belong to this engagement.
@@ -144,10 +192,14 @@ def _mine(
     queries: a second set of predicates would let the portfolio queue and this
     one recommend different things about the same engagement.
     """
+    # `promise`, `decision` and `finding` are deliberately absent: none of the
+    # three carries an engagement, so no honest narrowing exists for them and a
+    # guess would put another engagement's overdue promise on this page. They
+    # reach a reader through the portfolio queue, which is where a row with no
+    # engagement belongs. `milestone` is absent because the queue emits none.
     mine = {
         "engagement": {engagement_id},
         "task": {t["id"] for t in tasks},
-        "milestone": {m["id"] for m in milestones},
         # by id, not by walking the receipt's refs: a blocker receipt names the
         # BLOCKER, so a ref walk matched nothing and every escalated blocker on
         # the engagement fell out of its own next-actions list
