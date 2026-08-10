@@ -403,7 +403,10 @@ test("extreme content does not break the shell", async ({ page }) => {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: '{"count":9999}',
+      // `inbox` is what the nav badge renders; `count` and `yours` are what
+      // the tab title and the CLI read (services/briefing.py::attention_count).
+      // The badge is the four-digit case this test exists for.
+      body: '{"count":3,"yours":3,"inbox":9999}',
     }),
   );
   await page.goto("/dashboard");

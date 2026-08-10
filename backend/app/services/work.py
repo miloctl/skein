@@ -456,6 +456,18 @@ def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it"
     sponsor who cannot, and takes a reason for the record.
     """
     if task["sponsor"] and actor != task["sponsor"]:
+        # TerminalReject for an AGENT proposer, the same reason the
+        # delegated-done guard above uses one: approve_change applies with
+        # `actor = change["proposed_by"]`, so an agent-filed reassignment can
+        # never be approved into success — and a plain PermissionError lands in
+        # the generic handler, which resets the proposal to pending and
+        # boomerangs it on every future verdict.
+        from .users import is_agent
+
+        if is_agent(actor):
+            raise db.TerminalReject(
+                f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor can {verb}"
+            )
         raise PermissionError(
             f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor"
             f" can {verb}. Judge the acceptance proposal in Approvals to act for"

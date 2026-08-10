@@ -118,3 +118,41 @@ def test_a_crew_blocker_does_not_ride_a_readable_engagement(client, fresh_db):
     assert out["engagement"]["name"] == "Atlas"  # the engagement is workspace
     assert not any("crew-only" in str(b["title"]) for b in out["blockers"])
     assert not any("quiet work" in str(x["title"]) for x in out["tasks"])
+
+
+def test_a_drift_finding_reaches_the_engagement_it_names(client, fresh_db):
+    """`intervention` links a plan_drift row to /engagement/{id} because that
+    page carries the drift. A brief that dropped findings meant the manager
+    followed that link and read "nothing in the queue belongs to this
+    engagement" four cards above the drift itself."""
+    from app.services import playbooks, users, work
+
+    users.ensure_user("ava")
+    eid = playbooks.instantiate("prototype", "Atlas", actor="ava")["engagement"]["id"]
+    for t in ("hotfix the sync", "redo the demo data", "chase legal"):
+        work.create_task(t, engagement_id=eid, actor="ava")
+
+    from app.services import insights
+
+    insights.run_findings()
+    out = _brief("ava", eid)
+    drift = [a for a in out["next_actions"] if a["kind"].startswith("finding")]
+    assert drift, "the drift finding must reach the page its own link points at"
+    assert "drifted" in drift[0]["title"]
+
+
+def test_another_engagements_finding_stays_out(client, fresh_db):
+    from app.services import engagements, playbooks, users, work
+
+    users.ensure_user("ava")
+    eid = playbooks.instantiate("prototype", "Atlas", actor="ava")["engagement"]["id"]
+    for t in ("a", "b", "c"):
+        work.create_task(t, engagement_id=eid, actor="ava")
+    other = engagements.create_engagement("Orion", project_class="migration", actor="ava")
+
+    from app.services import insights
+
+    insights.run_findings()
+    assert not [
+        a for a in _brief("ava", other["id"])["next_actions"] if a["kind"].startswith("finding")
+    ]

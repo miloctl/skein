@@ -102,11 +102,16 @@ describe("the engagement brief", () => {
     await waitFor(() => expect(screen.getByText("red")).toBeTruthy());
   });
 
-  it("states the window it read instead of claiming nothing is wrong", async () => {
+  it("says what it checked, not that nothing is wrong", async () => {
     page();
-    // "Nothing is escalated" would be a claim the server never computed: the
-    // queue is ranked portfolio-wide and narrowed afterward
-    await waitFor(() => expect(screen.getByText(/top 50 rows/)).toBeTruthy());
+    // "Nothing is escalated, overdue, or unowned" would be a claim about the
+    // world: the queue is ranked portfolio-wide and narrowed afterward, so the
+    // card can only speak for the queue it read
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Nothing in the portfolio queue belongs/),
+      ).toBeTruthy(),
+    );
   });
 
   it("keeps the health signal out of the page title", async () => {

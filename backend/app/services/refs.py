@@ -9,7 +9,7 @@ exists to remove.
 
 Rather than rewrite every producer to emit structured rows — thirty call sites,
 each with an artifact reader that still needs the sentence — this parses the
-grammar the producers already share. One regex, one place, and a receipt gains
+grammar the producers already share. One grammar, one place, and a receipt gains
 its links on the day its producer is written rather than the day somebody
 remembers to convert it.
 

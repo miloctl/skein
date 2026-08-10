@@ -123,8 +123,8 @@ export function Provenance({
               count it (services/delegation.py::trust_blocked). */}
           {d.verdict_is_weak && d.proposal?.reviewed_by ? (
             <p className="text-weld">
-              That verdict carries no credential. This deployment identifies
-              people by a self-asserted name.
+              Nobody used a personal API key for that verdict. This deployment
+              identifies people by a self-asserted name.
             </p>
           ) : null}
           {d.history.length > 0 ? (
@@ -146,7 +146,7 @@ export function Provenance({
               </ul>
             </>
           ) : (
-            <p>Nothing has changed it since.</p>
+            <p>No change is recorded since then.</p>
           )}
         </>
       )}

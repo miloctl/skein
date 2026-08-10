@@ -220,11 +220,11 @@ def _mine(
     queries: a second set of predicates would let the portfolio queue and this
     one recommend different things about the same engagement.
     """
-    # `promise`, `decision` and `finding` are deliberately absent: none of the
-    # three carries an engagement, so no honest narrowing exists for them and a
-    # guess would put another engagement's overdue promise on this page. They
-    # reach a reader through the portfolio queue, which is where a row with no
-    # engagement belongs. `milestone` is absent because the queue emits none.
+    # `promise` and `decision` are deliberately absent: neither carries an
+    # engagement, so no honest narrowing exists and a guess would put another
+    # engagement's overdue promise on this page. They reach a reader through
+    # the portfolio queue, which is where a row with no engagement belongs.
+    # `milestone` is absent because the queue emits none.
     mine = {
         "engagement": {engagement_id},
         "task": task_ids,
@@ -233,4 +233,16 @@ def _mine(
         # the engagement fell out of its own next-actions list
         "blocker": {b["id"] for b in blockers},
     }
-    return [r for r in queue if r["entity_id"] in mine.get(r["entity"], set())]
+    kept = [r for r in queue if r["entity_id"] in mine.get(r["entity"], set())]
+    # A finding DOES carry an engagement when its rule wrote one into the
+    # receipt — `plan_drift` and `experiment_overdue` both do, and
+    # `intervention.py` links those rows straight to this page for that reason.
+    # Dropping them made the two headline fixes disagree at the seam: the
+    # manager followed a drift row here and read "nothing in the queue belongs
+    # to this engagement" four cards above the drift itself.
+    kept += [
+        r
+        for r in queue
+        if r["entity"] == "finding" and (r.get("engagement_id") or 0) == engagement_id
+    ]
+    return kept

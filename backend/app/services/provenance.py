@@ -36,9 +36,11 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     """The provenance chain for one row: how it was made, and what since.
 
     `entity` is the ledger's word for the row, not a table name — `task`,
-    `decision`, `blocker`. The caller has already read the row, so this takes
-    no tier filter of its own for the row itself; every JOINED read below is
-    filtered or carries no content.
+    `decision`, `blocker`. The row itself is read THROUGH the viewer's filter,
+    so an unreadable row raises `scope.missing` exactly as an absent one does —
+    the route takes a caller-supplied id over a dense integer space, and any
+    other pairing answers "does #12 exist" for every id somebody cares to walk.
+    Every joined read below is filtered or carries no content.
     """
     table = _TABLES.get(entity)
     if not table:
@@ -130,7 +132,9 @@ def _history(entity: str, entity_id: int, viewer: scope.Viewer) -> list[dict]:
     the two number spaces are independent and a bare id match crossed them.
 
     The ACTOR is withheld for anybody `activity.visible_actor_filter` would
-    hide — which is every human but the reader, plus agents and system actors.
+    hide — every human but the reader. Agent identities and the four system
+    actors stay NAMED, because that filter admits them: "scout claimed this"
+    is the provenance an agent's work exists to carry.
     Without that, this is a fourth reader of `activity` beside `feed`, the raw
     endpoint and My Day's digest, and the only one that would answer "who
     touched what, when" about a colleague. Task ids are a dense integer space,

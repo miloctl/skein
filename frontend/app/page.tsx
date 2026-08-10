@@ -265,7 +265,7 @@ function SinceYouLooked() {
   // marked once the items are ON SCREEN, never before: a brief that failed to
   // render must still be new tomorrow
   useEffect(() => {
-    if (!d || d.quiet || marked.current) return;
+    if (!d?.items?.length || marked.current) return;
     marked.current = true;
     api("/api/delta?mark=true").catch(() => {});
   }, [d]);
@@ -273,7 +273,13 @@ function SinceYouLooked() {
   // silent when nothing changed, and silent on failure. This card is ADDITIVE:
   // a reader who sees nothing here has lost nothing, because every row it
   // names is also standing somewhere below it.
-  if (failed || !d || d.quiet) return null;
+  //
+  // `items` is tested, not `quiet`: a response missing the array — an older
+  // backend behind a newer bundle, a proxy returning an empty body — left
+  // `quiet` undefined, so the guard passed and `.map` threw on `undefined`,
+  // which unmounts the WHOLE of My Day for a card that is meant to be
+  // additive.
+  if (failed || !d?.items?.length) return null;
 
   return (
     <div className="mb-4 rounded-xl border border-thread/30 bg-thread/5 p-4">
@@ -285,6 +291,15 @@ function SinceYouLooked() {
           <li key={`${i.kind}${i.entity_id}`}>
             <span aria-hidden className="mr-1 text-ink-3">
               {i.direction === "worse" ? "▼" : i.direction === "better" ? "▲" : "•"}
+            </span>
+            {/* the glyph is the whole payload for a sighted reader and is
+                aria-hidden, so the word carries it for everyone else */}
+            <span className="sr-only">
+              {i.direction === "worse"
+                ? "worse: "
+                : i.direction === "better"
+                  ? "better: "
+                  : ""}
             </span>
             <Link href={i.link} className="hover:underline">
               {i.headline}

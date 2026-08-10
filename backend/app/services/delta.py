@@ -17,10 +17,9 @@ person, so two people who last read on different days get different briefs, and
 a person who reads twice in one hour gets an empty second one — which is the
 honest answer and the one that keeps the surface worth opening.
 
-Composition only over rows that already exist. The model, where a deployment
-has one, is asked to explain this list and never to produce it: everything here
-carries a receipt, and a summary with no receipt is the thing this product
-refuses to ship.
+Composition only over rows that already exist. A model must never PRODUCE this
+list — everything in it carries a receipt, and a summary with no receipt is the
+thing this product refuses to ship.
 """
 
 from datetime import date, timedelta
@@ -63,7 +62,14 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY, mark: bool = False) ->
     from .portfolio import engagement_health, health_changes
 
     since = since_mark(user)
-    day = since[:10]
+    # db.local_day, never since[:10]: `since` is a UTC timestamp and every
+    # value it is compared against below is derived from db.today(), the TEAM
+    # day. The slice answers a different question, and for any zone behind UTC
+    # an evening read stores tomorrow's UTC date — after which the promise
+    # window is `due_date < today AND due_date >= tomorrow`, empty forever, and
+    # health_changes admits today's own snapshot so nothing ever reads as moved.
+    # Two of the four arms go silent and the brief renders as "quiet".
+    day = db.local_day(since)
     items: list[dict] = []
 
     # 1. Health that MOVED. `health_changes` compares against the most recent
