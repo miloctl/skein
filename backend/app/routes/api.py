@@ -19,6 +19,7 @@ from ..services import (
     context_pack,
     crews,
     delegation,
+    delta,
     digest,
     engagement_brief,
     engagements,
@@ -1923,3 +1924,13 @@ def post_engagement_memory(
         actor=user,
         viewer=viewer,
     )
+
+
+@router.get("/delta")
+def get_delta(user: CurrentUser, viewer: ViewerDep, mark: bool = False):
+    """What changed for this reader since their last brief.
+
+    `mark` defaults to False so a caller can PREVIEW without consuming: the
+    chat command shows the brief, and only the surface that displays it moves
+    the reader's last-seen mark (services/delta.py)."""
+    return delta.brief(user, viewer, mark=mark)

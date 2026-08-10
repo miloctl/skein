@@ -12,8 +12,8 @@ from difflib import get_close_matches
 
 from starlette.concurrency import run_in_threadpool
 
-from .. import config
-from ..services import briefing, flocks, memory, personas, playbooks, scope, search
+from .. import config, db
+from ..services import briefing, delta, flocks, memory, personas, playbooks, scope, search
 
 # Handlers below call services through run_in_threadpool, never inline: these
 # async generators run on the event loop the chat route shares with every open
@@ -31,6 +31,33 @@ def _tool_event(name: str) -> Event:
 
 async def _help(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
     yield {"data": help_text()}
+
+
+async def _delta(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+    """What changed since this reader last asked.
+
+    Does NOT mark the brief as seen. A command is a preview — the reader asked
+    a question, and consuming their mark would mean the next surface that shows
+    it has nothing to show. `GET /api/delta?mark=true` is the one that marks.
+    """
+    yield _tool_event("delta")
+    out = await run_in_threadpool(delta.brief, user, viewer)
+    if out["quiet"]:
+        yield {
+            "data": (
+                f"Nothing has changed since {db.local_day(out['since'])}."
+                " The standing picture is on My Day and Work → Plan the week."
+            )
+        }
+        return
+    lines = [f"**Since {db.local_day(out['since'])}**", ""]
+    for item in out["items"]:
+        mark = {"worse": "▼", "better": "▲"}.get(item["direction"], "•")
+        lines.append(f"{mark} {item['headline']}")
+        # the receipt, always: this list is deterministic and a reader must be
+        # able to check any line without leaving the answer
+        lines += [f"  - {r['message']}" for r in item["receipts"]]
+    yield {"data": "\n".join(lines)}
 
 
 async def _briefing(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
@@ -177,6 +204,12 @@ COMMANDS: list[dict] = [
         "args": "",
         "description": "Your My Day summary",
         "handler": _briefing,
+    },
+    {
+        "name": "delta",
+        "args": "",
+        "description": "What changed since you last asked",
+        "handler": _delta,
     },
     {
         "name": "search",

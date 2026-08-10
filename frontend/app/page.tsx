@@ -9,6 +9,7 @@ import { StandupComposer } from "@/components/standup-card";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
+import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
 import { Shortcut, ShortcutText } from "@/components/shortcut";
 
@@ -217,6 +218,83 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+
+/** What changed since this reader last looked.
+ *
+ *  Every other surface here is a standing picture: the same rows until
+ *  somebody acts, which is correct and is also why a reader skims. This is the
+ *  other question, and it answers itself out of the same rows — a health call
+ *  that moved, a rule that fired for the first time, a commitment that broke,
+ *  an acceptance that arrived (services/delta.py).
+ *
+ *  Reading it MARKS it. That is the point: the second read is empty, and an
+ *  empty second read is what makes the first one worth opening.
+ */
+function SinceYouLooked() {
+  const [d, setD] = useState<{
+    since: string;
+    quiet: boolean;
+    items: {
+      kind: string;
+      entity: string;
+      entity_id: number;
+      headline: string;
+      direction: string;
+      receipts: { message: string; refs: { entity: string; id: number }[] }[];
+      link: string;
+    }[];
+  } | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Reading and MARKING are two steps, and they must not be one request.
+  // React re-invokes an effect on a remount — StrictMode does it on every dev
+  // mount — so a fetch that marked as it read consumed the brief with its
+  // first call and rendered the empty second answer. The brief is then gone
+  // and nobody ever saw it.
+  const marked = useRef(false);
+
+  useEffect(() => {
+    api<NonNullable<typeof d>>("/api/delta")
+      .then(setD)
+      .catch(() => setFailed(true));
+  }, []);
+
+  // marked once the items are ON SCREEN, never before: a brief that failed to
+  // render must still be new tomorrow
+  useEffect(() => {
+    if (!d || d.quiet || marked.current) return;
+    marked.current = true;
+    api("/api/delta?mark=true").catch(() => {});
+  }, [d]);
+
+  // silent when nothing changed, and silent on failure. This card is ADDITIVE:
+  // a reader who sees nothing here has lost nothing, because every row it
+  // names is also standing somewhere below it.
+  if (failed || !d || d.quiet) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-thread/30 bg-thread/5 p-4">
+      <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        Since you last looked
+      </p>
+      <ul className="space-y-1.5 text-sm">
+        {d.items.map((i) => (
+          <li key={`${i.kind}${i.entity_id}`}>
+            <span aria-hidden className="mr-1 text-ink-3">
+              {i.direction === "worse" ? "▼" : i.direction === "better" ? "▲" : "•"}
+            </span>
+            <Link href={i.link} className="hover:underline">
+              {i.headline}
+            </Link>
+            {i.receipts.map((r, n) => (
+              <ReceiptLine key={n} receipt={r} className="ml-4 block text-xs text-ink-3" />
+            ))}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -571,6 +649,8 @@ export default function MyDay() {
           the knowledge base. Nice work, team.
         </div>
       )}
+
+      <SinceYouLooked />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
