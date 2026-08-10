@@ -10,7 +10,7 @@ import json
 from datetime import date, datetime, timedelta
 
 from .. import db
-from . import scope, stats
+from . import scope, stats, wording
 from .scope import WORKSPACE_ONLY
 from .slas import AGING_WIP_DAYS, VERDICT_FLOOR_N
 
@@ -24,6 +24,11 @@ TURN_CYCLE_ALARM = 25
 # in this file, so docs/INSIGHTS.md quotes a constant and not a number a
 # reader has to go find in a conditional.
 INTERRUPT_SHARE_ALARM = 0.5
+# How much variance from a playbook's plan is worth telling somebody about,
+# counting moved milestones and unplanned tasks together. Every engagement
+# drifts a little: a rule that fires on one moved date is a rule the reader
+# learns to skip, and then the one that mattered goes past unread too.
+PLAN_DRIFT_ALARM = 3
 
 
 def _n(count: int, word: str) -> str:
@@ -844,6 +849,70 @@ def _r_experiment_overdue() -> list[dict]:
     ]
 
 
+def _r_plan_drift() -> list[dict]:
+    """An engagement drifting from the plan its playbook laid out, while it
+    still runs.
+
+    The snapshot is written at KICKOFF (playbooks.instantiate), so this diff
+    exists from day one — but nothing read it until close, when the only thing
+    left to do about it is write a lesson. A milestone that has already moved
+    twice and four tasks nobody planned are facts the team can still act on in
+    week three, and the whole reason the snapshot is taken.
+
+    Only the variance a team can DO something about fires: a milestone whose
+    date moved, and work added outside the plan. Unfinished planned work is
+    not drift while the engagement runs — it is the plan, in progress.
+
+    Silent under the threshold on purpose. Every engagement drifts a little,
+    and a rule that fires on one moved date teaches the reader to skip it.
+    """
+    out = []
+    for e in db.query(
+        f"SELECT id, name FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        " AND status NOT IN ('closed', 'cancelled') ORDER BY id"
+    ):
+        from .playbooks import close_out_diff
+
+        # NOBODY, the workspace tier: this message is stored in `findings`,
+        # which carries no tier of its own, and reaches the digest and the
+        # manager queue. A private task's title must not travel that way.
+        diff = close_out_diff(e["id"], scope.NOBODY)
+        if not diff.get("playbook"):
+            continue
+        moved = [m for m in diff["slipped"] if m["days"] > 0]
+        added = diff["added_tasks"]
+        if len(moved) + len(added) < PLAN_DRIFT_ALARM:
+            continue
+        parts = []
+        if moved:
+            worst = max(moved, key=lambda m: m["days"])
+            parts.append(
+                f"{wording.count(len(moved), 'milestone')} moved, the worst by"
+                f" {wording.count(worst['days'], 'day')}"
+            )
+        if added:
+            parts.append(f"{wording.count(len(added), 'task')} added outside the plan")
+        out.append(
+            _finding(
+                "plan_drift",
+                "medium",
+                f"'{e['name']}' has drifted from the {diff['playbook']} playbook:"
+                f" {' and '.join(parts)}. Re-plan while there is time, or record"
+                f" why the plan was wrong.",
+                {
+                    "engagement_id": e["id"],
+                    "playbook": diff["playbook"],
+                    "moved": len(moved),
+                    "added": len(added),
+                },
+                n=len(moved) + len(added),
+                subject=f"engagement-{e['id']}",
+                window="point-in-time",
+            )
+        )
+    return out
+
+
 def _r_authority_stale() -> list[dict]:
     """Elevated authority grants past their review-by date. The nudge, not a
     demotion state machine — the human reconfirms (re-grants) or demotes."""
@@ -1217,6 +1286,7 @@ RULES = (
     _r_flock_failures,
     _r_job_stale,
     _r_experiment_overdue,
+    _r_plan_drift,
     _r_authority_stale,
     _r_feature_unadopted,
     _r_activity_chain,

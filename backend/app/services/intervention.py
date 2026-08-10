@@ -111,6 +111,28 @@ def _dedupe(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _finding_action(finding: dict) -> str:
+    """What to do about a finding.
+
+    The rule's own message ends with its instruction — "conclude it or extend
+    it on purpose", "reconfirm the grant or demote it to review" — and a
+    generic triage verb in this slot REPLACED it, so the row stated the real
+    move in small text and the wrong one in the action line. The triage verbs
+    are the fallback for a rule whose message is a statement only.
+    """
+    message = finding.get("message", "")
+    tail = message.rsplit("—", 1)[-1].strip() if "—" in message else ""
+    if not tail:
+        # ", <verb> it" and ": <verb> it" are the other two shapes the rules use
+        for sep in (". ", ": "):
+            if sep in message:
+                tail = message.rsplit(sep, 1)[-1].strip()
+                break
+    if tail and tail[:1].isupper() and len(tail) < 120:
+        return tail.rstrip(".")
+    return "Convert it to work, defer it with a date, or dismiss it with a reason"
+
+
 def _finding_receipt(finding: dict) -> str:
     """A finding's stored receipt as one sentence naming its rows.
 
@@ -303,13 +325,20 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 # "job:digest" — so rendering it as a person put row keys where
                 # every other kind puts a name to go and talk to.
                 "owner": "",
-                "action": "Convert it to work, defer it with a date, or dismiss it with a reason",
+                "action": _finding_action(f),
                 # the STORED receipt, recorded at fire time, not the message
                 # again: the ids and numbers are what let a reader check the
                 # rule rather than take its word (services/insights.py).
                 "receipts": [refs.receipt(_finding_receipt(f))],
                 "order": _order(kind),
-                "link": "/insights",
+                # a finding that names an engagement lands ON it: that page
+                # carries the drift, the receipts and the work, where /insights
+                # carries a feed the reader then has to search
+                "link": (
+                    f"/engagement/{f['receipt']['engagement_id']}"
+                    if isinstance(f.get("receipt"), dict) and f["receipt"].get("engagement_id")
+                    else "/insights"
+                ),
             }
         )
 
