@@ -112,4 +112,4 @@ def test_an_ancient_row_does_not_own_the_top_forever(client, fresh_db):
     """Age contributes, capped. Past the cap a thing is not getting more
     urgent, it is getting ignored — and one forgotten row from last quarter
     permanently at the top is how a ranked queue stops being read."""
-    assert intervention._rank("stale_wip", age=30) == intervention._rank("stale_wip", age=3650)
+    assert intervention._order("stale_wip", age=30) == intervention._order("stale_wip", age=3650)

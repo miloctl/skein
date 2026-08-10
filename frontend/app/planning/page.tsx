@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import { Card } from "@/components/card";
+
+// The cap the card STATES, and the one it asks for. A list that silently
+// truncates reads as "this is everything" — the same rule the stakeholder
+// card on this page follows by putting its cap in the title.
+const QUEUE_CAP = 12;
 import { PeekLink } from "@/components/task-peek";
 import { SectionTabs } from "@/components/section-tabs";
 import { actionError, api, loadError } from "@/lib/api";
@@ -117,7 +124,8 @@ export default function Planning() {
   // findings, blockers and decisions, and a cockpit that could not render
   // until all four had been ranked would be slower for every reader who came
   // for last week's number. A failure here leaves the running order intact.
-  const [queue, setQueue] = useState<Intervention[]>([]);
+  const [queue, setQueue] = useState<Intervention[] | null>(null);
+  const [queueError, setQueueError] = useState("");
   const load = useCallback(() => {
     api<Cockpit>("/api/planning")
       .then((d) => {
@@ -125,9 +133,15 @@ export default function Planning() {
         setError("");
       })
       .catch((e) => setError(loadError(e)));
-    api<Intervention[]>("/api/interventions")
-      .then(setQueue)
-      .catch(() => {});
+    api<Intervention[]>(`/api/interventions?limit=${QUEUE_CAP}`)
+      .then((q) => {
+        setQueue(q);
+        setQueueError("");
+      })
+      // stated, never swallowed: this card claims to be the one a manager can
+      // read alone, and a failed request that renders nothing is
+      // indistinguishable from a clean week
+      .catch((e) => setQueueError(loadError(e)));
   }, []);
   useEffect(load, [load]);
 
@@ -161,45 +175,6 @@ export default function Planning() {
         lives on its own page — this is the running order, not a second copy.
       </p>
 
-      {/* 0 — what needs a call, ranked. Deliberately ABOVE the running
-          order: a manager who reads nothing else must still leave with the
-          list, and the four engines behind it (health, blockers, findings,
-          the decision sweep) each had their own page and their own ordering
-          (services/intervention.py). */}
-      {queue.length > 0 ? (
-        <Card title="Needs a call">
-          <p className="mb-2 text-xs text-ink-3">
-            Ranked by consequence. Each row states what is true, who holds it,
-            and the next move. Disagree with the order by reading the receipt.
-          </p>
-          <ul className="space-y-2.5 text-sm">
-            {queue.map((q) => (
-              <li key={`${q.entity}${q.entity_id}`}>
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <a
-                    href={q.link}
-                    className="font-medium hover:underline"
-                  >
-                    {q.title}
-                  </a>
-                  <span className="text-xs text-ink-3">
-                    {q.condition}
-                    {q.owner ? ` · @${q.owner}` : " · unowned"}
-                  </span>
-                </div>
-                <p className="text-xs text-ink-2">{q.action}</p>
-                {q.receipts.map((r, i) => (
-                  <ReceiptLine
-                    key={i}
-                    receipt={r}
-                    className="block text-xs text-ink-3"
-                  />
-                ))}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
 
       {/* 1 — how last week went, before anything about this one */}
       <Card title={`1 · Last week (${d.last_week.week})`}>
@@ -257,8 +232,82 @@ export default function Planning() {
         ) : null}
       </Card>
 
+      {/* 2 — what needs a decision, ranked, AFTER last week's result. The
+          running order is load-bearing (this file's header, and
+          services/planning.py): a room that opens on remediation commits the
+          week before anyone has read whether the last one landed. Numbered
+          like every other card, because the titles ARE the agenda and a reader
+          working down the page in a meeting loses their place at a gap. */}
+      <Card title="2 · Needs a call">
+        {queueError ? (
+          <p className="text-sm text-danger">{queueError}</p>
+        ) : queue === null ? (
+          <p className="text-sm text-ink-3">Loading…</p>
+        ) : queue.length === 0 ? (
+          <p className="text-sm text-ink-3">
+            Nothing is escalated, overdue, or unowned. Read the cards below.
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 text-xs text-ink-3">
+              Ranked by consequence, {QUEUE_CAP} at a time. Each row states what is
+              true, who holds it, and the next move. If you do not agree with
+              the order, read the receipts.
+            </p>
+            <ul className="space-y-2.5 text-sm">
+            {queue.map((q) => (
+              <li key={`${q.entity}${q.entity_id}`}>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  {/* a task row opens the peek over this page, like every
+                      other task reference in the product — a raw href here was
+                      a full navigation that cost the manager their place in
+                      the queue they were working */}
+                  {q.entity === "task" ? (
+                    <PeekLink taskId={q.entity_id}>
+                      <span className="font-medium">{q.title}</span>
+                    </PeekLink>
+                  ) : (
+                    // clamped, not truncated server-side: a findings message
+                    // is several sentences and its full text belongs in the
+                    // DOM for a screen reader and for search, but three lines
+                    // of bold at the top of an agenda buries every row under it
+                    <Link
+                      href={q.link}
+                      className="line-clamp-2 font-medium hover:underline"
+                    >
+                      {q.title}
+                    </Link>
+                  )}
+                  <span className="text-xs text-ink-3">
+                    {q.condition}
+                    {/* "unowned" is a claim about work somebody must pick
+                        up. A finding is nobody's by construction
+                        (services/intervention.py), so it says nothing rather
+                        than reporting an ownership gap that does not exist. */}
+                    {q.owner
+                      ? ` · @${q.owner}`
+                      : q.entity === "finding"
+                        ? ""
+                        : " · unowned"}
+                  </span>
+                </div>
+                <p className="text-xs text-ink-2">{q.action}</p>
+                {q.receipts.map((r, i) => (
+                  <ReceiptLine
+                    key={i}
+                    receipt={r}
+                    className="block text-xs text-ink-3"
+                  />
+                ))}
+              </li>
+            ))}
+            </ul>
+          </>
+        )}
+      </Card>
+
       {/* 2 — what the week already holds, and whether it fits */}
-      <Card title={`2 · This week (${d.week.week})`}>
+      <Card title={`3 · This week (${d.week.week})`}>
         <p className="text-sm">
           {d.week.committed === 0
             ? "Nothing committed yet. Draft the plan on Work → Health."
@@ -279,7 +328,7 @@ export default function Planning() {
 
       {/* 3 — the weeks after this one. Accepting work today against today's
           numbers is how a conflict gets noticed on the day it arrives. */}
-      <Card title="3 · The weeks ahead">
+      <Card title="4 · The weeks ahead">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <caption className="sr-only">
@@ -336,7 +385,7 @@ export default function Planning() {
       </Card>
 
       {/* 4 — what wants in */}
-      <Card title={`4 · Waiting for triage (${d.intake.length})`}>
+      <Card title={`5 · Waiting for triage (${d.intake.length})`}>
         {d.intake.length === 0 ? (
           <p className="text-sm text-ink-3">Nothing is waiting for triage.</p>
         ) : (
@@ -360,9 +409,14 @@ export default function Planning() {
 
       {/* the one move that releases the most work. Sits with the week's plan
           rather than with the stale list: it is a choice about what to start,
-          not something that has gone wrong. */}
+          not something that has gone wrong.
+
+          Numbered 5a, not 6: this card and 5b are CONDITIONAL, and a fixed
+          number would leave a gap in the agenda on any week without them. A
+          manager reads this page down in a meeting, and a gap is where they
+          lose their place. */}
       {d.top_unblocking_move ? (
-        <Card title="The move that unblocks the most">
+        <Card title="5a · The move that unblocks the most">
           <p className="text-sm">
             <PeekLink taskId={d.top_unblocking_move.id}>
               <span className="text-ink-3">#{d.top_unblocking_move.id}</span>{" "}
@@ -422,7 +476,7 @@ export default function Planning() {
           phrase there). Beside the triage queue rather than in it: these are
           not decisions to make, they are people to chase. */}
       {d.awaiting.length > 0 ? (
-        <Card title={`Awaiting from other people (${d.awaiting.length})`}>
+        <Card title={`5b · Awaiting from other people (${d.awaiting.length})`}>
           <ul className="space-y-1 text-sm">
             {d.awaiting.map((p) => {
               const late = p.due_date !== null && p.due_date < d.today;
@@ -448,7 +502,7 @@ export default function Planning() {
       ) : null}
 
       {/* 5 — what has gone stale, and which way the portfolio moved */}
-      <Card title="5 · Needs a decision">
+      <Card title="6 · Stale decisions">
         {d.health_changes.length > 0 ? (
           <>
             <h3 className="text-xs uppercase tracking-wide text-ink-3">
@@ -509,7 +563,7 @@ export default function Planning() {
       </Card>
 
       {/* 6 — the one write the ritual ends with */}
-      <Card title="6 · Close the meeting">
+      <Card title="7 · Close the meeting">
         <button
           onClick={async () => {
             try {

@@ -182,7 +182,9 @@ function AcceptanceEvidence({
         </span>
       </p>
       {evidence.sponsor_was ? (
-        // 010_sponsor_at_submission.sql carries the full reasoning
+        // authority follows the CURRENT sponsor
+        // (010_sponsor_at_submission.sql), so this is a receipt and not a
+        // refusal — a reviewer must see the handover before Approve
         <p className="mb-1 text-weld">
           {evidence.sponsor_was} sponsored this task when the work was
           submitted. The verdict now belongs to the current sponsor.
