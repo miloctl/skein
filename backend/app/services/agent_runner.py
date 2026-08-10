@@ -55,7 +55,10 @@ QUIET_DAYS = 2
 _WAKE = (
     "You are resuming work you already hold. Call my_agent_inbox for your"
     " delegated tasks, then read_worklog on each one to see what you last"
-    " recorded. For each task, do the next concrete step, then call"
+    " recorded. Call get_findings once and read it BEFORE you start: a rule may"
+    " already have named the reason a task of yours is stuck, and repeating"
+    " work the engine has already explained is the most expensive thing you can"
+    " do unwatched. For each task, do the next concrete step, then call"
     " report_progress with what you did. Call submit_for_acceptance only when"
     " a task is genuinely finished. Do not create new tasks, and do not start"
     " anything you were not delegated. If a task is blocked, say so in"
