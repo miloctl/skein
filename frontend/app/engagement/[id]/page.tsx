@@ -75,7 +75,15 @@ type Brief = {
     skipped_rituals?: string[];
   };
   next_actions: Action[];
+  // how deep into the portfolio queue the server looked before narrowing —
+  // the empty state states this window rather than asserting a fact
+  queue_scanned: number;
 };
+
+// services/engagement_brief.py::TASK_CAP. A list that truncates in silence
+// reads as "this is everything", and the engagement most worth reading is the
+// one with too much open work.
+const TASK_CAP = 50;
 
 const DOT: Record<string, string> = {
   red: "bg-danger",
@@ -132,26 +140,25 @@ export default function EngagementBrief({
     >
       <SectionTabs set="work" />
 
+      {/* a way back to the list. `/engagement/<id>` is in no tab set, so no
+          tab reads aria-current here and a reader arriving from Browse has no
+          other route back to where they came from. */}
+      <p className="text-xs text-ink-3">
+        <Link href="/dashboard" className="hover:underline">
+          ← All engagements
+        </Link>
+      </p>
+
       <div>
-        <h1 className="flex items-center gap-2 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
-          {b.health.color ? (
-            <span
-              aria-hidden
-              className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[b.health.color] ?? "bg-line-strong"}`}
-            />
-          ) : null}
+        {/* the health signal is NOT in the heading: heading navigation would
+            announce mutable state as part of the page title, and the title
+            would change as health changes */}
+        <h1 className="font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
           {e.name}
-          {b.health.color ? (
-            <span className="sr-only">health {b.health.color}</span>
-          ) : null}
         </h1>
         <p className="mt-1 text-sm text-ink-3">
           {e.project_class} · {e.kind} · {e.status}
           {e.lead ? ` · led by @${e.lead}` : " · no lead"}
-          {/* stated only when there IS an earlier snapshot: an engagement
-              scored for the first time never was green, and naming a change
-              from it would invent a previous state */}
-          {b.health.moved_from ? ` · moved from ${b.health.moved_from}` : ""}
         </p>
       </div>
 
@@ -162,15 +169,14 @@ export default function EngagementBrief({
           <p className="whitespace-pre-wrap text-sm text-ink-2">{e.outcome}</p>
         ) : (
           <EmptyState>
-            No outcome recorded. Add one on Work → Browse — closing needs an
-            honest conclusion, and a conclusion is measured against this.
+            An engagement closes against its intended outcome. Add one on
+            Work → Browse.
           </EmptyState>
         )}
         {e.kind === "experiment" ? (
           <p className="mt-2 text-xs text-ink-3">
             Timebox ends {e.timebox_end || "unset"} · kill criteria:{" "}
-            {e.kill_criteria || "unset"}. An invalidated hypothesis concluded on
-            time is a success.
+            {e.kill_criteria || "unset"}
           </p>
         ) : null}
         {e.conclusion ? (
@@ -180,13 +186,59 @@ export default function EngagementBrief({
         ) : null}
       </Card>
 
+      {/* The receipts are the answer to "how is this going". A colour with no
+          reason tells a reader the engagement is late without telling them
+          what is late, which is the tour this page removes. Each reference
+          resolves, so the milestone opens instead of being hunted for. */}
+      <Card title="Health">
+        {b.health.color ? (
+          <>
+            <p className="flex items-center gap-2 text-sm">
+              {/* the word, not only the hue: hue is the entire payload for a
+                  sighted reader, including anyone with a colour deficiency */}
+              <span
+                aria-hidden
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[b.health.color] ?? "bg-line-strong"}`}
+              />
+              <span className="font-medium">{b.health.color}</span>
+              {b.health.moved_from ? (
+                <span className="text-xs text-ink-3">
+                  {b.health.moved_from} → {b.health.color} since yesterday
+                </span>
+              ) : null}
+            </p>
+            {b.health.receipts.length > 0 ? (
+              <ul className="mt-1.5 space-y-0.5">
+                {b.health.receipts.map((r, i) => (
+                  <li key={i}>
+                    <ReceiptLine receipt={r} className="text-xs text-ink-2" />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-xs text-ink-3">
+                No signal is firing against this engagement.
+              </p>
+            )}
+          </>
+        ) : (
+          // the fourth state, named. engagement_health scores open engagements
+          // only, so a closed one has no colour — and a blank line reads as
+          // "green" to anybody who does not know that rule.
+          <p className="text-sm text-ink-3">
+            Closed engagements are not scored. Read the conclusion above.
+          </p>
+        )}
+      </Card>
+
       {/* The same rows the portfolio queue ranks, narrowed to this engagement
           — one evidence model, so the two surfaces cannot recommend different
           things about the same work (services/engagement_brief.py). */}
       <Card title="What this needs">
         {b.next_actions.length === 0 ? (
           <p className="text-sm text-ink-3">
-            Nothing here is escalated, overdue, or unowned.
+            Nothing in the portfolio queue&apos;s top {b.queue_scanned} rows
+            belongs to this engagement.
           </p>
         ) : (
           <ul className="space-y-2.5 text-sm">
@@ -198,7 +250,9 @@ export default function EngagementBrief({
                       <span className="font-medium">{a.title}</span>
                     </PeekLink>
                   ) : (
-                    <span className="font-medium">{a.title}</span>
+                    <Link href={a.link} className="font-medium hover:underline">
+                      {a.title}
+                    </Link>
                   )}
                   <span className="text-xs text-ink-3">
                     {a.condition}
@@ -218,7 +272,9 @@ export default function EngagementBrief({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title={`Milestones (${b.milestones.length})`}>
           {b.milestones.length === 0 ? (
-            <p className="text-sm text-ink-3">None recorded.</p>
+            <p className="text-sm text-ink-3">
+              No milestone is recorded. Add one on Work → Browse.
+            </p>
           ) : (
             <ul className="space-y-1 text-sm">
               {b.milestones.map((m) => (
@@ -236,7 +292,9 @@ export default function EngagementBrief({
 
         <Card title={`Open blockers (${b.blockers.length})`}>
           {b.blockers.length === 0 ? (
-            <p className="text-sm text-ink-3">Nothing is blocked.</p>
+            <p className="text-sm text-ink-3">
+              Nothing is blocked. Capture one with &lsquo;blocked on …&rsquo;.
+            </p>
           ) : (
             <ul className="space-y-1 text-sm">
               {b.blockers.map((k) => (
@@ -253,9 +311,11 @@ export default function EngagementBrief({
         </Card>
       </div>
 
-      <Card title={`Open work (${b.tasks.length})`}>
+      <Card title={`Open work (${b.tasks.length}${b.tasks.length === TASK_CAP ? "+" : ""})`}>
         {b.tasks.length === 0 ? (
-          <p className="text-sm text-ink-3">Nothing open.</p>
+          <p className="text-sm text-ink-3">
+            No work is open. Capture one with &lsquo;todo: …&rsquo;.
+          </p>
         ) : (
           <ul className="space-y-1 text-sm">
             {b.tasks.map((t) => (
@@ -288,7 +348,14 @@ export default function EngagementBrief({
                   {d.agent} · sponsor {d.sponsor || "none"} · {d.status}
                 </span>
                 <p className="text-xs text-ink-2">
-                  {d.last_note || "No progress note has been filed."}
+                  {d.last_note || "The agent filed no progress note."}
+                  {d.last_note_at ? (
+                    // the date is why the note is worth reading: this morning
+                    // and three weeks ago mean opposite things
+                    <span className="ml-1 text-ink-3">
+                      ({d.last_note_at.slice(0, 10)})
+                    </span>
+                  ) : null}
                 </p>
               </li>
             ))}
@@ -300,7 +367,8 @@ export default function EngagementBrief({
         <Card title="Lessons that apply">
           {b.lessons.length === 0 ? (
             <p className="text-sm text-ink-3">
-              None yet for this class of work.
+              No lesson is recorded for this class of work yet. Closing an
+              engagement drafts one.
             </p>
           ) : (
             <ul className="space-y-1.5 text-sm">
@@ -320,7 +388,9 @@ export default function EngagementBrief({
 
         <Card title="Reports">
           {b.artifacts.length === 0 ? (
-            <p className="text-sm text-ink-3">Nothing generated yet.</p>
+            <p className="text-sm text-ink-3">
+              No report is generated yet. Handoffs and readouts land here.
+            </p>
           ) : (
             <ul className="space-y-1 text-sm">
               {b.artifacts.map((a) => (
@@ -341,9 +411,6 @@ export default function EngagementBrief({
         </Card>
       </div>
 
-      {/* Only for an engagement born from a playbook AND closed: the diff is
-          computed against the kickoff snapshot, which nothing else can
-          reconstruct (services/playbooks.py::close_out_diff). */}
       {/* Only for an engagement born from a playbook. The diff is computed
           against the kickoff snapshot, which nothing else can reconstruct —
           milestones move, tasks are added and deleted, and a cancelled ritual
@@ -351,9 +418,10 @@ export default function EngagementBrief({
       {drift > 0 ? (
         <Card title="Planned versus actual">
           <p className="mb-2 text-xs text-ink-3">
-            Against the plan {b.plan_diff.playbook} laid out at kickoff. Drift
-            is not failure — it is what the next kickoff of this class needs to
-            know.
+            Against the plan {b.plan_diff.playbook} laid out at kickoff, as it
+            stands now. Drift is not failure. It is what the next kickoff of
+            this class needs to know, and while this engagement runs it is
+            still something the team can act on.
           </p>
           <ul className="space-y-1 text-sm">
             {(b.plan_diff.slipped ?? []).map((m) => (
