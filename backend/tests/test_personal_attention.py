@@ -122,9 +122,13 @@ def test_attention_count_matches_the_page(client):
 
 
 def test_committed_work_leads_the_day(client):
-    """The weekly ritual produces a commitment and My Day ignored it: a
-    priority-and-date sort is a backlog order, so an unplanned high-priority
-    row outranked the work the reader told the team they would do."""
+    """The weekly ritual produces a commitment and a priority-and-date sort
+    ignores it: an unplanned high-priority row outranks the work the reader
+    told the team they would do.
+
+    `high`, not `urgent`: urgent means "drop what you are doing" and correctly
+    sorts above the plan (test_urgent_work_is_not_buried_under_the_plan). This
+    pins the ordinary case, which is every other priority."""
     from app import db
 
     iso = db.today().isocalendar()
@@ -132,7 +136,7 @@ def test_committed_work_leads_the_day(client):
 
     loud = client.post(
         "/api/tasks",
-        json={"title": "unplanned but urgent", "assignee": "tester", "priority": "urgent"},
+        json={"title": "unplanned but high", "assignee": "tester", "priority": "high"},
     ).json()
     quiet = client.post(
         "/api/tasks",
@@ -142,3 +146,28 @@ def test_committed_work_leads_the_day(client):
 
     tasks = client.get("/api/briefing").json()["your_work"]["tasks"]
     assert [t["id"] for t in tasks][:2] == [quiet["id"], loud["id"]]
+
+
+def test_urgent_work_is_not_buried_under_the_plan(client):
+    """The commitment leads the day, but it is not the FIRST key. `urgent` is
+    the word this team reserves for "drop what you are doing", and a Monday
+    plan capped at five per person would otherwise put it at position six."""
+    for i in range(3):
+        t = client.post("/api/tasks", json={"title": f"planned {i}", "assignee": "tester"}).json()
+        client.patch(f"/api/tasks/{t['id']}", json={"committed_week": _this_week()})
+    urgent = client.post(
+        "/api/tasks",
+        json={"title": "the plan changed", "assignee": "tester", "priority": "urgent"},
+    ).json()
+
+    tasks = client.get("/api/briefing").json()["your_work"]["tasks"]
+    assert tasks[0]["id"] == urgent["id"]
+    # and the committed work still leads everything that is neither
+    assert all(t["committed_week"] == _this_week() for t in tasks[1:4])
+
+
+def _this_week() -> str:
+    from app import db
+
+    iso = db.today().isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"

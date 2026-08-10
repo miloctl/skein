@@ -339,10 +339,6 @@ uncapped-on-both-sides census bullet at the top of this file.
 
 Named here because the rest of that review shipped and these did not.
 
-- **The Monday agenda has unnumbered cards** [XS] — `/planning` reads
-  `1 ·` through `4 ·`, then three cards with no number, then `5 ·` and
-  `6 ·`. A manager reads the page down in a meeting, and the gap is where
-  they lose their place. Either number them or move them after 6.
 - **`docs/LEXICON.md` row 1a is decided and unenforced** [XS] — the
   cockpit card and the FEATURES heading now say `awaiting`, and the
   capture chip still labels the `awaiting:` prefix `promise (to us)`.

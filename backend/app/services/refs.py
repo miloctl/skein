@@ -45,16 +45,34 @@ TARGETS = {
 
 _REF = re.compile(r"\b(" + "|".join(TARGETS) + r")\s+#(\d+)\b", re.IGNORECASE)
 
+# A row's own title, as every producer quotes it: `task #12 'Wire the gate' …`
+# (services/portfolio.py, services/intervention.py). The title is free text a
+# person typed and it must NOT be parsed — a task called "Follow up on decision
+# #4" otherwise linked its receipt to whatever decision holds id 4, which is
+# the wrong-row link this whole module exists to avoid.
+_QUOTED = re.compile(r"'[^']*'")
+
 
 def refs(text: str) -> list[dict]:
     """Every entity reference in one generated sentence, in reading order.
 
+    Only in the GENERATED frame. Single-quoted spans are the row titles the
+    producers interpolate, and a reference found inside one was written by a
+    teammate about something else.
+
     Deduped on (entity, id): "task #12 waiting on task #12" is a cycle a
     producer can emit, and two chips for one row reads as two rows.
     """
+    # blanked, not removed: the offsets must keep matching the original string,
+    # because `splitReceipt` walks the same sentence to place the links. It
+    # matches the FIRST occurrence of each reference, so when the frame and a
+    # quoted title both name one row the link lands on the quoted copy — the
+    # right target, one occurrence early, and the only cost of parsing here
+    # rather than shipping offsets on every receipt.
+    frame = _QUOTED.sub(lambda m: " " * len(m.group(0)), text or "")
     out: list[dict] = []
     seen: set[tuple[str, int]] = set()
-    for m in _REF.finditer(text or ""):
+    for m in _REF.finditer(frame):
         entity, rid = m.group(1).lower(), int(m.group(2))
         if (entity, rid) in seen:
             continue

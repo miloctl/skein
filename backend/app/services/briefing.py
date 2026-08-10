@@ -358,29 +358,41 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "pending_reviews_total": pending_total["n"] if pending_total else 0,
         "attention": attention,
         "your_work": {
-            # Commitment first, then work already started, THEN priority.
+            # The plan changed, then the plan, then work already started,
+            # then priority, then the clock.
             #
-            # Priority-and-date alone is a backlog order, not a focus order: a
-            # task the reader committed to this week sorted below any unplanned
-            # high-priority row, so the weekly ritual produced a plan that the
-            # daily surface then ignored. The commitment line is the team's own
+            # Priority-and-date alone is a backlog order, not a focus order:
+            # it ranks an unplanned medium row above the task the reader
+            # committed to this week. The commitment line is the team's own
             # answer to "what are you doing this week", and this is the one
             # place it is read back to the person who made it.
             #
-            # `in_progress` second, because work already open costs more to
-            # leave than to finish, and a reader who started something and sees
-            # it ranked below a fresh task learns to distrust the order.
+            # But the commitment is NOT the first key. `urgent` is the word
+            # this team reserves for "drop what you are doing", and an overdue
+            # date is a commitment already broken — a Monday plan capped at
+            # five per person would otherwise bury both at position six, and
+            # the surface would be telling the reader to finish the plan while
+            # the plan is what changed. `flow_metrics` treats unplanned work as
+            # normal up to half a week, so a list that sinks all of it under
+            # all of the plan disagrees with the product's own model.
+            #
+            # `in_progress` after the commitment, because work already open
+            # costs more to leave than to finish.
             "tasks": db.query(
                 "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
                 f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
-                " ORDER BY CASE WHEN committed_week = ? THEN 0 ELSE 1 END,"
+                " ORDER BY CASE WHEN priority = 'urgent'"
+                "   OR (due_date IS NOT NULL AND due_date < ?) THEN 0 ELSE 1 END,"
+                " CASE WHEN committed_week = ? THEN 0 ELSE 1 END,"
                 " CASE status WHEN 'in_progress' THEN 0 ELSE 1 END,"
                 " CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                 " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
                 # `this_week` binds LAST: its placeholder is in ORDER BY, which
                 # follows the scope filter's marks in the SQL text. SQLite binds
                 # by position, not by clause.
-                (user, *t_p, this_week),
+                # both ORDER BY marks bind after the filter's, in text order:
+                # the overdue test first, then the commitment test
+                (user, *t_p, today, this_week),
             ),
             # The tier filter wraps BOTH arms. The unowned arm was already
             # workspace-locked; the named-assignee arm was not, and it is a
@@ -445,7 +457,8 @@ def attention_count(user: str) -> dict:
     It MUST equal `my_day`'s `attention_total`, which the header prints: the
     two are read side by side, on a tab and the page that tab opens. Every arm
     below therefore mirrors an arm of `_attention` — the same predicate AND the
-    same cap. `test_attention_count_matches_the_page` holds the pair together.
+    same cap — with one stated exception on the proposal arm below.
+    `test_attention_count_matches_the_page` holds the pair together.
 
     `yours` is not viewer-scoped, and deliberately: every arm keys on the
     reader's OWN name, so a row can only be counted by the person it names.
@@ -475,9 +488,17 @@ def attention_count(user: str) -> dict:
         " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
         # a proposal this reader ASKED FOR is addressed to them, and _attention
         # marks it audience 'you' — without this arm the tab undercounts by
-        # exactly the rows the page puts under "Needs you"
-        " + (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending'"
-        "    AND requested_by = ?)"
+        # exactly the rows the page puts under "Needs you".
+        #
+        # Counted inside the SAME `ORDER BY id LIMIT 50` window my_day reads,
+        # or a bulk ingest past the fiftieth row makes the tab say twelve over
+        # a page showing eleven. The one divergence left is `review._readable`,
+        # which my_day applies and no SQL can: a proposal whose target row was
+        # deleted drops from the page and is counted here. That is a row the
+        # reader asked for and can still reject, so counting it is the safer
+        # direction, and it cannot be closed without a viewer.
+        " + (SELECT COUNT(*) FROM (SELECT requested_by FROM pending_changes"
+        "     WHERE status = 'pending' ORDER BY id LIMIT 50) WHERE requested_by = ?)"
         f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
         f"    AND {WORKSPACE_ONLY} AND created_by = ?"
         "     AND due_date IS NOT NULL AND due_date <= ?)"

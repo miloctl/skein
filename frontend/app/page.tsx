@@ -322,6 +322,17 @@ export default function MyDay() {
     );
   if (b.user === "anonymous") return <WhoAreYou />;
 
+  // the label `committed_week` stores (services/weekly.py) — computed here so
+  // the chip and the server's ordering agree about which week is "this" one
+  const thisWeek = (() => {
+    const d = new Date();
+    const day = (d.getDay() + 6) % 7;
+    const thu = new Date(d);
+    thu.setDate(d.getDate() - day + 3);
+    const jan1 = new Date(thu.getFullYear(), 0, 1);
+    const wk = Math.ceil(((+thu - +jan1) / 86400000 + 1) / 7);
+    return `${thu.getFullYear()}-W${String(wk).padStart(2, "0")}`;
+  })();
   const attention = b.attention ?? [];
   // A server that sends no `audience` (an older backend behind a newer
   // bundle) falls back to "you": every row lands in one card, rather than the
@@ -629,6 +640,16 @@ export default function MyDay() {
                   <span className="text-xs text-ink-3">
                     [{t.priority}/{t.status}]
                   </span>
+                  {/* The list is ordered by commitment before priority
+                      (services/briefing.py), and an unexplained order teaches
+                      readers to distrust the surface — which is the rule every
+                      row in the Needs-you card follows with its reason line.
+                      Marked, not re-sorted: the chip IS the explanation. */}
+                  {t.committed_week === thisWeek ? (
+                    <span className="ml-1 rounded bg-thread/10 px-1.5 py-px text-[10px] text-thread">
+                      this week
+                    </span>
+                  ) : null}
                 </span>
                 <span className="flex shrink-0 gap-1">
                   {t.status === "todo" && (

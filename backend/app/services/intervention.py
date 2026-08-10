@@ -3,10 +3,6 @@
 Skein computes the manager's evidence in four engines that never met: the
 findings rules, engagement health, the blocker register, and the decision
 half-life sweep. Each has its own page, its own ordering and its own vocabulary,
-so answering "what needs me most this week" meant opening four surfaces and
-holding the answer in your head. The evidence was all there and the ranking was
-the manager's job.
-
 Composition only — no table, no write path, no new habit. Every row here is a
 row one of those engines already produced, restated in one shape and ordered by
 consequence. The receipt travels with it, so a reader can disagree with the
@@ -23,17 +19,22 @@ from .. import db
 from . import refs, scope
 from .slas import STALE_WIP_DAYS
 
-# What each condition is worth, before its own aging and reach multiply it.
-# These are not measurements — they are an ordering the team can argue with,
-# written in one place so the argument has somewhere to happen. The rule they
-# encode: a commitment already broken outranks one about to break, and both
-# outrank a thing that is merely untidy.
+# What each condition is worth. These are not measurements — they are an
+# ordering the team can argue with, written in one place so the argument has
+# somewhere to happen. The rule they encode: a commitment already broken
+# outranks one about to break, and both outrank a thing that is merely untidy.
+#
+# KIND decides the band and nothing else moves a row out of it. Age and reach
+# order rows WITHIN a band (see the sort key in `interventions`). Folded into
+# one number instead, the aging term was two thirds the size of this whole
+# table: a 30-day-old stale decision reached 90, level with a red engagement
+# and above a promise broken last Tuesday, so the two conditions the table
+# calls untidy sorted above the two it calls serious.
 _WEIGHT = {
     "blocker_escalated": 100,
     "engagement_red": 90,
     "promise_overdue": 80,
     "finding_high": 70,
-    "milestone_overdue": 60,
     "engagement_yellow": 40,
     "finding_medium": 35,
     "decision_stale": 30,
@@ -46,37 +47,100 @@ _WEIGHT = {
 def _age_days(stamp: str | None) -> int:
     """Whole days since a stored timestamp or date, floored at 0.
 
-    A future date scores 0 rather than a negative: a due date three days out is
-    not less urgent than one due tomorrow by the same arithmetic that makes an
-    overdue one urgent, and a negative multiplier would sort it above genuine
-    breaches.
+    A future date scores 0 rather than a negative. Without the floor a task due
+    next week subtracts from its own weight and sorts below rows of the same
+    kind that are merely younger.
     """
     if not stamp:
         return 0
     try:
-        gap = db.today() - date.fromisoformat(stamp[:10])
+        # db.local_day for a timestamp, never the raw slice: half these call
+        # sites pass a UTC timestamp and the rest a date column, and the slice
+        # buckets evening work under the wrong day for any zone behind UTC.
+        day = db.local_day(stamp) if "T" in stamp else stamp[:10]
+        gap = db.today() - date.fromisoformat(day)
     except ValueError:
         return 0
     return max(0, gap.days)
 
 
-def _rank(kind: str, *, age: int = 0, reach: int = 0) -> int:
-    """Weight, aged, then multiplied by how many people it holds up.
+def _order(kind: str, *, age: int = 0, reach: int = 0) -> tuple[int, int, int]:
+    """The sort key: band, then reach, then age. Higher sorts earlier.
 
-    Age is capped at 30 days of contribution. Past that a thing is not getting
-    more urgent, it is getting ignored — and without the cap one forgotten row
-    from last quarter sits permanently at the top of every manager's list,
-    which is how a ranked queue stops being read.
+    A tuple, not a sum. Age is capped at 30 days — past that a thing is not
+    getting more urgent, it is getting ignored — and an uncapped term would pin
+    one forgotten row to the top of its band forever.
     """
-    return _WEIGHT.get(kind, 10) + min(age, 30) * 2 + reach * 5
+    return (_WEIGHT.get(kind, 10), reach, min(age, 30))
+
+
+# Findings whose subject a raw arm above already files. The finding survives on
+# /insights with its disposition controls; it does not ride this queue twice
+# under a generic triage verb that replaces the rule's own instruction.
+#
+# Only rules that name the SAME ROW as a raw arm belong here. `review_stall`
+# and `question_aging` stay: nothing else in this queue reports them.
+_RESTATED_BY_A_RAW_ARM = frozenset(
+    {
+        "promise_due",  # section 3 emits the promise itself
+        "decision_decay",  # section 6 emits the decision itself
+        "aging_wip",  # section 7 emits the task itself
+        "escalation_spike",  # section 2 emits each escalated blocker
+    }
+)
+
+
+def _dedupe(rows: list[dict]) -> list[dict]:
+    """One row per (entity, id), keeping the strongest band it appeared in.
+
+    The sources overlap by design — a task that is unassigned, due, in progress
+    and untouched satisfies both the unowned arm and the stale-WIP arm. Left in,
+    the manager reads the same task twice inside a twelve-row list that claims
+    to be one ranked queue, and the page hands React a duplicate key.
+
+    Takes an already-sorted list, so the first appearance is the strongest one.
+    """
+    seen: set[tuple[str, int]] = set()
+    out = []
+    for row in rows:
+        key = (row["entity"], row["entity_id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _finding_receipt(finding: dict) -> str:
+    """A finding's stored receipt as one sentence naming its rows.
+
+    `findings.receipt` is a JSON object recorded when the rule fired
+    (services/insights.py) — the ids and numbers behind the claim. A key ending
+    in `_id` whose stem names an entity becomes a reference, so
+    `{"promise_id": 1}` reads "promise #1" and services/refs.py resolves it to
+    a link. Everything else renders as `key: value`, in the order the rule
+    wrote it. A rule that stored nothing falls back to its own message, which
+    is worse than a receipt and better than an empty line.
+    """
+    parts = []
+    for key, value in (finding.get("receipt") or {}).items():
+        stem = key[:-3] if key.endswith("_id") else ""
+        if stem in refs.TARGETS and isinstance(value, int):
+            parts.append(f"{stem} #{value}")
+        else:
+            parts.append(f"{key.replace('_', ' ')}: {value}")
+    return ", ".join(parts) if parts else finding["message"]
 
 
 def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[dict]:
     """The manager's queue, most consequential first.
 
-    Viewer-scoped at every read: this composes rows that carry tiers, and a
-    queue assembled from rows the caller cannot open would leak both the row
-    and the fact that it exists.
+    Viewer-scoped: this composes rows that carry tiers, and a queue assembled
+    from rows the caller cannot open would leak both the row and the fact that
+    it exists.
+
+    The findings arm is the one unscoped read. `findings` carries no visibility
+    column (001_baseline.sql) — a tier filter there would filter on nothing.
     """
     from .insights import list_findings
     from .portfolio import engagement_health
@@ -86,7 +150,7 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
     today = db.today().isoformat()
 
     # 1. Engagement health. The receipts are already written; this adds the
-    #    ordering and the one thing health never said — what to do about it.
+    #    ordering and the action.
     for eng in engagement_health(viewer):
         if eng["health"] == "green":
             continue
@@ -97,15 +161,15 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "entity": "engagement",
                 "entity_id": eng["id"],
                 "title": eng["name"],
-                "condition": f"{eng['name']} is {eng['health']}",
+                "condition": f"health is {eng['health']}",
                 "owner": eng["lead"] or "",
                 "action": (
-                    "Read the receipts and decide: re-plan, re-staff, or accept the date"
+                    "Check the receipts, then re-plan, change the staff, or accept the date"
                     if red
-                    else "Check the receipts before this becomes a re-plan"
+                    else "Fix the receipt closest to the date, or re-plan now"
                 ),
                 "receipts": [refs.receipt(r) for r in eng["receipts"]],
-                "rank": _rank(
+                "order": _order(
                     "engagement_red" if red else "engagement_yellow",
                     reach=len(eng["receipts"]),
                 ),
@@ -113,15 +177,20 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
             }
         )
 
-    # 2. Escalated blockers. The register escalates on a clock and nothing
-    #    ranked the result against anything else the manager was looking at.
+    # 2. Escalated blockers. The register escalates on its own clock, so
+    #    ranking it against everything else happens only here.
     bfrag, bp = scope.visible_filter(viewer, "blockers", alias="b")
     for b in db.query(
         f"SELECT b.id, b.title, b.owner, b.impact, b.escalated_at, b.created_at, b.task_id"  # noqa: S608 — scope.visible_filter emits only bound marks
-        f" FROM blockers b WHERE b.status = 'escalated' AND {bfrag} ORDER BY b.created_at",
+        # LIMITed before the per-row `downstream` walk below, which costs up
+        # to eleven queries each. Unbounded, a register nobody has drained runs
+        # thousands of round trips and then the cap discards almost all of it —
+        # the worse the state, the slower the page that exists to fix it.
+        # Oldest escalation first: it has been shouting longest.
+        f" FROM blockers b WHERE b.status = 'escalated' AND {bfrag}"
+        " ORDER BY b.escalated_at, b.created_at LIMIT 10",
         tuple(bp),
     ):
-        # how much work this blocker is holding up, through the task it blocks
         reach = len(downstream(b["task_id"], viewer)["unblocks"]) if b["task_id"] else 0
         out.append(
             {
@@ -139,10 +208,10 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "receipts": [
                     refs.receipt(
                         f"blocker #{b['id']} '{b['title']}' escalated"
-                        + (f", holding up {reach} task(s)" if reach else "")
+                        + (f", holding up {reach} task{'' if reach == 1 else 's'}" if reach else "")
                     )
                 ],
-                "rank": _rank("blocker_escalated", age=_age_days(b["escalated_at"]), reach=reach),
+                "order": _order("blocker_escalated", age=_age_days(b["escalated_at"]), reach=reach),
                 "link": "/dashboard#blockers",
             }
         )
@@ -165,13 +234,13 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "owner": p["created_by"] or "",
                 "action": "Settle it or renegotiate the date — the other side is still waiting",
                 "receipts": [refs.receipt(f"promise #{p['id']} was due {p['due_date']}")],
-                "rank": _rank("promise_overdue", age=_age_days(p["due_date"])),
+                "order": _order("promise_overdue", age=_age_days(p["due_date"])),
                 "link": "/portfolio#promises",
             }
         )
 
-    # 4. Work with no owner. Not a findings rule and not a health receipt —
-    #    it falls between them, which is exactly why nobody sees it.
+    # 4. Work with no owner. Not a findings rule and not a health receipt:
+    #    this is the only surface that reports it.
     tfrag, tp = scope.visible_filter(viewer, "tasks", alias="t")
     for t in db.query(
         f"SELECT t.id, t.title, t.due_date FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
@@ -189,7 +258,7 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "owner": "",
                 "action": "Assign it or drop it — an unowned due date is nobody's problem",
                 "receipts": [refs.receipt(f"task #{t['id']} was due {t['due_date']}")],
-                "rank": _rank("work_unowned", age=_age_days(t["due_date"])),
+                "order": _order("work_unowned", age=_age_days(t["due_date"])),
                 "link": f"?task={t['id']}",
             }
         )
@@ -197,23 +266,45 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
     # 5. Findings the team has not dispositioned. A dismissed or converted
     #    finding is a decision already made, and re-ranking it here would ask
     #    the manager to make it twice.
-    for f in list_findings(weeks=4, limit=30):
-        if f["disposition"]:
-            continue
+    #    `limit` is applied AFTER the disposition filter, not by the query: a
+    #    run of already-handled findings otherwise spends the whole budget and
+    #    silently shortens this arm to nothing.
+    fresh = [f for f in list_findings(weeks=4, limit=200) if not f["disposition"]]
+    for f in fresh[:30]:
         kind = f"finding_{f['severity']}"
         if kind not in _WEIGHT:
+            continue
+        # A rule whose subject a raw arm above already filed is not filed
+        # twice. `promise_due` fires on the same overdue promise section 3
+        # emits: the manager saw promise #14 at one band saying "settle it or
+        # renegotiate" and again three rows down at another saying "convert it
+        # to work", two destinations, adjacent on screen. The raw arm wins
+        # because it names the owner and the real transition; the finding keeps
+        # its disposition controls on its own page.
+        if f["rule_id"] in _RESTATED_BY_A_RAW_ARM:
             continue
         out.append(
             {
                 "kind": kind,
                 "entity": "finding",
                 "entity_id": f["id"],
-                "title": f["message"][:80],
-                "condition": f["message"],
-                "owner": f["subject"] if f["subject"] and "@" not in f["subject"] else "",
+                # the message IS the finding, so it is the title and nothing
+                # else. `condition` names the rule instead: a card that put the
+                # same sentence in the heading, the condition and the receipt
+                # printed it three times and said one thing.
+                "title": f["message"],
+                "condition": f"{f['severity']} · {f['rule_id']}",
+                # no owner, ever. `findings.subject` is the dedupe key for the
+                # (rule, subject, week) fire — "anchor:44", "promise-1",
+                # "job:digest" — so rendering it as a person put row keys where
+                # every other kind puts a name to go and talk to.
+                "owner": "",
                 "action": "Convert it to work, defer it with a date, or dismiss it with a reason",
-                "receipts": [refs.receipt(f["message"])],
-                "rank": _rank(kind),
+                # the STORED receipt, recorded at fire time, not the message
+                # again: the ids and numbers are what let a reader check the
+                # rule rather than take its word (services/insights.py).
+                "receipts": [refs.receipt(_finding_receipt(f))],
+                "order": _order(kind),
                 "link": "/insights",
             }
         )
@@ -237,13 +328,13 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "receipts": [
                     refs.receipt(f"decision #{d['id']} was due for review {d['review_by']}")
                 ],
-                "rank": _rank("decision_stale", age=_age_days(d["review_by"])),
+                "order": _order("decision_stale", age=_age_days(d["review_by"])),
                 "link": f"/charter#charter-entry-{d['id']}",
             }
         )
 
-    # 7. Work in progress that has not moved. The flow metrics count it; only
-    #    the count was ever shown, and a count names nobody to talk to.
+    # 7. Work in progress that has not moved. The flow metrics count it;
+    #    this names the assignee, which is who a count cannot name.
     cutoff = db.local_midnight_utc(db.today() - timedelta(days=STALE_WIP_DAYS))
     for t in db.query(
         f"SELECT t.id, t.title, t.assignee, t.updated_at FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
@@ -257,16 +348,22 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "entity": "task",
                 "entity_id": t["id"],
                 "title": t["title"],
-                "condition": f"in progress and untouched for over {STALE_WIP_DAYS} days",
+                "condition": f"in progress and not moved for more than {STALE_WIP_DAYS} days",
                 "owner": t["assignee"] or "",
-                "action": "Ask what it needs — this is a question, not a nudge",
+                "action": "Ask the assignee what the task needs",
                 "receipts": [
                     refs.receipt(f"task #{t['id']} last moved {db.local_day(t['updated_at'])}")
                 ],
-                "rank": _rank("stale_wip", age=_age_days(t["updated_at"])),
+                "order": _order("stale_wip", age=_age_days(t["updated_at"])),
                 "link": f"?task={t['id']}",
             }
         )
 
-    out.sort(key=lambda r: (-r["rank"], r["entity"], r["entity_id"]))
+    # band, then reach, then age, then a stable tie-break. `order` is internal
+    # and never rendered: a number beside a row invites the reader to argue
+    # with the arithmetic instead of with the receipt.
+    out.sort(key=lambda r: (tuple(-v for v in r["order"]), r["entity"], r["entity_id"]))
+    out = _dedupe(out)
+    for row in out:
+        row.pop("order")
     return out[: max(1, min(int(limit), 50))]
