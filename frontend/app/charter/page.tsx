@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
@@ -15,8 +15,22 @@ type Decision = {
   decided_by: string;
   review_by: string | null;
   status: string;
+  category: string;
   created_at: string;
 };
+
+/** The id a `#charter-entry-N` deep link is asking for, or 0.
+ *
+ *  Search hits and the My Day stale-decision item both address a decision this
+ *  way, and both can name a decision in ANY category. This page defaults to
+ *  the charter category, so those links landed on a list that never contained
+ *  their target and the reader saw a page with no error and no row.
+ */
+function hashTarget(): number {
+  if (typeof window === "undefined") return 0;
+  const m = /^#charter-entry-(\d+)$/.exec(window.location.hash);
+  return m ? Number(m[1]) : 0;
+}
 
 export default function CharterPage() {
   // null until the fetch settles: an empty charter is a real and meaningful
@@ -49,18 +63,46 @@ export default function CharterPage() {
   const [busy, setBusy] = useState(false); // a held Enter must not file N entries
   const [newText, setNewText] = useState("");
 
+  // Which slice the list shows. Charter first, because that is what this page
+  // is for; "all" exists because the general decisions carry the SAME
+  // lifecycle (review_by, stale, reconfirm, supersede) and had no surface
+  // offering it — Browse renders them read-only.
+  const [showAll, setShowAll] = useState(false);
+  // one auto-widen per visit, guarded: without the ref a link to a general
+  // decision would widen, re-load, still not match on the first render pass,
+  // and set state again on every settle
+  const widened = useRef(false);
+
   const load = useCallback(() => {
-    api<Decision[]>("/api/decisions?category=charter")
+    const q = showAll ? "" : "?category=charter";
+    api<Decision[]>(`/api/decisions${q}`)
       .then((rows) => {
         setDecisions(rows);
         setError(null); // a recovered backend must not leave the old banner above fresh data
+        // A deep link naming a decision this slice does not hold widens the
+        // slice instead of showing the reader an empty page. The link is the
+        // evidence that they were sent here for a specific row.
+        const want = hashTarget();
+        if (want && !widened.current && !rows.some((r) => r.id === want)) {
+          widened.current = true;
+          setShowAll(true);
+        }
       })
       .catch((e) => {
         setDecisions([]); // settled, with the error shown below
         setError(loadError(e));
       });
-  }, []);
+  }, [showAll]);
   useEffect(load, [load]);
+
+  // Land on the row the link named. The browser only honours a hash for an
+  // element present at navigation time, and these rows arrive from a fetch —
+  // so a deep link scrolled nowhere until the element existed.
+  useEffect(() => {
+    const want = hashTarget();
+    if (!want || !decisions?.some((d) => d.id === want)) return;
+    document.getElementById(`charter-entry-${want}`)?.focus();
+  }, [decisions]);
 
   const add = async () => {
     if (busy || !title.trim() || !text.trim()) return;
@@ -101,6 +143,35 @@ export default function CharterPage() {
         instead of silently rotting.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
+
+      {/* The general decisions carry the same half-life, stale sweep,
+          reconfirm and supersede that charter entries do, and no surface
+          offered those controls — Browse lists them read-only. A slice
+          switch is the whole fix: same rows, same lifecycle, one page. */}
+      <div
+        role="group"
+        aria-label="Which decisions to show"
+        className="mb-4 flex gap-1 text-xs"
+      >
+        {[
+          { on: false, label: "Charter" },
+          { on: true, label: "All decisions" },
+        ].map((o) => (
+          <button
+            key={o.label}
+            aria-pressed={showAll === o.on}
+            onClick={() => setShowAll(o.on)}
+            className={
+              "rounded-lg px-2.5 py-1 font-medium " +
+              (showAll === o.on
+                ? "bg-thread-solid text-white"
+                : "bg-raised text-ink-2 hover:bg-line")
+            }
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
 
       <div className="mb-6 space-y-2 rounded-xl border border-line bg-card p-4 shadow-card">
         <input
@@ -171,6 +242,10 @@ export default function CharterPage() {
             <p className="text-ink-2">{d.decision}</p>
             <p className="mt-1 text-xs text-ink-3">
               by {d.decided_by || "unrecorded"} · {d.created_at.slice(0, 10)}
+              {/* named only in the widened slice: in the charter slice every
+                  row is a charter entry, and a badge repeating that on all of
+                  them carries no information */}
+              {showAll ? ` · ${d.category === "charter" ? "charter" : "decision"}` : ""}
             </p>
             {d.status !== "superseded" && (
               <div className="mt-2 flex gap-2 text-xs">
@@ -278,8 +353,9 @@ export default function CharterPage() {
         {decisions !== null && decisions.length === 0 && !error && (
           <li>
             <EmptyState>
-              No charter entries yet. Start with: who owns what, how we
-              escalate, what quality bar we hold.
+              {showAll
+                ? "No decisions recorded yet. Capture one with `decision:` in ⌘K."
+                : "No charter entries yet. Start with: who owns what, how we escalate, what quality bar we hold."}
             </EmptyState>
           </li>
         )}

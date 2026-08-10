@@ -21,7 +21,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
     // and a body of the wrong shape crashes its render before the effect
     // under test can commit
     api: (path: string) => {
-      if (path.startsWith("/api/attention")) return Promise.resolve({ count: count.value });
+      // `yours` is what the title carries — the personal number, not the
+      // shared Inbox queue. `inbox` is held at 0 so a change that reads the
+      // wrong field fails here instead of looking right by coincidence.
+      if (path.startsWith("/api/attention"))
+        return Promise.resolve({ count: count.value, yours: count.value, inbox: 0 });
       if (path.endsWith("/worklog")) return Promise.resolve([]);
       if (path.startsWith("/api/agents")) return Promise.resolve([]);
       if (path.startsWith("/api/tasks/"))

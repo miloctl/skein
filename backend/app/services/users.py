@@ -301,6 +301,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "lessons": ("created_by",),
     "pending_changes": ("proposed_by", "reviewed_by", "requested_by"),
     "notifications": ("user",),
+    "notification_reads": ("user",),
     "feature_unlocks": ("person",),
     # activity is DELIBERATELY absent: every chained row's digest covers its
     # actor, so a bulk rewrite here breaks verify_chain permanently at the

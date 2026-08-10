@@ -35,6 +35,16 @@ type Change = {
   created_at: string;
   label: string; // services/lexicon.py — what this write is called
   sponsor?: string; // task_completion only: whose verdict this is
+  // task_completion only: what the sponsor is judging. The verdict controls
+  // were here and the evidence was two navigations away (services/review.py).
+  evidence?: {
+    id: number;
+    title: string;
+    status: string;
+    delegated_agent: string | null;
+    forge_url: string | null;
+    worklog: { id: number; author: string; note: string; created_at: string }[];
+  };
   reviewed_by?: string | null;
   reviewed_override?: number; // 1: judged by someone other than the sponsor
   // this proposer's settled verdicts on THIS entity. null when none have
@@ -141,6 +151,62 @@ function OriginChip({ origin }: { origin: string }) {
       {said.word}
       <span className="sr-only"> — {said.why}</span>
     </span>
+  );
+}
+
+/** What a sponsor is actually judging, beside the verdict controls.
+ *
+ *  An acceptance proposal says "mark a delegated task done". The evidence for
+ *  that call is the agent's own worklog, and the only other web surface that
+ *  shows it is the task peek — so the sponsor left this screen, found the
+ *  task, read the notes, came back and voted from memory. The last few notes
+ *  answer the common case here; the task link above opens the rest.
+ */
+function AcceptanceEvidence({
+  evidence,
+}: {
+  evidence: NonNullable<Change["evidence"]>;
+}) {
+  return (
+    <div className="mb-3 rounded-lg border border-line bg-raised p-2.5 text-xs">
+      <p className="mb-1 text-ink-2">
+        <span className="font-medium">{evidence.title}</span>
+        <span className="text-ink-3">
+          {" "}
+          · now {evidence.status}
+          {evidence.delegated_agent ? ` · by ${evidence.delegated_agent}` : ""}
+        </span>
+      </p>
+      {evidence.forge_url ? (
+        // bare href is safe: services/forge.py::_clean_url is the only writer
+        // and admits bounded http(s) only
+        <a
+          href={evidence.forge_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-ink-3 underline hover:text-ink-2"
+        >
+          code <span aria-hidden>↗</span>
+        </a>
+      ) : null}
+      {evidence.worklog.length > 0 ? (
+        <ul className="mt-1 space-y-1">
+          {evidence.worklog.map((w) => (
+            <li key={w.id} className="text-ink-2">
+              <span className="text-ink-3">{w.author}:</span>{" "}
+              <span className="whitespace-pre-wrap break-words">{w.note}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        // stated, never omitted: an acceptance with no progress notes is the
+        // case a sponsor most needs to notice, and a blank block reads as
+        // "nothing to see" rather than "this agent reported nothing"
+        <p className="mt-1 text-ink-3">
+          No progress notes were filed on this task.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -399,11 +465,27 @@ export default function ReviewPage() {
                 {/* the id after a task_completion names the TASK the sponsor is
                     accepting, not this proposal — the bare "#10" read as a
                     second proposal number */}
-                {c.entity_id
-                  ? c.entity === "task_completion"
-                    ? ` on task #${c.entity_id}`
-                    : ` #${c.entity_id}`
-                  : ""}
+                {c.entity_id ? (
+                  c.entity === "task_completion" ? (
+                    <>
+                      {" on "}
+                      {/* a link, not text. The panel behind it holds the full
+                          worklog, the forge link and the delegation — the
+                          evidence block below carries the last few notes so
+                          the common verdict needs no navigation at all */}
+                      <a
+                        href={`?task=${c.entity_id}`}
+                        className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-2"
+                      >
+                        task #{c.entity_id}
+                      </a>
+                    </>
+                  ) : (
+                    ` #${c.entity_id}`
+                  )
+                ) : (
+                  ""
+                )}
               </span>
               <span className="text-xs text-ink-3">
                 by {c.proposed_by} <OriginChip origin={c.origin} />
@@ -419,6 +501,7 @@ export default function ReviewPage() {
                 edge and shoves the byline into the middle */}
             {c.record ? <TrackRecord record={c.record} label={c.label} /> : null}
             {c.summary && <p className="mb-2 text-sm text-ink-2">{c.summary}</p>}
+            {c.evidence ? <AcceptanceEvidence evidence={c.evidence} /> : null}
             {diffs[c.id] ? (
               <div className="mb-3 overflow-x-auto">
               <table className="w-full rounded-lg bg-raised text-xs">

@@ -684,8 +684,68 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
         # the UI shows whose verdict this is — acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)
+            r["evidence"] = _acceptance_evidence(r, viewer)
         r["record"] = record.get((r["proposed_by"], r["entity"]))
     return rows
+
+
+# How many worklog notes ride along with an acceptance proposal. The sponsor
+# needs the shape of the work and its latest state, not the whole log — the
+# panel behind the task link holds all of it (frontend/components/task-peek).
+_EVIDENCE_NOTES = 5
+
+
+def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
+    """The worklog and task state a sponsor judges an acceptance ON.
+
+    The verdict controls were here and the evidence was two navigations away:
+    the queue printed "on task #12" as text, and the only web surface that
+    shows a worklog is the task peek. So the sponsor left the decision screen,
+    found the task, read the log, came back, and voted from memory. The field
+    guide even tells them to do exactly that.
+
+    Read through `delegation.list_worklog`, which carries the delegation door —
+    a sponsor may read the log of the task they sponsor whether or not a tier
+    filter would reach it. Failure is a MISSING key, never a raise: a proposal
+    whose task was deleted must still be rejectable, and the queue is the
+    surface where that clean-up happens.
+    """
+    from .delegation import list_worklog
+
+    task_id = change["entity_id"]
+    if not task_id:
+        return {}
+    # viewer-filtered, like every other read of a scoped table. The proposal
+    # row already passed `_readable`, but that tests the SUMMARY's target and
+    # this query returns the task's own title and forge link — a second read
+    # needs its own filter or it is a second door onto the same row.
+    tfrag, tp = scope.visible_filter(viewer, "tasks")
+    task = db.query_one(
+        "SELECT id, title, status, delegated_agent, forge_url FROM tasks"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE id = ? AND {tfrag}",
+        (task_id, *tp),
+    )
+    if not task:
+        return {}
+    try:
+        # actor = the VIEWER's own name, never the proposer's. The proposer is
+        # the delegated agent, and passing its name would open the delegation
+        # door on behalf of whoever happened to load the queue — a crew
+        # worklog served to a reviewer outside the crew. Passed this way the
+        # door opens for exactly one reader, the sponsor, which is the same
+        # pair report_progress lets write.
+        notes = list_worklog(
+            task_id,
+            limit=_EVIDENCE_NOTES,
+            viewer=viewer,
+            actor=viewer.name,
+        )
+    except Exception:
+        # an unreadable log must not break the queue: the reviewer still has to
+        # be able to REJECT a proposal whose task went private or vanished, and
+        # this surface is where that clean-up happens
+        notes = []
+    return {**task, "worklog": notes}
 
 
 def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
