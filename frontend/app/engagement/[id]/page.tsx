@@ -7,7 +7,8 @@ import { Card, EmptyState } from "@/components/card";
 import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
 import { SectionTabs } from "@/components/section-tabs";
-import { api, loadError } from "@/lib/api";
+import { actionError, api, loadError } from "@/lib/api";
+import { reportStatus } from "@/lib/status";
 import type { Receipt } from "@/lib/entity-ref";
 
 /** One engagement, whole.
@@ -99,6 +100,7 @@ export default function EngagementBrief({
   const { id } = use(params);
   const [b, setB] = useState<Brief | null>(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false); // a held Enter must not write N packages
 
   const load = useCallback(() => {
     api<Brief>(`/api/engagements/${id}/brief`)
@@ -387,6 +389,31 @@ export default function EngagementBrief({
         </Card>
 
         <Card title="Reports">
+          {/* Generating one is offered HERE, on the engagement, because a
+              handoff is written when ownership changes and this is the page a
+              person is on when that happens. The generator existed and no
+              surface called it (services/handoff.py). */}
+          <button
+            onClick={async () => {
+              if (busy) return;
+              setBusy(true);
+              try {
+                await api(`/api/engagements/${e.id}/handoff`, {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                });
+                load();
+              } catch (err) {
+                reportStatus(actionError(err));
+              } finally {
+                setBusy(false);
+              }
+            }}
+            disabled={busy}
+            className="mb-2 rounded bg-raised px-2 py-1 text-xs text-ink-2 hover:bg-line disabled:opacity-40"
+          >
+            Write a handoff package
+          </button>
           {b.artifacts.length === 0 ? (
             <p className="text-sm text-ink-3">
               No report is generated yet. Handoffs and readouts land here.

@@ -152,6 +152,60 @@ function Dismiss({ id, onDone }: { id: number; onDone: () => void }) {
   );
 }
 
+
+/** What is open with the outside people attending one meeting.
+ *
+ *  Lazy: the request fires when the reader asks, not on every My Day load. A
+ *  meeting with no outside attendee has no threads, and most do not.
+ */
+function StakeholderBrief({ eventId }: { eventId: number }) {
+  const [open, setOpen] = useState(false);
+  const [threads, setThreads] = useState<
+    { party: string; kind: string; summary: string; due_date: string | null }[] | null
+  >(null);
+
+  const show = async () => {
+    setOpen(true);
+    if (threads) return;
+    try {
+      const r = await api<{ threads: typeof threads }>(
+        `/api/events/${eventId}/stakeholders`,
+      );
+      setThreads(r.threads ?? []);
+    } catch {
+      setThreads([]);
+    }
+  };
+
+  if (!open)
+    return (
+      <button
+        onClick={show}
+        className="ml-1.5 rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
+      >
+        what is open?
+      </button>
+    );
+  return (
+    <span className="ml-1.5 block text-xs text-ink-3">
+      {threads === null ? (
+        "Loading…"
+      ) : threads.length === 0 ? (
+        "Nothing is open with anyone outside the team in this meeting."
+      ) : (
+        <ul className="mt-0.5 space-y-0.5">
+          {threads.map((t, i) => (
+            <li key={i}>
+              {t.party}: {t.summary}
+              {t.due_date ? ` (due ${t.due_date})` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </span>
+  );
+}
+
 // one wave per session, then stillness; memoized so StrictMode double-renders
 // and mid-animation re-renders see the same answer (wave renders client-only,
 // behind the briefing-loaded gate, so SSR never sees it)
@@ -760,7 +814,15 @@ export default function MyDay() {
                 <span className="font-mono text-xs text-ink-3">
                   {String(e.starts_at).slice(11, 16)}
                 </span>
-                <span>{e.title}</span>
+                <span>
+                  {e.title}
+                  {/* what is open with the outside people in the room. The
+                      brief was an endpoint nothing called, and it is only
+                      useful in the hour before you speak to them — a digest of
+                      every open thread with everybody is a report nobody
+                      reads (services/stakeholders.py). */}
+                  <StakeholderBrief eventId={Number(e.id)} />
+                </span>
               </li>
             ))}
             {b.team.escalated_blockers.length === 0 &&
