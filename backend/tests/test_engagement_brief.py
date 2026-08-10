@@ -1,0 +1,120 @@
+"""One engagement, whole — and nothing from an engagement the reader cannot open.
+
+The brief composes seven surfaces. Every one of them carries a tier, so the
+tests here are mostly about the doors: an unreadable engagement must answer
+exactly like an absent one, and no section may reach a row its own filter would
+refuse.
+"""
+
+import pytest
+
+from app.services import engagement_brief, scope
+
+
+def _brief(name: str, eid: int) -> dict:
+    return engagement_brief.brief(eid, scope.Viewer(name, True))
+
+
+def test_an_unreadable_engagement_answers_like_an_absent_one(client, fresh_db):
+    """Ids are sequential integers. If a refused read said "forbidden" and an
+    absent one said "no such row", a caller could map the whole portfolio by
+    walking ids (services/scope.py::Viewer)."""
+    from app.services import crews, engagements, users
+
+    for n in ("insider", "outsider"):
+        users.ensure_user(n)
+    crew = crews.create_crew("ops", actor="insider")
+    eng = engagements.create_engagement(
+        "Secret migration",
+        project_class="migration",
+        actor="insider",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    with pytest.raises(Exception) as absent:
+        _brief("outsider", 99999)
+    with pytest.raises(Exception) as refused:
+        _brief("outsider", eng["id"])
+    assert str(absent.value) == str(refused.value).replace(str(eng["id"]), "99999")
+
+    assert _brief("insider", eng["id"])["engagement"]["name"] == "Secret migration"
+
+
+def test_the_brief_carries_what_the_seven_surfaces_carry(client, fresh_db):
+    from app.services import blockers, engagements, users, work
+
+    users.ensure_user("ava")
+    eng = engagements.create_engagement("Atlas", project_class="migration", actor="ava")
+    m = work.create_milestone("Cutover", project="Atlas", due_date="2020-01-01", actor="ava")
+    work.update_milestone(m["id"], engagement_id=eng["id"], actor="ava")
+    t = work.create_task("wire the gate", milestone_id=m["id"], actor="ava")
+    b = blockers.raise_blocker("vendor silent", owner="ava", task_id=t["id"], actor="ava")
+
+    out = _brief("ava", eng["id"])
+    assert out["engagement"]["name"] == "Atlas"
+    assert [x["id"] for x in out["milestones"]] == [m["id"]]
+    assert t["id"] in [x["id"] for x in out["tasks"]]
+    assert b["id"] in [x["id"] for x in out["blockers"]]
+    # health is the SAME pass every other surface reads, not a second one
+    assert out["health"]["color"] in ("red", "yellow", "green")
+    # an overdue milestone is a receipt, and the receipt resolves its own row
+    assert any(
+        r["entity"] == "milestone" and r["id"] == m["id"]
+        for rc in out["health"]["receipts"]
+        for r in rc["refs"]
+    )
+
+
+def test_next_actions_agree_with_the_portfolio_queue(client, fresh_db):
+    """The brief narrows the queue's own rows rather than re-running its
+    predicates: two sets would let one page recommend what the other does not."""
+    from app.services import blockers, engagements, intervention, users, work
+
+    users.ensure_user("ava")
+    eng = engagements.create_engagement("Atlas", project_class="migration", actor="ava")
+    m = work.create_milestone("Cutover", project="Atlas", actor="ava")
+    work.update_milestone(m["id"], engagement_id=eng["id"], actor="ava")
+    t = work.create_task("wire the gate", milestone_id=m["id"], actor="ava")
+    b = blockers.raise_blocker(
+        "vendor silent", owner="ava", impact="critical", task_id=t["id"], actor="ava"
+    )
+    fresh_db.execute(
+        "UPDATE blockers SET created_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (b["id"],)
+    )
+    blockers.sweep_escalations()
+
+    viewer = scope.Viewer("ava", True)
+    mine = _brief("ava", eng["id"])["next_actions"]
+    whole = intervention.interventions(viewer, limit=50)
+    assert any(a["entity"] == "blocker" and a["entity_id"] == b["id"] for a in mine)
+    # every row in the brief is a row of the portfolio queue, unchanged
+    for row in mine:
+        assert row in whole
+
+
+def test_a_crew_blocker_does_not_ride_a_readable_engagement(client, fresh_db):
+    from app.services import blockers, crews, engagements, users, work
+
+    for n in ("insider", "outsider"):
+        users.ensure_user(n)
+    crew = crews.create_crew("ops", actor="insider")
+    eng = engagements.create_engagement("Atlas", project_class="migration", actor="insider")
+    t = work.create_task(
+        "quiet work",
+        engagement_id=eng["id"],
+        actor="insider",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    blockers.raise_blocker(
+        "crew-only outage",
+        owner="insider",
+        task_id=t["id"],
+        actor="insider",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    out = _brief("outsider", eng["id"])
+    assert out["engagement"]["name"] == "Atlas"  # the engagement is workspace
+    assert not any("crew-only" in str(b["title"]) for b in out["blockers"])
+    assert not any("quiet work" in str(x["title"]) for x in out["tasks"])
