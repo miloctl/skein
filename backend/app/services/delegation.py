@@ -310,34 +310,40 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         )
     from .review import propose_change
 
-    p = propose_change(
-        "task_completion",
-        "update",
-        {"summary": summary.strip()},
-        # scope.detail, not an f-string: this summary is served by
-        # GET /api/review, by my_day's pending_reviews, and by rituals'
-        # week-close artifact on disk — so a crew task's title reached the
-        # roster three ways. This call passes notify_team=False, so the team
-        # notification is NOT one of them.
-        summary=scope.detail(
-            task["visibility"],
-            f"accept task #{task_id}",
-            f"'{task['title']}': {summary.strip()[:80]}",
-        ),
-        entity_id=task_id,
-        actor=actor,
-        origin="agent",
-        notify_team=False,
-        requested_by=requested_by,
-    )
-    # the sponsor AT SUBMISSION, in its own column and never in `payload` —
-    # that column is the apply argument list (010_sponsor_at_submission.sql).
-    # Verdict authority stays with the CURRENT sponsor by design; this is what
-    # lets the review card say when those two differ.
-    db.execute(
-        "UPDATE pending_changes SET sponsor_at_submission = ? WHERE id = ?",
-        (task["sponsor"] or "", p["id"]),
-    )
+    # ONE transaction for the proposal and its sponsor snapshot (db.transaction
+    # nests). Written after the commit, a lock timeout on the UPDATE left the
+    # proposal filed, the sponsor un-notified and the column unset — and the
+    # agent's retry then hit the duplicate guard above, telling it to wait for
+    # a verdict nobody had been asked for.
+    with db.transaction():
+        p = propose_change(
+            "task_completion",
+            "update",
+            {"summary": summary.strip()},
+            # scope.detail, not an f-string: this summary is served by
+            # GET /api/review, by my_day's pending_reviews, and by rituals'
+            # week-close artifact on disk — so a crew task's title reached the
+            # roster three ways. This call passes notify_team=False, so the team
+            # notification is NOT one of them.
+            summary=scope.detail(
+                task["visibility"],
+                f"accept task #{task_id}",
+                f"'{task['title']}': {summary.strip()[:80]}",
+            ),
+            entity_id=task_id,
+            actor=actor,
+            origin="agent",
+            notify_team=False,
+            requested_by=requested_by,
+        )
+        # the sponsor AT SUBMISSION, in its own column and never in `payload` —
+        # that column is the apply argument list (010_sponsor_at_submission.sql).
+        # Verdict authority stays with the CURRENT sponsor by design; this is
+        # what lets the review card say when those two differ.
+        db.execute(
+            "UPDATE pending_changes SET sponsor_at_submission = ? WHERE id = ?",
+            (task["sponsor"] or "", p["id"]),
+        )
     if task["sponsor"]:
         from .notifications import notify
 

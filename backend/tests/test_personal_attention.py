@@ -90,3 +90,55 @@ def test_a_team_notification_survives_one_readers_dismissal(client, fresh_db):
 
     # mira never dismissed it
     assert any("the build is red" in n["message"] for n in notifications.list_notifications("mira"))
+
+
+def test_attention_count_matches_the_page(client):
+    """The tab title and My Day's header are read side by side — one on a tab,
+    one on the page that tab opens. They come from different queries, so every
+    arm of `attention_count` mirrors an arm of `_attention`, cap included."""
+    from app.services import collab, promises, review
+
+    # one of every personal kind, plus two shared rows that must not count
+    client.post("/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"})
+    client.post("/api/blockers", json={"title": "Stuck", "owner": "tester"})
+    promises.add_promise("ship it", to_whom="acme", due_date=_soon(), actor="tester")
+    review.propose_change(
+        "note", "create", {"topic": "t", "content": "c"}, actor="agent-x", requested_by="tester"
+    )
+    client.post("/api/intake", json={"title": "somebody else's queue"})
+    review.propose_change("note", "create", {"topic": "u", "content": "d"}, actor="agent-x")
+
+    # six stale decisions, to catch a count that does not honor _attention's cap
+    for i in range(6):
+        collab.record_decision(
+            f"call {i}", "we did", review_by="2020-01-01", decided_by="tester", actor="tester"
+        )
+    collab.sweep_stale_decisions()
+
+    assert (
+        client.get("/api/attention").json()["yours"]
+        == client.get("/api/briefing").json()["attention_total"]
+    )
+
+
+def test_committed_work_leads_the_day(client):
+    """The weekly ritual produces a commitment and My Day ignored it: a
+    priority-and-date sort is a backlog order, so an unplanned high-priority
+    row outranked the work the reader told the team they would do."""
+    from app import db
+
+    iso = db.today().isocalendar()
+    week = f"{iso.year}-W{iso.week:02d}"
+
+    loud = client.post(
+        "/api/tasks",
+        json={"title": "unplanned but urgent", "assignee": "tester", "priority": "urgent"},
+    ).json()
+    quiet = client.post(
+        "/api/tasks",
+        json={"title": "what I committed to", "assignee": "tester", "priority": "low"},
+    ).json()
+    client.patch(f"/api/tasks/{quiet['id']}", json={"committed_week": week})
+
+    tasks = client.get("/api/briefing").json()["your_work"]["tasks"]
+    assert [t["id"] for t in tasks][:2] == [quiet["id"], loud["id"]]

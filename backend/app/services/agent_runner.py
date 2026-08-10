@@ -141,7 +141,7 @@ def sweep() -> dict:
 
 
 def _refused(agent: str, reason: str) -> dict:
-    """A run that did not happen and SHOULD not have.
+    """A run that did not happen because nothing asked for one.
 
     Nothing delegated, already ran today, mock provider, a budget ceiling
     doing its job, an authority level set to forbidden. The fleet is healthy
@@ -205,7 +205,7 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
             # the whole day on a job that runs once and does not catch up
             _release(agent)
             log.warning("agent build failed for %s: %s", agent, exc)
-            return _failed(agent, f"could not build: {exc}")
+            return _failed(agent, f"could not build: {type(exc).__name__}")
         if built is None:
             _release(agent)
             return _failed(agent, "no agent could be built")
@@ -266,13 +266,13 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
         reply = box.get("reply", "")
         text = str(reply)[:2000]
         db.log_activity(actor, "agent_run", f"{agent}: unattended run")
-        return {"agent": agent, "ran": True, "thread": thread, "reply": text}
+        return {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
     except Exception as exc:
         # Logged and reported, never raised: run() below is a scheduled job,
         # and a raise there marks the whole sweep failed on /health when the
         # other agents ran fine.
         log.warning("agent run failed for %s: %s", agent, exc)
-        return _failed(agent, f"run failed: {exc}")
+        return _failed(agent, f"run failed: {type(exc).__name__}")
     finally:
         # in a finally, not after the call: an exception mid-turn would
         # otherwise leave this thread's identity set to the agent, and the
@@ -289,9 +289,9 @@ def run(*, actor: str = "scheduler") -> dict:
     ran = sum(1 for r in runs if r["ran"])
     faults = [r for r in runs if r.get("fault")]
     # `status` is read by jobs.run_job, which otherwise records `ok` for any
-    # return value at all. A fleet where every agent failed to build returned a
-    # perfectly ordinary dict, so /health showed the job green and the reasons
-    # lived only in the process log.
+    # return value at all. Drop this key and a fleet where every agent fails to
+    # build returns an ordinary dict: /health shows the job green and the
+    # reasons reach nothing but the process log.
     status = "ok" if not faults else ("partial" if ran else "error")
     return {
         "sweep": swept,
@@ -300,5 +300,5 @@ def run(*, actor: str = "scheduler") -> dict:
         "status": status,
         # named, not counted: an operator fixing this needs to know WHICH
         # agent and WHY, and `_outcome_detail` reduces a list to its length
-        "faults": "; ".join(f"{r['agent']}: {r['reason']}" for r in faults),
+        "faults": " | ".join(f"{r['agent']}: {r['reason']}" for r in faults),
     }

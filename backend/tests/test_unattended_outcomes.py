@@ -73,4 +73,6 @@ def test_a_fleet_that_could_not_build_reports_error(fresh_db, monkeypatch):
     )
     out = agent_runner.run()
     assert out["status"] == "error"
-    assert "scout" in out["faults"] and "no socket" in out["faults"]
+    # the agent and the exception CLASS, never the provider's message: this
+    # string reaches job_outcomes.detail, which admin.export ships
+    assert out["faults"] == "scout: could not build: RuntimeError"

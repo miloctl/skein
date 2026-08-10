@@ -27,6 +27,7 @@ from ..services import (
     handoff,
     ingest,
     intake,
+    intervention,
     memory,
     notifications,
     personas,
@@ -1857,3 +1858,10 @@ def post_backup(user: AdminUser):
 def get_export(user: AdminUser):
     # full-table dump — administrators only, never the X-User header
     return admin.export()
+
+
+@router.get("/interventions")
+def get_interventions(user: CurrentUser, viewer: ViewerDep, limit: int = 12):
+    """The manager's ranked queue. Composition only — every row restates one
+    an engine already produced (services/intervention.py)."""
+    return intervention.interventions(viewer, limit)

@@ -13,5 +13,11 @@
 --
 -- NULL for every proposal filed before this column, and for every entity that
 -- is not `task_completion`. A reader must treat NULL as "not recorded", never
--- as "unchanged": the two are different, and only the second is a receipt.
+-- as "unchanged". Only a recorded name is a receipt, and NULL records nothing.
+--
+-- The third state is `''`, not NULL: `delegation.submit_completion` writes
+-- `sponsor or ''`, so a task_completion whose task carried no sponsor stores
+-- the empty string. Empty and NULL both mean "no receipt" to
+-- `review._acceptance_evidence`, and a query looking for un-recorded rows with
+-- `IS NULL` alone misses every one of them.
 ALTER TABLE pending_changes ADD COLUMN sponsor_at_submission TEXT;

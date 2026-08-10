@@ -6,6 +6,8 @@ import { Card } from "@/components/card";
 import { PeekLink } from "@/components/task-peek";
 import { SectionTabs } from "@/components/section-tabs";
 import { actionError, api, loadError } from "@/lib/api";
+import { ReceiptLine } from "@/components/receipt";
+import type { Receipt } from "@/lib/entity-ref";
 import { reportStatus } from "@/lib/status";
 
 /** The Monday cockpit: the week's ritual in one room.
@@ -18,6 +20,18 @@ import { reportStatus } from "@/lib/status";
  *
  *  Composition only. Every number here already had a home; nothing is
  *  computed twice, and the one write is the commit the ritual ends with. */
+
+type Intervention = {
+  kind: string;
+  entity: string;
+  entity_id: number;
+  title: string;
+  condition: string;
+  owner: string;
+  action: string;
+  receipts: Receipt[];
+  link: string;
+};
 
 type Cockpit = {
   week: {
@@ -99,6 +113,11 @@ export default function Planning() {
   const [data, setData] = useState<Cockpit | null>(null);
   const [error, setError] = useState("");
 
+  // its own request, not a field on /api/planning: the queue composes health,
+  // findings, blockers and decisions, and a cockpit that could not render
+  // until all four had been ranked would be slower for every reader who came
+  // for last week's number. A failure here leaves the running order intact.
+  const [queue, setQueue] = useState<Intervention[]>([]);
   const load = useCallback(() => {
     api<Cockpit>("/api/planning")
       .then((d) => {
@@ -106,6 +125,9 @@ export default function Planning() {
         setError("");
       })
       .catch((e) => setError(loadError(e)));
+    api<Intervention[]>("/api/interventions")
+      .then(setQueue)
+      .catch(() => {});
   }, []);
   useEffect(load, [load]);
 
@@ -138,6 +160,46 @@ export default function Planning() {
         The week, in the order the meeting runs it. Every number here also
         lives on its own page — this is the running order, not a second copy.
       </p>
+
+      {/* 0 — what needs a call, ranked. Deliberately ABOVE the running
+          order: a manager who reads nothing else must still leave with the
+          list, and the four engines behind it (health, blockers, findings,
+          the decision sweep) each had their own page and their own ordering
+          (services/intervention.py). */}
+      {queue.length > 0 ? (
+        <Card title="Needs a call">
+          <p className="mb-2 text-xs text-ink-3">
+            Ranked by consequence. Each row states what is true, who holds it,
+            and the next move. Disagree with the order by reading the receipt.
+          </p>
+          <ul className="space-y-2.5 text-sm">
+            {queue.map((q) => (
+              <li key={`${q.entity}${q.entity_id}`}>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <a
+                    href={q.link}
+                    className="font-medium hover:underline"
+                  >
+                    {q.title}
+                  </a>
+                  <span className="text-xs text-ink-3">
+                    {q.condition}
+                    {q.owner ? ` · @${q.owner}` : " · unowned"}
+                  </span>
+                </div>
+                <p className="text-xs text-ink-2">{q.action}</p>
+                {q.receipts.map((r, i) => (
+                  <ReceiptLine
+                    key={i}
+                    receipt={r}
+                    className="block text-xs text-ink-3"
+                  />
+                ))}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {/* 1 — how last week went, before anything about this one */}
       <Card title={`1 · Last week (${d.last_week.week})`}>

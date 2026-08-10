@@ -299,7 +299,17 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "allocations": ("created_by", "person"),
     "intake_requests": ("created_by", "requester"),
     "lessons": ("created_by",),
-    "pending_changes": ("proposed_by", "reviewed_by", "requested_by"),
+    # sponsor_at_submission is a NAME (010) and `tasks.sponsor` is renamed —
+    # leaving it behind makes the two disagree, and review._acceptance_evidence
+    # reads that disagreement as a handover, printing "X sponsored this when the
+    # work was submitted" about a delegation that never moved, in front of the
+    # Approve button.
+    "pending_changes": (
+        "proposed_by",
+        "reviewed_by",
+        "requested_by",
+        "sponsor_at_submission",
+    ),
     "notifications": ("user",),
     "notification_reads": ("user",),
     "feature_unlocks": ("person",),

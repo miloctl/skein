@@ -23,8 +23,9 @@ CREATE TABLE IF NOT EXISTS notification_reads (
 );
 
 -- The unread query filters `notifications` by (id, user) pairs absent from
--- here, and the primary key already serves that lookup. This reverse index
--- serves the other direction: `retention.prune` asks, per old team row,
--- whether EVERY active human has dismissed it, which walks the roster and
--- probes this table by user.
+-- here, and the primary key already serves that lookup — both columns are
+-- bound, `retention.prune` included. This reverse index serves the one lookup
+-- that binds `user` alone: `users.py::rename_user` folds the losing name's
+-- dismissals before the attribution UPDATE. Without it that fold scans the
+-- whole table on every roster merge.
 CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads (user);
