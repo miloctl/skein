@@ -78,6 +78,11 @@ LIMITS = {
     "write": 30,  # generic create-endpoint cap — content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call
     "verify": 2,  # full-chain walk over an unpruned table — the priciest read
+    # per-row provenance. Ids are a dense integer space and this answers about
+    # ONE row, so an uncapped GET is the mechanism that turns a per-row
+    # disclosure into a dataset. Generous for a person opening panels, useless
+    # for a script walking ids.
+    "provenance": 60,
     # the one surface an UNAUTHENTICATED caller can use to make us call out to
     # the identity provider. Generous for a person signing in, useless as an
     # amplifier. Keyed by client address, since a signed-out caller has no name.

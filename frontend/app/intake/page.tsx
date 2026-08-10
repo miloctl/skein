@@ -116,7 +116,12 @@ function WhatIf({ requestId }: { requestId: number }) {
             max={100}
             value={percent}
             aria-label="Percent of each person"
-            onChange={(ev) => setPercent(Number(ev.target.value))}
+            // clamped here, not only by min/max: those are not enforced while
+            // typing, and an empty field is Number("") === 0, which the
+            // service refuses with a 400 for a value the reader never chose
+            onChange={(ev) =>
+              setPercent(Math.max(1, Math.min(100, Number(ev.target.value) || 1)))
+            }
             className="mx-1 w-14 rounded border border-line-strong bg-transparent px-1 py-0.5 text-xs"
           />
           %

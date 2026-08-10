@@ -634,6 +634,21 @@ def build_titler():
     )
 
 
+def _thread_engagement(thread_id: str) -> int:
+    """The engagement this chat is linked to, or 0.
+
+    A memory filed against an engagement is recalled into conversations ABOUT
+    that engagement and no others (services/memory.py::recall). The link is the
+    one the sidebar already offers, so the reader who made it gets the benefit
+    without a second habit. A thread with no link recalls the team's memories
+    exactly as before.
+    """
+    from .. import db
+
+    row = db.query_one("SELECT engagement_id FROM chat_threads WHERE id = ?", (thread_id,))
+    return int(row["engagement_id"]) if row and row["engagement_id"] else 0
+
+
 def build_agent(
     thread_id: str, user: str = "anonymous", persona: str = "", stateless: bool = False
 ):
@@ -1016,7 +1031,7 @@ def build_agent(
         # model is told must be the number take_consult enforces, and a
         # duplicated literal goes stale the moment identity.py moves
         consults=MAX_CONSULTS_PER_TURN,
-    ) + memory_prompt(user)
+    ) + memory_prompt(user, engagement_id=_thread_engagement(thread_id))
     if persona:
         from ..services.personas import get_persona
 

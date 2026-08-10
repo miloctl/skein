@@ -1878,6 +1878,43 @@ def get_engagement_brief(engagement_id: int, user: CurrentUser, viewer: ViewerDe
 
 @router.get("/provenance/{entity}/{entity_id}")
 def get_provenance(entity: str, entity_id: int, user: CurrentUser, viewer: ViewerDep):
+    # capped: ids are a dense integer space and this answers about ONE row, so
+    # an uncapped GET is the mechanism that turns per-row provenance into a
+    # dataset (app/ratelimit.py names the bucket and the reasoning).
     """How one row came to exist, and what has happened to it since. Read-only
     composition over rows that already exist (services/provenance.py)."""
+    ratelimit.check("provenance", user)
     return provenance.lineage(entity, entity_id, viewer)
+
+
+class EngagementMemoryIn(BaseModel):
+    """What a conversation produced, filed against the engagement it was about.
+
+    NOT `OutcomeIn`, which is already the meeting-outcome body above: two
+    models with one name is a redefinition mypy catches and a reader does not.
+    """
+
+    content: str = Field(..., min_length=1, max_length=2000)
+    topic: str = Field("", max_length=100)
+    thread_id: str = Field("", max_length=120)
+
+
+@router.post("/engagements/{engagement_id}/memory")
+def post_engagement_memory(
+    engagement_id: int, body: EngagementMemoryIn, user: StrongUser, viewer: ViewerDep
+):
+    """File what a conversation produced as this engagement's memory.
+
+    StrongUser: the proposal quotes the text back to a reviewer and names the
+    engagement, and in trusted-header mode a self-asserted name could file
+    against any engagement it could read.
+    """
+    ratelimit.check("memory", user)
+    return memory.propose_engagement_memory(
+        engagement_id,
+        body.content,
+        body.topic,
+        body.thread_id,
+        actor=user,
+        viewer=viewer,
+    )

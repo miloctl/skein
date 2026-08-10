@@ -160,20 +160,29 @@ function Dismiss({ id, onDone }: { id: number; onDone: () => void }) {
  */
 function StakeholderBrief({ eventId }: { eventId: number }) {
   const [open, setOpen] = useState(false);
+  // the shape services/stakeholders.py::open_threads returns: one row per
+  // party, each carrying its items. The planning cockpit reads the same
+  // service and types it this way (app/planning/page.tsx)
   const [threads, setThreads] = useState<
-    { party: string; kind: string; summary: string; due_date: string | null }[] | null
+    { party: string; items: { kind: string; text: string; when: string }[] }[] | null
   >(null);
+  // a THIRD state. `[]` is what a meeting with no outside attendee returns,
+  // so a failure written as `[]` renders "nothing is open" — a claim about the
+  // world manufactured from a transport failure, read by somebody walking into
+  // the room.
+  const [err, setErr] = useState("");
 
   const show = async () => {
     setOpen(true);
-    if (threads) return;
+    if (threads !== null) return; // `[]` is a real answer, not a cache miss
     try {
       const r = await api<{ threads: typeof threads }>(
         `/api/events/${eventId}/stakeholders`,
       );
       setThreads(r.threads ?? []);
-    } catch {
-      setThreads([]);
+      setErr("");
+    } catch (e) {
+      setErr(actionError(e));
     }
   };
 
@@ -181,28 +190,34 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
     return (
       <button
         onClick={show}
+        aria-expanded={false}
         className="ml-1.5 rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
       >
         what is open?
       </button>
     );
   return (
-    <span className="ml-1.5 block text-xs text-ink-3">
-      {threads === null ? (
-        "Loading…"
+    // a DIV, not a span: it holds a list, and phrasing content cannot
+    <div className="ml-1.5 text-xs text-ink-3">
+      {err ? (
+        <p className="text-danger">{err}</p>
+      ) : threads === null ? (
+        <p>Loading…</p>
       ) : threads.length === 0 ? (
-        "Nothing is open with anyone outside the team in this meeting."
+        <p>Nothing is open with anyone outside the team in this meeting.</p>
       ) : (
         <ul className="mt-0.5 space-y-0.5">
-          {threads.map((t, i) => (
-            <li key={i}>
-              {t.party}: {t.summary}
-              {t.due_date ? ` (due ${t.due_date})` : ""}
+          {threads.map((t) => (
+            <li key={t.party}>
+              {t.party}:{" "}
+              {t.items
+                .map((i) => i.text + (i.when ? ` (${i.when})` : ""))
+                .join("; ")}
             </li>
           ))}
         </ul>
       )}
-    </span>
+    </div>
   );
 }
 

@@ -15,8 +15,21 @@ edited twice since" is a reason to trust it or to look again.
 Read-only composition over rows that already exist. No table, no write path.
 """
 
-from .. import config, db
+from .. import db
 from . import scope
+
+
+def _proposal_kinds(table: str) -> tuple[str, ...]:
+    """Every proposal entity that applies to this table.
+
+    Read from `review._TARGET_TABLE`, which is the registry's own authority for
+    "what does this proposal target" and is CI-checked against the registry —
+    so an entity added there shows up here on the day it ships rather than the
+    day somebody remembers.
+    """
+    from .review import _TARGET_TABLE
+
+    return tuple(k for k, v in _TARGET_TABLE.items() if v == table) or ("",)
 
 
 def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
@@ -29,7 +42,10 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     """
     table = _TABLES.get(entity)
     if not table:
-        return {}
+        # a 404, never `{}` at 200: an empty object has no `history` key, and
+        # the renderer reads `.length` off it and unmounts the panel — the
+        # same failure `review.list_changes` records for its evidence block
+        raise db.NotFound(f"no provenance for '{entity}'")
     frag, vp = scope.visible_filter(viewer, table)
     row = db.query_one(
         f"SELECT origin, created_by, created_at FROM {table}"  # noqa: S608 — table from the _TABLES map, visible_filter emits only bound marks
@@ -43,12 +59,20 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     # by approve_change at apply time, so this is the authoritative link — a
     # match on entity + entity_id would also catch REJECTED proposals against
     # the same row, which never became anything.
+    #
+    # The entity set is DERIVED from review's own target map, never guessed by
+    # appending `_edit`: only three `_edit` entities exist, and the real update
+    # entities are named differently — `task_completion` and `delegation` both
+    # target `tasks`, `question_assign` targets `questions`. Guessing missed a
+    # sponsor's own acceptance verdict on the one entity the UI ships.
+    kinds = _proposal_kinds(table)
+    marks = ",".join("?" * len(kinds))
     proposal = db.query_one(
-        "SELECT id, entity, action, proposed_by, requested_by, origin, created_at,"
+        "SELECT id, entity, action, proposed_by, requested_by, origin, created_at,"  # noqa: S608 — marks are bound
         " reviewed_by, reviewed_at, reviewed_strong, reviewed_override, review_note"
-        " FROM pending_changes WHERE result_id = ? AND entity IN (?, ?)"
+        f" FROM pending_changes WHERE result_id = ? AND entity IN ({marks})"
         " AND status = 'approved' ORDER BY id DESC LIMIT 1",
-        (entity_id, entity, f"{entity}_edit"),
+        (entity_id, *kinds),
     )
 
     return {
@@ -61,7 +85,6 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
         # there is a record of a click and not of a person — the same
         # distinction the trust score refuses to count (services/delegation.py).
         "verdict_is_weak": bool(proposal and not proposal["reviewed_strong"]),
-        "auth_mode": config.AUTH_MODE,
         "history": _history(entity, entity_id, viewer),
     }
 
@@ -93,7 +116,8 @@ _CHANGED = {
     "promise": ("update_promise", "edit_promise"),
     "note": ("update_note", "delete_note"),
     "lesson": (),
-    "engagement": ("update_engagement", "close_engagement"),
+    # no `close_engagement`: no writer emits that action word
+    "engagement": ("update_engagement",),
 }
 
 
@@ -105,19 +129,42 @@ def _history(entity: str, entity_id: int, viewer: scope.Viewer) -> list[dict]:
     tested too, so `#12` in a task's detail cannot pull in a blocker's row —
     the two number spaces are independent and a bare id match crossed them.
 
-    NOT viewer-filtered by tier: `activity` carries none (scope.UNSCOPED says
-    why). The scoping that matters already happened — the caller could read the
-    row, and `detail` is written through `scope.detail`, which keeps a scoped
-    row's body out of the ledger entirely.
+    The ACTOR is withheld for anybody `activity.visible_actor_filter` would
+    hide — which is every human but the reader, plus agents and system actors.
+    Without that, this is a fourth reader of `activity` beside `feed`, the raw
+    endpoint and My Day's digest, and the only one that would answer "who
+    touched what, when" about a colleague. Task ids are a dense integer space,
+    so iterating this endpoint would rebuild the timeline `feed` refuses to
+    serve. The change itself is what the reader needs — "edited twice since" —
+    and that survives without the name.
+
+    `detail` is not selected at all. Nothing renders it, and it is the one
+    column in this table that can carry a person's name from a writer that
+    does not route through `scope.detail` (delegate_task and assign_question
+    both interpolate one).
+
+    No tier filter: `activity` carries none (scope.UNSCOPED says why). The
+    scoping that matters already happened — the caller could read the row.
     """
+    from .activity import visible_actor_filter
+
     actions = _CHANGED.get(entity, ())
     if not actions:
         return []
     marks = ",".join("?" * len(actions))
-    return db.query(
-        f"SELECT actor, action, detail, created_at FROM activity"  # noqa: S608 — marks are bound
+    rows = db.query(
+        f"SELECT actor, action, created_at FROM activity"  # noqa: S608 — marks are bound
         f" WHERE action IN ({marks})"
         " AND (detail = ? OR detail LIKE ? OR detail LIKE ?)"
         " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT 20",
         (*actions, f"#{entity_id}", f"#{entity_id} %", f"#{entity_id}->%"),
     )
+    mine, ap = visible_actor_filter(viewer.name)
+    shown = {
+        r["actor"]
+        for r in db.query(
+            f"SELECT DISTINCT actor FROM activity WHERE {mine}",  # noqa: S608 — visible_actor_filter emits only bound marks
+            tuple(ap),
+        )
+    }
+    return [{**r, "actor": r["actor"] if r["actor"] in shown else ""} for r in rows]

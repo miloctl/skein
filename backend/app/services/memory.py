@@ -11,6 +11,9 @@ def remember(
     topic: str = "",
     user: str = "",
     thread_id: str = "",
+    engagement_id: int = 0,
+    source_kind: str = "",
+    source_id: str = "",
     *,
     actor: str = "agent",
     origin: str = "human",
@@ -33,10 +36,34 @@ def remember(
         ratelimit.check("memory", actor)
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        # the engagement is resolved through the WRITER's filter, not trusted
+        # from the caller: a memory filed against an engagement somebody cannot
+        # read would be recalled into every conversation about it
+        if engagement_id:
+            efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
+            if not db.query_one(
+                f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                (engagement_id, *ep),
+            ):
+                raise ValueError(scope.missing_text("engagements", engagement_id))
         mid = db.execute(
             "INSERT INTO memories (topic, content, user, thread_id, origin, created_by,"
-            " created_at, visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (topic, content, user, thread_id, origin, actor, db.now(), tier, crew),
+            " created_at, visibility, crew_id, engagement_id, source_kind, source_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                topic,
+                content,
+                user,
+                thread_id,
+                origin,
+                actor,
+                db.now(),
+                tier,
+                crew,
+                engagement_id or None,
+                source_kind[:40],
+                source_id[:80],
+            ),
         )
         db.log_activity(actor, "remember", scope.detail(tier, f"#{mid}", topic or content[:60]))
         index_record("memory", mid, topic or content[:60], content)
@@ -79,7 +106,11 @@ def forget(memory_id: int, *, actor: str, origin: str = "human") -> dict:
 
 
 def recall(
-    query: str = "", user: str = "", limit: int = 10, viewer: scope.Viewer = scope.NOBODY
+    query: str = "",
+    user: str = "",
+    limit: int = 10,
+    viewer: scope.Viewer = scope.NOBODY,
+    engagement_id: int = 0,
 ) -> list[dict]:
     """Memories for one person, or the ones addressed to everybody.
 
@@ -88,11 +119,24 @@ def recall(
     person's search out of another person's memories — and memory_prompt
     injects whatever comes back into a system prompt, where nothing later
     distinguishes it from the asker's own.
+
+    `engagement_id` ADDS that engagement's own memories to the team-wide ones
+    and never substitutes for them: a fact about how this team works still
+    holds while somebody works one engagement. Memories belonging to a
+    DIFFERENT engagement are excluded, which is the whole reason the column
+    exists — a fact learned on one piece of work was recalled into every
+    conversation about every other one.
     """
     frag, vp = scope.visible_filter(viewer, "memories")
     # `user IN (?, '')`: an empty user is a memory addressed to the whole team,
     # which every branch must keep returning
     owner, op = (" AND user IN (?, '')", [user]) if user else ("", [])
+    # NULL (the team's own memories) plus this engagement's, never another's
+    eng, ep2 = (
+        (" AND (engagement_id IS NULL OR engagement_id = ?)", [engagement_id])
+        if engagement_id
+        else (" AND engagement_id IS NULL", [])
+    )
     if query:
         from .search import search
 
@@ -101,23 +145,74 @@ def recall(
         if not ids:
             return []
         rows = db.query(
-            f"SELECT * FROM memories WHERE id IN ({','.join('?' * len(ids))}) AND {frag}{owner}",  # noqa: S608 — marks generated from the id count; scope.visible_filter emits only bound marks
-            (*ids, *vp, *op),
+            f"SELECT * FROM memories WHERE id IN ({','.join('?' * len(ids))}) AND {frag}{owner}{eng}",  # noqa: S608 — marks generated from the id count; scope.visible_filter emits only bound marks
+            (*ids, *vp, *op, *ep2),
         )
         order = {mid: i for i, mid in enumerate(ids)}
         return sorted(rows, key=lambda r: order.get(r["id"], 99))
     return db.query(
-        f"SELECT * FROM memories WHERE {frag}{owner} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (*vp, *op, limit),
+        f"SELECT * FROM memories WHERE {frag}{owner}{eng} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (*vp, *op, *ep2, limit),
     )
 
 
-def memory_prompt(user: str, limit: int = 8) -> str:
-    """Recent memories rendered for system-prompt injection; empty string when none."""
-    rows = recall(user=user, limit=limit)
+def memory_prompt(user: str, limit: int = 8, engagement_id: int = 0) -> str:
+    """Recent memories rendered for system-prompt injection; empty string when none.
+
+    `engagement_id` comes from the chat thread's own link
+    (services/chat_threads.py). A thread about one engagement recalls that
+    engagement's memories on top of the team's, which is what makes filing one
+    worth the reviewer's time.
+    """
+    rows = recall(user=user, limit=limit, engagement_id=engagement_id)
     if not rows:
         return ""
     lines = [
         f"- [{m['topic']}] {m['content']}" if m["topic"] else f"- {m['content']}" for m in rows
     ]
     return "\n\nTeam memory (from prior conversations):\n" + "\n".join(lines)
+
+
+def propose_engagement_memory(
+    engagement_id: int,
+    content: str,
+    topic: str = "",
+    thread_id: str = "",
+    *,
+    actor: str,
+    viewer: scope.Viewer = scope.NOBODY,
+) -> dict:
+    """File what a conversation produced as this engagement's memory.
+
+    ALWAYS a proposal, whatever `SKEIN_AGENT_REVIEW` is set to. A memory is
+    injected into every future conversation about this engagement, so it is the
+    highest-leverage write in the app — and this text comes out of a chat,
+    which is the one place a model's summary and a person's own words are hard
+    to tell apart. A second human reads it before it steers anything.
+    """
+    from .review import propose_change
+
+    efrag, ep = scope.visible_filter(viewer, "engagements")
+    eng = db.query_one(
+        f"SELECT name FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        (engagement_id, *ep),
+    )
+    if not eng:
+        raise scope.missing("engagements", engagement_id)
+    return propose_change(
+        "memory",
+        "create",
+        {
+            "content": content.strip(),
+            "topic": topic.strip(),
+            "engagement_id": engagement_id,
+            "source_kind": "chat",
+            "source_id": thread_id,
+        },
+        # the engagement NAME, not just its id: the reviewer is deciding
+        # whether this fact belongs to this work, and an id is not that
+        summary=f"remember for {eng['name']}: {content.strip()[:80]}",
+        actor=actor,
+        origin="human",
+        requested_by=actor,
+    )
