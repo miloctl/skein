@@ -232,7 +232,7 @@ export default function Planning() {
         ) : null}
       </Card>
 
-      {/* 2 — what needs a decision, ranked, AFTER last week's result. The
+      {/* 2 — what needs a call, ranked, AFTER last week's result. The
           running order is load-bearing (this file's header, and
           services/planning.py): a room that opens on remediation commits the
           week before anyone has read whether the last one landed. Numbered
@@ -245,7 +245,7 @@ export default function Planning() {
           <p className="text-sm text-ink-3">Loading…</p>
         ) : queue.length === 0 ? (
           <p className="text-sm text-ink-3">
-            Nothing is escalated, overdue, or unowned. Read the cards below.
+            Nothing in the queue needs a call. Read the cards below.
           </p>
         ) : (
           <>
@@ -306,7 +306,7 @@ export default function Planning() {
         )}
       </Card>
 
-      {/* 2 — what the week already holds, and whether it fits */}
+      {/* 3 — what the week already holds, and whether it fits */}
       <Card title={`3 · This week (${d.week.week})`}>
         <p className="text-sm">
           {d.week.committed === 0
@@ -326,7 +326,7 @@ export default function Planning() {
         )}
       </Card>
 
-      {/* 3 — the weeks after this one. Accepting work today against today's
+      {/* 4 — the weeks after this one. Accepting work today against today's
           numbers is how a conflict gets noticed on the day it arrives. */}
       <Card title="4 · The weeks ahead">
         <div className="overflow-x-auto">
@@ -384,7 +384,7 @@ export default function Planning() {
         </div>
       </Card>
 
-      {/* 4 — what wants in */}
+      {/* 5 — what wants in */}
       <Card title={`5 · Waiting for triage (${d.intake.length})`}>
         {d.intake.length === 0 ? (
           <p className="text-sm text-ink-3">Nothing is waiting for triage.</p>
@@ -441,13 +441,18 @@ export default function Planning() {
       ) : null}
 
       {/* who is owed what, outside the team. Read before the week's meetings
-          rather than after them, which is when it was answerable at all. */}
+          rather than after them, which is when it was answerable at all.
+
+          5c, like its two conditional siblings: the agenda is read down the
+          page in a meeting, and an unnumbered card between 5 and 6 is where a
+          reader loses their place. A fixed number would leave a gap on any
+          week with no outside threads. */}
       {d.stakeholders.length > 0 ? (
         <Card
           title={
             d.stakeholders.length > PARTY_CAP
-              ? `Open outside the team (${PARTY_CAP} of ${d.stakeholders.length}, busiest first)`
-              : `Open outside the team (${d.stakeholders.length})`
+              ? `5c · Open outside the team (${PARTY_CAP} of ${d.stakeholders.length}, busiest first)`
+              : `5c · Open outside the team (${d.stakeholders.length})`
           }
         >
           <ul className="space-y-2 text-sm">
@@ -501,7 +506,7 @@ export default function Planning() {
         </Card>
       ) : null}
 
-      {/* 5 — what has gone stale, and which way the portfolio moved */}
+      {/* 6 — what has gone stale, and which way the portfolio moved */}
       <Card title="6 · Stale decisions">
         {d.health_changes.length > 0 ? (
           <>
@@ -572,7 +577,7 @@ export default function Planning() {
         </p>
       </Card>
 
-      {/* 6 — the one write the ritual ends with */}
+      {/* 7 — the one write the ritual ends with */}
       <Card title="7 · Close the meeting">
         <button
           onClick={async () => {

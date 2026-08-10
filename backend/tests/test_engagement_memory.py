@@ -139,3 +139,43 @@ def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
     assert row["visibility"] == scope.CREW and row["crew_id"] == crew["id"]
     # and it is not recalled by anyone outside the crew
     assert not memory.recall(viewer=scope.Viewer("outsider", True), engagement_id=eng["id"])
+
+
+def test_a_crew_memory_proposal_is_not_announced_to_the_roster(client, fresh_db):
+    """`propose_change` posts its summary to the 'team' notification feed,
+    which carries no tier and reaches everybody. Without the gate a crew
+    engagement's NAME and eighty characters of its memory left that way."""
+    from app.services import crews, engagements, notifications, users
+
+    for n in ("insider", "outsider"):
+        users.ensure_user(n)
+    crew = crews.create_crew("ops", actor="insider")
+    eng = engagements.create_engagement(
+        "Nightshade",
+        project_class="migration",
+        actor="insider",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    memory.propose_engagement_memory(
+        eng["id"],
+        "the client will not renew",
+        actor="insider",
+        viewer=scope.Viewer("insider", True),
+    )
+    for note in notifications.list_notifications("outsider"):
+        assert "Nightshade" not in note["message"]
+        assert "will not renew" not in note["message"]
+
+
+def test_a_private_engagement_refuses_a_memory_it_could_never_review(client, fresh_db):
+    from app.services import engagements, users
+
+    users.ensure_user("ava")
+    eng = engagements.create_engagement(
+        "Solo", project_class="prototype", actor="ava", visibility=scope.PRIVATE
+    )
+    with pytest.raises(ValueError, match="never be reviewed"):
+        memory.propose_engagement_memory(
+            eng["id"], "a thought", actor="ava", viewer=scope.Viewer("ava", True)
+        )

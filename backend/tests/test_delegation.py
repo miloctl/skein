@@ -277,3 +277,17 @@ def test_reassignment_cannot_be_used_to_close_delegated_work(client, fresh_db):
     # the sponsor may still end it — the verdict is theirs on either path
     work.update_task(tid, assignee="mira", actor="mira")
     assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == ""
+
+
+def test_an_agent_proposed_reassignment_auto_rejects_instead_of_boomeranging(client, fresh_db):
+    """approve_change applies as the PROPOSER, so an agent-filed reassignment
+    of delegated work can never be approved into success. A plain refusal there
+    resets the proposal to pending and returns on every future verdict."""
+    from app.services import review
+
+    tid = _delegated_task(fresh_db)
+    p = review.propose_change("task", "update", {"assignee": "mira"}, entity_id=tid, actor="scout")
+    with pytest.raises(ValueError, match="auto-rejected"):
+        review.approve_change(p["id"], actor="mira", strong=True)
+    settled = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
+    assert settled["status"] == "rejected"

@@ -2,7 +2,9 @@
 
 Skein computes the manager's evidence in four engines that never met: the
 findings rules, engagement health, the blocker register, and the decision
-half-life sweep. Each has its own page, its own ordering and its own vocabulary,
+half-life sweep. Each has its own page, its own ordering and its own
+vocabulary, and no reader has ever seen them ranked against each other.
+
 Composition only — no table, no write path, no new habit. Every row here is a
 row one of those engines already produced, restated in one shape and ordered by
 consequence. The receipt travels with it, so a reader can disagree with the
@@ -95,8 +97,8 @@ def _dedupe(rows: list[dict]) -> list[dict]:
 
     The sources overlap by design — a task that is unassigned, due, in progress
     and untouched satisfies both the unowned arm and the stale-WIP arm. Left in,
-    the manager reads the same task twice inside a twelve-row list that claims
-    to be one ranked queue, and the page hands React a duplicate key.
+    the manager reads the same task twice inside one ranked list, and the page
+    hands React a duplicate key.
 
     Takes an already-sorted list, so the first appearance is the strongest one.
     """
@@ -121,15 +123,20 @@ def _finding_action(finding: dict) -> str:
     are the fallback for a rule whose message is a statement only.
     """
     message = finding.get("message", "")
-    tail = message.rsplit("—", 1)[-1].strip() if "—" in message else ""
-    if not tail:
-        # ", <verb> it" and ": <verb> it" are the other two shapes the rules use
-        for sep in (". ", ": "):
-            if sep in message:
-                tail = message.rsplit(sep, 1)[-1].strip()
-                break
-    if tail and tail[:1].isupper() and len(tail) < 120:
-        return tail.rstrip(".")
+    # the em dash first, then a sentence break: those are the two shapes the
+    # rules use. NOT case-gated — the rules write their instruction in lower
+    # case ("conclude it or extend it on purpose"), and an isupper() test sent
+    # every one of them to the fallback, which is the exact substitution this
+    # function exists to stop.
+    tail = ""
+    for sep in ("—", ". ", ": "):
+        if sep in message:
+            tail = message.rsplit(sep, 1)[-1].strip().rstrip(".")
+            break
+    # an instruction starts with a verb, so it is short. A long tail is the
+    # rest of a statement, and a statement in the action slot says nothing.
+    if tail and len(tail) < 120:
+        return tail[:1].upper() + tail[1:]
     return "Convert it to work, defer it with a date, or dismiss it with a reason"
 
 
@@ -331,9 +338,16 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 # rule rather than take its word (services/insights.py).
                 "receipts": [refs.receipt(_finding_receipt(f))],
                 "order": _order(kind),
-                # a finding that names an engagement lands ON it: that page
-                # carries the drift, the receipts and the work, where /insights
-                # carries a feed the reader then has to search
+                # the engagement this finding is ABOUT, when its rule recorded
+                # one. Carried on the row rather than re-derived by every
+                # reader: `engagement_brief._mine` narrows on it, and the link
+                # below is built from the same value, so a row cannot land on a
+                # page that then says it does not belong there.
+                "engagement_id": (
+                    f["receipt"].get("engagement_id")
+                    if isinstance(f.get("receipt"), dict)
+                    else None
+                ),
                 "link": (
                     f"/engagement/{f['receipt']['engagement_id']}"
                     if isinstance(f.get("receipt"), dict) and f["receipt"].get("engagement_id")

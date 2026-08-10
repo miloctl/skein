@@ -206,6 +206,18 @@ def propose_engagement_memory(
     )
     if not eng:
         raise scope.missing("engagements", engagement_id)
+    if eng["visibility"] == scope.PRIVATE:
+        # `review._governing_tier` resolves a create's readability from the
+        # payload's tier plus its `author` key, and `memories` records the
+        # person a memory is ADDRESSED TO rather than its writer — so a private
+        # proposal resolves to "nobody may read this", including the person who
+        # filed it. The row would sit pending forever with no surface able to
+        # approve or reject it.
+        raise ValueError(
+            "a private engagement has one reader, so a memory filed against it"
+            " could never be reviewed. Move the engagement to a crew, or"
+            " remember the fact for the team instead."
+        )
     return propose_change(
         "memory",
         "create",
@@ -225,10 +237,20 @@ def propose_engagement_memory(
             "visibility": eng["visibility"],
             "crew_id": eng["crew_id"] or 0,
         },
-        # the engagement NAME, not just its id: the reviewer is deciding
-        # whether this fact belongs to this work, and an id is not that
-        summary=f"remember for {eng['name']}: {content.strip()[:80]}",
+        # scope.detail, and notify_team gated on the tier — the pair
+        # `delegation.submit_completion` uses, for the same reason. The summary
+        # is served by GET /api/review and by my_day's pending_reviews, and
+        # `propose_change` ALSO posts it to the 'team' notification feed, which
+        # carries no tier and reaches every roster member. Without both halves
+        # a crew engagement's NAME and eighty characters of its memory reached
+        # somebody who cannot read either.
+        summary=scope.detail(
+            eng["visibility"],
+            f"remember for engagement #{engagement_id}",
+            f"{eng['name']}: {content.strip()[:80]}",
+        ),
         actor=actor,
         origin="human",
         requested_by=actor,
+        notify_team=eng["visibility"] == scope.WORKSPACE,
     )

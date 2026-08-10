@@ -171,8 +171,8 @@ export default function EngagementBrief({
           <p className="whitespace-pre-wrap text-sm text-ink-2">{e.outcome}</p>
         ) : (
           <EmptyState>
-            An engagement closes against its intended outcome. Add one on
-            Work → Browse.
+            An engagement closes against its intended outcome. Ask the Chief
+            of Staff in Chat to record one.
           </EmptyState>
         )}
         {e.kind === "experiment" ? (
@@ -205,7 +205,7 @@ export default function EngagementBrief({
               <span className="font-medium">{b.health.color}</span>
               {b.health.moved_from ? (
                 <span className="text-xs text-ink-3">
-                  {b.health.moved_from} → {b.health.color} since yesterday
+                  {b.health.moved_from} → {b.health.color} since the last snapshot
                 </span>
               ) : null}
             </p>
@@ -219,7 +219,7 @@ export default function EngagementBrief({
               </ul>
             ) : (
               <p className="mt-1 text-xs text-ink-3">
-                No signal is firing against this engagement.
+                No signal fires against this engagement.
               </p>
             )}
           </>
@@ -228,7 +228,7 @@ export default function EngagementBrief({
           // only, so a closed one has no colour — and a blank line reads as
           // "green" to anybody who does not know that rule.
           <p className="text-sm text-ink-3">
-            Closed engagements are not scored. Read the conclusion above.
+            Closed engagements are not scored.
           </p>
         )}
       </Card>
@@ -239,8 +239,7 @@ export default function EngagementBrief({
       <Card title="What this needs">
         {b.next_actions.length === 0 ? (
           <p className="text-sm text-ink-3">
-            Nothing in the portfolio queue&apos;s top {b.queue_scanned} rows
-            belongs to this engagement.
+            Nothing in the portfolio queue belongs to this engagement.
           </p>
         ) : (
           <ul className="space-y-2.5 text-sm">
@@ -275,7 +274,8 @@ export default function EngagementBrief({
         <Card title={`Milestones (${b.milestones.length})`}>
           {b.milestones.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No milestone is recorded. Add one on Work → Browse.
+              No milestones yet — ask the Chief of Staff in Chat to plan a
+              project.
             </p>
           ) : (
             <ul className="space-y-1 text-sm">
@@ -295,7 +295,7 @@ export default function EngagementBrief({
         <Card title={`Open blockers (${b.blockers.length})`}>
           {b.blockers.length === 0 ? (
             <p className="text-sm text-ink-3">
-              Nothing is blocked. Capture one with &lsquo;blocked on …&rsquo;.
+              Nothing is blocked. Capture one with &lsquo;blocked on …&rsquo; in ⌘K.
             </p>
           ) : (
             <ul className="space-y-1 text-sm">
@@ -316,7 +316,7 @@ export default function EngagementBrief({
       <Card title={`Open work (${b.tasks.length}${b.tasks.length === TASK_CAP ? "+" : ""})`}>
         {b.tasks.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No work is open. Capture one with &lsquo;todo: …&rsquo;.
+            No work is open. Capture one with &lsquo;todo: …&rsquo; in ⌘K.
           </p>
         ) : (
           <ul className="space-y-1 text-sm">
@@ -416,7 +416,7 @@ export default function EngagementBrief({
           </button>
           {b.artifacts.length === 0 ? (
             <p className="text-sm text-ink-3">
-              No report is generated yet. Handoffs and readouts land here.
+              No report exists yet. Handoffs and readouts land here.
             </p>
           ) : (
             <ul className="space-y-1 text-sm">
