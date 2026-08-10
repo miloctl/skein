@@ -135,6 +135,12 @@ def _history(entity: str, entity_id: int, viewer: scope.Viewer) -> list[dict]:
     hide — every human but the reader. Agent identities and the four system
     actors stay NAMED, because that filter admits them: "scout claimed this"
     is the provenance an agent's work exists to carry.
+
+    In trusted-header mode `Viewer.name` is "" (a self-asserted name carries no
+    strength), so NO human is admitted and the reader's own actions read as
+    "somebody" too. That is the honest answer there: the server cannot prove
+    the row is theirs, and a mode that guesses would name a colleague's row on
+    a header anybody can type.
     Without that, this is a fourth reader of `activity` beside `feed`, the raw
     endpoint and My Day's digest, and the only one that would answer "who
     touched what, when" about a colleague. Task ids are a dense integer space,
