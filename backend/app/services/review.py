@@ -738,10 +738,9 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     if not task:
         return {}
     # Whether the person judging this is the person who was on the hook when
-    # the work was submitted. Authority follows the CURRENT sponsor by design,
-    # so this is a receipt, not a refusal — but a verdict that silently moved
-    # to somebody who never watched the work is exactly what a reviewer needs
-    # told before they press Approve.
+    # the work was submitted. Authority follows the CURRENT sponsor by design
+    # (010_sponsor_at_submission.sql), so this is a receipt and not a refusal:
+    # a reviewer must see the handover before they press Approve.
     was = str(change.get("sponsor_at_submission") or "")
     now = _sponsor_of(change)
     handover = was if was and was != now else ""
@@ -758,10 +757,13 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
             viewer=viewer,
             actor=viewer.name,
         )
-    except Exception:
-        # an unreadable log must not break the queue: the reviewer still has to
-        # be able to REJECT a proposal whose task went private or vanished, and
-        # this surface is where that clean-up happens
+    except db.NotFound:
+        # A SCOPE refusal only, never a bare Exception: the reviewer still has
+        # to be able to REJECT a proposal whose task went private or vanished,
+        # and this surface is where that clean-up happens — but a real database
+        # fault swallowed here renders as "no notes were filed" beside live
+        # Approve controls, which is a different sentence with a different
+        # meaning.
         notes = []
     return {**task, "worklog": notes, "sponsor_was": handover}
 

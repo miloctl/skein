@@ -259,3 +259,21 @@ def test_the_trust_read_scans_the_authority_proposals_once(client):
     assert sum(1 for r in rows if r["suggestion"]) == 40, "every pair must be promotable here"
     scans = [s for s in seen if "entity = 'authority'" in s]
     assert len(scans) == 1, f"{len(scans)} scans for {len(rows)} pairs — the N+1 is back"
+
+
+def test_reassignment_cannot_be_used_to_close_delegated_work(client, fresh_db):
+    """Two writes end one delegation: closing the task, and reassigning it away
+    from its agent (which clears delegated_agent and sponsor). Guarding only
+    the first left the second as a two-call bypass of the whole loop."""
+    from app.services import work
+
+    tid = _delegated_task(fresh_db)
+    r = client.patch(f"/api/tasks/{tid}", json={"assignee": "tester"})
+    assert r.status_code == 403
+    assert "sponsored by mira" in r.json()["detail"]
+    # the delegation survived the refusal, so the acceptance path still exists
+    assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == "mira"
+
+    # the sponsor may still end it — the verdict is theirs on either path
+    work.update_task(tid, assignee="mira", actor="mira")
+    assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == ""

@@ -349,12 +349,15 @@ def update_task(
         # The sponsor themselves is allowed through: the verdict is theirs on
         # either path, and refusing them here would make the acceptance
         # proposal the only way to close work they already own.
-        if current["sponsor"] and actor != current["sponsor"]:
-            raise PermissionError(
-                f"task #{task_id} is sponsored by {current['sponsor']} — only they"
-                f" close it. Judge the acceptance proposal in Approvals to act"
-                f" for them, which puts the reason on record"
-            )
+        _assert_sponsor(task_id, current, actor)
+    # Reassigning a delegated task away from its agent CLEARS the delegation
+    # (below), so it is the same transition wearing a different field. Guarded
+    # here or the refusal above is two PATCH calls deep: reassign to clear
+    # `delegated_agent` and `sponsor`, then close the now-undelegated task.
+    # That path also strands the acceptance proposal pending forever — its
+    # apply raises "already done", which resets it to pending on every verdict.
+    if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
+        _assert_sponsor(task_id, current, actor, verb="end this delegation")
     fields: dict[str, str | int | None] = {
         k: v
         for k, v in [
@@ -436,6 +439,28 @@ def update_task(
                 link="/dashboard",
             )
     return {"id": task_id, "updated": list(fields)}
+
+
+def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it") -> None:
+    """Only the sponsor may end a delegation, however the write is spelled.
+
+    Two writes end one: setting status to done, and reassigning the task away
+    from its agent (which clears `delegated_agent` and `sponsor`). Guarding
+    only the first leaves the second as a two-call bypass of the whole
+    acceptance loop — no verdict, no reason on record, no override marking, no
+    trust signal for the agent that did the work, and an acceptance proposal
+    stranded pending because its apply now raises "already done".
+
+    An unsponsored delegation is not refused: nobody holds it, so nobody's
+    verdict is being taken. `review._sponsor_override` covers acting for a
+    sponsor who cannot, and takes a reason for the record.
+    """
+    if task["sponsor"] and actor != task["sponsor"]:
+        raise PermissionError(
+            f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor"
+            f" can {verb}. Judge the acceptance proposal in Approvals to act for"
+            " them, which puts the reason on record"
+        )
 
 
 def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:

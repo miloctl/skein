@@ -5,7 +5,7 @@ over data the team already records — receipts shown for every verdict."""
 from datetime import date, timedelta
 
 from .. import db
-from . import scope
+from . import refs, scope
 from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS, VERDICT_FLOOR_N
 from .stats import median as _median
@@ -263,6 +263,12 @@ def engagement_health(
                 "lead": eng["lead"],
                 "health": color,
                 "receipts": receipts,
+                # the same sentences, plus what each one points at. Both are
+                # sent: an artifact renders the prose (markdown on disk has
+                # nowhere to put a link) and a screen renders the references,
+                # so a reader can open the overdue milestone the receipt names
+                # instead of hunting for it by id (services/refs.py).
+                "receipt_refs": [refs.receipt(r) for r in receipts],
             }
         )
     return out

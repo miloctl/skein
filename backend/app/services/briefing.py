@@ -275,6 +275,10 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # a bare local date here would start the window at UTC midnight and drop
     # the evening's work west of UTC (db.local_midnight_utc)
     yesterday = db.local_midnight_utc(local_today - timedelta(days=1))
+    # the label `committed_week` stores (services/weekly.py) — the reader's
+    # own commitment for THIS week is what leads their task list below
+    iso = local_today.isocalendar()
+    this_week = f"{iso.year}-W{iso.week:02d}"
 
     q_f, q_p = scope.visible_filter(viewer, "questions")
     b_f, b_p = scope.visible_filter(viewer, "blockers")
@@ -354,12 +358,29 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "pending_reviews_total": pending_total["n"] if pending_total else 0,
         "attention": attention,
         "your_work": {
+            # Commitment first, then work already started, THEN priority.
+            #
+            # Priority-and-date alone is a backlog order, not a focus order: a
+            # task the reader committed to this week sorted below any unplanned
+            # high-priority row, so the weekly ritual produced a plan that the
+            # daily surface then ignored. The commitment line is the team's own
+            # answer to "what are you doing this week", and this is the one
+            # place it is read back to the person who made it.
+            #
+            # `in_progress` second, because work already open costs more to
+            # leave than to finish, and a reader who started something and sees
+            # it ranked below a fresh task learns to distrust the order.
             "tasks": db.query(
                 "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
                 f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
-                " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+                " ORDER BY CASE WHEN committed_week = ? THEN 0 ELSE 1 END,"
+                " CASE status WHEN 'in_progress' THEN 0 ELSE 1 END,"
+                " CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                 " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
-                (user, *t_p),
+                # `this_week` binds LAST: its placeholder is in ORDER BY, which
+                # follows the scope filter's marks in the SQL text. SQLite binds
+                # by position, not by clause.
+                (user, *t_p, this_week),
             ),
             # The tier filter wraps BOTH arms. The unowned arm was already
             # workspace-locked; the named-assignee arm was not, and it is a
@@ -417,16 +438,22 @@ def attention_count(user: str) -> dict:
 
     `yours` is what is addressed to this person BY NAME and asks something of
     them: assigned open questions, owned unresolved blockers, own promises due
-    inside a week, and own stale decisions. It is what the tab title and
-    `skein attention` carry, and both of those say "waiting on you" — a
-    sentence the Inbox number cannot honestly make. It MUST equal `my_day`'s
-    `attention_total`, which the header prints: the two are read side by side,
-    on a tab and the page that tab opens.
+    inside a week, own stale decisions, and proposals they asked for. It is
+    what the tab title and `skein attention` carry, and both of those say
+    "waiting on you" — a sentence the Inbox number cannot honestly make.
 
-    Not viewer-scoped, and deliberately: every arm keys on the reader's OWN
-    name, so a row can only be counted by the person it names. The count also
-    carries no titles — it is a number, and the surfaces that render the rows
-    behind it (my_day) take a viewer.
+    It MUST equal `my_day`'s `attention_total`, which the header prints: the
+    two are read side by side, on a tab and the page that tab opens. Every arm
+    below therefore mirrors an arm of `_attention` — the same predicate AND the
+    same cap. `test_attention_count_matches_the_page` holds the pair together.
+
+    `yours` is not viewer-scoped, and deliberately: every arm keys on the
+    reader's OWN name, so a row can only be counted by the person it names.
+
+    `inbox` is a count over the WHOLE queue, unreadable rows included. It is
+    the badge on a shared destination, and a per-viewer total would disagree
+    with my_day's `pending_reviews_total`, which is unfiltered for the same
+    reason. A count carries no title.
     """
     local_today = db.today()
     week = (local_today + timedelta(days=7)).isoformat()
@@ -446,13 +473,20 @@ def attention_count(user: str) -> dict:
         # an assigned question, an owned blocker, a sponsor's acceptance ask.
         " (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
         " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
+        # a proposal this reader ASKED FOR is addressed to them, and _attention
+        # marks it audience 'you' — without this arm the tab undercounts by
+        # exactly the rows the page puts under "Needs you"
+        " + (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending'"
+        "    AND requested_by = ?)"
         f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
         f"    AND {WORKSPACE_ONLY} AND created_by = ?"
         "     AND due_date IS NOT NULL AND due_date <= ?)"
-        f" + (SELECT COUNT(*) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
+        # MIN(…, 5) mirrors `_attention`'s LIMIT 5 on the same query. Without
+        # the cap the tab reads six and the page shows five.
+        f" + (SELECT MIN(COUNT(*), 5) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
         "     AND decided_by = ?)"
         " AS yours",
-        (user, user, user, week, user),
+        (user, user, user, user, week, user),
     )
     return {
         "inbox": row["inbox"] if row else 0,

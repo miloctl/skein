@@ -44,8 +44,9 @@ type Change = {
     delegated_agent: string | null;
     forge_url: string | null;
     worklog: { id: number; author: string; note: string; created_at: string }[];
-    // set only when the sponsor CHANGED after the work was submitted —
-    // authority follows the current sponsor by design, so this is a receipt
+    // the previous sponsor's name, empty unless the sponsor changed after
+    // submission (services/review.py::_acceptance_evidence). Always present,
+    // so a presence test hits on every card.
     sponsor_was: string;
   };
   reviewed_by?: string | null;
@@ -181,12 +182,10 @@ function AcceptanceEvidence({
         </span>
       </p>
       {evidence.sponsor_was ? (
-        // authority follows the CURRENT sponsor by design, so this is a
-        // receipt and not a refusal — but a verdict that moved to somebody who
-        // never watched the work is the thing to say before Approve is pressed
+        // 010_sponsor_at_submission.sql carries the full reasoning
         <p className="mb-1 text-weld">
-          {evidence.sponsor_was} sponsored this when the work was submitted.
-          The verdict moved with the delegation.
+          {evidence.sponsor_was} sponsored this task when the work was
+          submitted. The verdict now belongs to the current sponsor.
         </p>
       ) : null}
       {evidence.forge_url ? (
