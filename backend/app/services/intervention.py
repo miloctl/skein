@@ -173,7 +173,11 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                     "engagement_red" if red else "engagement_yellow",
                     reach=len(eng["receipts"]),
                 ),
-                "link": f"/dashboard#engagement-{eng['id']}",
+                # the engagement's own page, the same target `lib/entity-ref.ts`
+                # resolves an `engagement #N` reference to. `#engagement-N` was
+                # an anchor no page renders, so the row's title landed on a
+                # list with nothing to scroll to.
+                "link": f"/engagement/{eng['id']}",
             }
         )
 

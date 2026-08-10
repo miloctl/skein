@@ -462,6 +462,13 @@ _EXEMPT_FUNCTIONS = {
     "engagements.py::_experiment_lesson": "same",
     "intake.py::_disposition": "the public disposition_request guards, then calls this",
     "private_notes.py::delete_note": "the author-private journal in its own private.db file",
+    "handoff.py::generate_handoff": (
+        "the engagement is filtered through the caller's viewer before anything"
+        " runs, and the artifact row updated is the one this call resolved by"
+        " PATH inside that engagement's own directory — not a row id a caller"
+        " named. It is an upsert of a file this call just overwrote, so the row"
+        " and the file stay one to one"
+    ),
 }
 
 

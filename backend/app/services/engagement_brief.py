@@ -82,7 +82,7 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "      (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND t.status != 'done'"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date"
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"
         # capped, and the page says so: an engagement with eighty open tasks
         # buried the drift and the reports under a wall of list
         f" LIMIT {TASK_CAP}",
@@ -97,6 +97,21 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # `portfolio._satisfied_targets` uses, for the same reason.
     delegated = _delegated(tasks, viewer)
 
+    # the matching set for `_mine` is EVERY open task, not the capped display
+    # list: a queue row for task 51 would otherwise be dropped and the card
+    # would then say nothing in the queue belongs here, which is false in
+    # exactly the way that sentence was rewritten to avoid. Ids only, so the
+    # extra read costs one column.
+    task_ids = {
+        r["id"]
+        for r in db.query(
+            f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND (t.engagement_id = ? OR t.milestone_id IN"
+            "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done'",
+            (*tp, engagement_id, engagement_id),
+        )
+    }
     blockers = _linked_blockers(engagement_id, viewer)
     return {
         "engagement": eng,
@@ -136,7 +151,7 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # nothing is escalated while the blockers card shows one that is. The
         # page states the window it read rather than asserting a fact.
         "next_actions": _mine(
-            interventions(viewer, limit=QUEUE_SCAN), engagement_id, tasks, blockers
+            interventions(viewer, limit=QUEUE_SCAN), engagement_id, task_ids, blockers
         ),
         "queue_scanned": QUEUE_SCAN,
     }
@@ -158,14 +173,27 @@ def _delegated(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
     if not delegated:
         return []
     marks = ",".join("?" * len(delegated))
-    frag, vp = scope.visible_filter(viewer, "task_worklog")
+    # aliased on BOTH sides: the fragment's columns are bare, so in the
+    # subquery they would bind to whichever table SQLite resolves them
+    # against. Naming the alias makes the two filters unambiguous.
+    outer, vp = scope.visible_filter(viewer, "task_worklog", alias="w")
+    inner, vp2 = scope.visible_filter(viewer, "task_worklog", alias="x")
+    ids = [t["id"] for t in delegated]
     latest: dict[int, dict] = {}
+    # ONE row per task, chosen in SQL. Reading every note and keeping the last
+    # in Python pulled a month of an agent's progress notes — up to 2000
+    # characters each — to render fifty lines. The tier filter is INSIDE the
+    # subquery as well: computing MAX(id) over unfiltered rows and filtering
+    # after would drop the note entirely whenever the newest one is a row this
+    # viewer cannot read.
     for row in db.query(
-        f"SELECT task_id, note, created_at FROM task_worklog"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
-        f" WHERE task_id IN ({marks}) AND {frag} ORDER BY id",
-        (*[t["id"] for t in delegated], *vp),
+        f"SELECT w.task_id, w.note, w.created_at FROM task_worklog w"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
+        f" WHERE w.task_id IN ({marks}) AND {outer}"
+        f" AND w.id = (SELECT MAX(x.id) FROM task_worklog x"
+        f"             WHERE x.task_id = w.task_id AND {inner})",
+        (*ids, *vp, *vp2),
     ):
-        latest[row["task_id"]] = row  # ORDER BY id, so the last write wins
+        latest[row["task_id"]] = row
     return [
         {
             "task_id": t["id"],
@@ -183,7 +211,7 @@ def _delegated(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
 def _mine(
     queue: list[dict],
     engagement_id: int,
-    tasks: list[dict],
+    task_ids: set[int],
     blockers: list[dict],
 ) -> list[dict]:
     """The queue rows that belong to this engagement.
@@ -199,7 +227,7 @@ def _mine(
     # engagement belongs. `milestone` is absent because the queue emits none.
     mine = {
         "engagement": {engagement_id},
-        "task": {t["id"] for t in tasks},
+        "task": task_ids,
         # by id, not by walking the receipt's refs: a blocker receipt names the
         # BLOCKER, so a ref walk matched nothing and every escalated blocker on
         # the engagement fell out of its own next-actions list

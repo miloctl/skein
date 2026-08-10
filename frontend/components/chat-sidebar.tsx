@@ -722,6 +722,13 @@ export function ChatSidebar({
                       <p className="mb-1 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
                         Model spend in this chat counts toward
                       </p>
+                      {/* the link now buys two things, so the menu says both:
+                          spend attribution, and which engagement's memories
+                          this conversation recalls (services/memory.py) */}
+                      <p className="mb-1.5 px-1 text-[10px] text-ink-3">
+                        A linked chat also recalls that engagement&apos;s own
+                        memories, and can file what it produced back to them.
+                      </p>
                       {t.engagement_id != null && (
                         <button
                           onClick={() => setEngagement(t.id, 0)}
