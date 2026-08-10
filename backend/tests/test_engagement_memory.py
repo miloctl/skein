@@ -23,9 +23,11 @@ def test_an_engagements_memory_reaches_its_own_chat_and_no_other(client, fresh_d
     memory.remember("standups are asynchronous here", actor="ava")  # the team's own
 
     viewer = scope.Viewer("ava", True)
+    # the three states recall distinguishes, each named
     in_atlas = [m["content"] for m in memory.recall(viewer=viewer, engagement_id=atlas["id"])]
     in_orion = [m["content"] for m in memory.recall(viewer=viewer, engagement_id=orion["id"])]
-    unlinked = [m["content"] for m in memory.recall(viewer=viewer)]
+    unlinked = [m["content"] for m in memory.recall(viewer=viewer, engagement_id=0)]
+    browsing = [m["content"] for m in memory.recall(viewer=viewer, engagement_id=None)]
 
     # the team's memory holds everywhere, which is why it is not replaced
     assert "standups are asynchronous here" in in_atlas
@@ -35,6 +37,11 @@ def test_an_engagements_memory_reaches_its_own_chat_and_no_other(client, fresh_d
     assert "the vendor needs 10 days notice" in in_atlas
     assert "the vendor needs 10 days notice" not in in_orion
     assert "the vendor needs 10 days notice" not in unlinked
+    # ...but BROWSE sees every memory this reader may read, or an approved
+    # engagement memory would steer conversations from a row no human could
+    # reach: the memories page is the only surface that lists or deletes one
+    assert "the vendor needs 10 days notice" in browsing
+    assert "standups are asynchronous here" in browsing
 
 
 def test_a_memory_cannot_be_filed_against_an_engagement_you_cannot_read(client, fresh_db):
@@ -93,3 +100,42 @@ def test_an_approved_outcome_carries_its_source(client, fresh_db):
     assert row["engagement_id"] == eng["id"]
     assert row["source_kind"] == "chat" and row["source_id"] == "chat-77"
     assert row["origin"] == "agent_verified"
+
+
+def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
+    """A parent-to-child crossing: the memory takes the ENGAGEMENT's tier, not
+    the workspace default. Without it the proposal is readable and approvable
+    by everyone, and the approved row is indexed for search team-wide — a crew
+    engagement's memory reaching the whole roster twice over."""
+    from app import db
+    from app.services import crews, engagements, review, users
+
+    for n in ("insider", "outsider"):
+        users.ensure_user(n)
+    crew = crews.create_crew("ops", actor="insider")
+    eng = engagements.create_engagement(
+        "Nightshade",
+        project_class="migration",
+        actor="insider",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    p = memory.propose_engagement_memory(
+        eng["id"],
+        "the client will not renew",
+        actor="insider",
+        viewer=scope.Viewer("insider", True),
+    )
+    # the proposal itself does not list for somebody outside the crew
+    outside = [c["id"] for c in review.list_changes("pending", scope.Viewer("outsider", True))]
+    assert p["id"] not in outside
+
+    # the viewer is required: a crew proposal is judgeable only by somebody who
+    # can read its target, and that is resolved from the Viewer, not the name
+    review.approve_change(
+        p["id"], actor="insider", strong=True, viewer=scope.Viewer("insider", True)
+    )
+    row = db.query_one("SELECT * FROM memories ORDER BY id DESC LIMIT 1")
+    assert row["visibility"] == scope.CREW and row["crew_id"] == crew["id"]
+    # and it is not recalled by anyone outside the crew
+    assert not memory.recall(viewer=scope.Viewer("outsider", True), engagement_id=eng["id"])

@@ -33,8 +33,10 @@ type Lineage = {
     review_note: string;
   } | null;
   verdict_is_weak: boolean;
-  auth_mode: string;
-  history: { actor: string; action: string; detail: string; created_at: string }[];
+  // no `detail`: it is the one column in `activity` that can carry a person's
+  // name from a writer that does not route through `scope.detail`, and nothing
+  // here renders it, so the server stopped selecting it
+  history: { actor: string; action: string; created_at: string }[];
 };
 
 const MADE_BY: Record<string, string> = {
@@ -131,7 +133,11 @@ export function Provenance({
               <ul className="space-y-0.5">
                 {d.history.map((h, i) => (
                   <li key={i}>
-                    {h.actor} {h.action.replaceAll("_", " ")} ·{" "}
+                    {/* the actor is withheld for anybody the activity feed
+                        hides (services/provenance.py). A blank subject reads
+                        as a change with no author; "somebody" says the change
+                        happened and the name is not this reader's to see. */}
+                    {h.actor || "somebody"} {h.action.replaceAll("_", " ")} ·{" "}
                     <time dateTime={h.created_at} title={h.created_at}>
                       {timeAgo(h.created_at)}
                     </time>

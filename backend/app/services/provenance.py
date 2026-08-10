@@ -159,12 +159,10 @@ def _history(entity: str, entity_id: int, viewer: scope.Viewer) -> list[dict]:
         " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT 20",
         (*actions, f"#{entity_id}", f"#{entity_id} %", f"#{entity_id}->%"),
     )
-    mine, ap = visible_actor_filter(viewer.name)
-    shown = {
-        r["actor"]
-        for r in db.query(
-            f"SELECT DISTINCT actor FROM activity WHERE {mine}",  # noqa: S608 — visible_actor_filter emits only bound marks
-            tuple(ap),
-        )
-    }
+    # `visible_actor_filter` returns `actor IN (?, …)` over a static list, and
+    # every actor here already came from `activity` — so the names it would
+    # admit ARE its bound parameters. Querying for them would be a round trip
+    # for an answer already in hand.
+    _, allowed = visible_actor_filter(viewer.name)
+    shown = set(allowed)
     return [{**r, "actor": r["actor"] if r["actor"] in shown else ""} for r in rows]

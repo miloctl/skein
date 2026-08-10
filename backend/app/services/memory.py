@@ -110,7 +110,7 @@ def recall(
     user: str = "",
     limit: int = 10,
     viewer: scope.Viewer = scope.NOBODY,
-    engagement_id: int = 0,
+    engagement_id: int | None = None,
 ) -> list[dict]:
     """Memories for one person, or the ones addressed to everybody.
 
@@ -120,23 +120,30 @@ def recall(
     injects whatever comes back into a system prompt, where nothing later
     distinguishes it from the asker's own.
 
-    `engagement_id` ADDS that engagement's own memories to the team-wide ones
-    and never substitutes for them: a fact about how this team works still
-    holds while somebody works one engagement. Memories belonging to a
-    DIFFERENT engagement are excluded, which is the whole reason the column
-    exists — a fact learned on one piece of work was recalled into every
-    conversation about every other one.
+    `engagement_id` has THREE states, and the middle one is the reason:
+
+    - `None` — no engagement predicate at all. This is BROWSE: the memories
+      page is the only surface that lists them and the only one that offers
+      "forget for good", so a memory it cannot show is a memory nobody can
+      delete. Two states would have made every approved engagement memory
+      steer conversations from a row no human could reach.
+    - `0` — team-wide only. An unlinked chat recalls what holds everywhere.
+    - `N` — team-wide PLUS that engagement's own. It ADDS and never
+      substitutes: a fact about how this team works still holds while
+      somebody works one piece of it. Another engagement's are excluded,
+      which is the whole reason the column exists.
     """
     frag, vp = scope.visible_filter(viewer, "memories")
     # `user IN (?, '')`: an empty user is a memory addressed to the whole team,
     # which every branch must keep returning
     owner, op = (" AND user IN (?, '')", [user]) if user else ("", [])
-    # NULL (the team's own memories) plus this engagement's, never another's
-    eng, ep2 = (
-        (" AND (engagement_id IS NULL OR engagement_id = ?)", [engagement_id])
-        if engagement_id
-        else (" AND engagement_id IS NULL", [])
-    )
+    if engagement_id is None:
+        eng, ep2 = "", []
+    elif engagement_id:
+        # NULL (the team's own) plus this engagement's, never another's
+        eng, ep2 = " AND (engagement_id IS NULL OR engagement_id = ?)", [engagement_id]
+    else:
+        eng, ep2 = " AND engagement_id IS NULL", []
     if query:
         from .search import search
 
@@ -194,7 +201,7 @@ def propose_engagement_memory(
 
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
-        f"SELECT name FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT name, visibility, crew_id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if not eng:
@@ -208,6 +215,15 @@ def propose_engagement_memory(
             "engagement_id": engagement_id,
             "source_kind": "chat",
             "source_id": thread_id,
+            # the ENGAGEMENT's tier, threaded by hand — this is a parent-to-child
+            # crossing and `scope.inherit` names it. Without the pair the
+            # proposal is workspace by default: `review._governing_tier` finds
+            # no parent row for a create, so every reader sees the summary and
+            # any of them may approve it, and `remember` then indexes the body
+            # for search at the workspace tier. A crew engagement's memory
+            # would reach the whole roster twice over.
+            "visibility": eng["visibility"],
+            "crew_id": eng["crew_id"] or 0,
         },
         # the engagement NAME, not just its id: the reviewer is deciding
         # whether this fact belongs to this work, and an id is not that

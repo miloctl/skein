@@ -665,7 +665,12 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 
 @router.get("/memories")
 def get_memories(user: CurrentUser, viewer: ViewerDep, q: str = ""):
-    return memory.recall(q, user=user, viewer=viewer)
+    # engagement_id=None: this endpoint BROWSES, and it is the only surface
+    # that lists memories or offers to delete one (app/agents/page.tsx). A
+    # predicate that hid an engagement's memories here would leave them
+    # steering every conversation about that work from a row no human could
+    # reach (services/memory.py::recall names the three states).
+    return memory.recall(q, user=user, viewer=viewer, engagement_id=None)
 
 
 @router.delete("/memories/{memory_id}")
