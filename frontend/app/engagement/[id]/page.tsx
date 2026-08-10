@@ -63,7 +63,17 @@ type Brief = {
   }[];
   lessons: Row[];
   artifacts: { id: number; title: string; kind: string; created_at: string }[];
-  plan_diff: { slipped?: Row[]; unfinished_tasks?: Row[]; added_tasks?: Row[] };
+  // services/playbooks.py::close_out_diff. `slipped` carries rows; the three
+  // task lists carry TITLES, because the diff is computed against a kickoff
+  // snapshot whose ids may name rows that have since been deleted.
+  plan_diff: {
+    playbook?: string;
+    slipped?: { title: string; days: number }[];
+    unfinished_tasks?: string[];
+    added_tasks?: string[];
+    dropped_tasks?: string[];
+    skipped_rituals?: string[];
+  };
   next_actions: Action[];
 };
 
@@ -111,7 +121,8 @@ export default function EngagementBrief({
   const drift =
     (b.plan_diff.slipped?.length ?? 0) +
     (b.plan_diff.unfinished_tasks?.length ?? 0) +
-    (b.plan_diff.added_tasks?.length ?? 0);
+    (b.plan_diff.added_tasks?.length ?? 0) +
+    (b.plan_diff.skipped_rituals?.length ?? 0);
 
   return (
     <main
@@ -333,25 +344,48 @@ export default function EngagementBrief({
       {/* Only for an engagement born from a playbook AND closed: the diff is
           computed against the kickoff snapshot, which nothing else can
           reconstruct (services/playbooks.py::close_out_diff). */}
+      {/* Only for an engagement born from a playbook. The diff is computed
+          against the kickoff snapshot, which nothing else can reconstruct —
+          milestones move, tasks are added and deleted, and a cancelled ritual
+          leaves no row (services/playbooks.py::close_out_diff). */}
       {drift > 0 ? (
         <Card title="Planned versus actual">
+          <p className="mb-2 text-xs text-ink-3">
+            Against the plan {b.plan_diff.playbook} laid out at kickoff. Drift
+            is not failure — it is what the next kickoff of this class needs to
+            know.
+          </p>
           <ul className="space-y-1 text-sm">
             {(b.plan_diff.slipped ?? []).map((m) => (
-              <li key={`s${m.id}`}>
-                <span className="text-ink-3">milestone #{m.id}</span> {m.title}
-                <span className="ml-1 text-xs text-weld">moved</span>
+              <li key={`s${m.title}`}>
+                {m.title}
+                <span className="ml-1 text-xs text-weld">
+                  {m.days} day{m.days === 1 ? "" : "s"} later than planned
+                </span>
               </li>
             ))}
             {(b.plan_diff.unfinished_tasks ?? []).map((t) => (
-              <li key={`u${t.id}`}>
-                <span className="text-ink-3">task #{t.id}</span> {t.title}
-                <span className="ml-1 text-xs text-ink-3">planned, not finished</span>
+              <li key={`u${t}`}>
+                {t}
+                <span className="ml-1 text-xs text-ink-3">
+                  planned, not finished
+                </span>
               </li>
             ))}
             {(b.plan_diff.added_tasks ?? []).map((t) => (
-              <li key={`a${t.id}`}>
-                <span className="text-ink-3">task #{t.id}</span> {t.title}
-                <span className="ml-1 text-xs text-ink-3">added after kickoff</span>
+              <li key={`a${t}`}>
+                {t}
+                <span className="ml-1 text-xs text-ink-3">
+                  added after kickoff
+                </span>
+              </li>
+            ))}
+            {(b.plan_diff.skipped_rituals ?? []).map((r) => (
+              <li key={`r${r}`}>
+                {r}
+                <span className="ml-1 text-xs text-ink-3">
+                  planned ceremony that did not happen
+                </span>
               </li>
             ))}
           </ul>
