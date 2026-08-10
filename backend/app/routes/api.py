@@ -597,7 +597,12 @@ def get_briefing(user: CurrentUser, viewer: ViewerDep):
 
 @router.get("/attention")
 def get_attention(user: CurrentUser):
-    return {"count": briefing.attention_count(user)}
+    # `count` IS `yours`, not the Inbox number. Both readers of this field —
+    # the browser tab title and `skein attention` — say "waiting on you", and
+    # the Inbox total said that about a queue anyone may work. The nav badge
+    # reads `inbox` for its own destination.
+    counts = briefing.attention_count(user)
+    return {"count": counts["yours"], **counts}
 
 
 class KeyIn(BaseModel):
@@ -856,16 +861,23 @@ def get_eval_capture(user: CurrentUser):
     return feedback.eval_capture()
 
 
+# `force` is a SEPARATE, explicit ask, and it defaults off. Both routes passed
+# force=True unconditionally, which walked straight past the weekly claim these
+# rituals keep: every click re-briefed the whole roster with the same personal
+# notifications, and the cockpit's "already ran this week" branch could never be
+# reached because the route it calls never returned that answer. The scheduler
+# runs unforced too, so a manual Monday click after the 06:30 job is a no-op
+# that says so rather than a second notification for everybody.
 @router.post("/rituals/week-open")
-def post_week_open(user: CurrentUser):
+def post_week_open(user: CurrentUser, force: bool = False):
     ratelimit.check("ritual", user)  # each run notifies people — cap the amplifier
-    return rituals.week_open(actor=user, force=True)
+    return rituals.week_open(actor=user, force=force)
 
 
 @router.post("/rituals/week-close")
-def post_week_close(user: CurrentUser):
+def post_week_close(user: CurrentUser, force: bool = False):
     ratelimit.check("ritual", user)
-    return rituals.week_close(actor=user, force=True)
+    return rituals.week_close(actor=user, force=force)
 
 
 @router.get("/agents")

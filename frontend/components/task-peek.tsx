@@ -43,6 +43,17 @@ export type PeekTask = {
   unblocks?: { id: number; title: string; status: string; assignee: string }[];
   unblocks_total?: number;
   depth_capped?: boolean;
+  // the open blockers filed against this task (services/work.py::blocking).
+  // A blocker is what puts a task in status 'blocked', so without these the
+  // panel showed the state and could not name its cause.
+  blockers?: {
+    id: number;
+    title: string;
+    owner: string;
+    impact: string;
+    status: string;
+    escalated_at?: string | null;
+  }[];
   visibility?: string;
   crew_id?: number | null;
 };
@@ -317,6 +328,31 @@ export function TaskPeek() {
               >
                 code <span aria-hidden>↗</span>
               </a>
+            ) : null}
+
+            {/* What is stopping it, named. `status: blocked` is set BY a
+                blocker (services/blockers.py::raise_blocker), so a panel that
+                showed the status without the row behind it left the reader to
+                find the blocker register by hand — and nothing on the way
+                there said which of its rows was theirs. Impact is what sets
+                the escalation clock, and the owner is who can stop it. */}
+            {task.blockers && task.blockers.length > 0 ? (
+              <>
+                <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-weld">
+                  Blocked by
+                </h3>
+                <ul className="mt-1 space-y-0.5 text-xs">
+                  {task.blockers.map((b) => (
+                    <li key={b.id}>
+                      <span className="text-ink-3">#{b.id}</span> {b.title}
+                      <span className="ml-1 text-ink-3">
+                        {b.impact} impact · {b.owner ? `@${b.owner}` : "unowned"}
+                        {b.status === "escalated" ? " · escalated" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : null}
 
             {/* Delegation, from the UI. The Agents page empty state points

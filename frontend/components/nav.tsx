@@ -90,7 +90,8 @@ function NavLink({
 export function Nav() {
   const pathname = usePathname();
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
-  const [attention, setAttention] = useState(0);
+  // two independent numbers — see the poll below for why they cannot be one
+  const [attention, setAttention] = useState({ inbox: 0, yours: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   // fetched lazily on first menu open — the nav must not add a request to
   // every page load for a number that only matters inside the menu
@@ -132,9 +133,14 @@ export function Nav() {
     let generation = 0;
     const poll = () => {
       const g = ++generation;
-      api<{ count: number }>("/api/attention")
+      // two numbers, two readers: `inbox` is what the Inbox badge promises
+      // (proposals + triage, the rows that page actually shows) and `yours` is
+      // what is addressed to this person by name. The tab title carries
+      // `yours` — it is the only part of Skein visible from an editor, and it
+      // said "3" about a queue nobody had assigned to the reader.
+      api<{ inbox: number; yours: number }>("/api/attention")
         .then((r) => {
-          if (g === generation) setAttention(r.count); // ignore stale responses
+          if (g === generation) setAttention({ inbox: r.inbox, yours: r.yours }); // ignore stale responses
         })
         .catch(() => {});
     };
@@ -169,14 +175,15 @@ export function Nav() {
       // stale: a session that expires mid-task keeps its last number, and a
       // locked-out reader would sit in front of a tab promising them three
       // things to do at a workspace that will not open.
-      const wanted = attention && !gated ? `(${attention}) ${base()}` : base();
+      const wanted =
+        attention.yours && !gated ? `(${attention.yours}) ${base()}` : base();
       if (el.textContent !== wanted) el.textContent = wanted;
     };
     apply();
     const observer = new MutationObserver(apply);
     observer.observe(el, { childList: true, characterData: true, subtree: true });
     return () => observer.disconnect();
-  }, [attention, gated]);
+  }, [attention.yours, gated]);
 
   const anonymous = user === "anonymous";
   const headerRef = useRef<HTMLElement>(null);
@@ -453,7 +460,7 @@ export function Nav() {
                   href={l.href}
                   label={l.label}
                   active={l.paths.includes(pathname)}
-                  badge={l.href === "/review" ? attention : undefined}
+                  badge={l.href === "/review" ? attention.inbox : undefined}
                 />
               ))}
             </div>

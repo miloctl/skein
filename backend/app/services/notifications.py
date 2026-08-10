@@ -60,13 +60,23 @@ def notify(user: str, message: str, tier: str = "digest", link: str = "") -> dic
     return {"id": nid, "tier": tier}
 
 
+# Unread, for ONE reader. A personal row is unread while its own `read_at` is
+# NULL. A 'team' row is a single shared record, so "read" is per person and
+# lives in `notification_reads` (009) — without that table the first teammate
+# to press dismiss cleared the announcement for everybody else.
+UNREAD_FOR = (
+    "user IN (?, 'team') AND read_at IS NULL"
+    " AND id NOT IN (SELECT notification_id FROM notification_reads WHERE user = ?)"
+)
+
+
 def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
     # 'team' notifications are addressed to everyone — same rule as briefing
     if unread_only:
         return db.query(
-            "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
+            f"SELECT * FROM notifications WHERE {UNREAD_FOR}"  # noqa: S608 — UNREAD_FOR is a module constant with bound marks
             " ORDER BY id DESC LIMIT 50",
-            (user,),
+            (user, user),
         )
     return db.query(
         "SELECT * FROM notifications WHERE user IN (?, 'team') ORDER BY id DESC LIMIT 50", (user,)
@@ -83,17 +93,38 @@ def mark_read_matching(prefix: str) -> int:
 
 
 def mark_read(user: str, notification_id: int = 0) -> dict:
-    # 'team' rows are a single shared record — the first reader clears them
-    # for everyone, same semantics as listing them for everyone
+    """Dismiss for THIS reader.
+
+    A row addressed to the reader by name clears its own `read_at`. A 'team'
+    row is one shared record, so dismissing it records a per-person read in
+    `notification_reads` (009) and leaves the row unread for everybody else —
+    before that table the first reader silently dismissed the team's
+    announcement for the whole roster.
+
+    A dismiss the reader already made is not an error and not a second row:
+    INSERT OR IGNORE against the (notification_id, user) primary key, so a
+    double click counts once.
+    """
+    now = db.now()
     if notification_id:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE id = ? AND user IN (?, 'team')",
-            (db.now(), notification_id, user),
+            "UPDATE notifications SET read_at = ? WHERE id = ? AND user = ?",
+            (now, notification_id, user),
+        )
+        n += db.execute_rowcount(
+            "INSERT OR IGNORE INTO notification_reads (notification_id, user, read_at)"
+            " SELECT id, ?, ? FROM notifications WHERE id = ? AND user = 'team'",
+            (user, now, notification_id),
         )
     else:
         n = db.execute_rowcount(
-            "UPDATE notifications SET read_at = ? WHERE user IN (?, 'team') AND read_at IS NULL",
-            (db.now(), user),
+            "UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL",
+            (now, user),
+        )
+        n += db.execute_rowcount(
+            "INSERT OR IGNORE INTO notification_reads (notification_id, user, read_at)"
+            " SELECT id, ?, ? FROM notifications WHERE user = 'team' AND read_at IS NULL",
+            (user, now),
         )
     return {"marked": n}
 

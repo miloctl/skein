@@ -43,8 +43,10 @@ def test_a_forced_rerun_reuses_its_row_instead_of_filing_a_second(client):
     """_write_artifact upserts on the path, so a same-day rerun overwrites the
     file. Returning a NEW id there would hand the reader an artifact that does
     not exist; returning a STALE one would point at the overwritten body."""
-    first = client.post("/api/rituals/week-close").json()
-    second = client.post("/api/rituals/week-close").json()
+    # ?force=true, because the route no longer forces by default: the weekly
+    # claim is what stops a second click re-notifying the whole roster
+    first = client.post("/api/rituals/week-close?force=true").json()
+    second = client.post("/api/rituals/week-close?force=true").json()
     assert first["artifact_id"] == second["artifact_id"]
     # by title, not by kind: `week_open` files a ritual row of its own (the
     # startup catch-up runs one), and counting every ritual would pass here

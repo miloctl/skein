@@ -446,7 +446,31 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         raise scope.missing("tasks", task_id)
     # what finishing it releases, resolved here so the peek and any other
     # reader of one task get the same answer
-    return {**row, **downstream(task_id, viewer)}
+    return {**row, **downstream(task_id, viewer), "blockers": blocking(task_id, viewer)}
+
+
+def blocking(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    """The open blockers filed AGAINST this task.
+
+    `blockers.task_id` names the task a blocker BLOCKS, and raise_blocker sets
+    that task to 'blocked' (services/blockers.py). Nothing read the edge back,
+    so a task could sit in status 'blocked' while every surface that showed it
+    — the peek, My Day, Browse — had no way to name what stopped it, who owns
+    it, or when it escalates. The reader saw a state with no receipt and had to
+    go find the blocker register by hand.
+
+    Viewer-scoped: a blocker nobody may read must not name itself through a
+    task they can. Resolved rows are excluded — a settled blocker is history,
+    and listing it beside a live one reads as still-stuck.
+    """
+    frag, vp = scope.visible_filter(viewer, "blockers", alias="b")
+    return db.query(
+        f"SELECT b.id, b.title, b.owner, b.impact, b.status, b.escalated_at"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM blockers b WHERE b.task_id = ? AND b.status != 'resolved' AND {frag}"
+        " ORDER BY CASE b.impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, b.id",
+        (task_id, *vp),
+    )
 
 
 # How deep `downstream` follows the chain. Cycles are closed by the visited

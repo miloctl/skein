@@ -18,6 +18,12 @@ type AttentionItem = {
   kind: string;
   ref_id: number;
   group: "decide" | "unblock" | "commit" | "review" | "notice";
+  // "you" for a row addressed to this reader by name, "team" for a shared
+  // queue anyone may work (services/briefing.py). The two render in separate
+  // cards: a "Needs you" heading over the team's intake queue and every
+  // pending proposal taught readers to discount the card, and this card is
+  // the product's daily habit.
+  audience?: "you" | "team";
   label: string;
   reason: string;
   link: string;
@@ -286,12 +292,18 @@ export default function MyDay() {
   if (b.user === "anonymous") return <WhoAreYou />;
 
   const attention = b.attention ?? [];
+  // Split by who the row is addressed to. A server that sends no `audience`
+  // (an older backend behind a newer bundle) falls back to "you", which keeps
+  // the old single-card behavior rather than emptying the page.
+  const yours = attention.filter((a) => (a.audience ?? "you") === "you");
+  const teamQueue = attention.filter((a) => a.audience === "team");
   // review items in `attention` are LIMITed to 50; the honest total rides
   // separately so the header never undercounts a flooded queue
   const shownReviews = attention.filter((a) => a.group === "review").length;
   const extraReviews = Math.max(0, (b.pending_reviews_total ?? 0) - shownReviews);
-  const needsCount =
-    attention.filter((a) => a.group !== "notice").length + extraReviews;
+  // counts only what is addressed to this reader — the header sentence says
+  // "needs you", and the team queues have their own card and their own count
+  const needsCount = yours.filter((a) => a.group !== "notice").length;
   const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
     decide: { title: "Decide", tone: "bg-thread-solid" },
     unblock: { title: "Unblock", tone: "bg-danger" },
@@ -447,12 +459,12 @@ export default function MyDay() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
-          {attention.length === 0 ? (
+          {yours.length === 0 ? (
             <p className="text-sm text-ink-3">{emptyState("allclear")}</p>
           ) : (
             <div className="space-y-3">
               {(Object.keys(GROUP_META) as AttentionItem["group"][])
-                .filter((g) => attention.some((a) => a.group === g))
+                .filter((g) => yours.some((a) => a.group === g))
                 .map((g) => (
                   <div key={g}>
                     <p className="mb-1 flex items-center gap-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
@@ -460,7 +472,7 @@ export default function MyDay() {
                       {GROUP_META[g].title}
                     </p>
                     <ul className="space-y-1.5 text-sm">
-                      {attention
+                      {yours
                         .filter((a) => a.group === g)
                         .map((a, i) => (
                           <li
@@ -531,6 +543,36 @@ export default function MyDay() {
             </div>
           )}
         </Card>
+
+        {/* The shared queues, named as shared. These rows are real work and
+            they belong on My Day — but nobody assigned them to this reader,
+            and putting them under "Needs you" was what taught people that the
+            heading does not mean what it says. */}
+        {teamQueue.length > 0 && (
+          <Card title="Team queues">
+            <p className="mb-2 text-xs text-ink-3">
+              Open to anyone on the team. Nobody assigned these to you.
+            </p>
+            <ul className="space-y-1.5 text-sm">
+              {teamQueue.map((a, i) => (
+                <li key={`${a.kind}${a.ref_id}${i}`}>
+                  <Link href={a.link} className="hover:underline">
+                    {a.label.replaceAll("**", "")}
+                  </Link>
+                  <span className="ml-2 block text-xs text-ink-3">
+                    {a.reason}
+                  </span>
+                </li>
+              ))}
+              {extraReviews > 0 && (
+                <li className="text-xs text-ink-3">
+                  {extraReviews} more proposal{extraReviews === 1 ? "" : "s"}{" "}
+                  wait in <Link href="/review" className="underline">Approvals</Link>.
+                </li>
+              )}
+            </ul>
+          </Card>
+        )}
 
         <Card title="Your work">
           <div className="mb-3 border-b border-line pb-3">

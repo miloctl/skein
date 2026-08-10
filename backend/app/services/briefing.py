@@ -7,13 +7,19 @@ import re
 from datetime import timedelta
 
 from .. import db
-from . import scope
+from . import notifications, scope
 from .scope import WORKSPACE_ONLY
 
 
 # groups, in display order: decide (what needs a call), unblock (what's
 # stuck), commit (what you promised), review (what awaits your verdict),
-# notice (worth knowing) — the frontend renders them in this order
+# notice (worth knowing) — the frontend renders them in this order.
+#
+# Every item also carries `audience`: "you" for a row addressed to this reader
+# by name (assigned, owned, authored, notified) and "team" for a shared queue
+# anyone may work. The distinction is load-bearing, not decoration — a heading
+# that says "needs you" over rows nobody assigned to the reader teaches them to
+# discount the whole page, and that page is the product's daily habit.
 def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
     items = []
     for ev in needs.get("meetings_awaiting_outcome", []):
@@ -22,6 +28,12 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "meeting",
                 "ref_id": ev["id"],
                 "group": "notice",
+                # "you", though no column names this reader: the question is
+                # "did this produce anything", and only somebody who was in
+                # the room can answer it. The two buttons that answer it live
+                # on this card (app/page.tsx), so moving the row to the shared
+                # card would take the answer away from the ask.
+                "audience": "you",
                 "label": f"meeting: {ev['title'][:80]}",
                 # the agenda is what makes this answerable: "did this produce
                 # anything" is a question about what it was FOR
@@ -41,6 +53,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "question",
                 "ref_id": q["id"],
                 "group": "unblock",
+                "audience": "you",
                 "label": f"question #{q['id']}: {q['question'][:80]}",
                 "reason": "assigned to you and still open — someone is waiting on the answer",
                 "link": "/dashboard",
@@ -52,6 +65,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "blocker",
                 "ref_id": b["id"],
                 "group": "unblock",
+                "audience": "you",
                 "label": f"blocker #{b['id']}: {b['title']}",
                 "reason": f"you own it (impact {b['impact']}) — it escalates on a clock",
                 "link": "/dashboard",
@@ -63,6 +77,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "proposal",
                 "ref_id": p["id"],
                 "group": "review",
+                "audience": "you" if p.get("requested_by") == user else "team",
                 "label": f"proposal #{p['id']}: {p['summary']}",
                 "reason": f"proposed by {p['proposed_by']} — applies only after a human verdict",
                 "link": "/review",
@@ -74,33 +89,53 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "intake",
                 "ref_id": r["id"],
                 "group": "decide",
+                "audience": "team",
                 "label": f"intake #{r['id']}: {r['title']}",
-                "reason": "awaiting your accept, defer, or decline — the requester sees the reason you give",
+                "reason": "awaiting an accept, defer, or decline — the requester sees the reason given",
                 "link": "/intake",
             }
         )
     for d in db.query(
+        # decided_by = the reader, the same filter rituals.week_open uses for
+        # the same sentence. "reconfirm it or supersede it" is an instruction,
+        # and only the person who made a call can say it still holds — without
+        # this every stale decision on the team landed on every My Day, so the
+        # group read as somebody else's homework and got skipped wholesale.
+        # Team-wide stale decisions have their own reader: the manager
+        # intervention queue (services/intervention.py).
         f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        " ORDER BY id LIMIT 5"
+        " AND decided_by = ? ORDER BY id LIMIT 5",
+        (user,),
     ):
         items.append(
             {
                 "kind": "decision",
                 "ref_id": d["id"],
                 "group": "decide",
+                "audience": "you",
                 "label": f"decision #{d['id']}: {d['title']}",
                 "reason": "past its review-by date — reconfirm it or supersede it",
-                "link": "/charter",
+                # anchored, not the bare page: /charter renders the charter
+                # category by default, and a general decision sent there
+                # landed on a list that never contained it. The anchor is what
+                # tells the page to widen (app/charter/page.tsx).
+                "link": f"/charter#charter-entry-{d['id']}",
             }
         )
     for c in db.query(
         # direction = 'given': these are YOUR promises. A received one is somebody
         # else's commitment to the team and has its own reader (the cockpit's
         # waiting-on card), so listing it here reads as work you owe.
+        #
+        # created_by = the reader, matching rituals.week_open. Without it the
+        # group said "you promised" about every open workspace promise on the
+        # team — the same commitment shown to ten people, nine of whom cannot
+        # settle it.
         f"SELECT id, promise, due_date, audience FROM promises"  # noqa: S608 — scope filters emit only bound marks
         f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
-        " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
-        (week,),
+        " AND created_by = ? AND due_date IS NOT NULL AND due_date <= ?"
+        " ORDER BY due_date",
+        (user, week),
     ):
         overdue = c["due_date"] < today
         items.append(
@@ -108,6 +143,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "promise",
                 "ref_id": c["id"],
                 "group": "commit",
+                "audience": "you",
                 "label": f"promise #{c['id']}: {c['promise'][:80]}",
                 "reason": (
                     f"{'OVERDUE since' if overdue else 'due'} {c['due_date']}"
@@ -122,6 +158,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "kind": "notification",
                 "ref_id": n["id"],
                 "group": "notice",
+                "audience": "you" if n["user"] != "team" else "team",
                 "label": _ellipsize(n["message"], 100)
                 + (f" (+{similar} similar)" if similar else ""),
                 "reason": (
@@ -264,7 +301,12 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # scoped summaries to every caller — the same leak, one reader over.
         "pending_reviews": _readable(
             db.query(
-                "SELECT id, entity, entity_id, action, summary, proposed_by, created_at"
+                # requested_by rides along so `_attention` can tell a proposal
+                # this reader ASKED FOR from the shared queue anyone may work.
+                # It is the difference between "your agent is waiting on you"
+                # and "the team has a queue".
+                "SELECT id, entity, entity_id, action, summary, proposed_by,"
+                " requested_by, created_at"
                 " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
             ),
             viewer,
@@ -279,10 +321,15 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             f" WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
             " ORDER BY score DESC LIMIT 10"
         ),
+        # notifications.UNREAD_FOR, never a second copy of the rule: a 'team'
+        # row is one shared record and "read" is per person (009), so a query
+        # that only tested read_at showed an announcement one teammate had
+        # already dismissed for themselves to nobody, or to everybody, purely
+        # by which copy of the predicate it happened to use.
         "notifications": db.query(
-            "SELECT * FROM notifications WHERE user IN (?, 'team') AND read_at IS NULL"
+            f"SELECT * FROM notifications WHERE {notifications.UNREAD_FOR}"  # noqa: S608 — module constant with bound marks
             " ORDER BY id DESC LIMIT 20",
-            (user,),
+            (user, user),
         ),
     }
     pending_total = db.query_one(
@@ -350,16 +397,51 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     }
 
 
-def attention_count(user: str) -> int:
-    """Nav badge on Inbox. Counts ONLY what actually lives there — proposals
-    awaiting a verdict and requests awaiting triage. Blockers, questions, and
-    promises render on My Day; counting them here made the badge promise
-    things the destination doesn't show (a 3 that lands on an empty page)."""
+def attention_count(user: str) -> dict:
+    """Two numbers, because two readers ask two different questions.
+
+    `inbox` is the nav badge on Inbox and counts ONLY what lives there —
+    proposals awaiting a verdict and requests awaiting triage. Counting a
+    blocker or a question here made the badge promise things the destination
+    does not show (a 3 that lands on an empty page).
+
+    `yours` is what is addressed to this person BY NAME: unread personal
+    notifications, assigned open questions, owned unresolved blockers, own
+    promises due inside a week, and own stale decisions. It is what the tab
+    title and `skein attention` carry, and both of those say "waiting on you"
+    — a sentence the Inbox number cannot honestly make. Without it the
+    immediate notification tier meant "the next time you open My Day", because
+    nothing a teammate sent you moved either number.
+
+    Not viewer-scoped, and deliberately: every arm keys on the reader's OWN
+    name, so a row can only be counted by the person it names. The count also
+    carries no titles — it is a number, and the surfaces that render the rows
+    behind it (my_day) take a viewer.
+    """
+    local_today = db.today()
+    week = (local_today + timedelta(days=7)).isoformat()
     row = db.query_one(
         "SELECT"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " (SELECT COUNT(*) FROM pending_changes WHERE status = 'pending')"
         f" + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
         f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
-        " AS n"
+        " AS inbox,"
+        # `user = ?` and never 'team': this number is the tab title and
+        # `skein attention`, and both say "waiting on you". A team
+        # announcement lands in the reader's feed but asks nothing of them —
+        # counting it there is how a badge stops meaning anything.
+        " (SELECT COUNT(*) FROM notifications WHERE user = ? AND read_at IS NULL)"
+        " + (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
+        " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
+        f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
+        f"    AND {WORKSPACE_ONLY} AND created_by = ?"
+        "     AND due_date IS NOT NULL AND due_date <= ?)"
+        f" + (SELECT COUNT(*) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
+        "     AND decided_by = ?)"
+        " AS yours",
+        (user, user, user, user, week, user),
     )
-    return row["n"] if row else 0
+    return {
+        "inbox": row["inbox"] if row else 0,
+        "yours": row["yours"] if row else 0,
+    }

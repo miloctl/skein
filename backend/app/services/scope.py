@@ -620,6 +620,10 @@ UNSCOPED: dict[str, str] = {
     ),
     "job_runs": "scheduler claim rows, no user-authored content",
     "mention_log": "a dedupe key, not content",
+    "notification_reads": (
+        "a dismissal stamp, not content. The notification it points at carries"
+        " the tier — this row holds a reader's name, a row id and a time."
+    ),
     "pending_changes": (
         "the review queue. A proposal against a scoped row is the open"
         " question of phase 3: the payload holds a copy of the row, and the"
