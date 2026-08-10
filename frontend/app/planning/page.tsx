@@ -170,6 +170,18 @@ export default function Planning() {
       className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-4 p-4 sm:p-6"
     >
       <SectionTabs set="work" />
+
+      {/* `load` re-runs after the week-open brief is filed, and a failure
+          there left every number on this page standing with nothing saying
+          they were stale — read aloud in a meeting. Same sentence as My Day
+          and the engagement brief, which is the point (docs/LEXICON.md). */}
+      {error && (
+        <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
+          Last refresh failed. Skein shows the state from the last good load.{" "}
+          {error}
+        </p>
+      )}
+
       <p className="text-sm text-ink-3">
         The week, in the order the meeting runs it. Every number here also
         lives on its own page — this is the running order, not a second copy.

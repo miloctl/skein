@@ -68,10 +68,13 @@ export default function CharterPage() {
   // lifecycle (review_by, stale, reconfirm, supersede) and had no surface
   // offering it — Browse renders them read-only.
   const [showAll, setShowAll] = useState(false);
-  // one auto-widen per visit, guarded: without the ref a link to a general
-  // decision would widen, re-load, still not match on the first render pass,
-  // and set state again on every settle
-  const widened = useRef(false);
+  // Which row the slice was last widened FOR, not a bare "has widened" flag.
+  // The guard exists because a link to a general decision widens, re-loads,
+  // still does not match on the first render pass, and would set state again
+  // on every settle. Keyed on the id, that loop is still closed — and a reader
+  // who narrows back to Charter can follow a second link, which a boolean
+  // latched shut for the rest of the visit.
+  const widenedFor = useRef(0);
 
   const load = useCallback(() => {
     const q = showAll ? "" : "?category=charter";
@@ -83,8 +86,8 @@ export default function CharterPage() {
         // slice instead of showing the reader an empty page. The link is the
         // evidence that they were sent here for a specific row.
         const want = hashTarget();
-        if (want && !widened.current && !rows.some((r) => r.id === want)) {
-          widened.current = true;
+        if (want && widenedFor.current !== want && !rows.some((r) => r.id === want)) {
+          widenedFor.current = want;
           setShowAll(true);
         }
       })
@@ -104,25 +107,39 @@ export default function CharterPage() {
     document.getElementById(`charter-entry-${want}`)?.focus();
   }, [decisions]);
 
-  // ...and again when only the HASH changes. Arriving from another page
-  // remounts this component, but a search hit for a general decision picked
-  // while already on /charter changes nothing else: no remount, no re-fetch,
-  // so neither the focus effect above nor the auto-widen in `load` runs and
-  // the click is a silent no-op — the exact failure this deep-link handling
-  // exists to remove, one navigation type over.
+  // ...and again when only the FRAGMENT changes. Arriving from another page
+  // remounts this component, but a search hit picked while already on
+  // /charter changes nothing else: no remount, no re-fetch, so neither the
+  // focus effect above nor the auto-widen in `load` runs and the click is a
+  // silent no-op.
+  //
+  // Both events, because neither covers the other: `hashchange` is the
+  // browser's own (a typed address, Back between two fragments), and
+  // `skein-hash` is what an in-app link announces — a next/link soft
+  // navigation fires neither of the browser's (components/nav-search.tsx).
   useEffect(() => {
-    const onHash = () => {
-      const want = hashTarget();
+    const onHash = (ev: Event) => {
+      // the id from the event when an in-app link sent one, the address bar
+      // otherwise. `hashchange` carries no detail, and by the time an in-app
+      // link's transition lands the address bar is right too — but reading it
+      // AT dispatch is a frame too early, which is the whole reason the id
+      // travels with the event (components/nav-search.tsx).
+      const sent = (ev as CustomEvent<{ id?: number }>).detail?.id;
+      const want = sent ?? hashTarget();
       if (!want) return;
       if (decisions?.some((d) => d.id === want)) {
         document.getElementById(`charter-entry-${want}`)?.focus();
-      } else if (!widened.current) {
-        widened.current = true;
+      } else if (widenedFor.current !== want) {
+        widenedFor.current = want;
         setShowAll(true);
       }
     };
     window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    window.addEventListener("skein-hash", onHash);
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      window.removeEventListener("skein-hash", onHash);
+    };
   }, [decisions]);
 
   const add = async () => {
@@ -181,7 +198,14 @@ export default function CharterPage() {
           <button
             key={o.label}
             aria-pressed={showAll === o.on}
-            onClick={() => setShowAll(o.on)}
+            onClick={() => {
+              // the reader has taken the slice back, so the auto-widen guard
+              // has nothing left to protect. Without this reset it stays
+              // latched on the row it widened for, and following that same
+              // link again lands on a list that does not contain it.
+              widenedFor.current = 0;
+              setShowAll(o.on);
+            }}
             className={
               "rounded-lg px-2.5 py-1 font-medium " +
               (showAll === o.on

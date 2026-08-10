@@ -113,9 +113,9 @@ export default function EngagementBrief({
   useEffect(load, [load]);
 
   // only when there is nothing to show. `load` runs again after a handoff is
-  // written, and a failure there used to replace the whole brief the reader is
-  // standing on with one error line — the same trade My Day refuses, where a
-  // failed refresh becomes a banner over the previous state.
+  // written, and returning the error page there replaces the whole brief the
+  // reader is standing on with one error line — the trade My Day refuses, and
+  // for the same reason: a stale page a banner marks as stale beats no page.
   if (error && !b)
     return (
       <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
@@ -155,7 +155,8 @@ export default function EngagementBrief({
 
       {error && (
         <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
-          Last refresh failed ({error}) — showing the previous state.
+          Last refresh failed. Skein shows the state from the last good load.{" "}
+          {error}
         </p>
       )}
 
@@ -474,41 +475,47 @@ export default function EngagementBrief({
             this class needs to know. While this engagement runs, the team can
             still act on it.
           </p>
+          {/* keys carry the POSITION as well as the title: these five lists
+              are titles out of a kickoff snapshot (services/playbooks.py), and
+              two planned rows may legitimately share one. A title-only key
+              then repeats, which React reports and reconciles unpredictably on
+              the next refresh. The lists are append-order and never sorted in
+              the browser, so the index is stable. */}
           <ul className="space-y-1 text-sm">
-            {(b.plan_diff.slipped ?? []).map((m) => (
-              <li key={`s${m.title}`}>
+            {(b.plan_diff.slipped ?? []).map((m, i) => (
+              <li key={`s${i}-${m.title}`}>
                 {m.title}
                 <span className="ml-1 text-xs text-weld">
                   {m.days} day{m.days === 1 ? "" : "s"} later than planned
                 </span>
               </li>
             ))}
-            {(b.plan_diff.unfinished_tasks ?? []).map((t) => (
-              <li key={`u${t}`}>
+            {(b.plan_diff.unfinished_tasks ?? []).map((t, i) => (
+              <li key={`u${i}-${t}`}>
                 {t}
                 <span className="ml-1 text-xs text-ink-3">
                   planned, not finished
                 </span>
               </li>
             ))}
-            {(b.plan_diff.added_tasks ?? []).map((t) => (
-              <li key={`a${t}`}>
+            {(b.plan_diff.added_tasks ?? []).map((t, i) => (
+              <li key={`a${i}-${t}`}>
                 {t}
                 <span className="ml-1 text-xs text-ink-3">
                   added after kickoff
                 </span>
               </li>
             ))}
-            {(b.plan_diff.dropped_tasks ?? []).map((t) => (
-              <li key={`d${t}`}>
+            {(b.plan_diff.dropped_tasks ?? []).map((t, i) => (
+              <li key={`d${i}-${t}`}>
                 {t}
                 <span className="ml-1 text-xs text-ink-3">
                   planned at kickoff, then deleted
                 </span>
               </li>
             ))}
-            {(b.plan_diff.skipped_rituals ?? []).map((r) => (
-              <li key={`r${r}`}>
+            {(b.plan_diff.skipped_rituals ?? []).map((r, i) => (
+              <li key={`r${i}-${r}`}>
                 {r}
                 <span className="ml-1 text-xs text-ink-3">
                   planned ceremony that did not happen

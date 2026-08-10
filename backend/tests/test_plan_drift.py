@@ -23,6 +23,49 @@ def test_a_plan_that_landed_as_planned_says_nothing(client, fresh_db):
     assert insights._r_plan_drift() == []
 
 
+def test_an_evening_finish_west_of_utc_is_not_a_slip(client, fresh_db, monkeypatch):
+    """`completed_at` is a UTC timestamp and a milestone's `due_date` is a
+    TEAM-local date, so slicing the timestamp compares two calendars.
+
+    West of UTC an evening finish carries the NEXT UTC day, so a milestone
+    delivered on time reads as one day late. Three of those clear
+    PLAN_DRIFT_ALARM and file a permanent medium finding — findings are unique
+    per (rule, subject, week) — against an engagement that is exactly on plan.
+    """
+    import importlib
+
+    from app import config, db
+    from app.services import playbooks
+
+    monkeypatch.setenv("SKEIN_TZ", "America/New_York")
+    importlib.reload(config)
+    try:
+        eid = _engagement_from_playbook()
+        rows = db.query("SELECT id, due_date FROM milestones WHERE engagement_id = ?", (eid,))
+        assert len(rows) >= 3, "the playbook must lay out enough milestones to trip the alarm"
+        for m in rows:
+            # 20:00 New York on the due date itself — the same team-day, and
+            # the next UTC day. Done ON TIME by every reading a person has.
+            local_evening = f"{m['due_date']}T20:00:00-04:00"
+            utc = (
+                db.query_one("SELECT datetime(?) AS u", (local_evening,))["u"].replace(" ", "T")
+                + "+00:00"
+            )
+            db.execute(
+                "UPDATE milestones SET status = 'done', completed_at = ? WHERE id = ?",
+                (utc, m["id"]),
+            )
+        moved = playbooks.close_out_diff(eid)["slipped"]
+        assert moved == [], f"on-time evening finishes reported as slip: {moved}"
+        assert insights._r_plan_drift() == []
+    finally:
+        # reloaded back inside `finally`: config is module state, and a zone
+        # left set here follows every later test in this process
+        monkeypatch.setenv("SKEIN_TZ", "")
+        importlib.reload(config)
+        assert config.TZ_NAME == "UTC"
+
+
 def test_a_little_drift_says_nothing(client, fresh_db):
     """Every engagement drifts. A rule that fires on one moved date is a rule
     the reader learns to skip, and then the one that mattered goes unread."""

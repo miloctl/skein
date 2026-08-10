@@ -191,8 +191,9 @@ function StakeholderBrief({ eventId }: { eventId: number }) {
   };
 
   return (
-    // a DIV, not a span: it holds a list, and phrasing content cannot
-    <div className="ml-1.5 inline text-xs text-ink-3">
+    // a DIV, not a span: it holds a list, and phrasing content cannot. Its
+    // PARENT is a div for the same reason (the events list above).
+    <div className="ml-1.5 text-xs text-ink-3">
       {/* the trigger STAYS mounted and toggles. Unmounting it on activation
           dropped a keyboard reader's focus to <body>, and left a failed fetch
           with no control at all — no retry and no way back. Collapsing clears
@@ -345,16 +346,16 @@ export default function MyDay() {
   };
   const [error, setError] = useState<string | null>(null);
   // persisted per ISO week — an accidental reload must not re-ask (votes are
-  // anonymous server-side, so the client is the only dedupe there is)
-  const pulseWeek = (() => {
-    const d = new Date();
-    const day = (d.getDay() + 6) % 7;
-    const thu = new Date(d);
-    thu.setDate(d.getDate() - day + 3);
-    const jan1 = new Date(thu.getFullYear(), 0, 1);
-    const week = Math.ceil(((+thu - +jan1) / 86400000 + 1) / 7);
-    return `${thu.getFullYear()}-W${week}`;
-  })();
+  // anonymous server-side, so the client is the only dedupe there is).
+  //
+  // The SERVER's label, not a second arithmetic. A browser-side ISO week is
+  // wrong two ways: it mixes a midnight date with a current-time one, which
+  // lands every week of a year whose Jan 1 is a Friday one ahead, and it reads
+  // the browser's zone rather than the team day. This key only has to be
+  // stable per week, so the falsehood was survivable here and fatal on the
+  // commitment chip — which is the reason a second copy must not exist for
+  // the next reader to take.
+  const pulseWeek = b?.this_week ?? "";
   const pulseVoted = useSyncExternalStore(
     (cb) => {
       window.addEventListener("storage", cb);
@@ -530,7 +531,8 @@ export default function MyDay() {
     >
       {error && (
         <p className="mb-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
-          Last refresh failed ({error}) — showing the previous state.
+          Last refresh failed. Skein shows the state from the last good load.{" "}
+          {error}
         </p>
       )}
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
@@ -926,7 +928,10 @@ export default function MyDay() {
                 <span className="font-mono text-xs text-ink-3">
                   {String(e.starts_at).slice(11, 16)}
                 </span>
-                <span>
+                {/* a DIV, not a span: StakeholderBrief expands into a list,
+                    and phrasing content cannot hold one. `min-w-0` so a long
+                    title wraps inside the flex row instead of pushing it. */}
+                <div className="min-w-0">
                   {e.title}
                   {/* what is open with the outside people in the room. The
                       brief was an endpoint nothing called, and it is only
@@ -934,7 +939,7 @@ export default function MyDay() {
                       every open thread with everybody is a report nobody
                       reads (services/stakeholders.py). */}
                   <StakeholderBrief eventId={Number(e.id)} />
-                </span>
+                </div>
               </li>
             ))}
             {b.team.escalated_blockers.length === 0 &&

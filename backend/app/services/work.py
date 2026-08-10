@@ -281,6 +281,11 @@ def update_task(
     # which channel it came through, or its row reads as a person's own edit
     # in a ledger that can never be corrected.
     note: str = "",
+    # whether the caller proved who they are (a personal key, a validated
+    # sign-in). Only _settle_acceptance reads it, and only to record the
+    # strength of the verdict a direct close stands in for. Defaults False so
+    # every machine path records the weaker, truthful thing.
+    strong: bool = False,
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
@@ -403,6 +408,13 @@ def update_task(
         fields["completed_at"] = db.now()  # flow metrics read this, not updated_at
     elif status and status != "done" and current["status"] == "done":
         fields["completed_at"] = None
+    # the sentinel is resolved BEFORE the two tests below, not only into
+    # `fields`. Testing the raw parameter sent the literal "-" to
+    # assert_readable_by, which asked whether a person named "-" is in the
+    # crew — so un-assigning a crew or private task was refused outright, and
+    # the only write path could not undo an assignment it had made.
+    if assignee == "-":
+        assignee = ""
     if assignee:
         # the same check create_task makes: a reassignment reaches a name the
         # original write never saw, and an assignee who cannot read the task
@@ -433,7 +445,7 @@ def update_task(
     # that lands on the agent's demotion streak (services/delegation.py) for
     # work the sponsor accepted.
     if fields.get("status") == "done" and current["delegated_agent"]:
-        _settle_acceptance(task_id, actor)
+        _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
     row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if row:
         index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
@@ -484,7 +496,7 @@ def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it"
         )
 
 
-def _settle_acceptance(task_id: int, actor: str) -> None:
+def _settle_acceptance(task_id: int, actor: str, strong: bool, agent: str) -> None:
     """Close the acceptance proposal the sponsor has just answered by hand.
 
     APPROVED, not rejected. The proposal asks one question — does the sponsor
@@ -498,10 +510,21 @@ def _settle_acceptance(task_id: int, actor: str) -> None:
 
     Only rows still pending are touched: a proposal already judged carries a
     real verdict, and overwriting it would erase who made the call.
+
+    `strong` records what actually happened. Hardcoded to 0, provenance.lineage
+    reports `verdict_is_weak` for a verdict a sponsor made with a personal key,
+    and the panel then prints "Nobody used a personal API key for that verdict"
+    about a deployment where somebody did.
+
+    Every row is claimed in ONE statement and logged only if that statement
+    claimed it. `waiting` is read first, but a concurrent reject in another tab
+    can settle a row between the read and the UPDATE — and a ledger row saying
+    a rejected proposal was approved can never be corrected, because `activity`
+    rows carrying a `seq` are hash-chained (CLAUDE.md).
     """
-    # read the ids BEFORE the update: after it they no longer match `pending`,
-    # and matching them back by review_note would also catch the proposals an
-    # earlier close of a re-opened task settled the same way
+    # one transaction with the caller's task UPDATE is not possible from here
+    # (update_task writes before this runs), so each row is claimed on its own
+    # `status = 'pending'` test and only a winning claim is logged
     waiting = db.query(
         "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
         " AND entity_id = ? AND status = 'pending'",
@@ -509,23 +532,22 @@ def _settle_acceptance(task_id: int, actor: str) -> None:
     )
     if not waiting:
         return
-    db.execute(
-        "UPDATE pending_changes SET status = 'approved', reviewed_by = ?, reviewed_at = ?,"
-        " reviewed_strong = 0, reviewed_override = 0, result_id = ?,"
-        " review_note = 'the sponsor closed the task directly'"
-        " WHERE entity = 'task_completion' AND entity_id = ? AND status = 'pending'",
-        (actor, db.now(), task_id, task_id),
-    )
-    from .notifications import mark_read_matching
+    from .delegation import clear_acceptance_ping
 
     for row in waiting:
+        claimed = db.execute_rowcount(
+            "UPDATE pending_changes SET status = 'approved', reviewed_by = ?, reviewed_at = ?,"
+            " reviewed_strong = ?, reviewed_override = 0, result_id = ?,"
+            " review_note = 'the sponsor closed the task directly'"
+            " WHERE id = ? AND status = 'pending'",
+            (actor, db.now(), int(strong), task_id, row["id"]),
+        )
+        if not claimed:
+            continue  # somebody else judged it first, and their verdict stands
         db.log_activity(
             actor, "approve_change", f"#{row['id']} -> task #{task_id} (closed directly)"
         )
-        # the "Review needed" ping has been answered — review._clear_review_ping
-        # does this on the approve path, and a ping that outlives its proposal
-        # sends the sponsor to a queue that no longer holds the row
-        mark_read_matching(f"Review needed: #{row['id']} ")
+    clear_acceptance_ping(task_id, agent)
 
 
 def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:

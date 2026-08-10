@@ -121,14 +121,10 @@ stops claiming to be an agent.
 
 ## Agent layer (2026-07-25)
 
-A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
+A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
+morning sweep, which notifies each delegated task's sponsor rather than filing
+`nudge` proposals) shipped.
 
-- **A3 gated agent morning sweep** — SHIPPED 2026-08-08 in a different shape:
-  `services/agent_runner.py::sweep` notifies each delegated task's SPONSOR
-  rather than filing `nudge` proposals. The proposal-entity design was
-  dropped because the sweep's output has one accountable reader by
-  construction (the sponsor), and a proposal nobody must approve is a
-  notification with extra steps. Deterministic and keyless, as designed.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with

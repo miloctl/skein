@@ -352,13 +352,21 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
             # milestone delivered six days early still fell through to the
             # re-dated branch and reported the moved date as slip, so the
             # drafted lesson padded the playbook for work that came in ahead.
-            days = (date.fromisoformat(row["completed_at"][:10]) - date.fromisoformat(planned)).days
+            # db.local_day, never completed_at[:10]: `completed_at` is a UTC
+            # timestamp and `planned` is a TEAM-local date, so the slice
+            # compares two different calendars. West of UTC, a milestone
+            # finished at 20:00 local ON its due date reads as one day late —
+            # and three of those clear PLAN_DRIFT_ALARM, so
+            # insights.py::_r_plan_drift files a permanent medium finding
+            # against an engagement that is exactly on plan.
+            done_day = db.local_day(row["completed_at"])
+            days = (date.fromisoformat(done_day) - date.fromisoformat(planned)).days
             if days > 0:
                 slipped.append(
                     {
                         "title": m["title"],
                         "days": days,
-                        "to": row["completed_at"][:10],
+                        "to": done_day,
                         "basis": "finished",
                     }
                 )

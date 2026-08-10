@@ -120,6 +120,37 @@ def test_the_sponsors_own_close_settles_the_acceptance_proposal(client, fresh_db
     assert not db.query("SELECT id FROM pending_changes WHERE status = 'pending'")
 
 
+def test_a_direct_close_records_how_well_the_sponsor_was_identified(client, fresh_db):
+    """The settle stands in for a verdict, so it must record the verdict's
+    STRENGTH rather than assume the weaker one.
+
+    provenance.lineage reads `reviewed_strong` on approved rows and the panel
+    turns a 0 into "Nobody used a personal API key for that verdict. This
+    deployment identifies people by a self-asserted name." Hardcoded, that
+    sentence is printed at a sponsor who used their key, about a deployment
+    that requires one — a security surface stating the opposite of the truth.
+    """
+    from app import db
+    from app.services import delegation, provenance, scope
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    delegation.submit_completion(tid, "shipped it", actor="scout")
+
+    # closed with a personal key, which is what _strong builds
+    ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers=_strong(client, "mira"))
+    assert ok.status_code == 200
+
+    row = db.query_one(
+        "SELECT reviewed_strong FROM pending_changes WHERE entity = 'task_completion'"
+        " AND entity_id = ?",
+        (tid,),
+    )
+    assert row["reviewed_strong"] == 1
+    chain = provenance.lineage("task", tid, scope.Viewer("mira", True))
+    assert chain["verdict_is_weak"] is False
+
+
 def test_an_acceptance_that_can_never_apply_settles_instead_of_boomeranging(client, fresh_db):
     """The close that did not come through the sponsor guard — a reassignment
     voids the delegation, so the proposal's apply can never succeed again.
