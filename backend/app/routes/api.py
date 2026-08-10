@@ -1890,6 +1890,9 @@ def get_provenance(entity: str, entity_id: int, user: CurrentUser, viewer: Viewe
     """How one row came to exist, and what has happened to it since. Read-only
     composition over rows that already exist (services/provenance.py)."""
     ratelimit.check("provenance", user)
+    # asking the question IS the act this knot names: the panel writes nothing,
+    # so no predicate could ever find it (services/fieldguide.py::mark)
+    fieldguide.mark(user, "provenance")
     return provenance.lineage(entity, entity_id, viewer)
 
 

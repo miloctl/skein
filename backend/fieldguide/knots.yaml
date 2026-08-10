@@ -379,3 +379,46 @@ knots:
     how: If an engagement started from a playbook, close it on Work → Browse. Skein diffs the plan against what happened and drafts the lesson. Approve it on Review, and the next kickoff of that class reads it.
     link: /dashboard
     since: 2026-08-09
+
+  - id: engagement_brief
+    feature: Read an engagement whole
+    knot: Carrick Bend
+    set: bends
+    role: any
+    pitch: Everything one piece of work is doing, in one page — the outcome it exists for, the reason it is red, and what to do about it.
+    how: On Work → Browse, select the name of an engagement. The brief shows its outcome, its health with the receipts behind it, open work, blockers, what an agent is carrying, plan drift, and the next actions.
+    link: /dashboard
+    since: 2026-08-10
+
+  - id: needs_a_call
+    feature: See what needs a decision
+    knot: Trucker's Hitch
+    set: manager
+    role: manager
+    pitch: Four engines, one list. What is escalated, overdue, unowned or drifting, ranked by what it costs to leave alone.
+    how: On Work → Plan the week, read card 2. Each row states what is true, who holds it, and the next move. Follow a receipt to check the claim.
+    link: /planning
+    since: 2026-08-10
+
+  - id: provenance
+    feature: Ask where a row came from
+    knot: Prusik Loop
+    set: loops
+    # ties when the route calls fieldguide.mark — asking the question IS the
+    # act, and a read leaves no ledger row to detect
+    ties: mark
+    role: any
+    pitch: Not just who wrote it — who proposed it, who approved it, whether that verdict carried a credential, and what has changed it since.
+    how: Open any task panel and select "where did this come from?". The chain reads from the row, the proposal that produced it, and the ledger.
+    link: /dashboard
+    since: 2026-08-10
+
+  - id: project_memory
+    feature: Give a memory a subject
+    knot: Sheet Bend
+    set: bends
+    role: any
+    pitch: A fact learned on one piece of work, recalled in conversations about that work and nowhere else.
+    how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal a person approves.
+    link: /chat
+    since: 2026-08-10
