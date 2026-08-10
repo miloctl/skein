@@ -271,8 +271,21 @@ def run_job(spec: JobSpec) -> None:
         result = spec.fn()
         elapsed = int((time.monotonic() - start) * 1000)
         detail = _outcome_detail(result)
-        record_outcome(spec.name, "ok", detail, elapsed)
-        log.info("job %s: done %s", spec.name, detail)
+        # A job may declare its own outcome. Without this, "did it raise" was
+        # the only health signal a job could send: a fleet run where every
+        # allowlisted agent failed to build returned an ordinary dict, so this
+        # recorded `ok` and /health showed green while nothing had run for a
+        # week. Only our own literals are honored — anything else is `ok`, so
+        # a job returning a row with a `status` column cannot forge a state.
+        declared = result.get("status") if isinstance(result, dict) else None
+        # `partial` is STORED as 'error': job_outcomes.status is a two-value
+        # CHECK (001_baseline.sql) and job_health counts only 'ok' rows toward
+        # last-success, which is the honest answer for a fleet where some
+        # agents failed — an operator has to look. Widening the CHECK would
+        # mean rebuilding the table for a distinction only this log line makes.
+        status = "ok" if declared not in ("partial", "error") else "error"
+        record_outcome(spec.name, status, detail, elapsed)
+        log.info("job %s: done (%s) %s", spec.name, declared or status, detail)
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         # outcome table unavailable must not mask the real failure

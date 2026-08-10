@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS notification_reads (
 );
 
 -- The unread query filters `notifications` by (id, user) pairs absent from
--- here, so the lookup is by the pair and the primary key already serves it.
--- The reverse index serves retention pruning, which deletes by user.
+-- here, and the primary key already serves that lookup. This reverse index
+-- serves the other direction: `retention.prune` asks, per old team row,
+-- whether EVERY active human has dismissed it, which walks the roster and
+-- probes this table by user.
 CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads (user);

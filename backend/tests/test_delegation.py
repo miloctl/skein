@@ -63,15 +63,31 @@ def test_worklog_writes_bound_to_the_loop(fresh_db):
         delegation.report_progress(tid, "late addendum", actor="scout")
 
 
-def test_agent_cannot_self_complete_delegated_task(client, fresh_db):
+def test_only_the_sponsor_closes_delegated_work(client, fresh_db):
+    """Both halves of the guard, on the one transition that ends the loop.
+
+    The agent half was complete and the human half did not exist, so any
+    teammate who could reach PATCH /api/tasks/{id} closed delegated work with
+    one field — no sponsor verdict, no reason on record, no override marking,
+    and no trust signal for the agent that did the work.
+    """
     from app.services import work
 
     tid = _delegated_task(fresh_db)
     with pytest.raises(ValueError, match="sponsor's verdict"):
         work.update_task(tid, status="done", actor="scout", origin="agent")
-    # a human closing it directly stays allowed (sponsor override)
+
+    # `tester` is the client fixture's identity and is NOT the sponsor: 403,
+    # naming the sponsor and the path that puts a reason on record
     r = client.patch(f"/api/tasks/{tid}", json={"status": "done"})
-    assert r.status_code == 200
+    assert r.status_code == 403
+    assert "sponsored by mira" in r.json()["detail"]
+
+    # the sponsor's own hand is not blocked — the verdict is theirs either way,
+    # and refusing them here would make the proposal the only way to close
+    # work they already own
+    ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers={"X-User": "mira"})
+    assert ok.status_code == 200
 
 
 def test_submit_completion_dedupes_pending(fresh_db):

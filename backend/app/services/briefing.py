@@ -335,14 +335,24 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     pending_total = db.query_one(
         "SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'"
     )
+    attention = _attention(user, needs_you, today, week)
     return {
         "user": user,
         "date": today,
         "needs_you": needs_you,
+        # ONE definition of "how many things need you", computed here and read
+        # by the header sentence, so it cannot disagree with the tab title.
+        # `attention_count` counts the same rows for the tab and the CLI; a
+        # second count in the browser drifted the moment either side coalesced,
+        # capped or added a group, and the reader saw "(12)" on a tab over a
+        # page that said nothing was waiting.
+        "attention_total": sum(
+            1 for a in attention if a["audience"] == "you" and a["group"] != "notice"
+        ),
         # honest total alongside the LIMITed list — the header must not read
         # "50 things need you" while the nav badge says 300
         "pending_reviews_total": pending_total["n"] if pending_total else 0,
-        "attention": _attention(user, needs_you, today, week),
+        "attention": attention,
         "your_work": {
             "tasks": db.query(
                 "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
@@ -405,13 +415,13 @@ def attention_count(user: str) -> dict:
     blocker or a question here made the badge promise things the destination
     does not show (a 3 that lands on an empty page).
 
-    `yours` is what is addressed to this person BY NAME: unread personal
-    notifications, assigned open questions, owned unresolved blockers, own
-    promises due inside a week, and own stale decisions. It is what the tab
-    title and `skein attention` carry, and both of those say "waiting on you"
-    — a sentence the Inbox number cannot honestly make. Without it the
-    immediate notification tier meant "the next time you open My Day", because
-    nothing a teammate sent you moved either number.
+    `yours` is what is addressed to this person BY NAME and asks something of
+    them: assigned open questions, owned unresolved blockers, own promises due
+    inside a week, and own stale decisions. It is what the tab title and
+    `skein attention` carry, and both of those say "waiting on you" — a
+    sentence the Inbox number cannot honestly make. It MUST equal `my_day`'s
+    `attention_total`, which the header prints: the two are read side by side,
+    on a tab and the page that tab opens.
 
     Not viewer-scoped, and deliberately: every arm keys on the reader's OWN
     name, so a row can only be counted by the person it names. The count also
@@ -426,12 +436,15 @@ def attention_count(user: str) -> dict:
         f" + (SELECT MIN(COUNT(*), 10) FROM intake_requests"
         f"    WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored'))"
         " AS inbox,"
-        # `user = ?` and never 'team': this number is the tab title and
-        # `skein attention`, and both say "waiting on you". A team
-        # announcement lands in the reader's feed but asks nothing of them —
-        # counting it there is how a badge stops meaning anything.
-        " (SELECT COUNT(*) FROM notifications WHERE user = ? AND read_at IS NULL)"
-        " + (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
+        # Notifications are counted by NEITHER arm, and that is the whole
+        # reason this returns the same number My Day prints. `_attention` files
+        # every notification under `notice` — "worth knowing", not "waiting on
+        # you" — and My Day's header excludes that group. A tab reading "(12)"
+        # over a page saying nothing is waiting is the same broken promise this
+        # split exists to fix, one surface further out. The notifications that
+        # DO carry an obligation raise this count through the row behind them:
+        # an assigned question, an owned blocker, a sponsor's acceptance ask.
+        " (SELECT COUNT(*) FROM questions WHERE status = 'open' AND assigned_to = ?)"
         " + (SELECT COUNT(*) FROM blockers WHERE status != 'resolved' AND owner = ?)"
         f" + (SELECT COUNT(*) FROM promises WHERE status = 'open' AND direction = 'given'"
         f"    AND {WORKSPACE_ONLY} AND created_by = ?"
@@ -439,7 +452,7 @@ def attention_count(user: str) -> dict:
         f" + (SELECT COUNT(*) FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"
         "     AND decided_by = ?)"
         " AS yours",
-        (user, user, user, user, week, user),
+        (user, user, user, week, user),
     )
     return {
         "inbox": row["inbox"] if row else 0,

@@ -444,6 +444,18 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
             " AND n.owner = ?)",
             (old, new),
         )
+        # notification_reads (notification_id, user): a dismissal the target
+        # already made wins. A team announcement is one shared row that every
+        # reader dismisses separately (009), so two halves of one person having
+        # both dismissed the same announcement is the ORDINARY case — without
+        # this fold the UPDATE below hits the primary key and the whole merge
+        # raises IntegrityError, which has no handler and answers 500.
+        db.execute(
+            "DELETE FROM notification_reads WHERE user = ? AND EXISTS"
+            " (SELECT 1 FROM notification_reads n"
+            "  WHERE n.notification_id = notification_reads.notification_id AND n.user = ?)",
+            (old, new),
+        )
         for table, cols in _ATTRIBUTION.items():
             for col in cols:
                 n = db.execute_rowcount(

@@ -684,7 +684,15 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
         # the UI shows whose verdict this is — acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)
-            r["evidence"] = _acceptance_evidence(r, viewer)
+            # the KEY is absent when there is no evidence, never an empty
+            # object: `{}` is truthy in JavaScript, so the renderer's
+            # `c.evidence ? <AcceptanceEvidence …>` guard passes and the
+            # component reads `.length` of an absent worklog — one deleted or
+            # unreadable task takes down the whole Approvals list, which is the
+            # surface where that proposal gets cleaned up
+            evidence = _acceptance_evidence(r, viewer)
+            if evidence:
+                r["evidence"] = evidence
         r["record"] = record.get((r["proposed_by"], r["entity"]))
     return rows
 
@@ -698,17 +706,19 @@ _EVIDENCE_NOTES = 5
 def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     """The worklog and task state a sponsor judges an acceptance ON.
 
-    The verdict controls were here and the evidence was two navigations away:
-    the queue printed "on task #12" as text, and the only web surface that
-    shows a worklog is the task peek. So the sponsor left the decision screen,
-    found the task, read the log, came back, and voted from memory. The field
-    guide even tells them to do exactly that.
+    Without it the verdict controls sit two navigations from the evidence: the
+    only other web surface that shows a worklog is the task peek, so the
+    sponsor leaves the decision screen, finds the task, reads the log, comes
+    back and votes from memory. `fieldguide/knots.yaml` tells them to do
+    exactly that walk.
 
     Read through `delegation.list_worklog`, which carries the delegation door —
     a sponsor may read the log of the task they sponsor whether or not a tier
-    filter would reach it. Failure is a MISSING key, never a raise: a proposal
-    whose task was deleted must still be rejectable, and the queue is the
-    surface where that clean-up happens.
+    filter reaches it. Returns {} rather than raising when the task is gone or
+    unreadable: a proposal whose task was deleted must still be rejectable, and
+    the queue is the surface where that clean-up happens. The caller drops the
+    key entirely on {} — see list_changes for why an empty object is not safe
+    to send.
     """
     from .delegation import list_worklog
 
@@ -727,6 +737,14 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     )
     if not task:
         return {}
+    # Whether the person judging this is the person who was on the hook when
+    # the work was submitted. Authority follows the CURRENT sponsor by design,
+    # so this is a receipt, not a refusal — but a verdict that silently moved
+    # to somebody who never watched the work is exactly what a reviewer needs
+    # told before they press Approve.
+    was = str(change.get("sponsor_at_submission") or "")
+    now = _sponsor_of(change)
+    handover = was if was and was != now else ""
     try:
         # actor = the VIEWER's own name, never the proposer's. The proposer is
         # the delegated agent, and passing its name would open the delegation
@@ -745,7 +763,7 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
         # be able to REJECT a proposal whose task went private or vanished, and
         # this surface is where that clean-up happens
         notes = []
-    return {**task, "worklog": notes}
+    return {**task, "worklog": notes, "sponsor_was": handover}
 
 
 def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
