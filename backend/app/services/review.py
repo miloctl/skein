@@ -299,8 +299,11 @@ def approve_change(
         # the proposal's own target vanished (event cancelled via REST, row
         # hard-deleted): re-approving can never succeed, so a pending reset
         # would boomerang forever — settle it as rejected, on the record
+        # reviewed_strong cleared for the same reason as the terminal branch
+        # below: nobody judged this work, so it must not reach the streak.
         db.execute(
-            "UPDATE pending_changes SET status = 'rejected', review_note = ? WHERE id = ?",
+            "UPDATE pending_changes SET status = 'rejected', reviewed_strong = 0,"
+            " review_note = ? WHERE id = ?",
             (f"auto-rejected — target vanished: {exc}", change_id),
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (target vanished)")
@@ -314,8 +317,15 @@ def approve_change(
         # re-approving can never succeed, so settle it rejected like a vanished
         # target instead of resetting to pending, where it would clutter the
         # queue until a human rejected it by hand
+        # reviewed_strong is cleared with it. `_claim` stamped the reviewer's
+        # own strength a moment ago, and the demotion streak counts consecutive
+        # strong non-override rejections (services/delegation.py::trust_scores)
+        # — so an automatic settle of a moot proposal would read as a human
+        # judging the agent's work badly, and walk it down a rung for work
+        # nobody rejected.
         db.execute(
-            "UPDATE pending_changes SET status = 'rejected', review_note = ? WHERE id = ?",
+            "UPDATE pending_changes SET status = 'rejected', reviewed_strong = 0,"
+            " review_note = ? WHERE id = ?",
             (f"auto-rejected — {exc}", change_id),
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (not applicable)")
@@ -684,8 +694,88 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
         # the UI shows whose verdict this is — acceptance belongs to the sponsor
         if r["entity"] == "task_completion":
             r["sponsor"] = _sponsor_of(r)
+            # the KEY is absent when there is no evidence, never an empty
+            # object: `{}` is truthy in JavaScript, so the renderer's
+            # `c.evidence ? <AcceptanceEvidence …>` guard passes and the
+            # component reads `.length` of an absent worklog — one deleted or
+            # unreadable task takes down the whole Approvals list, which is the
+            # surface where that proposal gets cleaned up
+            evidence = _acceptance_evidence(r, viewer)
+            if evidence:
+                r["evidence"] = evidence
         r["record"] = record.get((r["proposed_by"], r["entity"]))
     return rows
+
+
+# How many worklog notes ride along with an acceptance proposal. The sponsor
+# needs the shape of the work and its latest state, not the whole log — the
+# panel behind the task link holds all of it (frontend/components/task-peek).
+_EVIDENCE_NOTES = 5
+
+
+def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
+    """The worklog and task state a sponsor judges an acceptance ON.
+
+    Without it the verdict controls sit two navigations from the evidence: the
+    only other web surface that shows a worklog is the task peek, so the
+    sponsor leaves the decision screen, finds the task, reads the log, comes
+    back and votes from memory. `fieldguide/knots.yaml` tells them to do
+    exactly that walk.
+
+    Read through `delegation.list_worklog`, which carries the delegation door —
+    a sponsor may read the log of the task they sponsor whether or not a tier
+    filter reaches it. Returns {} rather than raising when the task is gone or
+    unreadable: a proposal whose task was deleted must still be rejectable, and
+    the queue is the surface where that clean-up happens. The caller drops the
+    key entirely on {} — see list_changes for why an empty object is not safe
+    to send.
+    """
+    from .delegation import list_worklog
+
+    task_id = change["entity_id"]
+    if not task_id:
+        return {}
+    # viewer-filtered, like every other read of a scoped table. The proposal
+    # row already passed `_readable`, but that tests the SUMMARY's target and
+    # this query returns the task's own title and forge link — a second read
+    # needs its own filter or it is a second door onto the same row.
+    tfrag, tp = scope.visible_filter(viewer, "tasks")
+    task = db.query_one(
+        "SELECT id, title, status, delegated_agent, forge_url FROM tasks"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" WHERE id = ? AND {tfrag}",
+        (task_id, *tp),
+    )
+    if not task:
+        return {}
+    # Whether the person judging this is the person who was on the hook when
+    # the work was submitted. Authority follows the CURRENT sponsor by design
+    # (010_sponsor_at_submission.sql), so this is a receipt and not a refusal:
+    # a reviewer must see the handover before they press Approve.
+    was = str(change.get("sponsor_at_submission") or "")
+    now = _sponsor_of(change)
+    handover = was if was and was != now else ""
+    try:
+        # actor = the VIEWER's own name, never the proposer's. The proposer is
+        # the delegated agent, and passing its name would open the delegation
+        # door on behalf of whoever happened to load the queue — a crew
+        # worklog served to a reviewer outside the crew. Passed this way the
+        # door opens for exactly one reader, the sponsor, which is the same
+        # pair report_progress lets write.
+        notes = list_worklog(
+            task_id,
+            limit=_EVIDENCE_NOTES,
+            viewer=viewer,
+            actor=viewer.name,
+        )
+    except db.NotFound:
+        # A SCOPE refusal only, never a bare Exception: the reviewer still has
+        # to be able to REJECT a proposal whose task went private or vanished,
+        # and this surface is where that clean-up happens — but a real database
+        # fault swallowed here renders as "no notes were filed" beside live
+        # Approve controls, which is a different sentence with a different
+        # meaning.
+        notes = []
+    return {**task, "worklog": notes, "sponsor_was": handover}
 
 
 def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:

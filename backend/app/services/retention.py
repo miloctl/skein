@@ -57,8 +57,29 @@ def prune(*, actor: str = "scheduler") -> dict:
             "DELETE FROM health_snapshots WHERE created_at < ?",
             (_cutoff(FORECAST_SNAPSHOT_DAYS),),
         ),
+        # "read" means read_at for a personal row and a `notification_reads`
+        # row for a 'team' one (009). A prune that tests read_at alone makes
+        # every team announcement immortal — mark_read never stamps that
+        # column on a shared record — and drags its dismissal rows along with
+        # it, so the two tables grow together and forever. A team row is
+        # prunable once EVERY active human has dismissed it: one straggler
+        # keeps it, which is the same promise the unread query makes them.
         "notifications": db.execute_rowcount(
-            "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?",
+            "DELETE FROM notifications WHERE created_at < ? AND ("
+            " (user != 'team' AND read_at IS NOT NULL)"
+            # read_at counts for a team row too. `mark_read_matching` stamps it
+            # when the THING a notification points at is settled — a fact about
+            # the world, not about one reader — and that write also hides the
+            # row from every unread list, so nobody can ever add the per-person
+            # dismissal the arm below waits for. Without this disjunct every
+            # "Review needed: #N" notification the product sends is permanent.
+            " OR (user = 'team' AND read_at IS NOT NULL)"
+            " OR (user = 'team' AND NOT EXISTS ("
+            "   SELECT 1 FROM users u WHERE u.kind = 'human' AND u.active = 1"
+            "   AND u.name != 'anonymous'"
+            "   AND NOT EXISTS (SELECT 1 FROM notification_reads r"
+            "     WHERE r.notification_id = notifications.id AND r.user = u.name)))"
+            ")",
             (_cutoff(READ_NOTIFICATION_DAYS),),
         ),
         "job_runs": db.execute_rowcount(

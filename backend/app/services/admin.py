@@ -75,6 +75,11 @@ TABLES = (
     "artifacts",
     "memories",
     "notifications",
+    # who has dismissed which team announcement (009). Exported WITH
+    # notifications, not excluded: a restore that carried the announcements but
+    # not the dismissals would resurface every team notification the roster had
+    # already read, on everybody's My Day, at once.
+    "notification_reads",
     "promises",
     "agent_authority",
     "feedback",

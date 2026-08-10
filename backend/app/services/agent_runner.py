@@ -55,7 +55,10 @@ QUIET_DAYS = 2
 _WAKE = (
     "You are resuming work you already hold. Call my_agent_inbox for your"
     " delegated tasks, then read_worklog on each one to see what you last"
-    " recorded. For each task, do the next concrete step, then call"
+    " recorded. Call get_findings once and read it BEFORE you start: a rule may"
+    " already have named the reason a task of yours is stuck, and repeating"
+    " work the engine has already explained is the most expensive thing you can"
+    " do unwatched. For each task, do the next concrete step, then call"
     " report_progress with what you did. Call submit_for_acceptance only when"
     " a task is genuinely finished. Do not create new tasks, and do not start"
     " anything you were not delegated. If a task is blocked, say so in"
@@ -140,6 +143,28 @@ def sweep() -> dict:
     return {"swept": touched, "agents": len(config.AGENT_RUNNER)}
 
 
+def _refused(agent: str, reason: str) -> dict:
+    """A run that did not happen because nothing asked for one.
+
+    Nothing delegated, already ran today, mock provider, a budget ceiling
+    doing its job, an authority level set to forbidden. The fleet is healthy
+    and the scheduler must say so, or every quiet night reads as an incident.
+    """
+    return {"agent": agent, "ran": False, "fault": False, "reason": reason}
+
+
+def _failed(agent: str, reason: str) -> dict:
+    """A run that was SUPPOSED to happen and did not.
+
+    A build that raised, a turn that raised, a turn abandoned at the wall
+    clock. `run` reports these to the scheduler as a partial or failed job:
+    without the distinction every allowlisted agent could fail all week while
+    `job_outcomes` recorded `ok` and /health showed the fleet green, because
+    the job itself returned a value rather than raising.
+    """
+    return {"agent": agent, "ran": False, "fault": True, "reason": reason}
+
+
 def run_one(agent: str, *, actor: str = "scheduler") -> dict:
     """One bounded, unattended turn for one agent.
 
@@ -148,23 +173,24 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
     the others.
     """
     if agent not in config.AGENT_RUNNER:
-        return {"agent": agent, "ran": False, "reason": "not in SKEIN_AGENT_RUNNER"}
+        return _refused(agent, "not in SKEIN_AGENT_RUNNER")
     if config.EFFECTIVE_PROVIDER == "mock":
         # not an error: mock is a supported deployment, and sweep() above is
         # the whole feature there. Saying so keeps /health honest.
-        return {"agent": agent, "ran": False, "reason": "no model provider — sweep only"}
+        return _refused(agent, "no model provider — sweep only")
     if delegation.authority_level(agent, "task") == "forbidden":
-        return {"agent": agent, "ran": False, "reason": "forbidden on tasks"}
+        return _refused(agent, "forbidden on tasks")
     if not _due(agent):
-        return {"agent": agent, "ran": False, "reason": "nothing delegated"}
+        return _refused(agent, "nothing delegated")
     try:
         usage.assert_within_budget(agent)
     except usage.BudgetSpent as exc:
-        return {"agent": agent, "ran": False, "reason": str(exc)}
+        # a spent budget is a CEILING working, not a fault — the operator set it
+        return _refused(agent, str(exc))
 
     # once per (agent, team day): a restart must not re-spend the allowance
     if not db.claim_job(f"agent-run:{agent}", db.today().isoformat()):
-        return {"agent": agent, "ran": False, "reason": "already ran today"}
+        return _refused(agent, "already ran today")
 
     from ..agents.identity import reset_agent_identity, set_agent_identity
     from ..agents.team_agent import build_agent
@@ -182,10 +208,10 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
             # the whole day on a job that runs once and does not catch up
             _release(agent)
             log.warning("agent build failed for %s: %s", agent, exc)
-            return {"agent": agent, "ran": False, "reason": f"could not build: {exc}"}
+            return _failed(agent, f"could not build: {type(exc).__name__}")
         if built is None:
             _release(agent)
-            return {"agent": agent, "ran": False, "reason": "no agent could be built"}
+            return _failed(agent, "no agent could be built")
         # A DAEMON thread, not a ThreadPoolExecutor: the executor joins its
         # workers both on context exit AND through an atexit hook, so either
         # one waits out the full hang this bound exists to escape. A daemon
@@ -237,23 +263,19 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
             # enough to time out has already spent tokens, and retrying it
             # today would spend them again
             log.warning("agent run for %s exceeded %ss", agent, config.AGENT_RUN_SECONDS)
-            return {
-                "agent": agent,
-                "ran": False,
-                "reason": f"run exceeded {config.AGENT_RUN_SECONDS}s and was abandoned",
-            }
+            return _failed(agent, f"run exceeded {config.AGENT_RUN_SECONDS}s and was abandoned")
         if "error" in box:
             raise box["error"]
         reply = box.get("reply", "")
         text = str(reply)[:2000]
         db.log_activity(actor, "agent_run", f"{agent}: unattended run")
-        return {"agent": agent, "ran": True, "thread": thread, "reply": text}
+        return {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
     except Exception as exc:
         # Logged and reported, never raised: run() below is a scheduled job,
         # and a raise there marks the whole sweep failed on /health when the
         # other agents ran fine.
         log.warning("agent run failed for %s: %s", agent, exc)
-        return {"agent": agent, "ran": False, "reason": f"run failed: {exc}"}
+        return _failed(agent, f"run failed: {type(exc).__name__}")
     finally:
         # in a finally, not after the call: an exception mid-turn would
         # otherwise leave this thread's identity set to the agent, and the
@@ -267,4 +289,19 @@ def run(*, actor: str = "scheduler") -> dict:
     a sponsor still hears about quiet work on a day every run refuses."""
     swept = sweep()
     runs = [run_one(a, actor=actor) for a in config.AGENT_RUNNER]
-    return {"sweep": swept, "runs": runs, "ran": sum(1 for r in runs if r["ran"])}
+    ran = sum(1 for r in runs if r["ran"])
+    faults = [r for r in runs if r.get("fault")]
+    # `status` is read by jobs.run_job, which otherwise records `ok` for any
+    # return value at all. Drop this key and a fleet where every agent fails to
+    # build returns an ordinary dict: /health shows the job green and the
+    # reasons reach nothing but the process log.
+    status = "ok" if not faults else ("partial" if ran else "error")
+    return {
+        "sweep": swept,
+        "runs": runs,
+        "ran": ran,
+        "status": status,
+        # named, not counted: an operator fixing this needs to know WHICH
+        # agent and WHY, and `_outcome_detail` reduces a list to its length
+        "faults": " | ".join(f"{r['agent']}: {r['reason']}" for r in faults),
+    }

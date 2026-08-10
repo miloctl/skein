@@ -56,9 +56,6 @@ Recently shipped strip) shipped 2026-08-08/09 and were dropped. The numbers
 below stay as the review transcripts cite them; item 9 continues the
 numbering and was found later, on 2026-08-09.
 
-2. [M] What-if staffing button on scored intake rows. This closes the dangling
-   "shown in staffing what-ifs" reference in Settings.
-4. [M] Generate-handoff button on closing engagements and closed engagements.
 5. [S] Allocation inline form on the Capacity card, or an honest empty state.
 6. [S] `?` tooltips: ISO week format on the commitment card, season definition
    on the pulse banner. (The origin glossary this item also named shipped
@@ -81,13 +78,6 @@ numbering and was found later, on 2026-08-09.
    near the left of the row.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
-
-These did not ship:
-
-- **The morning stakeholder brief** [S] — a rule that ATTACHES the open
-  threads with an outside party to the meeting where you will see them.
-  The read exists; nothing pushes it at the hour it is useful.
-  `GET /api/events/{id}/stakeholders` is the seam.
 
 Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
 close diffs planned against actual, and an approved lesson reaches the
@@ -131,14 +121,10 @@ stops claiming to be an agent.
 
 ## Agent layer (2026-07-25)
 
-A1 (delegation work loop) and A2 (system-filed authority proposals) shipped.
+A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
+morning sweep, which notifies each delegated task's sponsor rather than filing
+`nudge` proposals) shipped.
 
-- **A3 gated agent morning sweep** — SHIPPED 2026-08-08 in a different shape:
-  `services/agent_runner.py::sweep` notifies each delegated task's SPONSOR
-  rather than filing `nudge` proposals. The proposal-entity design was
-  dropped because the sweep's output has one accountable reader by
-  construction (the sponsor), and a proposal nobody must approve is a
-  notification with extra steps. Deterministic and keyless, as designed.
 - **A4 agent-to-agent handoff** — a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** — `bundle_id` and `seq` on `pending_changes`, with
@@ -305,17 +291,19 @@ several loops stop at 80% — the trust flywheel has no flow, playbooks
 never learn from their own engagements, and waiting-on edges give the
 person typing them nothing back.
 
-- **R8 runner wake reads** [S] — `agent_runner._WAKE` names only the
-  delegation tools, so an agent woken by the unattended runner reads its
-  inbox and nothing else. Seed the wake turn from `get_findings` and
-  `get_attention` as well, so an unattended turn reads the same rules a
-  chat turn does. Those two tools shipped 2026-08-09.
+- **R8 runner wake reads: attention** [S] — the wake turn now reads
+  `get_findings`, so an unattended agent sees the rules a chat turn does.
+  `get_attention` is still absent, and deliberately: it resolves the
+  REQUESTER from the turn's own viewer, and an unattended turn has no
+  requester (`tools/portfolio.py` says so rather than returning an empty
+  list). Wiring it needs a requester context on the runner first.
 - **The per-task unblock count on My Day** [S] — the task peek and the
   cockpit card both show what finishing a task releases; My Day does not,
   so the number is absent from the one surface people open first. The
   `blockers.task_id` half of the original spec stays dropped on purpose —
   `services/work.py::_blocked_by` records why a blocker edge is not
-  released work.
+  released work. My Day now leads with the week's commitment and marks it,
+  which is the other half of the same complaint.
 
 **Dogfooding.** Not a build, and blocking two triggers: put flow through
 the trust loop in our own deployment — `SKEIN_AGENT_REVIEW=1`, real delegations
@@ -339,10 +327,6 @@ uncapped-on-both-sides census bullet at the top of this file.
 
 Named here because the rest of that review shipped and these did not.
 
-- **The Monday agenda has unnumbered cards** [XS] — `/planning` reads
-  `1 ·` through `4 ·`, then three cards with no number, then `5 ·` and
-  `6 ·`. A manager reads the page down in a meeting, and the gap is where
-  they lose their place. Either number them or move them after 6.
 - **`docs/LEXICON.md` row 1a is decided and unenforced** [XS] — the
   cockpit card and the FEATURES heading now say `awaiting`, and the
   capture chip still labels the `awaiting:` prefix `promise (to us)`.

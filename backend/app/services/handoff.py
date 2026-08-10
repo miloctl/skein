@@ -137,9 +137,28 @@ def generate_handoff(
         safe_name = f"engagement-{engagement_id}"
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / safe_name
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    path = artifacts_dir / f"{db.today().isoformat()}-handoff.md"
+    # the engagement id is in the FILE name, not just the directory: two
+    # distinct names can sanitize to one directory ("ops/reset" and "ops_reset"
+    # both become "ops_reset"), and then the dated path collides. The upsert
+    # below matches on path alone, so the second engagement would take over the
+    # first one's artifact row — returning an id whose engagement, title and
+    # TIER belong to the other engagement, while the body it just wrote was
+    # narrowed for this one's audience.
+    path = artifacts_dir / f"{db.today().isoformat()}-handoff-{engagement_id}.md"
     path.write_text(markdown, encoding="utf-8")
 
+    # The FILE is named by date, so a second handoff the same day overwrites
+    # it. The row must follow, or the list carries two identical links to one
+    # file and opening the older one shows the newer body — which is the same
+    # upsert `rituals._write_artifact` makes for the same reason.
+    existing = db.query_one("SELECT id FROM artifacts WHERE path = ?", (str(path),))
+    if existing:
+        db.execute(
+            "UPDATE artifacts SET created_by = ?, created_at = ? WHERE id = ?",
+            (actor, db.now(), existing["id"]),
+        )
+        db.log_activity(actor, "generate_handoff", f"#{engagement_id} {name} (rewritten)")
+        return {"artifact_id": int(existing["id"]), "path": str(path), "markdown": markdown}
     aid = db.execute(
         "INSERT INTO artifacts (engagement_id, kind, title, path, created_by, created_at,"
         " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

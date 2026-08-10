@@ -9,6 +9,7 @@ import { StandupComposer } from "@/components/standup-card";
 import { GuideHint } from "@/components/guide-hint";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 import { Card } from "@/components/card";
+import { ReceiptLine } from "@/components/receipt";
 import { PeekLink } from "@/components/task-peek";
 import { Shortcut, ShortcutText } from "@/components/shortcut";
 
@@ -18,6 +19,12 @@ type AttentionItem = {
   kind: string;
   ref_id: number;
   group: "decide" | "unblock" | "commit" | "review" | "notice";
+  // "you" for a row addressed to this reader by name, "team" for a shared
+  // queue anyone may work (services/briefing.py). The two render in separate
+  // cards: a "Needs you" heading over the team's intake queue and every
+  // pending proposal taught readers to discount the card, and this card is
+  // the product's daily habit.
+  audience?: "you" | "team";
   label: string;
   reason: string;
   link: string;
@@ -33,7 +40,12 @@ type Briefing = {
   // it for `skein my-day` and the /briefing chat command, which have no
   // grouped renderer — see services/briefing.py.
   attention: AttentionItem[];
+  // the count the header prints, computed server-side beside the rows so it
+  // cannot disagree with the tab title (services/briefing.py)
+  attention_total?: number;
   pending_reviews_total?: number;
+  // the ISO week `committed_week` is stored against (services/briefing.py)
+  this_week?: string;
   your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };
   team: {
     recently_shipped: Row[];
@@ -115,6 +127,199 @@ function WhoAreYou() {
   );
 }
 
+/** The dismiss control, shared by both attention cards.
+ *
+ *  A personal notification renders under "Needs you" and a team one under
+ *  "Team queues" (services/briefing.py sets the audience). `POST
+ *  /api/notifications/read` has no other caller in the product — not the CLI,
+ *  not chat — so a card that omits this button makes its rows permanent.
+ */
+function Dismiss({ id, onDone }: { id: number; onDone: () => void }) {
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await api("/api/notifications/read", {
+            method: "POST",
+            body: JSON.stringify({ notification_id: id }),
+          });
+        } catch (e) {
+          reportStatus(actionError(e));
+        }
+        onDone();
+      }}
+      className="shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
+    >
+      dismiss
+    </button>
+  );
+}
+
+
+/** What is open with the outside people attending one meeting.
+ *
+ *  Lazy: the request fires when the reader asks, not on every My Day load. A
+ *  meeting with no outside attendee has no threads, and most do not.
+ */
+function StakeholderBrief({ eventId }: { eventId: number }) {
+  const [open, setOpen] = useState(false);
+  // the shape services/stakeholders.py::open_threads returns: one row per
+  // party, each carrying its items. The planning cockpit reads the same
+  // service and types it this way (app/planning/page.tsx)
+  const [threads, setThreads] = useState<
+    { party: string; items: { kind: string; text: string; when: string }[] }[] | null
+  >(null);
+  // a THIRD state. `[]` is what a meeting with no outside attendee returns,
+  // so a failure written as `[]` renders "nothing is open" — a claim about the
+  // world manufactured from a transport failure, read by somebody walking into
+  // the room.
+  const [err, setErr] = useState("");
+
+  const show = async () => {
+    setOpen(true);
+    if (threads !== null) return; // `[]` is a real answer, not a cache miss
+    setErr("");
+    try {
+      const r = await api<{ threads: typeof threads }>(
+        `/api/events/${eventId}/stakeholders`,
+      );
+      setThreads(r.threads ?? []);
+      setErr("");
+    } catch (e) {
+      setErr(actionError(e));
+    }
+  };
+
+  return (
+    // a DIV, not a span: it holds a list, and phrasing content cannot. Its
+    // PARENT is a div for the same reason (the events list above).
+    <div className="ml-1.5 text-xs text-ink-3">
+      {/* the trigger STAYS mounted and toggles. Unmounting it on activation
+          dropped a keyboard reader's focus to <body>, and left a failed fetch
+          with no control at all — no retry and no way back. Collapsing clears
+          nothing, so re-opening after a failure refetches (threads is still
+          null). */}
+      <button
+        onClick={() => (open ? setOpen(false) : show())}
+        aria-expanded={open}
+        className="rounded bg-raised px-1.5 py-px text-[10px] text-ink-3 hover:bg-line"
+      >
+        {open ? "hide" : "what is open?"}
+      </button>
+      {!open ? null : err ? (
+        <p className="text-danger">{err}</p>
+      ) : threads === null ? (
+        <p>Loading…</p>
+      ) : threads.length === 0 ? (
+        <p>Nothing is open with anyone outside the team in this meeting.</p>
+      ) : (
+        <ul className="mt-0.5 space-y-0.5">
+          {threads.map((t) => (
+            <li key={t.party}>
+              {t.party}:{" "}
+              {t.items
+                .map((i) => i.text + (i.when ? ` (${i.when})` : ""))
+                .join("; ")}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+
+/** What changed since this reader last looked.
+ *
+ *  Every other surface here is a standing picture: the same rows until
+ *  somebody acts, which is correct and is also why a reader skims. This is the
+ *  other question, and it answers itself out of the same rows — a health call
+ *  that moved, a rule that fired for the first time, a commitment that broke,
+ *  an acceptance that arrived (services/delta.py).
+ *
+ *  Reading it MARKS it. That is the point: the second read is empty, and an
+ *  empty second read is what makes the first one worth opening.
+ */
+function SinceYouLooked() {
+  const [d, setD] = useState<{
+    since: string;
+    quiet: boolean;
+    items: {
+      kind: string;
+      entity: string;
+      entity_id: number;
+      headline: string;
+      direction: string;
+      receipts: { message: string; refs: { entity: string; id: number }[] }[];
+      link: string;
+    }[];
+  } | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Reading and MARKING are two steps, and they must not be one request.
+  // React re-invokes an effect on a remount — StrictMode does it on every dev
+  // mount — so a fetch that marked as it read consumed the brief with its
+  // first call and rendered the empty second answer. The brief is then gone
+  // and nobody ever saw it.
+  const marked = useRef(false);
+
+  useEffect(() => {
+    api<NonNullable<typeof d>>("/api/delta")
+      .then(setD)
+      .catch(() => setFailed(true));
+  }, []);
+
+  // marked once the items are ON SCREEN, never before: a brief that failed to
+  // render must still be new tomorrow
+  useEffect(() => {
+    if (!d?.items?.length || marked.current) return;
+    marked.current = true;
+    api("/api/delta?mark=true").catch(() => {});
+  }, [d]);
+
+  // silent when nothing changed, and silent on failure. This card is ADDITIVE:
+  // a reader who sees nothing here has lost nothing, because every row it
+  // names is also standing somewhere below it.
+  //
+  // `items` is tested, not `quiet`: a response missing the array — an older
+  // backend behind a newer bundle, a proxy returning an empty body — left
+  // `quiet` undefined, so the guard passed and `.map` threw on `undefined`,
+  // which unmounts the WHOLE of My Day for a card that is meant to be
+  // additive.
+  if (failed || !d?.items?.length) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-thread/30 bg-thread/5 p-4">
+      <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        Since you last looked
+      </p>
+      <ul className="space-y-1.5 text-sm">
+        {d.items.map((i) => (
+          <li key={`${i.kind}${i.entity_id}`}>
+            <span aria-hidden className="mr-1 text-ink-3">
+              {i.direction === "worse" ? "▼" : i.direction === "better" ? "▲" : "•"}
+            </span>
+            {/* the glyph is the whole payload for a sighted reader and is
+                aria-hidden, so the word carries it for everyone else */}
+            <span className="sr-only">
+              {i.direction === "worse"
+                ? "worse: "
+                : i.direction === "better"
+                  ? "better: "
+                  : ""}
+            </span>
+            <Link href={i.link} className="hover:underline">
+              {i.headline}
+            </Link>
+            {i.receipts.map((r, n) => (
+              <ReceiptLine key={n} receipt={r} className="ml-4 block text-xs text-ink-3" />
+            ))}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // one wave per session, then stillness; memoized so StrictMode double-renders
 // and mid-animation re-renders see the same answer (wave renders client-only,
 // behind the briefing-loaded gate, so SSR never sees it)
@@ -141,16 +346,16 @@ export default function MyDay() {
   };
   const [error, setError] = useState<string | null>(null);
   // persisted per ISO week — an accidental reload must not re-ask (votes are
-  // anonymous server-side, so the client is the only dedupe there is)
-  const pulseWeek = (() => {
-    const d = new Date();
-    const day = (d.getDay() + 6) % 7;
-    const thu = new Date(d);
-    thu.setDate(d.getDate() - day + 3);
-    const jan1 = new Date(thu.getFullYear(), 0, 1);
-    const week = Math.ceil(((+thu - +jan1) / 86400000 + 1) / 7);
-    return `${thu.getFullYear()}-W${week}`;
-  })();
+  // anonymous server-side, so the client is the only dedupe there is).
+  //
+  // The SERVER's label, not a second arithmetic. A browser-side ISO week is
+  // wrong two ways: it mixes a midnight date with a current-time one, which
+  // lands every week of a year whose Jan 1 is a Friday one ahead, and it reads
+  // the browser's zone rather than the team day. This key only has to be
+  // stable per week, so the falsehood was survivable here and fatal on the
+  // commitment chip — which is the reason a second copy must not exist for
+  // the next reader to take.
+  const pulseWeek = b?.this_week ?? "";
   const pulseVoted = useSyncExternalStore(
     (cb) => {
       window.addEventListener("storage", cb);
@@ -285,13 +490,31 @@ export default function MyDay() {
     );
   if (b.user === "anonymous") return <WhoAreYou />;
 
+  // the label `committed_week` stores (services/weekly.py), taken from the
+  // SERVER so the chip and the ordering it explains cannot disagree. Computed
+  // in the browser it was wrong twice: the ISO-week arithmetic mixed a
+  // midnight date with a current-time one, which put every week of 2027 one
+  // ahead, and even correct it would read the browser's timezone rather than
+  // the team day the server sorts by. Empty string matches no row, so an
+  // older backend simply shows no chip.
+  const thisWeek = b.this_week ?? "";
   const attention = b.attention ?? [];
+  // A server that sends no `audience` (an older backend behind a newer
+  // bundle) falls back to "you": every row lands in one card, rather than the
+  // page silently emptying.
+  const yours = attention.filter((a) => (a.audience ?? "you") === "you");
+  const teamQueue = attention.filter((a) => a.audience === "team");
   // review items in `attention` are LIMITed to 50; the honest total rides
-  // separately so the header never undercounts a flooded queue
+  // separately so the overflow line below can name what the list cannot show
   const shownReviews = attention.filter((a) => a.group === "review").length;
   const extraReviews = Math.max(0, (b.pending_reviews_total ?? 0) - shownReviews);
+  // the server's number, not a second one computed here: `/api/attention`
+  // feeds the tab title from the same rule, and a browser-side count drifted
+  // the moment either side capped, coalesced or added a group — the reader saw
+  // "(12)" on a tab over a page that said nothing was waiting. The local
+  // filter is the fallback for a server that does not send it yet.
   const needsCount =
-    attention.filter((a) => a.group !== "notice").length + extraReviews;
+    b.attention_total ?? yours.filter((a) => a.group !== "notice").length;
   const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
     decide: { title: "Decide", tone: "bg-thread-solid" },
     unblock: { title: "Unblock", tone: "bg-danger" },
@@ -308,7 +531,8 @@ export default function MyDay() {
     >
       {error && (
         <p className="mb-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
-          Last refresh failed ({error}) — showing the previous state.
+          Last refresh failed. Skein shows the state from the last good load.{" "}
+          {error}
         </p>
       )}
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">
@@ -445,14 +669,16 @@ export default function MyDay() {
         </div>
       )}
 
+      <SinceYouLooked />
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Needs you">
-          {attention.length === 0 ? (
+          {yours.length === 0 ? (
             <p className="text-sm text-ink-3">{emptyState("allclear")}</p>
           ) : (
             <div className="space-y-3">
               {(Object.keys(GROUP_META) as AttentionItem["group"][])
-                .filter((g) => attention.some((a) => a.group === g))
+                .filter((g) => yours.some((a) => a.group === g))
                 .map((g) => (
                   <div key={g}>
                     <p className="mb-1 flex items-center gap-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">
@@ -460,7 +686,7 @@ export default function MyDay() {
                       {GROUP_META[g].title}
                     </p>
                     <ul className="space-y-1.5 text-sm">
-                      {attention
+                      {yours
                         .filter((a) => a.group === g)
                         .map((a, i) => (
                           <li
@@ -506,22 +732,7 @@ export default function MyDay() {
                               </span>
                             )}
                             {a.kind === "notification" && (
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await api("/api/notifications/read", {
-                                      method: "POST",
-                                      body: JSON.stringify({ notification_id: a.ref_id }),
-                                    });
-                                  } catch (e) {
-                                    reportStatus(actionError(e));
-                                  }
-                                  load();
-                                }}
-                                className="shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
-                              >
-                                dismiss
-                              </button>
+                              <Dismiss id={a.ref_id} onDone={load} />
                             )}
                           </li>
                         ))}
@@ -531,6 +742,54 @@ export default function MyDay() {
             </div>
           )}
         </Card>
+
+        {/* The shared queues, named as shared. These rows are real work and
+            they belong on My Day — but nobody assigned them to this reader,
+            and putting them under "Needs you" was what taught people that the
+            heading does not mean what it says. */}
+        {/* rendered for the overflow line alone when the queue itself is
+            empty: every pending proposal can be one this reader asked for, and
+            the remainder past the 50-row cap has nowhere else to be said */}
+        {(teamQueue.length > 0 || extraReviews > 0) && (
+          <Card title="Team queues">
+            <p className="mb-2 text-xs text-ink-3">
+              Open to anyone on the team. Nobody assigned these to you.
+            </p>
+            <ul className="space-y-1.5 text-sm">
+              {teamQueue.map((a, i) => (
+                <li
+                  key={`${a.kind}${a.ref_id}${i}`}
+                  className="flex items-start justify-between gap-2"
+                >
+                  <span>
+                    <Link href={a.link} className="hover:underline">
+                      {a.label.replaceAll("**", "")}
+                    </Link>
+                    <span className="ml-2 block text-xs text-ink-3">
+                      {a.reason}
+                    </span>
+                  </span>
+                  {/* a team announcement is delivered to this card, and
+                      `/api/notifications/read` has no other caller anywhere in
+                      the product — without this control the row is permanent */}
+                  {a.kind === "notification" && (
+                    <Dismiss id={a.ref_id} onDone={load} />
+                  )}
+                </li>
+              ))}
+              {extraReviews > 0 && (
+                <li className="text-xs text-ink-3">
+                  {extraReviews} more proposal
+                  {extraReviews === 1 ? " waits" : "s wait"} in{" "}
+                  <Link href="/review" className="underline">
+                    Inbox → Approvals
+                  </Link>
+                  .
+                </li>
+              )}
+            </ul>
+          </Card>
+        )}
 
         <Card title="Your work">
           <div className="mb-3 border-b border-line pb-3">
@@ -549,6 +808,16 @@ export default function MyDay() {
                   <span className="text-xs text-ink-3">
                     [{t.priority}/{t.status}]
                   </span>
+                  {/* The list is ordered by commitment before priority
+                      (services/briefing.py), and an unexplained order teaches
+                      readers to distrust the surface — which is the rule every
+                      row in the Needs-you card follows with its reason line.
+                      Marked, not re-sorted: the chip IS the explanation. */}
+                  {t.committed_week === thisWeek ? (
+                    <span className="ml-1 rounded bg-thread/10 px-1.5 py-px text-[10px] text-thread">
+                      this week
+                    </span>
+                  ) : null}
                 </span>
                 <span className="flex shrink-0 gap-1">
                   {t.status === "todo" && (
@@ -659,7 +928,18 @@ export default function MyDay() {
                 <span className="font-mono text-xs text-ink-3">
                   {String(e.starts_at).slice(11, 16)}
                 </span>
-                <span>{e.title}</span>
+                {/* a DIV, not a span: StakeholderBrief expands into a list,
+                    and phrasing content cannot hold one. `min-w-0` so a long
+                    title wraps inside the flex row instead of pushing it. */}
+                <div className="min-w-0">
+                  {e.title}
+                  {/* what is open with the outside people in the room. The
+                      brief was an endpoint nothing called, and it is only
+                      useful in the hour before you speak to them — a digest of
+                      every open thread with everybody is a report nobody
+                      reads (services/stakeholders.py). */}
+                  <StakeholderBrief eventId={Number(e.id)} />
+                </div>
               </li>
             ))}
             {b.team.escalated_blockers.length === 0 &&

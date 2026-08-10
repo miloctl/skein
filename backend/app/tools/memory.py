@@ -53,7 +53,11 @@ def recall_memories(query: str = "") -> str:
     # which take no name for exactly this reason.
     # No viewer: a tool carries no strong identity, so it reads the workspace
     # tier (docs/VISIBILITY.md decision 3).
-    return json.dumps(memory.recall(query, user=requester_identity()))
+    # engagement_id=None: this tool SEARCHES every memory the caller may read.
+    # An agent in a linked thread already carries that engagement's memories in
+    # its prompt, and a tool that could not retrieve them would answer "I have
+    # no memory of that" about a fact in front of it.
+    return json.dumps(memory.recall(query, user=requester_identity(), engagement_id=None))
 
 
 @tool

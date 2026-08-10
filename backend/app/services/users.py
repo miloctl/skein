@@ -299,8 +299,19 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "allocations": ("created_by", "person"),
     "intake_requests": ("created_by", "requester"),
     "lessons": ("created_by",),
-    "pending_changes": ("proposed_by", "reviewed_by", "requested_by"),
+    # sponsor_at_submission is a NAME (010) and `tasks.sponsor` is renamed —
+    # leaving it behind makes the two disagree, and review._acceptance_evidence
+    # reads that disagreement as a handover, printing "X sponsored this when the
+    # work was submitted" about a delegation that never moved, in front of the
+    # Approve button.
+    "pending_changes": (
+        "proposed_by",
+        "reviewed_by",
+        "requested_by",
+        "sponsor_at_submission",
+    ),
     "notifications": ("user",),
+    "notification_reads": ("user",),
     "feature_unlocks": ("person",),
     # activity is DELIBERATELY absent: every chained row's digest covers its
     # actor, so a bulk rewrite here breaks verify_chain permanently at the
@@ -441,6 +452,18 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
             "DELETE FROM chat_folders WHERE owner = ? AND EXISTS"
             " (SELECT 1 FROM chat_folders n WHERE n.name = chat_folders.name"
             " AND n.owner = ?)",
+            (old, new),
+        )
+        # notification_reads (notification_id, user): a dismissal the target
+        # already made wins. A team announcement is one shared row that every
+        # reader dismisses separately (009), so two halves of one person having
+        # both dismissed the same announcement is the ORDINARY case — without
+        # this fold the UPDATE below hits the primary key and the whole merge
+        # raises IntegrityError, which has no handler and answers 500.
+        db.execute(
+            "DELETE FROM notification_reads WHERE user = ? AND EXISTS"
+            " (SELECT 1 FROM notification_reads n"
+            "  WHERE n.notification_id = notification_reads.notification_id AND n.user = ?)",
             (old, new),
         )
         for table, cols in _ATTRIBUTION.items():

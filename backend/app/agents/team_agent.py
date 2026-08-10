@@ -634,8 +634,27 @@ def build_titler():
     )
 
 
+def _thread_engagement(thread_id: str) -> int:
+    """The engagement this chat is linked to, or 0.
+
+    A memory filed against an engagement is recalled into conversations ABOUT
+    that engagement and no others (services/memory.py::recall). The link is the
+    one the sidebar already offers, so the reader who made it gets the benefit
+    without a second habit. A thread with no link recalls the team's memories
+    exactly as before.
+    """
+    from .. import db
+
+    row = db.query_one("SELECT engagement_id FROM chat_threads WHERE id = ?", (thread_id,))
+    return int(row["engagement_id"]) if row and row["engagement_id"] else 0
+
+
 def build_agent(
-    thread_id: str, user: str = "anonymous", persona: str = "", stateless: bool = False
+    thread_id: str,
+    user: str = "anonymous",
+    persona: str = "",
+    stateless: bool = False,
+    viewer=None,
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -669,6 +688,7 @@ def build_agent(
 
     from strands import Agent, tool
 
+    from ..services import scope
     from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
     from .extra_tools import extra_tools
@@ -1016,7 +1036,18 @@ def build_agent(
         # model is told must be the number take_consult enforces, and a
         # duplicated literal goes stale the moment identity.py moves
         consults=MAX_CONSULTS_PER_TURN,
-    ) + memory_prompt(user)
+    ) + memory_prompt(
+        user,
+        engagement_id=_thread_engagement(thread_id),
+        # Passed as an ARGUMENT, never read off identity.requester_viewer:
+        # routes/chat.py builds the agent BEFORE it sets that contextvar (the
+        # set wraps the streaming turn, and the system prompt is assembled to
+        # start it), so reading it here returns None on every real chat and the
+        # memories fall back to workspace-only with nothing said. None means no
+        # human is asking — the unattended runner — and memory_prompt reads
+        # that as scope.NOBODY.
+        viewer=viewer if viewer is not None else scope.NOBODY,
+    )
     if persona:
         from ..services.personas import get_persona
 

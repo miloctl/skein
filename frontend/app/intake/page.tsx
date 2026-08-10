@@ -32,6 +32,160 @@ const STATUS_COLORS: Record<string, string> = {
   declined: "bg-danger/15 text-danger",
 };
 
+
+/** Project the team's capacity if this request is accepted and staffed.
+ *
+ *  Deterministic: current and forward allocation, upcoming time away, and the
+ *  person's own declared growth interests, which are shown as context and never
+ *  as a score — services/portfolio.py::what_if states that rule.
+ */
+function WhatIf({ requestId }: { requestId: number }) {
+  // null until the roster answers, so a failed load cannot render as "nobody
+  // is on the roster". An empty chip row beside a disabled button is the same
+  // sentence as a real empty team, and this card exists to ask a capacity
+  // question — silently unable to ask it is the worst of the three states.
+  const [people, setPeople] = useState<string[] | null>(null);
+  const [peopleErr, setPeopleErr] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [percent, setPercent] = useState(50);
+  // the shape services/portfolio.py::what_if returns, field for field
+  const [out, setOut] = useState<{
+    assumed_percent: number;
+    projection: {
+      person: string;
+      current_percent: number;
+      projected_percent: number;
+      overcommitted: boolean;
+      growth_interests: string;
+      upcoming_absence: string;
+    }[];
+  } | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<{ name: string; kind: string; active: number }[]>("/api/users")
+      .then((u) => {
+        setPeople(u.filter((x) => x.kind !== "agent" && x.active).map((x) => x.name));
+        setPeopleErr("");
+      })
+      .catch((e) => {
+        setPeople([]);
+        setPeopleErr(loadError(e));
+      });
+  }, []);
+
+  const run = async () => {
+    if (busy || picked.length === 0) return;
+    setBusy(true);
+    try {
+      setOut(
+        await api(`/api/intake/${requestId}/what-if`, {
+          method: "POST",
+          body: JSON.stringify({ people: picked, percent }),
+        }),
+      );
+      setErr("");
+    } catch (e) {
+      setErr(actionError(e));
+      setOut(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-line bg-card p-2.5">
+      <p className="mb-1.5 text-xs font-medium text-ink-2">
+        If you accept this, who works it?
+      </p>
+      {peopleErr ? (
+        <p className="mb-2 text-xs text-danger">{peopleErr}</p>
+      ) : people === null ? (
+        <p className="mb-2 text-xs text-ink-3">Loading…</p>
+      ) : people.length === 0 ? (
+        <p className="mb-2 text-xs text-ink-3">No active teammate is on the roster.</p>
+      ) : null}
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        {(people ?? []).map((n) => (
+          <button
+            key={n}
+            aria-pressed={picked.includes(n)}
+            onClick={() => {
+              // the projection is computed FROM these inputs, so it stops
+              // being an answer the moment they change. Left standing, the
+              // rows read as a projection of the chips now on screen: a
+              // triager who raised 50% to 80% saw Ava at 90% — the number for
+              // 50 — and accepted the request on it.
+              setOut(null);
+              setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]));
+            }}
+            className={
+              "rounded-full px-2 py-0.5 text-xs " +
+              (picked.includes(n)
+                ? "bg-thread-solid text-white"
+                : "bg-raised text-ink-2 hover:bg-line")
+            }
+          >
+            {n}
+          </button>
+        ))}
+        <label className="ml-1 text-xs text-ink-3">
+          at
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={percent}
+            aria-label="Percent of each person"
+            // clamped here, not only by min/max: those are not enforced while
+            // typing, and an empty field is Number("") === 0, which the
+            // service refuses with a 400 for a value the reader never chose
+            onChange={(ev) => {
+              setOut(null); // stale the moment the assumption changes
+              setPercent(Math.max(1, Math.min(100, Number(ev.target.value) || 1)));
+            }}
+            className="mx-1 w-14 rounded border border-line-strong bg-transparent px-1 py-0.5 text-xs"
+          />
+          %
+        </label>
+        <button
+          onClick={run}
+          disabled={busy || picked.length === 0}
+          className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line disabled:opacity-40"
+        >
+          project
+        </button>
+      </div>
+      {err ? <p className="text-xs text-danger">{err}</p> : null}
+      {out ? (
+        <ul className="space-y-0.5 text-xs">
+          {/* the projection names the assumption it was computed under. The
+              server sends it back for exactly this reason, and a list of
+              percentages with no stated input reads as a fact about the
+              roster rather than an answer to one question. */}
+          <li className="text-ink-3">
+            At {out.assumed_percent}% each:
+          </li>
+          {out.projection.map((p) => (
+            <li
+              key={p.person}
+              className={p.overcommitted ? "text-danger" : "text-ink-2"}
+            >
+              @{p.person}: {p.current_percent}% → {p.projected_percent}%
+              {p.overcommitted ? " — over capacity" : ""}
+              {p.upcoming_absence ? ` · away ${p.upcoming_absence}` : ""}
+              {/* self-declared, shown as context and never as a match score
+                  (services/users.py::set_growth_interests) */}
+              {p.growth_interests ? ` · wants ${p.growth_interests}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export default function IntakePage() {
   // null until the fetch settles. Starting at [] rendered an empty list for
   // "still loading", "nothing here", and "the load failed" alike — three
@@ -414,6 +568,13 @@ export default function IntakePage() {
                 />
                 {panel.mode === "accepted" && (
                   <>
+                    {/* The projection was an endpoint with no reader: accept
+                        decided whether the team takes work on, and the one
+                        number that answers "can we" lived behind
+                        POST /api/intake/{id}/what-if with nothing calling it.
+                        Asked here, before the verdict, because after it the
+                        answer is a report rather than a decision. */}
+                    <WhatIf requestId={r.id} />
                     <label className="flex items-center gap-2 text-xs text-ink-2">
                       <input
                         type="checkbox"

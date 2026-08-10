@@ -247,8 +247,10 @@ def _outcome_detail(result: object) -> str:
     Both sweeps already route their ledger line through scope.detail and gate
     their notify. This is the third door out of the same function.
 
-    A scalar stays: jobs report their skip reasons as {"skipped": "..."} and
-    those are our own literals, not row text.
+    A scalar stays, and it must be OUR text: skip reasons arrive as
+    {"skipped": "..."}, and agent_runner.run's `faults` names agents and their
+    reasons. Exception text interpolated into such a reason reaches the export
+    with it — a job putting a scalar here keeps it to literals and names.
     """
     if result is None:
         return ""
@@ -271,8 +273,21 @@ def run_job(spec: JobSpec) -> None:
         result = spec.fn()
         elapsed = int((time.monotonic() - start) * 1000)
         detail = _outcome_detail(result)
-        record_outcome(spec.name, "ok", detail, elapsed)
-        log.info("job %s: done %s", spec.name, detail)
+        # A job can declare its own outcome. Without this branch, "did it
+        # raise" is the only health signal a job has: a fleet run where every
+        # allowlisted agent fails to build returns an ordinary dict, this
+        # records `ok`, and /health shows green while nothing has run for a
+        # week. Only our own literals are honored — anything else is `ok`, so
+        # a job returning a row with a `status` column cannot forge a state.
+        declared = result.get("status") if isinstance(result, dict) else None
+        # `partial` is STORED as 'error': job_outcomes.status is a two-value
+        # CHECK (001_baseline.sql) and job_health counts only 'ok' rows toward
+        # last-success, which is the honest answer for a fleet where some
+        # agents failed — an operator has to look. Widening the CHECK would
+        # mean rebuilding the table for a distinction only this log line makes.
+        status = "ok" if declared not in ("partial", "error") else "error"
+        record_outcome(spec.name, status, detail, elapsed)
+        log.info("job %s: done (%s) %s", spec.name, declared or status, detail)
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         # outcome table unavailable must not mask the real failure
