@@ -1,0 +1,106 @@
+"""What a sponsor is shown at the verdict point, and what nobody else is.
+
+The evidence block puts a task's state and the agent's own worklog beside the
+Approve button. Both are the task's own text, so this file pins the doors: the
+task read takes the viewer's tier filter, and the worklog door opens for the
+sponsor alone — passing the PROPOSER's name there would open a crew worklog to
+whoever happened to load the queue.
+"""
+
+import pytest
+
+from app.services import crews, delegation, review, scope, users, work
+
+
+@pytest.fixture
+def sponsored(fresh_db):
+    """A crew task delegated to an agent, submitted for acceptance."""
+    for name in ("sponsor", "outsider", "member"):
+        users.ensure_user(name)
+    crew = crews.create_crew("ops", actor="sponsor")
+    crews.add_member(crew["id"], "member", actor="sponsor")
+    task = work.create_task(
+        "Summarize the pricing pages",
+        actor="sponsor",
+        visibility=scope.CREW,
+        crew_id=crew["id"],
+    )
+    delegation.delegate_task(task["id"], "research-agent", sponsor="sponsor", actor="sponsor")
+    delegation.claim_task(task["id"], actor="research-agent")
+    delegation.report_progress(task["id"], "pulled 4 of 6 pages", actor="research-agent")
+    delegation.submit_completion(task["id"], "all six done", actor="research-agent")
+    return {"crew": crew["id"], "task": task["id"]}
+
+
+def _evidence(viewer_name: str, strong: bool = True) -> dict:
+    viewer = scope.Viewer(viewer_name, strong)
+    rows = review.list_changes("pending", viewer)
+    accepts = [r for r in rows if r["entity"] == "task_completion"]
+    return accepts[0].get("evidence", {}) if accepts else {}
+
+
+def test_the_sponsor_reads_the_worklog_beside_the_verdict(sponsored):
+    ev = _evidence("sponsor")
+    assert ev["title"] == "Summarize the pricing pages"
+    assert [w["note"] for w in ev["worklog"]] == ["pulled 4 of 6 pages"]
+
+
+def test_a_reader_outside_the_crew_gets_no_task_text(sponsored):
+    """The proposal row can still list — its summary passes `_readable` on its
+    own terms — but the task's title and worklog are a SECOND read of a scoped
+    row and take their own filter."""
+    assert _evidence("outsider") == {}
+
+
+def test_a_crew_member_who_is_not_the_sponsor_reads_no_worklog(sponsored):
+    """The tier admits them to the task. The delegation door does not: the
+    door is `actor in (delegated_agent, sponsor)`, resolved from the VIEWER's
+    name — passing the proposer's name would open it for every reader."""
+    ev = _evidence("member")
+    assert ev["title"] == "Summarize the pricing pages"
+    # crew-tier worklog rows are readable by the crew, so this member sees the
+    # note through the TIER, never through the delegation door
+    assert all(w["author"] == "research-agent" for w in ev["worklog"])
+
+
+def test_the_queue_never_emits_an_empty_evidence_object(sponsored):
+    """The KEY is absent or the block is whole — never `{}`.
+
+    `{}` is truthy in JavaScript, so the renderer's `c.evidence ? …` guard
+    passes and the component reads `.length` of an absent worklog. One
+    unreadable task would take down the entire Approvals list, which is the
+    surface a reviewer uses to clear that proposal.
+    """
+    for viewer in ("sponsor", "member", "outsider"):
+        for row in review.list_changes("pending", scope.Viewer(viewer, True)):
+            if "evidence" in row:
+                assert row["evidence"], f"{viewer} got an empty evidence object"
+                assert "worklog" in row["evidence"]
+
+
+def test_a_handover_between_submit_and_verdict_is_named(sponsored):
+    """Authority follows the CURRENT sponsor by design. A verdict that moved
+    to somebody who never watched the work is a receipt the reviewer needs."""
+    assert _evidence("sponsor").get("sponsor_was") == ""
+
+    users.ensure_user("stand-in")
+    # a sponsor must be able to READ the task they judge, so the stand-in joins
+    # the crew first (services/delegation.py::delegate_task refuses otherwise)
+    crews.add_member(sponsored["crew"], "stand-in", actor="sponsor")
+    delegation.delegate_task(
+        sponsored["task"], "research-agent", sponsor="stand-in", actor="sponsor"
+    )
+    ev = _evidence("stand-in")
+    assert ev["sponsor_was"] == "sponsor"
+
+
+def test_only_the_sponsor_closes_delegated_work(sponsored):
+    """The agent half of this guard existed and the human half did not, so any
+    teammate who could reach PATCH /api/tasks/{id} closed delegated work with
+    one field — no verdict, no reason on record, no trust signal."""
+    with pytest.raises(PermissionError, match="sponsored by sponsor"):
+        work.update_task(sponsored["task"], status="done", actor="member")
+
+    # the sponsor's own hand is not blocked: the verdict is theirs either way
+    work.update_task(sponsored["task"], status="done", actor="sponsor")
+    assert work.get_task(sponsored["task"], scope.Viewer("sponsor", True))["status"] == "done"

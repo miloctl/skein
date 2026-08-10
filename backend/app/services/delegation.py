@@ -330,6 +330,14 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         notify_team=False,
         requested_by=requested_by,
     )
+    # the sponsor AT SUBMISSION, in its own column and never in `payload` —
+    # that column is the apply argument list (010_sponsor_at_submission.sql).
+    # Verdict authority stays with the CURRENT sponsor by design; this is what
+    # lets the review card say when those two differ.
+    db.execute(
+        "UPDATE pending_changes SET sponsor_at_submission = ? WHERE id = ?",
+        (task["sponsor"] or "", p["id"]),
+    )
     if task["sponsor"]:
         from .notifications import notify
 

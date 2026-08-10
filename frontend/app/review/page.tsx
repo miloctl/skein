@@ -44,6 +44,9 @@ type Change = {
     delegated_agent: string | null;
     forge_url: string | null;
     worklog: { id: number; author: string; note: string; created_at: string }[];
+    // set only when the sponsor CHANGED after the work was submitted —
+    // authority follows the current sponsor by design, so this is a receipt
+    sponsor_was: string;
   };
   reviewed_by?: string | null;
   reviewed_override?: number; // 1: judged by someone other than the sponsor
@@ -177,6 +180,15 @@ function AcceptanceEvidence({
           {evidence.delegated_agent ? ` · by ${evidence.delegated_agent}` : ""}
         </span>
       </p>
+      {evidence.sponsor_was ? (
+        // authority follows the CURRENT sponsor by design, so this is a
+        // receipt and not a refusal — but a verdict that moved to somebody who
+        // never watched the work is the thing to say before Approve is pressed
+        <p className="mb-1 text-weld">
+          {evidence.sponsor_was} sponsored this when the work was submitted.
+          The verdict moved with the delegation.
+        </p>
+      ) : null}
       {evidence.forge_url ? (
         // bare href is safe: services/forge.py::_clean_url is the only writer
         // and admits bounded http(s) only

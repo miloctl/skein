@@ -39,6 +39,9 @@ type Briefing = {
   // it for `skein my-day` and the /briefing chat command, which have no
   // grouped renderer — see services/briefing.py.
   attention: AttentionItem[];
+  // the count the header prints, computed server-side beside the rows so it
+  // cannot disagree with the tab title (services/briefing.py)
+  attention_total?: number;
   pending_reviews_total?: number;
   your_work: { tasks: Row[]; due_soon: Row[]; standup_suggestion?: string };
   team: {
@@ -118,6 +121,34 @@ function WhoAreYou() {
         without picking a name — nothing is attributed to you until you do.
       </p>
     </main>
+  );
+}
+
+/** The dismiss control, shared by both attention cards.
+ *
+ *  A personal notification renders under "Needs you" and a team one under
+ *  "Team queues" (services/briefing.py sets the audience). `POST
+ *  /api/notifications/read` has no other caller in the product — not the CLI,
+ *  not chat — so a card that omits this button makes its rows permanent.
+ */
+function Dismiss({ id, onDone }: { id: number; onDone: () => void }) {
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await api("/api/notifications/read", {
+            method: "POST",
+            body: JSON.stringify({ notification_id: id }),
+          });
+        } catch (e) {
+          reportStatus(actionError(e));
+        }
+        onDone();
+      }}
+      className="shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
+    >
+      dismiss
+    </button>
   );
 }
 
@@ -292,18 +323,22 @@ export default function MyDay() {
   if (b.user === "anonymous") return <WhoAreYou />;
 
   const attention = b.attention ?? [];
-  // Split by who the row is addressed to. A server that sends no `audience`
-  // (an older backend behind a newer bundle) falls back to "you", which keeps
-  // the old single-card behavior rather than emptying the page.
+  // A server that sends no `audience` (an older backend behind a newer
+  // bundle) falls back to "you": every row lands in one card, rather than the
+  // page silently emptying.
   const yours = attention.filter((a) => (a.audience ?? "you") === "you");
   const teamQueue = attention.filter((a) => a.audience === "team");
   // review items in `attention` are LIMITed to 50; the honest total rides
-  // separately so the header never undercounts a flooded queue
+  // separately so the overflow line below can name what the list cannot show
   const shownReviews = attention.filter((a) => a.group === "review").length;
   const extraReviews = Math.max(0, (b.pending_reviews_total ?? 0) - shownReviews);
-  // counts only what is addressed to this reader — the header sentence says
-  // "needs you", and the team queues have their own card and their own count
-  const needsCount = yours.filter((a) => a.group !== "notice").length;
+  // the server's number, not a second one computed here: `/api/attention`
+  // feeds the tab title from the same rule, and a browser-side count drifted
+  // the moment either side capped, coalesced or added a group — the reader saw
+  // "(12)" on a tab over a page that said nothing was waiting. The local
+  // filter is the fallback for a server that does not send it yet.
+  const needsCount =
+    b.attention_total ?? yours.filter((a) => a.group !== "notice").length;
   const GROUP_META: Record<AttentionItem["group"], { title: string; tone: string }> = {
     decide: { title: "Decide", tone: "bg-thread-solid" },
     unblock: { title: "Unblock", tone: "bg-danger" },
@@ -518,22 +553,7 @@ export default function MyDay() {
                               </span>
                             )}
                             {a.kind === "notification" && (
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await api("/api/notifications/read", {
-                                      method: "POST",
-                                      body: JSON.stringify({ notification_id: a.ref_id }),
-                                    });
-                                  } catch (e) {
-                                    reportStatus(actionError(e));
-                                  }
-                                  load();
-                                }}
-                                className="shrink-0 rounded bg-raised px-2 py-1.5 md:py-0.5 text-xs text-ink-2 hover:bg-line"
-                              >
-                                dismiss
-                              </button>
+                              <Dismiss id={a.ref_id} onDone={load} />
                             )}
                           </li>
                         ))}
@@ -548,26 +568,44 @@ export default function MyDay() {
             they belong on My Day — but nobody assigned them to this reader,
             and putting them under "Needs you" was what taught people that the
             heading does not mean what it says. */}
-        {teamQueue.length > 0 && (
+        {/* rendered for the overflow line alone when the queue itself is
+            empty: every pending proposal can be one this reader asked for, and
+            the remainder past the 50-row cap has nowhere else to be said */}
+        {(teamQueue.length > 0 || extraReviews > 0) && (
           <Card title="Team queues">
             <p className="mb-2 text-xs text-ink-3">
               Open to anyone on the team. Nobody assigned these to you.
             </p>
             <ul className="space-y-1.5 text-sm">
               {teamQueue.map((a, i) => (
-                <li key={`${a.kind}${a.ref_id}${i}`}>
-                  <Link href={a.link} className="hover:underline">
-                    {a.label.replaceAll("**", "")}
-                  </Link>
-                  <span className="ml-2 block text-xs text-ink-3">
-                    {a.reason}
+                <li
+                  key={`${a.kind}${a.ref_id}${i}`}
+                  className="flex items-start justify-between gap-2"
+                >
+                  <span>
+                    <Link href={a.link} className="hover:underline">
+                      {a.label.replaceAll("**", "")}
+                    </Link>
+                    <span className="ml-2 block text-xs text-ink-3">
+                      {a.reason}
+                    </span>
                   </span>
+                  {/* a team announcement is delivered to this card, and
+                      `/api/notifications/read` has no other caller anywhere in
+                      the product — without this control the row is permanent */}
+                  {a.kind === "notification" && (
+                    <Dismiss id={a.ref_id} onDone={load} />
+                  )}
                 </li>
               ))}
               {extraReviews > 0 && (
                 <li className="text-xs text-ink-3">
-                  {extraReviews} more proposal{extraReviews === 1 ? "" : "s"}{" "}
-                  wait in <Link href="/review" className="underline">Approvals</Link>.
+                  {extraReviews} more proposal
+                  {extraReviews === 1 ? " waits" : "s wait"} in{" "}
+                  <Link href="/review" className="underline">
+                    Inbox → Approvals
+                  </Link>
+                  .
                 </li>
               )}
             </ul>

@@ -338,6 +338,23 @@ def update_task(
                 f"task #{task_id} is delegated — submit_for_acceptance gets the"
                 " sponsor's verdict; only that closes it"
             )
+        # ...and no OTHER human either. The agent half of this guard was
+        # complete and the human half did not exist, so any teammate who could
+        # reach PATCH /api/tasks/{id} closed delegated work with one field —
+        # no sponsor verdict, no reason on record, no override marking, and no
+        # trust signal for the agent that did the work. review._sponsor_override
+        # is the path for acting when the sponsor cannot: it takes a reason and
+        # marks the verdict so it never feeds a streak.
+        #
+        # The sponsor themselves is allowed through: the verdict is theirs on
+        # either path, and refusing them here would make the acceptance
+        # proposal the only way to close work they already own.
+        if current["sponsor"] and actor != current["sponsor"]:
+            raise PermissionError(
+                f"task #{task_id} is sponsored by {current['sponsor']} — only they"
+                f" close it. Judge the acceptance proposal in Approvals to act"
+                f" for them, which puts the reason on record"
+            )
     fields: dict[str, str | int | None] = {
         k: v
         for k, v in [

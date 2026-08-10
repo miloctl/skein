@@ -1,0 +1,17 @@
+-- Who was on the hook when a delegated task was submitted for acceptance.
+--
+-- Verdict authority follows the task's CURRENT sponsor by design — they own
+-- the work now. But a re-delegation between submit and verdict moved the
+-- decision to somebody who never watched the work happen, and no surface said
+-- so. The reviewer needs that told before they press Approve.
+--
+-- Its own column, NOT a key in `pending_changes.payload`. That column is the
+-- argument list: `review.approve_change` applies a proposal as
+-- `fn(entity_id, **payload)`, so any key there that is not a parameter of the
+-- registry handler raises TypeError, the apply fails, and the proposal resets
+-- to pending — a metadata field would break the write it describes.
+--
+-- NULL for every proposal filed before this column, and for every entity that
+-- is not `task_completion`. A reader must treat NULL as "not recorded", never
+-- as "unchanged": the two are different, and only the second is a receipt.
+ALTER TABLE pending_changes ADD COLUMN sponsor_at_submission TEXT;
