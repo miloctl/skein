@@ -116,6 +116,11 @@ knots:
     feature: Intake requests
     knot: Scaffold Knot
     set: loops
+    # "conversation" survives the docs/LEXICON.md row-2 sweep here: it names
+    # two people talking in a corridor, not a Skein chat. Every other use in
+    # this file is the product noun and says "chat". Without this line the next
+    # sweep reads it as a straggler and destroys the contrast the sentence is
+    # built on.
     pitch: Work enters through a scored queue, not a hallway conversation.
     how: "`req: …` in ⌘K or Inbox → Requests. RICE-lite scores it for triage."
     link: /intake
@@ -264,7 +269,7 @@ knots:
     since: 2026-08-02
 
   - id: consult
-    feature: Ask a specialist mid-conversation
+    feature: Ask a specialist mid-chat
     # a BEND joins two ropes, which is the shape here: the Chief of Staff and
     # one bench specialist, tied for a single answer. docs/LEXICON.md #6
     # counts cards carrying a name from the wrong class.
@@ -379,3 +384,46 @@ knots:
     how: If an engagement started from a playbook, close it on Work → Browse. Skein diffs the plan against what happened and drafts the lesson. Approve it on Review, and the next kickoff of that class reads it.
     link: /dashboard
     since: 2026-08-09
+
+  - id: engagement_brief
+    feature: Read an engagement whole
+    knot: Carrick Bend
+    set: bends
+    role: any
+    pitch: One piece of work, in one page — what it exists for, why it is red, and what to do about it.
+    how: On Work → Browse, select the name of an engagement. The brief shows its outcome and its health with the receipts behind it. It also shows open work, blockers, what an agent carries, and plan drift.
+    link: /dashboard
+    since: 2026-08-10
+
+  - id: needs_a_call
+    feature: See what needs a decision
+    knot: Trucker's Hitch
+    set: manager
+    role: manager
+    pitch: Everything that needs a decision, in one list. What is escalated, overdue, unowned or drifting, ranked by what it costs to leave alone.
+    how: On Work → Plan the week, read card 2. Each row states what is true, who holds it, and the next move. Follow a receipt to check the claim.
+    link: /planning
+    since: 2026-08-10
+
+  - id: provenance
+    feature: Ask where a row came from
+    knot: Prusik Loop
+    set: loops
+    # ties when the route calls fieldguide.mark — asking the question IS the
+    # act, and a read leaves no ledger row to detect
+    ties: mark
+    role: any
+    pitch: Not just who wrote it — who proposed it, who approved it, whether that verdict carried a credential, and what has changed it since.
+    how: Open any task panel and select "where did this come from?". The chain reads from the row, the proposal that produced it, and the ledger.
+    link: /dashboard
+    since: 2026-08-10
+
+  - id: project_memory
+    feature: Give a memory a subject
+    knot: Sheet Bend
+    set: bends
+    role: any
+    pitch: A fact learned on one piece of work, recalled in chats about that work and nowhere else.
+    how: Link a chat to an engagement from the sidebar menu. That chat then recalls the engagement's own memories on top of the team's. Filing one back is a proposal a person approves.
+    link: /chat
+    since: 2026-08-10

@@ -48,9 +48,15 @@ def request_key(user: str) -> dict:
         f" — mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
     with db.transaction():
+        # "Unread by ANYONE", not notifications.UNREAD_FOR. This nudge asks a
+        # question about the world — has whoever runs the server minted the key
+        # — so one operator dismissing it means the ask was seen and the
+        # requester may ask again. The per-person read (009) governs whose FEED
+        # shows it; this governs whether a second request is a duplicate.
         pending = db.query_one(
             "SELECT id FROM notifications WHERE user = 'team' AND message LIKE ?"
-            " AND read_at IS NULL",
+            " AND read_at IS NULL"
+            " AND id NOT IN (SELECT notification_id FROM notification_reads)",
             (prefix + "%",),
         )
         if pending:

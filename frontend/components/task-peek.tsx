@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { actionError, api } from "@/lib/api";
 import { isGated, subscribeGated } from "@/lib/gated";
 import { reportStatus } from "@/lib/status";
+import { Provenance } from "@/components/provenance";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { timeAgo } from "@/lib/time";
 
@@ -43,6 +44,26 @@ export type PeekTask = {
   unblocks?: { id: number; title: string; status: string; assignee: string }[];
   unblocks_total?: number;
   depth_capped?: boolean;
+  // the open blockers filed against this task (services/work.py::blocking).
+  // A blocker is what puts a task in status 'blocked', so without these the
+  // panel showed the state and could not name its cause.
+  blockers?: {
+    id: number;
+    title: string;
+    owner: string;
+    impact: string;
+    status: string;
+    escalated_at?: string | null;
+  }[];
+  // the finding that asked for this work, when it was converted from one
+  // (services/insights.py::convert_finding). The link was stored and never
+  // read back, so a task made because a rule fired could not say so.
+  source_finding?: {
+    id: number;
+    rule_id: string;
+    severity: string;
+    message: string;
+  } | null;
   visibility?: string;
   crew_id?: number | null;
 };
@@ -319,6 +340,31 @@ export function TaskPeek() {
               </a>
             ) : null}
 
+            {/* What is stopping it, named. `status: blocked` is set BY a
+                blocker (services/blockers.py::raise_blocker), so a panel that
+                showed the status without the row behind it left the reader to
+                find the blocker register by hand — and nothing on the way
+                there said which of its rows was theirs. Impact is what sets
+                the escalation clock, and the owner is who can stop it. */}
+            {task.blockers && task.blockers.length > 0 ? (
+              <>
+                <h3 className="mt-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-weld">
+                  Blocked by
+                </h3>
+                <ul className="mt-1 space-y-0.5 text-xs">
+                  {task.blockers.map((b) => (
+                    <li key={b.id}>
+                      <span className="text-ink-3">#{b.id}</span> {b.title}
+                      <span className="ml-1 text-ink-3">
+                        {b.impact} impact · {b.owner ? `@${b.owner}` : "unowned"}
+                        {b.status === "escalated" ? " · escalated" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
             {/* Delegation, from the UI. The Agents page empty state points
                 at this control, so removing it leaves that copy advertising
                 something nothing offers. Sponsor defaults to the caller
@@ -362,6 +408,25 @@ export function TaskPeek() {
                 ) : null}
               </>
             ) : null}
+
+            {task.source_finding ? (
+              <p className="text-xs text-ink-3">
+                Converted from a {task.source_finding.severity} finding:{" "}
+                <a
+                  href="/insights"
+                  className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-2"
+                >
+                  {task.source_finding.message}
+                </a>
+              </p>
+            ) : null}
+
+            {/* How this task came to exist, and what has happened since.
+                `origin` was a label on the row and the rest of the chain lived
+                in three other tables (services/provenance.py). */}
+            <div className="mt-2 border-t border-line pt-2">
+              <Provenance entity="task" entityId={task.id} />
+            </div>
 
             {/* The worklog is readable BEFORE the sponsor's verdict by
                 design (services/delegation.py::list_worklog) — this panel is

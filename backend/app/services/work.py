@@ -281,6 +281,11 @@ def update_task(
     # which channel it came through, or its row reads as a person's own edit
     # in a ledger that can never be corrected.
     note: str = "",
+    # whether the caller proved who they are (a personal key, a validated
+    # sign-in). Only _settle_acceptance reads it, and only to record the
+    # strength of the verdict a direct close stands in for. Defaults False so
+    # every machine path records the weaker, truthful thing.
+    strong: bool = False,
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
@@ -338,6 +343,26 @@ def update_task(
                 f"task #{task_id} is delegated — submit_for_acceptance gets the"
                 " sponsor's verdict; only that closes it"
             )
+        # ...and no OTHER human either. The agent half of this guard was
+        # complete and the human half did not exist, so any teammate who could
+        # reach PATCH /api/tasks/{id} closed delegated work with one field —
+        # no sponsor verdict, no reason on record, no override marking, and no
+        # trust signal for the agent that did the work. review._sponsor_override
+        # is the path for acting when the sponsor cannot: it takes a reason and
+        # marks the verdict so it never feeds a streak.
+        #
+        # The sponsor themselves is allowed through: the verdict is theirs on
+        # either path, and refusing them here would make the acceptance
+        # proposal the only way to close work they already own.
+        _assert_sponsor(task_id, current, actor)
+    # Reassigning a delegated task away from its agent CLEARS the delegation
+    # (below), so it is the same transition wearing a different field. Guarded
+    # here or the refusal above is two PATCH calls deep: reassign to clear
+    # `delegated_agent` and `sponsor`, then close the now-undelegated task.
+    # That path also strands the acceptance proposal pending forever — its
+    # apply raises "already done", which resets it to pending on every verdict.
+    if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
+        _assert_sponsor(task_id, current, actor, verb="end this delegation")
     fields: dict[str, str | int | None] = {
         k: v
         for k, v in [
@@ -383,6 +408,13 @@ def update_task(
         fields["completed_at"] = db.now()  # flow metrics read this, not updated_at
     elif status and status != "done" and current["status"] == "done":
         fields["completed_at"] = None
+    # the sentinel is resolved BEFORE the two tests below, not only into
+    # `fields`. Testing the raw parameter sent the literal "-" to
+    # assert_readable_by, which asked whether a person named "-" is in the
+    # crew — so un-assigning a crew or private task was refused outright, and
+    # the only write path could not undo an assignment it had made.
+    if assignee == "-":
+        assignee = ""
     if assignee:
         # the same check create_task makes: a reassignment reaches a name the
         # original write never saw, and an assignee who cannot read the task
@@ -405,6 +437,15 @@ def update_task(
         (*fields.values(), db.now(), task_id),
     )
     db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
+    # The sponsor just answered the acceptance ask by hand, so the proposal
+    # waiting for that answer has to be settled here or it never can be: its
+    # apply calls delegation.accept_completion, which raises on a task that is
+    # already done, and approve_change resets a failed apply to pending — the
+    # verdict boomerangs on every click and the only way out is a rejection
+    # that lands on the agent's demotion streak (services/delegation.py) for
+    # work the sponsor accepted.
+    if fields.get("status") == "done" and current["delegated_agent"]:
+        _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
     row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if row:
         index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
@@ -419,6 +460,94 @@ def update_task(
                 link="/dashboard",
             )
     return {"id": task_id, "updated": list(fields)}
+
+
+def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it") -> None:
+    """Only the sponsor may end a delegation, however the write is spelled.
+
+    Two writes end one: setting status to done, and reassigning the task away
+    from its agent (which clears `delegated_agent` and `sponsor`). Guarding
+    only the first leaves the second as a two-call bypass of the whole
+    acceptance loop — no verdict, no reason on record, no override marking, no
+    trust signal for the agent that did the work, and an acceptance proposal
+    stranded pending because its apply now raises "already done".
+
+    An unsponsored delegation is not refused: nobody holds it, so nobody's
+    verdict is being taken. `review._sponsor_override` covers acting for a
+    sponsor who cannot, and takes a reason for the record.
+    """
+    if task["sponsor"] and actor != task["sponsor"]:
+        # TerminalReject for an AGENT proposer, the same reason the
+        # delegated-done guard above uses one: approve_change applies with
+        # `actor = change["proposed_by"]`, so an agent-filed reassignment can
+        # never be approved into success — and a plain PermissionError lands in
+        # the generic handler, which resets the proposal to pending and
+        # boomerangs it on every future verdict.
+        from .users import is_agent
+
+        if is_agent(actor):
+            raise db.TerminalReject(
+                f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor can {verb}"
+            )
+        raise PermissionError(
+            f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor"
+            f" can {verb}. Judge the acceptance proposal in Approvals to act for"
+            " them, which puts the reason on record"
+        )
+
+
+def _settle_acceptance(task_id: int, actor: str, strong: bool, agent: str) -> None:
+    """Close the acceptance proposal the sponsor has just answered by hand.
+
+    APPROVED, not rejected. The proposal asks one question — does the sponsor
+    accept this work — and closing the task is a yes. A rejection here would
+    be a false record of the verdict AND would feed the agent's demotion
+    streak (services/delegation.py::trust_scores counts consecutive strong
+    non-override rejections), punishing it for work that was accepted.
+
+    `result_id` is the task, so provenance.lineage still finds the chain from
+    the row back to the proposal that produced it.
+
+    Only rows still pending are touched: a proposal already judged carries a
+    real verdict, and overwriting it would erase who made the call.
+
+    `strong` records what actually happened. Hardcoded to 0, provenance.lineage
+    reports `verdict_is_weak` for a verdict a sponsor made with a personal key,
+    and the panel then prints "Nobody used a personal API key for that verdict"
+    about a deployment where somebody did.
+
+    Every row is claimed in ONE statement and logged only if that statement
+    claimed it. `waiting` is read first, but a concurrent reject in another tab
+    can settle a row between the read and the UPDATE — and a ledger row saying
+    a rejected proposal was approved can never be corrected, because `activity`
+    rows carrying a `seq` are hash-chained (CLAUDE.md).
+    """
+    # one transaction with the caller's task UPDATE is not possible from here
+    # (update_task writes before this runs), so each row is claimed on its own
+    # `status = 'pending'` test and only a winning claim is logged
+    waiting = db.query(
+        "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
+        " AND entity_id = ? AND status = 'pending'",
+        (task_id,),
+    )
+    if not waiting:
+        return
+    from .delegation import clear_acceptance_ping
+
+    for row in waiting:
+        claimed = db.execute_rowcount(
+            "UPDATE pending_changes SET status = 'approved', reviewed_by = ?, reviewed_at = ?,"
+            " reviewed_strong = ?, reviewed_override = 0, result_id = ?,"
+            " review_note = 'the sponsor closed the task directly'"
+            " WHERE id = ? AND status = 'pending'",
+            (actor, db.now(), int(strong), task_id, row["id"]),
+        )
+        if not claimed:
+            continue  # somebody else judged it first, and their verdict stands
+        db.log_activity(
+            actor, "approve_change", f"#{row['id']} -> task #{task_id} (closed directly)"
+        )
+    clear_acceptance_ping(task_id, agent)
 
 
 def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
@@ -446,7 +575,54 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         raise scope.missing("tasks", task_id)
     # what finishing it releases, resolved here so the peek and any other
     # reader of one task get the same answer
-    return {**row, **downstream(task_id, viewer)}
+    return {
+        **row,
+        **downstream(task_id, viewer),
+        "blockers": blocking(task_id, viewer),
+        # the finding that ASKED for this work, if one did. `source_finding_id`
+        # was stamped at conversion (services/insights.py) and nothing read it
+        # back, so a task existed because a rule fired and the task could not
+        # say so — which is the half of the loop that tells a reader whether
+        # the rule was worth keeping.
+        "source_finding": _source_finding(row),
+    }
+
+
+def _source_finding(task: dict) -> dict | None:
+    """The finding a task was converted from.
+
+    `findings` carries no tier (scope.UNSCOPED), and the message is written by
+    a deterministic rule over rows the rule itself could read — so there is no
+    filter to apply, only a lookup.
+    """
+    fid = task.get("source_finding_id")
+    if not fid:
+        return None
+    return db.query_one("SELECT id, rule_id, severity, message FROM findings WHERE id = ?", (fid,))
+
+
+def blocking(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
+    """The open blockers filed AGAINST this task.
+
+    `blockers.task_id` names the task a blocker BLOCKS, and raise_blocker sets
+    that task to 'blocked' (services/blockers.py). Nothing read the edge back,
+    so a task could sit in status 'blocked' while every surface that showed it
+    — the peek, My Day, Browse — had no way to name what stopped it, who owns
+    it, or when it escalates. The reader saw a state with no receipt and had to
+    go find the blocker register by hand.
+
+    Viewer-scoped: a blocker nobody may read must not name itself through a
+    task they can. Resolved rows are excluded — a settled blocker is history,
+    and listing it beside a live one reads as still-stuck.
+    """
+    frag, vp = scope.visible_filter(viewer, "blockers", alias="b")
+    return db.query(
+        f"SELECT b.id, b.title, b.owner, b.impact, b.status, b.escalated_at"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" FROM blockers b WHERE b.task_id = ? AND b.status != 'resolved' AND {frag}"
+        " ORDER BY CASE b.impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, b.id",
+        (task_id, *vp),
+    )
 
 
 # How deep `downstream` follows the chain. Cycles are closed by the visited

@@ -63,15 +63,133 @@ def test_worklog_writes_bound_to_the_loop(fresh_db):
         delegation.report_progress(tid, "late addendum", actor="scout")
 
 
-def test_agent_cannot_self_complete_delegated_task(client, fresh_db):
+def test_only_the_sponsor_closes_delegated_work(client, fresh_db):
+    """Both halves of the guard, on the one transition that ends the loop.
+
+    The agent half was complete and the human half did not exist, so any
+    teammate who could reach PATCH /api/tasks/{id} closed delegated work with
+    one field — no sponsor verdict, no reason on record, no override marking,
+    and no trust signal for the agent that did the work.
+    """
     from app.services import work
 
     tid = _delegated_task(fresh_db)
     with pytest.raises(ValueError, match="sponsor's verdict"):
         work.update_task(tid, status="done", actor="scout", origin="agent")
-    # a human closing it directly stays allowed (sponsor override)
+
+    # `tester` is the client fixture's identity and is NOT the sponsor: 403,
+    # naming the sponsor and the path that puts a reason on record
     r = client.patch(f"/api/tasks/{tid}", json={"status": "done"})
-    assert r.status_code == 200
+    assert r.status_code == 403
+    assert "sponsored by mira" in r.json()["detail"]
+
+    # the sponsor's own hand is not blocked — the verdict is theirs either way,
+    # and refusing them here would make the proposal the only way to close
+    # work they already own
+    ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers={"X-User": "mira"})
+    assert ok.status_code == 200
+
+
+def test_the_sponsors_own_close_settles_the_acceptance_proposal(client, fresh_db):
+    """The sponsor may close delegated work by hand, and an agent may have a
+    completion proposal already waiting. Both are legal at once, and the
+    proposal then asks a question that has been answered.
+
+    Left pending, its apply raises on a task that is already done, and
+    approve_change resets a failed apply to pending — so the verdict boomerangs
+    on every click and the only exit is a rejection that lands on the agent's
+    demotion streak for work the sponsor accepted.
+    """
+    from app import db
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    out = delegation.submit_completion(tid, "shipped it", actor="scout")
+
+    ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers={"X-User": "mira"})
+    assert ok.status_code == 200
+
+    row = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (out["proposal_id"],))
+    # approved, not rejected: closing the task IS the acceptance, and a
+    # rejection would be a false record of the verdict as well as a demotion
+    assert row["status"] == "approved"
+    assert row["reviewed_by"] == "mira"
+    assert row["result_id"] == tid
+    # and it does not sit in the queue asking again
+    assert not db.query("SELECT id FROM pending_changes WHERE status = 'pending'")
+
+
+def test_a_direct_close_records_how_well_the_sponsor_was_identified(client, fresh_db):
+    """The settle stands in for a verdict, so it must record the verdict's
+    STRENGTH rather than assume the weaker one.
+
+    provenance.lineage reads `reviewed_strong` on approved rows and the panel
+    turns a 0 into "Nobody used a personal API key for that verdict. This
+    deployment identifies people by a self-asserted name." Hardcoded, that
+    sentence is printed at a sponsor who used their key, about a deployment
+    that requires one — a security surface stating the opposite of the truth.
+    """
+    from app import db
+    from app.services import delegation, provenance, scope
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    delegation.submit_completion(tid, "shipped it", actor="scout")
+
+    # closed with a personal key, which is what _strong builds
+    ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers=_strong(client, "mira"))
+    assert ok.status_code == 200
+
+    row = db.query_one(
+        "SELECT reviewed_strong FROM pending_changes WHERE entity = 'task_completion'"
+        " AND entity_id = ?",
+        (tid,),
+    )
+    assert row["reviewed_strong"] == 1
+    chain = provenance.lineage("task", tid, scope.Viewer("mira", True))
+    assert chain["verdict_is_weak"] is False
+
+
+def test_an_acceptance_that_can_never_apply_settles_instead_of_boomeranging(client, fresh_db):
+    """The close that did not come through the sponsor guard — a reassignment
+    voids the delegation, so the proposal's apply can never succeed again.
+
+    A plain ValueError there resets the row to pending, which puts it back in
+    the queue with an "apply failed" note, and the next verdict does the same.
+    """
+    from app import db
+    from app.services import delegation
+
+    tid = _delegated_task(fresh_db)
+    delegation.claim_task(tid, actor="scout")
+    out = delegation.submit_completion(tid, "shipped it", actor="scout")
+    # the sponsor reassigns, which clears the delegation the proposal names
+    client.patch(f"/api/tasks/{tid}", json={"assignee": "mira"}, headers={"X-User": "mira"})
+
+    # a note is required first: the reassignment orphaned the proposal, so
+    # nobody sponsors it and review._sponsor_override demands a reason. That
+    # refusal is not the boomerang — it leaves the row pending on purpose.
+    refused = client.post(
+        f"/api/review/{out['proposal_id']}/approve", json={}, headers=_strong(client, "mira")
+    )
+    assert refused.status_code == 400
+    assert "needs a note" in refused.json()["detail"]
+
+    r = client.post(
+        f"/api/review/{out['proposal_id']}/approve",
+        json={"note": "reassigned to a person, closing the agent's ask"},
+        headers=_strong(client, "mira"),
+    )
+    assert r.status_code == 400
+    row = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (out["proposal_id"],))
+    assert row["status"] == "rejected", "a pending reset here boomerangs forever"
+    # and the settle must not read as a human judging the agent's work. Two
+    # independent guards say so, because either alone would let it through:
+    # the override marking (an orphaned delegation is nobody's verdict) and the
+    # cleared strength (nobody judged this at all).
+    assert row["reviewed_override"] == 1
+    assert row["reviewed_strong"] == 0
 
 
 def test_submit_completion_dedupes_pending(fresh_db):
@@ -243,3 +361,35 @@ def test_the_trust_read_scans_the_authority_proposals_once(client):
     assert sum(1 for r in rows if r["suggestion"]) == 40, "every pair must be promotable here"
     scans = [s for s in seen if "entity = 'authority'" in s]
     assert len(scans) == 1, f"{len(scans)} scans for {len(rows)} pairs — the N+1 is back"
+
+
+def test_reassignment_cannot_be_used_to_close_delegated_work(client, fresh_db):
+    """Two writes end one delegation: closing the task, and reassigning it away
+    from its agent (which clears delegated_agent and sponsor). Guarding only
+    the first left the second as a two-call bypass of the whole loop."""
+    from app.services import work
+
+    tid = _delegated_task(fresh_db)
+    r = client.patch(f"/api/tasks/{tid}", json={"assignee": "tester"})
+    assert r.status_code == 403
+    assert "sponsored by mira" in r.json()["detail"]
+    # the delegation survived the refusal, so the acceptance path still exists
+    assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == "mira"
+
+    # the sponsor may still end it — the verdict is theirs on either path
+    work.update_task(tid, assignee="mira", actor="mira")
+    assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == ""
+
+
+def test_an_agent_proposed_reassignment_auto_rejects_instead_of_boomeranging(client, fresh_db):
+    """approve_change applies as the PROPOSER, so an agent-filed reassignment
+    of delegated work can never be approved into success. A plain refusal there
+    resets the proposal to pending and returns on every future verdict."""
+    from app.services import review
+
+    tid = _delegated_task(fresh_db)
+    p = review.propose_change("task", "update", {"assignee": "mira"}, entity_id=tid, actor="scout")
+    with pytest.raises(ValueError, match="auto-rejected"):
+        review.approve_change(p["id"], actor="mira", strong=True)
+    settled = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
+    assert settled["status"] == "rejected"

@@ -297,7 +297,9 @@ def _masthead(card: dict) -> str:
     return f"\n\n### {card['emoji']} {card['name']}{vibe}\n\n"
 
 
-async def _run_member(card: dict, thread_id: str, user: str, message: str, out: asyncio.Queue):
+async def _run_member(
+    card: dict, thread_id: str, user: str, message: str, out: asyncio.Queue, viewer=None
+):
     """One flock member, start to finish. Its trace entry goes on the queue
     last, so the reader never waits on the task object.
 
@@ -335,7 +337,9 @@ async def _run_member(card: dict, thread_id: str, user: str, message: str, out: 
         # user row for authority, trust, and its inbox. A slug a human already
         # claimed raises here, which is this member's failure alone.
         await run_in_threadpool(ensure_user, slug, kind="agent")
-        agent = await run_in_threadpool(build_agent, thread_id, user, persona=slug, stateless=True)
+        agent = await run_in_threadpool(
+            build_agent, thread_id, user, persona=slug, stateless=True, viewer=viewer
+        )
         # a member gets a deadline for its WHOLE turn. Without one, a provider
         # that accepts the connection and never answers holds this task, a
         # threadpool worker, and the reader's SSE stream open forever — and a
@@ -521,7 +525,7 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
 
     try:
         tasks = [
-            asyncio.create_task(_run_member(c, ui_thread, user, message, queues[c["slug"]]))
+            asyncio.create_task(_run_member(c, ui_thread, user, message, queues[c["slug"]], viewer))
             for c in cards
         ]
         for card in cards:
@@ -953,7 +957,9 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     try:
         # threadpool, not inline: build_agent restores the whole session
         # transcript from disk before it returns
-        agent = await run_in_threadpool(build_agent, thread_id, user, persona=persona)
+        agent = await run_in_threadpool(
+            build_agent, thread_id, user, persona=persona, viewer=viewer
+        )
     except Exception as exc:
         # keep the SSE protocol even when agent construction fails (bad model id, etc.)
         await run_in_threadpool(_log_turn, ui_thread, user, "user", message)

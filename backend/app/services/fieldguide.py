@@ -112,6 +112,26 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     ),
     "resolve_blocker": lambda u: _act(u, "resolve_blocker"),
     "close_engagement": lambda u: _act(u, "update_engagement", "#% closed"),
+    # the brief is a READ, and reads leave no ledger row — but the reader who
+    # got there followed a link somebody had to make, so the honest signal is
+    # the engagement existing at all under their name
+    "engagement_brief": lambda u: _has(
+        "SELECT 1 FROM engagements WHERE created_by = ? OR lead = ?", (u, u)
+    ),
+    # the queue is a read too. Acting on one of its rows is not: a disposition,
+    # a reconfirm or a resolve are all writes this person made after reading it
+    "needs_a_call": lambda u: (
+        _act(u, "disposition_finding")
+        or _act(u, "reconfirm_decision")
+        or _act(u, "resolve_blocker")
+    ),
+    # a read with no write at all, and no honest per-person signal — the panel
+    # records nothing. Named here rather than omitted, because an absent key
+    # fails the registry test and a None says the decision was made.
+    "provenance": None,
+    "project_memory": lambda u: _has(
+        "SELECT 1 FROM memories WHERE created_by = ? AND engagement_id IS NOT NULL", (u,)
+    ),
     "review": lambda u: _has(
         "SELECT 1 FROM pending_changes WHERE reviewed_by = ?"
         " AND status IN ('approved', 'rejected')",

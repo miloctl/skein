@@ -233,6 +233,23 @@ def list_worklog(
     )
 
 
+def clear_acceptance_ping(task_id: int, agent: str) -> None:
+    """Dismiss the sponsor's "submitted for your acceptance" notification.
+
+    `review._clear_review_ping` cannot do it: it matches the prefix
+    "Review needed: #<proposal>", and `submit_completion` files with
+    notify_team=False, so no row with that prefix is ever written for a
+    task_completion. The row that IS written starts with the agent's name,
+    which is why this takes the agent rather than the proposal.
+
+    Without it the ping outlives its proposal, and following it lands the
+    sponsor on a queue that no longer holds the row.
+    """
+    from .notifications import mark_read_matching
+
+    mark_read_matching(f"{agent} submitted task #{task_id} ")
+
+
 def accept_completion(
     task_id: int, summary: str = "", *, actor: str = "", origin: str = ""
 ) -> dict:
@@ -241,12 +258,18 @@ def accept_completion(
     task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not task:
         raise scope.missing("tasks", task_id)
+    # TerminalReject, never ValueError, for both conditions below: neither can
+    # become true again, and approve_change resets a plain ValueError to
+    # pending — so the proposal boomerangs on every future verdict and the
+    # queue can only be cleared by a hand rejection. work.py settles the
+    # sponsor's own direct close before it ever reaches here; what remains is
+    # the close that came some other way.
     if task["status"] == "done":
-        raise ValueError(f"task #{task_id} is already done")
+        raise db.TerminalReject(f"task #{task_id} is already done")
     # a reassignment between submit and verdict voids the proposal — the
     # acceptance must be for work the proposer still owns
     if actor and task["delegated_agent"] != actor:
-        raise ValueError(f"task #{task_id} is no longer delegated to '{actor}'")
+        raise db.TerminalReject(f"task #{task_id} is no longer delegated to '{actor}'")
     # completed_at, not just status: flow metrics filter on it, so a delegated
     # task accepted here would otherwise count zero in cycle time AND in
     # throughput. The forge routes every delegated close to this function, so
@@ -275,6 +298,7 @@ def accept_completion(
         "complete_task",
         scope.detail(task["visibility"], f"#{task_id}", task["title"]),
     )
+    clear_acceptance_ping(task_id, task["delegated_agent"] or actor)
     return {"id": task_id, "status": "done"}
 
 
@@ -310,26 +334,40 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
         )
     from .review import propose_change
 
-    p = propose_change(
-        "task_completion",
-        "update",
-        {"summary": summary.strip()},
-        # scope.detail, not an f-string: this summary is served by
-        # GET /api/review, by my_day's pending_reviews, and by rituals'
-        # week-close artifact on disk — so a crew task's title reached the
-        # roster three ways. This call passes notify_team=False, so the team
-        # notification is NOT one of them.
-        summary=scope.detail(
-            task["visibility"],
-            f"accept task #{task_id}",
-            f"'{task['title']}': {summary.strip()[:80]}",
-        ),
-        entity_id=task_id,
-        actor=actor,
-        origin="agent",
-        notify_team=False,
-        requested_by=requested_by,
-    )
+    # ONE transaction for the proposal and its sponsor snapshot (db.transaction
+    # nests). Written after the commit, a lock timeout on the UPDATE left the
+    # proposal filed, the sponsor un-notified and the column unset — and the
+    # agent's retry then hit the duplicate guard above, telling it to wait for
+    # a verdict nobody had been asked for.
+    with db.transaction():
+        p = propose_change(
+            "task_completion",
+            "update",
+            {"summary": summary.strip()},
+            # scope.detail, not an f-string: this summary is served by
+            # GET /api/review, by my_day's pending_reviews, and by rituals'
+            # week-close artifact on disk — so a crew task's title reached the
+            # roster three ways. This call passes notify_team=False, so the team
+            # notification is NOT one of them.
+            summary=scope.detail(
+                task["visibility"],
+                f"accept task #{task_id}",
+                f"'{task['title']}': {summary.strip()[:80]}",
+            ),
+            entity_id=task_id,
+            actor=actor,
+            origin="agent",
+            notify_team=False,
+            requested_by=requested_by,
+        )
+        # the sponsor AT SUBMISSION, in its own column and never in `payload` —
+        # that column is the apply argument list (010_sponsor_at_submission.sql).
+        # Verdict authority stays with the CURRENT sponsor by design; this is
+        # what lets the review card say when those two differ.
+        db.execute(
+            "UPDATE pending_changes SET sponsor_at_submission = ? WHERE id = ?",
+            (task["sponsor"] or "", p["id"]),
+        )
     if task["sponsor"]:
         from .notifications import notify
 

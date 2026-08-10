@@ -861,7 +861,15 @@ export default function Dashboard() {
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-xs text-ink-3">#{e.id}</span>
-                  <span className="truncate font-medium">{e.name}</span>
+                  {/* the name is the way in to the whole engagement. Browse
+                      lists rows; the brief is where one is read (health,
+                      blockers, agent work, drift, next actions) */}
+                  <Link
+                    href={`/engagement/${e.id}`}
+                    className="truncate font-medium hover:underline"
+                  >
+                    {e.name}
+                  </Link>
                   <VisibilityBadge
                     visibility={e.visibility as string}
                     crewId={e.crew_id as number}

@@ -26,7 +26,7 @@ def test_question_answer_flow(client):
         "/api/questions", json={"question": "Who owns infra?", "assigned_to": "tester"}
     ).json()
     # questions render on My Day, not Inbox — the badge counts only Inbox work
-    assert client.get("/api/attention").json()["count"] == 0
+    assert client.get("/api/attention").json()["inbox"] == 0
     b = client.get("/api/briefing").json()
     assert any(a["kind"] == "question" for a in b["attention"])
     client.post(f"/api/questions/{q['id']}/answer", json={"answer": "Alice does"})
@@ -39,7 +39,26 @@ def test_attention_counts_only_inbox_work(client):
 
     client.post("/api/intake", json={"title": "Need a thing"})
     review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="agent-x")
-    assert client.get("/api/attention").json()["count"] == 2
+    assert client.get("/api/attention").json()["inbox"] == 2
+
+
+def test_attention_count_is_personal_not_the_shared_queue(client):
+    """`count` is what the tab title and `skein attention` carry, and both say
+    "waiting on you". It counted the Inbox — a queue anyone may work — so a
+    teammate's proposal raised everybody's number and a blocker addressed to
+    one person raised nobody's."""
+    from app.services import review
+
+    client.post("/api/intake", json={"title": "Need a thing"})
+    review.propose_change("note", "create", {"topic": "t", "content": "c"}, actor="agent-x")
+    # two things in the shared Inbox, nothing addressed to this reader
+    assert client.get("/api/attention").json() == {"count": 0, "inbox": 2, "yours": 0}
+
+    client.post("/api/blockers", json={"title": "Stuck", "owner": "tester"})
+    counts = client.get("/api/attention").json()
+    assert counts["yours"] == 1  # the blocker names them
+    assert counts["count"] == counts["yours"]
+    assert counts["inbox"] == 2  # unchanged: a blocker does not live in Inbox
 
 
 def test_briefing_shape(client):

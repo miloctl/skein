@@ -271,7 +271,15 @@ export default function Portfolio() {
                   <span role="img" aria-label={`health ${h.health}`} title={h.health}>
                     {DOT[h.health]}
                   </span>
-                  <span className="font-medium">{h.name}</span>
+                  {/* the name is the way in to the whole engagement: this
+                      card shows the call and its receipts, the brief shows
+                      everything that produced them */}
+                  <Link
+                    href={`/engagement/${h.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {h.name}
+                  </Link>
                   <span className="text-xs text-ink-3">
                     {h.status} · lead {h.lead || "unset"}
                   </span>

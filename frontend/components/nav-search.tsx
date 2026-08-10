@@ -105,12 +105,36 @@ function EntityLink({
       : entity === "lesson"
         ? `#lesson-${entityId}`
         : "";
-  const page = ENTITY_PAGE[entity] ? `${ENTITY_PAGE[entity]}${anchor}` : "";
+  // an engagement has its OWN page, so the hit lands on the engagement rather
+  // than on the list that contains it — typing an engagement's name into
+  // search is the most literal form of "how is Atlas going" there is
+  const page =
+    entity === "engagement"
+      ? `/engagement/${entityId}`
+      : ENTITY_PAGE[entity]
+        ? `${ENTITY_PAGE[entity]}${anchor}`
+        : "";
   if (!page) return <span>{children}</span>;
   return (
     <Link
       href={page}
-      onClick={onDone}
+      onClick={() => {
+        onDone();
+        // Announce the fragment, the same way PeekLink announces the peek.
+        // A next/link soft navigation fires NO hashchange and NO popstate, so
+        // a page already mounted at this route learns nothing: picking a
+        // general decision while standing on /charter changed the address bar
+        // and left the list unwidened, unscrolled and unfocused.
+        //
+        // The id travels IN the event, never read from location by the
+        // listener: Next updates the URL inside a transition that finishes
+        // after this handler and after the next animation frame, so anything
+        // timing-based reads the OLD hash and does nothing at all.
+        if (anchor)
+          window.dispatchEvent(
+            new CustomEvent("skein-hash", { detail: { id: entityId } }),
+          );
+      }}
       className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
     >
       {children}

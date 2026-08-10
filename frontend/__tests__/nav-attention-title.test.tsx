@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  simplifies it back to `document.title = ...`. */
 
 const count = { value: 0 };
+// held distinct from `yours` so the badge and the title cannot be confused
+const INBOX = 7;
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();
@@ -21,7 +23,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
     // and a body of the wrong shape crashes its render before the effect
     // under test can commit
     api: (path: string) => {
-      if (path.startsWith("/api/attention")) return Promise.resolve({ count: count.value });
+      // three DISTINCT numbers. `yours` is what the title carries and
+      // `inbox` is what the nav badge carries; `count` is the compatibility
+      // alias the CLI reads. Equal values here would let a component that
+      // reads the wrong field pass every assertion by coincidence.
+      if (path.startsWith("/api/attention"))
+        return Promise.resolve({ count: 0, yours: count.value, inbox: INBOX });
       if (path.endsWith("/worklog")) return Promise.resolve([]);
       if (path.startsWith("/api/agents")) return Promise.resolve([]);
       if (path.startsWith("/api/tasks/"))
@@ -124,5 +131,22 @@ describe("the nav under the auth gate", () => {
     act(() => setGated(true));
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     expect(header.hasAttribute("inert")).toBe(true);
+  });
+});
+
+describe("the Inbox badge", () => {
+  it("carries the shared queue, not the personal number", async () => {
+    // The two numbers answer different questions and reached the page as one.
+    // The badge sits on Inbox and must promise only what that page shows;
+    // the title says "waiting on you" and must not count a queue anyone works.
+    count.value = 3;
+    render(<Nav />);
+    const inbox = await waitFor(() => {
+      const el = document.querySelector('a[href="/review"]');
+      if (!el?.textContent?.includes(String(INBOX))) throw new Error("not yet");
+      return el;
+    });
+    expect(inbox.textContent).toContain(String(INBOX));
+    expect(document.title).toBe("(3) Skein");
   });
 });

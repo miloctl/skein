@@ -19,7 +19,9 @@ from ..services import (
     context_pack,
     crews,
     delegation,
+    delta,
     digest,
+    engagement_brief,
     engagements,
     feedback,
     fieldguide,
@@ -27,6 +29,7 @@ from ..services import (
     handoff,
     ingest,
     intake,
+    intervention,
     memory,
     notifications,
     personas,
@@ -34,6 +37,7 @@ from ..services import (
     playbooks,
     portfolio,
     promises,
+    provenance,
     pulse,
     readout,
     review,
@@ -596,8 +600,16 @@ def get_briefing(user: CurrentUser, viewer: ViewerDep):
 
 
 @router.get("/attention")
-def get_attention(user: CurrentUser):
-    return {"count": briefing.attention_count(user)}
+def get_attention(user: CurrentUser, viewer: ViewerDep):
+    # `count` IS `yours`, not the Inbox number. Both readers of this field —
+    # the browser tab title and `skein attention` — say "waiting on you", and
+    # the Inbox total said that about a queue anyone may work. The nav badge
+    # reads `inbox` for its own destination.
+    #
+    # The viewer rides along because `yours` must equal what /briefing's header
+    # prints, and that number is viewer-scoped (services/briefing.py).
+    counts = briefing.attention_count(user, viewer)
+    return {"count": counts["yours"], **counts}
 
 
 class KeyIn(BaseModel):
@@ -657,7 +669,12 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 
 @router.get("/memories")
 def get_memories(user: CurrentUser, viewer: ViewerDep, q: str = ""):
-    return memory.recall(q, user=user, viewer=viewer)
+    # engagement_id=None: this endpoint BROWSES, and it is the only surface
+    # that lists memories or offers to delete one (app/agents/page.tsx). A
+    # predicate that hid an engagement's memories here would leave them
+    # steering every conversation about that work from a row no human could
+    # reach (services/memory.py::recall names the three states).
+    return memory.recall(q, user=user, viewer=viewer, engagement_id=None)
 
 
 @router.delete("/memories/{memory_id}")
@@ -856,16 +873,23 @@ def get_eval_capture(user: CurrentUser):
     return feedback.eval_capture()
 
 
+# `force` is a SEPARATE, explicit ask, and it defaults off. Both routes passed
+# force=True unconditionally, which walked straight past the weekly claim these
+# rituals keep: every click re-briefed the whole roster with the same personal
+# notifications, and the cockpit's "already ran this week" branch could never be
+# reached because the route it calls never returned that answer. The scheduler
+# runs unforced too, so a manual Monday click after the 06:30 job is a no-op
+# that says so rather than a second notification for everybody.
 @router.post("/rituals/week-open")
-def post_week_open(user: CurrentUser):
+def post_week_open(user: CurrentUser, force: bool = False):
     ratelimit.check("ritual", user)  # each run notifies people — cap the amplifier
-    return rituals.week_open(actor=user, force=True)
+    return rituals.week_open(actor=user, force=force)
 
 
 @router.post("/rituals/week-close")
-def post_week_close(user: CurrentUser):
+def post_week_close(user: CurrentUser, force: bool = False):
     ratelimit.check("ritual", user)
-    return rituals.week_close(actor=user, force=True)
+    return rituals.week_close(actor=user, force=force)
 
 
 @router.get("/agents")
@@ -1284,11 +1308,15 @@ class TaskPatch(BaseModel):
 
 
 @router.patch("/tasks/{task_id}")
-def patch_task(task_id: int, body: TaskPatch, user: CurrentUser):
+def patch_task(task_id: int, body: TaskPatch, user: CurrentUser, viewer: ViewerDep):
     # edits scan for @mentions, so an uncapped PATCH is a notification
     # amplifier — same cap as the create routes
     ratelimit.check("write", user)
-    return work.update_task(task_id, **body.model_dump(), actor=user)
+    # `strong` is read off the viewer, whose name survives only a proved
+    # identity (services/scope.py::Viewer). A sponsor closing delegated work
+    # here settles the acceptance proposal, and that verdict records whether
+    # a person really proved who they were — provenance reports it.
+    return work.update_task(task_id, **body.model_dump(), actor=user, strong=bool(viewer.name))
 
 
 class QuestionIn(BaseModel):
@@ -1845,3 +1873,74 @@ def post_backup(user: AdminUser):
 def get_export(user: AdminUser):
     # full-table dump — administrators only, never the X-User header
     return admin.export()
+
+
+@router.get("/interventions")
+def get_interventions(user: CurrentUser, viewer: ViewerDep, limit: int = 12):
+    """The manager's ranked queue. Composition only — every row restates one
+    an engine already produced (services/intervention.py)."""
+    return intervention.interventions(viewer, limit)
+
+
+@router.get("/engagements/{engagement_id}/brief")
+def get_engagement_brief(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+    """One engagement, whole. Composition only — every number keeps its own
+    home (services/engagement_brief.py)."""
+    return engagement_brief.brief(engagement_id, viewer)
+
+
+@router.get("/provenance/{entity}/{entity_id}")
+def get_provenance(entity: str, entity_id: int, user: CurrentUser, viewer: ViewerDep):
+    # capped: ids are a dense integer space and this answers about ONE row, so
+    # an uncapped GET is the mechanism that turns per-row provenance into a
+    # dataset (app/ratelimit.py names the bucket and the reasoning).
+    """How one row came to exist, and what has happened to it since. Read-only
+    composition over rows that already exist (services/provenance.py)."""
+    ratelimit.check("provenance", user)
+    # asking the question IS the act this knot names: the panel writes nothing,
+    # so no predicate could ever find it (services/fieldguide.py::mark)
+    fieldguide.mark(user, "provenance")
+    return provenance.lineage(entity, entity_id, viewer)
+
+
+class EngagementMemoryIn(BaseModel):
+    """What a conversation produced, filed against the engagement it was about.
+
+    NOT `OutcomeIn`, which is already the meeting-outcome body above: two
+    models with one name is a redefinition mypy catches and a reader does not.
+    """
+
+    content: str = Field(..., min_length=1, max_length=2000)
+    topic: str = Field("", max_length=100)
+    thread_id: str = Field("", max_length=120)
+
+
+@router.post("/engagements/{engagement_id}/memory")
+def post_engagement_memory(
+    engagement_id: int, body: EngagementMemoryIn, user: StrongUser, viewer: ViewerDep
+):
+    """File what a conversation produced as this engagement's memory.
+
+    StrongUser: the proposal quotes the text back to a reviewer and names the
+    engagement, and in trusted-header mode a self-asserted name could file
+    against any engagement it could read.
+    """
+    ratelimit.check("memory", user)
+    return memory.propose_engagement_memory(
+        engagement_id,
+        body.content,
+        body.topic,
+        body.thread_id,
+        actor=user,
+        viewer=viewer,
+    )
+
+
+@router.get("/delta")
+def get_delta(user: CurrentUser, viewer: ViewerDep, mark: bool = False):
+    """What changed for this reader since their last brief.
+
+    `mark` defaults to False so a caller can PREVIEW without consuming: the
+    chat command shows the brief, and only the surface that displays it moves
+    the reader's last-seen mark (services/delta.py)."""
+    return delta.brief(user, viewer, mark=mark)
