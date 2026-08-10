@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { type Receipt, refHref, splitReceipt } from "@/lib/entity-ref";
+import { PeekLink } from "@/components/task-peek";
 
 /** One deterministic receipt, with its row references as links.
  *
@@ -28,6 +29,22 @@ export function ReceiptLine({
     <span className={className}>
       {runs.map((run, i) => {
         if (!("ref" in run)) return <span key={i}>{run.text}</span>;
+        // A TASK opens the peek, and only PeekLink can open it. `next/link`
+        // navigates with pushState and dispatches no event, while TaskPeek
+        // syncs on `popstate` and `skein-peek` alone — so a <Link href="?task=5">
+        // changed the address bar and opened nothing, on every receipt this
+        // app renders. It is not the same bug as the raw <a> on /review: that
+        // one reloaded the page, this one does nothing at all.
+        if (run.ref.entity === "task")
+          return (
+            <PeekLink
+              key={i}
+              taskId={run.ref.id}
+              className="decoration-line-strong hover:decoration-ink-2"
+            >
+              {run.text}
+            </PeekLink>
+          );
         const href = refHref(run.ref);
         // an entity this build cannot render lands nowhere rather than on a
         // page that does not hold it — the id still reads

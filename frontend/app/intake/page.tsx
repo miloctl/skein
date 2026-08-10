@@ -102,7 +102,7 @@ function WhatIf({ requestId }: { requestId: number }) {
       {peopleErr ? (
         <p className="mb-2 text-xs text-danger">{peopleErr}</p>
       ) : people === null ? (
-        <p className="mb-2 text-xs text-ink-3">Loading the roster…</p>
+        <p className="mb-2 text-xs text-ink-3">Loading…</p>
       ) : people.length === 0 ? (
         <p className="mb-2 text-xs text-ink-3">No active teammate is on the roster.</p>
       ) : null}
@@ -111,9 +111,15 @@ function WhatIf({ requestId }: { requestId: number }) {
           <button
             key={n}
             aria-pressed={picked.includes(n)}
-            onClick={() =>
-              setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]))
-            }
+            onClick={() => {
+              // the projection is computed FROM these inputs, so it stops
+              // being an answer the moment they change. Left standing, the
+              // rows read as a projection of the chips now on screen: a
+              // triager who raised 50% to 80% saw Ava at 90% — the number for
+              // 50 — and accepted the request on it.
+              setOut(null);
+              setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]));
+            }}
             className={
               "rounded-full px-2 py-0.5 text-xs " +
               (picked.includes(n)
@@ -135,9 +141,10 @@ function WhatIf({ requestId }: { requestId: number }) {
             // clamped here, not only by min/max: those are not enforced while
             // typing, and an empty field is Number("") === 0, which the
             // service refuses with a 400 for a value the reader never chose
-            onChange={(ev) =>
-              setPercent(Math.max(1, Math.min(100, Number(ev.target.value) || 1)))
-            }
+            onChange={(ev) => {
+              setOut(null); // stale the moment the assumption changes
+              setPercent(Math.max(1, Math.min(100, Number(ev.target.value) || 1)));
+            }}
             className="mx-1 w-14 rounded border border-line-strong bg-transparent px-1 py-0.5 text-xs"
           />
           %
@@ -153,6 +160,13 @@ function WhatIf({ requestId }: { requestId: number }) {
       {err ? <p className="text-xs text-danger">{err}</p> : null}
       {out ? (
         <ul className="space-y-0.5 text-xs">
+          {/* the projection names the assumption it was computed under. The
+              server sends it back for exactly this reason, and a list of
+              percentages with no stated input reads as a fact about the
+              roster rather than an answer to one question. */}
+          <li className="text-ink-3">
+            At {out.assumed_percent}% each:
+          </li>
           {out.projection.map((p) => (
             <li
               key={p.person}

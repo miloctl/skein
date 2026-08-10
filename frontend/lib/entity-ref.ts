@@ -18,7 +18,13 @@ export type Receipt = { message: string; refs: EntityRef[] };
 
 const HREF: Record<string, (id: number) => string> = {
   // the peek opens over whatever page the reader is on, so a task reference
-  // never costs them their place (components/task-peek.tsx)
+  // never costs them their place (components/task-peek.tsx).
+  //
+  // This href is the address the peek READS, not a link anybody may render:
+  // TaskPeek syncs on `popstate` and `skein-peek`, and neither a `next/link`
+  // nor a bare `<a>` produces the second one. Render a task reference with
+  // `PeekLink`, which pushes the state and announces it — components/receipt.tsx
+  // is the caller this rule exists for.
   task: (id) => `?task=${id}`,
   milestone: () => "/dashboard#milestones",
   blocker: () => "/dashboard#blockers",

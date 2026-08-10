@@ -233,6 +233,23 @@ def list_worklog(
     )
 
 
+def clear_acceptance_ping(task_id: int, agent: str) -> None:
+    """Dismiss the sponsor's "submitted for your acceptance" notification.
+
+    `review._clear_review_ping` cannot do it: it matches the prefix
+    "Review needed: #<proposal>", and `submit_completion` files with
+    notify_team=False, so no row with that prefix is ever written for a
+    task_completion. The row that IS written starts with the agent's name,
+    which is why this takes the agent rather than the proposal.
+
+    Without it the ping outlives its proposal, and following it lands the
+    sponsor on a queue that no longer holds the row.
+    """
+    from .notifications import mark_read_matching
+
+    mark_read_matching(f"{agent} submitted task #{task_id} ")
+
+
 def accept_completion(
     task_id: int, summary: str = "", *, actor: str = "", origin: str = ""
 ) -> dict:
@@ -281,6 +298,7 @@ def accept_completion(
         "complete_task",
         scope.detail(task["visibility"], f"#{task_id}", task["title"]),
     )
+    clear_acceptance_ping(task_id, task["delegated_agent"] or actor)
     return {"id": task_id, "status": "done"}
 
 

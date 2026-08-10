@@ -1308,11 +1308,15 @@ class TaskPatch(BaseModel):
 
 
 @router.patch("/tasks/{task_id}")
-def patch_task(task_id: int, body: TaskPatch, user: CurrentUser):
+def patch_task(task_id: int, body: TaskPatch, user: CurrentUser, viewer: ViewerDep):
     # edits scan for @mentions, so an uncapped PATCH is a notification
     # amplifier — same cap as the create routes
     ratelimit.check("write", user)
-    return work.update_task(task_id, **body.model_dump(), actor=user)
+    # `strong` is read off the viewer, whose name survives only a proved
+    # identity (services/scope.py::Viewer). A sponsor closing delegated work
+    # here settles the acceptance proposal, and that verdict records whether
+    # a person really proved who they were — provenance reports it.
+    return work.update_task(task_id, **body.model_dump(), actor=user, strong=bool(viewer.name))
 
 
 class QuestionIn(BaseModel):

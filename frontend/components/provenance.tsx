@@ -57,14 +57,22 @@ export function Provenance({
   // the message, never a boolean. `loadError` is the app's one wording for a
   // failed read, and a backend that cannot be reached must say the same
   // sentence here as on every other surface (docs/LEXICON.md). A bespoke
-  // string also folded a 404 and a rate cap into one invented claim.
+  // string here folds a 404 and a rate cap into one invented claim.
   const [err, setErr] = useState("");
 
   useEffect(() => {
     if (!open || d || err) return;
+    // `live` guards the two writes against a reader who collapses mid-flight.
+    // Without it a late failure sets `err` behind a closed panel, and the next
+    // expand shows a stale error it will not retry — the guard above treats a
+    // set `err` as "already answered".
+    let live = true;
     api<Lineage>(`/api/provenance/${entity}/${entityId}`)
-      .then(setD)
-      .catch((e) => setErr(loadError(e)));
+      .then((r) => live && setD(r))
+      .catch((e) => live && setErr(loadError(e)));
+    return () => {
+      live = false;
+    };
   }, [open, d, err, entity, entityId]);
 
   return (

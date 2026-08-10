@@ -91,7 +91,7 @@ def _attention(user: str, needs: dict, today: str, week: str) -> list[dict]:
                 "group": "decide",
                 "audience": "team",
                 "label": f"intake #{r['id']}: {r['title']}",
-                "reason": "awaiting an accept, defer, or decline — the requester sees the reason given",
+                "reason": "needs an accept, defer, or decline — the requester reads the reason",
                 "link": "/intake",
             }
         )

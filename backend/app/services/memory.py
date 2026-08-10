@@ -224,9 +224,13 @@ def propose_engagement_memory(
         # filed it. The row would sit pending forever with no surface able to
         # approve or reject it.
         raise ValueError(
-            "a private engagement has one reader, so no second person can"
-            " review a memory filed against it. Move the engagement to a crew,"
-            " or remember the fact for the team instead."
+            # '"only you"', never the wire word `private`: docs/LEXICON.md
+            # gives exactly one surface permission to print a tier's stored
+            # value, and it is scope.resolve_write's malformed-field refusal.
+            # This sentence is the same shape scope.assert_readable_by uses.
+            '"only you" means one reader, so no second person can review a'
+            " memory filed against it. Move the engagement to a crew, or"
+            " remember the fact for the team instead."
         )
     return propose_change(
         "memory",

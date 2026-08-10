@@ -116,6 +116,11 @@ knots:
     feature: Intake requests
     knot: Scaffold Knot
     set: loops
+    # "conversation" survives the docs/LEXICON.md row-2 sweep here: it names
+    # two people talking in a corridor, not a Skein chat. Every other use in
+    # this file is the product noun and says "chat". Without this line the next
+    # sweep reads it as a straggler and destroys the contrast the sentence is
+    # built on.
     pitch: Work enters through a scored queue, not a hallway conversation.
     how: "`req: …` in ⌘K or Inbox → Requests. RICE-lite scores it for triage."
     link: /intake
@@ -385,8 +390,8 @@ knots:
     knot: Carrick Bend
     set: bends
     role: any
-    pitch: Everything one piece of work is doing, in one page — the outcome it exists for, the reason it is red, and what to do about it.
-    how: On Work → Browse, select the name of an engagement. The brief shows its outcome, its health with the receipts behind it, open work, blockers, what an agent is carrying, plan drift, and the next actions.
+    pitch: One piece of work, in one page — what it exists for, why it is red, and what to do about it.
+    how: On Work → Browse, select the name of an engagement. The brief shows its outcome and its health with the receipts behind it. It also shows open work, blockers, what an agent carries, and plan drift.
     link: /dashboard
     since: 2026-08-10
 
@@ -395,7 +400,7 @@ knots:
     knot: Trucker's Hitch
     set: manager
     role: manager
-    pitch: Four engines, one list. What is escalated, overdue, unowned or drifting, ranked by what it costs to leave alone.
+    pitch: Everything that needs a decision, in one list. What is escalated, overdue, unowned or drifting, ranked by what it costs to leave alone.
     how: On Work → Plan the week, read card 2. Each row states what is true, who holds it, and the next move. Follow a receipt to check the claim.
     link: /planning
     since: 2026-08-10

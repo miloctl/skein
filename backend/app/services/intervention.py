@@ -1,9 +1,12 @@
 """One ranked queue of what a manager could actually do something about.
 
-Skein computes the manager's evidence in four engines that never met: the
-findings rules, engagement health, the blocker register, and the decision
-half-life sweep. Each has its own page, its own ordering and its own
-vocabulary, and no reader has ever seen them ranked against each other.
+Skein computes the manager's evidence in seven places that never met:
+engagement health, the escalated blocker register, overdue given promises,
+unowned due work, undispositioned findings, stale decisions, and stale WIP.
+Each has its own page, its own ordering and its own vocabulary, and no reader
+has ever seen them ranked against each other. The count is the ARMS below, and
+docs/FEATURES.md states the same seven — a number in two places disagreed once
+already.
 
 Composition only — no table, no write path, no new habit. Every row here is a
 row one of those engines already produced, restated in one shape and ordered by
@@ -195,7 +198,7 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "action": (
                     "Check the receipts, then re-plan, change the staff, or accept the date"
                     if red
-                    else "Fix the receipt closest to the date, or re-plan now"
+                    else "Start with the receipt closest to the date, or re-plan now"
                 ),
                 "receipts": [refs.receipt(r) for r in eng["receipts"]],
                 "order": _order(

@@ -118,10 +118,10 @@ def brief(user: str, viewer: scope.Viewer = scope.NOBODY, mark: bool = False) ->
         for r in db.query("SELECT rule_id, subject FROM findings WHERE created_at < ?", (since,))
     }
     # `created_at >= since` and the disposition test live in the SQL, so the
-    # cap applies to the rows that can actually appear. Read through
-    # list_findings instead, the LIMIT lands first and its ordering is week
-    # then severity — so a busy fortnight cuts a NEW low-severity finding off
-    # the end, and the brief reports "quiet" about a window that had news.
+    # cap applies to the rows that can actually appear. If this reads through
+    # list_findings, the LIMIT lands FIRST and its ordering is week then
+    # severity — a busy fortnight then cuts a NEW low-severity finding off the
+    # end, and the brief reports "quiet" about a window that had news.
     for f in db.query(
         "SELECT id, rule_id, subject, severity, message FROM findings"
         " WHERE created_at >= ? AND id NOT IN (SELECT finding_id FROM finding_dispositions)"

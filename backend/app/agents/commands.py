@@ -208,7 +208,7 @@ COMMANDS: list[dict] = [
     {
         "name": "delta",
         "args": "",
-        "description": "What changed since you last asked",
+        "description": "What changed since you last looked",
         "handler": _delta,
     },
     {
