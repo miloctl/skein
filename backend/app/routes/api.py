@@ -36,6 +36,7 @@ from ..services import (
     playbooks,
     portfolio,
     promises,
+    provenance,
     pulse,
     readout,
     review,
@@ -1873,3 +1874,10 @@ def get_engagement_brief(engagement_id: int, user: CurrentUser, viewer: ViewerDe
     """One engagement, whole. Composition only — every number keeps its own
     home (services/engagement_brief.py)."""
     return engagement_brief.brief(engagement_id, viewer)
+
+
+@router.get("/provenance/{entity}/{entity_id}")
+def get_provenance(entity: str, entity_id: int, user: CurrentUser, viewer: ViewerDep):
+    """How one row came to exist, and what has happened to it since. Read-only
+    composition over rows that already exist (services/provenance.py)."""
+    return provenance.lineage(entity, entity_id, viewer)
