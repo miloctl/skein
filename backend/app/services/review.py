@@ -299,8 +299,11 @@ def approve_change(
         # the proposal's own target vanished (event cancelled via REST, row
         # hard-deleted): re-approving can never succeed, so a pending reset
         # would boomerang forever — settle it as rejected, on the record
+        # reviewed_strong cleared for the same reason as the terminal branch
+        # below: nobody judged this work, so it must not reach the streak.
         db.execute(
-            "UPDATE pending_changes SET status = 'rejected', review_note = ? WHERE id = ?",
+            "UPDATE pending_changes SET status = 'rejected', reviewed_strong = 0,"
+            " review_note = ? WHERE id = ?",
             (f"auto-rejected — target vanished: {exc}", change_id),
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (target vanished)")
@@ -314,8 +317,15 @@ def approve_change(
         # re-approving can never succeed, so settle it rejected like a vanished
         # target instead of resetting to pending, where it would clutter the
         # queue until a human rejected it by hand
+        # reviewed_strong is cleared with it. `_claim` stamped the reviewer's
+        # own strength a moment ago, and the demotion streak counts consecutive
+        # strong non-override rejections (services/delegation.py::trust_scores)
+        # — so an automatic settle of a moot proposal would read as a human
+        # judging the agent's work badly, and walk it down a rung for work
+        # nobody rejected.
         db.execute(
-            "UPDATE pending_changes SET status = 'rejected', review_note = ? WHERE id = ?",
+            "UPDATE pending_changes SET status = 'rejected', reviewed_strong = 0,"
+            " review_note = ? WHERE id = ?",
             (f"auto-rejected — {exc}", change_id),
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (not applicable)")

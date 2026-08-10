@@ -6,10 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  *  The page exists to answer "how is this going", and the answer is the health
  *  RECEIPTS — the sentences naming the overdue milestone and the escalated
- *  blocker. A first cut fetched them, converted their references to links, and
- *  rendered a coloured dot instead. This pins that they reach the screen, that
- *  their references resolve, and that the empty states say what they know
- *  rather than asserting a fact.
+ *  blocker. A renderer that fetches them, resolves their references, and then
+ *  shows only the coloured dot passes every shape check while dropping the
+ *  whole answer. This pins that the receipts reach the screen, that their
+ *  references resolve to links, and that the empty states say what they
+ *  checked rather than asserting a fact.
  */
 
 const brief = {
@@ -104,12 +105,16 @@ describe("the engagement brief", () => {
 
   it("says what it checked, not that nothing is wrong", async () => {
     page();
-    // "Nothing is escalated, overdue, or unowned" would be a claim about the
-    // world: the queue is ranked portfolio-wide and narrowed afterward, so the
-    // card can only speak for the queue it read
+    // The queue is ranked portfolio-wide and narrowed to this engagement
+    // AFTERWARD, so on a busy portfolio these rows can sit behind another
+    // engagement's and never be read. The card can therefore speak only for
+    // the window it saw — a flat "nothing belongs to this engagement" is a
+    // claim about the world that the blockers card above it can contradict on
+    // the same screen. The assertion is on the NUMBER, because that is the
+    // part a rewrite back to the flat sentence would drop.
     await waitFor(() =>
       expect(
-        screen.getByText(/Nothing in the portfolio queue belongs/),
+        screen.getByText(/top 50 of the portfolio queue/),
       ).toBeTruthy(),
     );
   });

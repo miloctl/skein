@@ -163,15 +163,25 @@ def recall(
     )
 
 
-def memory_prompt(user: str, limit: int = 8, engagement_id: int = 0) -> str:
+def memory_prompt(
+    user: str, limit: int = 8, engagement_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+) -> str:
     """Recent memories rendered for system-prompt injection; empty string when none.
 
     `engagement_id` comes from the chat thread's own link
     (services/chat_threads.py). A thread about one engagement recalls that
     engagement's memories on top of the team's, which is what makes filing one
     worth the reviewer's time.
+
+    `viewer` is the human whose message caused the turn, passed down from the
+    route (agents/team_agent.py::build_agent). Without it this read defaults to
+    NOBODY, which admits the workspace tier only — and a crew engagement's
+    memory is deliberately stored at crew tier by `propose_engagement_memory`,
+    so the whole propose-review-approve pipeline produced a row that steered no
+    conversation at all. NOBODY stays the default for the unattended runner,
+    where no human is asking and the workspace tier is the honest ceiling.
     """
-    rows = recall(user=user, limit=limit, engagement_id=engagement_id)
+    rows = recall(user=user, limit=limit, viewer=viewer, engagement_id=engagement_id)
     if not rows:
         return ""
     lines = [
@@ -214,9 +224,9 @@ def propose_engagement_memory(
         # filed it. The row would sit pending forever with no surface able to
         # approve or reject it.
         raise ValueError(
-            "a private engagement has one reader, so a memory filed against it"
-            " could never be reviewed. Move the engagement to a crew, or"
-            " remember the fact for the team instead."
+            "a private engagement has one reader, so no second person can"
+            " review a memory filed against it. Move the engagement to a crew,"
+            " or remember the fact for the team instead."
         )
     return propose_change(
         "memory",

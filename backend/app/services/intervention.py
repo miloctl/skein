@@ -289,7 +289,7 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "title": t["title"],
                 "condition": "due and nobody owns it",
                 "owner": "",
-                "action": "Assign it or drop it — an unowned due date is nobody's problem",
+                "action": "Assign it or drop it — until somebody owns it, nobody acts on it",
                 "receipts": [refs.receipt(f"task #{t['id']} was due {t['due_date']}")],
                 "order": _order("work_unowned", age=_age_days(t["due_date"])),
                 "link": f"?task={t['id']}",

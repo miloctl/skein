@@ -79,9 +79,6 @@ numbering and was found later, on 2026-08-09.
 
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
-These did not ship:
-
-
 Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
 close diffs planned against actual, and an approved lesson reaches the
 next kickoff of that class. Three pieces stayed behind, and the first is

@@ -137,7 +137,14 @@ def generate_handoff(
         safe_name = f"engagement-{engagement_id}"
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / safe_name
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    path = artifacts_dir / f"{db.today().isoformat()}-handoff.md"
+    # the engagement id is in the FILE name, not just the directory: two
+    # distinct names can sanitize to one directory ("ops/reset" and "ops_reset"
+    # both become "ops_reset"), and then the dated path collides. The upsert
+    # below matches on path alone, so the second engagement would take over the
+    # first one's artifact row — returning an id whose engagement, title and
+    # TIER belong to the other engagement, while the body it just wrote was
+    # narrowed for this one's audience.
+    path = artifacts_dir / f"{db.today().isoformat()}-handoff-{engagement_id}.md"
     path.write_text(markdown, encoding="utf-8")
 
     # The FILE is named by date, so a second handoff the same day overwrites

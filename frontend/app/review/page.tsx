@@ -6,6 +6,7 @@ import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { EmptyState } from "@/components/card";
 import { SectionTabs } from "@/components/section-tabs";
+import { PeekLink } from "@/components/task-peek";
 import { timeAgo } from "@/lib/time";
 import { emptyState } from "@/lib/whimsy";
 
@@ -485,13 +486,15 @@ export default function ReviewPage() {
                       {/* a link, not text. The panel behind it holds the full
                           worklog, the forge link and the delegation — the
                           evidence block below carries the last few notes so
-                          the common verdict needs no navigation at all */}
-                      <a
-                        href={`?task=${c.entity_id}`}
-                        className="underline decoration-line-strong underline-offset-2 hover:decoration-ink-2"
-                      >
-                        task #{c.entity_id}
-                      </a>
+                          the common verdict needs no navigation at all.
+
+                          PeekLink, never a bare <a href="?task=">: this page
+                          holds unsubmitted state — a typed rejection note, the
+                          batch selection, loaded diffs — and an anchor to a
+                          same-page query is a full navigation that discards all
+                          of it. The panel opens either way, so nothing here
+                          shows the loss (components/task-peek.tsx). */}
+                      <PeekLink taskId={c.entity_id}>task #{c.entity_id}</PeekLink>
                     </>
                   ) : (
                     ` #${c.entity_id}`

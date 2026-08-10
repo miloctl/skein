@@ -100,6 +100,40 @@ def test_a_finding_that_already_fired_is_not_new(client, fresh_db):
     )
 
 
+def test_a_new_low_finding_survives_a_crowded_window(client, fresh_db):
+    """The cap has to apply to the rows that QUALIFY, not to the whole table.
+
+    Read through `list_findings`, the LIMIT lands before the since and
+    disposition filters and its ordering is week then severity — so a hundred
+    already-seen high findings from this week push the one new low finding off
+    the end, and the brief reports "quiet" about a window that had news.
+    """
+    from app import db
+    from app.services import users
+
+    users.ensure_user("ava")
+    week = db.local_day(db.now())[:4] + "-W33"
+    old = "2020-01-01T00:00:00+00:00"
+    # crowd the window with rows the reader has already been told about, all
+    # sorting AHEAD of the new one on both keys the old query ordered by
+    for i in range(120):
+        db.execute(
+            "INSERT INTO findings (rule_id, severity, subject, message, receipt, week, created_at)"
+            " VALUES ('aging_wip', 'high', ?, 'seen already', '{}', ?, ?)",
+            (f"task-{i}", week, old),
+        )
+    delta.brief("ava", _viewer(), mark=True)
+
+    db.execute(
+        "INSERT INTO findings (rule_id, severity, subject, message, receipt, week, created_at)"
+        " VALUES ('promise_due', 'low', 'promise-9', 'the quiet new one', '{}', ?, ?)",
+        (week, db.now()),
+    )
+    out = delta.brief("ava", _viewer())
+    assert any("the quiet new one" in i["headline"] for i in out["items"])
+    assert out["quiet"] is False
+
+
 def test_every_item_carries_a_resolvable_receipt(client, fresh_db):
     from app.services import promises, users
 

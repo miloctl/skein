@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
+import { api, loadError } from "@/lib/api";
 import { timeAgo } from "@/lib/time";
 
 /** How this row came to exist, and what has happened to it since.
@@ -54,29 +54,37 @@ export function Provenance({
 }) {
   const [open, setOpen] = useState(false);
   const [d, setD] = useState<Lineage | null>(null);
-  const [failed, setFailed] = useState(false);
+  // the message, never a boolean. `loadError` is the app's one wording for a
+  // failed read, and a backend that cannot be reached must say the same
+  // sentence here as on every other surface (docs/LEXICON.md). A bespoke
+  // string also folded a 404 and a rate cap into one invented claim.
+  const [err, setErr] = useState("");
 
   useEffect(() => {
-    if (!open || d || failed) return;
+    if (!open || d || err) return;
     api<Lineage>(`/api/provenance/${entity}/${entityId}`)
       .then(setD)
-      .catch(() => setFailed(true));
-  }, [open, d, failed, entity, entityId]);
-
-  if (!open)
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="text-xs text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink-2"
-      >
-        where did this come from?
-      </button>
-    );
+      .catch((e) => setErr(loadError(e)));
+  }, [open, d, err, entity, entityId]);
 
   return (
     <div className="space-y-1 text-xs text-ink-3">
-      {failed ? (
-        <p className="text-danger">The provenance record did not load.</p>
+      {/* the trigger stays mounted and toggles: unmounting it on activation
+          dropped keyboard focus to <body>, and a failed fetch then had no
+          control to retry with. Collapsing leaves `d` null, so re-opening
+          after a failure asks again. */}
+      <button
+        onClick={() => {
+          if (open) setErr("");
+          setOpen(!open);
+        }}
+        aria-expanded={open}
+        className="text-xs text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink-2"
+      >
+        {open ? "hide the chain" : "where did this come from?"}
+      </button>
+      {!open ? null : err ? (
+        <p className="text-danger">{err}</p>
       ) : !d ? (
         <p>Loading…</p>
       ) : (
