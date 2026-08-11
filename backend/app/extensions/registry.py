@@ -28,6 +28,9 @@ from .policy import PolicyEngine, PolicySubject
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
 _MODEL_TOOL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_RESERVED_CORE_SUBJECTS = frozenset(
+    {"agent", "anonymous", "ci", "forge", "mcp", "scheduler", "system", "team"}
+)
 
 
 class ExtensionValidationError(ValueError):
@@ -346,7 +349,6 @@ def validate_machine_identity_ownership(
     composition and before a process reserves any machine user.
     """
     from ..services import flocks, personas
-    from ..services.activity import SYSTEM_ACTORS
     from ..services.users import fold
 
     content_owners = {
@@ -359,7 +361,7 @@ def validate_machine_identity_ownership(
         *additional,
     ]
     machine_owners: dict[str, str] = {}
-    core_owners = {fold(name): f"core actor {name!r}" for name in SYSTEM_ACTORS}
+    core_owners = {fold(name): f"core actor {name!r}" for name in _RESERVED_CORE_SUBJECTS}
     collisions: list[str] = []
     for kind, name in claims:
         owner = f"{kind} {name!r}"
@@ -633,26 +635,16 @@ def _validate_namespace(module: SkeinModule) -> None:
         return
     # These actors identify core-owned activity and policy principals. A
     # private module must not reuse them for a service or specialist.
-    reserved_subjects = {
-        "agent",
-        "anonymous",
-        "ci",
-        "forge",
-        "mcp",
-        "scheduler",
-        "system",
-        "team",
-    }
     claimed_reserved = sorted(
         {
             contribution.subject
             for contribution in module.service_identities
-            if contribution.subject.casefold() in reserved_subjects
+            if contribution.subject.casefold() in _RESERVED_CORE_SUBJECTS
         }
         | {
             contribution.name
             for contribution in module.specialists
-            if contribution.name.casefold() in reserved_subjects
+            if contribution.name.casefold() in _RESERVED_CORE_SUBJECTS
         }
     )
     if claimed_reserved:
