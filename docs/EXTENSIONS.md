@@ -183,10 +183,11 @@ applies to an OIDC user who has no groups. A missing record or unavailable
 resolver fails closed. Skein stores the original authentication strength and
 never increases it during refresh. Skein also rejects an inactive local user.
 
-A resolver that owns groups must return a `groups` key. An empty tuple is a
-successful group refresh. A profile-only resolver cannot replace an
-unavailable group resolver. This rule prevents stale approval groups when a
-workplace uses more than one identity module.
+Exactly one identity contribution can own group refresh. Its resolver must
+return a `groups` key. An empty tuple is a successful group refresh. Set
+`resolves_groups=False` on profile-only resolvers. A profile resolver cannot
+return groups or replace an unavailable group resolver. These rules prevent
+stale approval groups when a workplace uses more than one identity module.
 
 Register every job and event subject with `ServiceIdentityContribution`.
 Service identities do not pass through the human identity mapper. Startup
@@ -247,6 +248,9 @@ final execution receipt.
 If a tool writes through `WorkItems`, set `CommandContext.actor` to the agent
 and set `actor_kind` to `agent`. Keep the requester as `subject`. This split
 records the agent as the writer without giving it the requester's roles.
+Skein trusts the extension to supply these provenance values correctly.
+Contract tests must verify the stored writer, requester, origin, and
+correlation ID.
 
 Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
 Stock writes use their domain action through the shared write gate. The four
@@ -312,7 +316,8 @@ time window before it calls an extension job. This claim prevents two workers
 from running the same extension job in the same window. Job handlers are also
 synchronous and bounded by their declared timeout. A timed-out write reports
 `completion_unknown`. Make external writes idempotent. A policy review is
-unsupported for a scheduled job.
+unsupported for a scheduled job. Use `JobExecutionContext.run_id` as the
+idempotency key for external writes in that run.
 
 The core unattended agent job receives the composed registry and policy
 engine. The scheduler action is the outer gate. Each agent tool is a second
@@ -361,9 +366,12 @@ stores a workplace-policy review before it creates project work. A qualified
 human can approve it. Skein then runs the exact saved playbook request and
 records the result. A workflow approval step can create a second proposal.
 
-Each durable playbook review stores a canonical content digest. Skein compares
-that digest before approval or rejection. A changed overlay needs a new
+Each durable playbook review stores a canonical content digest. The digest
+keeps YAML types distinct, including dates, byte strings, sets, and mixed map
+keys. Skein compares the digest before approval. A changed overlay needs a new
 review. No changed task, action, or project class can use the old verdict.
+Skein still lets a qualified reviewer reject a stale or pre-digest proposal.
+This action removes old work from the pending queue without executing it.
 
 Skein evaluates all selected workflow steps before it creates core work. It
 binds each successful decision to that immediate execution. The runner cannot
@@ -375,6 +383,11 @@ policy or playbook needs a new verdict.
 
 Version 1 does not support timers, parallel branches, or a general workflow
 state machine. Keep these processes in an extension service.
+
+Start a workflow-backed playbook through the REST API. This path receives the
+composed workflow action registry. The deterministic `/plan` command and the
+stock agent playbook tool support static templates only in version 1. They
+return an error if the selected playbook contains workflow actions.
 
 ## Validate content overlays
 

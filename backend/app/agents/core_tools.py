@@ -188,6 +188,31 @@ def govern_core_tools(tools: Iterable[Any]) -> list[Any]:
     return governed
 
 
+def reviewed_policy_input(invocation: dict[str, Any], subject) -> PolicyInput:
+    """Rebuild the current policy input for one pending stock-tool verdict."""
+    name = str(invocation.get("tool") or "")
+    if name not in SPECIALIZED_WRITE_TOOLS:
+        raise ValueError("the reviewed stock tool is not resumable")
+    tool_use = invocation.get("tool_use")
+    if not isinstance(tool_use, dict):
+        raise ValueError("the reviewed stock tool call is invalid")
+    arguments = tool_use.get("input") or {}
+    if not isinstance(arguments, dict):
+        raise ValueError("the reviewed stock tool input is invalid")
+    actor = str(invocation.get("agent") or "agent")
+    return PolicyInput(
+        subject,
+        f"skein.tool.{name}",
+        _resource(arguments),
+        "agent_tool",
+        agent=actor,
+        tool=name,
+        tool_effect="write",
+        tool_risk="high",
+        context={"core_governance": "specialized"},
+    )
+
+
 async def execute_reviewed_core(invocation: dict[str, Any], registry) -> dict[str, Any]:
     """Resume one exact stock tool call through current workplace policy."""
     from ..extensions.policy import (

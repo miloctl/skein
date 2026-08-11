@@ -123,9 +123,13 @@ class ExtensionRegistry:
             if value is None:
                 continue
             active = active and bool(value.get("active", True))
-            if "groups" in value:
+            if contribution.resolves_groups and "groups" in value:
                 groups_resolved = True
                 groups = tuple(str(item) for item in value.get("groups") or ())
+            elif not contribution.resolves_groups and "groups" in value:
+                raise PermissionError(
+                    f"Identity profile resolver {contribution.name!r} returned groups."
+                )
         if (subject.refresh_required or subject.groups) and not groups_resolved:
             raise PermissionError("The requester directory identity could not be refreshed.")
         if not active:
@@ -238,6 +242,15 @@ class ExtensionRegistry:
         service_subjects = [contribution.subject for contribution in service_identities]
         if len(service_subjects) != len(set(service_subjects)):
             raise ExtensionValidationError("duplicate service identity subject")
+        group_resolvers = [
+            contribution.name
+            for contribution in identities
+            if contribution.resolver is not None and contribution.resolves_groups
+        ]
+        if len(group_resolvers) > 1:
+            raise ExtensionValidationError(
+                "only one identity contribution can resolve groups: " + ", ".join(group_resolvers)
+            )
         missing_service_identities = sorted(
             {
                 contribution.service_identity

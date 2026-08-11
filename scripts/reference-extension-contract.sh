@@ -142,10 +142,22 @@ from fastapi.testclient import TestClient
 from app.extensions import AppSettings
 from app.main import create_app
 
-with TestClient(create_app(replace(AppSettings.from_config(), scheduler_enabled=False))) as client:
+with TestClient(
+    create_app(replace(AppSettings.from_config(), scheduler_enabled=False)),
+    headers={"X-User": "upgrade-user"},
+) as client:
     assert "legacy_delivery" in {row["slug"] for row in client.get("/api/playbooks").json()}
     assert "legacy-reviewer" in {row["slug"] for row in client.get("/api/personas").json()}
     assert "legacy-team" in {row["slug"] for row in client.get("/api/flocks").json()}
+    started = client.post(
+        "/api/playbooks/instantiate",
+        json={
+            "playbook": "legacy_delivery",
+            "engagement_name": "Typed legacy upgrade",
+        },
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["engagement"]["name"] == "Typed legacy upgrade"
 PY
 )
 
@@ -278,10 +290,22 @@ from fastapi.testclient import TestClient
 from app.extensions import AppSettings
 from app.main import create_app
 
-with TestClient(create_app(replace(AppSettings.from_config(), scheduler_enabled=False))) as client:
+with TestClient(
+    create_app(replace(AppSettings.from_config(), scheduler_enabled=False)),
+    headers={"X-User": "upgrade-user"},
+) as client:
     assert "legacy_delivery" in {row["slug"] for row in client.get("/api/playbooks").json()}
     assert "legacy-reviewer" in {row["slug"] for row in client.get("/api/personas").json()}
     assert "legacy-team" in {row["slug"] for row in client.get("/api/flocks").json()}
+    started = client.post(
+        "/api/playbooks/instantiate",
+        json={
+            "playbook": "legacy_delivery",
+            "engagement_name": "Typed legacy after upgrade",
+        },
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["engagement"]["name"] == "Typed legacy after upgrade"
 PY
 )
 
