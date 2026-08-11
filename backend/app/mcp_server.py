@@ -424,10 +424,10 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
     # reserve THIS process's identity as kind=agent before any request — the
     # API server only reserves its own env's SKEIN_MCP_USER, and a human
     # picking this name first would permanently shadow the agent
-    from .services.users import ensure_user
+    from .services.users import ensure_agent_identity
 
     try:
-        ensure_user(ACTOR, kind="agent")
+        ensure_agent_identity(ACTOR)
     except ValueError as exc:
         import sys
 

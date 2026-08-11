@@ -1339,6 +1339,31 @@ Verification for this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Sixteenth review gate and remediation
+
+The score auditor approved commit `dab8630` at 8.3 for all three measures. The
+extension-author reviewer rejected it at 8.1, 8.0, and 8.3 because standalone
+MCP could reuse an exact-name human row. The compatibility review did not
+reproduce this case, but the extension-author probe was conclusive.
+
+A narrow `ensure_agent_identity()` reservation now rejects an exact existing
+human without changing the general `ensure_user()` compatibility contract.
+The API catches this error, disables only MCP, and keeps REST available. The
+standalone MCP process exits before it sets policy context or runs its server.
+
+Verification for this remediation:
+
+- Exact-human, reserved, content, API, and standalone MCP tests: 15 passed.
+- MCP, identity, policy, composition, authority, integration, memory, and
+  privacy tests: 192 passed.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Full backend suite: 1,775 passed in 159.53 seconds.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+
+The exact commit and repeated review follow. Chrome remains blocked.
+
 ### Fifteenth review gate and remediation
 
 The architecture and score reviewers approved commit `7644949` at or above

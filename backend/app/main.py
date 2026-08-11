@@ -277,10 +277,10 @@ async def lifespan(app: FastAPI):
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
     from .services.activity import SYSTEM_ACTORS
-    from .services.users import ensure_user
+    from .services.users import ensure_agent_identity, ensure_user
 
     try:
-        ensure_user("agent", kind="agent")
+        ensure_agent_identity("agent")
     except ValueError as exc:
         # a legacy human row named `Agent` was legal before the collision
         # guard; it must not brick a boot nobody can reach the rename route on
@@ -313,7 +313,7 @@ async def lifespan(app: FastAPI):
     if mcp_identity_available:
         minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
         try:
-            ensure_user(mcp_user, kind="agent")
+            ensure_agent_identity(mcp_user)
         except ValueError as exc:
             # Operator-supplied config never takes down REST. The same rule
             # lets a bad model provider degrade to deterministic mode.
