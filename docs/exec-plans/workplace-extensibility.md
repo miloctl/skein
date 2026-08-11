@@ -220,8 +220,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 5 | 2 | Public commands, queries, results, and errors | Reference extension imports only public modules | Complete for task work |
 | 6 | 5 | Versioned events and durable outbox | Delivery, retry, and idempotency tests | Complete |
 | 7 | 2 | Extension-owned migration and data boundaries | Separate store and migration tests | Complete |
-| 8 | 2, 3, 5 | Minimum typed workflow steps | Condition, approval, action, and checkpoint tests | Pending |
-| 9 | 2 | Versioned content schemas and deployment validator | Version 1 compatibility and invalid-content tests | Pending |
+| 8 | 2, 3, 5 | Minimum typed workflow steps | Condition, approval, action, and checkpoint tests | Complete |
+| 9 | 2 | Versioned content schemas and deployment validator | Version 1 compatibility and invalid-content tests | Complete |
 | 10 | 2, 3 | Frontend extension manifest and UI primitives | External navigation and dashboard card tests | Pending |
 | 11 | 3 through 10 | Acme reference extension | Scenarios A through G | Pending |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Pending |
@@ -252,7 +252,7 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | C | Acme adds navigation and a manager dashboard card | Frontend manifest and capability | Pending |
 | D | Delivery specialist adds prompt, context, tool, and permissions | Specialist, context, tool, and policy contributions | Pending |
 | E | Atlas mappings use an extension-owned store and migration | Extension data contract | Pending |
-| F | Delivery playbook uses a condition, approval, registered action, and checkpoint | Versioned workflow steps | Pending |
+| F | Delivery playbook uses a condition, approval, registered action, and checkpoint | Versioned workflow steps | Contract complete; reference playbook pending |
 | G | OIDC groups map to workplace capabilities | Identity attributes and policy | Pending |
 | H | The extension moves across compatible core versions without source patches | Compatibility metadata and upgrade test | Pending |
 
@@ -294,6 +294,9 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-10 | Keep extension data in a separate store | This prevents private code from depending on core tables or migration order |
 | 2026-08-10 | Send safe event summaries through the outbox | Subscribers receive identifiers and changed field names, not private row bodies |
 | 2026-08-10 | Require subscribers to use the event ID for idempotency | A process can stop after an external side effect and before it stores the receipt |
+| 2026-08-11 | Keep workflow steps limited to four types | Conditions, approvals, actions, and checkpoints cover the verified scenario |
+| 2026-08-11 | Stop direct workflow-playbook instantiation | A caller without the composed action registry must not skip private steps |
+| 2026-08-11 | Treat unversioned content as version 1 | Existing playbooks, personas, and flocks remain compatible |
 
 ## Risks
 
@@ -352,6 +355,20 @@ Scores can increase only when core behavior and the reference extension use the 
 - Added a startup migration contribution that never opens a Skein database.
 - Confirmed 65 focused contract, migration, scope, and composition tests.
 - Confirmed the full backend suite passes with 1,601 tests after this slice.
+
+### 2026-08-11
+
+- Added governed workflow-action contributions with schemas, versions,
+  effects, risk, policy actions, timeouts, and safe error codes.
+- Added typed condition, approval, action, and checkpoint steps.
+- Connected workflow-backed playbooks to the real application registry.
+- Refused direct instantiation when a workflow needs composed actions.
+- Added schema version 1 validation for playbooks, personas, and flocks.
+- Added `python -m app.content` for deployment repository validation.
+- Confirmed 102 focused workflow, content, persona, flock, and API tests.
+- The first full suite found one missing activity-feed verb. The workflow
+  action now has a registered reader-facing verb.
+- Confirmed the full backend suite passes with 1,610 tests after remediation.
 
 ## Review findings
 

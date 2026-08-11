@@ -81,7 +81,7 @@ ignore_names = [
     "total_tokens",
     # Public extension-contract fields read by workplace policy rules and by
     # Pydantic serialization. Core does not need to branch on each field.
-    "tool_risk", "error_code", "policy_effect", "created_by", "updated_at",
+    "tool_risk", "error_code", "policy_effect", "created_by", "updated_at", "checkpoint",
     # AgentTool protocol properties called by the Strands registry.
     "tool_type", "supports_hot_reload",
 ]

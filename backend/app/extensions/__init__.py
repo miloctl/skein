@@ -16,6 +16,7 @@ from .contracts import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
+    WorkflowActionContribution,
 )
 from .data import ExtensionStore
 from .policy import (
@@ -53,4 +54,5 @@ __all__ = [
     "SkeinModule",
     "SpecialistContribution",
     "ToolContribution",
+    "WorkflowActionContribution",
 ]

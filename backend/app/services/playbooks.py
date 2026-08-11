@@ -23,6 +23,48 @@ PLAYBOOKS_DIR = Path(__file__).resolve().parent.parent.parent / "playbooks"
 
 
 _SLUG = re.compile(r"^[a-z0-9_-]+$")
+SCHEMA_VERSION = 1
+_TOP_LEVEL = {
+    "schema_version",
+    "name",
+    "description",
+    "project_class",
+    "milestones",
+    "rituals",
+    "workflow",
+}
+
+
+def _schema_errors(data: object) -> list[str]:
+    if not isinstance(data, dict):
+        return ["expected an object"]
+    errors = []
+    version = data.get("schema_version", SCHEMA_VERSION)
+    if isinstance(version, bool) or not isinstance(version, int) or version != SCHEMA_VERSION:
+        errors.append(f"schema_version must be {SCHEMA_VERSION}")
+    unknown = sorted(set(data) - _TOP_LEVEL)
+    if unknown:
+        errors.append(f"unknown top-level fields: {unknown}")
+    if not str(data.get("name") or "").strip():
+        errors.append("name is empty")
+    milestones = data.get("milestones", [])
+    if not isinstance(milestones, list):
+        errors.append("milestones must be a list")
+    else:
+        for index, milestone in enumerate(milestones):
+            if not isinstance(milestone, dict) or not str(milestone.get("title") or "").strip():
+                errors.append(f"milestone {index + 1} has no title")
+    rituals = data.get("rituals", [])
+    if not isinstance(rituals, list):
+        errors.append("rituals must be a list")
+    if "workflow" in data:
+        try:
+            from ..public.workflow import validate_workflow_shape
+
+            validate_workflow_shape(data["workflow"])
+        except Exception:
+            errors.append("workflow steps are not valid")
+    return errors
 
 
 def _playbook_files() -> dict[str, Path]:
@@ -55,12 +97,15 @@ def list_playbooks() -> list[dict]:
             continue
         if not isinstance(data, dict):
             continue
+        if _schema_errors(data):
+            continue
         out.append(
             {
                 "slug": slug,
                 "name": data.get("name", slug),
                 "description": data.get("description", ""),
                 "milestones": len(data.get("milestones", [])),
+                "schema_version": data.get("schema_version", SCHEMA_VERSION),
             }
         )
     return out
@@ -80,10 +125,32 @@ def get_playbook(slug: str) -> dict:
         raise ValueError(f"playbook '{slug}' is malformed ({type(exc).__name__})") from exc
     if not isinstance(pb, dict):
         raise ValueError(f"playbook '{slug}' is malformed (expected a mapping)")
-    for m in pb.get("milestones", []):
-        if not isinstance(m, dict) or "title" not in m:
-            raise ValueError(f"playbook '{slug}' has a milestone without a title")
+    errors = _schema_errors(pb)
+    if errors:
+        raise ValueError(f"playbook '{slug}' is malformed ({'; '.join(errors)})")
+    pb.setdefault("schema_version", SCHEMA_VERSION)
     return pb
+
+
+def validate_all() -> list[str]:
+    """Return all schema errors from stock files and the configured overlay."""
+    errors = []
+    directories = [PLAYBOOKS_DIR]
+    if config.PLAYBOOKS_OVERLAY and config.PLAYBOOKS_OVERLAY.is_dir():
+        directories.append(config.PLAYBOOKS_OVERLAY)
+    for directory in directories:
+        for path in sorted(directory.glob("*.yaml")):
+            label = path.name if directory == PLAYBOOKS_DIR else f"{path.name} (overlay)"
+            if not _SLUG.match(path.stem):
+                errors.append(f"{label}: slug must match {_SLUG.pattern}")
+                continue
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                errors.append(f"{label}: not valid YAML ({type(exc).__name__})")
+                continue
+            errors.extend(f"{label}: {error}" for error in _schema_errors(data))
+    return errors
 
 
 def instantiate(
@@ -94,11 +161,22 @@ def instantiate(
     *,
     actor: str = "system",
     origin: str = "human",
+    workflow_engine: Any | None = None,
+    workflow_context: Any | None = None,
 ) -> dict:
     pb = get_playbook(slug)
+    prepared_workflow = None
+    if pb.get("workflow"):
+        if workflow_engine is None or workflow_context is None:
+            raise ValueError("this playbook has workflow actions and needs a composed application")
+        prepared_workflow = workflow_engine.prepare(pb["workflow"])
     start = date.fromisoformat(start_date) if start_date else db.today()
     with db.transaction():
-        return _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
+        created = _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
+    if prepared_workflow is not None and workflow_engine is not None:
+        result = workflow_engine.run(prepared_workflow, workflow_context)
+        created["workflow"] = result.model_dump(mode="json")
+    return created
 
 
 def _instantiate(
