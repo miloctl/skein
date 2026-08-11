@@ -26,6 +26,9 @@ class PolicySubject:
     groups: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
     attributes: Mapping[str, Any] = field(default_factory=dict)
+    strong: bool = False
+    source: str = "local"
+    refresh_required: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roles", tuple(self.roles))
@@ -91,6 +94,8 @@ class CorePolicy:
                 ("The tool does not declare whether it writes.",),
             )
         if request.tool and request.tool_effect in ("none", "read"):
+            return PolicyDecision(PolicyEffect.PERMIT)
+        if request.context.get("core_governance") == "specialized":
             return PolicyDecision(PolicyEffect.PERMIT)
         if request.origin not in ("agent", "agent_tool", "mcp"):
             return PolicyDecision(PolicyEffect.PERMIT)
@@ -158,6 +163,9 @@ def approval_fingerprint(
             "groups": request.subject.groups,
             "capabilities": request.subject.capabilities,
             "attributes": request.subject.attributes,
+            "strong": request.subject.strong,
+            "source": request.subject.source,
+            "refresh_required": request.subject.refresh_required,
         },
         "action": request.action,
         "resource": {
@@ -196,6 +204,9 @@ def policy_input_data(request: PolicyInput) -> dict[str, Any]:
                 "groups": request.subject.groups,
                 "capabilities": request.subject.capabilities,
                 "attributes": request.subject.attributes,
+                "strong": request.subject.strong,
+                "source": request.subject.source,
+                "refresh_required": request.subject.refresh_required,
             },
             "action": request.action,
             "resource": {
@@ -212,6 +223,41 @@ def policy_input_data(request: PolicyInput) -> dict[str, Any]:
             "tool_risk": request.tool_risk,
             "context": request.context,
         }
+    )
+
+
+def policy_subject_data(subject: PolicySubject) -> dict[str, Any]:
+    """Return the stable JSON form of one authenticated policy subject."""
+    return _plain(
+        {
+            "name": subject.name,
+            "kind": subject.kind,
+            "roles": subject.roles,
+            "groups": subject.groups,
+            "capabilities": subject.capabilities,
+            "attributes": subject.attributes,
+            "strong": subject.strong,
+            "source": subject.source,
+            "refresh_required": subject.refresh_required,
+        }
+    )
+
+
+def policy_subject_from_data(value: Mapping[str, Any]) -> PolicySubject:
+    """Rebuild one saved subject without increasing its assurance."""
+    attributes = value.get("attributes")
+    if not isinstance(attributes, Mapping):
+        raise ValueError("the reviewed requester attributes are invalid")
+    return PolicySubject(
+        name=str(value.get("name") or ""),
+        kind=str(value.get("kind") or "human"),
+        roles=tuple(str(item) for item in value.get("roles") or ()),
+        groups=tuple(str(item) for item in value.get("groups") or ()),
+        capabilities=tuple(str(item) for item in value.get("capabilities") or ()),
+        attributes=dict(attributes),
+        strong=bool(value.get("strong", False)),
+        source=str(value.get("source") or "local"),
+        refresh_required=bool(value.get("refresh_required", False)),
     )
 
 
@@ -277,7 +323,9 @@ def reset_policy_engine(token: Token) -> None:
 
 
 def current_policy_subject() -> PolicySubject:
-    return _current_subject.get() or PolicySubject("agent", kind="agent")
+    return _current_subject.get() or PolicySubject(
+        "agent", kind="agent", strong=True, source="agent"
+    )
 
 
 def set_policy_subject(subject: PolicySubject) -> Token:

@@ -1717,19 +1717,19 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         from ..agents.mcp_tools import execute_reviewed_mcp
 
         return asyncio.run(execute_reviewed_mcp(invocation, registry))
+    if invocation.get("kind") == "core_tool":
+        from ..agents.core_tools import execute_reviewed_core
+
+        result = asyncio.run(execute_reviewed_core(invocation, registry))
+        if result.get("status") != "completed":
+            raise PermissionError("the current policy did not permit the reviewed stock tool")
+        return result
     if invocation.get("kind") == "workflow":
-        from ..extensions.policy import PolicySubject
+        from ..extensions.policy import policy_subject_from_data
         from ..public.workflow import WorkflowContext, WorkflowEngine
 
         subject_data = invocation.get("subject") or {}
-        saved_subject = PolicySubject(
-            name=str(subject_data.get("name") or ""),
-            kind=str(subject_data.get("kind") or "human"),
-            roles=tuple(subject_data.get("roles") or ()),
-            groups=tuple(subject_data.get("groups") or ()),
-            capabilities=tuple(subject_data.get("capabilities") or ()),
-            attributes=dict(subject_data.get("attributes") or {}),
-        )
+        saved_subject = policy_subject_from_data(subject_data)
         subject = registry.refresh_subject(saved_subject)
         approval_grants = dict(invocation.get("approval_grants") or {})
         reviewed_key = str(invocation.get("reviewed_key") or "")
@@ -1846,9 +1846,19 @@ def post_reject(
     user: CurrentUser,
     viewer: ViewerDep,
     request: Request,
+    subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.reject_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
+    return review.reject_change(
+        change_id,
+        body.note,
+        actor=user,
+        strong=strong,
+        viewer=viewer,
+        reviewer_groups=subject.groups,
+        reviewer_capabilities=subject.capabilities,
+        policy_registry=request.app.state.skein_registry,
+    )
 
 
 class CaptureIn(BaseModel):
@@ -2033,6 +2043,7 @@ def post_instantiate(
     request: Request,
     subject: PolicySubjectDep,
 ):
+    from ..extensions.policy import policy_subject_data
     from ..public.workflow import WorkflowContext, WorkflowEngine
 
     registry = request.app.state.skein_registry
@@ -2067,14 +2078,7 @@ def post_instantiate(
             "resource_id": "",
             "values": dict(workflow_context.values),
             "approval_grants": {},
-            "subject": {
-                "name": subject.name,
-                "kind": subject.kind,
-                "roles": list(subject.roles),
-                "groups": list(subject.groups),
-                "capabilities": list(subject.capabilities),
-                "attributes": dict(subject.attributes),
-            },
+            "subject": policy_subject_data(subject),
         },
     )
 

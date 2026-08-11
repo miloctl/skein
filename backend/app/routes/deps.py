@@ -327,12 +327,28 @@ def current_user(
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
-    _stash(request, user, strong, groups)
+    _stash(request, user, strong, groups, authentication_source(request, authorization, strong))
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
 
-def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None:
+def authentication_source(request: Request, authorization: str, strong: bool) -> str:
+    """Return the stable source that proved one request identity."""
+    if strong and authorization.startswith("Bearer "):
+        if authorization[7:].startswith(PREFIX):
+            return "api-key"
+        if _app_setting(request, "auth_mode", config.AUTH_MODE) == "oidc":
+            return "oidc"
+    return "trusted-header"
+
+
+def _stash(
+    request: Request,
+    user: str,
+    strong: bool,
+    groups: list[str],
+    source: str = "trusted-header",
+) -> None:
     """What a handler can read back off the request.
 
     All three dependencies stash, not only current_user: a route that
@@ -344,6 +360,7 @@ def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None
     """
     request.state.strong_auth = strong
     request.state.auth_groups = groups
+    request.state.auth_source = source
     # The viewer every scoped read filters on. Built HERE and nowhere else
     # (services/scope.py::Viewer) so the strong-identity bar is a property of
     # the door rather than a rule every scoped read has to remember.
@@ -382,7 +399,7 @@ def strong_user(
     is who the record says."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, user, True, groups)
+    _stash(request, user, True, groups, authentication_source(request, authorization, True))
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
@@ -401,7 +418,7 @@ def admin_user(
     their own records is not a privilege boundary, it is a dead end."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, user, True, groups)
+    _stash(request, user, True, groups, authentication_source(request, authorization, True))
     if not _is_admin(user, groups, request):
         raise HTTPException(
             status_code=403,

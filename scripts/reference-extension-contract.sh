@@ -74,25 +74,19 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
     --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}"
 
-ATLAS_SOURCE="$tmp/extension-source" "$tmp/venv/bin/python" - <<'PY'
-import os
-from pathlib import Path
-
-from app import config
-from app.services import playbooks
-from atlas_skein import AtlasSettings, atlas_module
-
-root = Path(os.environ["ATLAS_SOURCE"])
-config.PLAYBOOKS_OVERLAY = root / "content" / "playbooks"
-module = atlas_module(AtlasSettings(root / "atlas-validation.db"))
-registered = {action.name for action in module.workflow_actions}
-assert playbooks.validate_all(registered) == []
-PY
+"$tmp/venv/bin/python" -m app.content \
+    --playbooks "$tmp/extension-source/content/playbooks" \
+    --personas "$tmp/extension-source/content/personas" \
+    --flocks "$tmp/extension-source/content/flocks" \
+    --workflow-action atlas.workplace.notify-manager
 
 (
     cd "$tmp/run"
     SKEIN_DATA_DIR="$tmp/core-data" \
     ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
+    SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
+    SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
+    SKEIN_FLOCKS_DIR="$tmp/extension-source/content/flocks" \
     "$tmp/venv/bin/python" - <<'PY'
 from dataclasses import replace
 from importlib.metadata import version
@@ -111,8 +105,12 @@ module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 settings = replace(AppSettings.from_config(), scheduler_enabled=False)
 with TestClient(create_app(settings, (module,))) as client:
     assert client.get("/health").status_code == 200
-    assert client.get("/api/playbooks").status_code == 200
-    assert client.get("/api/personas").status_code == 200
+    playbooks = client.get("/api/playbooks")
+    assert playbooks.status_code == 200
+    assert "atlas_delivery" in {item["slug"] for item in playbooks.json()}
+    personas = client.get("/api/personas")
+    assert personas.status_code == 200
+    assert "atlas-auditor" in {item["slug"] for item in personas.json()}
 
 store = module.migrations[0].store
 store.execute(
@@ -130,6 +128,9 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
     cd "$tmp/run"
     SKEIN_DATA_DIR="$tmp/core-data" \
     ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
+    SKEIN_PLAYBOOKS_DIR="$tmp/extension-source/content/playbooks" \
+    SKEIN_PERSONAS_DIR="$tmp/extension-source/content/personas" \
+    SKEIN_FLOCKS_DIR="$tmp/extension-source/content/flocks" \
     "$tmp/venv/bin/python" - <<'PY'
 from dataclasses import replace
 from importlib.metadata import version
@@ -154,6 +155,9 @@ settings = replace(AppSettings.from_config(), scheduler_enabled=False)
 app = create_app(settings, (module,))
 with TestClient(app) as client:
     assert client.get("/health").status_code == 200
+    assert "atlas_delivery" in {
+        item["slug"] for item in client.get("/api/playbooks").json()
+    }
     from app.routes import deps
     original_resolve = deps._resolve
     deps._resolve = lambda *_args, **_kwargs: (

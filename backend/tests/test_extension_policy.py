@@ -17,9 +17,11 @@ from app.extensions import (
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
+    PolicyEngine,
     PolicyInput,
     PolicyResource,
     PolicySubject,
+    ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
@@ -847,6 +849,70 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
     assert remote.called is True
 
 
+def test_mcp_metadata_rejects_empty_actions_and_string_lists():
+    from app.agents.mcp_tools import _metadata
+
+    complete = {
+        "tools": {
+            "remote": {
+                "version": "1.0.0",
+                "effect": "write",
+                "risk": "high",
+                "policy_action": "atlas.remote.write",
+                "allowed_agents": ["agent"],
+                "required_capabilities": [],
+                "output_schema": {"type": "object"},
+                "timeout_seconds": 10,
+                "error_codes": ["remote_error"],
+                "receipt": "required",
+                "provenance": "service",
+            }
+        }
+    }
+    assert _metadata(complete, "remote") is not None
+    complete["tools"]["remote"]["policy_action"] = "  "
+    assert _metadata(complete, "remote") is None
+    complete["tools"]["remote"]["policy_action"] = "atlas.remote.write"
+    complete["tools"]["remote"]["allowed_agents"] = "agent"
+    assert _metadata(complete, "remote") is None
+
+
+def test_mcp_names_cannot_shadow_local_model_tools(monkeypatch):
+    from app.agents import mcp_tools as mcp_module
+
+    remote = _RemoteTool()
+    monkeypatch.setattr(mcp_module, "_tools", [remote])
+    assert mcp_module.mcp_tools({"atlas_remote"}) == []
+
+
+def test_model_facing_extension_tool_reports_review_as_queued(fresh_db):
+    from app.agents import receipts
+    from app.extensions.agents import strands_tools
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+
+    registry = ExtensionRegistry.build((_module(),))
+    tool = strands_tools(registry, "acme.workplace.delivery")[0]
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    receipts.start()
+
+    invoke = next(
+        candidate
+        for name in ("original_function", "_tool_func", "func", "__wrapped__")
+        if callable(candidate := getattr(tool, name, None))
+    )
+
+    try:
+        asyncio.run(invoke(external_id="ATLAS-42"))
+        recorded = receipts.drain()
+    finally:
+        receipts.reset()
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert recorded[0]["kind"] == "queued"
+    assert recorded[0]["ref"] > 0
+
+
 def test_successful_mcp_write_records_a_durable_receipt(fresh_db):
     from app.agents.identity import reset_agent_identity, set_agent_identity
     from app.agents.mcp_tools import GovernedMCPTool, MCPToolMetadata
@@ -1022,6 +1088,303 @@ def test_subject_refresh_fails_closed_when_directory_claims_are_unavailable(fres
     registry = ExtensionRegistry.build((module,))
     with pytest.raises(PermissionError, match="could not be refreshed"):
         registry.refresh_subject(PolicySubject("mira", groups=("managers",)))
+
+
+def test_zero_group_directory_subject_still_requires_refresh(fresh_db):
+    from app.services import users
+
+    users.ensure_user("mira")
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda _name, _groups, _strong: {},
+                resolver=lambda _name: None,
+            ),
+        ),
+    )
+    subject = PolicySubject(
+        "mira",
+        strong=True,
+        source="oidc",
+        refresh_required=True,
+    )
+    with pytest.raises(PermissionError, match="could not be refreshed"):
+        ExtensionRegistry.build((module,)).refresh_subject(subject)
+
+
+def test_subject_refresh_never_increases_authentication_strength(fresh_db):
+    from app.services import users
+
+    users.ensure_user("mira")
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda _name, _groups, strong: {
+                    "capabilities": ("acme.strong-only",) if strong else (),
+                },
+            ),
+        ),
+    )
+    refreshed = ExtensionRegistry.build((module,)).refresh_subject(
+        PolicySubject("mira", strong=False, source="trusted-header")
+    )
+    assert refreshed.strong is False
+    assert "acme.strong-only" not in refreshed.capabilities
+
+
+def test_review_resume_cannot_upgrade_a_weak_requester(fresh_db):
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    state = {"require_strong": False}
+
+    def identity(_name, _groups, strong):
+        return {"capabilities": ("acme.strong",) if strong else ()}
+
+    def rule(request: PolicyInput):
+        if request.action != "task.create":
+            return None
+        if not state["require_strong"]:
+            return PolicyDecision(PolicyEffect.REVIEW)
+        if "acme.strong" not in request.subject.capabilities:
+            return PolicyDecision(PolicyEffect.DENY, ("strong identity is now required",))
+        return PolicyDecision(PolicyEffect.PERMIT)
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(IdentityContribution("acme.workplace.identity", identity),),
+        policies=(PolicyContribution("acme.workplace.strong-policy", rule),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    users.ensure_user("requester")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(
+        PolicySubject("requester", strong=False, source="trusted-header")
+    )
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "weak request"},
+                lambda: pytest.fail("reviewed write ran early"),
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    state["require_strong"] = True
+    users.ensure_user("manager")
+    with pytest.raises(PermissionError, match="current workplace policy denies"):
+        review.approve_change(
+            proposal["id"],
+            actor="manager",
+            policy_registry=registry,
+        )
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'weak request'") is None
+
+
+def test_service_subject_refresh_does_not_use_human_identity_mapping(fresh_db):
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.humans",
+                lambda *_args: {"roles": ("human-only",)},
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+                roles=("integration",),
+            ),
+        ),
+    )
+    refreshed = ExtensionRegistry.build((module,)).refresh_subject(
+        PolicySubject("acme-sync", kind="service")
+    )
+    assert refreshed.kind == "service"
+    assert refreshed.roles == ("integration",)
+    assert refreshed.source == "service"
+
+
+def test_target_project_context_governs_agent_relationship_changes(fresh_db):
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import engagements, work
+
+    standard = engagements.create_engagement("standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("regulated", project_class="regulated")["id"]
+    task = work.create_task("move me", engagement_id=standard)["id"]
+
+    def deny_regulated(request: PolicyInput):
+        if request.action == "task.update" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("regulated target",))
+        return None
+
+    engine = PolicyEngine((deny_regulated,))
+    policy_token = set_policy_engine(engine)
+    subject_token = set_policy_subject(PolicySubject("mira"))
+    requester_token = set_requester_identity("mira")
+    try:
+        result = json.loads(
+            gated_write(
+                "task",
+                "update",
+                {"engagement_id": regulated},
+                lambda: work.update_task(task, engagement_id=regulated),
+                entity_id=task,
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert "error" in result
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "engagement_id": standard
+    }
+
+
+def test_review_revalidation_uses_the_proposed_relationship_target(fresh_db):
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import engagements, review, users, work
+
+    standard = engagements.create_engagement("standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("regulated", project_class="regulated")["id"]
+    task = work.create_task("review move", engagement_id=standard)["id"]
+    state = {"deny": False}
+
+    def target_rule(request: PolicyInput):
+        if request.action != "task.update":
+            return None
+        if state["deny"] and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("regulated moves are closed",))
+        return PolicyDecision(PolicyEffect.REVIEW)
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.target-policy", target_rule),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "update",
+                {"engagement_id": regulated},
+                lambda: pytest.fail("reviewed write ran early"),
+                entity_id=task,
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    state["deny"] = True
+    with pytest.raises(PermissionError, match="current workplace policy denies"):
+        review.approve_change(
+            proposal["id"],
+            actor="manager",
+            policy_registry=registry,
+        )
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "engagement_id": standard
+    }
+
+
+def test_milestone_link_supplies_task_project_context(fresh_db):
+    from app.services import engagements, policy_context, work
+
+    engagements.create_engagement("regulated", project_class="regulated")
+    milestone = work.create_milestone("gate", project="regulated")["id"]
+    task = work.create_task("linked only through milestone", milestone_id=milestone)["id"]
+    assert policy_context.existing("task", task)["project_type"] == "regulated"
+    assert (
+        policy_context.for_change("task", 0, {"milestone_id": milestone})["project_type"]
+        == "regulated"
+    )
+    assert work.task_policy_context(task)["project_type"] == "regulated"
+
+
+def test_rest_policy_ignores_unpersisted_context_fields(fresh_db):
+    from app.services import collab, users
+    from app.services.api_keys import create_key
+
+    users.ensure_user("mira")
+    note = collab.save_note(
+        "private",
+        "original",
+        author="mira",
+        actor="mira",
+        visibility="private",
+    )
+
+    def protect_private(request: PolicyInput):
+        if (
+            request.action == "skein.rest.patch.notes"
+            and request.resource.classification == "private"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("private note is protected",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.private-notes", protect_private),),
+    )
+    key = create_key("mira", "test")["key"]
+    with TestClient(create_app(modules=(module,))) as client:
+        response = client.patch(
+            f"/api/notes/{note['id']}",
+            headers={"Authorization": f"Bearer {key}"},
+            json={
+                "content": "spoofed",
+                "visibility": "workspace",
+                "project_class": "standard",
+            },
+        )
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT content FROM notes WHERE id = ?", (note["id"],)) == {
+        "content": "original"
+    }
 
 
 def test_core_agent_approval_observes_directory_group_removal(fresh_db):

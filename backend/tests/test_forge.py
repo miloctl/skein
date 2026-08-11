@@ -133,6 +133,53 @@ def test_push_starts_the_task(signed, fresh_db):
     assert row["forge_url"] == f"https://git.example/skein/src/branch/task/{tid}-fix-login"
 
 
+def test_workplace_policy_can_deny_forge_transitions(fresh_db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.extensions import (
+        PolicyContribution,
+        PolicyDecision,
+        PolicyEffect,
+        SkeinModule,
+    )
+    from app.main import create_app
+    from app.routes import deps
+    from app.services import work
+
+    def deny_forge(request):
+        if request.action == "skein.integration.forge":
+            return PolicyDecision(PolicyEffect.DENY, ("forge writes are disabled",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.forge", deny_forge),),
+    )
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(deps.config, "FORGE_WEBHOOK_SECRET", SECRET)
+    task = work.create_task("keep todo")["id"]
+    body = json.dumps(_push(f"task/{task}-policy")).encode()
+    with TestClient(create_app(modules=(module,))) as client:
+        response = client.post(
+            "/api/webhooks/forge",
+            content=body,
+            headers={
+                "X-Gitea-Event": "push",
+                "X-Gitea-Signature": hmac.new(SECRET.encode(), body, sha256).hexdigest(),
+                "Content-Type": "application/json",
+            },
+        )
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task,)) == {
+        "status": "todo"
+    }
+
+
 def test_merged_pull_request_finishes_the_task(signed, fresh_db):
     from app import db
     from app.services import work

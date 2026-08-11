@@ -71,7 +71,8 @@ also derive from the `host` stage in `frontend/Dockerfile`. The example
 PYTHONPATH=backend backend/.venv/bin/python -m app.content \
   --playbooks examples/workplace-extension/content/playbooks \
   --personas examples/workplace-extension/content/personas \
-  --flocks examples/workplace-extension/content/flocks
+  --flocks examples/workplace-extension/content/flocks \
+  --workflow-action atlas.workplace.notify-manager
 ```
 
 ## Deploy
@@ -80,6 +81,11 @@ Build the Atlas wheel into `dist/`. Then build `deployment/Dockerfile` with a
 released Skein image as `SKEIN_IMAGE`. Build
 `deployment/Frontend.Dockerfile` with a compatible `SKEIN_FRONTEND_HOST` image.
 Store the database on its own volume. Create the `atlas-skein-secrets` Secret
-outside Git before you apply the Kustomize overlay.
+outside Git before you apply the Kustomize overlay:
+
+```sh
+kubectl kustomize examples/workplace-extension
+kubectl apply -k examples/workplace-extension
+```
 
 Do not put real workplace names, URLs, or credentials in this example.

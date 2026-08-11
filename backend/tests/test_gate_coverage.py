@@ -24,7 +24,7 @@ import pytest
 
 from app import db, ratelimit
 from app.agents import receipts
-from app.tools import ALL_TOOLS
+from app.tools import ALL_TOOLS, CORE_WRITE_TOOLS
 
 _KINDS = {"wrote", "queued", "refused", "failed"}  # literal, not imported
 
@@ -282,6 +282,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "update_milestone",
         "update_task",
     }
+    assert expected_writers == CORE_WRITE_TOOLS
     assert covered == expected_writers, (
         f"degraded to error paths: {sorted(expected_writers - covered)};"
         f" new unlisted writers: {sorted(covered - expected_writers)}"

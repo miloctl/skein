@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .. import config, ratelimit
+from ..extensions.fastapi import PolicySubjectDep, enforce_decision
+from ..extensions.policy import PolicyInput, PolicyResource
 from ..services import ci, forge
 from .deps import CurrentUser, forge_webhook_off, verify_forge_signature
 
@@ -33,7 +35,25 @@ class CIEventIn(BaseModel):
 
 
 @router.post("/api/webhooks/ci")
-def ci_webhook(body: CIEventIn, user: CurrentUser):
+def ci_webhook(
+    body: CIEventIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    enforce_decision(
+        request.app.state.skein_registry.policy_engine.decide(
+            PolicyInput(
+                subject,
+                "skein.integration.ci",
+                PolicyResource("integration", "ci", attributes={"repository": body.repo}),
+                "ci",
+                tool="ci.webhook",
+                tool_effect="write",
+                tool_risk="high",
+            )
+        )
+    )
     if body.workflow_run is not None:
         mapped = ci.parse_github_actions(body.model_dump())
         if mapped is None:
@@ -106,6 +126,35 @@ async def forge_webhook(
     # keyed to the integration: keying on the pusher's name would let a
     # signed caller drain a named teammate's REST write budget.
     ratelimit.check("forge", "forge")
+    task_id = forge.match_task(
+        str(mapped.get("branch") or ""),
+        str(mapped.get("title") or ""),
+        str(mapped.get("body") or ""),
+    )
+    if task_id:
+        from ..services.policy_context import existing
+
+        domain = existing("task", task_id)
+        registry = request.app.state.skein_registry
+        enforce_decision(
+            registry.policy_engine.decide(
+                PolicyInput(
+                    registry.service_subject("skein.forge"),
+                    "skein.integration.forge",
+                    PolicyResource(
+                        "task",
+                        str(task_id),
+                        str(domain.get("project_type") or ""),
+                        str(domain.get("classification") or ""),
+                        domain,
+                    ),
+                    "forge",
+                    tool="forge.webhook",
+                    tool_effect="write",
+                    tool_risk="high",
+                )
+            )
+        )
     # threadpooled for the reason the HMAC above is: this is the full service
     # write chain — task moves, activity, notifications, the search index
     return await run_in_threadpool(forge.forge_event, **mapped)

@@ -150,8 +150,10 @@ The existing strong-identity, administrator, visibility, authority, and review
 checks still run. A workplace permit cannot remove a core denial. Deny is
 stronger than review, and review is stronger than permit.
 
-Auth bootstrap endpoints and signed webhooks keep their specialized gates.
-They do not use a human REST policy action.
+Auth bootstrap endpoints keep their specialized gates. Signed Slack and forge
+requests first pass signature checks. Skein then evaluates
+`skein.integration.slack` or `skein.integration.forge`. CI requests evaluate
+`skein.integration.ci`. A direct integration route cannot resume a review.
 
 ## Map enterprise identity
 
@@ -171,10 +173,11 @@ def map_identity(name: str, groups: tuple[str, ...], strong: bool):
 Do not validate tokens in an extension rule. Do not trust browser-supplied
 roles. Use the groups that the configured OIDC claim supplies.
 
-Configure a directory resolver when saved review subjects contain groups.
-Skein uses the resolver to refresh group membership before approval. Approval
-fails closed when the resolver is unavailable. Skein also rejects an inactive
-local user.
+Configure a directory resolver for each OIDC identity contribution. Skein
+uses the resolver to refresh group membership before a verdict. This rule also
+applies to an OIDC user who has no groups. A missing record or unavailable
+resolver fails closed. Skein stores the original authentication strength and
+never increases it during refresh. Skein also rejects an inactive local user.
 
 Register every job and event subject with `ServiceIdentityContribution`.
 Service identities do not pass through the human identity mapper. Startup
@@ -224,12 +227,23 @@ Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call.
 
+Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
+Stock writes use their domain action through the shared write gate. The four
+stock writers with sponsor or artifact rules also use the tool action. A
+review of one of these four writers stores the exact input and can resume.
+
 A write-capable MCP tool needs the same metadata. Skein omits an unclassified
 MCP tool from the agent. A review decision creates a durable proposal. Skein
 rechecks the identity, policy, server ID, tool version, and exact input at
 approval time. Each MCP server needs a stable, unique name. Skein omits
 same-named tools from different servers because a model could not select them
 safely.
+
+MCP metadata must use a non-empty policy action and arrays for allowlists,
+capabilities, and error codes. A remote tool cannot use the same model-facing
+name as a stock or contributed tool. MCP policy has no generic way to resolve
+an arbitrary remote identifier to a Skein project. Use a governed
+`ToolContribution` when a remote write needs target project classification.
 
 Use `auth_token_env` to name an environment variable that contains an MCP
 token. An inline `auth_token` remains compatible, but Skein logs a warning.
@@ -266,7 +280,7 @@ for its external side effect.
 Each subscriber declares a service identity, policy action, effect, risk, and
 timeout. Skein checks policy before it calls the handler. A write timeout is
 terminal because the side effect can finish after the deadline. Handlers must
-be synchronous and return a dictionary. A policy review is unsupported for a
+be synchronous and return `None`. A policy review is unsupported for a
 subscriber because there is no safe request to resume. Use a governed workflow
 when the side effect needs human review.
 
@@ -336,8 +350,12 @@ Validate private overlays in deployment CI:
 PYTHONPATH=backend backend/.venv/bin/python -m app.content \
   --playbooks workplace/content/playbooks \
   --personas workplace/content/personas \
-  --flocks workplace/content/flocks
+  --flocks workplace/content/flocks \
+  --workflow-action workplace.notify-manager
 ```
+
+Repeat `--workflow-action` for each action that the private module registers.
+The same action check runs during application startup.
 
 Configuration is sufficient for static templates, prompts, and flock groups.
 Use a typed workflow action when a process needs an external call or custom
@@ -423,6 +441,13 @@ Keep credentials in the deployment secret manager. Pass only references in
 Git. Use separate service identities and least-privilege credentials for jobs
 and integrations. Apply network policy outside the Python plugin boundary.
 
+Keep every file that a Kustomize generator reads below the overlay root. The
+reference overlay renders with the standard command:
+
+```sh
+kubectl kustomize examples/workplace-extension
+```
+
 ## Compatibility and deprecation
 
 Every module and frontend manifest declares these values:
@@ -461,6 +486,7 @@ Run Skein's local reference rehearsal with:
 ```sh
 scripts/reference-extension-contract.sh
 scripts/reference-frontend-contract.sh
+scripts/reference-deployment-contract.sh
 ```
 
 The backend script builds and installs separate wheels in a normal virtual

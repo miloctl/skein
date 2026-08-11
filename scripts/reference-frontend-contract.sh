@@ -67,6 +67,10 @@ build_host() {
     scripts/package-frontend-host.sh "$version" "$archive"
     mkdir -p "$host"
     tar -xzf "$archive" -C "$host"
+    [ "$(sed -n '1,12p' "$host/frontend/package-lock.json" \
+        | grep -c "\"version\": \"$version\"")" -eq 2 ]
+    [ ! -d "$host/frontend/__tests__" ]
+    [ ! -e "$host/frontend/tsconfig.tsbuildinfo" ]
     cp -a --reflink=auto frontend/node_modules "$host/frontend/node_modules"
     mkdir -p "$host/frontend/node_modules/@atlas/skein-extension"
     tar -xzf "${atlas_tar[0]}" --strip-components=1 \

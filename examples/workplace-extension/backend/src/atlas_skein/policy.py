@@ -22,6 +22,8 @@ def atlas_directory(name: str):
     """
     if name == "mira":
         return {"active": True, "groups": ("atlas-delivery-managers",)}
+    if name == "ava":
+        return {"active": True, "groups": ()}
     return None
 
 

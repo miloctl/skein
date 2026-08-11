@@ -195,8 +195,8 @@ def propose_extension_invocation(
     review_owner: str = "",
 ) -> dict:
     """Create one review and keep its executable arguments out of the queue."""
-    if kind not in ("tool", "workflow", "mcp_tool"):
-        raise ValueError("extension review kind must be tool, workflow, or MCP tool")
+    if kind not in ("tool", "workflow", "mcp_tool", "core_tool"):
+        raise ValueError("extension review kind is not supported")
     stored_invocation = {**invocation, "kind": kind}
     encoded = json.dumps(stored_invocation)
     if len(encoded) > 20_000:
@@ -208,7 +208,7 @@ def propose_extension_invocation(
             public_payload,
             summary,
             actor=actor,
-            origin="agent" if kind in ("tool", "mcp_tool") else "human",
+            origin="agent" if kind in ("tool", "mcp_tool", "core_tool") else "human",
             requested_by=requested_by,
             policy_obligations=policy_obligations,
             approver_groups=approver_groups,
@@ -509,6 +509,8 @@ def _revalidate_policy(
     registry,
     reviewer_groups: tuple[str, ...],
     reviewer_capabilities: tuple[str, ...],
+    *,
+    approving: bool = True,
 ) -> None:
     """Refresh and re-evaluate the policy that created a core proposal."""
     saved = json.loads(change.get("policy_context") or "{}")
@@ -533,39 +535,35 @@ def _revalidate_policy(
         raise PermissionError("The reviewed requester identity is invalid.")
     from ..extensions.policy import (
         PolicyEffect,
-        PolicySubject,
         policy_input_from_data,
+        policy_subject_from_data,
     )
 
-    saved_subject = PolicySubject(
-        name=str(subject_data.get("name") or ""),
-        kind=str(subject_data.get("kind") or "human"),
-        roles=tuple(str(item) for item in subject_data.get("roles") or ()),
-        groups=tuple(str(item) for item in subject_data.get("groups") or ()),
-        capabilities=tuple(str(item) for item in subject_data.get("capabilities") or ()),
-        attributes=dict(subject_data.get("attributes") or {}),
-    )
+    saved_subject = policy_subject_from_data(subject_data)
     subject = registry.refresh_subject(saved_subject)
     current = policy_input_from_data(policy_data, subject)
-    if change.get("entity_id"):
-        from dataclasses import replace
+    from dataclasses import replace
 
-        from ..extensions.policy import PolicyResource
-        from . import policy_context as domain_policy
+    from ..extensions.policy import PolicyResource
+    from . import policy_context as domain_policy
 
-        actual = domain_policy.existing(change["entity"], int(change["entity_id"]))
-        current = replace(
-            current,
-            resource=PolicyResource(
-                current.resource.type,
-                current.resource.id,
-                str(actual.get("project_type") or ""),
-                str(actual.get("classification") or ""),
-                current.resource.attributes,
-            ),
-        )
+    actual = domain_policy.for_change(
+        change["entity"],
+        int(change.get("entity_id") or 0),
+        expected["payload"],
+    )
+    current = replace(
+        current,
+        resource=PolicyResource(
+            current.resource.type,
+            current.resource.id,
+            str(actual.get("project_type") or ""),
+            str(actual.get("classification") or ""),
+            actual,
+        ),
+    )
     decision = registry.policy_engine.decide(current)
-    if decision.effect == PolicyEffect.DENY:
+    if decision.effect == PolicyEffect.DENY and approving:
         raise PermissionError("The current workplace policy denies this reviewed action.")
     if decision.effect == PolicyEffect.REVIEW:
         required_groups = set(decision.approver_groups)
@@ -592,6 +590,9 @@ def reject_change(
     actor: str = "system",
     strong: bool = False,
     viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    policy_registry=None,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
@@ -602,10 +603,26 @@ def reject_change(
     _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    _revalidate_policy(
+        change,
+        policy_registry,
+        reviewer_groups,
+        reviewer_capabilities,
+        approving=False,
+    )
+    qualifications = _check_policy_approver(
+        change,
+        reviewer_groups,
+        reviewer_capabilities,
+    )
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "rejected", note, actor, strong, override=bool(sponsor))
+    db.execute(
+        "UPDATE pending_changes SET reviewer_qualifications = ? WHERE id = ?",
+        (json.dumps(qualifications), change_id),
+    )
     if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
         db.execute(
             "UPDATE extension_review_invocations SET status = 'rejected', executed_at = ?"

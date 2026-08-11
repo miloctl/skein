@@ -29,6 +29,32 @@ def test_approval_keeps_proposer_as_author(fresh_db):
     assert task["origin"] == "agent_verified"
 
 
+def test_rejection_requires_the_configured_workplace_approver(fresh_db):
+    from app.services import review, users
+
+    users.ensure_user("reviewer")
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "manager verdict"},
+        actor="agent",
+        approver_groups=("delivery-managers",),
+    )
+    with pytest.raises(PermissionError, match="workplace approver"):
+        review.reject_change(proposal["id"], actor="reviewer")
+    result = review.reject_change(
+        proposal["id"],
+        actor="reviewer",
+        reviewer_groups=("delivery-managers",),
+    )
+    assert result["status"] == "rejected"
+    row = fresh_db.query_one(
+        "SELECT reviewer_qualifications FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
+    )
+    assert json.loads(row["reviewer_qualifications"])["matched_groups"] == ["delivery-managers"]
+
+
 def test_agent_note_edit_flows_through_review(client, fresh_db, monkeypatch):
     from app import config
     from app.services import collab
