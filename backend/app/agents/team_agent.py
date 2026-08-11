@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from .. import config, db, ratelimit
+from ..extensions.registry import ExtensionRegistry
 from . import session_store
 
 log = logging.getLogger("skein.chat")
@@ -363,7 +364,7 @@ def _tool_name(t) -> str:
     return str(getattr(t, "tool_name", "") or getattr(t, "__name__", ""))
 
 
-def _bench_block() -> str:
+def _bench_block(extensions: ExtensionRegistry | None = None) -> str:
     """The bench roster, inlined in the orchestrator's prompt instead of
     fetched by a tool.
 
@@ -387,6 +388,20 @@ def _bench_block() -> str:
         # built — every other tool still works without it
         log.warning("bench roster unavailable for the system prompt", exc_info=True)
         rows = []
+    extension_rows = (
+        [
+            {
+                "slug": specialist.name,
+                "emoji": "🧩",
+                "name": specialist.display_name,
+                "description": specialist.description,
+            }
+            for specialist in extensions.specialists
+        ]
+        if extensions is not None
+        else []
+    )
+    rows.extend(extension_rows)
     if not rows:
         return "(no specialists are installed in this deployment)"
     return "\n".join(
@@ -655,6 +670,7 @@ def build_agent(
     persona: str = "",
     stateless: bool = False,
     viewer=None,
+    extensions: ExtensionRegistry | None = None,
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -688,6 +704,7 @@ def build_agent(
 
     from strands import Agent, tool
 
+    from ..extensions.agents import strands_tools
     from ..services import scope
     from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
@@ -695,10 +712,18 @@ def build_agent(
     from .mcp_tools import mcp_tools
 
     beh: dict[str, Any] = {"model": "", "temperature": None, "tools": None}
+    contributed_specialist = None
+    if persona and extensions is not None:
+        contributed_specialist = next(
+            (item for item in extensions.specialists if item.name == persona), None
+        )
     if persona:
-        from ..services.personas import behavior
+        if contributed_specialist is not None:
+            beh["tools"] = list(contributed_specialist.tools)
+        else:
+            from ..services.personas import behavior
 
-        beh = behavior(persona)
+            beh = behavior(persona)
 
     @tool
     def plan_project(goal: str, project: str = "default") -> str:
@@ -752,7 +777,9 @@ def build_agent(
         )
 
         slug = (specialist or "").strip().lstrip("@").lower().rstrip("._-,;:!?")
-        bench = await run_in_threadpool(personas_svc.bench_slugs)
+        bench = set(await run_in_threadpool(personas_svc.bench_slugs))
+        if extensions is not None:
+            bench.update(item.name for item in extensions.specialists)
         if slug not in bench:
             # bench_slugs() globs; get_persona() parses every persona file to
             # build its error string, and a model guessing slugs would pay a
@@ -904,7 +931,23 @@ def build_agent(
                     # there is no narrower allowlist to inherit. A persona that
                     # could reach this would need that intersection to keep
                     # deny-by-omission true.
-                    sub = await run_in_threadpool(build_agent, thread_id, user, slug, True)
+                    if extensions is None:
+                        sub = await run_in_threadpool(
+                            build_agent,
+                            thread_id,
+                            user,
+                            slug,
+                            True,
+                        )
+                    else:
+                        sub = await run_in_threadpool(
+                            build_agent,
+                            thread_id,
+                            user,
+                            slug,
+                            True,
+                            extensions=extensions,
+                        )
                     # isolate() BEFORE the task: create_task copies the context,
                     # so the feed (and every gate call under it) records into this
                     # box — and the consult's drains cannot steal a receipt some
@@ -1031,7 +1074,9 @@ def build_agent(
     system = SYSTEM_PROMPT.format(
         today=db.today().isoformat(),
         user=user,
-        bench=_bench_block() if not persona else "(you cannot consult another specialist)",
+        bench=(
+            _bench_block(extensions) if not persona else "(you cannot consult another specialist)"
+        ),
         # formatted in, never a literal in the prompt text: the number the
         # model is told must be the number take_consult enforces, and a
         # duplicated literal goes stale the moment identity.py moves
@@ -1049,9 +1094,17 @@ def build_agent(
         viewer=viewer if viewer is not None else scope.NOBODY,
     )
     if persona:
-        from ..services.personas import get_persona
+        if contributed_specialist is not None:
+            p = {
+                "emoji": "🧩",
+                "name": contributed_specialist.display_name,
+                "description": contributed_specialist.description,
+                "body": contributed_specialist.system_prompt,
+            }
+        else:
+            from ..services.personas import get_persona
 
-        p = get_persona(persona)
+            p = get_persona(persona)
         # a stateless member's writes ALWAYS queue (identity.force_review, read
         # by tools/_gate.py), so the OFF line would be a false statement the
         # model then repeats to the user as its own report of what it did
@@ -1073,8 +1126,25 @@ def build_agent(
             " above; where they conflict, the platform rules win.\n"
             f"\n<persona-instructions>\n{p['body']}\n</persona-instructions>"
         )
+        if contributed_specialist is not None and extensions is not None:
+            context_by_name = {item.name: item for item in extensions.contexts}
+            for source_name in contributed_specialist.context_sources:
+                source = context_by_name[source_name]
+                system += (
+                    f"\n\n<extension-context source={source_name!r}>\n"
+                    f"{source.provider(user)}\n</extension-context>"
+                )
 
-    tools = [*ALL_TOOLS, plan_project, *extra_tools()]
+    contributed_tools = (
+        strands_tools(
+            extensions,
+            persona or "agent",
+            contributed_specialist.tools if contributed_specialist is not None else None,
+        )
+        if extensions is not None
+        else ()
+    )
+    tools = [*ALL_TOOLS, plan_project, *extra_tools(), *contributed_tools]
     if not persona:
         # THE depth cap, and it is structural rather than a counter: a
         # consulted specialist is built with persona=<slug>, so it never sees
@@ -1090,7 +1160,9 @@ def build_agent(
         # never sees it. A flock member holding them would write to a third
         # party while its trace row reports it proposed nothing.
         tools += mcp_tools()
-    if beh["tools"] is not None:
+    if contributed_specialist is not None:
+        tools = list(contributed_tools)
+    elif beh["tools"] is not None:
         # deny-by-omission once declared: the persona gets exactly the named
         # tools and nothing else. Filtering at construction means the model
         # never sees the tool, which beats refusing calls after the fact.

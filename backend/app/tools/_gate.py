@@ -14,9 +14,16 @@ IT. Write paths that skip this gate by design carry their own guard
 
 import json
 
-from .. import config, ratelimit
+from .. import ratelimit
 from ..agents import receipts
-from ..agents.identity import agent_identity, force_review, requester_identity
+from ..agents.identity import agent_identity, requester_identity
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    PolicySubject,
+    current_policy_engine,
+)
 from ..services import lexicon, review
 from ..services.delegation import authority_level
 
@@ -107,8 +114,25 @@ def gated_write(
         ratelimit.check("write", requester_identity() or actor)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
-    level = effective_level(actor, entity)
-    if level == "forbidden":
+    decision = current_policy_engine().decide(
+        PolicyInput(
+            subject=PolicySubject(
+                requester_identity() or actor,
+                kind="agent" if not requester_identity() else "human",
+            ),
+            action=f"{entity}.{action}",
+            resource=PolicyResource(
+                entity,
+                str(entity_id or ""),
+                str(payload.get("project_type") or payload.get("project_class") or ""),
+                str(payload.get("classification") or payload.get("visibility") or ""),
+            ),
+            origin="agent",
+            agent=actor,
+            tool_effect="write",
+        )
+    )
+    if decision.effect == PolicyEffect.DENY:
         # actor is passed even though the detail already names it: the live
         # chip composes its own sentence ("forbidden for ...") and needs the
         # name as data, not parsed back out of prose
@@ -121,11 +145,7 @@ def gated_write(
     # proposal). Without it a flock member that earned `autonomous` writes
     # directly during a fan-out, so ONE consultative human message becomes N
     # unreviewed writes — see docs/FLOCKS.md and agents/identity.py.
-    if (
-        entity not in ALWAYS_REVIEW
-        and not force_review()
-        and (level == "autonomous" or level == "notify" or not config.AGENT_REVIEW)
-    ):
+    if decision.effect == PolicyEffect.PERMIT:
         try:
             result = direct()
         except ValueError as exc:
@@ -138,7 +158,7 @@ def gated_write(
             int(result.get("id") or 0),
             actor=actor,
         )
-        if level == "notify":
+        if "notify-team" in decision.obligations:
             from ..services.notifications import notify
 
             notify(

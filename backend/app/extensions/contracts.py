@@ -14,8 +14,10 @@ from types import MappingProxyType
 from typing import Any
 
 from fastapi import APIRouter, FastAPI
+from pydantic import BaseModel
 
 from .. import config
+from .policy import IdentityMapper, PolicyRule
 
 SKEIN_CORE_VERSION = "0.1.0"
 EXTENSION_API_VERSION = "1.0"
@@ -104,6 +106,77 @@ class LifecycleContribution:
 
 
 @dataclass(frozen=True)
+class PolicyContribution:
+    """One policy rule. A rule can narrow a decision but cannot bypass core."""
+
+    name: str
+    rule: PolicyRule
+    priority: int = 100
+
+
+@dataclass(frozen=True)
+class IdentityContribution:
+    """Map verified identity groups to workplace policy attributes."""
+
+    name: str
+    mapper: IdentityMapper
+
+
+@dataclass(frozen=True)
+class ContextContribution:
+    """A named context source available to contributed specialists."""
+
+    name: str
+    provider: Callable[[str], str]
+
+
+@dataclass(frozen=True)
+class ToolContribution:
+    """A governed agent tool with explicit effects and error behavior."""
+
+    name: str
+    version: str
+    model_name: str
+    description: str
+    handler: Callable[..., Any]
+    input_schema: type[BaseModel]
+    output_schema: type[BaseModel]
+    effect: str
+    risk: str
+    policy_action: str
+    allowed_agents: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
+    timeout_seconds: float = 30
+    error_codes: tuple[str, ...] = ()
+    receipt: str = "required"
+    provenance: str = "service"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "allowed_agents", tuple(self.allowed_agents))
+        object.__setattr__(self, "required_capabilities", tuple(self.required_capabilities))
+        object.__setattr__(self, "error_codes", tuple(self.error_codes))
+
+
+@dataclass(frozen=True)
+class SpecialistContribution:
+    """A specialist definition composed without a private core import."""
+
+    name: str
+    version: str
+    display_name: str
+    description: str
+    system_prompt: str
+    tools: tuple[str, ...] = ()
+    context_sources: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "tools", tuple(self.tools))
+        object.__setattr__(self, "context_sources", tuple(self.context_sources))
+        object.__setattr__(self, "required_capabilities", tuple(self.required_capabilities))
+
+
+@dataclass(frozen=True)
 class SkeinModule:
     """A signed-off module manifest passed explicitly to ``create_app``.
 
@@ -120,9 +193,19 @@ class SkeinModule:
     routes: tuple[RouteContribution, ...] = ()
     jobs: tuple[JobContribution, ...] = ()
     lifecycle: tuple[LifecycleContribution, ...] = ()
+    policies: tuple[PolicyContribution, ...] = ()
+    identities: tuple[IdentityContribution, ...] = ()
+    contexts: tuple[ContextContribution, ...] = ()
+    tools: tuple[ToolContribution, ...] = ()
+    specialists: tuple[SpecialistContribution, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requires", tuple(self.requires))
         object.__setattr__(self, "routes", tuple(self.routes))
         object.__setattr__(self, "jobs", tuple(self.jobs))
         object.__setattr__(self, "lifecycle", tuple(self.lifecycle))
+        object.__setattr__(self, "policies", tuple(self.policies))
+        object.__setattr__(self, "identities", tuple(self.identities))
+        object.__setattr__(self, "contexts", tuple(self.contexts))
+        object.__setattr__(self, "tools", tuple(self.tools))
+        object.__setattr__(self, "specialists", tuple(self.specialists))
