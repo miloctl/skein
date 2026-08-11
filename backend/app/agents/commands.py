@@ -21,7 +21,17 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
 )
-from ..services import briefing, delta, flocks, memory, personas, playbooks, scope, search
+from ..services import (
+    briefing,
+    delta,
+    flocks,
+    memory,
+    personas,
+    playbooks,
+    policy_context,
+    scope,
+    search,
+)
 
 # Handlers below call services through run_in_threadpool, never inline: these
 # async generators run on the event loop the chat route shares with every open
@@ -166,15 +176,16 @@ async def _plan(
     except ValueError as exc:
         yield {"data": f"⚠️ {exc}"}
         return
+    attributes = policy_context.playbook_context(parts[0], definition)
     refusal = _write_refusal(
         access,
         "playbook.create",
         PolicyResource(
             "playbook",
             parts[0],
-            project_type=str(definition.get("project_class") or parts[0]),
-            classification=scope.WORKSPACE,
-            attributes={"playbook": parts[0]},
+            project_type=str(attributes.get("project_type") or ""),
+            classification=str(attributes.get("classification") or ""),
+            attributes={**attributes, "playbook": parts[0]},
         ),
         "start_engagement_from_playbook",
         "high",
@@ -185,7 +196,13 @@ async def _plan(
     yield _tool_event("start_engagement_from_playbook")
     try:
         created = await run_in_threadpool(
-            playbooks.instantiate, parts[0], parts[1], lead=user, actor=user, origin="human"
+            playbooks.instantiate,
+            parts[0],
+            parts[1],
+            lead=user,
+            actor=user,
+            origin="human",
+            expected_definition_digest=str(attributes["definition_digest"]),
         )
         yield {
             "data": (

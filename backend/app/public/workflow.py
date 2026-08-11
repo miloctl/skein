@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
@@ -15,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from .. import db
 from ..extensions.contracts import WorkflowActionContext, WorkflowActionContribution
 from ..extensions.policy import (
+    PolicyDecision,
     PolicyEffect,
     PolicyEngine,
     PolicyInput,
@@ -96,6 +99,7 @@ class WorkflowContext:
     resource_id: str = ""
     values: dict[str, Any] = field(default_factory=dict)
     approval_grants: dict[str, str] = field(default_factory=dict)
+    authorization_grants: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
@@ -103,6 +107,11 @@ class WorkflowContext:
             self,
             "approval_grants",
             MappingProxyType(dict(self.approval_grants)),
+        )
+        object.__setattr__(
+            self,
+            "authorization_grants",
+            MappingProxyType(dict(self.authorization_grants)),
         )
 
 
@@ -117,6 +126,7 @@ class WorkflowResult(BaseModel):
     review_key: str = ""
     review_fingerprint: str = ""
     review_policy: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    authorization_grants: dict[str, str] = Field(default_factory=dict, exclude=True)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -130,6 +140,7 @@ class WorkflowEngine:
     ) -> None:
         self._actions = {action.name: action for action in actions}
         self._policy = policy
+        self._authorization_key = secrets.token_bytes(32)
 
     def prepare(self, raw: object) -> tuple[WorkflowStep, ...]:
         try:
@@ -166,8 +177,15 @@ class WorkflowEngine:
         self, steps: tuple[WorkflowStep, ...], context: WorkflowContext
     ) -> WorkflowResult:
         """Check every selected step before a playbook creates core work."""
-        stopped = self._authorize_steps(steps, context, "root", _workflow_digest(steps))
-        return stopped or WorkflowResult(status="completed")
+        grants: dict[str, str] = {}
+        stopped = self._authorize_steps(
+            steps,
+            context,
+            "root",
+            _workflow_digest(steps),
+            grants,
+        )
+        return stopped or WorkflowResult(status="completed", authorization_grants=grants)
 
     def _authorize_steps(
         self,
@@ -175,6 +193,7 @@ class WorkflowEngine:
         context: WorkflowContext,
         path: str,
         workflow_digest: str,
+        grants: dict[str, str],
     ) -> WorkflowResult | None:
         for index, step in enumerate(steps):
             step_path = f"{path}.{index}"
@@ -190,6 +209,7 @@ class WorkflowEngine:
                     context,
                     f"{step_path}.{branch_name}",
                     workflow_digest,
+                    grants,
                 ):
                     return stopped
                 continue
@@ -270,6 +290,7 @@ class WorkflowEngine:
                         policy_input_data(request) if decision.effect == PolicyEffect.REVIEW else {}
                     ),
                 )
+            grants[step_path] = self._execution_fingerprint(request, contract)
         return None
 
     def _run_steps(
@@ -313,21 +334,21 @@ class WorkflowEngine:
                     tool_effect="write",
                     tool_risk=step.risk,
                 )
+                contract = {
+                    "workflow_digest": workflow_digest,
+                    "step_path": step_path,
+                    "step_type": "approval",
+                    "step_name": step.name,
+                    "action": step.action,
+                    "resource_type": step.resource_type,
+                    "risk": step.risk,
+                }
+                if self._is_preauthorized(context, step_path, request, contract):
+                    state.completed.append(step.name)
+                    continue
                 decision = self._policy.decide(request)
                 obligations = _obligations(decision)
-                fingerprint = approval_fingerprint(
-                    request,
-                    decision,
-                    {
-                        "workflow_digest": workflow_digest,
-                        "step_path": step_path,
-                        "step_type": "approval",
-                        "step_name": step.name,
-                        "action": step.action,
-                        "resource_type": step.resource_type,
-                        "risk": step.risk,
-                    },
-                )
+                fingerprint = approval_fingerprint(request, decision, contract)
                 if decision.effect == PolicyEffect.DENY:
                     return WorkflowResult(
                         status="denied",
@@ -374,6 +395,10 @@ class WorkflowEngine:
         workflow_digest: str,
     ) -> WorkflowResult | None:
         contribution = self._actions[step.name]
+        try:
+            input_data = contribution.input_schema.model_validate(step.input)
+        except ValidationError:
+            return self._failed(state, step.name, "INVALID_ACTION_INPUT")
         request = PolicyInput(
             subject=context.subject,
             action=contribution.policy_action,
@@ -387,42 +412,40 @@ class WorkflowEngine:
             tool_effect=contribution.effect,
             tool_risk=contribution.risk,
         )
-        decision = self._policy.decide(request)
-        try:
-            input_data = contribution.input_schema.model_validate(step.input)
-        except ValidationError:
-            return self._failed(state, step.name, "INVALID_ACTION_INPUT")
-        fingerprint = approval_fingerprint(
-            request,
-            decision,
-            {
-                "workflow_digest": workflow_digest,
-                "step_path": step_path,
-                "step_type": "action",
-                "contribution": contribution.name,
-                "version": contribution.version,
-                "input": input_data.model_dump(mode="json"),
-            },
-        )
-        reviewed = context.approval_grants.get(step_path) == fingerprint
-        if decision.effect != PolicyEffect.PERMIT and not (
-            reviewed and decision.effect == PolicyEffect.REVIEW
-        ):
-            return WorkflowResult(
-                status=("review_required" if decision.effect == PolicyEffect.REVIEW else "denied"),
-                completed=tuple(state.completed),
-                checkpoint=step.name,
-                error_code=(
-                    "REVIEW_REQUIRED" if decision.effect == PolicyEffect.REVIEW else "POLICY_DENIED"
-                ),
-                obligations=_obligations(decision),
-                review_key=step_path,
-                review_fingerprint=fingerprint,
-                review_policy=(
-                    policy_input_data(request) if decision.effect == PolicyEffect.REVIEW else {}
-                ),
-                outputs=state.outputs,
-            )
+        contract = {
+            "workflow_digest": workflow_digest,
+            "step_path": step_path,
+            "step_type": "action",
+            "contribution": contribution.name,
+            "version": contribution.version,
+            "input": input_data.model_dump(mode="json"),
+        }
+        if not self._is_preauthorized(context, step_path, request, contract):
+            decision = self._policy.decide(request)
+            fingerprint = approval_fingerprint(request, decision, contract)
+            reviewed = context.approval_grants.get(step_path) == fingerprint
+            if decision.effect != PolicyEffect.PERMIT and not (
+                reviewed and decision.effect == PolicyEffect.REVIEW
+            ):
+                return WorkflowResult(
+                    status=(
+                        "review_required" if decision.effect == PolicyEffect.REVIEW else "denied"
+                    ),
+                    completed=tuple(state.completed),
+                    checkpoint=step.name,
+                    error_code=(
+                        "REVIEW_REQUIRED"
+                        if decision.effect == PolicyEffect.REVIEW
+                        else "POLICY_DENIED"
+                    ),
+                    obligations=_obligations(decision),
+                    review_key=step_path,
+                    review_fingerprint=fingerprint,
+                    review_policy=(
+                        policy_input_data(request) if decision.effect == PolicyEffect.REVIEW else {}
+                    ),
+                    outputs=state.outputs,
+                )
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-workflow")
         from .work import WorkItems
 
@@ -487,6 +510,36 @@ class WorkflowEngine:
             f"{step.name} ({context.origin})",
         )
         return None
+
+    def _execution_fingerprint(
+        self,
+        request: PolicyInput,
+        contract: dict[str, Any],
+    ) -> str:
+        # The secret makes these immediate, in-process grants unforgeable by a
+        # caller that can calculate the public review fingerprint. The public
+        # request and exact step contract still bind where the grant can run.
+        public = approval_fingerprint(
+            request,
+            PolicyDecision(PolicyEffect.PERMIT),
+            contract,
+        )
+        return hmac.new(
+            self._authorization_key,
+            public.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def _is_preauthorized(
+        self,
+        context: WorkflowContext,
+        step_path: str,
+        request: PolicyInput,
+        contract: dict[str, Any],
+    ) -> bool:
+        supplied = context.authorization_grants.get(step_path, "")
+        expected = self._execution_fingerprint(request, contract)
+        return bool(supplied) and hmac.compare_digest(supplied, expected)
 
     @staticmethod
     def _failed(state: _WorkflowState, name: str, code: str) -> WorkflowResult:

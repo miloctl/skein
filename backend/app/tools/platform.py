@@ -169,18 +169,30 @@ def start_engagement_from_playbook(
         lead: Who leads it.
         start_date: Start date YYYY-MM-DD (defaults to today).
     """
+    try:
+        definition = playbooks.get_playbook(playbook_slug)
+        definition_digest = playbooks.definition_digest(definition)
+    except ValueError:
+        # Keep validation on the shared gate path. It records the same safe
+        # failed receipt as the other stock writes.
+        definition_digest = ""
     payload: dict[str, Any] = {
         "slug": playbook_slug,
         "engagement_name": engagement_name,
         "lead": lead,
         "start_date": start_date,
+        "expected_definition_digest": definition_digest,
     }
     return gated_write(
         "playbook",
         "create",
         payload,
         summary=f"instantiate playbook {playbook_slug} -> {engagement_name}",
-        direct=lambda: playbooks.instantiate(**payload, actor=agent_identity(), origin="agent"),
+        direct=lambda: playbooks.instantiate(
+            **payload,
+            actor=agent_identity(),
+            origin="agent",
+        ),
     )
 
 

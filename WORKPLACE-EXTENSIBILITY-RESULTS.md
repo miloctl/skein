@@ -18,6 +18,10 @@ Fourth-review commit: `62e352e`
 
 Fifth-review commit: `1a897b0`
 
+Sixth-review commit: `d4deff1`
+
+Seventh-review commit: `4c7a450`
+
 The final remediation and report commits are recorded after the final
 independent review.
 
@@ -819,6 +823,50 @@ Verification after the sixth remediation:
 
 A fresh four-reviewer gate is pending. Chrome remains blocked until that gate
 approves the exact remediation commit.
+
+### Seventh independent review
+
+The seventh gate reviewed commit `4c7a450`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.6 | 8.3 | Reject |
+| Security and provenance | 7.8 | 7.0 | 8.1 | Reject |
+| Compatibility and reliability | 8.3 | 8.4 | 8.3 | Approve |
+
+The reviewers confirmed the composition and artifact boundaries. They found
+four review-integrity defects:
+
+- The stock agent playbook tool did not supply the selected project class.
+- A playbook review did not bind the reviewed content.
+- Workflow policy ran once before core work and again after commit.
+- Contributed-tool rejection did not refresh the current target resource.
+
+The seventh remediation uses one authoritative playbook resolver on all three
+surfaces. Durable reviews store and compare a canonical definition digest.
+Workflow preflight grants are secret and bind one exact step to the immediate
+run. Tool approval and rejection run the registered resource resolver again.
+
+New regression tests cover every reproduced failure.
+
+Verification after the seventh remediation:
+
+| Command | Result |
+|---|---|
+| Focused policy, workflow, review, agent, command, and API suite | 157 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,711 passed |
+| `npm test -- --run` | 229 passed in 45 files |
+| `./scripts/lint.sh` | All lint, type, content, and dead-code gates passed |
+| `npm run build` | Production build passed |
+| `scripts/reference-extension-contract.sh` | Installed backend and upgrade passed |
+| `scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on two hosts |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render passed |
+| `scripts/reference-images-contract.sh` | Four derivative images built |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schema and activity chain passed |
+| Core wheel build | Passed |
+
+A fresh independent review is pending. Chrome remains blocked until that gate
+passes.
 
 ## 15. Remaining limitations and deferred work
 

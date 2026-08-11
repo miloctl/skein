@@ -172,6 +172,8 @@ async def enforce_mutation_policy(
     from ..services.policy_context import for_route
 
     domain = for_route(resource_type, resource_id, payload)
+    if action == "playbook.create":
+        request.state.skein_playbook_policy_context = dict(domain)
     decision = decide(
         request,
         subject,

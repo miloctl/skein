@@ -849,3 +849,54 @@ Verification after this remediation:
 
 A fresh four-role review is the next gate. Chrome validation remains blocked
 until that review approves the exact commit.
+
+### Seventh independent review
+
+Three specialists reviewed commit `4c7a450`. The compatibility reviewer
+approved it. The architecture and security reviewers rejected it.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.6 | 8.3 | Reject |
+| Security and provenance | 7.8 | 7.0 | 8.1 | Reject |
+| Compatibility and reliability | 8.3 | 8.4 | 8.3 | Approve |
+
+The valid gate findings were:
+
+- The stock agent playbook tool omitted the selected project class.
+- A durable playbook review did not bind the reviewed YAML content.
+- Workflow policy ran again after core playbook work was committed.
+- A contributed-tool rejection used the proposal-time resource context.
+
+### Seventh-review remediation
+
+This remediation is implemented on the working branch.
+
+- REST, deterministic chat, and the stock agent tool now use one playbook
+  context resolver.
+- Each playbook review stores a canonical definition digest. Both verdict
+  paths compare it before any write.
+- Workflow preflight creates secret, exact-step grants for the immediate run.
+  The run cannot receive a second policy verdict after core work exists.
+- Both tool verdict paths run the registered resource resolver again.
+- Reviewed tool execution retains the original correlation ID.
+- New tests reproduce project-class bypass, definition drift, inner workflow
+  drift, policy changes after preflight, and target drift before rejection.
+
+Verification after this remediation:
+
+- Focused policy, workflow, review, agent, command, and API tests: 157 passed.
+- Full backend suite: 1,711 passed in 108.93 seconds.
+- Frontend suite: 229 passed in 45 files.
+- Full lint, type, dead-code, content, license, and theme gate: passed.
+- Frontend production build: passed in 13.34 seconds.
+- Installed backend and unchanged Atlas upgrade rehearsal: passed in 18.36
+  seconds.
+- Unchanged Atlas frontend package built on two hosts in 42.78 seconds.
+- Standard Kustomize render: passed.
+- Base schema and activity-chain upgrade: passed in 0.53 seconds.
+- Core wheel build: passed.
+- Core, frontend host, Atlas backend, and Atlas frontend images: built.
+
+A new independent review is required. Chrome validation remains blocked until
+that review approves the exact remediation commit.
