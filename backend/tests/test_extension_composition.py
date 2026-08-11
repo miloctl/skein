@@ -165,6 +165,35 @@ def test_configured_mcp_identity_collision_disables_only_mcp(fresh_db, caplog):
     }
 
 
+def test_existing_human_disables_api_mcp_but_keeps_rest_available(fresh_db, caplog):
+    from app.services import users
+
+    users.ensure_user("mira")
+    settings = replace(AppSettings.from_config(), mcp_user="mira")
+
+    with TestClient(create_app(settings=settings)) as client:
+        assert client.get("/health").status_code == 200
+    assert "already owned by a human identity" in caplog.text
+    assert "The REST API is unaffected" in caplog.text
+    assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'mira'") == {"kind": "human"}
+
+
+def test_existing_human_stops_standalone_mcp_before_it_runs(fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.services import users
+
+    users.ensure_user("mira")
+    ran: list[bool] = []
+    monkeypatch.setattr(mcp_server, "ACTOR", "mira")
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: ran.append(True))
+
+    with pytest.raises(SystemExit) as raised:
+        mcp_server.main()
+    assert raised.value.code == 1
+    assert not ran
+    assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'mira'") == {"kind": "human"}
+
+
 def test_started_lifecycle_is_stopped_if_a_later_startup_fails(fresh_db):
     events: list[str] = []
 

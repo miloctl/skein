@@ -143,6 +143,15 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
 
 
+def ensure_agent_identity(name: str) -> dict:
+    """Reserve one exact name for machine use without reusing a human row."""
+    normalized = (name or "anonymous").strip()[:64] or "anonymous"
+    existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
+    if existing is not None and existing["kind"] != "agent":
+        raise ValueError(f"'{normalized}' is already owned by a human identity")
+    return ensure_user(normalized, kind="agent")
+
+
 def set_growth_interests(name: str, interests: str, *, actor: str = "system") -> dict:
     """Self-declared growth interests — person-level data used to plan the
     future (staffing fit), never to judge the past. Display-only: no

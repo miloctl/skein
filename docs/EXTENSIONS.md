@@ -219,6 +219,7 @@ actor, an MCP actor, a specialist, a persona, or a flock. This check includes
 stock content and deployment overlays. The API and standalone MCP process use
 the same check. The API logs an invalid MCP actor and keeps REST available.
 The standalone MCP process stops because it cannot operate without its actor.
+Neither path reuses a human-owned roster name for a machine identity.
 Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
 
