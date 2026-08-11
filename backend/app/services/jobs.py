@@ -6,7 +6,7 @@ back into it (insights reads the registry for staleness periods)."""
 import contextlib
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -296,7 +296,7 @@ def run_job(spec: JobSpec) -> None:
         log.exception("job %s: FAILED", spec.name)
 
 
-def job_health() -> list[dict]:
+def job_health(specs: Sequence[JobSpec] = JOBS) -> list[dict]:
     """Last success per registered job, with a stale flag at 2x the period.
     Never-succeeded jobs count as stale only once they have any recorded
     attempt older than the threshold — a fresh install isn't an incident."""
@@ -312,7 +312,7 @@ def job_health() -> list[dict]:
         for r in db.query("SELECT job, MIN(created_at) AS ts FROM job_outcomes GROUP BY job")
     }
     out = []
-    for spec in JOBS:
+    for spec in specs:
         threshold = (now - timedelta(hours=2 * spec.period_hours)).isoformat(timespec="seconds")
         ok_ts = last_ok.get(spec.name)
         if ok_ts:

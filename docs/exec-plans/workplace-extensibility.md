@@ -213,8 +213,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | Milestone | Depends on | Deliverable | Acceptance evidence | Status |
 |---:|---|---|---|---|
 | 0 | None | Baseline, traces, plan, and characterization tests | Baseline commands and plan | Complete |
-| 1 | 0 | Immutable composition settings and application factory | Existing `app` and external factory tests | Pending |
-| 2 | 1 | Typed module, route, job, tool, specialist, context, and handler registries | Collision and compatibility tests | Pending |
+| 1 | 0 | Immutable composition settings and application factory | Existing `app` and external factory tests | Complete |
+| 2 | 1 | Typed module, route, job, tool, specialist, context, and handler registries | Collision and compatibility tests | In progress: module, route, job, and lifecycle contracts complete |
 | 3 | 2 | Core policy decision point and capability reporting | Existing behavior tests plus conditional workplace policy | Pending |
 | 4 | 3 | Governed private and MCP tool wrappers | Policy, receipt, timeout, and provenance tests | Pending |
 | 5 | 2 | Public commands, queries, results, and errors | Reference extension imports only public modules | Pending |
@@ -287,6 +287,8 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-10 | Use frozen fixture time for schedule-age tests | Real wall time made the baseline test depend on the UTC date |
 | 2026-08-10 | Run HTTP tests outside the sandbox | The host sandbox blocks cross-thread asyncio wakeups |
 | 2026-08-10 | Use Playwright's documented pre-started-server mode | The host health poll stalled although both test endpoints responded |
+| 2026-08-10 | Preserve request-time auth compatibility | Existing tests and callers can change the legacy config module before a request; the immutable snapshot owns composition, while the request gate keeps the compatibility adapter |
+| 2026-08-10 | Require explicit, namespaced module routes | Private routes cannot collide with the core API and installed packages never execute automatically |
 
 ## Risks
 
@@ -314,6 +316,16 @@ Scores can increase only when core behavior and the reference extension use the 
 - Corrected one date-dependent test fixture without changing product behavior.
 - Confirmed 1,572 backend tests, 225 frontend tests, 25 browser tests, lint,
   production build, backend packaging, and the existing upgrade rehearsal.
+- Added `create_app(settings, modules)` while retaining `app.main:app`.
+- Added immutable settings and registry snapshots.
+- Routed built-in routers and jobs through the same contribution types used by
+  external modules.
+- Added startup validation for versions, namespaces, duplicate IDs and names,
+  dependencies, and dependency cycles.
+- Added real composition tests for a private route, lifecycle, and catch-up job.
+- The first full regression run exposed request-time auth and scheduler-call
+  compatibility. Both adapters were restored, and their eight focused tests pass.
+- The complete backend regression suite then passed with 1,582 tests in 92.67 seconds.
 
 ## Review findings
 
