@@ -34,6 +34,8 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 # by a number the operator writes in a file.
 MIN_MEMBERS = 2
 MAX_MEMBERS = 4
+SCHEMA_VERSION = 1
+_FIELDS = {"schema_version", "name", "description", "emoji", "members", "synthesis"}
 
 
 def _flock_dirs() -> list[Path]:
@@ -76,6 +78,10 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
         return None
     if not isinstance(data, dict):
         return None
+    if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
+        return None
+    if set(data) - _FIELDS:
+        return None
     name = str(data.get("name") or "").strip()
     description = str(data.get("description") or "").strip()
     if not name or not description:
@@ -91,6 +97,7 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
     if any(m not in bench for m in members):
         return None
     return {
+        "schema_version": SCHEMA_VERSION,
         "slug": slug,
         "name": name,
         "description": description,
@@ -176,6 +183,11 @@ def validate_all() -> list[str]:
             if not isinstance(data, dict):
                 errors.append(f"{label}: expected an object with name, description, and members")
                 continue
+            if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
+                errors.append(f"{label}: schema_version must be {SCHEMA_VERSION}")
+            unknown = sorted(set(data) - _FIELDS)
+            if unknown:
+                errors.append(f"{label}: unknown top-level fields: {unknown}")
             if not str(data.get("name") or "").strip():
                 errors.append(f"{label}: name is empty")
             if not str(data.get("description") or "").strip():

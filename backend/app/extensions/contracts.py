@@ -225,6 +225,25 @@ class MigrationContribution:
 
 
 @dataclass(frozen=True)
+class WorkflowActionContribution:
+    """A governed action that a declarative workflow can invoke."""
+
+    name: str
+    version: str
+    handler: Callable[..., Any]
+    input_schema: type[BaseModel]
+    output_schema: type[BaseModel]
+    effect: str
+    risk: str
+    policy_action: str
+    timeout_seconds: float = 30
+    error_codes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "error_codes", tuple(self.error_codes))
+
+
+@dataclass(frozen=True)
 class SkeinModule:
     """A signed-off module manifest passed explicitly to ``create_app``.
 
@@ -248,6 +267,7 @@ class SkeinModule:
     specialists: tuple[SpecialistContribution, ...] = ()
     events: tuple[EventContribution, ...] = ()
     migrations: tuple[MigrationContribution, ...] = ()
+    workflow_actions: tuple[WorkflowActionContribution, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requires", tuple(self.requires))
@@ -261,3 +281,4 @@ class SkeinModule:
         object.__setattr__(self, "specialists", tuple(self.specialists))
         object.__setattr__(self, "events", tuple(self.events))
         object.__setattr__(self, "migrations", tuple(self.migrations))
+        object.__setattr__(self, "workflow_actions", tuple(self.workflow_actions))

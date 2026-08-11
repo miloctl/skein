@@ -1845,9 +1845,28 @@ class InstantiateIn(BaseModel):
 
 
 @router.post("/playbooks/instantiate")
-def post_instantiate(body: InstantiateIn, user: CurrentUser):
+def post_instantiate(
+    body: InstantiateIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    from ..public.workflow import WorkflowContext, WorkflowEngine
+
+    registry = request.app.state.skein_registry
     return playbooks.instantiate(
-        body.playbook, body.engagement_name, body.lead or user, body.start_date, actor=user
+        body.playbook,
+        body.engagement_name,
+        body.lead or user,
+        body.start_date,
+        actor=user,
+        workflow_engine=WorkflowEngine(registry.workflow_actions, registry.policy_engine),
+        workflow_context=WorkflowContext(
+            subject=subject,
+            origin="human",
+            values={"project_type": body.playbook},
+            project_type=body.playbook,
+        ),
     )
 
 

@@ -19,6 +19,7 @@ from .contracts import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
+    WorkflowActionContribution,
 )
 from .policy import PolicyEngine
 
@@ -52,6 +53,7 @@ class ExtensionRegistry:
     specialists: tuple[SpecialistContribution, ...]
     events: tuple[EventContribution, ...]
     migrations: tuple[MigrationContribution, ...]
+    workflow_actions: tuple[WorkflowActionContribution, ...]
 
     @property
     def policy_engine(self) -> PolicyEngine:
@@ -99,6 +101,7 @@ class ExtensionRegistry:
         specialists: list[SpecialistContribution] = []
         events: list[EventContribution] = []
         migrations: list[MigrationContribution] = []
+        workflow_actions: list[WorkflowActionContribution] = []
         names: dict[str, str] = {}
         route_signatures: dict[tuple[str, str], str] = {}
 
@@ -115,6 +118,7 @@ class ExtensionRegistry:
                 ("specialist", module.specialists),
                 ("event", module.events),
                 ("migration", module.migrations),
+                ("workflow-action", module.workflow_actions),
             ):
                 for contribution in contributions:
                     key = f"{kind}:{contribution.name}"
@@ -146,6 +150,7 @@ class ExtensionRegistry:
             specialists.extend(module.specialists)
             events.extend(module.events)
             migrations.extend(module.migrations)
+            workflow_actions.extend(module.workflow_actions)
 
         tool_names = {contribution.name for contribution in tools}
         model_tool_names = [contribution.model_name for contribution in tools]
@@ -175,6 +180,7 @@ class ExtensionRegistry:
             tuple(specialists),
             tuple(events),
             tuple(migrations),
+            tuple(workflow_actions),
         )
 
 
@@ -307,6 +313,21 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"migration {migration_contribution.name!r} has an empty migration"
             )
+    for action_contribution in module.workflow_actions:
+        _validate_contribution_name(module, action_contribution.name)
+        _version(action_contribution.version, f"workflow action {action_contribution.name} version")
+        if action_contribution.effect not in ("none", "read", "write", "unknown"):
+            raise ExtensionValidationError(
+                f"workflow action {action_contribution.name!r} has invalid effect"
+            )
+        if action_contribution.risk not in ("low", "medium", "high", "critical"):
+            raise ExtensionValidationError(
+                f"workflow action {action_contribution.name!r} has invalid risk"
+            )
+        if action_contribution.timeout_seconds <= 0:
+            raise ExtensionValidationError(
+                f"workflow action {action_contribution.name!r} needs a positive timeout"
+            )
 
 
 def _validate_contribution_name(module: SkeinModule, name: str) -> None:
@@ -352,6 +373,8 @@ def _validate_namespace(module: SkeinModule) -> None:
         _validate_owned(module, event_contribution.name)
     for migration_contribution in module.migrations:
         _validate_owned(module, migration_contribution.name)
+    for action_contribution in module.workflow_actions:
+        _validate_owned(module, action_contribution.name)
 
 
 def _validate_owned(module: SkeinModule, name: str) -> None:

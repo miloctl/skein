@@ -81,8 +81,19 @@ def _pack_files() -> list[Path]:
 
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
-_FIELDS = ("name", "description", "emoji", "vibe", "disclosure", "model", "temperature", "tools")
+_FIELDS = (
+    "schema_version",
+    "name",
+    "description",
+    "emoji",
+    "vibe",
+    "disclosure",
+    "model",
+    "temperature",
+    "tools",
+)
 BEHAVIOR_FIELDS = ("model", "temperature", "tools")
+SCHEMA_VERSION = 1
 
 
 def _parse(path: Path) -> dict | None:
@@ -103,7 +114,11 @@ def _parse(path: Path) -> dict | None:
             meta[key.strip()] = value.strip()
     if not meta.get("name") or not meta.get("description"):
         return None
+    raw_version = meta.get("schema_version", str(SCHEMA_VERSION))
+    if raw_version != str(SCHEMA_VERSION):
+        return None
     return {
+        "schema_version": SCHEMA_VERSION,
         "slug": slug,
         "name": meta["name"],
         "description": meta["description"],
@@ -272,7 +287,10 @@ def validate_all() -> list[str]:
                 continue
             p = _parse(path)
             if p is None:
-                errors.append(f"{label}: missing frontmatter, or name/description empty")
+                errors.append(
+                    f"{label}: frontmatter is invalid, name or description is empty,"
+                    f" or schema_version is not {SCHEMA_VERSION}"
+                )
                 continue
             errors += _check_behavior(label, p["temperature"], p["tools"], known)
     return errors
