@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 def subject_for(request: Request, user: str) -> PolicySubject:
     groups = tuple(getattr(request.state, "auth_groups", ()))
     strong = bool(getattr(request.state, "strong_auth", False))
+    source = str(getattr(request.state, "auth_source", "trusted-header"))
     registry = request.app.state.skein_registry
     attributes = registry.identity_attributes(user, groups, strong)
     roles = tuple(str(value) for value in attributes.pop("roles", ()))
@@ -29,6 +30,9 @@ def subject_for(request: Request, user: str) -> PolicySubject:
         groups=groups,
         capabilities=capabilities,
         attributes=attributes,
+        strong=strong,
+        source=source,
+        refresh_required=source == "oidc",
     )
 
 
@@ -123,19 +127,23 @@ async def enforce_mutation_policy(
     # Use the existing identity swap point. Do not record adoption here:
     # the route's normal user dependency owns that one record and still
     # enforces its stronger identity requirement.
-    from ..routes.deps import _resolve
+    from ..routes.deps import _resolve, authentication_source
 
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     registry = request.app.state.skein_registry
     attributes = registry.identity_attributes(user, tuple(groups), strong)
     roles = tuple(str(value) for value in attributes.pop("roles", ()))
     capabilities = tuple(str(value) for value in attributes.pop("capabilities", ()))
+    source = authentication_source(request, authorization, strong)
     subject = PolicySubject(
         user,
         roles=roles,
         groups=tuple(groups),
         capabilities=capabilities,
         attributes=attributes,
+        strong=strong,
+        source=source,
+        refresh_required=source == "oidc",
     )
     action, resource_type, resource_id = _route_policy_action(request)
     payload: dict[str, Any] = {}

@@ -21,11 +21,17 @@ class MockAgent:
         persona: str = "",
         *,
         gated_capture: bool = True,
+        direct_policy=None,
+        direct_subject=None,
+        direct_origin: str = "human",
     ):
         self.thread_id = thread_id
         self.user = user
         self.persona = persona
         self.gated_capture = gated_capture
+        self.direct_policy = direct_policy
+        self.direct_subject = direct_subject
+        self.direct_origin = direct_origin
 
     async def stream_async(self, message: str):
         text = message.strip()
@@ -58,11 +64,36 @@ class MockAgent:
                     actor=actor,
                 )
             else:
+                if self.direct_policy is not None and self.direct_subject is not None:
+                    from ..extensions.policy import PolicyEffect, PolicyInput, PolicyResource
+                    from ..services.policy_context import for_change
+
+                    domain = for_change(entity, 0, payload)
+                    decision = self.direct_policy.decide(
+                        PolicyInput(
+                            self.direct_subject,
+                            f"{entity}.create",
+                            PolicyResource(
+                                entity,
+                                project_type=str(domain.get("project_type") or ""),
+                                classification=str(domain.get("classification") or ""),
+                                attributes=domain,
+                            ),
+                            self.direct_origin,
+                            tool="capture",
+                            tool_effect="write",
+                            tool_risk="medium",
+                        )
+                    )
+                    if decision.effect != PolicyEffect.PERMIT:
+                        word = "review" if decision.effect == PolicyEffect.REVIEW else "denied"
+                        yield {"data": f"⚠️ workplace policy {word} this capture"}
+                        return
                 direct = await run_in_threadpool(
                     capture.capture,
                     text,
                     actor=self.user,
-                    origin="human",
+                    origin=self.direct_origin,
                 )
                 encoded = json.dumps(direct)
             result = json.loads(encoded)

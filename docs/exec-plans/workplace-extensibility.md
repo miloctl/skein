@@ -663,3 +663,83 @@ Verification after this remediation:
   the core wheel built successfully.
 
 A new independent review and live Chrome validation are pending.
+
+### Fourth independent review
+
+Three read-only specialists completed a fresh review of commit `62e352e`.
+All three rejected it. The compatibility reviewer had approved the preceding
+artifact boundary, but the security and extension scenarios still failed.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Security and provenance | 7.3 | 6.2 | 7.1 | Reject |
+| Extension author | 8.0 | 7.7 | 7.6 | Reject |
+| Adversarial score auditor | 7.9 | 7.6 | 7.7 | Reject |
+
+The valid gate findings were:
+
+- Review refresh could increase a weak identity to strong. An OIDC subject
+  with no groups could also survive a directory outage.
+- Service subjects could refresh through a human identity mapper.
+- Stock Strands reads and four specialized stock writes did not use the
+  composed workplace policy.
+- Agent updates, review resume, and milestone-linked tasks could use the old
+  project class instead of the target project class.
+- Generic REST policy trusted ignored JSON context fields.
+- Signed Slack, CI, and forge writes did not use the workplace policy.
+- An unqualified reviewer could reject a manager-only proposal.
+- MCP metadata accepted an empty policy action and malformed list fields.
+  Remote tools could also shadow local model-facing names.
+- A contributed tool review appeared as a refusal in the chat receipt.
+- The public content command did not validate contributed workflow actions.
+- The documented Kustomize overlay did not render with standard load rules.
+- The frontend host archive left stale lockfile versions and test artifacts.
+
+### Fourth-review remediation
+
+The fourth remediation is implemented on the working branch.
+
+- A saved policy subject now records authentication strength, source, and
+  whether directory refresh is required. Refresh never increases strength.
+  OIDC users refresh even when they have no groups. Service subjects resolve
+  only through the service registry.
+- One authoritative target-state resolver serves REST, agent writes, and
+  review resume. It resolves task links through milestones and engagements.
+  Ignored request fields cannot replace stored classification.
+- Every stock model-facing read uses `skein.tool.<name>`. The four specialized
+  stock writers also use policy and can create an exact resumable review.
+- Slack, CI, and forge keep their authentication gates and then evaluate a
+  stable integration policy action. Forge uses a registered service identity.
+- Approval and rejection require the current configured approver. Both store
+  the reviewer qualifications.
+- MCP metadata requires a non-empty action and typed arrays. MCP tools cannot
+  shadow local tools. Review receipts are queued, not refused.
+- Contributed tool receipts distinguish queued, refused, failed, completed,
+  and completion-unknown results.
+- Startup and `python -m app.content` validate registered workflow actions.
+- The Atlas Kustomize root now contains every generated file. A standard
+  render script tests it.
+- Frontend host archives update both package manifests and omit tests, build
+  state, local configuration, and browser fixtures.
+- The installed upgrade rehearsal loads private playbooks, personas, and
+  flocks before and after the core upgrade.
+
+Verification after this remediation:
+
+- `backend/.venv/bin/pytest -q -n auto backend/tests`: 1,689 passed in
+  108.75 seconds.
+- Focused policy, review, tool, integration, content, and deployment tests:
+  183 passed in 13.85 seconds.
+- `npm test` in `frontend/`: passed with the existing 229-test suite.
+- `npm run build` in `frontend/`: production build passed in 13.18 seconds.
+- Backend lint, formatting, mypy, vulture, content, license, and theme checks
+  passed. Frontend TypeScript, ESLint, and knip checks passed.
+- `scripts/reference-extension-contract.sh`: installed backend and unchanged
+  Atlas `0.2.0` to `0.2.1` upgrade passed in 26.88 seconds.
+- `scripts/reference-frontend-contract.sh`: unchanged Atlas package built on
+  frontend hosts `0.2.0` and `0.2.1` in 41.29 seconds.
+- `scripts/reference-deployment-contract.sh`: standard Kustomize render passed.
+- `uv build --wheel --out-dir /tmp/skein-final-dist backend`: passed.
+
+A fresh four-specialist review is the next gate. Live Chrome validation still
+waits for that review to approve the architecture.

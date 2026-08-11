@@ -429,10 +429,12 @@ def _planner_tools(allowlist: list[str] | None) -> list:
         list_milestones,
         list_tasks,
     ]
-    if allowlist is None:
-        return tools
-    allowed = set(allowlist)
-    return [t for t in tools if _tool_name(t) in allowed]
+    if allowlist is not None:
+        allowed = set(allowlist)
+        tools = [t for t in tools if _tool_name(t) in allowed]
+    from .core_tools import govern_core_tools
+
+    return govern_core_tools(tools)
 
 
 def _conversation_manager():
@@ -731,6 +733,7 @@ def build_agent(
     from ..services import scope
     from ..services.memory import memory_prompt
     from ..tools import ALL_TOOLS
+    from .core_tools import govern_core_tools
     from .extra_tools import extra_tools
     from .mcp_tools import mcp_tools
 
@@ -826,6 +829,29 @@ def build_agent(
                 if missing:
                     yield json.dumps({"error": "this specialist needs a workplace capability"})
                     return
+        from ..extensions.policy import (
+            PolicyEffect,
+            PolicyInput,
+            PolicyResource,
+            current_policy_engine,
+            current_policy_subject,
+        )
+
+        specialist_decision = current_policy_engine().decide(
+            PolicyInput(
+                current_policy_subject(),
+                "skein.tool.consult_specialist",
+                PolicyResource("specialist", slug),
+                "agent_tool",
+                agent=agent_identity(),
+                tool="consult_specialist",
+                tool_effect="read",
+                tool_risk="medium",
+            )
+        )
+        if specialist_decision.effect != PolicyEffect.PERMIT:
+            yield json.dumps({"error": "workplace policy denied this specialist consult"})
+            return
         try:
             # One slot per consult, charged where the spend happens. The flock
             # pre-charges instead (routes/chat.py) because its member count is
@@ -1180,7 +1206,10 @@ def build_agent(
         if extensions is not None
         else ()
     )
-    tools = [*ALL_TOOLS, plan_project, *extra_tools(), *contributed_tools]
+    tools = [
+        *govern_core_tools([*ALL_TOOLS, plan_project, *extra_tools()]),
+        *contributed_tools,
+    ]
     if not persona:
         # THE depth cap, and it is structural rather than a counter: a
         # consulted specialist is built with persona=<slug>, so it never sees
@@ -1195,7 +1224,7 @@ def build_agent(
         # force_review cannot turn one into a proposal and receipts.record
         # never sees it. A flock member holding them would write to a third
         # party while its trace row reports it proposed nothing.
-        tools += mcp_tools()
+        tools += mcp_tools({_tool_name(item) for item in tools})
     if contributed_specialist is not None:
         tools = list(contributed_tools)
     elif beh["tools"] is not None:

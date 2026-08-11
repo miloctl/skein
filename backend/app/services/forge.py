@@ -147,6 +147,7 @@ def forge_event(
         # leaves the PR and a first push leaves the branch page
         forge_url=url,
         actor="forge",
+        origin="forge",
         note=" (from the forge)",
     )
     return {"task_id": task_id, "status": status, "url": url}

@@ -39,6 +39,9 @@ _ROUTE_ENTITIES = {
     "memories": "memory",
     "engagements": "engagement",
 }
+_ENGAGEMENT_LINKED = frozenset(
+    name for name, (_table, source) in _TABLES.items() if source == "engagement_id"
+)
 
 
 def existing(entity: str, entity_id: int) -> dict[str, str]:
@@ -47,7 +50,18 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
     if selected is None or not entity_id:
         return {}
     table, project_source = selected
-    if project_source == "project_class":
+    if entity == "task":
+        row = db.query_one(
+            "SELECT task.visibility AS classification,"
+            " COALESCE(engagement.project_class, '') AS project_type"
+            " FROM tasks task"
+            " LEFT JOIN milestones milestone ON milestone.id = task.milestone_id"
+            " LEFT JOIN engagements engagement"
+            " ON engagement.id = COALESCE(task.engagement_id, milestone.engagement_id)"
+            " WHERE task.id = ?",
+            (entity_id,),
+        )
+    elif project_source == "project_class":
         row = db.query_one(
             f"SELECT visibility AS classification, project_class AS project_type"  # noqa: S608 -- table comes from the closed map above
             f" FROM {table} WHERE id = ?",
@@ -70,19 +84,105 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
     return {key: str(value or "") for key, value in (row or {}).items()}
 
 
-def proposed(entity: str, payload: dict) -> dict[str, str]:
-    """Resolve authoritative project data for a proposed create."""
-    classification = str(payload.get("classification") or payload.get("visibility") or "")
-    project_type = str(payload.get("project_type") or payload.get("project_class") or "")
-    engagement_id = int(payload.get("engagement_id") or 0)
-    if engagement_id:
-        row = db.query_one(
-            "SELECT project_class FROM engagements WHERE id = ?",
-            (engagement_id,),
+def _integer(value: object) -> int:
+    if not isinstance(value, str | bytes | bytearray | int | float):
+        return 0
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _engagement_project_type(engagement_id: int) -> str:
+    if engagement_id <= 0:
+        return ""
+    row = db.query_one(
+        "SELECT project_class FROM engagements WHERE id = ?",
+        (engagement_id,),
+    )
+    return str((row or {}).get("project_class") or "")
+
+
+def _milestone_engagement(milestone_id: int) -> int:
+    if milestone_id <= 0:
+        return 0
+    row = db.query_one(
+        "SELECT engagement_id FROM milestones WHERE id = ?",
+        (milestone_id,),
+    )
+    return _integer((row or {}).get("engagement_id"))
+
+
+def _named_engagement(name: object) -> int:
+    if not str(name or ""):
+        return 0
+    row = db.query_one("SELECT id FROM engagements WHERE name = ?", (str(name),))
+    return _integer((row or {}).get("id"))
+
+
+def _target_engagement(entity: str, entity_id: int, payload: dict) -> int:
+    """Resolve only relationship fields that the entity service persists."""
+    existing_engagement = 0
+    existing_milestone = 0
+    if entity == "task" and entity_id:
+        row = (
+            db.query_one(
+                "SELECT engagement_id, milestone_id FROM tasks WHERE id = ?",
+                (entity_id,),
+            )
+            or {}
         )
-        if row:
-            project_type = str(row["project_class"] or "")
+        existing_engagement = _integer(row.get("engagement_id"))
+        existing_milestone = _integer(row.get("milestone_id"))
+    elif entity == "milestone" and entity_id:
+        row = (
+            db.query_one(
+                "SELECT engagement_id FROM milestones WHERE id = ?",
+                (entity_id,),
+            )
+            or {}
+        )
+        existing_engagement = _integer(row.get("engagement_id"))
+
+    if entity in _ENGAGEMENT_LINKED and "engagement_id" in payload:
+        value = _integer(payload.get("engagement_id"))
+        if value:
+            existing_engagement = value if value > 0 else 0
+    if entity == "task":
+        if "milestone_id" in payload:
+            value = _integer(payload.get("milestone_id"))
+            if value:
+                existing_milestone = value if value > 0 else 0
+        return existing_engagement or _milestone_engagement(existing_milestone)
+    if entity == "milestone" and not entity_id and not existing_engagement:
+        return _named_engagement(payload.get("project"))
+    return existing_engagement
+
+
+def for_change(entity: str, entity_id: int, payload: dict) -> dict[str, str]:
+    """Return authoritative context for the state that one write would create."""
+    selected = _TABLES.get(entity)
+    if selected is None:
+        return {}
+    current = existing(entity, entity_id) if entity_id else {}
+    classification = str(current.get("classification") or "")
+    project_type = str(current.get("project_type") or "")
+
+    # Core update services do not accept visibility. Therefore an ignored
+    # extra JSON field cannot replace stored classification. Creates use the
+    # public service default when callers omit the field.
+    if not entity_id:
+        classification = str(payload.get("visibility") or "workspace")
+    if not entity_id and selected[1] == "project_class" and "project_class" in payload:
+        project_type = str(payload.get("project_class") or "")
+    elif selected[1] == "engagement_id":
+        project_type = _engagement_project_type(_target_engagement(entity, entity_id, payload))
     return {"classification": classification, "project_type": project_type}
+
+
+def proposed(entity: str, payload: dict) -> dict[str, str]:
+    """Compatibility alias for authoritative create context."""
+    return for_change(entity, 0, payload)
 
 
 def for_route(resource_type: str, resource_id: str, payload: dict) -> dict[str, str]:
@@ -90,13 +190,8 @@ def for_route(resource_type: str, resource_id: str, payload: dict) -> dict[str, 
     entity = _ROUTE_ENTITIES.get(resource_type)
     if entity is None:
         return {}
-    attributes: dict[str, str] = {}
     try:
         entity_id = int(resource_id or 0)
     except ValueError:
         entity_id = 0
-    if entity_id:
-        attributes.update(existing(entity, entity_id))
-    target = proposed(entity, payload)
-    attributes.update({key: value for key, value in target.items() if value})
-    return attributes
+    return for_change(entity, entity_id, payload)

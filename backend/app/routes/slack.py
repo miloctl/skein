@@ -15,6 +15,8 @@ from starlette.concurrency import run_in_threadpool
 from .. import config
 from ..agents import commands
 from ..agents.mock_agent import MockAgent
+from ..extensions.fastapi import enforce_decision
+from ..extensions.policy import PolicyInput, PolicyResource, PolicySubject
 
 router = APIRouter()
 
@@ -78,6 +80,28 @@ async def slack_command(request: Request):
                 " tool surface, not Slack. Ask whoever runs the server for a different name."
             ),
         }
+    registry = request.app.state.skein_registry
+    attributes = registry.identity_attributes(user, (), False)
+    subject = PolicySubject(
+        user,
+        roles=tuple(attributes.pop("roles", ())),
+        capabilities=tuple(attributes.pop("capabilities", ())),
+        attributes=attributes,
+        source="slack",
+    )
+    enforce_decision(
+        registry.policy_engine.decide(
+            PolicyInput(
+                subject,
+                "skein.integration.slack",
+                PolicyResource("integration", "slack"),
+                "slack",
+                tool="slack.command",
+                tool_effect="write",
+                tool_risk="medium",
+            )
+        )
+    )
     # EVERY route-level command, not a hardcoded list: a handler-None entry is
     # resolved by routes/chat.py, so commands.dispatch returns None for it and
     # the MockAgent below would smart-capture the raw slash command as a note
@@ -97,7 +121,14 @@ async def slack_command(request: Request):
     # Slack has already authenticated a human through the signed webhook.
     # Keep its capture on the human service path. The keyless web agent uses
     # the default governed agent path instead.
-    agent = MockAgent(thread_id="slack", user=user, gated_capture=False)
+    agent = MockAgent(
+        thread_id="slack",
+        user=user,
+        gated_capture=False,
+        direct_policy=registry.policy_engine,
+        direct_subject=subject,
+        direct_origin="slack",
+    )
     chunks = []
     try:
         async for event in agent.stream_async(text or "/help"):

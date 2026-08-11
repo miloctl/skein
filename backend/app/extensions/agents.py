@@ -49,11 +49,22 @@ def strands_tools(
                     current_policy_engine(),
                 )
                 if current.effect == "write":
-                    kind = "wrote" if result.status == "completed" else "refused"
+                    kinds = {
+                        "completed": "wrote",
+                        "review_required": "queued",
+                        "refused": "refused",
+                        "completion_unknown": "failed",
+                        "failed": "failed",
+                    }
+                    kind = kinds.get(result.status, "failed")
+                    detail = result.status.replace("_", " ")
+                    if result.status == "completion_unknown":
+                        detail = "completion unknown"
                     receipts.record(
                         kind,
                         current.name,
-                        result.status.replace("_", " "),
+                        detail,
+                        result.review_id if result.status == "review_required" else 0,
                         actor=agent,
                     )
                 return result.model_dump_json()

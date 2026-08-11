@@ -319,7 +319,8 @@ def task_policy_context(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> di
     frag, params = scope.visible_filter(viewer, "tasks", alias="t")
     sql = (
         "SELECT t.visibility AS classification, COALESCE(e.project_class, '') AS project_type"  # noqa: S608 -- visible_filter returns bound SQL
-        f" FROM tasks t LEFT JOIN engagements e ON e.id = t.engagement_id"
+        f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
+        f" LEFT JOIN engagements e ON e.id = COALESCE(t.engagement_id, m.engagement_id)"
         f" WHERE t.id = ? AND {frag}"
     )
     row = db.query_one(sql, (task_id, *params))

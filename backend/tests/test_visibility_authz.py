@@ -582,9 +582,21 @@ _UNFILTERED_READS = {
         " returns them to the caller. Applying the caller visibility filter here"
         " would remove the data that a stronger workplace policy must inspect"
     ),
-    "policy_context.py::proposed": (
-        "reads only project type for one exact engagement id supplied to a create"
-        " operation. The value goes only to policy evaluation and is not returned"
+    "policy_context.py::_engagement_project_type": (
+        "reads only the project class for one exact relationship target. The"
+        " value goes only to policy evaluation and can only restrict the call"
+    ),
+    "policy_context.py::_milestone_engagement": (
+        "resolves one exact milestone to an engagement id for target-state policy."
+        " Neither id nor content is returned to the caller"
+    ),
+    "policy_context.py::_named_engagement": (
+        "resolves the exact project name supplied to milestone creation. The id"
+        " goes only to policy evaluation and is not returned"
+    ),
+    "policy_context.py::_target_engagement": (
+        "reads only relationship ids for the exact resource being changed. It"
+        " computes the target state for policy and returns no data to the caller"
     ),
     "promises.py::chase_received": (
         "a job, so no viewer exists. It reads every tier ON PURPOSE: the"

@@ -119,11 +119,7 @@ def gated_write(
         return json.dumps({"error": str(exc)})
     from ..services import policy_context as domain_policy
 
-    attributes = (
-        domain_policy.existing(entity, entity_id)
-        if entity_id
-        else domain_policy.proposed(entity, payload)
-    )
+    attributes = domain_policy.for_change(entity, entity_id, payload)
     project_type = str(attributes.get("project_type") or "")
     classification = str(attributes.get("classification") or "")
     subject = current_policy_subject()

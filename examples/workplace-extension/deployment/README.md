@@ -17,3 +17,11 @@ copied or patched.
 Create an `atlas-skein-secrets` Secret through the deployment secret manager.
 Use `secrets.env.example` only as a list of required names. Do not commit secret
 values.
+
+Render or apply the overlay from its common parent. This keeps the content
+files inside the standard Kustomize load boundary:
+
+```sh
+kubectl kustomize examples/workplace-extension
+kubectl apply -k examples/workplace-extension
+```

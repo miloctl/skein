@@ -101,13 +101,17 @@ class ExtensionRegistry:
             roles=identity.roles,
             capabilities=identity.capabilities,
             attributes=identity.attributes,
+            strong=True,
+            source="service",
         )
 
     def refresh_subject(self, subject: PolicySubject) -> PolicySubject:
         """Refresh a saved requester through configured directory resolvers."""
         from ..services.users import is_active
 
-        if subject.kind != "service" and not is_active(subject.name):
+        if subject.kind == "service":
+            return self.service_subject(subject.name)
+        if not is_active(subject.name):
             raise PermissionError("The requester identity is no longer active.")
         groups = tuple(subject.groups)
         active = True
@@ -122,11 +126,15 @@ class ExtensionRegistry:
             active = active and bool(value.get("active", True))
             if "groups" in value:
                 groups = tuple(str(item) for item in value.get("groups") or ())
-        if subject.groups and not resolved:
+        if (subject.refresh_required or subject.groups) and not resolved:
             raise PermissionError("The requester directory identity could not be refreshed.")
         if not active:
             raise PermissionError("The requester identity is no longer active.")
-        attributes = self.identity_attributes(subject.name, groups, True)
+        # A stored weak identity must never become strong during review resume.
+        # The mapper receives the assurance that was proved on the original
+        # request. Directory refresh can remove access, but it cannot add a
+        # stronger proof than the requester supplied.
+        attributes = self.identity_attributes(subject.name, groups, subject.strong)
         roles = _string_tuple(attributes.pop("roles", ()), "roles")
         capabilities = _string_tuple(attributes.pop("capabilities", ()), "capabilities")
         return PolicySubject(
@@ -136,6 +144,9 @@ class ExtensionRegistry:
             groups=groups,
             capabilities=capabilities,
             attributes=attributes,
+            strong=subject.strong,
+            source=subject.source,
+            refresh_required=subject.refresh_required,
         )
 
     def tool(self, name: str) -> ToolContribution:

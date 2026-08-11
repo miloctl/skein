@@ -17,6 +17,7 @@ from .policy import (
     PolicyResource,
     PolicySubject,
     approval_fingerprint,
+    policy_subject_data,
 )
 
 
@@ -227,14 +228,9 @@ async def execute_reviewed_tool(
         raise ValueError("the reviewed tool identity or resource is not valid")
     if not isinstance(arguments, dict):
         raise ValueError("the reviewed tool arguments are not valid")
-    saved_subject = PolicySubject(
-        name=str(subject_data.get("name") or ""),
-        kind=str(subject_data.get("kind") or "human"),
-        roles=tuple(str(item) for item in subject_data.get("roles", ())),
-        groups=tuple(str(item) for item in subject_data.get("groups", ())),
-        capabilities=tuple(str(item) for item in subject_data.get("capabilities", ())),
-        attributes=dict(subject_data.get("attributes") or {}),
-    )
+    from .policy import policy_subject_from_data
+
+    saved_subject = policy_subject_from_data(subject_data)
     subject = registry.refresh_subject(saved_subject)
     resource = PolicyResource(
         type=str(resource_data.get("type") or "tool"),
@@ -268,14 +264,7 @@ def _review_invocation(
         "tool": contribution.name,
         "version": contribution.version,
         "arguments": validated.model_dump(mode="json"),
-        "subject": {
-            "name": context.subject.name,
-            "kind": context.subject.kind,
-            "roles": list(context.subject.roles),
-            "groups": list(context.subject.groups),
-            "capabilities": list(context.subject.capabilities),
-            "attributes": dict(context.subject.attributes),
-        },
+        "subject": policy_subject_data(context.subject),
         "agent": context.agent,
         "origin": context.origin,
         "approval_fingerprint": fingerprint,

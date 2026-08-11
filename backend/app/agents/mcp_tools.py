@@ -168,7 +168,13 @@ class GovernedMCPTool(AgentTool):
                 _audit_mcp(actor, self.tool_name, "refused", "review_state_invalid")
                 yield _refusal(tool_use, "Skein could not store this remote tool review safely.")
                 return
-            record("refused", self.tool_name, "review required", actor=actor)
+            record(
+                "queued",
+                self.tool_name,
+                "review required",
+                int(proposal["id"]),
+                actor=actor,
+            )
             if self.metadata.effect == "write":
                 _audit_mcp(actor, self.tool_name, "review_required", "review_required")
             yield _refusal(
@@ -237,14 +243,9 @@ def _agent_name() -> str:
 
 
 def _subject_data(subject) -> dict[str, Any]:
-    return {
-        "name": subject.name,
-        "kind": subject.kind,
-        "roles": list(subject.roles),
-        "groups": list(subject.groups),
-        "capabilities": list(subject.capabilities),
-        "attributes": dict(subject.attributes),
-    }
+    from ..extensions.policy import policy_subject_data
+
+    return policy_subject_data(subject)
 
 
 def _json_mapping(value: Any) -> dict[str, Any]:
@@ -276,16 +277,9 @@ async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str
     subject_data = invocation.get("subject")
     if not isinstance(subject_data, dict):
         raise ValueError("the reviewed remote tool identity is invalid")
-    from ..extensions.policy import PolicySubject, reset_policy_engine, set_policy_engine
+    from ..extensions.policy import policy_subject_from_data, reset_policy_engine, set_policy_engine
 
-    saved = PolicySubject(
-        name=str(subject_data.get("name") or ""),
-        kind=str(subject_data.get("kind") or "human"),
-        roles=tuple(str(item) for item in subject_data.get("roles") or ()),
-        groups=tuple(str(item) for item in subject_data.get("groups") or ()),
-        capabilities=tuple(str(item) for item in subject_data.get("capabilities") or ()),
-        attributes=dict(subject_data.get("attributes") or {}),
-    )
+    saved = policy_subject_from_data(subject_data)
     subject = registry.refresh_subject(saved)
     policy_token = set_policy_engine(registry.policy_engine)
     try:
@@ -375,6 +369,14 @@ def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
         return None
     if value["receipt"] != "required" or value["provenance"] != "service":
         return None
+    policy_action = str(value["policy_action"]).strip()
+    if not policy_action:
+        return None
+    list_fields = ("allowed_agents", "required_capabilities", "error_codes")
+    if any(not isinstance(value[field], (list, tuple)) for field in list_fields):
+        return None
+    if any(not isinstance(item, str) for field in list_fields for item in value[field]):
+        return None
     if not isinstance(value["output_schema"], dict):
         return None
     version = str(value["version"])
@@ -390,7 +392,7 @@ def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
         version,
         value["effect"],
         value["risk"],
-        str(value["policy_action"]),
+        policy_action,
         tuple(str(item) for item in value["allowed_agents"]),
         tuple(str(item) for item in value["required_capabilities"]),
         dict(value["output_schema"]),
@@ -407,7 +409,18 @@ def _audit_mcp(actor: str, tool: str, status: str, error_code: str = "") -> None
     record_tool_execution(actor=actor, tool=tool, status=status, error_code=error_code)
 
 
-def mcp_tools() -> list:
+def _without_reserved(tools: list, reserved_names: set[str]) -> list:
+    collisions = sorted({str(getattr(tool, "tool_name", tool)) for tool in tools} & reserved_names)
+    if collisions:
+        log.error(
+            "MCP tool names collide with local tools and were omitted: %s",
+            ", ".join(collisions),
+        )
+    return [tool for tool in tools if str(getattr(tool, "tool_name", tool)) not in reserved_names]
+
+
+def mcp_tools(reserved_names: set[str] | None = None) -> list:
+    reserved = reserved_names or set()
     global _loading, _tools
     # the lock guards STATE, never the connect. Held across the network I/O
     # below, it queued every concurrent agent build (threadpool workers via
@@ -415,7 +428,7 @@ def mcp_tools() -> list:
     # (300s) per server — and a dead integration must not take down chat.
     with _lock:
         if _tools is not None:
-            return _tools
+            return _without_reserved(_tools, reserved)
         if _loading:
             # another turn is connecting: this one goes without MCP tools
             # rather than parking a worker on someone else's network I/O
@@ -428,7 +441,7 @@ def mcp_tools() -> list:
         if generation == _generation:
             _clients.extend(clients)
             _tools = tools
-            return tools
+            return _without_reserved(tools, reserved)
     # shutdown_mcp ran mid-connect: these sessions belong to the world it
     # closed — publishing them would resurrect state shutdown just tore down
     for client in clients:

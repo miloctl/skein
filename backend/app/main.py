@@ -92,7 +92,14 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     close()
                 return {"status": "error", "error_code": "ASYNC_HANDLER_UNSUPPORTED"}
             if not isinstance(result, dict):
-                return {"status": "error", "error_code": "INVALID_JOB_RESULT"}
+                return {
+                    "status": "error",
+                    "error_code": (
+                        "COMPLETION_UNKNOWN"
+                        if contribution.effect in ("write", "unknown")
+                        else "INVALID_JOB_RESULT"
+                    ),
+                }
             return result
         except FutureTimeout:
             future.cancel()
@@ -209,9 +216,14 @@ async def lifespan(app: FastAPI):
         contribution.store.migrate(contribution.migrations)
     # same rule for the field-guide registry: malformed knots.yaml aborts boot
     # here, instead of 500ing the first /field-guide request at 3pm
-    from .services import fieldguide
+    from .services import fieldguide, playbooks
 
     fieldguide.registry()
+    content_errors = playbooks.validate_all(
+        {contribution.name for contribution in registry.workflow_actions}
+    )
+    if content_errors:
+        raise RuntimeError("invalid playbook content: " + "; ".join(content_errors))
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes

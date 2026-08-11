@@ -59,5 +59,10 @@ def core_module() -> SkeinModule:
                 subject="skein.scheduler",
                 roles=("scheduler",),
             ),
+            ServiceIdentityContribution(
+                name="skein.core.forge-identity",
+                subject="skein.forge",
+                roles=("integration",),
+            ),
         ),
     )

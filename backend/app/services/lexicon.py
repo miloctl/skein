@@ -26,6 +26,7 @@ REVIEW_ONLY = frozenset(
     {
         ("extension_tool", "create"),
         ("extension_mcp_tool", "create"),
+        ("extension_core_tool", "create"),
         ("extension_workflow", "create"),
     }
 )
@@ -47,6 +48,7 @@ CAPABILITY: dict[tuple[str, str], str] = {
     ("event_cancel", "update"): "delete an event from the calendar",
     ("extension_tool", "create"): "run a governed extension tool",
     ("extension_mcp_tool", "create"): "run a governed remote tool",
+    ("extension_core_tool", "create"): "run a governed stock tool",
     ("extension_workflow", "create"): "continue a workplace workflow",
     ("intake", "create"): "file an intake request",
     ("intake_edit", "update"): "change an intake request",

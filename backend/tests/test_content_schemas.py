@@ -121,3 +121,36 @@ def test_deployment_validation_checks_composed_workflow_action_names(
         "workflow steps are not valid" in error
         for error in playbooks.validate_all({"atlas.workplace.notify-manager"})
     )
+
+
+def test_content_cli_checks_registered_workflow_actions(fresh_db, tmp_path, monkeypatch):
+    from app import config, content
+
+    overlay = tmp_path / "playbooks"
+    empty = tmp_path / "empty"
+    overlay.mkdir()
+    empty.mkdir()
+    (overlay / "atlas.yaml").write_text(
+        "schema_version: 1\nname: Atlas\nworkflow:\n"
+        "  - type: action\n    name: atlas.workplace.missing\n    input: {}\n"
+    )
+    # Record these globals in monkeypatch before main() assigns them so the
+    # invalid fixture cannot leak into another TestClient startup.
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", config.PLAYBOOKS_OVERLAY)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", config.PERSONAS_OVERLAY)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", config.FLOCKS_OVERLAY)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "content",
+            "--playbooks",
+            str(overlay),
+            "--personas",
+            str(empty),
+            "--flocks",
+            str(empty),
+            "--workflow-action",
+            "atlas.workplace.notify-manager",
+        ],
+    )
+    assert content.main() == 1

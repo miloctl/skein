@@ -12,7 +12,11 @@ First-review commit: `8e5feec`
 
 Second-review commit: `952ff3a`
 
-The remediation commit and final report commit are recorded after the second
+Third-review commit: `4f1374f`
+
+Fourth-review commit: `62e352e`
+
+The final remediation and report commits are recorded after the final
 independent review.
 
 The report commit is necessarily newer than the commit named above. Use
@@ -142,7 +146,7 @@ flowchart LR
 | Frontend navigation | 4/5 | Build-time manifest | Trusted build required | Yes | Frontend extension | Low |
 | Frontend components | 3/5 | Stable card primitive and dashboard card slot | No detail-panel, form, or general route slot | Only for current slots | Add narrow frontend slot on demand | Medium |
 | Custom fields | 4/5 | Stable IDs, sparse metadata guidance, private tables | No generic core custom-field UI | Yes outside core schema | Extension-owned data | Medium |
-| Policy enforcement | 4/5 | REST route class, tools, MCP, workflows, capabilities | Auth bootstrap and signed webhooks use separate gates | Yes | Policy definition | Low |
+| Policy enforcement | 4/5 | REST, stock and contributed tools, MCP, workflows, signed integrations, capabilities | Direct routes and background work cannot resume a review | Yes | Policy definition | Low |
 | Deployment | 4/5 | Wheels, packed frontend package, derivative image, Kustomize | Frontend needs a compatible build-stage input | Yes | Package plus deployment overlay | Medium |
 | Observability | 3/5 | Existing OpenTelemetry plus job and event receipts | No extension-specific metric registry | Partly | Existing telemetry or external collector | Low |
 
@@ -163,6 +167,9 @@ line, but not independent production consumers across releases.
 | Authenticated core operations use workplace policy | `backend/app/extensions/fastapi.py::PolicyAPIRoute` and `enforce_mutation_policy`; used by `routes/api.py` and `routes/private.py` |
 | Identity groups can map to private roles and capabilities | `ExtensionRegistry.identity_attributes` and `extensions/fastapi.py::subject_for` |
 | Existing agent authority maps into the default policy | `backend/app/extensions/policy.py::CorePolicy` and `backend/app/tools/_gate.py` |
+| Stock model-facing tools use workplace policy | `backend/app/agents/core_tools.py::GovernedCoreTool`, `govern_core_tools`, and `team_agent.py::build_agent` |
+| Policy evaluates authoritative target state | `backend/app/services/policy_context.py::for_change`, `tools/_gate.py::gated_write`, and `services/review.py::_revalidate_policy` |
+| Review identity assurance cannot increase | `PolicySubject.strong`, `source`, `refresh_required`, and `ExtensionRegistry.refresh_subject` |
 | Contributed tools are governed | `backend/app/extensions/tools.py::execute_tool` validates schemas, agent allowlists, capabilities, policy, timeout, output, and safe errors |
 | MCP tools need metadata and support durable review | `backend/app/agents/mcp_tools.py::MCPToolMetadata`, `GovernedMCPTool`, and `execute_reviewed_mcp` |
 | Specialists join the Chief without private imports | `backend/app/extensions/agents.py` and `backend/app/agents/team_agent.py::build_agent` |
@@ -674,6 +681,37 @@ governs keyless capture, isolates service identities, binds reviewed MCP calls
 to one server, refreshes directory groups, and reports uncertain write results
 truthfully. It also adds nested workflow validation, narrow lifecycle context,
 versioned frontend host artifacts, and two-version frontend production builds.
+
+The fourth review rejected commit `62e352e`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Security and provenance | 7.3 | 6.2 | 7.1 | Reject |
+| Extension author | 8.0 | 7.7 | 7.6 | Reject |
+| Adversarial score auditor | 7.9 | 7.6 | 7.7 | Reject |
+
+The fourth remediation closes the remaining central-policy and identity gaps.
+Saved subjects retain their original authentication strength and directory
+source. Target-state policy follows task, milestone, and engagement links.
+Stock reads, specialized stock writes, Slack, CI, and forge now use the
+composed policy. Rejection requires the current approver. MCP metadata and
+model-facing names fail closed. Content validation includes contributed
+actions. The standard Kustomize render and private content upgrade are now
+executable contracts.
+
+Verification after the fourth remediation:
+
+| Command | Result | Duration |
+|---|---|---:|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,689 passed | 108.75 seconds |
+| Focused policy and integration suite | 183 passed | 13.85 seconds |
+| `npm test` | Existing 229-test suite passed | Passed |
+| `npm run build` | Production build passed | 13.18 seconds |
+| Backend and frontend lint/type/dead-code gates | Passed | Passed |
+| `scripts/reference-extension-contract.sh` | Installed Atlas `0.2.0` to `0.2.1` upgrade passed | 26.88 seconds |
+| `scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on two hosts | 41.29 seconds |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render passed | Passed |
+| `uv build --wheel --out-dir /tmp/skein-final-dist backend` | Core wheel passed | Passed |
 
 The final four-reviewer report is pending.
 
