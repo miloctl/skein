@@ -77,11 +77,16 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.content \
 
 ## Deploy
 
-Build the Atlas wheel into `dist/`. Then build `deployment/Dockerfile` with a
-released Skein image as `SKEIN_IMAGE`. Build
-`deployment/Frontend.Dockerfile` with a compatible `SKEIN_FRONTEND_HOST` image.
-Store the database on its own volume. Create the `atlas-skein-secrets` Secret
-outside Git before you apply the Kustomize overlay:
+The deployment README gives the exact wheel, frontend archive, and image build
+commands. Run the executable image rehearsal from the Skein root:
+
+```sh
+scripts/reference-images-contract.sh
+```
+
+The overlay stores the extension database on its own volume. It uses the
+`atlas-skein-secrets` Secret for the token sent by `AtlasHttpClient`. Create
+that Secret outside Git before you apply the overlay:
 
 ```sh
 kubectl kustomize examples/workplace-extension

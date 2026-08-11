@@ -85,6 +85,39 @@ def _schema_errors(data: object, workflow_actions: set[str] | None = None) -> li
     return errors
 
 
+def _legacy_errors(data: object) -> list[str]:
+    """Checks that the pre-schema reader applied to unversioned files."""
+    if not isinstance(data, dict):
+        return ["expected an object"]
+    errors: list[str] = []
+    milestones = data.get("milestones", [])
+    if not isinstance(milestones, list):
+        return ["milestones must be a list"]
+    for index, milestone in enumerate(milestones):
+        if not isinstance(milestone, dict) or "title" not in milestone:
+            errors.append(f"milestone {index + 1} has no title")
+    return errors
+
+
+def _content_errors(data: object, workflow_actions: set[str] | None = None) -> list[str]:
+    """Use strict version 1 rules only when the file opts in explicitly."""
+    if isinstance(data, dict) and "schema_version" not in data:
+        errors = _legacy_errors(data)
+        # Workflow is new executable content. Validate it when present, but
+        # keep all unrelated legacy metadata and defaults backward compatible.
+        if "workflow" in data:
+            try:
+                from ..public.workflow import validate_workflow_actions, validate_workflow_shape
+
+                validate_workflow_shape(data["workflow"])
+                if workflow_actions is not None:
+                    validate_workflow_actions(data["workflow"], workflow_actions)
+            except Exception:
+                errors.append("workflow steps are not valid")
+        return errors
+    return _schema_errors(data, workflow_actions)
+
+
 def _playbook_files() -> dict[str, Path]:
     """slug -> path across the stock dir and the SKEIN_PLAYBOOKS_DIR overlay.
     The overlay wins a slug collision, so a deployment can tailor a stock
@@ -115,7 +148,10 @@ def list_playbooks() -> list[dict]:
             continue
         if not isinstance(data, dict):
             continue
-        if _schema_errors(data):
+        # Before schema versions, a mapping could omit name and carry private
+        # metadata. Preserve that reader. An explicit schema_version opts into
+        # the strict contract.
+        if "schema_version" in data and _schema_errors(data):
             continue
         out.append(
             {
@@ -143,7 +179,7 @@ def get_playbook(slug: str) -> dict:
         raise ValueError(f"playbook '{slug}' is malformed ({type(exc).__name__})") from exc
     if not isinstance(pb, dict):
         raise ValueError(f"playbook '{slug}' is malformed (expected a mapping)")
-    errors = _schema_errors(pb)
+    errors = _content_errors(pb)
     if errors:
         raise ValueError(f"playbook '{slug}' is malformed ({'; '.join(errors)})")
     pb.setdefault("schema_version", SCHEMA_VERSION)
@@ -167,7 +203,42 @@ def validate_all(workflow_actions: set[str] | None = None) -> list[str]:
             except (OSError, yaml.YAMLError) as exc:
                 errors.append(f"{label}: not valid YAML ({type(exc).__name__})")
                 continue
-            errors.extend(f"{label}: {error}" for error in _schema_errors(data, workflow_actions))
+            errors.extend(f"{label}: {error}" for error in _content_errors(data, workflow_actions))
+    return errors
+
+
+def validate_startup(workflow_actions: set[str]) -> list[str]:
+    """Validate executable or explicitly versioned content without breaking legacy boot.
+
+    The old runtime skipped malformed overlay files until a caller selected
+    one. Keep that behavior for unversioned files. A schema declaration is an
+    explicit strict contract, and a workflow is executable, so those two
+    cases must fail before the application accepts traffic.
+    """
+    errors: list[str] = []
+    directories = [PLAYBOOKS_DIR]
+    if config.PLAYBOOKS_OVERLAY and config.PLAYBOOKS_OVERLAY.is_dir():
+        directories.append(config.PLAYBOOKS_OVERLAY)
+    for directory in directories:
+        for path in sorted(directory.glob("*.yaml")):
+            label = path.name if directory == PLAYBOOKS_DIR else f"{path.name} (overlay)"
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            if "schema_version" in data:
+                current = _schema_errors(data, workflow_actions)
+            elif "workflow" in data:
+                current = [
+                    error
+                    for error in _content_errors(data, workflow_actions)
+                    if error == "workflow steps are not valid"
+                ]
+            else:
+                current = []
+            errors.extend(f"{label}: {error}" for error in current)
     return errors
 
 

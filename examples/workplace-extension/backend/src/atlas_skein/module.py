@@ -29,13 +29,15 @@ from app.extensions import (
     enforce_decision,
 )
 
-from .integration import AtlasClient, AtlasIntegration, MemoryAtlasClient
+from .integration import AtlasClient, AtlasHttpClient, AtlasIntegration, MemoryAtlasClient
 from .policy import atlas_directory, atlas_identity, atlas_policy
 
 
 @dataclass(frozen=True)
 class AtlasSettings:
     store_path: Path
+    api_url: str = ""
+    api_token: str = ""
 
 
 class SyncIn(BaseModel):
@@ -61,7 +63,12 @@ def atlas_module(
     client: AtlasClient | None = None,
 ) -> SkeinModule:
     store = ExtensionStore(settings.store_path)
-    integration = AtlasIntegration(client or MemoryAtlasClient(), store)
+    selected_client = client
+    if selected_client is None and settings.api_url:
+        if not settings.api_token:
+            raise ValueError("ATLAS_API_TOKEN is required when ATLAS_API_URL is set")
+        selected_client = AtlasHttpClient(settings.api_url, settings.api_token)
+    integration = AtlasIntegration(selected_client or MemoryAtlasClient(), store)
     router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
     def require(services, action: str) -> None:

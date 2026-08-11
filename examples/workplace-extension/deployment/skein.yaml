@@ -27,6 +27,28 @@ spec:
             claimName: skein-data
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: skein-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: atlas-skein-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: skein-api

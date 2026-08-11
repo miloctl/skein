@@ -38,7 +38,14 @@ class MockAgent:
         if text.lower() in ("help", ""):
             text = "/help"
 
-        it = commands.dispatch(text, self.user)
+        access = None
+        if self.direct_policy is not None and self.direct_subject is not None:
+            access = commands.CommandAccess(
+                self.direct_policy,
+                self.direct_subject,
+                self.direct_origin,
+            )
+        it = commands.dispatch(text, self.user, access=access)
         if it is not None:
             async for event in it:
                 yield event

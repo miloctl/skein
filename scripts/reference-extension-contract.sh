@@ -30,8 +30,8 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
 
 cp -R "$tmp/current-source" "$tmp/core-next"
 sed -i 's/version = "0.2.0"/version = "0.2.1"/' "$tmp/core-next/pyproject.toml"
-cp scripts/fixtures/015_compatible_upgrade_probe.sql \
-    "$tmp/core-next/app/core_migrations/015_compatible_upgrade_probe.sql"
+cp scripts/fixtures/017_compatible_upgrade_probe.sql \
+    "$tmp/core-next/app/core_migrations/017_compatible_upgrade_probe.sql"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/next" "$tmp/core-next"
 
@@ -73,6 +73,13 @@ PY
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
     --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}"
+
+# A base-era deployment could have unversioned, open-ended content. Keep the
+# same files in place across both installed core artifacts.
+mkdir -p "$tmp/legacy-playbooks" "$tmp/legacy-personas" "$tmp/legacy-flocks"
+cp scripts/fixtures/legacy-content/playbooks/legacy_delivery.yaml "$tmp/legacy-playbooks/"
+cp scripts/fixtures/legacy-content/personas/legacy-reviewer.md "$tmp/legacy-personas/"
+cp scripts/fixtures/legacy-content/flocks/legacy-team.yaml "$tmp/legacy-flocks/"
 
 "$tmp/venv/bin/python" -m app.content \
     --playbooks "$tmp/extension-source/content/playbooks" \
@@ -118,6 +125,27 @@ store.execute(
     ("ATLAS-CORE-UPGRADE", 42, "internal"),
 )
 assert db.pending_migrations() == []
+PY
+)
+
+(
+    cd "$tmp/run"
+    SKEIN_DATA_DIR="$tmp/legacy-core-data" \
+    SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
+    SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
+    SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
+    "$tmp/venv/bin/python" - <<'PY'
+from dataclasses import replace
+
+from fastapi.testclient import TestClient
+
+from app.extensions import AppSettings
+from app.main import create_app
+
+with TestClient(create_app(replace(AppSettings.from_config(), scheduler_enabled=False))) as client:
+    assert "legacy_delivery" in {row["slug"] for row in client.get("/api/playbooks").json()}
+    assert "legacy-reviewer" in {row["slug"] for row in client.get("/api/personas").json()}
+    assert "legacy-team" in {row["slug"] for row in client.get("/api/flocks").json()}
 PY
 )
 
@@ -236,4 +264,47 @@ assert module.migrations[0].store.query_one(
 PY
 )
 
-echo "reference-extension-contract: old core rejected; 0.2.0 -> 0.2.1 installed upgrade passed"
+(
+    cd "$tmp/run"
+    SKEIN_DATA_DIR="$tmp/legacy-core-data" \
+    SKEIN_PLAYBOOKS_DIR="$tmp/legacy-playbooks" \
+    SKEIN_PERSONAS_DIR="$tmp/legacy-personas" \
+    SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
+    "$tmp/venv/bin/python" - <<'PY'
+from dataclasses import replace
+
+from fastapi.testclient import TestClient
+
+from app.extensions import AppSettings
+from app.main import create_app
+
+with TestClient(create_app(replace(AppSettings.from_config(), scheduler_enabled=False))) as client:
+    assert "legacy_delivery" in {row["slug"] for row in client.get("/api/playbooks").json()}
+    assert "legacy-reviewer" in {row["slug"] for row in client.get("/api/personas").json()}
+    assert "legacy-team" in {row["slug"] for row in client.get("/api/flocks").json()}
+PY
+)
+
+SKEIN_DATA_DIR="$tmp/fresh-next-data" "$tmp/venv/bin/python" -c \
+    "from app import db; db.init_db()"
+"$tmp/venv/bin/python" - "$tmp/core-data/platform.db" \
+    "$tmp/fresh-next-data/platform.db" <<'PY'
+import sqlite3
+import sys
+
+
+def schema(path):
+    connection = sqlite3.connect(path)
+    try:
+        return connection.execute(
+            "SELECT type, name, sql FROM sqlite_master"
+            " WHERE sql IS NOT NULL ORDER BY type, name"
+        ).fetchall()
+    finally:
+        connection.close()
+
+
+assert schema(sys.argv[1]) == schema(sys.argv[2]), "fresh and upgraded schemas differ"
+PY
+
+echo "reference-extension-contract: old core rejected; legacy content and 0.2.0 -> 0.2.1 installed upgrade passed"

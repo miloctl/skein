@@ -8,11 +8,19 @@ never drift from what the backend actually accepts.
 """
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from difflib import get_close_matches
 
 from starlette.concurrency import run_in_threadpool
 
 from .. import config, db
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyEngine,
+    PolicyInput,
+    PolicyResource,
+    PolicySubject,
+)
 from ..services import briefing, delta, flocks, memory, personas, playbooks, scope, search
 
 # Handlers below call services through run_in_threadpool, never inline: these
@@ -25,15 +33,55 @@ from ..services import briefing, delta, flocks, memory, personas, playbooks, sco
 Event = dict
 
 
+@dataclass(frozen=True)
+class CommandAccess:
+    """The authenticated policy boundary for one deterministic command."""
+
+    policy: PolicyEngine
+    subject: PolicySubject
+    origin: str
+
+
+def _write_refusal(
+    access: CommandAccess | None,
+    action: str,
+    resource: PolicyResource,
+    tool: str,
+    risk: str,
+) -> str:
+    if access is None:
+        return ""
+    decision = access.policy.decide(
+        PolicyInput(
+            access.subject,
+            action,
+            resource,
+            access.origin,
+            tool=tool,
+            tool_effect="write",
+            tool_risk=risk,
+        )
+    )
+    if decision.effect == PolicyEffect.PERMIT:
+        return ""
+    if decision.effect == PolicyEffect.REVIEW:
+        return "⚠️ Workplace policy requires review. Use the governed work surface."
+    return "⚠️ Workplace policy denied this command."
+
+
 def _tool_event(name: str) -> Event:
     return {"current_tool_use": {"toolUseId": f"cmd-{name}", "name": name}}
 
 
-async def _help(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _help(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     yield {"data": help_text()}
 
 
-async def _delta(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _delta(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     """What changed since this reader last asked.
 
     Does NOT mark the brief as seen. A command is a preview — the reader asked
@@ -60,7 +108,9 @@ async def _delta(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Ev
     yield {"data": "\n".join(lines)}
 
 
-async def _briefing(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _briefing(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     yield _tool_event("my_day")
     b = await run_in_threadpool(briefing.my_day, user, viewer)
     n = b["needs_you"]
@@ -79,7 +129,9 @@ async def _briefing(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator
     yield {"data": "\n".join(lines)}
 
 
-async def _search(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _search(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/search <query>`"}
         return
@@ -102,10 +154,33 @@ async def _search(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[E
         yield {"data": f"Found {len(hits)} {word} for “{args}”:\n\n{body}"}
 
 
-async def _plan(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _plan(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     parts = args.split(maxsplit=1)
     if len(parts) < 2:
         yield {"data": "Usage: `/plan <playbook-slug> <engagement name>`"}
+        return
+    try:
+        definition = await run_in_threadpool(playbooks.get_playbook, parts[0])
+    except ValueError as exc:
+        yield {"data": f"⚠️ {exc}"}
+        return
+    refusal = _write_refusal(
+        access,
+        "playbook.create",
+        PolicyResource(
+            "playbook",
+            parts[0],
+            project_type=str(definition.get("project_class") or parts[0]),
+            classification=scope.WORKSPACE,
+            attributes={"playbook": parts[0]},
+        ),
+        "start_engagement_from_playbook",
+        "high",
+    )
+    if refusal:
+        yield {"data": refusal}
         return
     yield _tool_event("start_engagement_from_playbook")
     try:
@@ -126,7 +201,9 @@ async def _plan(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Eve
         yield {"data": f"⚠️ {exc}"}
 
 
-async def _playbooks(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _playbooks(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     yield _tool_event("list_playbooks")
     rows = await run_in_threadpool(playbooks.list_playbooks)
     body = (
@@ -136,7 +213,9 @@ async def _playbooks(args: str, user: str, viewer: scope.Viewer) -> AsyncIterato
     yield {"data": f"Available playbooks:\n\n{body}"}
 
 
-async def _personas(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _personas(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     yield _tool_event("list_personas")
     rows = await run_in_threadpool(personas.list_personas)
     body = (
@@ -152,7 +231,9 @@ async def _personas(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator
     }
 
 
-async def _flocks(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _flocks(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     yield _tool_event("list_flocks")
     rows = await run_in_threadpool(flocks.list_flocks)
     lines = []
@@ -166,7 +247,9 @@ async def _flocks(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[E
     }
 
 
-async def _remember(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator[Event]:
+async def _remember(
+    args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
+) -> AsyncIterator[Event]:
     if not args:
         yield {"data": "Usage: `/remember <fact>`"}
         return
@@ -175,6 +258,16 @@ async def _remember(args: str, user: str, viewer: scope.Viewer) -> AsyncIterator
             "data": "Feedback notes are private — memories are team-visible."
             " Use quick capture with your key instead."
         }
+        return
+    refusal = _write_refusal(
+        access,
+        "memory.create",
+        PolicyResource("memory", classification=scope.WORKSPACE),
+        "remember",
+        "medium",
+    )
+    if refusal:
+        yield {"data": refusal}
         return
     yield _tool_event("remember")
     try:
@@ -312,7 +405,10 @@ async def _unknown(name: str) -> AsyncIterator[Event]:
 
 
 def dispatch(
-    text: str, user: str, viewer: "scope.Viewer | None" = None
+    text: str,
+    user: str,
+    viewer: "scope.Viewer | None" = None,
+    access: CommandAccess | None = None,
 ) -> AsyncIterator[Event] | None:
     """Event stream for slash-command text; None means 'not a command —
     give it to the agent'. Command-shaped tokens that match nothing get a
@@ -335,5 +431,5 @@ def dispatch(
         if c["name"] == name:
             if c["handler"] is None:
                 return None  # route-level command (e.g. /as needs the agent)
-            return c["handler"](rest, user, viewer or scope.NOBODY)
+            return c["handler"](rest, user, viewer or scope.NOBODY, access)
     return _unknown(name)

@@ -219,7 +219,7 @@ async def lifespan(app: FastAPI):
     from .services import fieldguide, playbooks
 
     fieldguide.registry()
-    content_errors = playbooks.validate_all(
+    content_errors = playbooks.validate_startup(
         {contribution.name for contribution in registry.workflow_actions}
     )
     if content_errors:
@@ -332,58 +332,80 @@ async def lifespan(app: FastAPI):
     import_file_sessions()
     lifecycle_context = LifecycleContext(core_version=SKEIN_CORE_VERSION)
     started = await _start_extensions(registry, lifecycle_context)
-    # claim-guarded catch-up runs fill in for cron firings missed while the
-    # process was down (no misfire replay); run_job never raises
-    for spec in specs:
-        if spec.catch_up:
-            run_job(spec)
-    setup_telemetry()
-    from .agents.narrator import register_narrator
-
-    register_narrator()  # composition root: agents plug into services here
-    # Two SEPARATE thread pools, sized here so the numbers are chosen rather
-    # than inherited (config.py documents the measurement). anyio's limiter
-    # carries every sync route handler and run_in_threadpool call; the loop's
-    # default executor carries every sync @tool via asyncio.to_thread — left
-    # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-
-    import anyio.to_thread
-
-    # THE only place either pool size is applied. services/tuning.py exposes
-    # both as knobs marked live=False, and this line is why that mark is
-    # honest: an administrator's override reaches the process here and
-    # nowhere else, so it takes effect at the next boot and not before.
-    # db.init_db() ran at the top of this function, so the read is safe.
-    pools = {"thread_pool": settings.thread_pool, "tool_threads": settings.tool_threads}
+    scheduler = None
+    keepalive_open = False
     try:
-        from .services.tuning import effective
+        # claim-guarded catch-up runs fill in for cron firings missed while the
+        # process was down (no misfire replay); run_job never raises
+        for spec in specs:
+            if spec.catch_up:
+                run_job(spec)
+        setup_telemetry()
+        from .agents.narrator import register_narrator
 
-        pools = {name: effective(name) for name in pools}
-    except Exception:
-        # operator config never takes down the API — the env values are a
-        # correct sizing, just not the stored one
-        log.exception("could not read the stored pool sizes — using the environment values")
-    anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
-    asyncio.get_running_loop().set_default_executor(
-        ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
-    )
-    # held for the process lifetime so writes stop paying WAL
-    # checkpoint-on-close — 42x per write when idle, measured (db.py)
-    db.open_keepalive()
-    scheduler = _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
-    yield
-    if scheduler:
-        scheduler.shutdown(wait=False)
-    from .agents.mcp_tools import shutdown_mcp
+        register_narrator()  # composition root: agents plug into services here
+        # Two SEPARATE thread pools, sized here so the numbers are chosen rather
+        # than inherited (config.py documents the measurement). anyio's limiter
+        # carries every sync route handler and run_in_threadpool call; the loop's
+        # default executor carries every sync @tool via asyncio.to_thread — left
+        # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
 
-    shutdown_mcp()
-    from .services import adoption
+        import anyio.to_thread
 
-    adoption.flush()
-    await _stop_extensions(started, lifecycle_context)
-    db.close_keepalive()
+        # THE only place either pool size is applied. services/tuning.py exposes
+        # both as knobs marked live=False, and this line is why that mark is
+        # honest: an administrator's override reaches the process here and
+        # nowhere else, so it takes effect at the next boot and not before.
+        # db.init_db() ran at the top of this function, so the read is safe.
+        pools = {"thread_pool": settings.thread_pool, "tool_threads": settings.tool_threads}
+        try:
+            from .services.tuning import effective
+
+            pools = {name: effective(name) for name in pools}
+        except Exception:
+            # operator config never takes down the API — the env values are a
+            # correct sizing, just not the stored one
+            log.exception("could not read the stored pool sizes — using the environment values")
+        anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
+        asyncio.get_running_loop().set_default_executor(
+            ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
+        )
+        # held for the process lifetime so writes stop paying WAL
+        # checkpoint-on-close — 42x per write when idle, measured (db.py)
+        db.open_keepalive()
+        keepalive_open = True
+        scheduler = (
+            _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
+        )
+        yield
+    finally:
+        # A failure after a private module starts must still close that module.
+        # Keep each core cleanup independent so one failure cannot skip the
+        # extension shutdown or the database close.
+        if scheduler:
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                log.exception("scheduler shutdown failed")
+        try:
+            from .agents.mcp_tools import shutdown_mcp
+
+            shutdown_mcp()
+        except Exception:
+            log.exception("MCP shutdown failed")
+        try:
+            from .services import adoption
+
+            adoption.flush()
+        except Exception:
+            log.exception("adoption flush failed")
+        try:
+            await _stop_extensions(started, lifecycle_context)
+        finally:
+            if keepalive_open:
+                db.close_keepalive()
 
 
 async def perimeter_auth(request: Request, call_next):

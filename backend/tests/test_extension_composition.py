@@ -146,6 +146,30 @@ def test_started_lifecycle_is_stopped_if_a_later_startup_fails(fresh_db):
     assert events == ["start", "fail", "stop"]
 
 
+def test_started_lifecycle_is_stopped_if_core_startup_later_fails(fresh_db, monkeypatch):
+    events: list[str] = []
+    module = _module(
+        lifecycle=(
+            LifecycleContribution(
+                "acme.workplace.lifecycle",
+                lambda _context: events.append("start"),
+                lambda _context: events.append("stop"),
+            ),
+        )
+    )
+
+    def fail_telemetry():
+        raise RuntimeError("telemetry startup failed")
+
+    monkeypatch.setattr("app.main.setup_telemetry", fail_telemetry)
+    with (
+        pytest.raises(RuntimeError, match="telemetry startup failed"),
+        TestClient(create_app(modules=(module,))),
+    ):
+        pass
+    assert events == ["start", "stop"]
+
+
 def test_settings_and_registry_are_immutable():
     settings = AppSettings.from_config()
     registry = ExtensionRegistry.build((_module(),))
