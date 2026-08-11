@@ -151,9 +151,10 @@ roles. Use the groups that the configured OIDC claim supplies.
 
 ## Use public work commands
 
-`WorkItems` is the first public command and query facade. It validates policy,
-uses the existing service write path, preserves provenance, and writes a
-versioned outbox event in the same transaction.
+`WorkItems` is the first public command and query facade. It validates policy
+and uses the existing service write path. That shared path preserves
+provenance and writes a versioned outbox event in the same transaction for
+human, agent, and integration callers.
 
 ```python
 from app.extensions import PolicyEngine, PolicySubject
@@ -198,9 +199,9 @@ and must not write.
 
 ## Subscribe to events
 
-Public task commands write version 1 domain events to the SQLite outbox. Each
-event has an ID, type, schema version, time, actor, origin, resource reference,
-safe change summary, visibility, and correlation data.
+All shared task writes create version 1 domain events in the SQLite outbox.
+Each event has an ID, type, schema version, time, actor, origin, resource
+reference, safe change summary, visibility, and correlation data.
 
 Subscribers select event types, schema versions, and visibility tiers. The
 dispatcher retries failures. It records one delivery receipt for each event

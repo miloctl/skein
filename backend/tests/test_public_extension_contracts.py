@@ -68,17 +68,40 @@ def test_public_work_commands_keep_service_invariants_and_emit_safe_events(fresh
 
 
 def test_public_command_and_event_share_the_transaction(fresh_db, monkeypatch):
-    from app.public import work as public_work
+    from app.services import work as service_work
 
     def fail_event(*_args, **_kwargs):
         raise RuntimeError("outbox unavailable")
 
-    monkeypatch.setattr(public_work, "emit_event", fail_event)
+    monkeypatch.setattr(service_work, "_emit_task_event", fail_event)
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     with pytest.raises(RuntimeError, match="outbox unavailable"):
         facade.create_task(CreateTaskCommand(title="rolled back"), _context())
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
     assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
+
+
+def test_rest_and_agent_service_writes_emit_the_same_public_events(fresh_db):
+    from app.services import work as service_work
+
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings), headers={"X-User": "mira"}) as client:
+        created = client.post("/api/tasks", json={"title": "Human task"})
+        assert created.status_code == 200
+    service_work.update_task(
+        created.json()["id"],
+        status="in_progress",
+        actor="scout",
+        origin="agent",
+    )
+
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY created_at")
+    assert [item["event_type"] for item in events] == [
+        "skein.task.created",
+        "skein.task.updated",
+    ]
+    assert '"origin":"human"' in events[0]["payload"]
+    assert '"origin":"agent"' in events[1]["payload"]
 
 
 def test_a_workplace_policy_can_require_a_manager_before_the_write(fresh_db):

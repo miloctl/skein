@@ -20,6 +20,39 @@ TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
 
 
+def _event_actor_kind(origin: str) -> str:
+    if origin.startswith("agent"):
+        return "agent"
+    if origin == "human":
+        return "human"
+    return "service"
+
+
+def _emit_task_event(
+    event_type: str,
+    task_id: int,
+    *,
+    actor: str,
+    origin: str,
+    visibility: str,
+    changes: tuple[str, ...],
+    correlation_id: str,
+    actor_kind: str,
+) -> None:
+    """Emit from the shared write path so every caller gets one event."""
+    from ..public.events import EventActor, ResourceReference, emit_event
+
+    emit_event(
+        event_type,
+        actor=EventActor(name=actor, kind=actor_kind or _event_actor_kind(origin)),
+        origin=origin,
+        resource=ResourceReference(type="task", id=str(task_id)),
+        changes=changes,
+        correlation_id=correlation_id,
+        visibility=visibility,
+    )
+
+
 def _bounded(entity: str, title: str, description: str) -> None:
     """Names the entity, like every refusal beside it ("task title is
     required"). A caller writing a milestone and a task in one turn otherwise
@@ -195,6 +228,8 @@ def create_task(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    correlation_id: str = "",
+    event_actor_kind: str = "",
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
@@ -245,6 +280,26 @@ def create_task(
         )
         db.log_activity(actor, "create_task", scope.detail(tier, f"#{tid}", title))
         index_record("task", tid, title, f"{description} {assignee}")
+        _emit_task_event(
+            "skein.task.created",
+            tid,
+            actor=actor,
+            origin=origin,
+            visibility=tier,
+            changes=(
+                "title",
+                "description",
+                "milestone_id",
+                "engagement_id",
+                "assignee",
+                "priority",
+                "due_date",
+                "visibility",
+                "crew_id",
+            ),
+            correlation_id=correlation_id,
+            actor_kind=event_actor_kind,
+        )
     from .mentions import scan
 
     # title too: a short `todo: ask @mira ...` capture lands entirely in the
@@ -286,6 +341,8 @@ def update_task(
     # strength of the verdict a direct close stands in for. Defaults False so
     # every machine path records the weaker, truthful thing.
     strong: bool = False,
+    correlation_id: str = "",
+    event_actor_kind: str = "",
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
@@ -432,33 +489,39 @@ def update_task(
         fields["delegated_agent"] = ""
         fields["sponsor"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(
-        f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
-        (*fields.values(), db.now(), task_id),
-    )
-    db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
-    # The sponsor just answered the acceptance ask by hand, so the proposal
-    # waiting for that answer has to be settled here or it never can be: its
-    # apply calls delegation.accept_completion, which raises on a task that is
-    # already done, and approve_change resets a failed apply to pending — the
-    # verdict boomerangs on every click and the only way out is a rejection
-    # that lands on the agent's demotion streak (services/delegation.py) for
-    # work the sponsor accepted.
-    if fields.get("status") == "done" and current["delegated_agent"]:
-        _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
-    row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if row:
-        index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
-        if fields.get("description") or fields.get("title"):
-            from .mentions import scan
+    with db.transaction():
+        db.execute(
+            f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+            (*fields.values(), db.now(), task_id),
+        )
+        db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
+        # The sponsor just answered the acceptance ask by hand, so the proposal
+        # waiting for that answer has to be settled here or it never can be.
+        if fields.get("status") == "done" and current["delegated_agent"]:
+            _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
+        row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if row:
+            index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
+            if fields.get("description") or fields.get("title"):
+                from .mentions import scan
 
-            scan(
-                "task",
-                task_id,
-                f"{row['title']} {row['description']}",
-                actor=actor,
-                link="/dashboard",
-            )
+                scan(
+                    "task",
+                    task_id,
+                    f"{row['title']} {row['description']}",
+                    actor=actor,
+                    link="/dashboard",
+                )
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=actor,
+            origin=origin,
+            visibility=current["visibility"],
+            changes=tuple(fields),
+            correlation_id=correlation_id,
+            actor_kind=event_actor_kind,
+        )
     return {"id": task_id, "updated": list(fields)}
 
 
