@@ -20,8 +20,9 @@ workflow steps, contributed routes, and frontend capability checks use the
 composed policy boundary. A workplace permit cannot override a core denial.
 
 Public task commands preserve the existing service write path, provenance,
-and activity chain. They also write versioned domain events to a durable SQLite
-outbox. Extensions receive typed views and safe events, not core SQLite rows.
+and activity chain. That shared path writes versioned domain events to a
+durable SQLite outbox for human, agent, and integration callers. Extensions
+receive typed views and safe events, not core SQLite rows.
 
 The frontend composes trusted packages before `next build`. Version 1 supports
 policy-aware navigation and manager dashboard cards. The fictional Atlas

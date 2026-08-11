@@ -46,18 +46,17 @@ def _job_specs(registry: ExtensionRegistry) -> tuple[JobSpec, ...]:
                 catch_up=contribution.catch_up,
             )
         )
-    if registry.events:
-        from .public.events import dispatch_events
+    from .public.events import dispatch_events
 
-        specs.append(
-            JobSpec(
-                name="extension-events",
-                fn=lambda: dispatch_events(registry.events),
-                trigger={"trigger": "interval", "minutes": 1},
-                period_hours=1 / 60,
-                catch_up=True,
-            )
+    specs.append(
+        JobSpec(
+            name="extension-events",
+            fn=lambda: dispatch_events(registry.events),
+            trigger={"trigger": "interval", "minutes": 1},
+            period_hours=1 / 60,
+            catch_up=True,
         )
+    )
     return tuple(specs)
 
 

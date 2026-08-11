@@ -18,7 +18,6 @@ from ..extensions.policy import (
 )
 from ..services import scope, work
 from .errors import PublicError
-from .events import EventActor, ResourceReference, emit_event
 
 
 @dataclass(frozen=True)
@@ -151,21 +150,13 @@ class WorkItems:
             ),
         )
         try:
-            with db.transaction():
-                result = work.create_task(
-                    **command.model_dump(),
-                    actor=context.subject.name,
-                    origin=context.origin,
-                )
-                emit_event(
-                    "skein.task.created",
-                    actor=EventActor(name=context.subject.name, kind=context.subject.kind),
-                    origin=context.origin,
-                    resource=ResourceReference(type="task", id=str(result["id"])),
-                    changes=tuple(command.model_fields_set) or ("task",),
-                    correlation_id=context.correlation_id,
-                    visibility=command.visibility,
-                )
+            result = work.create_task(
+                **command.model_dump(),
+                actor=context.subject.name,
+                origin=context.origin,
+                correlation_id=context.correlation_id,
+                event_actor_kind=context.subject.kind,
+            )
         except PublicError:
             raise
         except (ValueError, PermissionError) as exc:
@@ -188,23 +179,15 @@ class WorkItems:
         if not changes:
             raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
         try:
-            with db.transaction():
-                work.update_task(
-                    command.task_id,
-                    **changes,
-                    actor=context.subject.name,
-                    origin=context.origin,
-                    note=f" through {context.origin}",
-                )
-                emit_event(
-                    "skein.task.updated",
-                    actor=EventActor(name=context.subject.name, kind=context.subject.kind),
-                    origin=context.origin,
-                    resource=ResourceReference(type="task", id=str(command.task_id)),
-                    changes=tuple(changes),
-                    correlation_id=context.correlation_id,
-                    visibility=current.visibility,
-                )
+            work.update_task(
+                command.task_id,
+                **changes,
+                actor=context.subject.name,
+                origin=context.origin,
+                note=f" through {context.origin}",
+                correlation_id=context.correlation_id,
+                event_actor_kind=context.subject.kind,
+            )
         except PublicError:
             raise
         except db.NotFound as exc:

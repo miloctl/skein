@@ -303,6 +303,7 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Include SQL migrations in the core wheel | An installed core artifact must initialize its schema without a source checkout |
 | 2026-08-11 | Derive stable core REST policy actions from route templates | One route class covers current and future authenticated mutations without editing every handler |
 | 2026-08-11 | Keep auth and signed webhooks on specialized gates | These calls do not have a verified human subject for workplace policy |
+| 2026-08-11 | Emit task events inside the shared service transaction | REST, built-in tools, reviews, and extensions must produce the same event contract |
 
 ## Risks
 
@@ -403,6 +404,11 @@ Scores can increase only when core behavior and the reference extension use the 
   policy enforcement.
 - Added the extension-author guide, feature reference, on-demand roadmap, and
   workplace repository upgrade procedure.
+- Moved task event creation onto the shared service write path. Human REST,
+  built-in agent, review, and integration writes now emit the same safe event.
+- Added an always-present outbox delivery job. A deployment without subscribers
+  marks events delivered without calling external code.
+- Confirmed 48 focused event, reference, REST, scheduler, and agent-gate tests.
 
 ## Review findings
 
