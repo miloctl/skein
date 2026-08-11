@@ -61,8 +61,8 @@ atlas = SkeinModule(
     module_id="atlas.workplace",
     version="1.0.0",
     extension_api="1.0",
-    minimum_core="0.1.0",
-    maximum_core_exclusive="0.2.0",
+    minimum_core="0.2.0",
+    maximum_core_exclusive="0.3.0",
     routes=(RouteContribution("atlas.workplace.routes", router),),
 )
 
@@ -111,8 +111,13 @@ def sync(request: Request, subject: PolicySubjectDep):
     return run_sync()
 ```
 
-Skein applies the same composed policy to authenticated core REST mutations,
-agent tools, classified MCP tools, workflow steps, and capability responses.
+Skein applies the composed policy to all namespaced extension mutations. This
+check uses the stable REST action for the route. An extension route must also
+check its domain action before it starts work. The Atlas example checks
+`atlas.integration.sync` in addition to the route action.
+
+Skein also applies the same composed policy to core REST mutations, agent
+tools, classified MCP tools, workflow steps, jobs, and capability responses.
 Core REST actions use this stable form:
 
 ```text
@@ -157,18 +162,20 @@ provenance and writes a versioned outbox event in the same transaction for
 human, agent, and integration callers.
 
 ```python
-from app.extensions import PolicyEngine, PolicySubject
-from app.public import CommandContext, CreateTaskCommand, WorkItems
+from app.extensions import JobExecutionContext, PolicySubject
+from app.public import CommandContext, CreateTaskCommand
 
-work = WorkItems(PolicyEngine())
-task = work.create(
-    CreateTaskCommand(title="Map an external work item"),
-    CommandContext(
-        subject=PolicySubject("atlas-service", kind="service"),
-        actor="atlas-service",
-        origin="atlas-integration",
-    ),
-)
+def import_work(context: JobExecutionContext):
+    return context.work_items.create_task(
+        CreateTaskCommand(
+            title="Map an external work item",
+            idempotency_key="atlas-item:ATLAS-7",
+        ),
+        CommandContext(
+            subject=PolicySubject("atlas-service", kind="service"),
+            origin="atlas-integration",
+        ),
+    )
 ```
 
 Extensions receive typed views. They do not receive SQLite rows or a core
@@ -187,8 +194,14 @@ A tool contribution declares its full security contract:
 - Timeout and safe error codes
 - Receipt and provenance behavior
 
-Unknown effects fail closed. A write-capable MCP tool needs the same metadata.
-Skein omits unclassified MCP tools from the agent.
+Unknown effects fail closed. A review decision creates a durable proposal.
+Skein stores the executable arguments outside the review queue. A qualified
+human can approve the proposal and run the exact saved call.
+
+A write-capable MCP tool needs the same metadata. Skein omits unclassified
+MCP tools from the agent. A timed-out synchronous write has the status
+`completion_unknown`. A worker thread can finish after the deadline. Make
+write handlers idempotent and use the supplied stable identifiers.
 
 A specialist contribution contains its prompt, context sources, tools, and
 required capabilities. The Chief of Staff reads the registry. A private
@@ -244,9 +257,13 @@ Version 1 playbooks support four workflow step types:
 Workflow actions declare schemas, effect, risk, policy action, timeout, and
 safe error codes. A playbook cannot call arbitrary Python or an arbitrary URL.
 
-The version 1 engine stops at a review boundary. It does not persist and resume
-a general workflow run. Keep long-lived orchestration in an extension service
-until a real process requires a durable core workflow state machine.
+The REST playbook path stores a review proposal before it creates project
+work. A qualified human can approve it. Skein then runs the exact saved
+playbook request and records the result. A second review step creates a new
+proposal.
+
+Version 1 does not support timers, parallel branches, or a general workflow
+state machine. Keep these processes in an extension service.
 
 ## Validate content overlays
 
@@ -284,8 +301,8 @@ const extension: FrontendExtension = {
   id: "atlas.workplace",
   version: "1.0.0",
   extensionApi: FRONTEND_EXTENSION_API,
-  minimumCore: "0.1.0",
-  maximumCoreExclusive: "0.2.0",
+  minimumCore: "0.2.0",
+  maximumCoreExclusive: "0.3.0",
   navigation: [],
   dashboardCards: [],
 };
@@ -370,10 +387,13 @@ Run Skein's local reference rehearsal with:
 
 ```sh
 scripts/reference-extension-contract.sh
+scripts/reference-frontend-contract.sh
 ```
 
-The script builds and installs separate wheels. It proves that the extension
-depends on released artifacts instead of source patches.
+The backend script builds and installs separate wheels. It starts the installed
+application, then moves the unchanged private package from core `0.2.0` to a
+second compatible `0.2.1` artifact. The frontend script packs the public and
+private packages and imports them in a clean consumer directory.
 
 ## Upgrade a workplace deployment
 

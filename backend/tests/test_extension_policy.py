@@ -2,13 +2,16 @@
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from typing import ClassVar
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from app.extensions import (
+    AppSettings,
     ContextContribution,
     IdentityContribution,
     PolicyContribution,
@@ -21,6 +24,7 @@ from app.extensions import (
     SpecialistContribution,
     ToolContribution,
 )
+from app.extensions.agents import missing_specialist_capabilities
 from app.extensions.policy import reset_policy_engine, set_policy_engine
 from app.extensions.registry import ExtensionRegistry
 from app.extensions.tools import ToolCallContext, execute_tool
@@ -69,6 +73,9 @@ def _workplace_rule(request: PolicyInput):
 
 
 def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule:
+    def tool_handler(_context, request: SyncIn):
+        return handler(request.external_id)
+
     return SkeinModule(
         module_id="acme.workplace",
         version="1.0.0",
@@ -91,7 +98,7 @@ def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule
                 version="1.0.0",
                 model_name="acme_atlas_update",
                 description="Update one Atlas work item through the governed adapter.",
-                handler=handler,
+                handler=tool_handler,
                 input_schema=SyncIn,
                 output_schema=SyncOut,
                 effect="write",
@@ -157,6 +164,65 @@ def test_governed_tool_does_not_run_when_policy_requires_review(fresh_db):
     assert calls == []
 
 
+def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
+    from app.extensions.tools import execute_reviewed_tool
+    from app.services import review, users
+
+    calls: list[str] = []
+
+    def handler(external_id: str):
+        calls.append(external_id)
+        return {"updated": external_id}
+
+    registry = ExtensionRegistry.build((_module(handler),))
+    result = asyncio.run(
+        execute_tool(
+            registry.tool("acme.workplace.atlas-update"),
+            {"external_id": "A-7"},
+            ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    assert result.status == "review_required"
+    assert result.review_id > 0
+    assert calls == []
+
+    users.ensure_user("manager")
+
+    def resume(invocation, _change_id):
+        execution = asyncio.run(
+            execute_reviewed_tool(
+                registry.tool("acme.workplace.atlas-update"),
+                invocation,
+                registry.policy_engine,
+            )
+        )
+        return execution.model_dump(mode="json")
+
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.approve_change(
+            result.review_id,
+            actor="manager",
+            extension_executor=resume,
+        )
+    approved = review.approve_change(
+        result.review_id,
+        actor="manager",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("acme.approve-atlas",),
+        extension_executor=resume,
+    )
+    assert approved["result"]["status"] == "completed"
+    assert approved["result"]["output"] == {"updated": "A-7"}
+    assert calls == ["A-7"]
+    stored = fresh_db.query_one(
+        "SELECT status, result FROM extension_review_invocations WHERE change_id = ?",
+        (result.review_id,),
+    )
+    assert stored["status"] == "approved"
+    assert json.loads(stored["result"])["status"] == "completed"
+
+
 def test_governed_tool_checks_agent_capability_input_and_output(fresh_db):
     registry = ExtensionRegistry.build((_module(),))
     tool = registry.tool("acme.workplace.atlas-update")
@@ -204,6 +270,40 @@ def test_unknown_tool_effect_is_denied_by_the_core_policy(fresh_db):
     assert result.error_code == "policy_denied"
 
 
+def test_write_timeout_reports_unknown_completion_and_does_not_claim_cancellation(fresh_db):
+    calls: list[str] = []
+    module = _module()
+
+    def slow(_context, request: SyncIn):
+        time.sleep(0.08)
+        calls.append(request.external_id)
+        return {"updated": request.external_id}
+
+    contribution = replace(
+        module.tools[0],
+        handler=slow,
+        risk="low",
+        policy_action="atlas.background.write",
+        timeout_seconds=0.01,
+    )
+    specialist = replace(module.specialists[0], tools=(contribution.name,))
+    registry = ExtensionRegistry.build(
+        (replace(module, policies=(), tools=(contribution,), specialists=(specialist,)),)
+    )
+    result = asyncio.run(
+        execute_tool(
+            contribution,
+            {"external_id": "A-LATE"},
+            ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    assert result.status == "completion_unknown"
+    assert result.error_code == "deadline_exceeded"
+    time.sleep(0.1)
+    assert calls == ["A-LATE"]
+
+
 def test_workplace_policy_also_narrows_the_existing_agent_gate(fresh_db):
     registry = ExtensionRegistry.build((_module(),))
     token = set_policy_engine(registry.policy_engine)
@@ -229,6 +329,42 @@ def test_capability_endpoint_uses_the_composed_identity_and_policy(fresh_db):
     body = response.json()
     assert body["roles"] == ["manager"]
     assert body["actions"]["atlas.update"]["effect"] == "review"
+
+
+def test_identity_contributions_aggregate_roles_and_capabilities():
+    first = replace(
+        _module(),
+        module_id="acme.first",
+        policies=(),
+        identities=(
+            IdentityContribution(
+                "acme.first.identity",
+                lambda _name, _groups, _strong: {
+                    "roles": ("manager",),
+                    "capabilities": ("first.use",),
+                },
+            ),
+        ),
+        tools=(),
+        contexts=(),
+        specialists=(),
+    )
+    second = replace(
+        first,
+        module_id="acme.second",
+        identities=(
+            IdentityContribution(
+                "acme.second.identity",
+                lambda _name, _groups, _strong: {
+                    "roles": ("auditor",),
+                    "capabilities": ("second.use",),
+                },
+            ),
+        ),
+    )
+    attributes = ExtensionRegistry.build((first, second)).identity_attributes("mira", (), True)
+    assert attributes["roles"] == ("manager", "auditor")
+    assert attributes["capabilities"] == ("first.use", "second.use")
 
 
 def _rest_rule(request: PolicyInput):
@@ -283,6 +419,34 @@ def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
     }
 
 
+def test_contributed_mutation_routes_receive_the_composed_policy(fresh_db):
+    from fastapi import APIRouter
+
+    from app.extensions import RouteContribution
+
+    router = APIRouter(prefix="/api/extensions/acme.workplace")
+
+    @router.post("/unguarded")
+    def unguarded():
+        return {"unsafe": True}
+
+    def deny_route(request: PolicyInput):
+        if request.action == "skein.rest.post.extensions.acme.workplace.unguarded":
+            return PolicyDecision(PolicyEffect.DENY, ("This route is disabled.",))
+        return None
+
+    module = replace(
+        _module(),
+        routes=(RouteContribution("acme.workplace.routes", router),),
+        policies=(PolicyContribution("acme.workplace.deny-route", deny_route),),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,)), headers={"X-User": "mira"}) as client:
+        response = client.post("/api/extensions/acme.workplace/unguarded")
+    assert response.status_code == 403
+    assert response.json()["code"] == "POLICY_DENIED"
+
+
 class _FakeModel:
     stateful = False
 
@@ -320,6 +484,39 @@ def test_specialist_and_governed_tool_join_the_real_agent_composition(fresh_db, 
     chief = team_agent.build_agent("acme-chief", user="manager", extensions=registry)
     assert "acme_atlas_update" in chief.tool_names
     assert "`acme.workplace.delivery`" in chief.system_prompt
+    assert missing_specialist_capabilities(
+        registry,
+        "acme.workplace.delivery",
+        PolicySubject("manager"),
+    ) == ("acme.use-delivery-specialist",)
+    assert (
+        missing_specialist_capabilities(
+            registry,
+            "acme.workplace.delivery",
+            PolicySubject("manager", capabilities=("acme.use-delivery-specialist",)),
+        )
+        == ()
+    )
+
+
+def test_contributed_specialist_identity_cannot_be_claimed_by_a_human(fresh_db):
+    from app.services.users import ensure_user
+
+    ensure_user("acme.workplace.delivery", kind="human")
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with (
+        pytest.raises(RuntimeError, match="already owned by a human"),
+        TestClient(create_app(settings, (_module(),))),
+    ):
+        pass
+
+
+def test_contributed_tools_cannot_shadow_a_core_model_tool():
+    module = _module()
+    collision = replace(module.tools[0], model_name="create_task")
+    specialist = replace(module.specialists[0], tools=(collision.name,))
+    with pytest.raises(ValueError, match="collides with core"):
+        create_app(modules=(replace(module, tools=(collision,), specialists=(specialist,)),))
 
 
 def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db):
@@ -331,12 +528,15 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db):
     governed = GovernedMCPTool(
         remote,
         MCPToolMetadata(
+            version="1.0.0",
             effect="write",
             risk="high",
             policy_action="atlas.update",
             allowed_agents=("acme.workplace.delivery",),
             timeout_seconds=1,
             error_codes=("remote_error",),
+            required_capabilities=(),
+            output_schema={"type": "object"},
             receipt="required",
             provenance="service",
         ),
@@ -360,3 +560,62 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db):
         reset_policy_engine(policy_token)
     assert events[-1]["status"] == "error"
     assert remote.called is False
+
+
+def test_successful_mcp_write_records_a_durable_receipt(fresh_db):
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, MCPToolMetadata
+    from app.extensions.policy import (
+        reset_policy_subject,
+        set_policy_subject,
+    )
+
+    remote = _RemoteTool()
+    governed = GovernedMCPTool(
+        remote,
+        MCPToolMetadata(
+            version="1.0.0",
+            effect="write",
+            risk="low",
+            policy_action="atlas.remote.write",
+            allowed_agents=("agent",),
+            required_capabilities=("atlas.remote",),
+            output_schema={
+                "type": "object",
+                "required": ["status"],
+                "properties": {"status": {"type": "string"}},
+            },
+            timeout_seconds=1,
+            error_codes=("remote_error",),
+            receipt="required",
+            provenance="service",
+        ),
+    )
+    registry = ExtensionRegistry.build(())
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("mira", capabilities=("atlas.remote",)))
+    agent_token = set_agent_identity("agent")
+
+    async def run():
+        return [
+            event
+            async for event in governed.stream(
+                {"toolUseId": "mcp-2", "name": "atlas_remote", "input": {}}, {}
+            )
+        ]
+
+    try:
+        events = asyncio.run(run())
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert events[-1]["status"] == "success"
+    assert remote.called is True
+    assert fresh_db.query_one(
+        "SELECT actor, action, detail FROM activity WHERE action = 'external_tool'"
+    ) == {
+        "actor": "agent",
+        "action": "external_tool",
+        "detail": "atlas_remote completed",
+    }

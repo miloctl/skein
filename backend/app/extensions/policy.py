@@ -111,7 +111,6 @@ class CorePolicy:
             return PolicyDecision(
                 PolicyEffect.REVIEW,
                 ("A human review is required.",),
-                approver_capabilities=("skein.review",),
             )
         obligations = ("notify-team",) if level == "notify" else ()
         return PolicyDecision(PolicyEffect.PERMIT, obligations=obligations)

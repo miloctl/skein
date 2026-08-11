@@ -791,6 +791,23 @@ def build_agent(
                 {"error": f"no specialist by that name on the bench — available: {roster}"}
             )
             return
+        if extensions is not None:
+            extension = next(
+                (item for item in extensions.specialists if item.name == slug),
+                None,
+            )
+            if extension is not None:
+                from ..extensions.agents import missing_specialist_capabilities
+                from ..extensions.policy import current_policy_subject
+
+                missing = missing_specialist_capabilities(
+                    extensions,
+                    extension.name,
+                    current_policy_subject(),
+                )
+                if missing:
+                    yield json.dumps({"error": "this specialist needs a workplace capability"})
+                    return
         try:
             # One slot per consult, charged where the spend happens. The flock
             # pre-charges instead (routes/chat.py) because its member count is

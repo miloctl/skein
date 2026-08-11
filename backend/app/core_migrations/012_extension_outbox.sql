@@ -27,3 +27,15 @@ CREATE TABLE extension_event_deliveries (
     delivered_at TEXT NOT NULL,
     PRIMARY KEY (event_id, subscriber)
 );
+
+-- Retry state is per subscriber. One tolerant subscriber must not extend a
+-- stricter subscriber's retry budget.
+CREATE TABLE extension_event_attempts (
+    event_id TEXT NOT NULL REFERENCES extension_outbox(event_id) ON DELETE CASCADE,
+    subscriber TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dead')),
+    last_error_code TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (event_id, subscriber)
+);

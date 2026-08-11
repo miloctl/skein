@@ -9,14 +9,8 @@ const nextConfig: NextConfig = {
   // copies from and `node server.js` expects it; and Turbopack widens module
   // resolution and file watching to that parent. Pinning the root keeps both
   // fixed to this directory no matter what sits above it.
-  turbopack: {
-    root: __dirname,
-    // Workplace packages import this public name. Resolve it for imports that
-    // originate in node_modules as well as for core source imports.
-    resolveAlias: {
-      "@skein/extension-api": "./lib/extensions/public.tsx",
-    },
-  },
+  turbopack: { root: __dirname },
+  transpilePackages: ["@skein/extension-api"],
   // standalone is the minimal server bundle the Docker image copies out of
   // .next/standalone — and `next start` refuses to serve it, warning on every
   // boot. Only the e2e build sets NEXT_DIST_DIR, and it is the only build that

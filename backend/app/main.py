@@ -2,10 +2,11 @@ import logging
 import sqlite3
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from functools import partial
 from inspect import isawaitable
 from typing import Any, cast
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -14,8 +15,15 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
 from .extensions import AppSettings, ExtensionRegistry, SkeinModule
-from .extensions.contracts import LifecycleContext, LifecycleContribution
+from .extensions.contracts import (
+    JobContribution,
+    JobExecutionContext,
+    LifecycleContext,
+    LifecycleContribution,
+)
 from .extensions.core import core_module
+from .extensions.fastapi import enforce_mutation_policy
+from .extensions.registry import validate_core_tool_names
 from .public.errors import PublicError
 from .services import handoff
 from .services.activity import chain_health
@@ -31,7 +39,16 @@ logging.basicConfig(
 log = logging.getLogger("skein")
 
 
-def _job_specs(registry: ExtensionRegistry) -> tuple[JobSpec, ...]:
+def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobSpec, ...]:
+    from .public.work import WorkItems
+
+    execution = JobExecutionContext(
+        settings, registry.policy_engine, WorkItems(registry.policy_engine)
+    )
+
+    def invoke(contribution: JobContribution) -> Any:
+        return contribution.handler(execution)
+
     specs = []
     for contribution in registry.jobs:
         name = contribution.name
@@ -40,18 +57,21 @@ def _job_specs(registry: ExtensionRegistry) -> tuple[JobSpec, ...]:
         specs.append(
             JobSpec(
                 name=name,
-                fn=contribution.handler,
+                fn=partial(invoke, contribution),
                 trigger=dict(contribution.trigger),
                 period_hours=contribution.period_hours,
                 catch_up=contribution.catch_up,
             )
         )
+    from .extensions.contracts import EventExecutionContext
     from .public.events import dispatch_events
+
+    event_context = EventExecutionContext(execution.policy, execution.work_items)
 
     specs.append(
         JobSpec(
             name="extension-events",
-            fn=lambda: dispatch_events(registry.events),
+            fn=lambda: dispatch_events(registry.events, event_context),
             trigger={"trigger": "interval", "minutes": 1},
             period_hours=1 / 60,
             catch_up=True,
@@ -114,7 +134,7 @@ async def _start_extensions(
 async def lifespan(app: FastAPI):
     settings: AppSettings = app.state.skein_settings
     registry: ExtensionRegistry = app.state.skein_registry
-    specs = _job_specs(registry)
+    specs = _job_specs(registry, settings)
     db.init_db()  # a failed migration MUST abort startup — everything else must not
     for contribution in registry.migrations:
         contribution.store.migrate(contribution.migrations)
@@ -134,6 +154,13 @@ async def lifespan(app: FastAPI):
         # a legacy human row named `Agent` was legal before the collision
         # guard; it must not brick a boot nobody can reach the rename route on
         log.error("the built-in 'agent' identity is unavailable: %s", exc)
+    for specialist in registry.specialists:
+        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (specialist.name,))
+        if existing is not None and existing["kind"] != "agent":
+            raise RuntimeError(
+                f"specialist identity {specialist.name!r} is already owned by a human"
+            )
+        ensure_user(specialist.name, kind="agent")
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing
@@ -307,10 +334,13 @@ async def perimeter_auth(request: Request, call_next):
         or request.url.path.startswith(open_paths)
     ):
         return await call_next(request)
-    if config.AUTH_ERROR:
+    settings: AppSettings = request.app.state.skein_settings
+    if not request.app.state.skein_explicit_settings:
+        settings = AppSettings.from_config()
+    if settings.auth_error:
         # fail CLOSED: a typo'd mode must not silently open the deployment
-        return JSONResponse(status_code=503, content={"detail": config.AUTH_ERROR})
-    if config.AUTH_MODE == "trusted-header" and not config.API_TOKEN:
+        return JSONResponse(status_code=503, content={"detail": settings.auth_error})
+    if settings.auth_mode == "trusted-header" and not settings.api_token:
         return await call_next(request)
     from .routes.deps import (
         INACTIVE,
@@ -331,7 +361,7 @@ async def perimeter_auth(request: Request, call_next):
     # order is safe either way — this door only decides pass-or-refuse, and a
     # key that is also the token passes on both branches. routes/deps.py has
     # to check it AFTER verify_key, because it decides identity as well.
-    if is_shared_token(auth):
+    if is_shared_token(auth, request):
         return await call_next(request)
     if auth.startswith(f"Bearer {PREFIX}"):
         # verify_key and is_agent hit SQLite; oidc.validate does network I/O
@@ -359,9 +389,9 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
         request.state.auth_key_owner = owner
         return await call_next(request)
-    if config.AUTH_MODE == "trusted-header":
+    if settings.auth_mode == "trusted-header":
         return JSONResponse(status_code=401, content={"detail": "invalid API token"})
-    if config.AUTH_MODE == "oidc" and auth.startswith("Bearer "):
+    if settings.auth_mode == "oidc" and auth.startswith("Bearer "):
         from . import oidc
 
         try:
@@ -385,7 +415,7 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
         request.state.auth_claims = claims
         return await call_next(request)
-    detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN
+    detail = NEED_KEY if settings.auth_mode == "api-key" else NEED_LOGIN
     return JSONResponse(status_code=401, content={"detail": detail})
 
 
@@ -521,11 +551,12 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
-def health(specs: Sequence[JobSpec] = JOBS):
+def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None):
+    selected = settings or AppSettings.from_config()
     return {
         "ok": True,
-        "auth_mode": config.AUTH_MODE,
-        "auth_error": config.AUTH_ERROR,
+        "auth_mode": selected.auth_mode,
+        "auth_error": selected.auth_error,
         "provider": config.MODEL_PROVIDER,
         # the EFFECTIVE model, through the service: with a pick in force,
         # config.MODEL_ID names a model the deployment is not running
@@ -545,7 +576,7 @@ def health(specs: Sequence[JobSpec] = JOBS):
         # the zone the scheduler and every "today" run in, and the fault when
         # the configured name degraded to UTC — an operator whose rituals fire
         # at the wrong hour reads it here first
-        "timezone": config.TZ_NAME,
+        "timezone": selected.timezone,
         "timezone_error": config.TZ_ERROR,
         "jobs": job_health(specs),
         "activity_chain": chain_health(),
@@ -561,9 +592,21 @@ def create_app(
     The caller supplies modules explicitly. Installed packages are never
     scanned or executed automatically.
     """
+    explicit_settings = settings is not None
     selected_settings = settings or AppSettings.from_config()
     registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
-    specs = _job_specs(registry)
+    from .tools import ALL_TOOLS
+
+    validate_core_tool_names(
+        registry,
+        {
+            str(getattr(item, "tool_name", ""))
+            for item in ALL_TOOLS
+            if getattr(item, "tool_name", "")
+        }
+        | {"plan_project"},
+    )
+    specs = _job_specs(registry, selected_settings)
 
     # /docs, /redoc and /openapi.json sit outside /api, so the perimeter
     # middleware cannot protect them. Locked modes do not expose the map.
@@ -576,6 +619,7 @@ def create_app(
         openapi_url="/openapi.json" if selected_settings.docs_enabled else None,
     )
     application.state.skein_settings = selected_settings
+    application.state.skein_explicit_settings = explicit_settings
     application.state.skein_registry = registry
 
     application.middleware("http")(perimeter_auth)
@@ -604,8 +648,12 @@ def create_app(
     application.add_exception_handler(RequestValidationError, cast(Any, validation_error_handler))
 
     for contribution in registry.routes:
-        application.include_router(contribution.router)
-    application.add_api_route("/health", lambda: health(specs), methods=["GET"])
+        dependencies = None
+        if not contribution.name.startswith("skein.core."):
+            dependencies = [Depends(enforce_mutation_policy)]
+        application.include_router(contribution.router, dependencies=dependencies)
+    health_settings = selected_settings if explicit_settings else None
+    application.add_api_route("/health", lambda: health(specs, health_settings), methods=["GET"])
     return application
 
 

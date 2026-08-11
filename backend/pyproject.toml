@@ -1,6 +1,6 @@
 [project]
 name = "skein"
-version = "0.1.0"
+version = "0.2.0"
 description = "Skein — team coordination platform for humans + AI agents, built on the Strands Agents SDK"
 # LICENSE/NOTICE are copies of the repo-root originals: PEP 639 forbids
 # parent-directory paths in license-files, and setuptools silently drops
@@ -43,10 +43,17 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = { find = { include = ["app*", "migrations*"] } }
+packages = { find = { include = ["app*"] } }
 
 [tool.setuptools.package-data]
-migrations = ["*.sql"]
+"app.core_migrations" = ["*.sql"]
+
+[tool.setuptools.data-files]
+"skein_stock/fieldguide" = ["fieldguide/*.yaml"]
+"skein_stock/playbooks" = ["playbooks/*.yaml"]
+"skein_stock/personas" = ["personas/*.md", "personas/*.json"]
+"skein_stock/flocks" = ["flocks/*.yaml"]
+"skein_stock/schemas" = ["schemas/*.json"]
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -85,6 +92,7 @@ ignore_names = [
     # Public extension-contract fields read by workplace policy rules and by
     # Pydantic serialization. Core does not need to branch on each field.
     "tool_risk", "error_code", "policy_effect", "created_by", "updated_at", "checkpoint",
+    "review_id",
     # AgentTool protocol properties called by the Strands registry.
     "tool_type", "supports_hot_reload",
 ]

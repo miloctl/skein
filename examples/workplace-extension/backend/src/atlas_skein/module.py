@@ -17,8 +17,6 @@ from app.extensions import (
     JobContribution,
     MigrationContribution,
     PolicyContribution,
-    PolicyEffect,
-    PolicyEngine,
     PolicyInput,
     PolicyResource,
     PolicySubjectDep,
@@ -27,8 +25,9 @@ from app.extensions import (
     SpecialistContribution,
     ToolContribution,
     WorkflowActionContribution,
+    enforce_decision,
 )
-from app.public import PublicError, WorkItems
+from app.public import WorkItems
 
 from .integration import AtlasClient, AtlasIntegration, MemoryAtlasClient
 from .policy import atlas_identity, atlas_policy
@@ -62,8 +61,7 @@ def atlas_module(
     client: AtlasClient | None = None,
 ) -> SkeinModule:
     store = ExtensionStore(settings.store_path)
-    policy = PolicyEngine((atlas_policy,))
-    integration = AtlasIntegration(client or MemoryAtlasClient(), store, WorkItems(policy))
+    integration = AtlasIntegration(client or MemoryAtlasClient(), store)
     router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
     def require(request: Request, subject, action: str) -> None:
@@ -75,25 +73,21 @@ def atlas_module(
                 origin="human",
             )
         )
-        if decision.effect != PolicyEffect.PERMIT:
-            raise PublicError(
-                "POLICY_DENIED",
-                "The policy denied this Atlas action.",
-                status_code=403,
-            )
+        enforce_decision(decision)
 
     @router.post("/sync", response_model=SyncOut)
     def sync(request: Request, subject: PolicySubjectDep):
         require(request, subject, "atlas.integration.sync")
-        return integration.sync()
+        policy = request.app.state.skein_registry.policy_engine
+        return integration.sync(WorkItems(policy))
 
     @router.get("/metrics")
     def metrics(request: Request, subject: PolicySubjectDep):
         require(request, subject, "atlas.dashboard.view")
         return integration.metrics()
 
-    def notify(channel: str, message: str):
-        del channel, message
+    def notify(_context, request: NotifyIn):
+        del request
         return {"accepted": True}
 
     return SkeinModule(
@@ -103,7 +97,7 @@ def atlas_module(
         jobs=(
             JobContribution(
                 "atlas.workplace.sync",
-                integration.sync,
+                lambda context: integration.sync(context.work_items),
                 {"trigger": "interval", "minutes": 15},
                 period_hours=0.25,
             ),
@@ -122,7 +116,7 @@ def atlas_module(
                 version="1.0.0",
                 model_name="atlas_sync",
                 description="Synchronize work items with the fictional Atlas system.",
-                handler=lambda full=False: integration.sync(),
+                handler=lambda context, _request: integration.sync(context.work_items),
                 input_schema=SyncIn,
                 output_schema=SyncOut,
                 effect="write",
@@ -149,7 +143,7 @@ def atlas_module(
         events=(
             EventContribution(
                 "atlas.workplace.task-events",
-                integration.deliver_task_event,
+                lambda event, context: integration.deliver_task_event(event, context.work_items),
                 ("skein.task.updated",),
             ),
         ),

@@ -3,6 +3,7 @@ approve. Approval applies the payload through the same service registry the
 rest of the platform uses, stamped origin='agent_verified'."""
 
 import json
+from collections.abc import Callable
 
 from .. import db
 from . import lexicon, scope
@@ -102,11 +103,16 @@ def propose_change(
     origin: str = "agent",
     notify_team: bool = True,
     requested_by: str = "",
+    policy_obligations: tuple[str, ...] = (),
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
 ) -> dict:
     reg = _registry()
-    if entity not in reg:
+    extension_entity = (entity, action) in lexicon.REVIEW_ONLY
+    if entity not in reg and not extension_entity:
         raise ValueError(f"unknown entity — one of {sorted(reg)}")
-    if action not in ("create", "update") or action not in reg[entity]:
+    supported = action == "create" if extension_entity else action in reg[entity]
+    if action not in ("create", "update") or not supported:
         raise ValueError(f"unsupported action for {entity} — create or update")
     if action == "update" and not entity_id:
         raise ValueError("entity_id required for updates")
@@ -122,8 +128,9 @@ def propose_change(
         raise ValueError(refusal)
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
-        " proposed_by, origin, created_at, requested_by)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " proposed_by, origin, created_at, requested_by, policy_obligations,"
+        " approver_groups, approver_capabilities)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entity,
             entity_id or None,
@@ -134,6 +141,9 @@ def propose_change(
             origin,
             db.now(),
             requested_by or None,
+            json.dumps(tuple(dict.fromkeys(policy_obligations))),
+            json.dumps(tuple(dict.fromkeys(approver_groups))),
+            json.dumps(tuple(dict.fromkeys(approver_capabilities))),
         ),
     )
     db.log_activity(
@@ -153,6 +163,46 @@ def propose_change(
     return {"id": pid, "status": "pending"}
 
 
+def propose_extension_invocation(
+    kind: str,
+    public_payload: dict,
+    invocation: dict,
+    *,
+    summary: str,
+    actor: str,
+    requested_by: str,
+    policy_obligations: tuple[str, ...] = (),
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
+) -> dict:
+    """Create one review and keep its executable arguments out of the queue."""
+    if kind not in ("tool", "workflow"):
+        raise ValueError("extension review kind must be tool or workflow")
+    stored_invocation = {**invocation, "kind": kind}
+    encoded = json.dumps(stored_invocation)
+    if len(encoded) > 20_000:
+        raise ValueError("reviewed invocation must be under 20k characters")
+    with db.transaction():
+        proposal = propose_change(
+            f"extension_{kind}",
+            "create",
+            public_payload,
+            summary,
+            actor=actor,
+            origin="agent" if kind == "tool" else "human",
+            requested_by=requested_by,
+            policy_obligations=policy_obligations,
+            approver_groups=approver_groups,
+            approver_capabilities=approver_capabilities,
+        )
+        db.execute(
+            "INSERT INTO extension_review_invocations"
+            " (change_id, kind, invocation) VALUES (?, ?, ?)",
+            (proposal["id"], kind, encoded),
+        )
+    return proposal
+
+
 def _check_reviewer(actor: str) -> None:
     """Verdicts are human work. No tool exposes approve/reject, but the REST
     path resolves any X-User — an agent identity must be refused here too."""
@@ -160,6 +210,19 @@ def _check_reviewer(actor: str) -> None:
 
     if is_agent(actor):
         raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
+
+
+def _check_policy_approver(
+    change: dict,
+    groups: tuple[str, ...],
+    capabilities: tuple[str, ...],
+) -> None:
+    required_groups = set(json.loads(change.get("approver_groups") or "[]"))
+    required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
+    missing_groups = required_groups - set(groups)
+    missing_capabilities = required_capabilities - set(capabilities)
+    if missing_groups or missing_capabilities:
+        raise PermissionError("This approval requires the configured workplace approver.")
 
 
 def _sponsor_of(change: dict) -> str:
@@ -257,6 +320,9 @@ def approve_change(
     actor: str = "system",
     strong: bool = False,
     viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    extension_executor: Callable[[dict, int], dict] | None = None,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
@@ -267,6 +333,7 @@ def approve_change(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    _check_policy_approver(change, reviewer_groups, reviewer_capabilities)
     # the direct authority endpoint requires a personal key; the proposal
     # path must not be the weaker door to the same lever
     if change["entity"] == "authority" and not strong:
@@ -276,25 +343,58 @@ def approve_change(
 
     # resolve the handler BEFORE claiming — a stale entity/action must not
     # leave the row marked approved with nothing applied
-    try:
-        fn = _registry()[change["entity"]][change["action"]]
-    except KeyError as exc:
-        raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
+    is_extension = (change["entity"], change["action"]) in lexicon.REVIEW_ONLY
+    executor = extension_executor
+    if is_extension:
+        if executor is None:
+            raise ValueError("this extension review needs the composed application executor")
+        stored = db.query_one(
+            "SELECT * FROM extension_review_invocations WHERE change_id = ?",
+            (change_id,),
+        )
+        if stored is None:
+            raise ValueError("the reviewed extension invocation is missing")
+        invocation = json.loads(stored["invocation"])
+        fn = None
+    else:
+        try:
+            fn = _registry()[change["entity"]][change["action"]]
+        except KeyError as exc:
+            raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
     payload = json.loads(change["payload"])
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "approved", note, actor, strong, override=bool(sponsor))
     try:
-        # compound applies (playbook, weekly_plan) land atomically or not at
-        # all — a failed apply rolls back, so pending is safe for EVERY entity
-        with db.transaction():
-            # authorship stays with the proposer: created_by must say who
-            # wrote it, not who clicked approve (the verdict is recorded on
-            # the pending_changes row + activity)
-            author = change["proposed_by"] or actor
-            if change["action"] == "update":
-                result = fn(change["entity_id"], **payload, actor=author, origin="agent_verified")
-            else:
-                result = fn(**payload, actor=author, origin="agent_verified")
+        if is_extension:
+            if executor is None:
+                raise ValueError("the extension review executor is missing")
+            result = executor(invocation, change_id)
+            db.execute(
+                "UPDATE extension_review_invocations SET status = 'approved', result = ?,"
+                " error_code = ?, executed_at = ? WHERE change_id = ?",
+                (
+                    json.dumps(result),
+                    str(result.get("error_code") or ""),
+                    db.now(),
+                    change_id,
+                ),
+            )
+        else:
+            # compound applies (playbook, weekly_plan) land atomically or not at
+            # all — a failed apply rolls back, so pending is safe for core entities
+            with db.transaction():
+                if fn is None:
+                    raise ValueError("the core review handler is missing")
+                # authorship stays with the proposer: created_by must say who
+                # wrote it, not who clicked approve (the verdict is recorded on
+                # the pending_changes row + activity)
+                author = change["proposed_by"] or actor
+                if change["action"] == "update":
+                    result = fn(
+                        change["entity_id"], **payload, actor=author, origin="agent_verified"
+                    )
+                else:
+                    result = fn(**payload, actor=author, origin="agent_verified")
     except db.NotFound as exc:
         # the proposal's own target vanished (event cancelled via REST, row
         # hard-deleted): re-approving can never succeed, so a pending reset
@@ -341,6 +441,12 @@ def approve_change(
             " review_note = ? WHERE id = ?",
             (f"apply failed: {exc}" + (f" (reviewer note: {note})" if note else ""), change_id),
         )
+        if is_extension:
+            db.execute(
+                "UPDATE extension_review_invocations SET status = 'pending',"
+                " error_code = 'EXECUTION_FAILED' WHERE change_id = ?",
+                (change_id,),
+            )
         raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
 
     db.execute(
@@ -387,6 +493,12 @@ def reject_change(
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "rejected", note, actor, strong, override=bool(sponsor))
+    if (change["entity"], change["action"]) in lexicon.REVIEW_ONLY:
+        db.execute(
+            "UPDATE extension_review_invocations SET status = 'rejected', executed_at = ?"
+            " WHERE change_id = ?",
+            (db.now(), change_id),
+        )
     db.log_activity(
         actor,
         "reject_change",
@@ -688,6 +800,9 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
     record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
     for r in rows:
         r["payload"] = json.loads(r["payload"])
+        r["policy_obligations"] = json.loads(r.get("policy_obligations") or "[]")
+        r["approver_groups"] = json.loads(r.get("approver_groups") or "[]")
+        r["approver_capabilities"] = json.loads(r.get("approver_capabilities") or "[]")
         # what this proposal is CALLED, resolved here so the header, the
         # checkbox label and the notification cannot drift apart
         r["label"] = lexicon.phrase(r["entity"], r["action"])

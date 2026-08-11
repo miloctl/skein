@@ -74,7 +74,15 @@ def _refuse_inactive(name: str) -> None:
         raise HTTPException(status_code=403, detail=INACTIVE)
 
 
-def is_shared_token(authorization: str) -> bool:
+def _app_setting(request: Request | None, name: str, fallback):
+    settings = getattr(getattr(request, "app", None), "state", None)
+    if not getattr(settings, "skein_explicit_settings", False):
+        return fallback
+    snapshot = getattr(settings, "skein_settings", None)
+    return getattr(snapshot, name, fallback)
+
+
+def is_shared_token(authorization: str, request: Request | None = None) -> bool:
     """The deployment-wide SKEIN_API_TOKEN. It proves membership in the
     deployment, never identity, so a caller holding it stays weak.
 
@@ -85,10 +93,12 @@ def is_shared_token(authorization: str) -> bool:
     this rather than restating the comparison, so the two doors cannot
     disagree about the same header.
     """
-    if config.AUTH_MODE != "trusted-header" or not config.API_TOKEN:
+    auth_mode = _app_setting(request, "auth_mode", config.AUTH_MODE)
+    api_token = _app_setting(request, "api_token", config.API_TOKEN)
+    if auth_mode != "trusted-header" or not api_token:
         return False
     return hmac.compare_digest(
-        authorization.encode("utf-8", "replace"), f"Bearer {config.API_TOKEN}".encode()
+        authorization.encode("utf-8", "replace"), f"Bearer {api_token}".encode()
     )
 
 
@@ -134,8 +144,10 @@ def _resolve(
     fail closed, unlike the model-provider faults that degrade to mock,
     because "degrade" for auth means "open".
     """
-    if config.AUTH_ERROR:
-        raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
+    auth_error = _app_setting(request, "auth_error", config.AUTH_ERROR)
+    auth_mode = _app_setting(request, "auth_mode", config.AUTH_MODE)
+    if auth_error:
+        raise HTTPException(status_code=503, detail=auth_error)
     if authorization.startswith("Bearer ") and authorization[7:].startswith(PREFIX):
         owner = _cached(request, "auth_key_owner") or verify_key(authorization[7:])
         # A SKEIN_API_TOKEN that begins with sk-skein- reaches this door and is
@@ -145,7 +157,7 @@ def _resolve(
         # have that key silently demoted from strong identity to a weak shared
         # door. The token proves membership in the deployment, never identity,
         # so it falls through to the name-picker door below.
-        if not owner and not is_shared_token(authorization):
+        if not owner and not is_shared_token(authorization, request):
             raise HTTPException(status_code=401, detail=INVALID_KEY)
         if owner:
             # two write paths, one service layer: humans use REST, agents use
@@ -161,7 +173,7 @@ def _resolve(
             _refuse_reserved(owner)
             _refuse_inactive(owner)
             return owner, True, []
-    if config.AUTH_MODE == "oidc":
+    if auth_mode == "oidc":
         if authorization.startswith("Bearer "):
             from .. import oidc
 
@@ -205,7 +217,7 @@ def _resolve(
                     " that gives each person one name.",
                 ) from exc
         raise HTTPException(status_code=401, detail=NEED_LOGIN)
-    if config.AUTH_MODE == "api-key":
+    if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
     name = (x_user or "anonymous").strip()[:64] or "anonymous"
     # the read path returns before ensure_user, so the wall is applied here —
@@ -258,7 +270,7 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
         raise HTTPException(status_code=401, detail="the webhook signature does not match")
 
 
-def _is_admin(user: str, groups: list[str]) -> bool:
+def _is_admin(user: str, groups: list[str], request: Request | None = None) -> bool:
     """SKEIN_ADMINS names administrators; in oidc mode an IdP group
     (SKEIN_OIDC_ADMIN_GROUP) grants it too. With NEITHER configured,
     trusted-header mode lets every key holder administer — the historical
@@ -272,7 +284,9 @@ def _is_admin(user: str, groups: list[str]) -> bool:
     if is_named_admin(user, groups):
         return True
     return (
-        not config.ADMINS and not config.OIDC_ADMIN_GROUP and config.AUTH_MODE == "trusted-header"
+        not config.ADMINS
+        and not config.OIDC_ADMIN_GROUP
+        and _app_setting(request, "auth_mode", config.AUTH_MODE) == "trusted-header"
     )
 
 
@@ -388,7 +402,7 @@ def admin_user(
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
     _stash(request, user, True, groups)
-    if not _is_admin(user, groups):
+    if not _is_admin(user, groups, request):
         raise HTTPException(
             status_code=403,
             detail=f"'{user}' is not an administrator. Ask whoever runs the"

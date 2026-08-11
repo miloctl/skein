@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.extensions import (
     AppSettings,
     EventContribution,
+    EventExecutionContext,
     ExtensionMigration,
     ExtensionRegistry,
     ExtensionValidationError,
@@ -35,6 +36,11 @@ def _context(**changes) -> CommandContext:
     }
     values.update(changes)
     return CommandContext(**values)
+
+
+def _event_context() -> EventExecutionContext:
+    registry = ExtensionRegistry.build(())
+    return EventExecutionContext(registry.policy_engine, WorkItems(registry.policy_engine))
 
 
 def test_public_work_commands_keep_service_invariants_and_emit_safe_events(fresh_db):
@@ -131,10 +137,53 @@ def test_a_workplace_policy_can_require_a_manager_before_the_write(fresh_db):
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
 
 
+def test_policy_approval_requirements_are_enforced_on_the_verdict(fresh_db):
+    from app.services import review, users
+
+    users.ensure_user("reviewer")
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "approved task"},
+        actor="agent",
+        approver_groups=("delivery-managers",),
+        approver_capabilities=("atlas.approve",),
+    )
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.approve_change(
+            proposal["id"],
+            actor="reviewer",
+            reviewer_groups=("delivery-managers",),
+        )
+    result = review.approve_change(
+        proposal["id"],
+        actor="reviewer",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("atlas.approve",),
+    )
+    assert result["status"] == "approved"
+    assert fresh_db.query_one("SELECT title FROM tasks") == {"title": "approved task"}
+
+
+def test_public_query_does_not_treat_a_forgeable_name_as_private_access(fresh_db):
+    registry = ExtensionRegistry.build(())
+    facade = WorkItems(registry.policy_engine)
+    created = facade.create_task(
+        CreateTaskCommand(title="private", visibility="private"),
+        _context(subject=PolicySubject("mira"), origin="human"),
+    )
+    with pytest.raises(PublicError) as raised:
+        facade.get_task(
+            created.id,
+            _context(subject=PolicySubject("mira"), origin="human"),
+        )
+    assert raised.value.code == "TASK_NOT_FOUND"
+
+
 def test_event_delivery_retries_and_uses_event_id_as_the_receipt(fresh_db):
     calls: list[str] = []
 
-    def subscriber(event):
+    def subscriber(event, _context):
         calls.append(event.event_id)
         if len(calls) == 1:
             raise RuntimeError("temporary remote error")
@@ -147,9 +196,22 @@ def test_event_delivery_retries_and_uses_event_id_as_the_receipt(fresh_db):
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     event_task = facade.create_task(CreateTaskCommand(title="delivery"), _context())
 
-    assert dispatch_events((contribution,)) == {"delivered": 0, "failed": 1, "dead": 0}
-    assert dispatch_events((contribution,)) == {"delivered": 1, "failed": 0, "dead": 0}
-    assert dispatch_events((contribution,)) == {"delivered": 0, "failed": 0, "dead": 0}
+    context = _event_context()
+    assert dispatch_events((contribution,), context) == {
+        "delivered": 0,
+        "failed": 1,
+        "dead": 0,
+    }
+    assert dispatch_events((contribution,), context) == {
+        "delivered": 1,
+        "failed": 0,
+        "dead": 0,
+    }
+    assert dispatch_events((contribution,), context) == {
+        "delivered": 0,
+        "failed": 0,
+        "dead": 0,
+    }
     assert len(calls) == 2
     assert calls[0] == calls[1]
     delivery = fresh_db.query_one("SELECT * FROM extension_event_deliveries")
@@ -161,7 +223,7 @@ def test_workspace_subscribers_do_not_receive_private_events(fresh_db):
     calls = []
     contribution = EventContribution(
         "atlas.workplace.sync",
-        calls.append,
+        lambda event, _context: calls.append(event),
         ("skein.task.created",),
     )
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
@@ -169,8 +231,58 @@ def test_workspace_subscribers_do_not_receive_private_events(fresh_db):
         CreateTaskCommand(title="private", visibility="private"),
         _context(subject=PolicySubject("mira")),
     )
-    assert dispatch_events((contribution,))["delivered"] == 1
+    assert dispatch_events((contribution,), _event_context())["delivered"] == 1
     assert calls == []
+
+
+def test_each_event_subscriber_has_its_own_retry_budget(fresh_db):
+    strict_calls: list[str] = []
+    tolerant_calls: list[str] = []
+
+    def strict(event, _context):
+        strict_calls.append(event.event_id)
+        raise RuntimeError("permanent")
+
+    def tolerant(event, _context):
+        tolerant_calls.append(event.event_id)
+        if len(tolerant_calls) == 1:
+            raise RuntimeError("temporary")
+
+    contributions = (
+        EventContribution(
+            "atlas.workplace.strict",
+            strict,
+            ("skein.task.created",),
+            max_attempts=1,
+        ),
+        EventContribution(
+            "atlas.workplace.tolerant",
+            tolerant,
+            ("skein.task.created",),
+            max_attempts=3,
+        ),
+    )
+    WorkItems(ExtensionRegistry.build(()).policy_engine).create_task(
+        CreateTaskCommand(title="delivery"),
+        _context(),
+    )
+    context = _event_context()
+    assert dispatch_events(contributions, context) == {
+        "delivered": 0,
+        "failed": 1,
+        "dead": 0,
+    }
+    assert dispatch_events(contributions, context) == {
+        "delivered": 0,
+        "failed": 0,
+        "dead": 1,
+    }
+    assert len(strict_calls) == 1
+    assert len(tolerant_calls) == 2
+    attempts = fresh_db.query(
+        "SELECT subscriber, attempts, status FROM extension_event_attempts ORDER BY subscriber"
+    )
+    assert attempts == [{"subscriber": "atlas.workplace.strict", "attempts": 1, "status": "dead"}]
 
 
 def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
@@ -210,6 +322,12 @@ def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
         fresh_db.query_one("SELECT 1 AS present FROM sqlite_master WHERE name = 'work_links'")
         is None
     )
+    changed = (
+        replace(migrations[0], statements=("CREATE TABLE different (id INTEGER)",)),
+        migrations[1],
+    )
+    with pytest.raises(ValueError, match="changed its statements"):
+        store.migrate(changed)
 
 
 def test_extension_store_refuses_both_core_database_paths(fresh_db):
@@ -259,7 +377,13 @@ def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
                 SkeinModule(
                     module_id="atlas.workplace",
                     version="1.0.0",
-                    events=(EventContribution("atlas.workplace.empty", lambda _event: None, ()),),
+                    events=(
+                        EventContribution(
+                            "atlas.workplace.empty",
+                            lambda _event, _context: None,
+                            (),
+                        ),
+                    ),
                 ),
             )
         )

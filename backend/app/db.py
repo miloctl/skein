@@ -1,6 +1,6 @@
 """Thin SQLite layer. One connection per operation keeps this thread-safe
 under uvicorn without a pool; db.transaction() gives compound writes one
-shared connection instead. Schema lives in ../migrations/*.sql."""
+shared connection instead. Schema lives in app/core_migrations/*.sql."""
 
 import contextlib
 import hashlib
@@ -15,7 +15,7 @@ from pathlib import Path
 from . import config
 from .config import DB_PATH
 
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+MIGRATIONS_DIR = Path(__file__).resolve().parent / "core_migrations"
 
 log = logging.getLogger("skein")
 

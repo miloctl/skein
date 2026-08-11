@@ -23,6 +23,7 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
     current_policy_engine,
+    current_policy_subject,
 )
 from ..services import lexicon, review
 from ..services.delegation import authority_level
@@ -114,22 +115,38 @@ def gated_write(
         ratelimit.check("write", requester_identity() or actor)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
+    project_type = str(payload.get("project_type") or payload.get("project_class") or "")
+    classification = str(payload.get("classification") or payload.get("visibility") or "")
+    attributes = {}
+    if entity == "task" and entity_id:
+        from ..services.work import task_policy_context
+
+        attributes = task_policy_context(entity_id)
+        project_type = project_type or str(attributes.get("project_type") or "")
+        classification = classification or str(attributes.get("classification") or "")
+    subject = current_policy_subject()
+    resolved_subject = requester_identity() or actor
+    if subject.name == "agent" and resolved_subject != "agent":
+        subject = PolicySubject(
+            resolved_subject,
+            kind="human" if requester_identity() else "agent",
+        )
     decision = current_policy_engine().decide(
         PolicyInput(
-            subject=PolicySubject(
-                requester_identity() or actor,
-                kind="agent" if not requester_identity() else "human",
-            ),
+            subject=subject,
             action=f"{entity}.{action}",
             resource=PolicyResource(
                 entity,
                 str(entity_id or ""),
-                str(payload.get("project_type") or payload.get("project_class") or ""),
-                str(payload.get("classification") or payload.get("visibility") or ""),
+                project_type,
+                classification,
+                attributes,
             ),
             origin="agent",
             agent=actor,
+            tool=f"skein.{entity}.{action}",
             tool_effect="write",
+            tool_risk="high" if entity in ALWAYS_REVIEW else "medium",
         )
     )
     if decision.effect == PolicyEffect.DENY:
@@ -178,6 +195,9 @@ def gated_write(
             actor=actor,
             origin="agent",
             requested_by=requester_identity(),
+            policy_obligations=decision.obligations,
+            approver_groups=decision.approver_groups,
+            approver_capabilities=decision.approver_capabilities,
         )
     except ValueError as exc:
         receipts.record("failed", entity, str(exc), actor=actor)

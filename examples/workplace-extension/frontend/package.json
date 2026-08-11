@@ -4,16 +4,24 @@
   "private": true,
   "type": "module",
   "files": [
-    "index.js",
-    "index.d.ts"
+    "dist"
   ],
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "import": "./index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "peerDependencies": {
+    "@skein/extension-api": "^1.0.0",
     "react": ">=19.0.0"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@skein/extension-api": "file:../../../frontend/packages/extension-api",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.0.0"
   }
 }

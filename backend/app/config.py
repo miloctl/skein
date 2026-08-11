@@ -12,6 +12,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+STOCK_DIR = BASE_DIR / "skein_stock"
+if not STOCK_DIR.is_dir():
+    STOCK_DIR = BASE_DIR
 DATA_DIR = Path(os.getenv("SKEIN_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -26,13 +26,24 @@ Run this command from the Skein repository root:
 scripts/reference-extension-contract.sh
 ```
 
-The script builds separate Skein and Atlas wheels. It installs them into a clean
-target directory. It also initializes core migrations and upgrades Atlas data
-from version 1 to version 2.
+The script builds separate Skein and Atlas wheels. It installs them into a
+clean target directory and starts the installed application. It rejects the
+old core, then moves the unchanged Atlas package from core `0.2.0` to a second
+compatible `0.2.1` artifact. The test keeps the private Atlas data.
 
 ## Verify the frontend package
 
-Build and install a package archive. Do not add Atlas to the core `package.json`.
+Run the clean package rehearsal:
+
+```sh
+scripts/reference-frontend-contract.sh
+```
+
+The script compiles `index.tsx`, checks the committed output, packs the public
+and private packages, and imports them in a clean directory.
+
+A workplace build can then install the package archive. Do not add Atlas to
+the core `package.json`.
 
 ```sh
 cd examples/workplace-extension/frontend

@@ -19,7 +19,7 @@ import yaml
 from .. import config, db
 from . import collab, engagements, schedule, scope, wording, work
 
-PLAYBOOKS_DIR = Path(__file__).resolve().parent.parent.parent / "playbooks"
+PLAYBOOKS_DIR = config.STOCK_DIR / "playbooks"
 
 
 _SLUG = re.compile(r"^[a-z0-9_-]+$")
@@ -171,6 +171,11 @@ def instantiate(
             raise ValueError("this playbook has workflow actions and needs a composed application")
         prepared_workflow = workflow_engine.prepare(pb["workflow"])
     start = date.fromisoformat(start_date) if start_date else db.today()
+    workflow_result = None
+    if prepared_workflow is not None and workflow_engine is not None:
+        workflow_result = workflow_engine.authorize(prepared_workflow, workflow_context)
+        if workflow_result.status != "completed":
+            return {"workflow": workflow_result.model_dump(mode="json")}
     with db.transaction():
         created = _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
     if prepared_workflow is not None and workflow_engine is not None:

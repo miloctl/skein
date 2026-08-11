@@ -107,7 +107,7 @@ synthesis: false    # optional, default false — the +1 model call is opt-in
   (resolved to name + emoji), synthesis flag.
 - `GET /api/flocks/traces?thread=…|flock=…&limit=…` — trace rows for the
   diamond view.
-- Migration: new numbered file in `backend/migrations/`, append-only.
+- Migration: new numbered file in `backend/app/core_migrations/`, append-only.
   One row per flock turn:
 
 ```sql

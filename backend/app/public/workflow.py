@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from .. import db
-from ..extensions.contracts import WorkflowActionContribution
+from ..extensions.contracts import WorkflowActionContext, WorkflowActionContribution
 from ..extensions.policy import (
     PolicyEffect,
     PolicyEngine,
@@ -80,15 +80,17 @@ class WorkflowContext:
     project_type: str = ""
     resource_id: str = ""
     values: dict[str, Any] = field(default_factory=dict)
+    approved_steps: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+        object.__setattr__(self, "approved_steps", tuple(self.approved_steps))
 
 
 class WorkflowResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    status: Literal["completed", "review_required", "denied", "failed"]
+    status: Literal["completed", "review_required", "denied", "failed", "completion_unknown"]
     completed: tuple[str, ...] = ()
     checkpoint: str = ""
     error_code: str = ""
@@ -138,6 +140,83 @@ class WorkflowEngine:
             outputs=state.outputs,
         )
 
+    def authorize(
+        self, steps: tuple[WorkflowStep, ...], context: WorkflowContext
+    ) -> WorkflowResult:
+        """Check every selected step before a playbook creates core work."""
+        stopped = self._authorize_steps(steps, context)
+        return stopped or WorkflowResult(status="completed")
+
+    def _authorize_steps(
+        self, steps: tuple[WorkflowStep, ...], context: WorkflowContext
+    ) -> WorkflowResult | None:
+        for step in steps:
+            if isinstance(step, CheckpointStep):
+                continue
+            if isinstance(step, ConditionStep):
+                raw = step.then if context.values.get(step.field) == step.equals else step.otherwise
+                nested = tuple(_STEPS.validate_python(raw))
+                if stopped := self._authorize_steps(nested, context):
+                    return stopped
+                continue
+            if isinstance(step, ApprovalStep):
+                decision = self._policy.decide(
+                    PolicyInput(
+                        subject=context.subject,
+                        action=step.action,
+                        resource=PolicyResource(
+                            step.resource_type,
+                            context.resource_id,
+                            project_type=context.project_type,
+                        ),
+                        origin=context.origin,
+                        tool_effect="write",
+                        tool_risk=step.risk,
+                    )
+                )
+            else:
+                contribution = self._actions[step.name]
+                try:
+                    contribution.input_schema.model_validate(step.input)
+                except ValidationError:
+                    return WorkflowResult(
+                        status="failed",
+                        checkpoint=step.name,
+                        error_code="INVALID_ACTION_INPUT",
+                    )
+                decision = self._policy.decide(
+                    PolicyInput(
+                        subject=context.subject,
+                        action=contribution.policy_action,
+                        resource=PolicyResource(
+                            "workflow",
+                            context.resource_id,
+                            project_type=context.project_type,
+                        ),
+                        origin=context.origin,
+                        tool=contribution.name,
+                        tool_effect=contribution.effect,
+                        tool_risk=contribution.risk,
+                    )
+                )
+            reviewed = step.name in context.approved_steps
+            if decision.effect != PolicyEffect.PERMIT and not (
+                reviewed and decision.effect == PolicyEffect.REVIEW
+            ):
+                return WorkflowResult(
+                    status=(
+                        "review_required" if decision.effect == PolicyEffect.REVIEW else "denied"
+                    ),
+                    checkpoint=step.name,
+                    error_code=(
+                        "REVIEW_REQUIRED"
+                        if decision.effect == PolicyEffect.REVIEW
+                        else "POLICY_DENIED"
+                    ),
+                    obligations=_obligations(decision),
+                )
+        return None
+
     def _run_steps(
         self,
         steps: tuple[WorkflowStep, ...],
@@ -181,7 +260,10 @@ class WorkflowEngine:
                         obligations=obligations,
                         outputs=state.outputs,
                     )
-                if decision.effect == PolicyEffect.REVIEW:
+                if (
+                    decision.effect == PolicyEffect.REVIEW
+                    and step.name not in context.approved_steps
+                ):
                     return WorkflowResult(
                         status="review_required",
                         completed=tuple(state.completed),
@@ -219,7 +301,10 @@ class WorkflowEngine:
                 tool_risk=contribution.risk,
             )
         )
-        if decision.effect != PolicyEffect.PERMIT:
+        reviewed = step.name in context.approved_steps
+        if decision.effect != PolicyEffect.PERMIT and not (
+            reviewed and decision.effect == PolicyEffect.REVIEW
+        ):
             return WorkflowResult(
                 status=("review_required" if decision.effect == PolicyEffect.REVIEW else "denied"),
                 completed=tuple(state.completed),
@@ -235,12 +320,27 @@ class WorkflowEngine:
         except ValidationError:
             return self._failed(state, step.name, "INVALID_ACTION_INPUT")
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-workflow")
-        future = executor.submit(contribution.handler, **input_data.model_dump())
+        from .work import WorkItems
+
+        services = WorkflowActionContext(
+            context.subject,
+            self._policy,
+            WorkItems(self._policy),
+        )
+        future = executor.submit(contribution.handler, services, input_data)
         try:
             raw = future.result(timeout=contribution.timeout_seconds)
             output = contribution.output_schema.model_validate(raw)
         except FutureTimeout:
             future.cancel()
+            if contribution.effect in ("write", "unknown"):
+                return WorkflowResult(
+                    status="completion_unknown",
+                    completed=tuple(state.completed),
+                    checkpoint=step.name,
+                    error_code="DEADLINE_EXCEEDED",
+                    outputs=state.outputs,
+                )
             return self._failed(state, step.name, "ACTION_TIMEOUT")
         except PublicError as exc:
             code = exc.code if exc.code in contribution.error_codes else "ACTION_ERROR"

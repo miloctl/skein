@@ -45,6 +45,9 @@ EXCLUDED = frozenset(
         # and a JSON export must not replay integrations on restore
         "extension_outbox",
         "extension_event_deliveries",
+        "extension_event_attempts",
+        "extension_command_receipts",
+        "extension_review_invocations",
         # secret hashes must not travel in portable exports — recreate keys
         # after a restore
         "api_keys",

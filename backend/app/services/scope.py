@@ -634,6 +634,11 @@ UNSCOPED: dict[str, str] = {
         "durable integration delivery state with identifiers and safe field names, not row bodies"
     ),
     "extension_event_deliveries": "idempotent subscriber receipts, not user-authored content",
+    "extension_event_attempts": "per-subscriber retry state, not user-authored content",
+    "extension_command_receipts": "idempotent public-command receipts, not user-authored content",
+    "extension_review_invocations": (
+        "operational reviewed-action state; access is only through the scoped review service"
+    ),
     "tool_usage": "adoption counters, no content",
     "usage_log": "token spend, no content",
     "users": "the roster. Hiding a teammate's existence is not a tier, it is a different product.",

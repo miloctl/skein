@@ -10,13 +10,12 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import timedelta
-from pathlib import Path
 
 import yaml
 
-from .. import db
+from .. import config, db
 
-KNOTS_FILE = Path(__file__).resolve().parent.parent.parent / "fieldguide" / "knots.yaml"
+KNOTS_FILE = config.STOCK_DIR / "fieldguide" / "knots.yaml"
 SETS = ("loops", "hitches", "bends", "stoppers", "manager")
 UNADOPTED_GRACE_DAYS = 30
 

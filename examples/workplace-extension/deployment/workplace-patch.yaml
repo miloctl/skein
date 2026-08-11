@@ -16,3 +16,11 @@ spec:
                 secretKeyRef:
                   name: atlas-skein-secrets
                   key: ATLAS_API_TOKEN
+          volumeMounts:
+            - name: atlas-playbook
+              mountPath: /opt/atlas/content/playbooks/atlas_delivery.yaml
+              subPath: atlas_delivery.yaml
+      volumes:
+        - name: atlas-playbook
+          configMap:
+            name: atlas-skein-content

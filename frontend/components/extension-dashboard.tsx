@@ -1,6 +1,7 @@
 "use client";
 
 import { useFrontendExtensions } from "@/lib/extensions/context";
+import { api } from "@/lib/api";
 
 export function ExtensionDashboardCards() {
   const { dashboardCards } = useFrontendExtensions();
@@ -12,6 +13,7 @@ export function ExtensionDashboardCards() {
         <Component
           key={contribution.id}
           extensionId={contribution.extensionId}
+          api={api}
         />
       );
     });

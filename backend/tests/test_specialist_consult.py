@@ -117,6 +117,46 @@ def test_the_bench_roster_reaches_the_system_prompt(real_provider):
     assert f"at most {MAX_CONSULTS_PER_TURN} specialists" in agent.system_prompt
 
 
+def test_chief_cannot_consult_a_contributed_specialist_without_its_capability(
+    real_provider,
+):
+    from app.extensions import ExtensionRegistry, SkeinModule, SpecialistContribution
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_subject,
+        set_policy_subject,
+    )
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        specialists=(
+            SpecialistContribution(
+                name="acme.workplace.private-specialist",
+                version="1.0.0",
+                display_name="Private Specialist",
+                description="Uses restricted workplace context.",
+                system_prompt="Use restricted workplace context.",
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+    )
+    agent = team_agent.build_agent(
+        "t-workplace-capability",
+        extensions=ExtensionRegistry.build((module,)),
+    )
+    consult = _consult_tool(agent)
+    token = set_policy_subject(PolicySubject("mira"))
+    try:
+        events = asyncio.run(
+            _drain(consult("acme.workplace.private-specialist", "What is at risk?"))
+        )
+    finally:
+        reset_policy_subject(token)
+
+    assert json.loads(events[-1]) == {"error": "this specialist needs a workplace capability"}
+
+
 def test_an_empty_bench_says_so_rather_than_rendering_nothing(monkeypatch):
     """A silent gap reads to the model as "no such feature", and it then tells
     the user consulting is impossible when an overlay simply is not mounted."""

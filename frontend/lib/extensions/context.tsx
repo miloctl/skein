@@ -14,6 +14,7 @@ import type { FrontendExtension, FrontendExtensionRegistry } from "./contracts";
 import { registerFrontendExtensions } from "./registry";
 
 type Decision = { effect: "permit" | "deny" | "review" };
+type CapabilityResponse = { actions: Record<string, Decision> };
 
 const EMPTY = registerFrontendExtensions([]);
 const ExtensionContext = createContext<FrontendExtensionRegistry>(EMPTY);
@@ -37,9 +38,9 @@ export function ExtensionProvider({
     if (!registry.policyActions.length) return;
     let live = true;
     const query = encodeURIComponent(registry.policyActions.join(","));
-    api<Record<string, Decision>>(`/api/capabilities?actions=${query}`)
+    api<CapabilityResponse>(`/api/capabilities?actions=${query}`)
       .then((value) => {
-        if (live) setDecisions(value);
+        if (live) setDecisions(value.actions);
       })
       .catch(() => {
         if (live) setDecisions({});

@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
@@ -16,6 +16,7 @@
     "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest"
   },
   "dependencies": {
+    "@skein/extension-api": "file:packages/extension-api",
     "@assistant-ui/react": "^0.14.27",
     "@assistant-ui/react-markdown": "^0.14.6",
     "canvas-confetti": "^1.9.4",

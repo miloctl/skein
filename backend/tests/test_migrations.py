@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+MIGRATIONS = Path(__file__).resolve().parent.parent / "app" / "core_migrations"
 BASELINE = "001_baseline.sql"
 
 
@@ -204,7 +204,7 @@ def test_seed_builds_its_demo_team_on_a_fresh_database(fresh_db, capsys):
     import importlib.util
 
     # backend/ is not a package on the test path; load the script by file
-    spec = importlib.util.spec_from_file_location("seed", MIGRATIONS.parent / "seed.py")
+    spec = importlib.util.spec_from_file_location("seed", MIGRATIONS.parent.parent / "seed.py")
     seed = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(seed)

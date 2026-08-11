@@ -15,7 +15,12 @@ vi.mock("@/lib/api", () => ({
   api: (path: string) => {
     if (!path.startsWith("/api/capabilities")) return Promise.resolve({});
     return Promise.resolve({
-      "atlas.dashboard.view": { effect: capability.effect },
+      subject: "manager",
+      roles: ["delivery-manager"],
+      capabilities: ["atlas.dashboard"],
+      actions: {
+        "atlas.dashboard.view": { effect: capability.effect },
+      },
     });
   },
 }));
@@ -29,8 +34,8 @@ function extension(changes: Partial<FrontendExtension> = {}): FrontendExtension 
     id: "atlas.workplace",
     version: "1.0.0",
     extensionApi: FRONTEND_EXTENSION_API,
-    minimumCore: "0.1.0",
-    maximumCoreExclusive: "0.2.0",
+    minimumCore: "0.2.0",
+    maximumCoreExclusive: "0.3.0",
     navigation: [
       {
         id: "atlas.workplace.manager-nav",
@@ -84,7 +89,7 @@ describe("the frontend extension registry", () => {
   it("rejects incompatible core and extension API versions", () => {
     expect(() =>
       registerFrontendExtensions([
-        extension({ maximumCoreExclusive: "0.1.0" }),
+        extension({ maximumCoreExclusive: "0.2.0" }),
       ]),
     ).toThrow(/does not support/);
     expect(() =>

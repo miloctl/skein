@@ -31,7 +31,7 @@ from ..agents.identity import (
     start_consults,
 )
 from ..agents.team_agent import build_agent, build_synthesizer, build_titler
-from ..extensions.fastapi import subject_for
+from ..extensions.fastapi import PolicyAPIRoute, subject_for
 from ..extensions.policy import (
     PolicyEngine,
     PolicySubject,
@@ -46,7 +46,7 @@ from ..services.usage import record_chat_usage
 from ..services.usage import row_from_agent as _usage_row
 from .deps import CurrentUser, ViewerDep
 
-router = APIRouter()
+router = APIRouter(route_class=PolicyAPIRoute)
 
 # agent streams in flight, keyed by their session id. The command bridge
 # (session_log) computes message indices from disk while a live agent caches
@@ -755,7 +755,13 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 selected = parts[1].lower()
                 if selected in extension_specialists:
                     extension = extension_specialists[selected]
-                    missing = set(extension.required_capabilities) - set(subject.capabilities)
+                    from ..extensions.agents import missing_specialist_capabilities
+
+                    missing = missing_specialist_capabilities(
+                        request.app.state.skein_registry,
+                        extension.name,
+                        subject,
+                    )
                     if missing:
                         raise ValueError(
                             "this specialist needs a workplace capability that your identity lacks"

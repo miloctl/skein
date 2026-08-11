@@ -44,6 +44,8 @@ class CreateTaskCommand(BaseModel):
     due_date: str = Field("", max_length=10)
     visibility: str = scope.WORKSPACE
     crew_id: int = 0
+    status: str = "todo"
+    idempotency_key: str = Field("", max_length=200)
 
 
 class UpdateTaskCommand(BaseModel):
@@ -134,7 +136,7 @@ class WorkItems:
             PolicyResource("task", str(task_id), project_type=context.project_type),
         )
         try:
-            row = work.get_task(task_id, scope.Viewer.for_actor(context.subject.name))
+            row = work.get_task(task_id, scope.NOBODY)
         except db.NotFound as exc:
             raise PublicError("TASK_NOT_FOUND", str(exc), status_code=404) from exc
         return TaskView.model_validate(row)
@@ -150,18 +152,51 @@ class WorkItems:
             ),
         )
         try:
-            result = work.create_task(
-                **command.model_dump(),
-                actor=context.subject.name,
-                origin=context.origin,
-                correlation_id=context.correlation_id,
-                event_actor_kind=context.subject.kind,
-            )
+            with db.transaction():
+                prior = None
+                if command.idempotency_key:
+                    prior = db.query_one(
+                        "SELECT result_id FROM extension_command_receipts"
+                        " WHERE namespace = ? AND idempotency_key = ?",
+                        (context.origin, command.idempotency_key),
+                    )
+                if prior:
+                    return self._task_view(int(prior["result_id"]), actor=context.subject.name)
+                values = command.model_dump(exclude={"status", "idempotency_key"})
+                result = work.create_task(
+                    **values,
+                    actor=context.subject.name,
+                    origin=context.origin,
+                    correlation_id=context.correlation_id,
+                    event_actor_kind=context.subject.kind,
+                )
+                if command.status != "todo":
+                    work.update_task(
+                        result["id"],
+                        status=command.status,
+                        actor=context.subject.name,
+                        origin=context.origin,
+                        note=f" through {context.origin}",
+                        correlation_id=context.correlation_id,
+                        event_actor_kind=context.subject.kind,
+                    )
+                if command.idempotency_key:
+                    db.execute(
+                        "INSERT INTO extension_command_receipts"
+                        " (namespace, idempotency_key, result_type, result_id, created_at)"
+                        " VALUES (?, ?, 'task', ?, ?)",
+                        (
+                            context.origin,
+                            command.idempotency_key,
+                            result["id"],
+                            db.now(),
+                        ),
+                    )
+                return self._task_view(result["id"], actor=context.subject.name)
         except PublicError:
             raise
         except (ValueError, PermissionError) as exc:
             raise PublicError("TASK_CREATE_REJECTED", str(exc)) from exc
-        return self.get_task(result["id"], context)
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
         current = self.get_task(command.task_id, context)
@@ -196,4 +231,12 @@ class WorkItems:
             raise PublicError("TASK_UPDATE_FORBIDDEN", str(exc), status_code=403) from exc
         except ValueError as exc:
             raise PublicError("TASK_UPDATE_REJECTED", str(exc)) from exc
-        return self.get_task(command.task_id, context)
+        return self._task_view(command.task_id)
+
+    @staticmethod
+    def _task_view(task_id: int, *, actor: str = "") -> TaskView:
+        try:
+            viewer = scope.Viewer.for_actor(actor) if actor else scope.NOBODY
+            return TaskView.model_validate(work.get_task(task_id, viewer))
+        except db.NotFound as exc:
+            raise PublicError("TASK_NOT_FOUND", str(exc), status_code=404) from exc
