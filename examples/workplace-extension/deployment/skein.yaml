@@ -17,7 +17,7 @@ spec:
           image: skein:0.1.0
           ports:
             - name: http
-              containerPort: 8600
+              containerPort: 8000
           volumeMounts:
             - name: data
               mountPath: /data

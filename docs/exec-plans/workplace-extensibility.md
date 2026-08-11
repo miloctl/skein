@@ -262,7 +262,7 @@ Scores can increase only when core behavior and the reference extension use the 
 
 | Area | Baseline | Target | Required evidence | Current justified score |
 |---|---:|---:|---|---:|
-| Overall modularity | 5/10 | 8/10 | Factory, typed registries, public contracts, dependency tests | 7.8/10 before final review |
+| Overall modularity | 5/10 | 8/10 | Factory, typed registries, public contracts, dependency tests | 8.1/10 before final review |
 | Workplace extensibility | 3/10 | 8/10 | Scenarios A through G and private package boundary | 8.0/10 before final review |
 | Upgradeability | 4/10 | 8/10 | Compatibility metadata, package build, migration and upgrade rehearsal | 8.0/10 before final review |
 | Domain model | 2/5 | 4/5 | Public typed commands, queries, results, and references | 4/5 |
@@ -272,7 +272,7 @@ Scores can increase only when core behavior and the reference extension use the 
 | Agent registration | 2/5 | 4/5 | External specialist uses real Chief composition | 4/5 |
 | Tool registration | 2/5 | 4/5 | Governed external tool with receipts | 4/5 |
 | Frontend navigation | 1/5 | 4/5 | External manifest drives core shell | 4/5 |
-| Policy enforcement | 2/5 | 4/5 | REST, agent, workflow, and capability enforcement | 3/5; core REST migration remains staged |
+| Policy enforcement | 2/5 | 4/5 | REST, agent, workflow, and capability enforcement | 4/5 |
 
 ## Decision log
 
@@ -301,13 +301,15 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Hide policy-bound UI until the backend permits it | A failed capability request must not show an action that the backend can refuse |
 | 2026-08-11 | Publish JavaScript and declarations for frontend extensions | Next.js does not transpile TSX that a separate package ships from `node_modules` |
 | 2026-08-11 | Include SQL migrations in the core wheel | An installed core artifact must initialize its schema without a source checkout |
+| 2026-08-11 | Derive stable core REST policy actions from route templates | One route class covers current and future authenticated mutations without editing every handler |
+| 2026-08-11 | Keep auth and signed webhooks on specialized gates | These calls do not have a verified human subject for workplace policy |
 
 ## Risks
 
 | Risk | Control | Status |
 |---|---|---|
 | App factory changes startup order | Characterization tests and default `app` parity | Open |
-| Policy duplicates current authorization | Default policy delegates to current checks first | Open |
+| Policy duplicates current authorization | Core authorization still runs; workplace rules can only narrow | Controlled |
 | Public facade leaks internal dictionaries | Typed task views and public errors hide service dictionaries | Controlled for task work |
 | Extension migrations enter core security inventories | The store refuses both Skein database paths | Controlled |
 | MCP wrappers cannot infer write effects | Explicit metadata and deny-unknown default | Open |
@@ -393,6 +395,14 @@ Scores can increase only when core behavior and the reference extension use the 
   wheel, then passed with separate Skein and Atlas artifacts.
 - Confirmed 42 focused reference and extension tests and all reference content
   validation.
+- Added central policy enforcement to authenticated core and private REST
+  mutations. Stable actions use the method and literal route template.
+- Added deny and review regression tests that prove a refused task mutation
+  does not write.
+- Confirmed the complete backend suite passes with 1,619 tests after REST
+  policy enforcement.
+- Added the extension-author guide, feature reference, on-demand roadmap, and
+  workplace repository upgrade procedure.
 
 ## Review findings
 

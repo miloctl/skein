@@ -19,7 +19,7 @@ from .contracts import (
     WorkflowActionContribution,
 )
 from .data import ExtensionStore
-from .fastapi import PolicySubjectDep, decide, subject_for
+from .fastapi import PolicyAPIRoute, PolicySubjectDep, decide, subject_for
 from .policy import (
     PolicyDecision,
     PolicyEffect,
@@ -44,6 +44,7 @@ __all__ = [
     "JobContribution",
     "LifecycleContribution",
     "MigrationContribution",
+    "PolicyAPIRoute",
     "PolicyContribution",
     "PolicyDecision",
     "PolicyEffect",

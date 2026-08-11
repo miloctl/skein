@@ -19,6 +19,23 @@ The ID tags are kept because source comments cite them. `TD1` and `TP5` and
 their neighbours are named in `frontend/app/globals.css`, `frontend/lib/theme.ts`,
 and `frontend/lib/whimsy.ts`.
 
+## Extension surfaces to add only on demand
+
+The first workplace extension API ships routes, jobs, policy, identity,
+governed tools, specialists, events, isolated data, workflows, frontend
+navigation, and manager dashboard cards. These additions remain deferred until
+a real extension needs them:
+
+- Frontend detail panels, forms, general actions, notification renderers,
+  theme packages, and terminology packages
+- Durable pause and resume for long-running workflow approvals
+- Public commands for core entities other than task work
+- A supported alternative core database adapter
+- Remote or untrusted extension execution
+
+Do not add these as empty slots. Add one narrow contract with one core use and
+one private-package use when the requirement appears.
+
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
 The rate-cap ratchet and the unbounded list reads shipped 2026-08-09
