@@ -15,6 +15,7 @@ from app.extensions import (
     ExtensionValidationError,
     IdentityContribution,
     JobContribution,
+    LifecycleContext,
     LifecycleContribution,
     PolicyContribution,
     PolicyDecision,
@@ -168,6 +169,36 @@ def test_started_lifecycle_is_stopped_if_core_startup_later_fails(fresh_db, monk
     ):
         pass
     assert events == ["start", "stop"]
+
+
+def test_faulty_shutdown_does_not_skip_other_extension_cleanup(fresh_db):
+    events: list[str] = []
+
+    def faulty(_context):
+        events.append("faulty")
+        raise RuntimeError("shutdown failed")
+
+    module = _module(
+        lifecycle=(
+            LifecycleContribution(
+                "acme.workplace.first",
+                lambda _context: events.append("start-first"),
+                lambda _context: events.append("stop-first"),
+            ),
+            LifecycleContribution(
+                "acme.workplace.second",
+                lambda _context: events.append("start-second"),
+                faulty,
+            ),
+        )
+    )
+    with TestClient(create_app(modules=(module,))):
+        pass
+    assert events == ["start-first", "start-second", "faulty", "stop-first"]
+
+
+def test_lifecycle_context_is_part_of_the_public_extension_api():
+    assert LifecycleContext(core_version="0.2.0").core_version == "0.2.0"
 
 
 def test_settings_and_registry_are_immutable():

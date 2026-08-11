@@ -187,6 +187,23 @@ def proposed(entity: str, payload: dict) -> dict[str, str]:
 
 def for_route(resource_type: str, resource_id: str, payload: dict) -> dict[str, str]:
     """Return current and proposed non-content attributes for one REST route."""
+    if resource_type == "playbooks":
+        # Resolve the selected definition before the route-level policy runs.
+        # An invalid slug remains the route's validation error; policy must not
+        # turn it into a different response or trust a caller-supplied class.
+        from . import playbooks
+
+        slug = str(payload.get("playbook") or resource_id or "")
+        if not slug:
+            return {}
+        try:
+            definition = playbooks.get_playbook(slug)
+        except ValueError:
+            return {}
+        return {
+            "classification": "workspace",
+            "project_type": str(definition.get("project_class") or slug),
+        }
     entity = _ROUTE_ENTITIES.get(resource_type)
     if entity is None:
         return {}

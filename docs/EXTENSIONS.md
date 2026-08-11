@@ -73,6 +73,10 @@ app = create_app(modules=(atlas,))
 The default `app.main:app` remains unchanged. An extension deployment starts
 its private composition root instead.
 
+A lifecycle handler receives the public `LifecycleContext`. It contains the
+core version only. Skein stops handlers in reverse order. If one shutdown
+handler fails, Skein logs the failure and continues the remaining cleanup.
+
 Module IDs and contribution names must use the module namespace. Extension
 routers must start with `/api/extensions/{module_id}`. Startup rejects these
 conditions:
@@ -179,6 +183,11 @@ applies to an OIDC user who has no groups. A missing record or unavailable
 resolver fails closed. Skein stores the original authentication strength and
 never increases it during refresh. Skein also rejects an inactive local user.
 
+A resolver that owns groups must return a `groups` key. An empty tuple is a
+successful group refresh. A profile-only resolver cannot replace an
+unavailable group resolver. This rule prevents stale approval groups when a
+workplace uses more than one identity module.
+
 Register every job and event subject with `ServiceIdentityContribution`.
 Service identities do not pass through the human identity mapper. Startup
 reserves their names and rejects a collision with a human account.
@@ -227,6 +236,13 @@ A tool contribution declares its full security contract:
 Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call.
+
+`ToolHandlerContext.subject` is the human or service requester for policy.
+`ToolHandlerContext.agent` is the specialist that executes the tool.
+`ToolHandlerContext.correlation_id` links the tool receipt to outbox events.
+If a tool writes through `WorkItems`, set `CommandContext.actor` to the agent
+and set `actor_kind` to `agent`. Keep the requester as `subject`. This split
+records the agent as the writer without giving it the requester's roles.
 
 Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
 Stock writes use their domain action through the shared write gate. The four
@@ -292,6 +308,10 @@ synchronous and bounded by their declared timeout. A timed-out write reports
 `completion_unknown`. Make external writes idempotent. A policy review is
 unsupported for a scheduled job.
 
+The core unattended agent job receives the composed registry and policy
+engine. The scheduler action is the outer gate. Each agent tool is a second
+gate that uses the active agent subject, tool risk, and project context.
+
 Event data does not contain task body text. Query authorized public data when
 the integration needs more information.
 
@@ -328,10 +348,11 @@ Version 1 playbooks support four workflow step types:
 Workflow actions declare schemas, effect, risk, policy action, timeout, and
 safe error codes. A playbook cannot call arbitrary Python or an arbitrary URL.
 
-The REST playbook path stores a review proposal before it creates project
-work. A qualified human can approve it. Skein then runs the exact saved
-playbook request and records the result. A second review step creates a new
-proposal.
+The REST, deterministic chat, and agent-tool paths use `playbook.create`.
+They resolve the project class from the selected playbook. The REST path
+stores a workplace-policy review before it creates project work. A qualified
+human can approve it. Skein then runs the exact saved playbook request and
+records the result. A workflow approval step can create a second proposal.
 
 Each approval grant covers one structural step path. It also covers one input,
 action version, policy result, and complete workflow definition. A changed
@@ -490,6 +511,7 @@ Run Skein's local reference rehearsal with:
 scripts/reference-extension-contract.sh
 scripts/reference-frontend-contract.sh
 scripts/reference-deployment-contract.sh
+scripts/reference-images-contract.sh
 ```
 
 The backend script builds and installs separate wheels in a normal virtual
@@ -497,7 +519,9 @@ environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
 artifact contains an additive migration. The frontend script creates two
 compatible host artifacts. It installs the same packed private package into
-both hosts and runs a production build in each one.
+both hosts and runs a production build in each one. The image script builds
+the backend and frontend derivative images from staged release artifacts.
+The main CI workflow runs all four extension contracts.
 
 ## Upgrade a workplace deployment
 

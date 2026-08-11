@@ -115,18 +115,18 @@ class ExtensionRegistry:
             raise PermissionError("The requester identity is no longer active.")
         groups = tuple(subject.groups)
         active = True
-        resolved = False
+        groups_resolved = False
         for contribution in self.identities:
             if contribution.resolver is None:
                 continue
             value = contribution.resolver(subject.name)
             if value is None:
                 continue
-            resolved = True
             active = active and bool(value.get("active", True))
             if "groups" in value:
+                groups_resolved = True
                 groups = tuple(str(item) for item in value.get("groups") or ())
-        if (subject.refresh_required or subject.groups) and not resolved:
+        if (subject.refresh_required or subject.groups) and not groups_resolved:
             raise PermissionError("The requester directory identity could not be refreshed.")
         if not active:
             raise PermissionError("The requester identity is no longer active.")

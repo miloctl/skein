@@ -1724,6 +1724,63 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         if result.get("status") != "completed":
             raise PermissionError("the current policy did not permit the reviewed stock tool")
         return result
+    if (
+        invocation.get("kind") == "workflow"
+        and invocation.get("workflow_kind") == "playbook_policy"
+    ):
+        from ..extensions.policy import (
+            PolicyEffect,
+            PolicyInput,
+            PolicyResource,
+            policy_subject_from_data,
+        )
+        from ..public.workflow import WorkflowContext, WorkflowEngine
+
+        saved_subject = invocation.get("subject")
+        if not isinstance(saved_subject, dict):
+            raise ValueError("the reviewed playbook identity is invalid")
+        subject = registry.refresh_subject(policy_subject_from_data(saved_subject))
+        slug = str(invocation.get("playbook") or "")
+        definition = playbooks.get_playbook(slug)
+        project_type = str(definition.get("project_class") or slug)
+        decision = registry.policy_engine.decide(
+            PolicyInput(
+                subject,
+                "playbook.create",
+                PolicyResource("playbook", slug, project_type=project_type),
+                "human",
+            )
+        )
+        if decision.effect == PolicyEffect.DENY:
+            raise PermissionError("the current policy denied the reviewed playbook")
+        workflow_result = playbooks.instantiate(
+            slug,
+            str(invocation.get("engagement_name") or ""),
+            str(invocation.get("lead") or ""),
+            str(invocation.get("start_date") or ""),
+            actor=str(invocation.get("actor") or subject.name),
+            origin="human",
+            workflow_engine=WorkflowEngine(
+                registry.workflow_actions,
+                registry.policy_engine,
+            ),
+            workflow_context=WorkflowContext(
+                subject=subject,
+                origin="human",
+                project_type=project_type,
+                values={"project_type": project_type},
+            ),
+        )
+        if workflow_result.get("workflow", {}).get("status") == "review_required":
+            return _queue_workflow_review(
+                workflow_result,
+                {
+                    **invocation,
+                    "project_type": project_type,
+                    "values": {"project_type": project_type},
+                },
+            )
+        return workflow_result
     if invocation.get("kind") == "workflow":
         from ..extensions.policy import policy_subject_from_data
         from ..public.workflow import WorkflowContext, WorkflowEngine
@@ -1768,6 +1825,18 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
 
 def _queue_workflow_review(result: dict, invocation: dict) -> dict:
     workflow = result.get("workflow") or {}
+    review_policy = workflow.pop("_review_policy", {})
+    saved_policy_input = None
+    if isinstance(review_policy, dict) and review_policy:
+        from ..extensions.policy import policy_input_from_data, policy_subject_from_data
+
+        saved_subject = review_policy.get("subject")
+        if not isinstance(saved_subject, dict):
+            raise ValueError("the workflow review identity is invalid")
+        saved_policy_input = policy_input_from_data(
+            review_policy,
+            policy_subject_from_data(saved_subject),
+        )
     obligations = tuple(str(value) for value in workflow.get("obligations") or ())
     groups = tuple(
         value.removeprefix("approver-group:")
@@ -1808,10 +1877,73 @@ def _queue_workflow_review(result: dict, invocation: dict) -> dict:
         approver_groups=groups,
         approver_capabilities=capabilities,
         review_owner=str(invocation["actor"]),
+        policy_input=saved_policy_input,
     )
     workflow["review_id"] = proposal["id"]
     result["workflow"] = workflow
     return result
+
+
+def _queue_playbook_policy_review(
+    body: "InstantiateIn",
+    *,
+    actor: str,
+    subject,
+    registry,
+    project_type: str,
+) -> dict:
+    from ..extensions.policy import (
+        PolicyEffect,
+        PolicyInput,
+        PolicyResource,
+        policy_subject_data,
+    )
+
+    policy_input = PolicyInput(
+        subject,
+        "playbook.create",
+        PolicyResource("playbook", body.playbook, project_type=project_type),
+        "human",
+    )
+    decision = registry.policy_engine.decide(policy_input)
+    if decision.effect != PolicyEffect.REVIEW:
+        raise PermissionError("the playbook review is no longer required")
+    proposal = review.propose_extension_invocation(
+        "workflow",
+        {
+            "playbook": body.playbook,
+            "engagement_name": body.engagement_name,
+        },
+        {
+            "playbook": body.playbook,
+            "engagement_name": body.engagement_name,
+            "lead": body.lead or actor,
+            "start_date": body.start_date,
+            "actor": actor,
+            "subject": policy_subject_data(subject),
+            "workflow_kind": "playbook_policy",
+        },
+        summary=f"Start governed playbook {body.playbook}",
+        actor=actor,
+        requested_by=actor,
+        policy_obligations=decision.obligations,
+        approver_groups=decision.approver_groups,
+        approver_capabilities=decision.approver_capabilities,
+        review_owner=actor,
+        policy_input=policy_input,
+    )
+    obligations = [*decision.obligations]
+    obligations.extend(f"approver-group:{value}" for value in decision.approver_groups)
+    obligations.extend(f"approver-capability:{value}" for value in decision.approver_capabilities)
+    return {
+        "workflow": {
+            "status": "review_required",
+            "checkpoint": "workplace-policy",
+            "error_code": "REVIEW_REQUIRED",
+            "obligations": list(dict.fromkeys(obligations)),
+            "review_id": proposal["id"],
+        }
+    }
 
 
 @router.post("/review/{change_id}/approve")
@@ -2049,6 +2181,14 @@ def post_instantiate(
     registry = request.app.state.skein_registry
     playbook = playbooks.get_playbook(body.playbook)
     project_type = str(playbook.get("project_class") or body.playbook)
+    if getattr(request.state, "skein_playbook_policy_review", False):
+        return _queue_playbook_policy_review(
+            body,
+            actor=user,
+            subject=subject,
+            registry=registry,
+            project_type=project_type,
+        )
     workflow_context = WorkflowContext(
         subject=subject,
         origin="human",

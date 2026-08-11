@@ -193,6 +193,7 @@ def propose_extension_invocation(
     review_visibility: str = scope.WORKSPACE,
     review_crew_id: int = 0,
     review_owner: str = "",
+    policy_input=None,
 ) -> dict:
     """Create one review and keep its executable arguments out of the queue."""
     if kind not in ("tool", "workflow", "mcp_tool", "core_tool"):
@@ -201,6 +202,14 @@ def propose_extension_invocation(
     encoded = json.dumps(stored_invocation)
     if len(encoded) > 20_000:
         raise ValueError("reviewed invocation must be under 20k characters")
+    policy_context = None
+    if policy_input is not None:
+        from ..extensions.policy import policy_input_data
+
+        policy_context = {
+            "kind": "extension",
+            "input": policy_input_data(policy_input),
+        }
     with db.transaction():
         proposal = propose_change(
             f"extension_{kind}",
@@ -216,6 +225,7 @@ def propose_extension_invocation(
             review_visibility=review_visibility,
             review_crew_id=review_crew_id,
             review_owner=review_owner,
+            policy_context=policy_context,
         )
         db.execute(
             "INSERT INTO extension_review_invocations"
@@ -518,9 +528,35 @@ def _revalidate_policy(
         return
     if registry is None:
         raise PermissionError("The reviewed policy cannot be refreshed.")
-    contract = saved.get("contract")
     policy_data = saved.get("input")
-    if not isinstance(contract, dict) or not isinstance(policy_data, dict):
+    if not isinstance(policy_data, dict):
+        raise PermissionError("The reviewed policy context is invalid.")
+    if saved.get("kind") == "extension":
+        subject_data = policy_data.get("subject")
+        if not isinstance(subject_data, dict):
+            raise PermissionError("The reviewed requester identity is invalid.")
+        from ..extensions.policy import (
+            PolicyEffect,
+            policy_input_from_data,
+            policy_subject_from_data,
+        )
+
+        subject = registry.refresh_subject(policy_subject_from_data(subject_data))
+        decision = registry.policy_engine.decide(policy_input_from_data(policy_data, subject))
+        if decision.effect == PolicyEffect.DENY and approving:
+            raise PermissionError("The current workplace policy denies this reviewed action.")
+        # The next qualification check must use current requirements. Reusing
+        # the proposal-time group would let a removed group reject work or
+        # require a reviewer to hold both the old and new grants.
+        change["approver_groups"] = json.dumps(
+            decision.approver_groups if decision.effect == PolicyEffect.REVIEW else ()
+        )
+        change["approver_capabilities"] = json.dumps(
+            decision.approver_capabilities if decision.effect == PolicyEffect.REVIEW else ()
+        )
+        return
+    contract = saved.get("contract")
+    if not isinstance(contract, dict):
         raise PermissionError("The reviewed policy context is invalid.")
     expected = {
         "entity": change["entity"],
@@ -566,6 +602,8 @@ def _revalidate_policy(
     if decision.effect == PolicyEffect.DENY and approving:
         raise PermissionError("The current workplace policy denies this reviewed action.")
     if decision.effect == PolicyEffect.REVIEW:
+        change["approver_groups"] = json.dumps(decision.approver_groups)
+        change["approver_capabilities"] = json.dumps(decision.approver_capabilities)
         required_groups = set(decision.approver_groups)
         required_capabilities = set(decision.approver_capabilities)
         if required_groups - set(reviewer_groups) or required_capabilities - set(

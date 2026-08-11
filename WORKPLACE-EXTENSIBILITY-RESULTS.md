@@ -771,6 +771,55 @@ builds.
 A fresh four-reviewer gate is pending. Live Chrome validation remains blocked
 until that gate passes.
 
+### Sixth independent review
+
+The sixth gate reviewed commit `d4deff1`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.7 | 8.3 | Reject |
+| Security and provenance | 7.7 | 6.8 | 8.0 | Reject |
+| Compatibility and reliability | 8.2 | 8.2 | 8.2 | Approve |
+| Adversarial score auditor | 7.6 | 7.1 | 8.0 | Reject |
+
+The valid findings were:
+
+- Unattended agent turns did not use the composed policy or extension
+  registry.
+- One successful profile resolver could mask a failed group resolver.
+- REST playbook policy did not receive the authoritative project class.
+- Contributed specialist writes named the human requester as the writer.
+- One failed lifecycle shutdown callback could skip other callbacks.
+- Extension rejection could use proposal-time approver grants.
+- Artifact rehearsals were not continuous CI gates.
+
+The sixth remediation closes these findings. It passes the composed registry,
+policy, and agent subject into unattended turns. It separates group refresh
+from profile refresh. It uses one project-aware `playbook.create` action. A
+REST review now pauses before project creation. Tool handlers receive separate
+requester, agent, and correlation values. Public work commands record the
+execution actor. Review rejection uses current policy. Lifecycle cleanup is
+fault-tolerant. CI runs all four artifact contracts.
+
+Verification after the sixth remediation:
+
+| Command | Result |
+|---|---|
+| Focused security and extension suite | 189 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,704 passed |
+| `npm test -- --run` | 229 passed in 45 files |
+| `npm run build` | Production build passed |
+| `./scripts/lint.sh` | All lint, type, content, and dead-code gates passed |
+| `scripts/reference-extension-contract.sh` | Installed backend and upgrade passed |
+| `scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on two hosts |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render passed |
+| Derivative image build and inspection | Four images passed |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schema and activity chain passed |
+| Core wheel build | Passed |
+
+A fresh four-reviewer gate is pending. Chrome remains blocked until that gate
+approves the exact remediation commit.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.

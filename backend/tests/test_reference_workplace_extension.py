@@ -290,13 +290,32 @@ def test_reference_specialist_tool_is_governed_and_uses_public_work(fresh_db, tm
                     capabilities=("atlas.integration", "atlas.specialist"),
                 ),
                 specialist.name,
+                correlation_id="atlas-tool-call-1",
             ),
             registry.policy_engine,
         )
     )
     assert result.status == "completed"
     assert result.output == {"created": 1, "updated": 0}
-    assert fresh_db.query_one("SELECT origin FROM tasks")["origin"] == "atlas-integration"
+    task = fresh_db.query_one("SELECT origin, created_by FROM tasks")
+    assert task == {
+        "origin": "atlas-integration",
+        "created_by": "atlas.workplace.delivery-specialist",
+    }
+    event = fresh_db.query_one("SELECT payload FROM extension_outbox")
+    assert event is not None
+    payload = __import__("json").loads(event["payload"])
+    assert payload["actor"] == {
+        "name": "atlas.workplace.delivery-specialist",
+        "kind": "agent",
+    }
+    assert payload["correlation_id"] == "atlas-tool-call-1"
+    activities = fresh_db.query(
+        "SELECT actor, action, detail FROM activity"
+        " WHERE action IN ('create_task', 'external_tool') ORDER BY id"
+    )
+    assert [row["actor"] for row in activities] == [specialist.name, specialist.name]
+    assert "correlation=atlas-tool-call-1" in activities[-1]["detail"]
 
 
 def test_reference_playbook_uses_real_policy_and_workflow_registry(fresh_db, tmp_path, monkeypatch):

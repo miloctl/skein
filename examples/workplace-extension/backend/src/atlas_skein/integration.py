@@ -107,11 +107,21 @@ class AtlasIntegration:
         self.client = client
         self.store = store
 
-    def sync(self, work: WorkItems, subject: PolicySubject) -> dict[str, int]:
+    def sync(
+        self,
+        work: WorkItems,
+        subject: PolicySubject,
+        *,
+        actor: str = "",
+        correlation_id: str = "",
+    ) -> dict[str, int]:
         context = CommandContext(
             subject,
             "atlas-integration",
+            correlation_id=correlation_id,
             project_type="standard",
+            actor=actor,
+            actor_kind="agent" if actor else subject.kind,
         )
         created = updated = 0
         for item in self.client.list_items():

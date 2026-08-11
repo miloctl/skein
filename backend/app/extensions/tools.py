@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
 
@@ -50,6 +51,7 @@ class ToolCallContext:
     agent: str
     origin: str = "agent_tool"
     resource: PolicyResource = field(default_factory=lambda: PolicyResource(type="tool"))
+    correlation_id: str = field(default_factory=lambda: uuid4().hex)
 
 
 async def execute_tool(
@@ -150,6 +152,7 @@ async def execute_tool(
             ),
             review_crew_id=int(resource.attributes.get("crew_id") or 0),
             review_owner=context.subject.name,
+            policy_input=policy_input,
         )
         return _finish(
             contribution,
@@ -165,7 +168,13 @@ async def execute_tool(
     async def invoke() -> Any:
         from ..public.work import WorkItems
 
-        services = ToolHandlerContext(context.subject, policy, WorkItems(policy))
+        services = ToolHandlerContext(
+            context.subject,
+            policy,
+            WorkItems(policy),
+            context.agent,
+            context.correlation_id,
+        )
         result = await asyncio.to_thread(contribution.handler, services, validated)
         if isawaitable(result):
             return await result
@@ -301,5 +310,6 @@ def _finish(
             tool=contribution.name,
             status=result.status,
             error_code=result.error_code,
+            correlation_id=context.correlation_id,
         )
     return result
