@@ -3,10 +3,11 @@ alongside agent tools — both go through app.services)."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
+from ..extensions.fastapi import PolicySubjectDep, decide
 from ..services import (
     absences,
     activity,
@@ -71,6 +72,40 @@ router = APIRouter(prefix="/api")
 # The file-backed catalogs are the exception, enumerated with a reason each
 # in tests/test_route_identity.py::OPEN_READS. Adding an open GET without a
 # line there fails CI.
+
+
+@router.get("/capabilities")
+def get_capabilities(
+    request: Request,
+    subject: PolicySubjectDep,
+    actions: str = Query("", max_length=2000),
+    project_type: str = Query("", max_length=100),
+):
+    """Return policy decisions for presentation, not for enforcement."""
+    requested = {item.strip() for item in actions.split(",") if item.strip()}
+    requested.update(tool.policy_action for tool in request.app.state.skein_registry.tools)
+    out = {}
+    for action in sorted(requested):
+        decision = decide(
+            request,
+            subject,
+            action,
+            action.split(".", 1)[0],
+            project_type=project_type,
+        )
+        out[action] = {
+            "effect": decision.effect.value,
+            "reasons": list(decision.reasons),
+            "obligations": list(decision.obligations),
+            "approver_groups": list(decision.approver_groups),
+            "approver_capabilities": list(decision.approver_capabilities),
+        }
+    return {
+        "subject": subject.name,
+        "roles": list(subject.roles),
+        "capabilities": list(subject.capabilities),
+        "actions": out,
+    }
 
 
 @router.get("/milestones")

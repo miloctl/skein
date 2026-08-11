@@ -6,13 +6,25 @@ Unconfigured (the default) this returns [] and costs nothing. Clients are
 opened once per process and kept alive so tools stay usable across requests.
 """
 
+import asyncio
 import contextlib
 import json
 import logging
 import threading
+from dataclasses import dataclass
 from functools import partial
+from typing import Any
+
+from strands.types.tools import AgentTool
 
 from .. import config
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
 
 log = logging.getLogger(__name__)
 _clients: list = []
@@ -20,6 +32,130 @@ _tools: list | None = None
 _lock = threading.Lock()
 _loading = False
 _generation = 0
+
+
+@dataclass(frozen=True)
+class MCPToolMetadata:
+    effect: str
+    risk: str
+    policy_action: str
+    allowed_agents: tuple[str, ...]
+    timeout_seconds: float
+    error_codes: tuple[str, ...]
+    receipt: str
+    provenance: str
+
+
+class GovernedMCPTool(AgentTool):
+    """A remote tool that cannot execute before Skein policy decides."""
+
+    def __init__(self, delegate, metadata: MCPToolMetadata) -> None:
+        super().__init__()
+        self._delegate = delegate
+        self.metadata = metadata
+
+    @property
+    def tool_name(self) -> str:
+        return str(self._delegate.tool_name)
+
+    @property
+    def tool_spec(self):
+        return self._delegate.tool_spec
+
+    @property
+    def tool_type(self) -> str:
+        return "mcp-governed"
+
+    @property
+    def supports_hot_reload(self) -> bool:
+        return False
+
+    async def stream(self, tool_use, invocation_state: dict[str, Any], **kwargs: Any):
+        from .identity import agent_identity
+        from .receipts import record
+
+        actor = agent_identity()
+        if self.metadata.allowed_agents and actor not in self.metadata.allowed_agents:
+            record("refused", self.tool_name, "agent not allowed", actor=actor)
+            yield _refusal(tool_use, "This agent is not allowed to use the remote tool.")
+            return
+        decision = current_policy_engine().decide(
+            PolicyInput(
+                current_policy_subject(),
+                self.metadata.policy_action,
+                PolicyResource("mcp-tool", self.tool_name),
+                "mcp",
+                agent=actor,
+                tool=self.tool_name,
+                tool_effect=self.metadata.effect,
+                tool_risk=self.metadata.risk,
+            )
+        )
+        if decision.effect != PolicyEffect.PERMIT:
+            status = "review required" if decision.effect == PolicyEffect.REVIEW else "denied"
+            record("refused", self.tool_name, status, actor=actor)
+            yield _refusal(tool_use, f"Skein policy {status} for this remote tool.")
+            return
+
+        iterator = self._delegate.stream(tool_use, invocation_state, **kwargs).__aiter__()
+        while True:
+            try:
+                event = await asyncio.wait_for(
+                    anext(iterator), timeout=self.metadata.timeout_seconds
+                )
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                record("failed", self.tool_name, "remote tool timed out", actor=actor)
+                yield _refusal(tool_use, "The remote tool timed out.")
+                return
+            yield event
+
+
+def _refusal(tool_use: dict, detail: str) -> dict:
+    return {
+        "toolUseId": tool_use.get("toolUseId", "unknown"),
+        "status": "error",
+        "content": [{"text": detail}],
+    }
+
+
+def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
+    value = (server.get("tools") or {}).get(tool_name)
+    required = {
+        "effect",
+        "risk",
+        "policy_action",
+        "allowed_agents",
+        "timeout_seconds",
+        "error_codes",
+        "receipt",
+        "provenance",
+    }
+    if not isinstance(value, dict) or required - set(value):
+        return None
+    if value["effect"] not in ("none", "read", "write"):
+        return None
+    if value["risk"] not in ("low", "medium", "high", "critical"):
+        return None
+    if value["receipt"] != "required" or value["provenance"] != "service":
+        return None
+    try:
+        timeout = float(value["timeout_seconds"])
+    except (TypeError, ValueError):
+        return None
+    if timeout <= 0:
+        return None
+    return MCPToolMetadata(
+        value["effect"],
+        value["risk"],
+        str(value["policy_action"]),
+        tuple(str(item) for item in value["allowed_agents"]),
+        timeout,
+        tuple(str(item) for item in value["error_codes"]),
+        value["receipt"],
+        value["provenance"],
+    )
 
 
 def mcp_tools() -> list:
@@ -80,8 +216,24 @@ def _connect_servers() -> tuple[list, list]:
             client.__enter__()  # keep the session open for the process lifetime
             clients.append(client)
             found = client.list_tools_sync()
-            tools.extend(found)
-            log.info("MCP server '%s': %d tools", server.get("name", url), len(found))
+            accepted = []
+            for remote_tool in found:
+                metadata = _metadata(server, str(remote_tool.tool_name))
+                if metadata is None:
+                    log.warning(
+                        "MCP tool %r from %r omitted: complete governance metadata is required",
+                        remote_tool.tool_name,
+                        server.get("name", url),
+                    )
+                    continue
+                accepted.append(GovernedMCPTool(remote_tool, metadata))
+            tools.extend(accepted)
+            log.info(
+                "MCP server '%s': %d of %d tools governed and loaded",
+                server.get("name", url),
+                len(accepted),
+                len(found),
+            )
         except Exception as exc:
             log.warning("MCP server '%s' failed to connect: %s", server.get("name", "?"), exc)
     return tools, clients

@@ -214,9 +214,9 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 |---:|---|---|---|---|
 | 0 | None | Baseline, traces, plan, and characterization tests | Baseline commands and plan | Complete |
 | 1 | 0 | Immutable composition settings and application factory | Existing `app` and external factory tests | Complete |
-| 2 | 1 | Typed module, route, job, tool, specialist, context, and handler registries | Collision and compatibility tests | In progress: module, route, job, and lifecycle contracts complete |
-| 3 | 2 | Core policy decision point and capability reporting | Existing behavior tests plus conditional workplace policy | Pending |
-| 4 | 3 | Governed private and MCP tool wrappers | Policy, receipt, timeout, and provenance tests | Pending |
+| 2 | 1 | Typed module, route, job, tool, specialist, context, and handler registries | Collision and compatibility tests | Complete for current extension concerns |
+| 3 | 2 | Core policy decision point and capability reporting | Existing behavior tests plus conditional workplace policy | Complete |
+| 4 | 3 | Governed private and MCP tool wrappers | Policy, receipt, timeout, and provenance tests | Complete |
 | 5 | 2 | Public commands, queries, results, and errors | Reference extension imports only public modules | Pending |
 | 6 | 5 | Versioned events and durable outbox | Delivery, retry, and idempotency tests | Pending |
 | 7 | 2 | Extension-owned migration and data boundaries | Separate store and migration tests | Pending |
@@ -289,6 +289,8 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-10 | Use Playwright's documented pre-started-server mode | The host health poll stalled although both test endpoints responded |
 | 2026-08-10 | Preserve request-time auth compatibility | Existing tests and callers can change the legacy config module before a request; the immutable snapshot owns composition, while the request gate keeps the compatibility adapter |
 | 2026-08-10 | Require explicit, namespaced module routes | Private routes cannot collide with the core API and installed packages never execute automatically |
+| 2026-08-10 | Combine policy by strongest result | A workplace permit cannot erase a core deny; deny outranks review, and review outranks permit |
+| 2026-08-10 | Omit unclassified MCP tools | A remote tool with unknown effects cannot bypass Skein policy, review, and receipts |
 
 ## Risks
 
@@ -326,6 +328,17 @@ Scores can increase only when core behavior and the reference extension use the 
 - The first full regression run exposed request-time auth and scheduler-call
   compatibility. Both adapters were restored, and their eight focused tests pass.
 - The complete backend regression suite then passed with 1,582 tests in 92.67 seconds.
+- Added typed policy, identity, context, tool, and specialist contributions.
+- Mapped the existing authority and review behavior into the default policy.
+- Applied workplace policy to the existing agent write gate.
+- Added `/api/capabilities` for capability-aware presentation.
+- Added governed Strands wrappers with typed input/output, stable names,
+  effects, risk, allowlists, timeouts, safe error codes, and receipt behavior.
+- Added private specialist prompt, context, and tool composition without a
+  private import in the Chief-of-Staff implementation.
+- Added MCP governance metadata and a deny-by-omission rule for unclassified
+  remote tools.
+- Confirmed the full backend suite passes with 1,592 tests after this slice.
 
 ## Review findings
 
