@@ -41,11 +41,18 @@ def resolve_context(
     subject: PolicySubject,
     agent: str,
     policy: PolicyEngine,
+    correlation_id: str = "",
 ) -> str:
     """Authorize and bound one specialist context retrieval."""
     missing = sorted(set(contribution.required_capabilities) - set(subject.capabilities))
     if missing:
-        _record_context(contribution, agent, "refused", "capability_required")
+        _record_context(
+            contribution,
+            agent,
+            "refused",
+            "capability_required",
+            correlation_id,
+        )
         raise PermissionError("this context source needs a workplace capability")
     decision = policy.decide(
         PolicyInput(
@@ -61,7 +68,7 @@ def resolve_context(
     )
     if decision.effect != PolicyEffect.PERMIT:
         code = "review_unsupported" if decision.effect == PolicyEffect.REVIEW else "policy_denied"
-        _record_context(contribution, agent, "refused", code)
+        _record_context(contribution, agent, "refused", code, correlation_id)
         raise PermissionError("the workplace policy denied this context source")
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-extension-context")
     future = executor.submit(contribution.provider, query)
@@ -73,14 +80,14 @@ def resolve_context(
             raise ValueError("the context provider exceeded its output limit")
     except FutureTimeout as exc:
         future.cancel()
-        _record_context(contribution, agent, "failed", "deadline_exceeded")
+        _record_context(contribution, agent, "failed", "deadline_exceeded", correlation_id)
         raise RuntimeError("the context provider exceeded its deadline") from exc
     except Exception:
-        _record_context(contribution, agent, "failed", "context_error")
+        _record_context(contribution, agent, "failed", "context_error", correlation_id)
         raise
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
-    _record_context(contribution, agent, "completed")
+    _record_context(contribution, agent, "completed", correlation_id=correlation_id)
     return value
 
 
@@ -89,6 +96,7 @@ def _record_context(
     agent: str,
     status: str,
     error_code: str = "",
+    correlation_id: str = "",
 ) -> None:
     from ..services.tool_audit import record_tool_execution
 
@@ -97,6 +105,7 @@ def _record_context(
         tool=contribution.name,
         status=status,
         error_code=error_code,
+        correlation_id=correlation_id,
     )
 
 

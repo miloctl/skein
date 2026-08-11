@@ -728,6 +728,7 @@ def build_agent(
                     policy_subject or current_policy_subject(),
                     contributed_specialist.name,
                     extensions.policy_engine,
+                    thread_id,
                 )
                 for name in contributed_specialist.context_sources
             )
@@ -1208,6 +1209,7 @@ def build_agent(
                     policy_subject or current_policy_subject(),
                     contributed_specialist.name,
                     extensions.policy_engine,
+                    thread_id,
                 )
                 system += (
                     f"\n\n<extension-context source={source_name!r}>\n"
