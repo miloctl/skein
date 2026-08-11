@@ -41,6 +41,10 @@ EXCLUDED = frozenset(
         "search_ids",
         "embeddings",
         "schema_version",
+        # durable operational delivery state; events carry public identifiers,
+        # and a JSON export must not replay integrations on restore
+        "extension_outbox",
+        "extension_event_deliveries",
         # secret hashes must not travel in portable exports — recreate keys
         # after a restore
         "api_keys",

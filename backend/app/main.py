@@ -16,6 +16,7 @@ from . import config, db, ratelimit
 from .extensions import AppSettings, ExtensionRegistry, SkeinModule
 from .extensions.contracts import LifecycleContext, LifecycleContribution
 from .extensions.core import core_module
+from .public.errors import PublicError
 from .services import handoff
 from .services.activity import chain_health
 from .services.jobs import JOBS, JobSpec, job_health, run_job
@@ -43,6 +44,18 @@ def _job_specs(registry: ExtensionRegistry) -> tuple[JobSpec, ...]:
                 trigger=dict(contribution.trigger),
                 period_hours=contribution.period_hours,
                 catch_up=contribution.catch_up,
+            )
+        )
+    if registry.events:
+        from .public.events import dispatch_events
+
+        specs.append(
+            JobSpec(
+                name="extension-events",
+                fn=lambda: dispatch_events(registry.events),
+                trigger={"trigger": "interval", "minutes": 1},
+                period_hours=1 / 60,
+                catch_up=True,
             )
         )
     return tuple(specs)
@@ -104,6 +117,8 @@ async def lifespan(app: FastAPI):
     registry: ExtensionRegistry = app.state.skein_registry
     specs = _job_specs(registry)
     db.init_db()  # a failed migration MUST abort startup — everything else must not
+    for contribution in registry.migrations:
+        contribution.store.migrate(contribution.migrations)
     # same rule for the field-guide registry: malformed knots.yaml aborts boot
     # here, instead of 500ing the first /field-guide request at 3pm
     from .services import fieldguide
@@ -411,6 +426,18 @@ async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+async def public_error_handler(request: Request, exc: PublicError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "code": exc.code,
+            "retryable": exc.retryable,
+            "obligations": list(exc.obligations),
+        },
+    )
+
+
 async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
     # starlette matches handlers by walking the exception's MRO, so this wins
     # over the ValueError handler above even though RateLimited subclasses it
@@ -567,6 +594,7 @@ def create_app(
     application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
     application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
     application.add_exception_handler(ValueError, cast(Any, value_error_handler))
+    application.add_exception_handler(PublicError, cast(Any, public_error_handler))
     application.add_exception_handler(ratelimit.RateLimited, cast(Any, rate_limited_handler))
     application.add_exception_handler(sqlite3.OperationalError, cast(Any, database_busy_handler))
     application.add_exception_handler(

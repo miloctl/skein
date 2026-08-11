@@ -11,13 +11,16 @@ import os
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 
 from .. import config
 from .policy import IdentityMapper, PolicyRule
+
+if TYPE_CHECKING:
+    from ..public.events import DomainEvent
 
 SKEIN_CORE_VERSION = "0.1.0"
 EXTENSION_API_VERSION = "1.0"
@@ -177,6 +180,51 @@ class SpecialistContribution:
 
 
 @dataclass(frozen=True)
+class EventContribution:
+    """A durable subscriber for selected versions and visibility tiers."""
+
+    name: str
+    handler: Callable[[DomainEvent], None]
+    event_types: tuple[str, ...]
+    schema_versions: tuple[int, ...] = (1,)
+    visibilities: tuple[str, ...] = ("workspace",)
+    max_attempts: int = 5
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "event_types", tuple(self.event_types))
+        object.__setattr__(self, "schema_versions", tuple(self.schema_versions))
+        object.__setattr__(self, "visibilities", tuple(self.visibilities))
+
+
+@dataclass(frozen=True)
+class ExtensionMigration:
+    """One append-only migration in an extension-owned store."""
+
+    version: int
+    name: str
+    statements: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "statements", tuple(self.statements))
+
+
+class MigrationStore(Protocol):
+    def migrate(self, migrations: tuple[ExtensionMigration, ...]) -> None: ...
+
+
+@dataclass(frozen=True)
+class MigrationContribution:
+    """An isolated migration stream supplied by one trusted module."""
+
+    name: str
+    store: MigrationStore
+    migrations: tuple[ExtensionMigration, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "migrations", tuple(self.migrations))
+
+
+@dataclass(frozen=True)
 class SkeinModule:
     """A signed-off module manifest passed explicitly to ``create_app``.
 
@@ -198,6 +246,8 @@ class SkeinModule:
     contexts: tuple[ContextContribution, ...] = ()
     tools: tuple[ToolContribution, ...] = ()
     specialists: tuple[SpecialistContribution, ...] = ()
+    events: tuple[EventContribution, ...] = ()
+    migrations: tuple[MigrationContribution, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requires", tuple(self.requires))
@@ -209,3 +259,5 @@ class SkeinModule:
         object.__setattr__(self, "contexts", tuple(self.contexts))
         object.__setattr__(self, "tools", tuple(self.tools))
         object.__setattr__(self, "specialists", tuple(self.specialists))
+        object.__setattr__(self, "events", tuple(self.events))
+        object.__setattr__(self, "migrations", tuple(self.migrations))

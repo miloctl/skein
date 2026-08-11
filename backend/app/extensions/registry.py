@@ -9,9 +9,11 @@ from .contracts import (
     EXTENSION_API_VERSION,
     SKEIN_CORE_VERSION,
     ContextContribution,
+    EventContribution,
     IdentityContribution,
     JobContribution,
     LifecycleContribution,
+    MigrationContribution,
     PolicyContribution,
     RouteContribution,
     SkeinModule,
@@ -48,6 +50,8 @@ class ExtensionRegistry:
     contexts: tuple[ContextContribution, ...]
     tools: tuple[ToolContribution, ...]
     specialists: tuple[SpecialistContribution, ...]
+    events: tuple[EventContribution, ...]
+    migrations: tuple[MigrationContribution, ...]
 
     @property
     def policy_engine(self) -> PolicyEngine:
@@ -93,6 +97,8 @@ class ExtensionRegistry:
         contexts: list[ContextContribution] = []
         tools: list[ToolContribution] = []
         specialists: list[SpecialistContribution] = []
+        events: list[EventContribution] = []
+        migrations: list[MigrationContribution] = []
         names: dict[str, str] = {}
         route_signatures: dict[tuple[str, str], str] = {}
 
@@ -107,6 +113,8 @@ class ExtensionRegistry:
                 ("context", module.contexts),
                 ("tool", module.tools),
                 ("specialist", module.specialists),
+                ("event", module.events),
+                ("migration", module.migrations),
             ):
                 for contribution in contributions:
                     key = f"{kind}:{contribution.name}"
@@ -136,6 +144,8 @@ class ExtensionRegistry:
             contexts.extend(module.contexts)
             tools.extend(module.tools)
             specialists.extend(module.specialists)
+            events.extend(module.events)
+            migrations.extend(module.migrations)
 
         tool_names = {contribution.name for contribution in tools}
         model_tool_names = [contribution.model_name for contribution in tools]
@@ -163,6 +173,8 @@ class ExtensionRegistry:
             tuple(contexts),
             tuple(tools),
             tuple(specialists),
+            tuple(events),
+            tuple(migrations),
         )
 
 
@@ -267,6 +279,34 @@ def _validate_module(module: SkeinModule) -> None:
             specialist_contribution.version,
             f"specialist {specialist_contribution.name} version",
         )
+    for event_contribution in module.events:
+        _validate_contribution_name(module, event_contribution.name)
+        if not event_contribution.event_types:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} must select an event type"
+            )
+        if any(version < 1 for version in event_contribution.schema_versions):
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} has an invalid schema version"
+            )
+        if not 1 <= event_contribution.max_attempts <= 100:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} has invalid max_attempts"
+            )
+    for migration_contribution in module.migrations:
+        _validate_contribution_name(module, migration_contribution.name)
+        versions = [migration.version for migration in migration_contribution.migrations]
+        if versions != sorted(set(versions)) or any(version < 1 for version in versions):
+            raise ExtensionValidationError(
+                f"migration {migration_contribution.name!r} needs unique ascending versions"
+            )
+        if any(
+            not migration.name or not migration.statements
+            for migration in migration_contribution.migrations
+        ):
+            raise ExtensionValidationError(
+                f"migration {migration_contribution.name!r} has an empty migration"
+            )
 
 
 def _validate_contribution_name(module: SkeinModule, name: str) -> None:
@@ -308,6 +348,10 @@ def _validate_namespace(module: SkeinModule) -> None:
         _validate_owned(module, tool_contribution.name)
     for specialist_contribution in module.specialists:
         _validate_owned(module, specialist_contribution.name)
+    for event_contribution in module.events:
+        _validate_owned(module, event_contribution.name)
+    for migration_contribution in module.migrations:
+        _validate_owned(module, migration_contribution.name)
 
 
 def _validate_owned(module: SkeinModule, name: str) -> None:

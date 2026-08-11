@@ -630,6 +630,10 @@ UNSCOPED: dict[str, str] = {
         " reviewer may not be able to read the original."
     ),
     "schema_version": "migration bookkeeping",
+    "extension_outbox": (
+        "durable integration delivery state with identifiers and safe field names, not row bodies"
+    ),
+    "extension_event_deliveries": "idempotent subscriber receipts, not user-authored content",
     "tool_usage": "adoption counters, no content",
     "usage_log": "token spend, no content",
     "users": "the roster. Hiding a teammate's existence is not a tier, it is a different product.",
