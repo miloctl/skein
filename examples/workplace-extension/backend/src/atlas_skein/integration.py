@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
-from app.extensions import ExtensionStore, PolicySubject
+from app.extensions import ExtensionStore
 from app.public import CommandContext, CreateTaskCommand, UpdateTaskCommand, WorkItems
 
 
@@ -26,6 +26,13 @@ class AtlasClient(Protocol):
 
     def update_status(self, external_id: str, status: str, event_id: str = "") -> None: ...
 
+    def notify_manager(
+        self,
+        channel: str,
+        message: str,
+        event_id: str = "",
+    ) -> None: ...
+
 
 class MemoryAtlasClient:
     """A deterministic fake for contract tests and keyless deployments."""
@@ -33,6 +40,7 @@ class MemoryAtlasClient:
     def __init__(self, items: tuple[AtlasItem, ...] = ()) -> None:
         self.items = items
         self.updates: list[tuple[str, str, str]] = []
+        self.notifications: list[tuple[str, str, str]] = []
         self._seen_events: set[str] = set()
 
     def list_items(self) -> tuple[AtlasItem, ...]:
@@ -44,6 +52,14 @@ class MemoryAtlasClient:
         if event_id:
             self._seen_events.add(event_id)
         self.updates.append((external_id, status, event_id))
+
+    def notify_manager(self, channel: str, message: str, event_id: str = "") -> None:
+        receipt = f"notification:{event_id}" if event_id else ""
+        if receipt and receipt in self._seen_events:
+            return
+        if receipt:
+            self._seen_events.add(receipt)
+        self.notifications.append((channel, message, event_id))
 
 
 class AtlasHttpClient:
@@ -106,6 +122,13 @@ class AtlasHttpClient:
             {"status": status, "idempotency_key": event_id},
         )
 
+    def notify_manager(self, channel: str, message: str, event_id: str = "") -> None:
+        self._request(
+            "POST",
+            "/notifications",
+            {"channel": channel, "message": message, "idempotency_key": event_id},
+        )
+
 
 class AtlasIntegration:
     def __init__(self, client: AtlasClient, store: ExtensionStore) -> None:
@@ -115,19 +138,8 @@ class AtlasIntegration:
     def sync(
         self,
         work: WorkItems,
-        subject: PolicySubject,
-        *,
-        actor: str = "",
-        correlation_id: str = "",
+        context: CommandContext,
     ) -> dict[str, int]:
-        context = CommandContext(
-            subject,
-            "atlas-integration",
-            correlation_id=correlation_id,
-            project_type="standard",
-            actor=actor,
-            actor_kind="agent" if actor else subject.kind,
-        )
         created = updated = 0
         for item in self.client.list_items():
             link = self.store.query_one(
@@ -171,7 +183,7 @@ class AtlasIntegration:
             self.client.update_status(
                 item.external_id,
                 task.status,
-                f"{correlation_id or 'atlas-sync'}:{item.external_id}:{task.status}",
+                f"{context.correlation_id or 'atlas-sync'}:{item.external_id}:{task.status}",
             )
         self.store.execute(
             "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
@@ -183,9 +195,7 @@ class AtlasIntegration:
     def deliver_task_event(
         self,
         event,
-        work: WorkItems,
-        subject: PolicySubject | None,
-        delivery_id: str,
+        context,
     ) -> None:
         link = self.store.query_one(
             "SELECT external_id FROM work_links WHERE skein_task_id = ?",
@@ -193,13 +203,9 @@ class AtlasIntegration:
         )
         if not link:
             return
-        context = CommandContext(
-            subject or PolicySubject("atlas-events", kind="service"),
-            "atlas-event",
-            correlation_id=event.event_id,
-        )
-        task = work.get_task(int(event.resource.id), context)
-        self.client.update_status(link["external_id"], task.status, delivery_id)
+        command_context = context.command_context()
+        task = context.work_items.get_task(int(event.resource.id), command_context)
+        self.client.update_status(link["external_id"], task.status, context.delivery_id)
 
     def metrics(self) -> dict[str, int]:
         links = self.store.query_one("SELECT COUNT(*) AS count FROM work_links")

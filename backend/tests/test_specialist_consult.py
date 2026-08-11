@@ -181,7 +181,12 @@ def test_keyless_contributed_specialist_is_deterministic_and_cannot_write(fresh_
         minimum_core="0.2.0",
         maximum_core_exclusive="0.3.0",
         contexts=(
-            ContextContribution("acme.workplace.delivery-context", lambda user: f"for {user}"),
+            ContextContribution(
+                "acme.workplace.delivery-context",
+                lambda user: f"for {user}",
+                policy_action="acme.delivery-context.read",
+                required_capabilities=("acme.specialist",),
+            ),
         ),
         specialists=(
             SpecialistContribution(
@@ -214,7 +219,11 @@ def test_keyless_contributed_specialist_is_deterministic_and_cannot_write(fresh_
     assert specialist.tool_names == []
     assert "No tool ran and no work was written" in events[-1]["data"]
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
-    assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
+    assert fresh_db.query_one("SELECT actor, action, detail FROM activity") == {
+        "actor": "acme.workplace.delivery",
+        "action": "external_tool",
+        "detail": "acme.workplace.delivery-context completed",
+    }
 
 
 def test_an_empty_bench_says_so_rather_than_rendering_nothing(monkeypatch):

@@ -130,6 +130,7 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
             work_items,
             registry.service_subject("atlas-sync"),
             "atlas.workplace.sync:test",
+            "atlas.workplace.sync",
         )
         job = next(item for item in registry.jobs if item.name.endswith(".sync"))
         assert job.handler(context) == {"created": 1, "updated": 0}
@@ -139,7 +140,7 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     task = fresh_db.query_one("SELECT * FROM tasks")
     assert task["title"] == "Map dependency"
     assert task["status"] == "in_progress"
-    assert task["origin"] == "atlas-integration"
+    assert task["origin"] == "extension:atlas.workplace.sync"
     assert (
         fresh_db.query_one("SELECT 1 AS present FROM sqlite_master WHERE name = 'work_links'")
         is None
@@ -156,6 +157,7 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
             registry.policy_engine,
             work_items,
             registry.service_subject,
+            namespace="atlas.workplace.task-events",
         ),
     )
     assert delivery["delivered"] == 3
@@ -166,6 +168,42 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     ]
     assert len(event_updates) == 2
     assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
+
+
+def test_reference_route_uses_core_issued_provenance(fresh_db, tmp_path, monkeypatch):
+    from app import oidc
+
+    monkeypatch.setattr(oidc, "validate", lambda token: {"token": token})
+    monkeypatch.setattr(
+        oidc,
+        "principal",
+        lambda _claims: ("mira", ["atlas-integrations"]),
+    )
+    client = MemoryAtlasClient((AtlasItem("ATLAS-ROUTE", "Route import"),))
+    settings = replace(
+        AppSettings.from_config(),
+        scheduler_enabled=False,
+        auth_mode="oidc",
+        auth_error="",
+        api_token="",
+        docs_enabled=False,
+    )
+
+    with TestClient(
+        create_app(settings, (_module(tmp_path, client),)),
+        headers={"Authorization": "Bearer integrator-token"},
+    ) as http:
+        response = http.post("/api/extensions/atlas.workplace/sync", json={"full": False})
+
+    assert response.status_code == 200, response.text
+    assert fresh_db.query_one("SELECT origin, created_by FROM tasks") == {
+        "origin": "extension:atlas.workplace.routes",
+        "created_by": "mira",
+    }
+    payload = __import__("json").loads(
+        fresh_db.query_one("SELECT payload FROM extension_outbox")["payload"]
+    )
+    assert payload["actor"] == {"name": "mira", "kind": "human"}
 
 
 def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_path):
@@ -185,16 +223,17 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
         registry = app.state.skein_registry
         integration = AtlasIntegration(client, ExtensionStore(store_path))
         work_items = WorkItems(registry.policy_engine)
-        subject = registry.service_subject("atlas-sync")
+        context = JobExecutionContext(
+            registry.policy_engine,
+            work_items,
+            registry.service_subject("atlas-sync"),
+            "atlas.workplace.sync:window-7",
+            "atlas.workplace.sync",
+        ).command_context(project_type="standard")
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(
                 executor.map(
-                    lambda _index: integration.sync(
-                        work_items,
-                        subject,
-                        actor=subject.name,
-                        correlation_id="atlas.workplace.sync:window-7",
-                    ),
+                    lambda _index: integration.sync(work_items, context),
                     range(2),
                 )
             )
@@ -248,11 +287,15 @@ def test_http_adapter_uses_the_deployment_secret(monkeypatch):
     client = AtlasHttpClient("https://atlas.example.invalid/api", "secret-token", 4)
     assert client.list_items() == (AtlasItem("ATLAS-7", "Map"),)
     client.update_status("ATLAS-7", "done", "event-7")
-    assert [request.get_method() for request, _timeout in calls] == ["GET", "PATCH"]
+    client.notify_manager("delivery", "Ready", "notification-7")
+    assert [request.get_method() for request, _timeout in calls] == ["GET", "PATCH", "POST"]
     assert all(
         request.get_header("Authorization") == "Bearer secret-token" for request, _timeout in calls
     )
     assert calls[1][0].data == b'{"status": "done", "idempotency_key": "event-7"}'
+    assert calls[2][0].data == (
+        b'{"channel": "delivery", "message": "Ready", "idempotency_key": "notification-7"}'
+    )
 
 
 def test_a_second_module_can_deny_the_reference_background_job(fresh_db, tmp_path):
@@ -360,7 +403,7 @@ def test_reference_specialist_tool_is_governed_and_uses_public_work(fresh_db, tm
     assert result.output == {"created": 1, "updated": 0}
     task = fresh_db.query_one("SELECT origin, created_by FROM tasks")
     assert task == {
-        "origin": "atlas-integration",
+        "origin": "extension:atlas.workplace.sync-tool",
         "created_by": "atlas.workplace.delivery-specialist",
     }
     event = fresh_db.query_one("SELECT payload FROM extension_outbox")
@@ -393,7 +436,8 @@ def test_reference_playbook_uses_real_policy_and_workflow_registry(fresh_db, tmp
             else ("ava", [])
         ),
     )
-    module = _module(tmp_path)
+    client = MemoryAtlasClient()
+    module = _module(tmp_path, client)
     settings = replace(
         AppSettings.from_config(),
         scheduler_enabled=False,
@@ -430,6 +474,15 @@ def test_reference_playbook_uses_real_policy_and_workflow_registry(fresh_db, tmp
         assert approved.json()["result"]["workflow"]["status"] == "completed"
 
     assert fresh_db.query_one("SELECT name FROM engagements") == {"name": "Atlas launch"}
+    assert client.notifications == [
+        (
+            "delivery-managers",
+            "Atlas delivery work is ready.",
+            ":root.1:manager-notification",
+        )
+    ]
+    client.notify_manager(*client.notifications[0])
+    assert len(client.notifications) == 1
     assert fresh_db.query_one(
         "SELECT status FROM extension_review_invocations WHERE change_id = ?",
         (workflow["review_id"],),

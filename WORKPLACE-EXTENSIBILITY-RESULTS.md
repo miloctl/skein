@@ -870,6 +870,48 @@ Verification after the seventh remediation:
 A fresh independent review is pending. Chrome remains blocked until that gate
 passes.
 
+### Tenth independent review
+
+Three specialists completed the review of commit `089c97c`. The authorization
+reviewer hit an automated safety filter twice and returned no score.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 8.0 | 7.8 | 7.7 | Reject |
+| Compatibility and reliability | 8.1 | 7.7 | 7.0 | Reject |
+| Adversarial score auditor | 7.6 | 7.2 | 7.8 | Reject |
+
+The review rejected the gate. Public command provenance was not bound to the
+composed caller. Receipt namespaces were not module-specific. A removed
+extension could leave pending work that no current reviewer could settle.
+Async workflow handlers also passed registry validation.
+
+The frontend upgrade used two commits with identical frontend trees.
+Capability-based contributions did not refresh after identity changes. The
+reference action had no observable effect, and the packed card had no runtime
+rendering test.
+
+The next remediation binds command context to composition, adds stale-review
+cancellation, and validates workflow handlers. It also adds route and context
+policy metadata. The frontend and artifact tests will use different trees and
+real runtime composition. Chrome remains blocked until a new review passes.
+
+The remediation is now implemented. Core-issued execution contexts bind
+provenance and receipt namespaces. Private routes and specialist context
+sources have centrally enforced policy contracts. Removed extension work can
+receive an audited rejection without execution. Async workflow actions fail
+at startup.
+
+The Atlas reference action now sends an idempotent fake notification. The
+frontend reloads capabilities after identity changes. Its artifact rehearsal
+uses different source trees and renders the packed Atlas card through the
+generated registry. The image check uses the real scheduler setting and
+checks non-root runtime identities.
+
+Targeted backend, frontend, lint, and frontend artifact checks pass. A full
+verification and a fresh independent review are still required. Chrome
+remains blocked.
+
 ### Eighth independent review
 
 The eighth gate reviewed commit `5493d61`.
@@ -983,8 +1025,8 @@ passes.
   `/plan` command and stock agent tool support static templates only.
 - Core persistence remains concrete SQLite.
 - In-process extensions are fully trusted code.
-- Trusted extension code supplies public command actor and origin values.
-  Contract tests must verify them.
+- Core-issued route, job, event, tool, and workflow contexts bind public
+  command provenance. Caller-created command contexts cannot read or write.
 - Published frontend host images and archives do not have production release
   history yet. Local versioned artifacts pass the upgrade rehearsal.
 - Production scale and real enterprise credentials remain unverified.

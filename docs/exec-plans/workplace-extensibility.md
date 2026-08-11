@@ -1042,3 +1042,77 @@ Verification after this remediation:
 
 A fresh four-role review is the next gate. Chrome validation remains blocked
 until that review approves the exact remediation commit.
+
+### Tenth independent review
+
+Three specialists completed the review of commit `089c97c`. The authorization
+reviewer hit an automated safety filter twice and returned no score.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 8.0 | 7.8 | 7.7 | Reject |
+| Compatibility and reliability | 8.1 | 7.7 | 7.0 | Reject |
+| Adversarial score auditor | 7.6 | 7.2 | 7.8 | Reject |
+
+The valid gate findings were:
+
+- Public command contexts let trusted extensions falsify actor and origin.
+- Public idempotency receipts used origin instead of a required module
+  namespace.
+- The frontend upgrade used two commits with the same frontend tree.
+- Capability-aware UI did not refresh after an identity or key change.
+- A removed extension contract could leave a review permanently pending.
+- Async workflow actions passed composition but did not run correctly.
+- Route domain policy metadata remained an author convention.
+- The reference workflow action had no observable external effect.
+- Context providers had no policy, timeout, or output-size contract.
+- The packed Atlas frontend had no composed runtime rendering test.
+- The image contract used the wrong scheduler variable and did not inspect
+  runtime user IDs.
+
+### Tenth-review remediation plan
+
+1. Issue command contexts from composed route, job, event, tool, and workflow
+   execution boundaries.
+2. Bind provenance and receipt namespaces to those issued contexts.
+3. Add an audited stale-review cancellation path that never executes work.
+4. Reject async workflow handlers during composition.
+5. Add declared route policy metadata and central enforcement.
+6. Add governed context metadata, a timeout, an output bound, and a receipt.
+7. Refresh frontend capabilities after credentials or identity changes.
+8. Use two frontend revisions with different normalized trees.
+9. Render the packed Atlas contribution in a running host test.
+10. Give the Atlas workflow action an idempotent, observable fake effect.
+11. Correct the image environment variable and inspect container user IDs.
+
+Full verification and a new four-role review follow this remediation. Chrome
+validation remains blocked.
+
+### Tenth-review remediation progress
+
+The implementation now closes each accepted tenth-review finding:
+
+- Composed execution contexts issue write authority. They bind subject,
+  actor, actor kind, origin, contribution namespace, and correlation ID.
+- Public commands reject a caller-created context. Receipt keys use the
+  contribution namespace.
+- A visible reviewer can settle work after its executable extension contract
+  is removed. Approval remains closed.
+- Private routes declare an exact action, resource, effect, and risk. Skein
+  checks this contract before it calls the route.
+- Context contributions declare policy, risk, capabilities, deadline, and
+  output limits. Each retrieval writes a content-free receipt.
+- Composition rejects an asynchronous workflow action.
+- The Atlas workflow action sends one observable, idempotent fake
+  notification.
+- Frontend capability decisions reload after an identity or credential
+  change.
+- The frontend rehearsal uses source trees with different Git tree IDs. It
+  renders the packed Atlas card through the generated host registry.
+- The image rehearsal uses `SKEIN_SCHEDULER`, checks both runtime user IDs,
+  and checks backend health after a volume write.
+
+Targeted verification passed: 180 backend extension and policy tests, five
+frontend extension tests, the complete lint gate, and the two-host frontend
+artifact rehearsal. The next milestone records a compatible prior backend
+implementation. Full verification follows the next commit.

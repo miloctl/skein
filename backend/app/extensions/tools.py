@@ -182,6 +182,7 @@ async def execute_tool(
             WorkItems(policy),
             context.agent,
             context.correlation_id,
+            contribution.name,
         )
         result = await asyncio.to_thread(contribution.handler, services, validated)
         if isawaitable(result):

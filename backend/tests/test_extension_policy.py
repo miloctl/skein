@@ -26,7 +26,7 @@ from app.extensions import (
     SpecialistContribution,
     ToolContribution,
 )
-from app.extensions.agents import missing_specialist_capabilities
+from app.extensions.agents import missing_specialist_capabilities, resolve_context
 from app.extensions.policy import reset_policy_engine, set_policy_engine
 from app.extensions.registry import ExtensionRegistry
 from app.extensions.tools import ToolCallContext, execute_tool
@@ -117,6 +117,8 @@ def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule
             ContextContribution(
                 "acme.workplace.delivery-context",
                 lambda user: f"Delivery indicators visible to {user}.",
+                policy_action="acme.delivery-context.read",
+                required_capabilities=("acme.use-delivery-specialist",),
             ),
         ),
         specialists=(
@@ -519,6 +521,59 @@ def test_capability_endpoint_uses_the_composed_identity_and_policy(fresh_db):
     assert body["actions"]["atlas.update"]["effect"] == "review"
 
 
+def test_specialist_context_is_policy_controlled_and_audited(fresh_db):
+    calls: list[str] = []
+
+    def deny_context(request: PolicyInput):
+        if request.action == "acme.context.read":
+            return PolicyDecision(PolicyEffect.DENY, ("Context access is closed.",))
+        return None
+
+    contribution = ContextContribution(
+        "acme.workplace.context",
+        lambda query: calls.append(query) or "secret context",
+        policy_action="acme.context.read",
+        risk="medium",
+    )
+    policy = PolicyEngine((deny_context,))
+
+    with pytest.raises(PermissionError, match="policy denied"):
+        resolve_context(
+            contribution,
+            "mira",
+            PolicySubject("mira"),
+            "acme.workplace.specialist",
+            policy,
+        )
+
+    assert calls == []
+    assert fresh_db.query_one(
+        "SELECT actor, action, detail FROM activity WHERE action = 'external_tool'"
+    ) == {
+        "actor": "acme.workplace.specialist",
+        "action": "external_tool",
+        "detail": "acme.workplace.context refused (policy_denied)",
+    }
+
+
+def test_specialist_context_has_a_bounded_output(fresh_db):
+    contribution = ContextContribution(
+        "acme.workplace.context",
+        lambda _query: "too long",
+        policy_action="acme.context.read",
+        max_output_chars=3,
+    )
+
+    with pytest.raises(ValueError, match="output limit"):
+        resolve_context(
+            contribution,
+            "mira",
+            PolicySubject("mira"),
+            "acme.workplace.specialist",
+            PolicyEngine(()),
+        )
+
+
 def test_identity_contributions_aggregate_roles_and_capabilities():
     first = replace(
         _module(),
@@ -693,7 +748,7 @@ def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
 def test_all_contributed_routes_receive_the_composed_policy(fresh_db):
     from fastapi import APIRouter
 
-    from app.extensions import RouteContribution
+    from app.extensions import RouteContribution, RouteOperationContribution
 
     router = APIRouter(prefix="/api/extensions/acme.workplace")
 
@@ -706,16 +761,36 @@ def test_all_contributed_routes_receive_the_composed_policy(fresh_db):
         return {"unsafe": True}
 
     def deny_route(request: PolicyInput):
-        if request.action in (
-            "skein.rest.post.extensions.acme.workplace.unguarded",
-            "skein.rest.get.extensions.acme.workplace.unguarded-read",
-        ):
+        if request.action in ("acme.route.write", "acme.route.read"):
             return PolicyDecision(PolicyEffect.DENY, ("This route is disabled.",))
         return None
 
     module = replace(
         _module(),
-        routes=(RouteContribution("acme.workplace.routes", router),),
+        routes=(
+            RouteContribution(
+                "acme.workplace.routes",
+                router,
+                (
+                    RouteOperationContribution(
+                        "POST",
+                        "/api/extensions/acme.workplace/unguarded",
+                        "acme.route.write",
+                        PolicyResource("acme-data"),
+                        "write",
+                        "high",
+                    ),
+                    RouteOperationContribution(
+                        "GET",
+                        "/api/extensions/acme.workplace/unguarded-read",
+                        "acme.route.read",
+                        PolicyResource("acme-data"),
+                        "read",
+                        "low",
+                    ),
+                ),
+            ),
+        ),
         policies=(PolicyContribution("acme.workplace.deny-route", deny_route),),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
@@ -757,6 +832,10 @@ def test_specialist_and_governed_tool_join_the_real_agent_composition(fresh_db, 
         persona="acme.workplace.delivery",
         stateless=True,
         extensions=registry,
+        policy_subject=PolicySubject(
+            "manager",
+            capabilities=("acme.use-delivery-specialist",),
+        ),
     )
     assert specialist.tool_names == ["acme_atlas_update"]
     assert "Treat Atlas data as reported context" in specialist.system_prompt
@@ -2240,6 +2319,73 @@ def test_extension_rejection_uses_current_approver_group(fresh_db):
         policy_registry=registry,
     )
     assert rejected["status"] == "rejected"
+
+
+def test_removed_tool_review_can_be_settled_without_retired_capability(fresh_db):
+    from app.services import review, users
+
+    def old_policy(request: PolicyInput):
+        if request.action == "acme.sync":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=("acme.old-approver",),
+            )
+        return None
+
+    tool = ToolContribution(
+        name="acme.workplace.sync",
+        version="1.0.0",
+        model_name="acme_sync",
+        description="A retired synchronization action.",
+        handler=lambda _context, request: {"updated": request.external_id},
+        input_schema=SyncIn,
+        output_schema=SyncOut,
+        effect="write",
+        risk="high",
+        policy_action="acme.sync",
+    )
+    old_module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.old-policy", old_policy),),
+        tools=(tool,),
+    )
+    old_registry = ExtensionRegistry.build((old_module,))
+    users.ensure_user("requester")
+    users.ensure_user("current-manager")
+    queued = asyncio.run(
+        execute_tool(
+            tool,
+            {"external_id": "ATLAS-REMOVED"},
+            ToolCallContext(PolicySubject("requester"), "acme-agent"),
+            old_registry.policy_engine,
+        )
+    )
+    current_module = replace(old_module, policies=(), tools=())
+    current_registry = ExtensionRegistry.build((current_module,))
+
+    rejected = review.reject_change(
+        queued.review_id,
+        actor="current-manager",
+        policy_registry=current_registry,
+    )
+
+    assert rejected["status"] == "rejected"
+    row = fresh_db.query_one(
+        "SELECT status, reviewer_qualifications FROM pending_changes WHERE id = ?",
+        (queued.review_id,),
+    )
+    assert row == {
+        "status": "rejected",
+        "reviewer_qualifications": '{"matched_groups": [], "matched_capabilities": [], "stale_contract": true}',
+    }
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+        (queued.review_id,),
+    ) == {"status": "rejected"}
 
 
 def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
