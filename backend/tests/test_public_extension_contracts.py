@@ -14,6 +14,7 @@ from app.extensions import (
     ExtensionMigration,
     ExtensionRegistry,
     ExtensionValidationError,
+    JobExecutionContext,
     MigrationContribution,
     PolicyContribution,
     PolicyDecision,
@@ -23,8 +24,11 @@ from app.extensions import (
     RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
+    ToolHandlerContext,
+    WorkflowActionContext,
 )
 from app.extensions.data import ExtensionStore
+from app.extensions.fastapi import ExtensionRouteServices
 from app.extensions.policy import PolicyInput, PolicySubject
 from app.main import create_app
 from app.public import CommandContext, CreateTaskCommand, PublicError, UpdateTaskCommand, WorkItems
@@ -39,7 +43,17 @@ def _context(work_items: WorkItems, **changes) -> CommandContext:
         "project_type": "regulated",
     }
     values.update(changes)
-    return work_items._issue_context(**values)
+    execution = work_items._bind_execution_context(
+        JobExecutionContext(
+            policy=work_items._policy,
+            work_items=work_items,
+            subject=values["subject"],
+            run_id=values["correlation_id"],
+            namespace=values["namespace"],
+        ),
+        receipt_namespace=f"job:{values['namespace']}",
+    )
+    return execution.command_context(project_type=values["project_type"])
 
 
 def _event_context() -> EventExecutionContext:
@@ -130,6 +144,33 @@ def test_public_work_rejects_a_forged_execution_context(fresh_db):
     assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
 
 
+def test_caller_constructed_execution_boundaries_cannot_mint_command_authority(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    subject = PolicySubject("atlas-sync", kind="service")
+    policy = facade._policy
+    contexts = (
+        JobExecutionContext(policy, facade, subject, "run", "atlas.workplace.job"),
+        ToolHandlerContext(subject, policy, facade, "atlas-agent", "call", "atlas.workplace.tool"),
+        EventExecutionContext(
+            policy,
+            facade,
+            lambda _name: subject,
+            subject,
+            "delivery",
+            "atlas.workplace.events",
+        ),
+        WorkflowActionContext(subject, policy, facade, "atlas.workplace.action", "workflow"),
+        ExtensionRouteServices(subject, policy, facade, "atlas.workplace.routes", "request"),
+    )
+
+    for context in contexts:
+        with pytest.raises(PublicError) as raised:
+            context.command_context()
+        assert raised.value.code == "COMMAND_CONTEXT_REQUIRED"
+
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+
 def test_public_command_receipts_are_isolated_by_contribution(fresh_db):
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     command = CreateTaskCommand(title="Shared external ID", idempotency_key="external:42")
@@ -148,9 +189,38 @@ def test_public_command_receipts_are_isolated_by_contribution(fresh_db):
         "SELECT namespace, idempotency_key FROM extension_command_receipts ORDER BY namespace"
     )
     assert receipts == [
-        {"namespace": "acme.workplace.sync", "idempotency_key": "external:42"},
-        {"namespace": "atlas.workplace.sync", "idempotency_key": "external:42"},
+        {"namespace": "job:acme.workplace.sync", "idempotency_key": "external:42"},
+        {"namespace": "job:atlas.workplace.sync", "idempotency_key": "external:42"},
     ]
+
+
+def test_command_receipts_are_isolated_when_contribution_kinds_share_a_name(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    subject = PolicySubject("atlas-sync", kind="service")
+    name = "atlas.workplace.sync"
+    job = facade._bind_execution_context(
+        JobExecutionContext(facade._policy, facade, subject, "job-run", name),
+        receipt_namespace=f"job:{name}",
+    )
+    tool = facade._bind_execution_context(
+        ToolHandlerContext(subject, facade._policy, facade, "atlas-agent", "tool-run", name),
+        receipt_namespace=f"tool:{name}",
+    )
+    command = CreateTaskCommand(title="job task", idempotency_key="same-key")
+
+    first = facade.create_task(command, job.command_context())
+    second = facade.create_task(
+        command.model_copy(update={"title": "tool task"}),
+        tool.command_context(),
+    )
+
+    assert first.id != second.id
+    assert [
+        row["namespace"]
+        for row in fresh_db.query(
+            "SELECT namespace FROM extension_command_receipts ORDER BY namespace"
+        )
+    ] == ["job:atlas.workplace.sync", "tool:atlas.workplace.sync"]
 
 
 def test_public_command_and_event_share_the_transaction(fresh_db, monkeypatch):
@@ -284,6 +354,36 @@ def test_public_update_policy_uses_target_engagement(fresh_db):
         )
     assert raised.value.code == "POLICY_DENIED"
     assert service_work.task_policy_context(task)["project_type"] == "standard"
+
+
+def test_public_update_serializes_policy_decision_and_mutation(fresh_db):
+    from app.services import work as service_work
+
+    task = service_work.create_task("Serialized")["id"]
+    observed = {"inside_write_transaction": False}
+
+    def workplace_policy(request: PolicyInput):
+        if request.action == "work.task.update":
+            observed["inside_write_transaction"] = fresh_db._ambient.get() is not None
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.serialized", workplace_policy),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+
+    updated = facade.update_task(
+        UpdateTaskCommand(task_id=task, title="Policy-bound title"),
+        _context(facade, project_type="standard"),
+    )
+
+    assert observed["inside_write_transaction"] is True
+    assert updated.title == "Policy-bound title"
 
 
 def test_public_update_policy_uses_target_milestone(fresh_db):

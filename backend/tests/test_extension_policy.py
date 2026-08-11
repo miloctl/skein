@@ -2388,6 +2388,77 @@ def test_removed_tool_review_can_be_settled_without_retired_capability(fresh_db)
     ) == {"status": "rejected"}
 
 
+def test_removed_identity_owning_module_does_not_strand_its_oidc_review(fresh_db):
+    from app.services import review, users
+
+    def old_policy(request: PolicyInput):
+        if request.action == "acme.sync":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=("acme-managers",),
+            )
+        return None
+
+    tool = ToolContribution(
+        name="acme.workplace.sync",
+        version="1.0.0",
+        model_name="acme_sync",
+        description="A synchronization action owned by a removable module.",
+        handler=lambda _context, request: {"updated": request.external_id},
+        input_schema=SyncIn,
+        output_schema=SyncOut,
+        effect="write",
+        risk="high",
+        policy_action="acme.sync",
+    )
+    old_module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda _name, groups, _strong: {"groups": groups},
+                resolver=lambda _name: {"groups": ("requesters",)},
+                resolves_groups=True,
+            ),
+        ),
+        policies=(PolicyContribution("acme.workplace.policy", old_policy),),
+        tools=(tool,),
+    )
+    old_registry = ExtensionRegistry.build((old_module,))
+    users.ensure_user("requester")
+    users.ensure_user("current-manager")
+    requester = PolicySubject(
+        "requester",
+        groups=("requesters",),
+        source="oidc",
+        refresh_required=True,
+        strong=True,
+    )
+    queued = asyncio.run(
+        execute_tool(
+            tool,
+            {"external_id": "ACME-REMOVED"},
+            ToolCallContext(requester, "acme-agent"),
+            old_registry.policy_engine,
+        )
+    )
+
+    rejected = review.reject_change(
+        queued.review_id,
+        actor="current-manager",
+        policy_registry=ExtensionRegistry.build(()),
+    )
+
+    assert rejected["status"] == "rejected"
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (queued.review_id,)
+    ) == {"status": "rejected"}
+
+
 def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
     from app.services import review, users
 

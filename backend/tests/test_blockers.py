@@ -22,6 +22,13 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
     assert work.list_tasks(status="blocked")[0]["id"] == t["id"]
     blockers.resolve_blocker(b["id"])
     assert work.list_tasks()[0]["status"] == "in_progress"
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    assert [row["event_type"] for row in events] == [
+        "skein.task.created",
+        "skein.task.updated",
+        "skein.task.updated",
+    ]
+    assert '"status"' in events[-1]["payload"]
 
     # services/scope.py::missing — one wording for the absent row and for the
     # row this caller may not read, so neither answers "does #999 exist"

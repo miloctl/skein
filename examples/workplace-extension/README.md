@@ -29,8 +29,10 @@ scripts/reference-extension-contract.sh
 The script builds separate Skein and Atlas wheels. It installs them into a
 normal virtual environment and starts the installed application. It rejects
 the old core. It then moves the unchanged Atlas package from core `0.2.0` to a
-compatible `0.2.1` artifact. That artifact contains an additive migration.
-The test keeps the private Atlas data.
+compatible `0.2.1` artifact built from a different source tree. The test keeps
+the private Atlas data. It does not cross a new core migration. Run
+`scripts/upgrade-path.sh` to verify the historical base-to-current migrations,
+fresh-schema equality, and activity-chain integrity.
 
 ## Verify the frontend package
 

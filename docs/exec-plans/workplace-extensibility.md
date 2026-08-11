@@ -556,7 +556,8 @@ The second remediation is complete on the working branch.
 
 - Stock content now resolves from the normal virtual-environment data path.
 - The installed-wheel rehearsal uses a normal virtual environment.
-- The compatible `0.2.1` artifact includes an additive migration.
+- The installed artifact pair uses distinct backend implementations. The
+  historical base-to-current rehearsal verifies additive migrations separately.
 - Workflow grants now bind one structural path, policy result, input, action
   version, and complete workflow definition.
 - Tool, workflow, and MCP approvals recheck the current identity and policy.
@@ -1140,3 +1141,83 @@ Pre-review verification results:
 
 The next action is an independent four-role review of the exact committed
 implementation. Chrome remains blocked until that gate passes.
+
+### Eleventh independent review
+
+Four specialists reviewed commit `bf8a839`. All four rejected the gate.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture | 7.9 | 7.5 | 7.8 | Reject |
+| Compatibility | 8.2 | 8.2 | 8.0 | Reject |
+| Extension author | 7.7 | 6.8 | 7.5 | Reject |
+| Policy correctness | 7.7 | 6.6 | 8.0 | Reject |
+
+The valid gate findings were:
+
+- Caller-created execution contexts could mint false provenance.
+- Different contribution types could share one receipt namespace.
+- Separate workflow runs could share one action idempotency key.
+- Removing a complete OIDC extension module could strand its review.
+- Policy checks and task writes did not share one database transaction.
+- MCP policy context hid crew-scoped task attributes from assigned agents.
+- Some direct task state changes did not emit versioned events.
+- Failed or uncertain workflow actions did not have a complete attempt audit.
+- Duplicate route-operation policies could compose in an unstable order.
+- Machine identity names could collide across contribution types.
+- Artifact documents claimed an additive migration that the compared pair did
+  not cross.
+- The backend artifact script did not prove that its core trees differed.
+- The deployment rehearsal did not assert the private frontend image.
+
+### Eleventh-review remediation
+
+The working branch now does the following:
+
+- The composition root issues private execution authority for routes, jobs,
+  tools, events, and workflow actions.
+- Public command facades verify that authority before they accept a context.
+- Receipt namespaces include the contribution type and stable name.
+- Each workflow run gets a unique ID. Retries retain that ID.
+- Rejection resolves a missing contract before it refreshes a removed identity
+  provider. Approval remains closed.
+- Public commands, REST task writes, governed agent writes, and review resumes
+  hold current-state policy and the write in one SQLite transaction.
+- Reviewed applies use a savepoint. Partial domain writes roll back while the
+  durable review settlement can commit.
+- MCP task policy uses authoritative project and classification context.
+- Delegation, acceptance, blocker, and finding-link state changes emit task
+  events in the same transaction as the change.
+- Workflow actions record started, failed, uncertain, and completed outcomes.
+- Composition rejects duplicate operation-policy declarations and conflicting
+  specialist or service identities.
+- Forge policy and activity use the same machine actor.
+- Artifact documents now separate implementation upgrades from the historical
+  migration rehearsal.
+- The backend artifact script compares Git tree IDs.
+- The deployment script checks the private frontend image.
+
+Verification after this remediation:
+
+- Backend: 1,745 tests passed in 108.63 seconds.
+- Frontend: 230 tests passed in 45 files.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed in 20.19 seconds.
+- Frontend production build: passed in 14.05 seconds.
+- Backend wheel and source distribution: built.
+- Installed backend upgrade: passed in 17.50 seconds with the unchanged Atlas
+  wheel and two different core trees.
+- Installed frontend upgrade: passed with the unchanged Atlas package and two
+  different host trees.
+- Standard Kustomize render: passed.
+- Base-to-feature schema and activity-chain upgrade: passed.
+- Derivative backend and frontend images started as non-root.
+
+The first installed-backend attempt used an empty temporary package cache. Its
+dependency install did not finish after six minutes, so it was interrupted.
+An offline retry failed because `setuptools>=77` was not cached. The final run
+used the existing package cache and passed. These were environment setup
+outcomes, not Skein test failures.
+
+A fresh four-role review is the next gate. Chrome remains blocked until that
+review approves the exact remediation commit.

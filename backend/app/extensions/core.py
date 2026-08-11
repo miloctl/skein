@@ -43,7 +43,7 @@ def core_module() -> SkeinModule:
             JobContribution(
                 name=f"skein.core.{spec.name}",
                 handler=partial(_run_core_job, fn=spec.fn),
-                service_identity="skein.scheduler",
+                service_identity="scheduler",
                 policy_action=f"skein.job.{spec.name}",
                 effect="write",
                 risk="medium",
@@ -56,12 +56,12 @@ def core_module() -> SkeinModule:
         service_identities=(
             ServiceIdentityContribution(
                 name="skein.core.scheduler-identity",
-                subject="skein.scheduler",
+                subject="scheduler",
                 roles=("scheduler",),
             ),
             ServiceIdentityContribution(
                 name="skein.core.forge-identity",
-                subject="skein.forge",
+                subject="forge",
                 roles=("integration",),
             ),
         ),

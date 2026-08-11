@@ -3,6 +3,7 @@ alongside agent tools — both go through app.services)."""
 
 import asyncio
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -1335,19 +1336,21 @@ def post_task(
     subject: PolicySubjectDep,
 ):
     ratelimit.check("write", user)
-    domain = policy_context.proposed("task", body.model_dump())
-    enforce_decision(
-        decide(
-            request,
-            subject,
-            "skein.rest.post.tasks",
-            "task",
-            project_type=domain["project_type"],
-            classification=domain["classification"],
-            attributes=body.model_dump(),
+    values = body.model_dump()
+    with db.transaction():
+        domain = policy_context.proposed("task", values)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.tasks",
+                "task",
+                project_type=domain["project_type"],
+                classification=domain["classification"],
+                attributes=values,
+            )
         )
-    )
-    return work.create_task(**body.model_dump(), actor=user)
+        return work.create_task(**values, actor=user)
 
 
 class TaskPatch(BaseModel):
@@ -1378,24 +1381,33 @@ def patch_task(
     # edits scan for @mentions, so an uncapped PATCH is a notification
     # amplifier — same cap as the create routes
     ratelimit.check("write", user)
-    policy_context = work.task_policy_context(task_id, viewer)
-    enforce_decision(
-        decide(
-            request,
-            subject,
-            "skein.rest.patch.tasks",
-            "task",
-            resource_id=str(task_id),
-            project_type=str(policy_context.get("project_type") or ""),
-            classification=str(policy_context.get("classification") or ""),
-            attributes=body.model_dump(),
+    changes = body.model_dump()
+    # Resolve the target domain state and write under one SQLite write
+    # transaction. The generic route dependency remains an early refusal,
+    # while this check is the authoritative decision that cannot race a
+    # concurrent project relink.
+    with db.transaction():
+        domain = policy_context.for_change("task", task_id, changes)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.patch.tasks",
+                "task",
+                resource_id=str(task_id),
+                project_type=str(domain.get("project_type") or ""),
+                classification=str(domain.get("classification") or ""),
+                attributes=domain,
+            )
         )
-    )
-    # `strong` is read off the viewer, whose name survives only a proved
-    # identity (services/scope.py::Viewer). A sponsor closing delegated work
-    # here settles the acceptance proposal, and that verdict records whether
-    # a person really proved who they were — provenance reports it.
-    return work.update_task(task_id, **body.model_dump(), actor=user, strong=bool(viewer.name))
+        # `strong` is read off the viewer, whose name survives only a proved
+        # identity. A sponsor's direct close records that proof strength.
+        return work.update_task(
+            task_id,
+            **changes,
+            actor=user,
+            strong=bool(viewer.name),
+        )
 
 
 class QuestionIn(BaseModel):
@@ -1764,6 +1776,7 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
                 subject=subject,
                 origin="human",
                 project_type=project_type,
+                run_id=str(invocation.get("run_id") or uuid4().hex),
                 values={"project_type": project_type},
             ),
             expected_definition_digest=str(invocation.get("definition_digest") or ""),
@@ -1820,6 +1833,7 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
                 origin="human",
                 project_type=current_project_type,
                 resource_id=str(invocation.get("resource_id") or ""),
+                run_id=str(invocation.get("run_id") or uuid4().hex),
                 values={
                     **dict(invocation.get("values") or {}),
                     "project_type": current_project_type,
@@ -1945,6 +1959,7 @@ def _queue_playbook_policy_review(
             "subject": policy_subject_data(subject),
             "workflow_kind": "playbook_policy",
             "definition_digest": definition_digest,
+            "run_id": uuid4().hex,
         },
         summary=f"Start governed playbook {body.playbook}",
         actor=actor,
@@ -2251,6 +2266,7 @@ def post_instantiate(
             "actor": user,
             "project_type": project_type,
             "resource_id": "",
+            "run_id": workflow_context.run_id,
             "values": dict(workflow_context.values),
             "approval_grants": {},
             "subject": policy_subject_data(subject),

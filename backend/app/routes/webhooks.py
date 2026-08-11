@@ -139,7 +139,7 @@ async def forge_webhook(
         enforce_decision(
             registry.policy_engine.decide(
                 PolicyInput(
-                    registry.service_subject("skein.forge"),
+                    registry.service_subject("forge"),
                     "skein.integration.forge",
                     PolicyResource(
                         "task",
@@ -157,4 +157,4 @@ async def forge_webhook(
         )
     # threadpooled for the reason the HMAC above is: this is the full service
     # write chain — task moves, activity, notifications, the search index
-    return await run_in_threadpool(forge.forge_event, **mapped)
+    return await run_in_threadpool(forge.forge_event, **mapped, actor="forge")

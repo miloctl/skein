@@ -148,6 +148,12 @@ also declares its domain action, resource, effect, and risk. Skein checks this
 contract before it calls the route. Startup rejects a missing or extra
 operation contract.
 
+The version 1 route contract has a static resource plus an optional path ID.
+It does not resolve project or classification data for an arbitrary private
+entity. Use the public command facade for core work. If a private route needs
+dynamic domain policy, perform a typed check in its own adapter. Add a core
+resource resolver only when a shared use case exists.
+
 Skein also applies the same composed policy to core REST operations, agent
 tools, classified MCP tools, workflow steps, jobs, and capability responses.
 Core REST actions use this stable form:
@@ -265,8 +271,11 @@ final execution receipt.
 If a tool writes through `WorkItems`, use `ToolHandlerContext.command_context()`.
 The composed execution boundary binds the agent, origin, contribution
 namespace, and correlation ID. A caller-created `CommandContext` cannot write.
-The same rule applies to routes, jobs, events, and workflow actions. This split
-records the agent as the writer without giving it the requester's roles.
+Caller-created route, job, tool, event, or workflow execution contexts also
+cannot mint command authority. Only the core adapter binds that authority.
+Receipt namespaces include the contribution kind, so a job and tool can use
+the same stable name without sharing idempotency receipts. This split records
+the agent as the writer without giving it the requester's roles.
 
 Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
 Stock writes use their domain action through the shared write gate. The four
@@ -309,8 +318,9 @@ package does not import or patch the Chief implementation.
 Use a registered tool for side effects. A context contribution declares a
 version, read policy action, risk, capabilities, deadline, and output limit.
 Skein records a content-free receipt for each retrieval. The provider must be
-synchronous and must not write. Use a governed read tool when retrieval needs
-structured input, review, or a custom resource resolver.
+synchronous and must not write. Its single string argument is the authenticated
+requester name. It is not the current question. Use a governed read tool when
+retrieval needs structured input, review, or a custom resource resolver.
 
 ## Subscribe to events
 
@@ -407,6 +417,11 @@ observe a second policy result after core work exists.
 Each approval grant covers one structural step path. It also covers one input,
 action version, policy result, and complete workflow definition. A changed
 policy or playbook needs a new verdict.
+
+Each workflow execution has a random run ID. Review resume and retry keep the
+same ID. A separate run gets a different ID. Skein combines the run ID and
+step path for action correlation and idempotency. The activity chain records
+an attempt and its outcome, including `completion_unknown`.
 
 Version 1 does not support timers, parallel branches, or a general workflow
 state machine. Keep these processes in an extension service.
@@ -580,11 +595,13 @@ scripts/reference-images-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
-artifact contains the additive migration from the current source. The script
-does not inject a test-only migration. The frontend script creates two host
-artifacts from distinct source trees. It installs the same packed private
-package into both hosts. Then it runs a production build in each host. A
-runtime test renders the packed Atlas card through the generated registry.
+pair uses different backend source trees. It does not cross a new core
+migration. `scripts/upgrade-path.sh` separately verifies the additive core
+migrations from the historical base, schema equality, and activity-chain
+integrity. The frontend script creates two host artifacts from distinct source
+trees. It installs the same packed private package into both hosts. Then it
+runs a production build in each host. A runtime test renders the packed Atlas
+card through the generated registry.
 The image script builds the backend
 and frontend derivative images from staged release artifacts. The main CI
 workflow runs all four extension contracts.

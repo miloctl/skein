@@ -22,10 +22,12 @@ from app.extensions import (
     PolicyEffect,
     PolicyInput,
     PolicyResource,
+    PolicySubject,
     RouteContribution,
     RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
+    SpecialistContribution,
 )
 from app.main import app as default_app
 from app.main import create_app
@@ -291,6 +293,22 @@ def test_private_route_without_domain_policy_metadata_is_rejected():
         ExtensionRegistry.build((module,))
 
 
+def test_duplicate_route_operation_policies_are_rejected():
+    router = _router()
+    contribution = _routes("acme.workplace.routes", router)
+    module = _module(
+        routes=(
+            replace(
+                contribution,
+                operations=(contribution.operations[0], contribution.operations[0]),
+            ),
+        )
+    )
+
+    with pytest.raises(ExtensionValidationError, match="duplicate operation policies"):
+        ExtensionRegistry.build((module,))
+
+
 def test_duplicate_ids_contributions_and_cycles_are_rejected():
     with pytest.raises(ExtensionValidationError, match="duplicate module id"):
         ExtensionRegistry.build((_module(), _module()))
@@ -317,6 +335,28 @@ def test_duplicate_ids_contributions_and_cycles_are_rejected():
     right = _module(module_id="acme.right", requires=("acme.left",), routes=())
     with pytest.raises(ExtensionValidationError, match="dependency cycle"):
         ExtensionRegistry.build((left, right))
+
+
+def test_specialist_and_service_machine_identities_cannot_share_a_subject():
+    shared = "acme.workplace.operator"
+    module = _module(
+        routes=(),
+        service_identities=(
+            ServiceIdentityContribution("acme.workplace.operator-service", shared),
+        ),
+        specialists=(
+            SpecialistContribution(
+                name=shared,
+                version="1.0.0",
+                display_name="Operator",
+                description="A specialist identity.",
+                system_prompt="Operate within policy.",
+            ),
+        ),
+    )
+
+    with pytest.raises(ExtensionValidationError, match="both a specialist and a service"):
+        ExtensionRegistry.build((module,))
 
 
 def test_dependencies_are_ordered_independently_of_input_order():
@@ -501,3 +541,52 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
     assert observed["read"]["policy_effect"] == "deny"
     assert observed["write"]["policy_effect"] == "deny"
     assert fresh_db.query_one("SELECT 1 AS present FROM task_worklog") is None
+
+
+def test_inbound_mcp_delegation_uses_authoritative_crew_task_context(fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.extensions.policy import (
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.services import crews, delegation, users, work
+
+    users.ensure_user("sponsor")
+    crew = crews.create_crew("Delivery", actor="sponsor")
+    task = work.create_task(
+        "Crew delivery",
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew["id"],
+    )
+    delegation.delegate_task(task["id"], "crew-agent", "sponsor", actor="sponsor")
+    observed: list[PolicyResource] = []
+
+    def deny_crew_claim(request: PolicyInput):
+        if request.action == "skein.mcp.delegation.claim":
+            observed.append(request.resource)
+            if request.resource.classification == "crew":
+                return PolicyDecision(PolicyEffect.DENY)
+        return None
+
+    module = _module(
+        routes=(),
+        policies=(PolicyContribution("acme.workplace.crew-policy", deny_crew_claim),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    monkeypatch.setattr(mcp_server, "ACTOR", "crew-agent")
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("crew-agent", kind="agent"))
+    try:
+        result = json.loads(mcp_server.claim_delegated_task(task["id"]))
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+
+    assert result["policy_effect"] == "deny"
+    assert observed[0].classification == "crew"
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],)) == {
+        "status": "todo"
+    }

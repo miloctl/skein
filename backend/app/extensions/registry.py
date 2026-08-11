@@ -276,6 +276,13 @@ class ExtensionRegistry:
         service_subjects = [contribution.subject for contribution in service_identities]
         if len(service_subjects) != len(set(service_subjects)):
             raise ExtensionValidationError("duplicate service identity subject")
+        specialist_subjects = {contribution.name for contribution in specialists}
+        machine_collisions = sorted(specialist_subjects.intersection(service_subjects))
+        if machine_collisions:
+            raise ExtensionValidationError(
+                "machine identity is both a specialist and a service: "
+                + ", ".join(machine_collisions)
+            )
         group_resolvers = [
             contribution.name
             for contribution in identities
@@ -601,6 +608,10 @@ def _validate_namespace(module: SkeinModule) -> None:
         declared = {
             (operation.method, operation.path) for operation in route_contribution.operations
         }
+        if len(declared) != len(route_contribution.operations):
+            raise ExtensionValidationError(
+                f"route {route_contribution.name!r} has duplicate operation policies"
+            )
         if actual != declared:
             missing = sorted(f"{method} {path}" for method, path in actual - declared)
             unknown = sorted(f"{method} {path}" for method, path in declared - actual)

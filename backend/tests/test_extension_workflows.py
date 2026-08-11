@@ -325,6 +325,13 @@ def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
     assert result.error_code == "DEADLINE_EXCEEDED"
     time.sleep(0.1)
     assert calls == ["delivery"]
+    receipts = fresh_db.query(
+        "SELECT action FROM activity WHERE action LIKE 'workflow_action_%' ORDER BY id"
+    )
+    assert receipts == [
+        {"action": "workflow_action_attempt"},
+        {"action": "workflow_action_completion_unknown"},
+    ]
 
 
 def test_workflow_write_exception_after_side_effect_reports_unknown_completion(fresh_db):
@@ -360,6 +367,48 @@ def test_workflow_write_exception_after_side_effect_reports_unknown_completion(f
     assert calls == ["delivery"]
     assert result.status == "completion_unknown"
     assert result.error_code == "ACTION_ERROR"
+
+
+def test_workflow_run_id_is_unique_between_runs_and_stable_for_a_retry(fresh_db):
+    correlations: list[str] = []
+
+    def capture_correlation(context, _request: SendIn):
+        correlations.append(context.correlation_id)
+        return {"sent": True}
+
+    action = replace(_action([]), handler=capture_correlation)
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                workflow_actions=(action,),
+            ),
+        )
+    )
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    steps = engine.prepare(
+        [
+            {
+                "type": "action",
+                "name": "atlas.workplace.notify-manager",
+                "input": {"target": "delivery"},
+            }
+        ]
+    )
+    first = WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow")
+    second = WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow")
+
+    assert engine.run(steps, first).status == "completed"
+    assert engine.run(steps, second).status == "completed"
+    assert engine.run(steps, first).status == "completed"
+
+    assert correlations[0] != correlations[1]
+    assert correlations[0] == correlations[2]
+    assert correlations[0].startswith(f"{first.run_id}:")
 
 
 def test_direct_instantiation_cannot_silently_skip_a_workflow(fresh_db, tmp_path, monkeypatch):

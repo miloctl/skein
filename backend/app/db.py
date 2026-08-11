@@ -179,7 +179,12 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
 
 
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    # A reviewed extension executes its bounded synchronous handler in a
+    # worker while the caller owns the ambient authorization transaction.
+    # Context variables carry this connection to that one worker. Skein never
+    # uses an ambient connection concurrently; allowing the hand-off keeps
+    # policy revalidation and the resulting local write atomic.
+    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL takes an exclusive lock to SET, and does NOT honor busy_timeout —
@@ -213,9 +218,9 @@ def _sqlite_fold(value: str | None) -> str:
 # nearly every write the last connection. Measured: one insert costs 11.99 ms
 # with no other connection open and 0.28 ms with one idle connection held, so
 # the app was 42x slower per write when NEARLY IDLE than under load. This one
-# connection exists only to keep the WAL alive between operations; it never
-# runs a statement (sqlite3's check_same_thread raises if a worker thread
-# tries), holds no transaction, and so never blocks a checkpoint — the
+# connection exists only to keep the WAL alive between operations; application
+# code never receives it, it holds no transaction, and it cannot block a
+# checkpoint — the
 # 1000-page auto-checkpoint still bounds WAL size through the writers.
 _keepalive: sqlite3.Connection | None = None
 
@@ -335,6 +340,26 @@ def transaction() -> Iterator[None]:
             cb()
         except Exception:
             log.exception("on_commit callback failed")
+
+
+@contextmanager
+def savepoint() -> Iterator[None]:
+    """Roll back one nested unit while keeping its outer transaction alive."""
+    connection = _ambient.get()
+    if connection is None:
+        with transaction():
+            yield
+        return
+    # This fixed internal name prevents caller-controlled SQL. Reviewed
+    # applies do not nest another reviewed apply, so one name is sufficient.
+    connection.execute("SAVEPOINT skein_review_apply")
+    try:
+        yield
+        connection.execute("RELEASE SAVEPOINT skein_review_apply")
+    except BaseException:
+        connection.execute("ROLLBACK TO SAVEPOINT skein_review_apply")
+        connection.execute("RELEASE SAVEPOINT skein_review_apply")
+        raise
 
 
 def pending_migrations() -> list[str]:

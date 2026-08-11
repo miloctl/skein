@@ -165,7 +165,9 @@ def atlas_module(
         contexts=(
             ContextContribution(
                 "atlas.workplace.delivery-context",
-                lambda _query: f"Atlas mappings: {integration.metrics()['linked_items']}",
+                lambda _requester_name: (
+                    f"Atlas mappings: {integration.metrics()['linked_items']}"
+                ),
                 policy_action="atlas.context.read",
                 risk="low",
                 required_capabilities=("atlas.specialist",),

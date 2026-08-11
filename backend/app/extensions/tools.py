@@ -176,13 +176,17 @@ async def execute_tool(
     async def invoke() -> Any:
         from ..public.work import WorkItems
 
-        services = ToolHandlerContext(
-            context.subject,
-            policy,
-            WorkItems(policy),
-            context.agent,
-            context.correlation_id,
-            contribution.name,
+        work_items = WorkItems(policy)
+        services = work_items._bind_execution_context(
+            ToolHandlerContext(
+                context.subject,
+                policy,
+                work_items,
+                context.agent,
+                context.correlation_id,
+                contribution.name,
+            ),
+            receipt_namespace=f"tool:{contribution.name}",
         )
         result = await asyncio.to_thread(contribution.handler, services, validated)
         if isawaitable(result):

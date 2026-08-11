@@ -14,7 +14,7 @@ IT. Write paths that skip this gate by design carry their own guard
 
 import json
 
-from .. import ratelimit
+from .. import db, ratelimit
 from ..agents import receipts
 from ..agents.identity import agent_identity, requester_identity
 from ..extensions.policy import (
@@ -82,6 +82,31 @@ def effective_level(actor: str, entity: str) -> str:
 
 
 def gated_write(
+    entity: str,
+    action: str,
+    payload: dict,
+    direct,
+    entity_id: int = 0,
+    summary: str = "",
+    actor: str = "",
+) -> str:
+    # Serialize authoritative context resolution, the workplace decision, and
+    # the resulting local mutation. Nested service transactions join this
+    # transaction. This prevents a concurrent relink from changing the policy
+    # domain after the decision but before the write.
+    with db.transaction():
+        return _gated_write_locked(
+            entity,
+            action,
+            payload,
+            direct,
+            entity_id,
+            summary,
+            actor,
+        )
+
+
+def _gated_write_locked(
     entity: str,
     action: str,
     payload: dict,

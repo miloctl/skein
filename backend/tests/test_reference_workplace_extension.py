@@ -125,12 +125,15 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     with TestClient(app, headers={"X-User": "tester"}) as http:
         registry = app.state.skein_registry
         work_items = WorkItems(registry.policy_engine)
-        context = JobExecutionContext(
-            registry.policy_engine,
-            work_items,
-            registry.service_subject("atlas-sync"),
-            "atlas.workplace.sync:test",
-            "atlas.workplace.sync",
+        context = work_items._bind_execution_context(
+            JobExecutionContext(
+                registry.policy_engine,
+                work_items,
+                registry.service_subject("atlas-sync"),
+                "atlas.workplace.sync:test",
+                "atlas.workplace.sync",
+            ),
+            receipt_namespace="job:atlas.workplace.sync",
         )
         job = next(item for item in registry.jobs if item.name.endswith(".sync"))
         assert job.handler(context) == {"created": 1, "updated": 0}
@@ -223,13 +226,17 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
         registry = app.state.skein_registry
         integration = AtlasIntegration(client, ExtensionStore(store_path))
         work_items = WorkItems(registry.policy_engine)
-        context = JobExecutionContext(
-            registry.policy_engine,
-            work_items,
-            registry.service_subject("atlas-sync"),
-            "atlas.workplace.sync:window-7",
-            "atlas.workplace.sync",
-        ).command_context(project_type="standard")
+        execution = work_items._bind_execution_context(
+            JobExecutionContext(
+                registry.policy_engine,
+                work_items,
+                registry.service_subject("atlas-sync"),
+                "atlas.workplace.sync:window-7",
+                "atlas.workplace.sync",
+            ),
+            receipt_namespace="job:atlas.workplace.sync",
+        )
+        context = execution.command_context(project_type="standard")
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(
                 executor.map(
@@ -474,13 +481,14 @@ def test_reference_playbook_uses_real_policy_and_workflow_registry(fresh_db, tmp
         assert approved.json()["result"]["workflow"]["status"] == "completed"
 
     assert fresh_db.query_one("SELECT name FROM engagements") == {"name": "Atlas launch"}
-    assert client.notifications == [
-        (
-            "delivery-managers",
-            "Atlas delivery work is ready.",
-            ":root.1:manager-notification",
-        )
-    ]
+    assert len(client.notifications) == 1
+    channel, message, idempotency_key = client.notifications[0]
+    assert channel == "delivery-managers"
+    assert message == "Atlas delivery work is ready."
+    run_id, separator, step_key = idempotency_key.partition(":")
+    assert len(run_id) == 32
+    assert separator == ":"
+    assert step_key == "root.1:manager-notification"
     client.notify_manager(*client.notifications[0])
     assert len(client.notifications) == 1
     assert fresh_db.query_one(

@@ -26,6 +26,11 @@ class _ApprovalGrant:
     decision: Any
 
 
+@dataclass(frozen=True)
+class _ApprovalFailure:
+    error: Exception
+
+
 def _registry() -> dict:
     from . import (
         absences,
@@ -379,6 +384,39 @@ def approve_change(
     extension_executor: Callable[[dict, int], dict] | None = None,
     policy_registry=None,
 ) -> dict:
+    # Serialize current-state policy resolution, the verdict claim, and the
+    # resulting write. This is intentionally a SQLite-sized boundary: it
+    # prevents project relinks or policy-relevant state changes from racing a
+    # durable approval. Nested service transactions join this one.
+    with db.transaction():
+        result = _approve_change_locked(
+            change_id,
+            note,
+            actor=actor,
+            strong=strong,
+            viewer=viewer,
+            reviewer_groups=reviewer_groups,
+            reviewer_capabilities=reviewer_capabilities,
+            extension_executor=extension_executor,
+            policy_registry=policy_registry,
+        )
+    if isinstance(result, _ApprovalFailure):
+        raise result.error
+    return result
+
+
+def _approve_change_locked(
+    change_id: int,
+    note: str = "",
+    *,
+    actor: str = "system",
+    strong: bool = False,
+    viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    extension_executor: Callable[[dict, int], dict] | None = None,
+    policy_registry=None,
+) -> dict | _ApprovalFailure:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
@@ -439,24 +477,27 @@ def approve_change(
         (json.dumps(qualifications), change_id),
     )
     try:
-        if is_extension:
-            if executor is None:
-                raise ValueError("the extension review executor is missing")
-            result = executor(invocation, change_id)
-            db.execute(
-                "UPDATE extension_review_invocations SET status = 'approved', result = ?,"
-                " error_code = ?, executed_at = ? WHERE change_id = ?",
-                (
-                    json.dumps(result),
-                    str(result.get("error_code") or ""),
-                    db.now(),
-                    change_id,
-                ),
-            )
-        else:
-            # compound applies (playbook, weekly_plan) land atomically or not at
-            # all — a failed apply rolls back, so pending is safe for core entities
-            with db.transaction():
+        # The verdict claim belongs to the outer transaction. The apply gets a
+        # savepoint of its own. If it fails, roll back its partial domain writes
+        # before the handler records a durable pending or rejected settlement.
+        with db.savepoint():
+            if is_extension:
+                if executor is None:
+                    raise ValueError("the extension review executor is missing")
+                result = executor(invocation, change_id)
+                db.execute(
+                    "UPDATE extension_review_invocations SET status = 'approved', result = ?,"
+                    " error_code = ?, executed_at = ? WHERE change_id = ?",
+                    (
+                        json.dumps(result),
+                        str(result.get("error_code") or ""),
+                        db.now(),
+                        change_id,
+                    ),
+                )
+            else:
+                # Compound applies (playbook, weekly_plan) land atomically or
+                # not at all. A failed apply returns safely to the review queue.
                 if fn is None:
                     raise ValueError("the core review handler is missing")
                 # authorship stays with the proposer: created_by must say who
@@ -482,10 +523,12 @@ def approve_change(
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (target vanished)")
         _clear_review_ping(change_id)
-        raise ValueError(
-            f"could not apply {change['entity']}.{change['action']}: {exc}"
-            " — proposal auto-rejected (its target no longer exists)"
-        ) from exc
+        return _ApprovalFailure(
+            ValueError(
+                f"could not apply {change['entity']}.{change['action']}: {exc}"
+                " — proposal auto-rejected (its target no longer exists)"
+            )
+        )
     except db.TerminalReject as exc:
         # a permanent policy block (an agent's own delegated-done proposal):
         # re-approving can never succeed, so settle it rejected like a vanished
@@ -504,7 +547,7 @@ def approve_change(
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (not applicable)")
         _clear_review_ping(change_id)
-        raise ValueError(f"could not apply and auto-rejected: {exc}") from exc
+        return _ApprovalFailure(ValueError(f"could not apply and auto-rejected: {exc}"))
     except Exception as exc:
         # ANY OTHER failure (IntegrityError, lock timeout, stale state)
         # resets the claim — an approved-but-never-applied proposal would
@@ -521,7 +564,9 @@ def approve_change(
                 " error_code = 'EXECUTION_FAILED' WHERE change_id = ?",
                 (change_id,),
             )
-        raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
+        return _ApprovalFailure(
+            ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
+        )
 
     db.execute(
         "UPDATE pending_changes SET result_id = ? WHERE id = ?", (result.get("id"), change_id)
@@ -568,7 +613,27 @@ def _revalidate_policy(
             policy_subject_from_data,
         )
 
-        subject = registry.refresh_subject(policy_subject_from_data(subject_data))
+        saved_subject = policy_subject_from_data(subject_data)
+        # Rejection never executes the invocation. Resolve the executable
+        # contract before refreshing its requester so removal of an entire
+        # workplace module (including its directory resolver) cannot strand a
+        # durable proposal forever. Approval still requires a current
+        # directory identity and remains closed.
+        if not approving:
+            saved_current = policy_input_from_data(policy_data, saved_subject)
+            try:
+                _current_extension_review(
+                    change,
+                    registry,
+                    saved_current,
+                    approving=False,
+                )
+            except (KeyError, TypeError, ValueError, PermissionError, PublicError):
+                change["approver_groups"] = "[]"
+                change["approver_capabilities"] = "[]"
+                change["_stale_contract"] = True
+                return None
+        subject = registry.refresh_subject(saved_subject)
         current = policy_input_from_data(policy_data, subject)
         try:
             state = _current_extension_review(
@@ -799,6 +864,7 @@ def _current_extension_review(
             origin=str(invocation.get("origin") or "human"),
             project_type=project_type,
             resource_id=str(invocation.get("resource_id") or ""),
+            run_id=str(invocation.get("run_id") or ""),
             values={
                 **dict(invocation.get("values") or {}),
                 "project_type": project_type,

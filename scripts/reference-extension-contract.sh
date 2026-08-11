@@ -16,6 +16,13 @@ mkdir -p \
     "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
     "$tmp/extension" "$tmp/extension-source" "$tmp/run"
 
+prior_backend_tree="$(git rev-parse d611d79c3c2962adcbc09a68b92976d8baf47b4a:backend)"
+next_backend_tree="$(git rev-parse HEAD:backend)"
+if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
+    echo "reference-extension-contract: backend implementations must differ" >&2
+    exit 1
+fi
+
 git archive d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3 backend | tar -x -C "$tmp/base"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/base-dist" "$tmp/base/backend"
@@ -353,28 +360,11 @@ workflow_result = workflow.run(
 )
 assert workflow_result.status == "completed"
 
-work = WorkItems(registry.policy_engine)
-command_context = JobExecutionContext(
-    registry.policy_engine,
-    work,
-    registry.service_subject("atlas-sync"),
-    "upgrade-test",
-    "atlas.workplace.upgrade-test",
-).command_context()
-task = work.create_task(CreateTaskCommand(title="Upgrade event"), command_context)
-work.update_task(UpdateTaskCommand(task_id=task.id, status="in_progress"), command_context)
-delivered = dispatch_events(
-    registry.events,
-    EventExecutionContext(
-        registry.policy_engine,
-        work,
-        registry.service_subject,
-    ),
-)
-assert delivered["delivered"] >= 1
-
-job = next(item for item in _job_specs(registry, settings) if item.name == "atlas.workplace.sync")
+specs = _job_specs(registry, settings)
+job = next(item for item in specs if item.name == "atlas.workplace.sync")
 assert "error_code" not in job.fn()
+event_job = next(item for item in specs if item.name == "extension-events")
+assert event_job.fn()["delivered"] >= 1
 from app import db
 columns = {row["name"] for row in db.query("PRAGMA table_info(pending_changes)")}
 assert "review_contract_version" in columns

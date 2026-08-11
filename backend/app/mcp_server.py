@@ -45,6 +45,7 @@ from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
 from .services import collab, context_pack, delegation, memory, portfolio, search, work
+from .services import policy_context as domain_policy_context
 from .services.adoption import record_use
 from .tools._gate import gated_write
 
@@ -64,7 +65,11 @@ def _policy_refusal(
     """Return a JSON refusal, or an empty string when policy permits."""
     attributes: dict[str, Any] = {}
     if resource_type == "task" and resource_id:
-        attributes = work.task_policy_context(int(resource_id))
+        # Policy context is non-content metadata. It must not use the caller's
+        # content-visibility filter: a delegated agent can legitimately act on
+        # a crew task without being a crew member, and policy still needs the
+        # task's authoritative classification and project type.
+        attributes = domain_policy_context.existing("task", int(resource_id))
     decision = current_policy_engine().decide(
         PolicyInput(
             current_policy_subject(),
