@@ -43,7 +43,10 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = { find = { include = ["app*"] } }
+packages = { find = { include = ["app*", "migrations*"] } }
+
+[tool.setuptools.package-data]
+migrations = ["*.sql"]
 
 [build-system]
 requires = ["setuptools>=77"]

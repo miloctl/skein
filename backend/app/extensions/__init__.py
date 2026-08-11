@@ -19,6 +19,7 @@ from .contracts import (
     WorkflowActionContribution,
 )
 from .data import ExtensionStore
+from .fastapi import PolicySubjectDep, decide, subject_for
 from .policy import (
     PolicyDecision,
     PolicyEffect,
@@ -50,9 +51,12 @@ __all__ = [
     "PolicyInput",
     "PolicyResource",
     "PolicySubject",
+    "PolicySubjectDep",
     "RouteContribution",
     "SkeinModule",
     "SpecialistContribution",
     "ToolContribution",
     "WorkflowActionContribution",
+    "decide",
+    "subject_for",
 ]

@@ -1,0 +1,19 @@
+{
+  "name": "@atlas/skein-extension",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0"
+  }
+}
