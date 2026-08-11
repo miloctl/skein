@@ -24,11 +24,13 @@ from .errors import PublicError
 class CommandContext:
     subject: PolicySubject
     origin: str
+    namespace: str = ""
     correlation_id: str = ""
     project_type: str = ""
     attributes: dict[str, Any] = field(default_factory=dict)
     actor: str = ""
     actor_kind: str = ""
+    _issuer: object | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
@@ -100,6 +102,42 @@ class WorkItems:
 
     def __init__(self, policy: PolicyEngine) -> None:
         self._policy = policy
+        self._issuer = object()
+
+    def _issue_context(
+        self,
+        subject: PolicySubject,
+        namespace: str,
+        *,
+        correlation_id: str = "",
+        project_type: str = "",
+        attributes: dict[str, Any] | None = None,
+        actor: str = "",
+        actor_kind: str = "",
+    ) -> CommandContext:
+        """Create the provenance context used by one composed execution boundary."""
+        if not namespace.strip():
+            raise ValueError("A command namespace is required.")
+        context = CommandContext(
+            subject,
+            f"extension:{namespace}",
+            namespace,
+            correlation_id,
+            project_type,
+            attributes or {},
+            actor or subject.name,
+            actor_kind or subject.kind,
+        )
+        object.__setattr__(context, "_issuer", self._issuer)
+        return context
+
+    def _require_issued_context(self, context: CommandContext) -> None:
+        if context._issuer is not self._issuer:
+            raise PublicError(
+                "COMMAND_CONTEXT_REQUIRED",
+                "Use the command context from the composed execution boundary.",
+                status_code=403,
+            )
 
     def _authorize(
         self,
@@ -140,6 +178,7 @@ class WorkItems:
             )
 
     def get_task(self, task_id: int, context: CommandContext) -> TaskView:
+        self._require_issued_context(context)
         attributes = work.task_policy_context(task_id)
         self._authorize(
             context,
@@ -159,6 +198,7 @@ class WorkItems:
         return TaskView.model_validate(row)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
+        self._require_issued_context(context)
         project_type = context.project_type
         link_attributes: dict[str, Any] = {}
         if command.engagement_id:
@@ -197,7 +237,7 @@ class WorkItems:
                     prior = db.query_one(
                         "SELECT result_id FROM extension_command_receipts"
                         " WHERE namespace = ? AND idempotency_key = ?",
-                        (context.origin, command.idempotency_key),
+                        (context.namespace, command.idempotency_key),
                     )
                 if prior:
                     return self._task_view(int(prior["result_id"]), actor=context.execution_actor)
@@ -225,7 +265,7 @@ class WorkItems:
                         " (namespace, idempotency_key, result_type, result_id, created_at)"
                         " VALUES (?, ?, 'task', ?, ?)",
                         (
-                            context.origin,
+                            context.namespace,
                             command.idempotency_key,
                             result["id"],
                             db.now(),
@@ -238,6 +278,7 @@ class WorkItems:
             raise PublicError("TASK_CREATE_REJECTED", str(exc)) from exc
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
+        self._require_issued_context(context)
         current = self.get_task(command.task_id, context)
         changes = command.model_dump(exclude={"task_id"}, exclude_none=True)
         if not changes:

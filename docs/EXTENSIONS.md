@@ -53,7 +53,12 @@ Create one immutable `SkeinModule`. Pass it to the application factory from a
 private composition root.
 
 ```python
-from app.extensions import RouteContribution, SkeinModule
+from app.extensions import (
+    PolicyResource,
+    RouteContribution,
+    RouteOperationContribution,
+    SkeinModule,
+)
 from app.main import create_app
 
 from atlas.router import router
@@ -64,7 +69,22 @@ atlas = SkeinModule(
     extension_api="1.0",
     minimum_core="0.2.0",
     maximum_core_exclusive="0.3.0",
-    routes=(RouteContribution("atlas.workplace.routes", router),),
+    routes=(
+        RouteContribution(
+            "atlas.workplace.routes",
+            router,
+            operations=(
+                RouteOperationContribution(
+                    "POST",
+                    "/api/extensions/atlas.workplace/sync",
+                    "atlas.integration.sync",
+                    PolicyResource("atlas"),
+                    "write",
+                    "high",
+                ),
+            ),
+        ),
+    ),
 )
 
 app = create_app(modules=(atlas,))
@@ -86,6 +106,7 @@ conditions:
 - Missing module dependencies
 - Dependency cycles
 - Route or tool name collisions
+- A route without an exact operation policy contract
 - Invalid tool, event, migration, or workflow metadata
 
 The module list is an allowlist. Import and instantiate modules in the private
@@ -109,31 +130,23 @@ from fastapi import APIRouter
 
 from app.extensions import (
     ExtensionRouteServicesDep,
-    PolicyInput,
-    PolicyResource,
-    enforce_decision,
 )
 
 router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
 @router.post("/sync")
 def sync(services: ExtensionRouteServicesDep):
-    decision = services.policy.decide(
-        PolicyInput(
-            services.subject,
-            "atlas.integration.sync",
-            PolicyResource("atlas"),
-            "human",
-        )
+    return run_sync(
+        services.work_items,
+        services.command_context(project_type="standard"),
     )
-    enforce_decision(decision)
-    return run_sync(services.work_items, services.subject)
 ```
 
 Skein applies the composed policy to all namespaced extension operations. This
-check uses the stable REST action for the route. An extension route must also
-check its domain action before it starts work. The Atlas example checks
-`atlas.integration.sync` in addition to the route action.
+first check uses the stable REST action for the route. Each private operation
+also declares its domain action, resource, effect, and risk. Skein checks this
+contract before it calls the route. Startup rejects a missing or extra
+operation contract.
 
 Skein also applies the same composed policy to core REST operations, agent
 tools, classified MCP tools, workflow steps, jobs, and capability responses.
@@ -205,8 +218,8 @@ provenance and writes a versioned outbox event in the same transaction for
 human, agent, and integration callers.
 
 ```python
-from app.extensions import JobExecutionContext, PolicySubject
-from app.public import CommandContext, CreateTaskCommand
+from app.extensions import JobExecutionContext
+from app.public import CreateTaskCommand
 
 def import_work(context: JobExecutionContext):
     task = context.work_items.create_task(
@@ -214,10 +227,7 @@ def import_work(context: JobExecutionContext):
             title="Map an external work item",
             idempotency_key="atlas-item:ATLAS-7",
         ),
-        CommandContext(
-            subject=PolicySubject("atlas-service", kind="service"),
-            origin="atlas-integration",
-        ),
+        context.command_context(project_type="standard"),
     )
     return {"created": 1, "task_id": task.id}
 ```
@@ -252,12 +262,11 @@ policy source for a second decision after the reviewer qualifies.
 `ToolHandlerContext.correlation_id` links the tool receipt to outbox events.
 The same correlation ID follows a reviewed call from its queue entry to its
 final execution receipt.
-If a tool writes through `WorkItems`, set `CommandContext.actor` to the agent
-and set `actor_kind` to `agent`. Keep the requester as `subject`. This split
+If a tool writes through `WorkItems`, use `ToolHandlerContext.command_context()`.
+The composed execution boundary binds the agent, origin, contribution
+namespace, and correlation ID. A caller-created `CommandContext` cannot write.
+The same rule applies to routes, jobs, events, and workflow actions. This split
 records the agent as the writer without giving it the requester's roles.
-Skein trusts the extension to supply these provenance values correctly.
-Contract tests must verify the stored writer, requester, origin, and
-correlation ID.
 
 Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
 Stock writes use their domain action through the shared write gate. The four
@@ -297,10 +306,11 @@ A specialist contribution contains its prompt, context sources, tools, and
 required capabilities. The Chief of Staff reads the registry. A private
 package does not import or patch the Chief implementation.
 
-Use a registered tool for side effects. A context provider must return
-deterministic, non-sensitive text and must not write. Put sensitive retrieval
-behind a governed read tool. This rule keeps policy and audit controls on the
-retrieval boundary.
+Use a registered tool for side effects. A context contribution declares a
+version, read policy action, risk, capabilities, deadline, and output limit.
+Skein records a content-free receipt for each retrieval. The provider must be
+synchronous and must not write. Use a governed read tool when retrieval needs
+structured input, review, or a custom resource resolver.
 
 ## Subscribe to events
 
@@ -478,7 +488,8 @@ package in that stage. Then compose the manifest and run `next build`.
 The generator creates static imports. Registry validation rejects duplicate
 IDs, invalid namespaces, unsupported API versions, and incompatible core
 versions. A card or navigation item can declare a policy action. Skein hides
-it unless `/api/capabilities` returns `permit`.
+it unless `/api/capabilities` returns `permit`. An identity or credential
+change clears the old decision and loads current capabilities.
 
 Only import the components that `@skein/extension-api` exports. A private
 package that imports `frontend/components` or `frontend/lib` uses an internal
@@ -571,8 +582,10 @@ environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
 artifact contains the additive migration from the current source. The script
 does not inject a test-only migration. The frontend script creates two host
-artifacts. It installs the same packed private package into both hosts. Then
-it runs a production build in each host. The image script builds the backend
+artifacts from distinct source trees. It installs the same packed private
+package into both hosts. Then it runs a production build in each host. A
+runtime test renders the packed Atlas card through the generated registry.
+The image script builds the backend
 and frontend derivative images from staged release artifacts. The main CI
 workflow runs all four extension contracts.
 

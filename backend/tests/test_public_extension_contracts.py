@@ -18,7 +18,9 @@ from app.extensions import (
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
+    PolicyResource,
     RouteContribution,
+    RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
 )
@@ -29,15 +31,15 @@ from app.public import CommandContext, CreateTaskCommand, PublicError, UpdateTas
 from app.public.events import dispatch_events
 
 
-def _context(**changes) -> CommandContext:
+def _context(work_items: WorkItems, **changes) -> CommandContext:
     values = {
         "subject": PolicySubject("atlas-sync", kind="service"),
-        "origin": "atlas-integration",
+        "namespace": "atlas.workplace.sync",
         "correlation_id": "sync-42",
         "project_type": "regulated",
     }
     values.update(changes)
-    return CommandContext(**values)
+    return work_items._issue_context(**values)
 
 
 def _event_context() -> EventExecutionContext:
@@ -86,16 +88,16 @@ def test_public_work_commands_keep_service_invariants_and_emit_safe_events(fresh
 
     created = work.create_task(
         CreateTaskCommand(title="Secret launch", description="Do not publish this body"),
-        _context(),
+        _context(work),
     )
     updated = work.update_task(
         UpdateTaskCommand(task_id=created.id, status="in_progress", priority="high"),
-        _context(),
+        _context(work),
     )
 
     assert updated.status == "in_progress"
     assert updated.priority == "high"
-    assert updated.origin == "atlas-integration"
+    assert updated.origin == "extension:atlas.workplace.sync"
     activity = fresh_db.query("SELECT action, actor FROM activity ORDER BY id")
     assert activity == [
         {"action": "create_task", "actor": "atlas-sync"},
@@ -110,6 +112,47 @@ def test_public_work_commands_keep_service_invariants_and_emit_safe_events(fresh
     assert all("Do not publish" not in row["payload"] for row in outbox)
 
 
+def test_public_work_rejects_a_forged_execution_context(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    forged = CommandContext(
+        PolicySubject("atlas-sync", kind="service"),
+        origin="human",
+        namespace="atlas.workplace.sync",
+        actor="mira",
+        actor_kind="human",
+    )
+
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(CreateTaskCommand(title="Forged attribution"), forged)
+
+    assert raised.value.code == "COMMAND_CONTEXT_REQUIRED"
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+    assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
+
+
+def test_public_command_receipts_are_isolated_by_contribution(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    command = CreateTaskCommand(title="Shared external ID", idempotency_key="external:42")
+
+    first = facade.create_task(
+        command,
+        _context(facade, namespace="atlas.workplace.sync"),
+    )
+    second = facade.create_task(
+        command.model_copy(update={"title": "A separate source"}),
+        _context(facade, namespace="acme.workplace.sync"),
+    )
+
+    assert first.id != second.id
+    receipts = fresh_db.query(
+        "SELECT namespace, idempotency_key FROM extension_command_receipts ORDER BY namespace"
+    )
+    assert receipts == [
+        {"namespace": "acme.workplace.sync", "idempotency_key": "external:42"},
+        {"namespace": "atlas.workplace.sync", "idempotency_key": "external:42"},
+    ]
+
+
 def test_public_command_and_event_share_the_transaction(fresh_db, monkeypatch):
     from app.services import work as service_work
 
@@ -119,7 +162,7 @@ def test_public_command_and_event_share_the_transaction(fresh_db, monkeypatch):
     monkeypatch.setattr(service_work, "_emit_task_event", fail_event)
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     with pytest.raises(RuntimeError, match="outbox unavailable"):
-        facade.create_task(CreateTaskCommand(title="rolled back"), _context())
+        facade.create_task(CreateTaskCommand(title="rolled back"), _context(facade))
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
     assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
 
@@ -171,7 +214,7 @@ def test_a_workplace_policy_can_require_a_manager_before_the_write(fresh_db):
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
     with pytest.raises(PublicError) as raised:
-        facade.create_task(CreateTaskCommand(title="needs review"), _context())
+        facade.create_task(CreateTaskCommand(title="needs review"), _context(facade))
     assert raised.value.code == "REVIEW_REQUIRED"
     assert raised.value.obligations == ("approver-group:delivery-managers",)
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
@@ -206,7 +249,7 @@ def test_linked_engagement_context_overrides_caller_policy_context(fresh_db):
                 title="Linked work",
                 engagement_id=engagement["id"],
             ),
-            _context(project_type="standard"),
+            _context(facade, project_type="standard"),
         )
     assert raised.value.code == "REVIEW_REQUIRED"
     assert fresh_db.query_one("SELECT title FROM tasks") is None
@@ -237,7 +280,7 @@ def test_public_update_policy_uses_target_engagement(fresh_db):
     with pytest.raises(PublicError, match="policy denied") as raised:
         facade.update_task(
             UpdateTaskCommand(task_id=task, engagement_id=regulated),
-            _context(project_type="standard"),
+            _context(facade, project_type="standard"),
         )
     assert raised.value.code == "POLICY_DENIED"
     assert service_work.task_policy_context(task)["project_type"] == "standard"
@@ -270,7 +313,7 @@ def test_public_update_policy_uses_target_milestone(fresh_db):
     # The direct standard engagement still governs while it is present.
     moved = facade.update_task(
         UpdateTaskCommand(task_id=task, milestone_id=regulated_milestone),
-        _context(project_type="standard"),
+        _context(facade, project_type="standard"),
     )
     assert moved.milestone_id == regulated_milestone
     assert service_work.task_policy_context(task)["project_type"] == "standard"
@@ -280,7 +323,7 @@ def test_public_update_policy_uses_target_milestone(fresh_db):
     with pytest.raises(PublicError, match="policy denied"):
         facade.update_task(
             UpdateTaskCommand(task_id=task, engagement_id=-1),
-            _context(project_type="standard"),
+            _context(facade, project_type="standard"),
         )
     row = fresh_db.query_one("SELECT engagement_id, milestone_id FROM tasks WHERE id = ?", (task,))
     assert row == {"engagement_id": standard, "milestone_id": regulated_milestone}
@@ -312,7 +355,7 @@ def test_public_update_policy_uses_milestone_when_no_direct_engagement(fresh_db)
     with pytest.raises(PublicError, match="policy denied"):
         facade.update_task(
             UpdateTaskCommand(task_id=task, milestone_id=regulated_milestone),
-            _context(project_type="standard"),
+            _context(facade, project_type="standard"),
         )
     assert fresh_db.query_one("SELECT milestone_id FROM tasks WHERE id = ?", (task,)) == {
         "milestone_id": None
@@ -382,12 +425,12 @@ def test_public_query_does_not_treat_a_forgeable_name_as_private_access(fresh_db
     facade = WorkItems(registry.policy_engine)
     created = facade.create_task(
         CreateTaskCommand(title="private", visibility="private"),
-        _context(subject=PolicySubject("mira"), origin="human"),
+        _context(facade, subject=PolicySubject("mira"), namespace="atlas.workplace.private"),
     )
     with pytest.raises(PublicError) as raised:
         facade.get_task(
             created.id,
-            _context(subject=PolicySubject("mira"), origin="human"),
+            _context(facade, subject=PolicySubject("mira"), namespace="atlas.workplace.private"),
         )
     assert raised.value.code == "TASK_NOT_FOUND"
 
@@ -406,7 +449,7 @@ def test_event_delivery_retries_and_uses_event_id_as_the_receipt(fresh_db):
         ("skein.task.created",),
     )
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
-    event_task = facade.create_task(CreateTaskCommand(title="delivery"), _context())
+    event_task = facade.create_task(CreateTaskCommand(title="delivery"), _context(facade))
 
     context = _event_context()
     assert dispatch_events((contribution,), context) == {
@@ -441,7 +484,7 @@ def test_workspace_subscribers_do_not_receive_private_events(fresh_db):
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     facade.create_task(
         CreateTaskCommand(title="private", visibility="private"),
-        _context(subject=PolicySubject("mira")),
+        _context(facade, subject=PolicySubject("mira")),
     )
     assert dispatch_events((contribution,), _event_context())["delivered"] == 1
     assert calls == []
@@ -474,9 +517,10 @@ def test_each_event_subscriber_has_its_own_retry_budget(fresh_db):
             max_attempts=3,
         ),
     )
-    WorkItems(ExtensionRegistry.build(()).policy_engine).create_task(
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    facade.create_task(
         CreateTaskCommand(title="delivery"),
-        _context(),
+        _context(facade),
     )
     context = _event_context()
     assert dispatch_events(contributions, context) == {
@@ -523,9 +567,10 @@ def test_event_policy_denial_stops_the_handler_before_external_effects(fresh_db)
             ),
         )
     )
-    WorkItems(registry.policy_engine).create_task(
+    facade = WorkItems(registry.policy_engine)
+    facade.create_task(
         CreateTaskCommand(title="delivery"),
-        _context(),
+        _context(facade),
     )
     contribution = _event(
         "atlas.workplace.delivery",
@@ -554,9 +599,10 @@ def test_write_event_timeout_is_terminal_completion_unknown(fresh_db):
         time.sleep(0.05)
         calls.append(event.event_id)
 
-    WorkItems(ExtensionRegistry.build(()).policy_engine).create_task(
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    facade.create_task(
         CreateTaskCommand(title="delivery"),
-        _context(),
+        _context(facade),
     )
     contribution = _event(
         "atlas.workplace.slow",
@@ -684,7 +730,22 @@ def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_pa
                 ),
             ),
         ),
-        routes=(RouteContribution("atlas.workplace.routes", router),),
+        routes=(
+            RouteContribution(
+                "atlas.workplace.routes",
+                router,
+                (
+                    RouteOperationContribution(
+                        "GET",
+                        "/api/extensions/atlas.workplace/links",
+                        "atlas.links.read",
+                        PolicyResource("atlas-link"),
+                        "read",
+                        "low",
+                    ),
+                ),
+            ),
+        ),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as client:

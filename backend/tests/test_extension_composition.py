@@ -23,6 +23,7 @@ from app.extensions import (
     PolicyInput,
     PolicyResource,
     RouteContribution,
+    RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
 )
@@ -40,6 +41,22 @@ def _router(module_id: str = "acme.workplace") -> APIRouter:
     return router
 
 
+def _routes(name: str, router: APIRouter) -> RouteContribution:
+    operations = tuple(
+        RouteOperationContribution(
+            method,
+            route.path,
+            f"{name}.{method.lower()}",
+            PolicyResource("extension-route"),
+            "read" if method == "GET" else "write",
+            "low" if method == "GET" else "medium",
+        )
+        for route in router.routes
+        for method in route.methods
+    )
+    return RouteContribution(name, router, operations)
+
+
 def _module(**changes) -> SkeinModule:
     values = {
         "module_id": "acme.workplace",
@@ -47,7 +64,7 @@ def _module(**changes) -> SkeinModule:
         "extension_api": "1.0",
         "minimum_core": "0.2.0",
         "maximum_core_exclusive": "0.3.0",
-        "routes": (RouteContribution("acme.workplace.routes", _router()),),
+        "routes": (_routes("acme.workplace.routes", _router()),),
     }
     values.update(changes)
     return SkeinModule(**values)
@@ -239,9 +256,7 @@ def test_factory_settings_control_auth_health_and_docs(fresh_db):
         (_module(extension_api="2.0"), "extension API"),
         (_module(minimum_core="9.0.0"), "supports core versions"),
         (
-            _module(
-                routes=(RouteContribution("acme.workplace.routes", _router("wrong.namespace")),)
-            ),
+            _module(routes=(_routes("acme.workplace.routes", _router("wrong.namespace")),)),
             "must be under",
         ),
         (
@@ -266,14 +281,24 @@ def test_invalid_module_contracts_fail_before_startup(module, message):
         create_app(modules=(module,))
 
 
+def test_private_route_without_domain_policy_metadata_is_rejected():
+    router = _router()
+    module = _module(
+        routes=(RouteContribution("acme.workplace.routes", router),),
+    )
+
+    with pytest.raises(ExtensionValidationError, match="missing policy"):
+        ExtensionRegistry.build((module,))
+
+
 def test_duplicate_ids_contributions_and_cycles_are_rejected():
     with pytest.raises(ExtensionValidationError, match="duplicate module id"):
         ExtensionRegistry.build((_module(), _module()))
 
     duplicate = _module(
         routes=(
-            RouteContribution("acme.workplace.routes", _router()),
-            RouteContribution("acme.workplace.routes", _router()),
+            _routes("acme.workplace.routes", _router()),
+            _routes("acme.workplace.routes", _router()),
         )
     )
     with pytest.raises(ExtensionValidationError, match="duplicate route"):
@@ -281,8 +306,8 @@ def test_duplicate_ids_contributions_and_cycles_are_rejected():
 
     collision = _module(
         routes=(
-            RouteContribution("acme.workplace.first", _router()),
-            RouteContribution("acme.workplace.second", _router()),
+            _routes("acme.workplace.first", _router()),
+            _routes("acme.workplace.second", _router()),
         )
     )
     with pytest.raises(ExtensionValidationError, match="route collision"):

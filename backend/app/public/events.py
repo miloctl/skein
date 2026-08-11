@@ -179,6 +179,7 @@ def dispatch_events(
                     context,
                     subject=subject,
                     delivery_id=f"{event.event_id}:{contribution.name}",
+                    namespace=contribution.name,
                 )
                 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-event")
                 future = executor.submit(contribution.handler, event, delivery_context)

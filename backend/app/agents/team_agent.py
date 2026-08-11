@@ -710,7 +710,7 @@ def build_agent(
             # MockFlockMember's docstring for what that does to a flock turn
             return MockFlockMember(persona)
         if contributed_specialist is not None and extensions is not None:
-            from ..extensions.agents import missing_specialist_capabilities
+            from ..extensions.agents import missing_specialist_capabilities, resolve_context
             from ..extensions.policy import current_policy_subject
 
             missing = missing_specialist_capabilities(
@@ -722,7 +722,14 @@ def build_agent(
                 raise PermissionError("this specialist needs a workplace capability")
             sources = {item.name: item for item in extensions.contexts}
             context = tuple(
-                sources[name].provider(user) for name in contributed_specialist.context_sources
+                resolve_context(
+                    sources[name],
+                    user,
+                    policy_subject or current_policy_subject(),
+                    contributed_specialist.name,
+                    extensions.policy_engine,
+                )
+                for name in contributed_specialist.context_sources
             )
             return MockExtensionSpecialist(contributed_specialist, context)
         return MockAgent(thread_id, user, persona=persona)
@@ -1189,12 +1196,22 @@ def build_agent(
             f"\n<persona-instructions>\n{p['body']}\n</persona-instructions>"
         )
         if contributed_specialist is not None and extensions is not None:
+            from ..extensions.agents import resolve_context
+            from ..extensions.policy import current_policy_subject
+
             context_by_name = {item.name: item for item in extensions.contexts}
             for source_name in contributed_specialist.context_sources:
                 source = context_by_name[source_name]
+                context_value = resolve_context(
+                    source,
+                    user,
+                    policy_subject or current_policy_subject(),
+                    contributed_specialist.name,
+                    extensions.policy_engine,
+                )
                 system += (
                     f"\n\n<extension-context source={source_name!r}>\n"
-                    f"{source.provider(user)}\n</extension-context>"
+                    f"{context_value}\n</extension-context>"
                 )
 
     contributed_agent = persona or (

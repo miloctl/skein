@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from app.extensions import (
     AppSettings,
     ExtensionRegistry,
+    ExtensionValidationError,
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
@@ -75,6 +76,23 @@ def _engine(calls: list[str], *, policy=True) -> WorkflowEngine:
     )
     registry = ExtensionRegistry.build((module,))
     return WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+
+
+def test_async_workflow_actions_are_rejected_during_composition():
+    async def send(_context, _request):
+        return {"sent": True}
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(replace(_action([]), handler=send),),
+    )
+
+    with pytest.raises(ExtensionValidationError, match="synchronous handler"):
+        ExtensionRegistry.build((module,))
 
 
 def _steps():

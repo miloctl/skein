@@ -394,7 +394,7 @@ def approve_change(
         reviewer_groups,
         reviewer_capabilities,
     )
-    qualifications = _check_policy_approver(
+    qualifications: dict[str, Any] = _check_policy_approver(
         change,
         reviewer_groups,
         reviewer_capabilities,
@@ -580,12 +580,18 @@ def _revalidate_policy(
         except PermissionError:
             if approving:
                 raise
+            change["approver_groups"] = "[]"
+            change["approver_capabilities"] = "[]"
+            change["_stale_contract"] = True
             return None
         except (KeyError, TypeError, ValueError, PublicError) as exc:
             if approving:
                 raise PermissionError(
                     "The reviewed extension contract cannot be refreshed. Request a new review."
                 ) from exc
+            change["approver_groups"] = "[]"
+            change["approver_capabilities"] = "[]"
+            change["_stale_contract"] = True
             return None
         decision = state.decision or registry.policy_engine.decide(state.request)
         if decision.effect == PolicyEffect.DENY and approving:
@@ -849,11 +855,13 @@ def reject_change(
         reviewer_capabilities,
         approving=False,
     )
-    qualifications = _check_policy_approver(
+    qualifications: dict[str, Any] = _check_policy_approver(
         change,
         reviewer_groups,
         reviewer_capabilities,
     )
+    if change.get("_stale_contract"):
+        qualifications["stale_contract"] = True
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)

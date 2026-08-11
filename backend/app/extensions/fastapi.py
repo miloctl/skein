@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any
+from uuid import uuid4
 
 from fastapi import Depends, Header, Request
 from fastapi.routing import APIRoute
@@ -20,7 +21,8 @@ from .policy import (
 )
 
 if TYPE_CHECKING:
-    from ..public.work import WorkItems
+    from ..public.work import CommandContext, WorkItems
+    from .contracts import RouteContribution
 
 
 def subject_for(request: Request, user: str) -> PolicySubject:
@@ -57,19 +59,72 @@ class ExtensionRouteServices:
     subject: PolicySubject
     policy: PolicyEngine
     work_items: WorkItems
+    namespace: str = ""
+    correlation_id: str = ""
+
+    def command_context(
+        self,
+        *,
+        project_type: str = "",
+        attributes: dict[str, Any] | None = None,
+    ) -> CommandContext:
+        """Return the command context bound to this route contribution."""
+        return self.work_items._issue_context(
+            self.subject,
+            self.namespace,
+            correlation_id=self.correlation_id,
+            project_type=project_type,
+            attributes=attributes,
+        )
 
 
 def extension_route_services(request: Request, subject: PolicySubjectDep) -> ExtensionRouteServices:
     from ..public.work import WorkItems
 
     policy = request.app.state.skein_registry.policy_engine
-    return ExtensionRouteServices(subject, policy, WorkItems(policy))
+    action, _resource_type, _resource_id = _route_policy_action(request)
+    namespace = str(getattr(request.state, "skein_extension_namespace", action))
+    return ExtensionRouteServices(subject, policy, WorkItems(policy), namespace, uuid4().hex)
 
 
 ExtensionRouteServicesDep = Annotated[
     ExtensionRouteServices,
     Depends(extension_route_services),
 ]
+
+
+def contributed_route_policy(contribution: RouteContribution):
+    """Create the domain-policy dependency for one trusted router."""
+
+    async def enforce(request: Request, subject: PolicySubjectDep) -> None:
+        route = request.scope.get("route")
+        path = str(getattr(route, "path", request.url.path))
+        operation = next(
+            item
+            for item in contribution.operations
+            if item.method == request.method and item.path == path
+        )
+        request.state.skein_extension_namespace = contribution.name
+        resource = operation.resource
+        if operation.resource_id_param:
+            resource = replace(
+                resource,
+                id=str(request.path_params.get(operation.resource_id_param) or ""),
+            )
+        decision = request.app.state.skein_registry.policy_engine.decide(
+            PolicyInput(
+                subject,
+                operation.policy_action,
+                resource,
+                "human",
+                tool=contribution.name,
+                tool_effect=operation.effect,
+                tool_risk=operation.risk,
+            )
+        )
+        enforce_decision(decision)
+
+    return enforce
 
 
 def decide(

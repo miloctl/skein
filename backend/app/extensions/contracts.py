@@ -23,7 +23,7 @@ from .policy import IdentityMapper, PolicyEngine, PolicyResource, PolicyRule, Po
 
 if TYPE_CHECKING:
     from ..public.events import DomainEvent
-    from ..public.work import WorkItems
+    from ..public.work import CommandContext, WorkItems
 
 
 try:
@@ -70,6 +70,22 @@ class AppSettings:
 
 
 @dataclass(frozen=True)
+class RouteOperationContribution:
+    """The centrally enforced policy contract for one contributed operation."""
+
+    method: str
+    path: str
+    policy_action: str
+    resource: PolicyResource
+    effect: str
+    risk: str
+    resource_id_param: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "method", self.method.upper())
+
+
+@dataclass(frozen=True)
 class RouteContribution:
     """One router owned by one module.
 
@@ -79,6 +95,10 @@ class RouteContribution:
 
     name: str
     router: APIRouter
+    operations: tuple[RouteOperationContribution, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "operations", tuple(self.operations))
 
 
 @dataclass(frozen=True)
@@ -89,6 +109,22 @@ class JobExecutionContext:
     work_items: WorkItems
     subject: PolicySubject
     run_id: str
+    namespace: str = ""
+
+    def command_context(
+        self,
+        *,
+        project_type: str = "",
+        attributes: Mapping[str, Any] | None = None,
+    ) -> CommandContext:
+        """Return the command context bound to this job contribution."""
+        return self.work_items._issue_context(
+            self.subject,
+            self.namespace,
+            correlation_id=self.run_id,
+            project_type=project_type,
+            attributes=dict(attributes or {}),
+        )
 
 
 @dataclass(frozen=True)
@@ -173,14 +209,19 @@ class ServiceIdentityContribution:
 
 @dataclass(frozen=True)
 class ContextContribution:
-    """A deterministic, non-sensitive specialist context source.
-
-    Sensitive retrieval must use a governed read tool. A context provider
-    has no network, policy, or secret contract.
-    """
+    """A bounded, policy-controlled specialist context source."""
 
     name: str
     provider: Callable[[str], str]
+    version: str = "1.0.0"
+    policy_action: str = ""
+    risk: str = "low"
+    required_capabilities: tuple[str, ...] = ()
+    timeout_seconds: float = 5
+    max_output_chars: int = 20_000
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "required_capabilities", tuple(self.required_capabilities))
 
 
 @dataclass(frozen=True)
@@ -192,6 +233,24 @@ class ToolHandlerContext:
     work_items: WorkItems
     agent: str = ""
     correlation_id: str = ""
+    namespace: str = ""
+
+    def command_context(
+        self,
+        *,
+        project_type: str = "",
+        attributes: Mapping[str, Any] | None = None,
+    ) -> CommandContext:
+        """Return the command context bound to this governed tool call."""
+        return self.work_items._issue_context(
+            self.subject,
+            self.namespace,
+            correlation_id=self.correlation_id,
+            project_type=project_type,
+            attributes=dict(attributes or {}),
+            actor=self.agent or self.subject.name,
+            actor_kind="agent" if self.agent else self.subject.kind,
+        )
 
 
 @dataclass(frozen=True)
@@ -251,6 +310,24 @@ class EventExecutionContext:
     subject_resolver: Callable[[str], PolicySubject]
     subject: PolicySubject | None = None
     delivery_id: str = ""
+    namespace: str = ""
+
+    def command_context(
+        self,
+        *,
+        project_type: str = "",
+        attributes: Mapping[str, Any] | None = None,
+    ) -> CommandContext:
+        """Return the command context bound to this event delivery."""
+        if self.subject is None:
+            raise ValueError("The event delivery has no service identity.")
+        return self.work_items._issue_context(
+            self.subject,
+            self.namespace,
+            correlation_id=self.delivery_id,
+            project_type=project_type,
+            attributes=dict(attributes or {}),
+        )
 
 
 @dataclass(frozen=True)
@@ -311,6 +388,23 @@ class WorkflowActionContext:
     subject: PolicySubject
     policy: PolicyEngine
     work_items: WorkItems
+    namespace: str = ""
+    correlation_id: str = ""
+
+    def command_context(
+        self,
+        *,
+        project_type: str = "",
+        attributes: Mapping[str, Any] | None = None,
+    ) -> CommandContext:
+        """Return the command context bound to this workflow action."""
+        return self.work_items._issue_context(
+            self.subject,
+            self.namespace,
+            correlation_id=self.correlation_id,
+            project_type=project_type,
+            attributes=dict(attributes or {}),
+        )
 
 
 @dataclass(frozen=True)

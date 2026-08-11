@@ -17,6 +17,7 @@ from .contracts import (
     MigrationContribution,
     PolicyContribution,
     RouteContribution,
+    RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
@@ -387,6 +388,8 @@ def _validate_module(module: SkeinModule) -> None:
                 f"module {module.module_id!r} has invalid contribution name "
                 f"{route_contribution.name!r}"
             )
+        for operation in route_contribution.operations:
+            _validate_route_operation(route_contribution, operation)
     for job_contribution in module.jobs:
         if not _IDENTIFIER.fullmatch(job_contribution.name):
             raise ExtensionValidationError(
@@ -427,6 +430,27 @@ def _validate_module(module: SkeinModule) -> None:
             )
     for context_contribution in module.contexts:
         _validate_contribution_name(module, context_contribution.name)
+        _version(context_contribution.version, f"context {context_contribution.name} version")
+        if not context_contribution.policy_action:
+            raise ExtensionValidationError(
+                f"context {context_contribution.name!r} needs a policy action"
+            )
+        if context_contribution.risk not in ("low", "medium", "high", "critical"):
+            raise ExtensionValidationError(
+                f"context {context_contribution.name!r} has invalid risk"
+            )
+        if context_contribution.timeout_seconds <= 0:
+            raise ExtensionValidationError(
+                f"context {context_contribution.name!r} needs a positive timeout"
+            )
+        if context_contribution.max_output_chars <= 0:
+            raise ExtensionValidationError(
+                f"context {context_contribution.name!r} needs a positive output limit"
+            )
+        if iscoroutinefunction(context_contribution.provider):
+            raise ExtensionValidationError(
+                f"context {context_contribution.name!r} must use a synchronous provider"
+            )
     for tool_contribution in module.tools:
         _validate_contribution_name(module, tool_contribution.name)
         _version(tool_contribution.version, f"tool {tool_contribution.name} version")
@@ -522,6 +546,10 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"workflow action {action_contribution.name!r} needs a positive timeout"
             )
+        if iscoroutinefunction(action_contribution.handler):
+            raise ExtensionValidationError(
+                f"workflow action {action_contribution.name!r} must use a synchronous handler"
+            )
 
 
 def _validate_contribution_name(module: SkeinModule, name: str) -> None:
@@ -529,6 +557,26 @@ def _validate_contribution_name(module: SkeinModule, name: str) -> None:
         raise ExtensionValidationError(
             f"module {module.module_id!r} has invalid contribution name {name!r}"
         )
+
+
+def _validate_route_operation(
+    contribution: RouteContribution,
+    operation: RouteOperationContribution,
+) -> None:
+    if operation.method not in ("DELETE", "GET", "PATCH", "POST", "PUT"):
+        raise ExtensionValidationError(
+            f"route {contribution.name!r} has an invalid operation method"
+        )
+    if not operation.path.startswith("/") or not operation.policy_action.strip():
+        raise ExtensionValidationError(
+            f"route {contribution.name!r} has an invalid operation policy"
+        )
+    if operation.effect not in ("none", "read", "write", "unknown"):
+        raise ExtensionValidationError(
+            f"route {contribution.name!r} has an invalid operation effect"
+        )
+    if operation.risk not in ("low", "medium", "high", "critical"):
+        raise ExtensionValidationError(f"route {contribution.name!r} has an invalid operation risk")
 
 
 def _validate_namespace(module: SkeinModule) -> None:
@@ -544,6 +592,27 @@ def _validate_namespace(module: SkeinModule) -> None:
                 raise ExtensionValidationError(
                     f"route {path!r} from {module.module_id!r} must be under {bare_prefix}"
                 )
+        actual = {
+            (method, str(getattr(route, "path", "")))
+            for route in route_contribution.router.routes
+            for method in getattr(route, "methods", ())
+            if method not in ("HEAD", "OPTIONS")
+        }
+        declared = {
+            (operation.method, operation.path) for operation in route_contribution.operations
+        }
+        if actual != declared:
+            missing = sorted(f"{method} {path}" for method, path in actual - declared)
+            unknown = sorted(f"{method} {path}" for method, path in declared - actual)
+            detail = []
+            if missing:
+                detail.append("missing policy for " + ", ".join(missing))
+            if unknown:
+                detail.append("unknown operation " + ", ".join(unknown))
+            raise ExtensionValidationError(
+                f"route {route_contribution.name!r} operation contract is invalid: "
+                + "; ".join(detail)
+            )
     for job_contribution in module.jobs:
         if not job_contribution.name.startswith(f"{module.module_id}."):
             raise ExtensionValidationError(

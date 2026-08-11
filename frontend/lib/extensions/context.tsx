@@ -33,6 +33,16 @@ export function ExtensionProvider({
   const [decisions, setDecisions] = useState<Record<string, Decision> | null>(
     registry.policyActions.length ? null : {},
   );
+  const [identityRevision, setIdentityRevision] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => {
+      setDecisions(null);
+      setIdentityRevision((current) => current + 1);
+    };
+    window.addEventListener("storage", refresh);
+    return () => window.removeEventListener("storage", refresh);
+  }, []);
 
   useEffect(() => {
     if (!registry.policyActions.length) return;
@@ -48,7 +58,7 @@ export function ExtensionProvider({
     return () => {
       live = false;
     };
-  }, [registry]);
+  }, [identityRevision, registry]);
 
   const visible = useMemo(() => {
     const permitted = (action?: string) =>

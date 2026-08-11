@@ -124,4 +124,24 @@ describe("capability-aware contributions", () => {
     await waitFor(() => expect(screen.getByText("hidden")).toBeTruthy());
     expect(screen.queryByText("Atlas delivery indicators")).toBeNull();
   });
+
+  it("refreshes visible contributions when the active identity changes", async () => {
+    render(
+      <ExtensionProvider extensions={[extension()]}>
+        <NavigationProbe />
+        <ExtensionDashboardCards />
+      </ExtensionProvider>,
+    );
+    expect(await screen.findByText("Atlas")).toBeTruthy();
+
+    capability.effect = "deny";
+    window.dispatchEvent(new Event("storage"));
+    await waitFor(() => expect(screen.getByText("hidden")).toBeTruthy());
+    expect(screen.queryByText("Atlas delivery indicators")).toBeNull();
+
+    capability.effect = "permit";
+    window.dispatchEvent(new Event("storage"));
+    expect(await screen.findByText("Atlas")).toBeTruthy();
+    expect(screen.getByText("Atlas delivery indicators")).toBeTruthy();
+  });
 });

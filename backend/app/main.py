@@ -25,7 +25,7 @@ from .extensions.contracts import (
     LifecycleContribution,
 )
 from .extensions.core import core_module
-from .extensions.fastapi import enforce_mutation_policy
+from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
 from .extensions.registry import validate_core_tool_names
 from .public.errors import PublicError
 from .services import handoff
@@ -79,7 +79,13 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             f"extension:{contribution.name}", run_id
         ):
             return {"skipped": "this job run is already claimed", "run_id": run_id}
-        execution = JobExecutionContext(policy, work_items, subject, run_id)
+        execution = JobExecutionContext(
+            policy,
+            work_items,
+            subject,
+            run_id,
+            contribution.name,
+        )
         if contribution.name == "skein.core.agent-run":
             # This core adapter needs the full trusted composition root. The
             # public JobExecutionContext stays narrow for private jobs, while
@@ -771,7 +777,10 @@ def create_app(
     for contribution in registry.routes:
         dependencies = None
         if not contribution.name.startswith("skein.core."):
-            dependencies = [Depends(enforce_mutation_policy)]
+            dependencies = [
+                Depends(enforce_mutation_policy),
+                Depends(contributed_route_policy(contribution)),
+            ]
         application.include_router(contribution.router, dependencies=dependencies)
     health_settings = selected_settings if explicit_settings else None
     application.add_api_route("/health", lambda: health(specs, health_settings), methods=["GET"])

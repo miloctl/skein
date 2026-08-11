@@ -105,6 +105,7 @@ from app import db
 from app.extensions import (
     AppSettings,
     IdentityContribution,
+    JobExecutionContext,
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
@@ -235,7 +236,7 @@ from app.extensions import (
 )
 from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import _job_specs, create_app
-from app.public import CommandContext, CreateTaskCommand, UpdateTaskCommand, WorkItems
+from app.public import CreateTaskCommand, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
 from app.public.workflow import WorkflowContext, WorkflowEngine
 from app.extensions import EventExecutionContext
@@ -348,10 +349,13 @@ workflow_result = workflow.run(
 assert workflow_result.status == "completed"
 
 work = WorkItems(registry.policy_engine)
-command_context = CommandContext(
-    subject=registry.service_subject("atlas-sync"),
-    origin="atlas-upgrade-test",
-)
+command_context = JobExecutionContext(
+    registry.policy_engine,
+    work,
+    registry.service_subject("atlas-sync"),
+    "upgrade-test",
+    "atlas.workplace.upgrade-test",
+).command_context()
 task = work.create_task(CreateTaskCommand(title="Upgrade event"), command_context)
 work.update_task(UpdateTaskCommand(task_id=task.id, status="in_progress"), command_context)
 delivered = dispatch_events(

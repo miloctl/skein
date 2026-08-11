@@ -576,6 +576,8 @@ class WorkflowEngine:
             context.subject,
             self._policy,
             WorkItems(self._policy),
+            contribution.name,
+            f"{context.resource_id}:{step_path}",
         )
         future = executor.submit(contribution.handler, services, input_data)
         try:

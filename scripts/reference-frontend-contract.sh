@@ -63,8 +63,17 @@ tar -xzf "${atlas_tar[0]}" --strip-components=1 -C "$installed"
 SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension \
     npm --prefix "$tmp/current-source/frontend" run build >/dev/null
 
+fixture="scripts/fixtures/frontend-host-0.2.0.txt"
+previous_commit="$(sed -n 's/^commit=//p' "$fixture")"
+previous_tree="$(sed -n 's/^tree=//p' "$fixture")"
+[ "$(git rev-parse "$previous_commit:frontend")" = "$previous_tree" ]
+current_tree="$(git rev-parse HEAD:frontend)"
+[ "$previous_tree" != "$current_tree" ] || {
+    echo "frontend host revisions have the same source tree" >&2
+    exit 1
+}
 mkdir -p "$tmp/previous-source"
-git archive 5493d618cb8fee04cc7b0ce614b09c9857648b27 frontend \
+git archive "$previous_commit" frontend \
     | tar -x -C "$tmp/previous-source"
 
 build_host() {
@@ -87,6 +96,14 @@ build_host() {
     SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension \
         npm --prefix "$host/frontend" run build >/dev/null
     grep -q '@atlas/skein-extension' "$host/frontend/extensions/generated.ts"
+    if [ "$version" = "0.2.1" ]; then
+        mkdir -p "$host/frontend/__tests__"
+        cp frontend/__tests__/setup.ts "$host/frontend/__tests__/setup.ts"
+        cp scripts/fixtures/reference-frontend-runtime.test.tsx \
+            "$host/frontend/__tests__/reference-frontend-runtime.test.tsx"
+        npm --prefix "$host/frontend" test -- \
+            --run __tests__/reference-frontend-runtime.test.tsx >/dev/null
+    fi
     rm -rf "$host"
 }
 

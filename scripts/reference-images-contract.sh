@@ -57,7 +57,7 @@ docker run --detach --name "$backend_container" \
     --mount "type=volume,source=$core_volume,target=/data" \
     --mount "type=volume,source=$extension_volume,target=/atlas-data" \
     -e SKEIN_MODEL_PROVIDER=mock \
-    -e SKEIN_SCHEDULER_ENABLED=0 \
+    -e SKEIN_SCHEDULER=0 \
     "$backend_image" >/dev/null
 for _attempt in $(seq 1 30); do
     if docker exec "$backend_container" python -c \
@@ -69,6 +69,10 @@ for _attempt in $(seq 1 30); do
 done
 docker exec "$backend_container" python -c \
     "from pathlib import Path; Path('/data/write-check').write_text('ok'); Path('/atlas-data/write-check').write_text('ok')"
+[ "$(docker exec "$backend_container" id -u)" -ne 0 ]
+docker exec "$backend_container" python -c \
+    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)" \
+    >/dev/null
 
 docker run --detach --name "$frontend_container" "$frontend_image" >/dev/null
 for _attempt in $(seq 1 30); do
@@ -79,4 +83,5 @@ for _attempt in $(seq 1 30); do
     sleep 1
 done
 docker exec "$frontend_container" wget -qO- http://127.0.0.1:3000/ >/dev/null
+[ "$(docker exec "$frontend_container" id -u)" -ne 0 ]
 echo "reference-images-contract: derivative images built and started as non-root"

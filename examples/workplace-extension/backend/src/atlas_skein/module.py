@@ -18,15 +18,14 @@ from app.extensions import (
     JobContribution,
     MigrationContribution,
     PolicyContribution,
-    PolicyInput,
     PolicyResource,
     RouteContribution,
+    RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
     WorkflowActionContribution,
-    enforce_decision,
 )
 
 from .integration import AtlasClient, AtlasHttpClient, AtlasIntegration, MemoryAtlasClient
@@ -68,32 +67,27 @@ def atlas_module(
         if not settings.api_token:
             raise ValueError("ATLAS_API_TOKEN is required when ATLAS_API_URL is set")
         selected_client = AtlasHttpClient(settings.api_url, settings.api_token)
-    integration = AtlasIntegration(selected_client or MemoryAtlasClient(), store)
+    selected_client = selected_client or MemoryAtlasClient()
+    integration = AtlasIntegration(selected_client, store)
     router = APIRouter(prefix="/api/extensions/atlas.workplace")
-
-    def require(services, action: str) -> None:
-        decision = services.policy.decide(
-            PolicyInput(
-                subject=services.subject,
-                action=action,
-                resource=PolicyResource("atlas"),
-                origin="human",
-            )
-        )
-        enforce_decision(decision)
 
     @router.post("/sync", response_model=SyncOut)
     def sync(services: ExtensionRouteServicesDep):
-        require(services, "atlas.integration.sync")
-        return integration.sync(services.work_items, services.subject)
+        return integration.sync(
+            services.work_items,
+            services.command_context(project_type="standard"),
+        )
 
     @router.get("/metrics")
-    def metrics(services: ExtensionRouteServicesDep):
-        require(services, "atlas.dashboard.view")
+    def metrics(_services: ExtensionRouteServicesDep):
         return integration.metrics()
 
-    def notify(_context, request: NotifyIn):
-        del request
+    def notify(context, request: NotifyIn):
+        selected_client.notify_manager(
+            request.channel,
+            request.message,
+            f"{context.correlation_id}:manager-notification",
+        )
         return {"accepted": True}
 
     return SkeinModule(
@@ -102,15 +96,36 @@ def atlas_module(
         extension_api="1.0",
         minimum_core="0.2.0",
         maximum_core_exclusive="0.3.0",
-        routes=(RouteContribution("atlas.workplace.routes", router),),
+        routes=(
+            RouteContribution(
+                "atlas.workplace.routes",
+                router,
+                (
+                    RouteOperationContribution(
+                        "POST",
+                        "/api/extensions/atlas.workplace/sync",
+                        "atlas.integration.sync",
+                        PolicyResource("atlas"),
+                        "write",
+                        "high",
+                    ),
+                    RouteOperationContribution(
+                        "GET",
+                        "/api/extensions/atlas.workplace/metrics",
+                        "atlas.dashboard.view",
+                        PolicyResource("atlas-dashboard"),
+                        "read",
+                        "low",
+                    ),
+                ),
+            ),
+        ),
         jobs=(
             JobContribution(
                 "atlas.workplace.sync",
                 lambda context: integration.sync(
                     context.work_items,
-                    context.subject,
-                    actor=context.subject.name,
-                    correlation_id=context.run_id,
+                    context.command_context(project_type="standard"),
                 ),
                 service_identity="atlas-sync",
                 policy_action="atlas.integration.sync",
@@ -151,6 +166,11 @@ def atlas_module(
             ContextContribution(
                 "atlas.workplace.delivery-context",
                 lambda _query: f"Atlas mappings: {integration.metrics()['linked_items']}",
+                policy_action="atlas.context.read",
+                risk="low",
+                required_capabilities=("atlas.specialist",),
+                timeout_seconds=2,
+                max_output_chars=2_000,
             ),
         ),
         tools=(
@@ -161,9 +181,7 @@ def atlas_module(
                 description="Synchronize work items with the fictional Atlas system.",
                 handler=lambda context, _request: integration.sync(
                     context.work_items,
-                    context.subject,
-                    actor=context.agent,
-                    correlation_id=context.correlation_id,
+                    context.command_context(project_type="standard"),
                 ),
                 input_schema=SyncIn,
                 output_schema=SyncOut,
@@ -195,9 +213,7 @@ def atlas_module(
                 version="1.0.0",
                 handler=lambda event, context: integration.deliver_task_event(
                     event,
-                    context.work_items,
-                    context.subject,
-                    context.delivery_id,
+                    context,
                 ),
                 event_types=("skein.task.updated",),
                 service_identity="atlas-events",
