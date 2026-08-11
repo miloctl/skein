@@ -16,6 +16,8 @@ Third-review commit: `4f1374f`
 
 Fourth-review commit: `62e352e`
 
+Fifth-review commit: `1a897b0`
+
 The final remediation and report commits are recorded after the final
 independent review.
 
@@ -207,8 +209,8 @@ line, but not independent production consumers across releases.
 - No compatible second released Skein version exists. The rehearsal changes
   artifact inputs and upgrades schemas, but it cannot prove a real two-release
   history.
-- Kubernetes manifests were reviewed and parsed as text. No live cluster was
-  available.
+- Standard Kustomize rendering and both derivative image builds passed. No
+  live Kubernetes cluster was available.
 
 ## 5. Genuine extension points
 
@@ -573,6 +575,8 @@ version ranges. Startup and build reject incompatible inputs.
 7. Preserve Atlas data while core moves from `0.2.0` to a separate compatible
    `0.2.1` artifact.
 8. Enter the upgraded installed application lifespan and confirm private data.
+9. Load unchanged unversioned workplace content before and after the upgrade.
+10. Compare the upgraded schema with a fresh schema from the next artifact.
 
 The packed frontend package also passes a production build through
 `SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension`.
@@ -629,6 +633,21 @@ Atlas playbook, persona, and flock validation passed.
 | `./scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on frontend hosts `0.2.0` and `0.2.1` | 43.76 seconds |
 | `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.51 seconds |
 | `uv build --wheel --out-dir /tmp/skein-final-remediation-dist backend` | Core wheel passed | Passed |
+
+### Verification after fifth-review remediation
+
+| Command | Result | Duration |
+|---|---|---:|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,697 passed | 106.74 seconds |
+| `npm test -- --run` | 229 passed in 45 files | 9.72 seconds |
+| `npm run build` | Production build passed | 12.05 seconds |
+| `./scripts/lint.sh` | Backend, frontend, content, license, dead-code, and theme checks passed | Passed |
+| `scripts/reference-extension-contract.sh` | Installed upgrade, legacy content, and fresh/upgraded schema equality passed | Passed |
+| `scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on two frontend hosts | Passed |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render and separate volumes passed | Passed |
+| `scripts/reference-images-contract.sh` | Backend and frontend derivative images built | Passed |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.49 seconds |
+| `uv build --wheel --out-dir /tmp/skein-final-panel-dist backend` | Core wheel passed | Passed |
 
 ## 14. Independent review
 
@@ -714,6 +733,43 @@ Verification after the fourth remediation:
 | `uv build --wheel --out-dir /tmp/skein-final-dist backend` | Core wheel passed | Passed |
 
 The final four-reviewer report is pending.
+
+### Fifth independent review
+
+The fifth gate reviewed commit `1a897b0`. Two reviewers completed their full
+reports and rejected it. The policy-correctness reviewer found valid issues,
+but an automated classifier interrupted its final report. The adversarial
+review did not start because the gate had already failed.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.7 | 8.2 | Reject |
+| Compatibility and reliability | 8.1 | 7.8 | 7.2 | Reject |
+
+The valid findings were:
+
+- The public task facade did not evaluate milestone relinks or unlink fallback
+  against the target project.
+- Deterministic `/plan` and `/remember` writes used only the broad chat or
+  Slack policy action.
+- Strict startup validation broke accepted unversioned workplace content.
+- A failure after extension startup could skip the extension shutdown hook.
+- The synthetic migration reused an existing sequence and did not compare a
+  fresh next-release schema with the upgraded schema.
+- The reference deployment shared storage, did not use its token, omitted
+  artifact staging instructions, and did not build derivative images.
+
+The fifth remediation uses the common authoritative target resolver in the
+public facade. It gates deterministic writes by their domain actions. It keeps
+legacy open-field readers for unversioned content and applies strict rules to
+explicit schemas. Lifecycle cleanup now runs after every later startup
+failure. The upgrade rehearsal uses migration 017, retains legacy content,
+and compares fresh and upgraded schemas. Atlas now has a token-using HTTP
+adapter, a separate volume, complete artifact commands, and executable image
+builds.
+
+A fresh four-reviewer gate is pending. Live Chrome validation remains blocked
+until that gate passes.
 
 ## 15. Remaining limitations and deferred work
 

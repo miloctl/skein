@@ -227,7 +227,7 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Complete before review |
 | 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | Second review rejected `952ff3a` |
-| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Second remediation in progress |
+| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Fifth remediation complete; fresh review pending |
 
 ## Test strategy
 
@@ -743,3 +743,44 @@ Verification after this remediation:
 
 A fresh four-specialist review is the next gate. Live Chrome validation still
 waits for that review to approve the architecture.
+
+### Fifth independent review and remediation
+
+Architecture and compatibility reviewers completed a fresh review of
+`1a897b0`. Both rejected it. The policy-correctness run was interrupted after
+it reported valid deterministic-command and public-facade gaps. The
+adversarial role did not start because the gate had already failed.
+
+The remediation now does the following:
+
+- The public work facade uses the shared target-state resolver for direct
+  engagement changes, milestone relinks, and relationship unlink fallback.
+- Deterministic `/plan` and `/remember` commands evaluate their domain policy
+  action in web chat and signed Slack execution.
+- Unversioned playbooks, personas, and flocks keep their legacy open fields.
+  Explicit version 1 files use the strict schema.
+- Application startup validates explicit schemas and executable workflows
+  without rejecting unrelated malformed legacy overlays.
+- Extension shutdown runs when any later core startup step fails.
+- The installed upgrade rehearsal uses migration 017, retains base-era
+  content, and compares fresh and upgraded next-release schemas.
+- The Atlas deployment uses a separate persistent volume and a token-backed
+  HTTP adapter. Exact artifact staging commands and an executable two-image
+  build rehearsal are present.
+
+Verification after this remediation:
+
+- Focused public, content, lifecycle, command, and Atlas tests: 78 passed.
+- Full backend suite: 1,697 passed in 106.74 seconds.
+- Frontend suite: 229 passed in 45 files.
+- Production frontend build: passed in 12.05 seconds.
+- Full lint and type gate: passed.
+- Installed backend, legacy-content, and schema-equivalence rehearsal: passed.
+- Packed frontend two-host rehearsal: passed.
+- Standard Kustomize render: passed.
+- Backend and frontend derivative image builds: passed.
+- Base database and activity-chain upgrade: passed.
+- Core wheel build: passed.
+
+The next step is a fresh four-role independent review. Chrome validation stays
+blocked until every review gate passes.

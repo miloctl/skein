@@ -195,7 +195,7 @@ from app.extensions import JobExecutionContext, PolicySubject
 from app.public import CommandContext, CreateTaskCommand
 
 def import_work(context: JobExecutionContext):
-    return context.work_items.create_task(
+    task = context.work_items.create_task(
         CreateTaskCommand(
             title="Map an external work item",
             idempotency_key="atlas-item:ATLAS-7",
@@ -205,6 +205,7 @@ def import_work(context: JobExecutionContext):
             origin="atlas-integration",
         ),
     )
+    return {"created": 1, "task_id": task.id}
 ```
 
 Extensions receive typed views. They do not receive SQLite rows or a core
@@ -341,8 +342,10 @@ state machine. Keep these processes in an extension service.
 
 ## Validate content overlays
 
-Playbooks, personas, and flocks accept `schema_version: 1`. Existing content
-without a version is treated as version 1.
+Playbooks, personas, and flocks accept `schema_version: 1`. A file that declares
+this version uses the strict closed schema. Existing unversioned content keeps
+the legacy open-field behavior and is normalized to version 1 when it loads.
+Add `schema_version` after deployment validation removes unsupported fields.
 
 Validate private overlays in deployment CI:
 

@@ -212,6 +212,113 @@ def test_linked_engagement_context_overrides_caller_policy_context(fresh_db):
     assert fresh_db.query_one("SELECT title FROM tasks") is None
 
 
+def test_public_update_policy_uses_target_engagement(fresh_db):
+    from app.services import engagements
+    from app.services import work as service_work
+
+    standard = engagements.create_engagement("Standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Regulated", project_class="regulated")["id"]
+    task = service_work.create_task("Move me", engagement_id=standard)["id"]
+
+    def deny_regulated(request: PolicyInput):
+        if request.action == "work.task.update" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated updates are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.target", deny_regulated),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+    with pytest.raises(PublicError, match="policy denied") as raised:
+        facade.update_task(
+            UpdateTaskCommand(task_id=task, engagement_id=regulated),
+            _context(project_type="standard"),
+        )
+    assert raised.value.code == "POLICY_DENIED"
+    assert service_work.task_policy_context(task)["project_type"] == "standard"
+
+
+def test_public_update_policy_uses_target_milestone(fresh_db):
+    from app.services import engagements
+    from app.services import work as service_work
+
+    standard = engagements.create_engagement("Standard", project_class="standard")["id"]
+    engagements.create_engagement("Regulated", project_class="regulated")
+    regulated_milestone = service_work.create_milestone("Regulated gate", project="Regulated")["id"]
+    task = service_work.create_task("Move me", engagement_id=standard)["id"]
+
+    def deny_regulated(request: PolicyInput):
+        if request.action == "work.task.update" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated updates are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.target", deny_regulated),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+
+    # The direct standard engagement still governs while it is present.
+    moved = facade.update_task(
+        UpdateTaskCommand(task_id=task, milestone_id=regulated_milestone),
+        _context(project_type="standard"),
+    )
+    assert moved.milestone_id == regulated_milestone
+    assert service_work.task_policy_context(task)["project_type"] == "standard"
+
+    # Clearing the direct link exposes the regulated milestone. Policy must
+    # evaluate that final relationship before the service stores it.
+    with pytest.raises(PublicError, match="policy denied"):
+        facade.update_task(
+            UpdateTaskCommand(task_id=task, engagement_id=-1),
+            _context(project_type="standard"),
+        )
+    row = fresh_db.query_one("SELECT engagement_id, milestone_id FROM tasks WHERE id = ?", (task,))
+    assert row == {"engagement_id": standard, "milestone_id": regulated_milestone}
+    assert service_work.task_policy_context(task)["project_type"] == "standard"
+
+
+def test_public_update_policy_uses_milestone_when_no_direct_engagement(fresh_db):
+    from app.services import engagements
+    from app.services import work as service_work
+
+    engagements.create_engagement("Regulated", project_class="regulated")
+    regulated_milestone = service_work.create_milestone("Regulated gate", project="Regulated")["id"]
+    task = service_work.create_task("Unlinked")["id"]
+
+    def deny_regulated(request: PolicyInput):
+        if request.action == "work.task.update" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated updates are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.target", deny_regulated),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+    with pytest.raises(PublicError, match="policy denied"):
+        facade.update_task(
+            UpdateTaskCommand(task_id=task, milestone_id=regulated_milestone),
+            _context(project_type="standard"),
+        )
+    assert fresh_db.query_one("SELECT milestone_id FROM tasks WHERE id = ?", (task,)) == {
+        "milestone_id": None
+    }
+
+
 def test_policy_approval_requirements_are_enforced_on_the_verdict(fresh_db):
     from app.services import review, users
 

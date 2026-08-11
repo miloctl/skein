@@ -11,6 +11,58 @@ def test_unversioned_stock_content_is_version_one(fresh_db):
     assert flocks.get_flock("delivery")["schema_version"] == 1
 
 
+def test_unversioned_workplace_content_keeps_the_legacy_open_shape(fresh_db, tmp_path, monkeypatch):
+    from app import config, content
+    from app.services import flocks, personas, playbooks
+
+    playbook_dir = tmp_path / "playbooks"
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    for directory in (playbook_dir, persona_dir, flock_dir):
+        directory.mkdir()
+    (playbook_dir / "legacy.yaml").write_text(
+        "description: Legacy plan\nworkplace_note: preserved\nmilestones:\n  - title: Start\n"
+    )
+    (persona_dir / "legacy-reviewer.md").write_text(
+        "---\nname: Legacy Reviewer\ndescription: Reviews old work\n"
+        "workplace_note: preserved\n---\nReview the work.\n"
+    )
+    (flock_dir / "legacy-team.yaml").write_text(
+        "name: Legacy Team\ndescription: Two views\nworkplace_note: preserved\n"
+        "members:\n  - legacy-reviewer\n  - backend-architect\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", playbook_dir)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+
+    assert playbooks.get_playbook("legacy")["schema_version"] == 1
+    assert (
+        next(item for item in playbooks.list_playbooks() if item["slug"] == "legacy")["name"]
+        == "legacy"
+    )
+    assert personas.get_persona("legacy-reviewer")["schema_version"] == 1
+    assert flocks.get_flock("legacy-team")["schema_version"] == 1
+    assert content.validate() == []
+
+
+def test_startup_validation_skips_malformed_legacy_but_rejects_versioned_content(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "legacy.yaml").write_text("not: [valid")
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    assert playbooks.validate_startup(set()) == []
+
+    (overlay / "strict.yaml").write_text(
+        "schema_version: 1\nname: Strict\nprivate_hook: forbidden\n"
+    )
+    assert any("unknown top-level fields" in error for error in playbooks.validate_startup(set()))
+
+
 def test_deployment_validator_accepts_versioned_overlay_content(fresh_db, tmp_path, monkeypatch):
     from app import config, content
 

@@ -146,12 +146,12 @@ def _target_engagement(entity: str, entity_id: int, payload: dict) -> int:
 
     if entity in _ENGAGEMENT_LINKED and "engagement_id" in payload:
         value = _integer(payload.get("engagement_id"))
-        if value:
+        if value != 0:
             existing_engagement = value if value > 0 else 0
     if entity == "task":
         if "milestone_id" in payload:
             value = _integer(payload.get("milestone_id"))
-            if value:
+            if value != 0:
                 existing_milestone = value if value > 0 else 0
         return existing_engagement or _milestone_engagement(existing_milestone)
     if entity == "milestone" and not entity_id and not existing_engagement:

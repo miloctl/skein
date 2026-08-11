@@ -865,7 +865,16 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     # tokens — same engine the mock agent and Slack use. The exchange is
     # still bridged into the model session afterwards (session_log) so a
     # follow-up question to the agent has the context.
-    command_events = commands.dispatch(message, user, viewer)
+    command_events = commands.dispatch(
+        message,
+        user,
+        viewer,
+        commands.CommandAccess(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "human",
+        ),
+    )
     if command_events is not None:
 
         async def command_stream():

@@ -297,7 +297,9 @@ def validate_all() -> list[str]:
                 if separator
             }
             unknown = keys - set(_FIELDS)
-            if unknown:
+            # Old persona frontmatter was open-ended. A declared schema
+            # version opts into the closed, versioned field contract.
+            if "schema_version" in keys and unknown:
                 errors.append(f"{label}: unknown frontmatter field(s): {sorted(unknown)}")
             p = _parse(path)
             if p is None:

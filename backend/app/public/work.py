@@ -16,7 +16,7 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
 )
-from ..services import scope, work
+from ..services import policy_context, scope, work
 from .errors import PublicError
 
 
@@ -229,18 +229,13 @@ class WorkItems:
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
         current = self.get_task(command.task_id, context)
-        attributes = work.task_policy_context(command.task_id)
-        if command.engagement_id and command.engagement_id > 0:
-            target = db.query_one(
-                "SELECT project_class FROM engagements WHERE id = ? AND visibility = 'workspace'",
-                (command.engagement_id,),
-            )
-            if target:
-                attributes = {
-                    **attributes,
-                    "project_type": str(target["project_class"] or ""),
-                    "target_engagement_id": command.engagement_id,
-                }
+        changes = command.model_dump(exclude={"task_id"}, exclude_none=True)
+        if not changes:
+            raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
+        # Use the same target-state resolver as REST, agent writes, and review
+        # resume. A milestone relink or a direct-engagement unlink can change
+        # the governing project even when engagement_id is absent or negative.
+        attributes = policy_context.for_change("task", command.task_id, changes)
         self._authorize(
             context,
             "work.task.update",
@@ -252,9 +247,6 @@ class WorkItems:
                 attributes=attributes,
             ),
         )
-        changes = command.model_dump(exclude={"task_id"}, exclude_none=True)
-        if not changes:
-            raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
         try:
             work.update_task(
                 command.task_id,

@@ -78,9 +78,10 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
         return None
     if not isinstance(data, dict):
         return None
-    if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
+    versioned = "schema_version" in data
+    if versioned and data.get("schema_version") != SCHEMA_VERSION:
         return None
-    if set(data) - _FIELDS:
+    if versioned and set(data) - _FIELDS:
         return None
     name = str(data.get("name") or "").strip()
     description = str(data.get("description") or "").strip()
@@ -183,10 +184,11 @@ def validate_all() -> list[str]:
             if not isinstance(data, dict):
                 errors.append(f"{label}: expected an object with name, description, and members")
                 continue
-            if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
+            versioned = "schema_version" in data
+            if versioned and data.get("schema_version") != SCHEMA_VERSION:
                 errors.append(f"{label}: schema_version must be {SCHEMA_VERSION}")
             unknown = sorted(set(data) - _FIELDS)
-            if unknown:
+            if versioned and unknown:
                 errors.append(f"{label}: unknown top-level fields: {unknown}")
             if not str(data.get("name") or "").strip():
                 errors.append(f"{label}: name is empty")

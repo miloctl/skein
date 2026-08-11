@@ -18,7 +18,7 @@ if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
 from atlas_skein import AtlasSettings, atlas_module  # noqa: E402
-from atlas_skein.integration import AtlasItem, MemoryAtlasClient  # noqa: E402
+from atlas_skein.integration import AtlasHttpClient, AtlasItem, MemoryAtlasClient  # noqa: E402
 
 from app.extensions import (  # noqa: E402
     AppSettings,
@@ -157,6 +157,41 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     event_updates = [update for update in client.updates if update[2]]
     assert len(event_updates) == 2
     assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
+
+
+def test_http_adapter_uses_the_deployment_secret(monkeypatch):
+    from atlas_skein import integration
+
+    calls = []
+
+    class Response:
+        def __init__(self, payload: bytes):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return self.payload
+
+    def open_request(request, timeout):
+        calls.append((request, timeout))
+        if request.get_method() == "GET":
+            return Response(b'{"items":[{"external_id":"ATLAS-7","title":"Map"}]}')
+        return Response(b"")
+
+    monkeypatch.setattr(integration, "urlopen", open_request)
+    client = AtlasHttpClient("https://atlas.example.invalid/api", "secret-token", 4)
+    assert client.list_items() == (AtlasItem("ATLAS-7", "Map"),)
+    client.update_status("ATLAS-7", "done", "event-7")
+    assert [request.get_method() for request, _timeout in calls] == ["GET", "PATCH"]
+    assert all(
+        request.get_header("Authorization") == "Bearer secret-token" for request, _timeout in calls
+    )
+    assert calls[1][0].data == b'{"status": "done", "idempotency_key": "event-7"}'
 
 
 def test_a_second_module_can_deny_the_reference_background_job(fresh_db, tmp_path):
