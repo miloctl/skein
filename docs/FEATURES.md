@@ -6,6 +6,29 @@ but never require one. All writes flow through `backend/app/services/` from
 both write paths (human REST, agent tools) and carry provenance
 (`origin`, `created_by`) plus an activity-log entry.
 
+## Workplace extension contracts
+
+Skein can compose an explicit allowlist of trusted workplace modules through
+`create_app(settings, modules)`. The default `app.main:app` remains compatible.
+Separate typed contracts cover routes, jobs, lifecycle callbacks, policy,
+identity mapping, agent context, governed tools, specialists, events,
+extension-owned migrations, and workflow actions. There is no universal plugin
+base class and no automatic package scanning.
+
+Authenticated core REST mutations, agent tools, classified MCP tools,
+workflow steps, contributed routes, and frontend capability checks use the
+composed policy boundary. A workplace permit cannot override a core denial.
+
+Public task commands preserve the existing service write path, provenance,
+and activity chain. They also write versioned domain events to a durable SQLite
+outbox. Extensions receive typed views and safe events, not core SQLite rows.
+
+The frontend composes trusted packages before `next build`. Version 1 supports
+policy-aware navigation and manager dashboard cards. The fictional Atlas
+package proves separate backend and frontend packaging, extension-owned data,
+versioned content, a derivative image, and an artifact-level upgrade rehearsal.
+See `docs/EXTENSIONS.md`.
+
 **Navigation (since 2026-07-26):** five top-level destinations — My Day ·
 Chat · **Work** (Plan the week `/planning` · Health `/portfolio` · Browse
 `/dashboard` · Insights `/insights` · Reports `/artifacts`) · **Inbox**

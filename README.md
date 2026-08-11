@@ -66,6 +66,13 @@ backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
 frontend/  Next.js 16 + @assistant-ui/react + Tailwind
 ```
 
+Workplace deployments can compose trusted private modules without changing
+this source tree. The backend accepts explicit typed contributions for routes,
+jobs, policy, identity, tools, specialists, events, extension-owned migrations,
+and workflow actions. The frontend accepts trusted build-time navigation and
+dashboard contributions. See [extension authoring](docs/EXTENSIONS.md) and the
+[fictional Atlas package](examples/workplace-extension/README.md).
+
 Key mechanics:
 
 - **Provenance everywhere** — every record carries `origin`

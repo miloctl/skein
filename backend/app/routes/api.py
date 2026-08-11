@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
-from ..extensions.fastapi import PolicySubjectDep, decide
+from ..extensions.fastapi import PolicyAPIRoute, PolicySubjectDep, decide
 from ..services import (
     absences,
     activity,
@@ -56,7 +56,7 @@ from ..services import (
 )
 from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", route_class=PolicyAPIRoute)
 
 
 # ---- reads -----------------------------------------------------------------

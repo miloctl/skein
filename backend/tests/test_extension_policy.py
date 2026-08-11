@@ -231,6 +231,58 @@ def test_capability_endpoint_uses_the_composed_identity_and_policy(fresh_db):
     assert body["actions"]["atlas.update"]["effect"] == "review"
 
 
+def _rest_rule(request: PolicyInput):
+    if request.action == "skein.rest.post.tasks" and request.subject.name == "blocked-user":
+        return PolicyDecision(PolicyEffect.DENY, ("Task creation is disabled.",))
+    if request.action == "skein.rest.patch.tasks":
+        return PolicyDecision(
+            PolicyEffect.REVIEW,
+            ("Task changes need a delivery manager.",),
+            ("record-manager-verdict",),
+            ("delivery-managers",),
+            ("acme.approve-task",),
+        )
+    return None
+
+
+def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
+    from app.services import work
+
+    task = work.create_task("Existing task", actor="manager")
+    module = replace(
+        _module(),
+        policies=(PolicyContribution("acme.workplace.rest-policy", _rest_rule),),
+    )
+    with TestClient(create_app(modules=(module,))) as client:
+        denied = client.post(
+            "/api/tasks",
+            headers={"X-User": "blocked-user"},
+            json={"title": "Must not land"},
+        )
+        review = client.patch(
+            f"/api/tasks/{task['id']}",
+            headers={"X-User": "manager"},
+            json={"status": "in_progress"},
+        )
+
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "POLICY_DENIED"
+    assert review.status_code == 409
+    assert review.json() == {
+        "detail": "This action needs review before it can run.",
+        "code": "POLICY_REVIEW_REQUIRED",
+        "retryable": False,
+        "obligations": [
+            "record-manager-verdict",
+            "approver-group:delivery-managers",
+            "approver-capability:acme.approve-task",
+        ],
+    }
+    assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],)) == {
+        "status": "todo"
+    }
+
+
 class _FakeModel:
     stateful = False
 
