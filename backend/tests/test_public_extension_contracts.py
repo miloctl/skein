@@ -33,6 +33,7 @@ from app.extensions.policy import PolicyInput, PolicySubject
 from app.main import create_app
 from app.public import CommandContext, CreateTaskCommand, PublicError, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
+from app.public.work import _bind_execution_context
 
 
 def _context(work_items: WorkItems, **changes) -> CommandContext:
@@ -43,15 +44,20 @@ def _context(work_items: WorkItems, **changes) -> CommandContext:
         "project_type": "regulated",
     }
     values.update(changes)
-    execution = work_items._bind_execution_context(
-        JobExecutionContext(
-            policy=work_items._policy,
-            work_items=work_items,
-            subject=values["subject"],
-            run_id=values["correlation_id"],
-            namespace=values["namespace"],
-        ),
+    execution_context = JobExecutionContext(
+        policy=work_items._policy,
+        work_items=work_items,
+        subject=values["subject"],
+        run_id=values["correlation_id"],
+        namespace=values["namespace"],
+    )
+    execution = _bind_execution_context(
+        work_items,
+        execution_context,
+        subject=values["subject"],
+        namespace=values["namespace"],
         receipt_namespace=f"job:{values['namespace']}",
+        correlation_id=values["correlation_id"],
     )
     return execution.command_context(project_type=values["project_type"])
 
@@ -168,6 +174,40 @@ def test_caller_constructed_execution_boundaries_cannot_mint_command_authority(f
             context.command_context()
         assert raised.value.code == "COMMAND_CONTEXT_REQUIRED"
 
+    assert not hasattr(facade, "_bind_execution_context")
+
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+
+def test_bound_provenance_and_issued_commands_cannot_be_changed_by_the_handler(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    granted = PolicySubject("atlas-sync", kind="service")
+    fabricated = PolicySubject("mira", kind="human", capabilities=("admin",))
+    execution = JobExecutionContext(
+        facade._policy,
+        facade,
+        granted,
+        "atlas-run",
+        "atlas.workplace.sync",
+    )
+    bound = _bind_execution_context(
+        facade,
+        execution,
+        subject=granted,
+        namespace="atlas.workplace.sync",
+        receipt_namespace="job:atlas.workplace.sync",
+        correlation_id="atlas-run",
+    )
+    object.__setattr__(bound, "subject", fabricated)
+    object.__setattr__(bound, "namespace", "evil.workplace.sync")
+    command_context = bound.command_context()
+
+    assert command_context.subject == granted
+    assert command_context.namespace == "atlas.workplace.sync"
+    object.__setattr__(command_context, "actor", "mira")
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(CreateTaskCommand(title="forged actor"), command_context)
+    assert raised.value.code == "COMMAND_CONTEXT_REQUIRED"
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
 
 
@@ -198,13 +238,27 @@ def test_command_receipts_are_isolated_when_contribution_kinds_share_a_name(fres
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     subject = PolicySubject("atlas-sync", kind="service")
     name = "atlas.workplace.sync"
-    job = facade._bind_execution_context(
-        JobExecutionContext(facade._policy, facade, subject, "job-run", name),
+    job_context = JobExecutionContext(facade._policy, facade, subject, "job-run", name)
+    job = _bind_execution_context(
+        facade,
+        job_context,
+        subject=subject,
+        namespace=name,
         receipt_namespace=f"job:{name}",
+        correlation_id="job-run",
     )
-    tool = facade._bind_execution_context(
-        ToolHandlerContext(subject, facade._policy, facade, "atlas-agent", "tool-run", name),
+    tool_context = ToolHandlerContext(
+        subject, facade._policy, facade, "atlas-agent", "tool-run", name
+    )
+    tool = _bind_execution_context(
+        facade,
+        tool_context,
+        subject=subject,
+        namespace=name,
         receipt_namespace=f"tool:{name}",
+        correlation_id="tool-run",
+        actor="atlas-agent",
+        actor_kind="agent",
     )
     command = CreateTaskCommand(title="job task", idempotency_key="same-key")
 

@@ -588,18 +588,24 @@ class WorkflowEngine:
                     outputs=state.outputs,
                 )
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-workflow")
-        from .work import WorkItems
+        from .work import WorkItems, _bind_execution_context
 
         work_items = WorkItems(self._policy)
-        services = work_items._bind_execution_context(
-            WorkflowActionContext(
-                context.subject,
-                self._policy,
-                work_items,
-                contribution.name,
-                f"{context.run_id}:{step_path}",
-            ),
+        correlation_id = f"{context.run_id}:{step_path}"
+        action_context = WorkflowActionContext(
+            context.subject,
+            self._policy,
+            work_items,
+            contribution.name,
+            correlation_id,
+        )
+        services = _bind_execution_context(
+            work_items,
+            action_context,
+            subject=context.subject,
+            namespace=contribution.name,
             receipt_namespace=f"workflow:{contribution.name}",
+            correlation_id=correlation_id,
         )
         _log_action_outcome(context, contribution, step_path, "attempt")
         future = executor.submit(contribution.handler, services, input_data)

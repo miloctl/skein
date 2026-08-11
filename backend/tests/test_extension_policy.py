@@ -2463,9 +2463,11 @@ def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
     from app.services import review, users
 
     target = {"project_type": "standard"}
+    transaction_state: list[bool] = []
 
     def current_target_policy(request: PolicyInput):
         if request.action == "acme.sync":
+            transaction_state.append(fresh_db._ambient.get() is not None)
             return PolicyDecision(
                 PolicyEffect.REVIEW,
                 approver_groups=(f"{request.resource.project_type}-approvers",),
@@ -2511,6 +2513,7 @@ def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
         )
     )
     target["project_type"] = "regulated"
+    transaction_state.clear()
 
     with pytest.raises(PermissionError, match="configured workplace approver"):
         review.reject_change(
@@ -2526,6 +2529,103 @@ def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
         policy_registry=registry,
     )
     assert rejected["status"] == "rejected"
+    assert transaction_state and all(transaction_state)
+
+
+def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.services import engagements, review, users, work
+
+    standard = engagements.create_engagement("standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("regulated", project_class="regulated")["id"]
+    task = work.create_task("review target", engagement_id=standard)["id"]
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    armed = {"value": False, "paused": False}
+
+    def current_resource(_request):
+        domain = work.task_policy_context(task)
+        return PolicyResource(
+            "task",
+            str(task),
+            project_type=str(domain.get("project_type") or ""),
+            classification=str(domain.get("classification") or ""),
+        )
+
+    def rule(request: PolicyInput):
+        if request.action != "acme.sync":
+            return None
+        if armed["value"] and not armed["paused"]:
+            armed["paused"] = True
+            policy_entered.set()
+            assert writer_attempted.wait(5)
+            sleep(0.05)
+            assert not writer_done.is_set()
+        return PolicyDecision(
+            PolicyEffect.REVIEW,
+            approver_groups=(f"{request.resource.project_type}-approvers",),
+        )
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.current-target", rule),),
+        tools=(
+            ToolContribution(
+                name="acme.workplace.sync",
+                version="1.0.0",
+                model_name="acme_sync",
+                description="Test serialized rejection authority.",
+                handler=lambda _context, request: {"updated": request.external_id},
+                input_schema=SyncIn,
+                output_schema=SyncOut,
+                effect="write",
+                risk="high",
+                policy_action="acme.sync",
+                resource=current_resource,
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    for name in ("requester", "standard-manager"):
+        users.ensure_user(name)
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "ATLAS-SERIAL"},
+            ToolCallContext(PolicySubject("requester"), "acme-agent"),
+            registry.policy_engine,
+        )
+    )
+    armed["value"] = True
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        work.update_task(task, engagement_id=regulated)
+        writer_done.set()
+
+    writer = Thread(target=relink)
+    writer.start()
+    rejected = review.reject_change(
+        queued.review_id,
+        actor="standard-manager",
+        reviewer_groups=("standard-approvers",),
+        policy_registry=registry,
+    )
+    writer.join(5)
+
+    assert rejected["status"] == "rejected"
+    assert writer_done.is_set()
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "engagement_id": regulated
+    }
 
 
 def test_subject_refresh_never_increases_authentication_strength(fresh_db):

@@ -141,6 +141,29 @@ def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
     assert not hasattr(contexts[0], "settings")
 
 
+def test_configured_mcp_identity_cannot_overlap_a_contributed_service(fresh_db):
+    module = _module(
+        routes=(),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.mcp-collision",
+                "acme-mcp-agent",
+            ),
+        ),
+    )
+    settings = replace(
+        AppSettings.from_config(),
+        scheduler_enabled=False,
+        mcp_user="acme-mcp-agent",
+    )
+
+    with (
+        pytest.raises(RuntimeError, match="conflicts with a contributed machine identity"),
+        TestClient(create_app(settings, (module,))),
+    ):
+        pass
+
+
 def test_started_lifecycle_is_stopped_if_a_later_startup_fails(fresh_db):
     events: list[str] = []
 
@@ -356,6 +379,22 @@ def test_specialist_and_service_machine_identities_cannot_share_a_subject():
     )
 
     with pytest.raises(ExtensionValidationError, match="both a specialist and a service"):
+        ExtensionRegistry.build((module,))
+
+
+@pytest.mark.parametrize(
+    "subject",
+    ["system", "Scheduler", "forge", "agent", "anonymous", "ci", "mcp", "team"],
+)
+def test_private_modules_cannot_claim_reserved_core_machine_subjects(subject):
+    module = _module(
+        routes=(),
+        service_identities=(
+            ServiceIdentityContribution("acme.workplace.reserved-service", subject),
+        ),
+    )
+
+    with pytest.raises(ExtensionValidationError, match="reserved core subject"):
         ExtensionRegistry.build((module,))
 
 

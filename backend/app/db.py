@@ -352,6 +352,8 @@ def savepoint() -> Iterator[None]:
         return
     # This fixed internal name prevents caller-controlled SQL. Reviewed
     # applies do not nest another reviewed apply, so one name is sufficient.
+    callbacks = _on_commit.get()
+    callback_count = len(callbacks) if callbacks is not None else 0
     connection.execute("SAVEPOINT skein_review_apply")
     try:
         yield
@@ -359,6 +361,11 @@ def savepoint() -> Iterator[None]:
     except BaseException:
         connection.execute("ROLLBACK TO SAVEPOINT skein_review_apply")
         connection.execute("RELEASE SAVEPOINT skein_review_apply")
+        # SQL created after the savepoint no longer exists. Its deferred
+        # effects must not run when the outer review-settlement transaction
+        # commits.
+        if callbacks is not None:
+            del callbacks[callback_count:]
         raise
 
 

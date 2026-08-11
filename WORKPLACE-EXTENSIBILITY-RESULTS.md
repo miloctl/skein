@@ -1088,6 +1088,51 @@ those two environment attempts.
 The final scores remain provisional. A fresh independent review must approve
 the exact remediation commit. Chrome validation remains blocked until then.
 
+### Twelfth review gate and remediation
+
+Three specialists started a fresh review of commit `348b4f3`. They reproduced
+four high-severity defects before the gate completed. Automated safety filters
+interrupted their final report generation, so this round has no score table.
+The reproduced findings rejected the gate.
+
+The public facade still exposed its execution-binding method. An extension
+could use that method to register a caller-created context. Rejection did not
+serialize current policy and the verdict. Private services could claim core
+actor names. A failed savepoint also retained deferred callbacks from work
+that SQL had rolled back.
+
+The remediation removes the binding method from `WorkItems`. An internal
+identity registry now binds the exact core-created execution object. Its grant
+contains the subject, actor, namespace, receipt namespace, and correlation ID.
+The facade also records the complete issued command signature. Changed command
+objects fail before a write.
+
+Rejection now runs current resource resolution, qualification, and settlement
+in one write transaction. A concurrent relink test proves the ordering. Private
+modules cannot claim core actor names. The configured MCP actor cannot overlap
+a contributed machine identity. Savepoint rollback now removes only the
+callbacks created by its failed work.
+
+Verification after this remediation:
+
+| Command | Result |
+|---|---|
+| Focused boundary suite | 162 passed |
+| New authority, identity, and transaction subset | 87 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,757 passed in 149.32 seconds |
+| `./scripts/lint.sh` | All gates passed in 21.83 seconds |
+| Frontend unit tests | 230 passed in 45 files |
+| `uv build` in `backend/` | Wheel and source distribution built |
+| `npm run build` in `frontend/` | Production build passed with 23 routes |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+| `scripts/reference-frontend-contract.sh` | Unchanged Atlas package passed on two different frontend hosts |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render passed |
+| `scripts/reference-images-contract.sh` | Derivative images built and started as non-root |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schema and activity chain passed |
+
+The remediation is ready for its milestone commit and exact-commit review.
+Chrome remains blocked until that review passes.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.
