@@ -18,12 +18,18 @@ if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
 from atlas_skein import AtlasSettings, atlas_module  # noqa: E402
-from atlas_skein.integration import AtlasHttpClient, AtlasItem, MemoryAtlasClient  # noqa: E402
+from atlas_skein.integration import (  # noqa: E402
+    AtlasHttpClient,
+    AtlasIntegration,
+    AtlasItem,
+    MemoryAtlasClient,
+)
 
 from app.extensions import (  # noqa: E402
     AppSettings,
     EventExecutionContext,
     ExtensionRegistry,
+    ExtensionStore,
     JobExecutionContext,
     PolicyContribution,
     PolicyDecision,
@@ -80,7 +86,7 @@ def test_reference_module_exercises_each_supported_backend_contribution(tmp_path
     assert len(registry.routes) == 1
     assert len(registry.jobs) == 1
     assert len(registry.policies) == 1
-    assert len(registry.identities) == 1
+    assert len(registry.identities) == 2
     assert len(registry.service_identities) == 2
     assert len(registry.contexts) == 1
     assert len(registry.tools) == 1
@@ -140,9 +146,8 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     )
     assert denied.status_code == 403
     assert denied.json()["code"] == "POLICY_DENIED"
-    assert client.updates[:2] == [
-        ("ATLAS-7", "in_progress", "atlas.workplace.sync:test"),
-        ("ATLAS-7", "in_progress", "atlas.workplace.sync:test"),
+    assert sorted(client.updates) == [
+        ("ATLAS-7", "in_progress", "atlas.workplace.sync:test:ATLAS-7:in_progress"),
     ]
 
     delivery = dispatch_events(
@@ -155,10 +160,64 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     )
     assert delivery["delivered"] == 3
     event_updates = [
-        update for update in client.updates if update[2] != "atlas.workplace.sync:test"
+        update
+        for update in client.updates
+        if update[2] != "atlas.workplace.sync:test:ATLAS-7:in_progress"
     ]
     assert len(event_updates) == 2
     assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
+
+
+def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    client = MemoryAtlasClient(
+        (
+            AtlasItem("ATLAS-7", "Map dependency", "in_progress"),
+            AtlasItem("ATLAS-8", "Check rollout", "todo"),
+        )
+    )
+    store_path = tmp_path / "atlas-extension.db"
+    module = atlas_module(AtlasSettings(store_path), client)
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    app = create_app(settings, (module,))
+    with TestClient(app):
+        registry = app.state.skein_registry
+        integration = AtlasIntegration(client, ExtensionStore(store_path))
+        work_items = WorkItems(registry.policy_engine)
+        subject = registry.service_subject("atlas-sync")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda _index: integration.sync(
+                        work_items,
+                        subject,
+                        actor=subject.name,
+                        correlation_id="atlas.workplace.sync:window-7",
+                    ),
+                    range(2),
+                )
+            )
+
+    assert all(result["created"] + result["updated"] == 2 for result in results)
+    assert sum(result["created"] for result in results) == 2
+    assert sum(result["updated"] for result in results) == 2
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 2}
+    assert ExtensionStore(store_path).query_one("SELECT COUNT(*) AS count FROM work_links") == {
+        "count": 2
+    }
+    assert sorted(client.updates) == [
+        (
+            "ATLAS-7",
+            "in_progress",
+            "atlas.workplace.sync:window-7:ATLAS-7:in_progress",
+        ),
+        (
+            "ATLAS-8",
+            "todo",
+            "atlas.workplace.sync:window-7:ATLAS-8:todo",
+        ),
+    ]
 
 
 def test_http_adapter_uses_the_deployment_secret(monkeypatch):

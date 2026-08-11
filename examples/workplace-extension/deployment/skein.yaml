@@ -12,9 +12,18 @@ spec:
       labels:
         app: skein
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: skein
           image: skein:0.2.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8000
@@ -74,9 +83,16 @@ spec:
       labels:
         app: skein-frontend
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: frontend
           image: skein-frontend:0.2.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 3000

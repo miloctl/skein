@@ -226,6 +226,41 @@ def policy_input_data(request: PolicyInput) -> dict[str, Any]:
     )
 
 
+def policy_decision_data(decision: PolicyDecision) -> dict[str, Any]:
+    """Return the stable JSON form of one verdict-time policy decision."""
+    return _plain(
+        {
+            "effect": decision.effect,
+            "reasons": decision.reasons,
+            "obligations": decision.obligations,
+            "approver_groups": decision.approver_groups,
+            "approver_capabilities": decision.approver_capabilities,
+        }
+    )
+
+
+def policy_decision_from_data(value: Mapping[str, Any]) -> PolicyDecision:
+    """Rebuild the exact policy decision qualified by a reviewer."""
+    try:
+        effect = PolicyEffect(str(value.get("effect") or ""))
+    except ValueError as exc:
+        raise ValueError("the reviewed policy decision is invalid") from exc
+
+    def values(name: str) -> tuple[str, ...]:
+        raw = value.get(name, ())
+        if not isinstance(raw, (list, tuple)):
+            raise ValueError("the reviewed policy decision is invalid")
+        return tuple(str(item) for item in raw)
+
+    return PolicyDecision(
+        effect,
+        reasons=values("reasons"),
+        obligations=values("obligations"),
+        approver_groups=values("approver_groups"),
+        approver_capabilities=values("approver_capabilities"),
+    )
+
+
 def policy_subject_data(subject: PolicySubject) -> dict[str, Any]:
     """Return the stable JSON form of one authenticated policy subject."""
     return _plain(

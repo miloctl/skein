@@ -967,3 +967,78 @@ Verification after this remediation:
 
 A fresh four-role review is required. Chrome validation remains blocked until
 that review approves the exact remediation commit.
+
+### Ninth independent review
+
+Four specialists reviewed commit `8e43626`. All four rejected the gate.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.3 | 7.1 | Reject |
+| Security and policy correctness | 7.7 | 6.8 | 6.9 | Reject |
+| Compatibility and reliability | 8.2 | 7.8 | 7.2 | Reject |
+| Adversarial score auditor | 7.4 | 6.8 | 6.7 | Reject |
+
+The valid gate findings were:
+
+- Unattended contributed tools used the generic `agent` identity.
+- Reviewed stock tools lost the saved agent and requester identities.
+- Stock-tool reviews did not retain crew visibility.
+- Legacy agent proposals without policy context bypassed current policy.
+- Verdict-time policy decisions were not the grants used by executors.
+- The new identity group-owner field broke compatible two-resolver packages.
+- Removed playbooks left pending reviews that no reviewer could settle.
+- MCP and workflow rejection did not use current action metadata.
+- The upgrade rehearsal used the same implementation under two version labels.
+- Atlas reused one run ID for multiple remote effects.
+- The reference deployment did not prove non-root volume writes.
+
+### Ninth-review remediation
+
+The working branch now does the following:
+
+- It composes contributed tools with the active agent identity.
+- It restores saved agent and requester contexts for stock-tool execution.
+- It stores stock-tool review visibility and crew ID from the target.
+- It refuses approval of an unbound legacy agent proposal. Rejection remains
+  available.
+- It evaluates policy once at verdict time. The exact typed decision and
+  fingerprint pass to contributed, stock, MCP, and workflow executors.
+- It retains extension API 1.0 inference for resolvers that omit the new
+  ownership field. New packages can declare one explicit group owner.
+- It lets qualified reviewers reject missing or invalid executable content.
+- It refreshes current MCP and workflow-action metadata for both verdicts.
+- It versions playbook digests and accepts the previous raw digest for
+  unchanged content.
+- It tests the unchanged Atlas package against two distinct repository
+  revisions for backend and frontend upgrades.
+- It uses one idempotency key per Atlas item and status. A concurrent sync
+  test verifies mapping and effect deduplication.
+- It adds non-root pod security settings and container startup checks for
+  both derivative images.
+- It runs frontend composition only in temporary host trees.
+
+Migration 017 now marks the review-contract version. Existing unbound rows
+remain version 0 and cannot receive approval. New proposals use version 1,
+which keeps current core review behavior compatible.
+
+Verification after this remediation:
+
+- Full backend suite: 1,729 passed in 143.11 seconds with parallel workers.
+- Sequential backend suite: 1,729 passed in 441.47 seconds.
+- Frontend suite: 229 passed in 45 files.
+- Production frontend build: passed in 13.87 seconds.
+- Full lint, type, dead-code, content, license, and theme gate: passed in
+  21.73 seconds.
+- Installed backend upgrade rehearsal: passed in 38.13 seconds. It used
+  distinct core revisions and the unchanged Atlas wheel.
+- Installed frontend upgrade rehearsal: passed in 43.14 seconds. It used
+  distinct host revisions and the unchanged Atlas package.
+- Standard Kustomize render: passed in 0.24 seconds.
+- Derivative image startup and non-root volume writes: passed in 25.34
+  seconds.
+- Base schema and activity-chain upgrade: passed in 0.47 seconds.
+- Core wheel build: passed and included migration 017.
+
+A fresh four-role review is the next gate. Chrome validation remains blocked
+until that review approves the exact remediation commit.

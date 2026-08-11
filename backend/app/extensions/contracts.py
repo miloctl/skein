@@ -149,7 +149,10 @@ class IdentityContribution:
     name: str
     mapper: IdentityMapper
     resolver: Callable[[str], Mapping[str, Any] | None] | None = None
-    resolves_groups: bool = True
+    # None preserves the extension API 1.0 inference for packages built before
+    # group ownership was explicit. New packages set True on one
+    # directory resolver and False on profile-only resolvers.
+    resolves_groups: bool | None = None
 
 
 @dataclass(frozen=True)

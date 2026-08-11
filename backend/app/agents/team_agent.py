@@ -1197,10 +1197,15 @@ def build_agent(
                     f"{source.provider(user)}\n</extension-context>"
                 )
 
+    contributed_agent = persona or (
+        policy_subject.name
+        if policy_subject is not None and policy_subject.kind == "agent"
+        else "agent"
+    )
     contributed_tools = (
         strands_tools(
             extensions,
-            persona or "agent",
+            contributed_agent,
             contributed_specialist.tools if contributed_specialist is not None else None,
         )
         if extensions is not None

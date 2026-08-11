@@ -100,6 +100,7 @@ class WorkflowContext:
     values: dict[str, Any] = field(default_factory=dict)
     approval_grants: dict[str, str] = field(default_factory=dict)
     authorization_grants: dict[str, str] = field(default_factory=dict)
+    approval_decisions: dict[str, PolicyDecision] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
@@ -107,6 +108,11 @@ class WorkflowContext:
             self,
             "approval_grants",
             MappingProxyType(dict(self.approval_grants)),
+        )
+        object.__setattr__(
+            self,
+            "approval_decisions",
+            MappingProxyType(dict(self.approval_decisions)),
         )
         object.__setattr__(
             self,
@@ -187,6 +193,104 @@ class WorkflowEngine:
         )
         return stopped or WorkflowResult(status="completed", authorization_grants=grants)
 
+    def current_review(
+        self,
+        steps: tuple[WorkflowStep, ...],
+        context: WorkflowContext,
+        review_key: str,
+    ) -> tuple[PolicyInput, PolicyDecision, str]:
+        """Return one current decision for the exact pending step path."""
+        found = self._current_review_step(
+            steps,
+            context,
+            "root",
+            _workflow_digest(steps),
+            review_key,
+        )
+        if found is None:
+            raise PublicError(
+                "STALE_WORKFLOW_REVIEW",
+                "The reviewed workflow step is no longer selected or registered.",
+            )
+        return found
+
+    def _current_review_step(
+        self,
+        steps: tuple[WorkflowStep, ...],
+        context: WorkflowContext,
+        path: str,
+        workflow_digest: str,
+        review_key: str,
+    ) -> tuple[PolicyInput, PolicyDecision, str] | None:
+        for index, step in enumerate(steps):
+            step_path = f"{path}.{index}"
+            if isinstance(step, ConditionStep):
+                raw = step.then if context.values.get(step.field) == step.equals else step.otherwise
+                branch = tuple(_STEPS.validate_python(raw))
+                branch_name = "then" if raw is step.then else "otherwise"
+                if found := self._current_review_step(
+                    branch,
+                    context,
+                    f"{step_path}.{branch_name}",
+                    workflow_digest,
+                    review_key,
+                ):
+                    return found
+                continue
+            if step_path != review_key:
+                continue
+            if isinstance(step, ApprovalStep):
+                request = PolicyInput(
+                    subject=context.subject,
+                    action=step.action,
+                    resource=PolicyResource(
+                        step.resource_type,
+                        context.resource_id,
+                        project_type=context.project_type,
+                    ),
+                    origin=context.origin,
+                    tool_effect="write",
+                    tool_risk=step.risk,
+                )
+                contract: dict[str, Any] = {
+                    "workflow_digest": workflow_digest,
+                    "step_path": step_path,
+                    "step_type": "approval",
+                    "step_name": step.name,
+                    "action": step.action,
+                    "resource_type": step.resource_type,
+                    "risk": step.risk,
+                }
+            elif isinstance(step, ActionStep):
+                contribution = self._actions[step.name]
+                validated = contribution.input_schema.model_validate(step.input)
+                request = PolicyInput(
+                    subject=context.subject,
+                    action=contribution.policy_action,
+                    resource=PolicyResource(
+                        "workflow",
+                        context.resource_id,
+                        project_type=context.project_type,
+                    ),
+                    origin=context.origin,
+                    tool=contribution.name,
+                    tool_effect=contribution.effect,
+                    tool_risk=contribution.risk,
+                )
+                contract = {
+                    "workflow_digest": workflow_digest,
+                    "step_path": step_path,
+                    "step_type": "action",
+                    "contribution": contribution.name,
+                    "version": contribution.version,
+                    "input": validated.model_dump(mode="json"),
+                }
+            else:
+                return None
+            decision = self._policy.decide(request)
+            return request, decision, approval_fingerprint(request, decision, contract)
+        return None
+
     def _authorize_steps(
         self,
         steps: tuple[WorkflowStep, ...],
@@ -226,7 +330,7 @@ class WorkflowEngine:
                     tool_effect="write",
                     tool_risk=step.risk,
                 )
-                decision = self._policy.decide(request)
+                decision = context.approval_decisions.get(step_path) or self._policy.decide(request)
                 contract = {
                     "workflow_digest": workflow_digest,
                     "step_path": step_path,
@@ -259,7 +363,7 @@ class WorkflowEngine:
                     tool_effect=contribution.effect,
                     tool_risk=contribution.risk,
                 )
-                decision = self._policy.decide(request)
+                decision = context.approval_decisions.get(step_path) or self._policy.decide(request)
                 contract = {
                     "workflow_digest": workflow_digest,
                     "step_path": step_path,
@@ -269,6 +373,15 @@ class WorkflowEngine:
                     "input": validated.model_dump(mode="json"),
                 }
             fingerprint = approval_fingerprint(request, decision, contract)
+            if (
+                step_path in context.approval_decisions
+                and context.approval_grants.get(step_path) != fingerprint
+            ):
+                return WorkflowResult(
+                    status="failed",
+                    checkpoint=step.name,
+                    error_code="STALE_APPROVAL_GRANT",
+                )
             reviewed = context.approval_grants.get(step_path) == fingerprint
             if decision.effect != PolicyEffect.PERMIT and not (
                 reviewed and decision.effect == PolicyEffect.REVIEW
@@ -346,9 +459,14 @@ class WorkflowEngine:
                 if self._is_preauthorized(context, step_path, request, contract):
                     state.completed.append(step.name)
                     continue
-                decision = self._policy.decide(request)
+                decision = context.approval_decisions.get(step_path) or self._policy.decide(request)
                 obligations = _obligations(decision)
                 fingerprint = approval_fingerprint(request, decision, contract)
+                if (
+                    step_path in context.approval_decisions
+                    and context.approval_grants.get(step_path) != fingerprint
+                ):
+                    return self._failed(state, step.name, "STALE_APPROVAL_GRANT")
                 if decision.effect == PolicyEffect.DENY:
                     return WorkflowResult(
                         status="denied",
@@ -421,8 +539,13 @@ class WorkflowEngine:
             "input": input_data.model_dump(mode="json"),
         }
         if not self._is_preauthorized(context, step_path, request, contract):
-            decision = self._policy.decide(request)
+            decision = context.approval_decisions.get(step_path) or self._policy.decide(request)
             fingerprint = approval_fingerprint(request, decision, contract)
+            if (
+                step_path in context.approval_decisions
+                and context.approval_grants.get(step_path) != fingerprint
+            ):
+                return self._failed(state, step.name, "STALE_APPROVAL_GRANT")
             reviewed = context.approval_grants.get(step_path) == fingerprint
             if decision.effect != PolicyEffect.PERMIT and not (
                 reviewed and decision.effect == PolicyEffect.REVIEW

@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 version="${1:-}"
 output="${2:-}"
+source_dir="${SKEIN_FRONTEND_SOURCE:-frontend}"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ -z "$output" ]; then
     echo "usage: $0 <version> <output.tar.gz>" >&2
     exit 2
@@ -30,7 +31,7 @@ tar \
     --exclude='*.tsbuildinfo' \
     --exclude='playwright*.config.ts' \
     --exclude=extensions/generated.ts \
-    -cf - -C frontend . | tar -xf - -C "$tmp/frontend"
+    -cf - -C "$source_dir" . | tar -xf - -C "$tmp/frontend"
 sed -i -E "0,/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\"/s//\"version\": \"$version\"/" \
     "$tmp/frontend/package.json"
 sed -i -E "1,12 s/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\"/\"version\": \"$version\"/" \

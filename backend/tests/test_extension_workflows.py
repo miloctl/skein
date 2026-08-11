@@ -554,3 +554,146 @@ workflow:
     assert "playbook changed" in response.json()["detail"].lower()
     assert fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Must stay absent'") is None
     assert calls == []
+
+
+def test_inner_workflow_approval_consumes_the_current_policy_grant(fresh_db, tmp_path, monkeypatch):
+    from app import config
+    from app.extensions import IdentityContribution
+    from app.services import users
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "current.yaml").write_text(
+        """\
+schema_version: 1
+name: Current workflow
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: atlas.workplace.notify-manager
+    input:
+      target: delivery
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    calls: list[str] = []
+    required = {"capability": "old-approver"}
+    policy_calls = {"count": 0}
+
+    def review_action(request: PolicyInput):
+        if request.action == "atlas.notification.send":
+            policy_calls["count"] += 1
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=(required["capability"],),
+            )
+        return None
+
+    def identity(name, _groups, _strong):
+        return {
+            "capabilities": ((required["capability"],) if name == "current-manager" else ()),
+        }
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(_action(calls),),
+        policies=(PolicyContribution("atlas.workplace.current-review", review_action),),
+        identities=(IdentityContribution("atlas.workplace.identity", identity),),
+    )
+    for name in ("requester", "current-manager"):
+        users.ensure_user(name)
+    with TestClient(create_app(modules=(module,))) as client:
+        queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "current", "engagement_name": "Current grant"},
+        ).json()["workflow"]
+        required["capability"] = "new-approver"
+        approved = client.post(
+            f"/api/review/{queued['review_id']}/approve",
+            headers={"X-User": "current-manager"},
+            json={"note": "Approved with the current policy."},
+        )
+
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["result"]["workflow"]["status"] == "completed"
+    assert calls == ["delivery"]
+    assert policy_calls["count"] == 2
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM pending_changes WHERE entity = 'extension_workflow'"
+    ) == {"count": 1}
+
+
+def test_workflow_rejection_uses_current_action_metadata(fresh_db, tmp_path, monkeypatch):
+    from app import config
+    from app.services import review, users
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "metadata.yaml").write_text(
+        """\
+schema_version: 1
+name: Metadata workflow
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: atlas.workplace.notify-manager
+    input:
+      target: delivery
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    calls: list[str] = []
+
+    def review_action(request: PolicyInput):
+        if request.action == "atlas.notification.send":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(f"{request.tool_risk}-managers",),
+            )
+        return None
+
+    low_action = _action(calls)
+    low_module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(low_action,),
+        policies=(PolicyContribution("atlas.workplace.metadata-review", review_action),),
+    )
+    for name in ("requester", "manager"):
+        users.ensure_user(name)
+    with TestClient(create_app(modules=(low_module,))) as client:
+        review_id = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "metadata", "engagement_name": "Metadata review"},
+        ).json()["workflow"]["review_id"]
+
+    high_action = replace(low_action, version="2.0.0", risk="critical")
+    current_registry = ExtensionRegistry.build(
+        (replace(low_module, version="1.1.0", workflow_actions=(high_action,)),)
+    )
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.reject_change(
+            review_id,
+            actor="manager",
+            reviewer_groups=("medium-managers",),
+            policy_registry=current_registry,
+        )
+    assert review.reject_change(
+        review_id,
+        actor="manager",
+        reviewer_groups=("critical-managers",),
+        policy_registry=current_registry,
+    ) == {"id": review_id, "status": "rejected"}

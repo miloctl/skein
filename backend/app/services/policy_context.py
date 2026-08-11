@@ -53,6 +53,7 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
     if entity == "task":
         row = db.query_one(
             "SELECT task.visibility AS classification,"
+            " task.crew_id AS crew_id,"
             " COALESCE(engagement.project_class, '') AS project_type"
             " FROM tasks task"
             " LEFT JOIN milestones milestone ON milestone.id = task.milestone_id"
@@ -63,13 +64,14 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
         )
     elif project_source == "project_class":
         row = db.query_one(
-            f"SELECT visibility AS classification, project_class AS project_type"  # noqa: S608 -- table comes from the closed map above
+            f"SELECT visibility AS classification, crew_id,"  # noqa: S608 -- table comes from the closed map above
+            " project_class AS project_type"
             f" FROM {table} WHERE id = ?",
             (entity_id,),
         )
     elif project_source:
         row = db.query_one(
-            f"SELECT value.visibility AS classification,"  # noqa: S608 -- identifiers come from the closed map above
+            f"SELECT value.visibility AS classification, value.crew_id,"  # noqa: S608 -- identifiers come from the closed map above
             " COALESCE(engagement.project_class, '') AS project_type"
             f" FROM {table} value LEFT JOIN engagements engagement"
             f" ON engagement.id = value.{project_source} WHERE value.id = ?",
@@ -77,7 +79,7 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
         )
     else:
         row = db.query_one(
-            f"SELECT visibility AS classification, '' AS project_type"  # noqa: S608 -- table comes from the closed map above
+            f"SELECT visibility AS classification, crew_id, '' AS project_type"  # noqa: S608 -- table comes from the closed map above
             f" FROM {table} WHERE id = ?",
             (entity_id,),
         )

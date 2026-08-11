@@ -2,7 +2,6 @@
 alongside agent tools — both go through app.services)."""
 
 import asyncio
-import hmac
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -1713,11 +1712,16 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
 
         tool = registry.tool(str(invocation.get("tool") or ""))
         tool_execution = asyncio.run(execute_reviewed_tool(tool, invocation, registry))
+        if tool_execution.error_code == "approval_stale":
+            raise PermissionError("the reviewed tool approval became stale")
         return tool_execution.model_dump(mode="json")
     if invocation.get("kind") == "mcp_tool":
         from ..agents.mcp_tools import execute_reviewed_mcp
 
-        return asyncio.run(execute_reviewed_mcp(invocation, registry))
+        result = asyncio.run(execute_reviewed_mcp(invocation, registry))
+        if result.get("status") == "approval_stale":
+            raise PermissionError("the reviewed remote tool approval became stale")
+        return result
     if invocation.get("kind") == "core_tool":
         from ..agents.core_tools import execute_reviewed_core
 
@@ -1775,7 +1779,10 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             )
         return workflow_result
     if invocation.get("kind") == "workflow":
-        from ..extensions.policy import policy_subject_from_data
+        from ..extensions.policy import (
+            policy_decision_from_data,
+            policy_subject_from_data,
+        )
         from ..public.workflow import WorkflowContext, WorkflowEngine
 
         subject_data = invocation.get("subject") or {}
@@ -1787,9 +1794,15 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         )
         approval_grants = dict(invocation.get("approval_grants") or {})
         reviewed_key = str(invocation.get("reviewed_key") or "")
-        reviewed_fingerprint = str(invocation.get("reviewed_fingerprint") or "")
+        reviewed_fingerprint = str(
+            invocation.get("_approval_grant") or invocation.get("reviewed_fingerprint") or ""
+        )
         if not reviewed_key or not reviewed_fingerprint:
             raise ValueError("the reviewed workflow grant is incomplete")
+        decision_data = invocation.get("_approval_decision")
+        if not isinstance(decision_data, dict):
+            raise ValueError("the reviewed workflow decision is incomplete")
+        approved_decision = policy_decision_from_data(decision_data)
         approval_grants[reviewed_key] = reviewed_fingerprint
         workflow_result = playbooks.instantiate(
             str(invocation.get("playbook") or ""),
@@ -1812,10 +1825,14 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
                     "project_type": current_project_type,
                 },
                 approval_grants=approval_grants,
+                approval_decisions={reviewed_key: approved_decision},
             ),
             expected_definition_digest=str(invocation.get("definition_digest") or ""),
         )
-        if workflow_result.get("workflow", {}).get("status") == "review_required":
+        workflow = workflow_result.get("workflow", {})
+        if workflow.get("error_code") == "STALE_APPROVAL_GRANT":
+            raise PermissionError("the reviewed workflow approval became stale")
+        if workflow.get("status") == "review_required":
             return _queue_workflow_review(
                 workflow_result,
                 {**invocation, "approval_grants": approval_grants},
@@ -1829,11 +1846,10 @@ def _reviewed_playbook_definition(invocation: dict) -> dict:
     slug = str(invocation.get("playbook") or "")
     expected = str(invocation.get("definition_digest") or "")
     if not expected:
-        raise PermissionError("the reviewed playbook has no content digest; request a new review")
+        raise PermissionError("The reviewed playbook has no content digest. Request a new review.")
     definition = playbooks.get_playbook(slug)
-    current = playbooks.definition_digest(definition)
-    if not hmac.compare_digest(expected, current):
-        raise PermissionError("the reviewed playbook changed; request a new review")
+    if not playbooks.definition_digest_matches(expected, definition):
+        raise PermissionError("The reviewed playbook changed. Request a new review.")
     return definition
 
 
@@ -1903,24 +1919,15 @@ def _queue_playbook_policy_review(
     *,
     actor: str,
     subject,
-    registry,
-    project_type: str,
     definition_digest: str,
+    policy_input,
+    decision,
 ) -> dict:
     from ..extensions.policy import (
         PolicyEffect,
-        PolicyInput,
-        PolicyResource,
         policy_subject_data,
     )
 
-    policy_input = PolicyInput(
-        subject,
-        "playbook.create",
-        PolicyResource("playbook", body.playbook, project_type=project_type),
-        "human",
-    )
-    decision = registry.policy_engine.decide(policy_input)
     if decision.effect != PolicyEffect.REVIEW:
         raise PermissionError("the playbook review is no longer required")
     proposal = review.propose_extension_invocation(
@@ -2212,9 +2219,9 @@ def post_instantiate(
             body,
             actor=user,
             subject=subject,
-            registry=registry,
-            project_type=project_type,
             definition_digest=definition_digest,
+            policy_input=request.state.skein_playbook_policy_input,
+            decision=request.state.skein_playbook_policy_decision,
         )
     workflow_context = WorkflowContext(
         subject=subject,

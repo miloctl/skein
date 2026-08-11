@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from .contracts import ToolContribution, ToolHandlerContext
 from .policy import (
+    PolicyDecision,
     PolicyEffect,
     PolicyEngine,
     PolicyInput,
@@ -61,6 +62,7 @@ async def execute_tool(
     policy: PolicyEngine,
     *,
     _approved_fingerprint: str = "",
+    _approved_decision: PolicyDecision | None = None,
 ) -> ToolExecution:
     """Validate, authorize, execute, and validate one contributed tool."""
     if contribution.allowed_agents and context.agent not in contribution.allowed_agents:
@@ -88,7 +90,7 @@ async def execute_tool(
         tool_effect=contribution.effect,
         tool_risk=contribution.risk,
     )
-    decision = policy.decide(policy_input)
+    decision = _approved_decision or policy.decide(policy_input)
     fingerprint = approval_fingerprint(
         policy_input,
         decision,
@@ -106,6 +108,12 @@ async def execute_tool(
         "approver_groups": list(decision.approver_groups),
         "approver_capabilities": list(decision.approver_capabilities),
     }
+    if _approved_decision is not None and _approved_fingerprint != fingerprint:
+        return _finish(
+            contribution,
+            context,
+            ToolExecution(status="refused", error_code="approval_stale", **common),
+        )
     if decision.effect == PolicyEffect.DENY:
         return _finish(
             contribution,
@@ -237,10 +245,14 @@ async def execute_reviewed_tool(
         raise ValueError("the reviewed tool identity or resource is not valid")
     if not isinstance(arguments, dict):
         raise ValueError("the reviewed tool arguments are not valid")
-    from .policy import policy_subject_from_data
+    from .policy import policy_decision_from_data, policy_subject_from_data
 
     saved_subject = policy_subject_from_data(subject_data)
     subject = registry.refresh_subject(saved_subject)
+    decision_data = invocation.get("_approval_decision")
+    approved_decision = (
+        policy_decision_from_data(decision_data) if isinstance(decision_data, dict) else None
+    )
     resource = PolicyResource(
         type=str(resource_data.get("type") or "tool"),
         id=str(resource_data.get("id") or ""),
@@ -259,7 +271,10 @@ async def execute_reviewed_tool(
             str(invocation.get("correlation_id") or uuid4().hex),
         ),
         registry.policy_engine,
-        _approved_fingerprint=str(invocation.get("approval_fingerprint") or ""),
+        _approved_fingerprint=str(
+            invocation.get("_approval_grant") or invocation.get("approval_fingerprint") or ""
+        ),
+        _approved_decision=approved_decision,
     )
 
 
