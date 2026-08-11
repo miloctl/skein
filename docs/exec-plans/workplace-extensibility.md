@@ -225,7 +225,7 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 10 | 2, 3 | Frontend extension manifest and UI primitives | External navigation and dashboard card tests | Complete |
 | 11 | 3 through 10 | Atlas reference extension | Scenarios A through G | Complete |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
-| 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Pending |
+| 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Complete before review |
 | 14 | 13 | Five independent reviewer roles | Review reports and conservative scores | Pending |
 | 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Pending |
 
@@ -409,6 +409,11 @@ Scores can increase only when core behavior and the reference extension use the 
 - Added an always-present outbox delivery job. A deployment without subscribers
   marks events delivered without calling external code.
 - Confirmed 48 focused event, reference, REST, scheduler, and agent-gate tests.
+- Created `WORKPLACE-EXTENSIBILITY-RESULTS.md` with the current architecture,
+  scorecard, evidence, A–H results, limits, and repository guidance.
+- Completed the final pre-review verification: 1,620 backend tests, 229
+  frontend tests, the default production build, full lint, both upgrade
+  rehearsals, and 25 Chrome tests all pass.
 
 ## Review findings
 
