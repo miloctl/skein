@@ -1730,9 +1730,6 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         and invocation.get("workflow_kind") == "playbook_policy"
     ):
         from ..extensions.policy import (
-            PolicyEffect,
-            PolicyInput,
-            PolicyResource,
             policy_subject_from_data,
         )
         from ..public.workflow import WorkflowContext, WorkflowEngine
@@ -1744,16 +1741,10 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         slug = str(invocation.get("playbook") or "")
         definition = _reviewed_playbook_definition(invocation)
         project_type = str(definition.get("project_class") or slug)
-        decision = registry.policy_engine.decide(
-            PolicyInput(
-                subject,
-                "playbook.create",
-                PolicyResource("playbook", slug, project_type=project_type),
-                "human",
-            )
-        )
-        if decision.effect == PolicyEffect.DENY:
-            raise PermissionError("the current policy denied the reviewed playbook")
+        # review.approve_change refreshed the requester, evaluated the current
+        # policy, and checked the reviewer immediately before this executor.
+        # A second decision here could name different approvers without the
+        # review service checking them. Execute the one qualified verdict.
         workflow_result = playbooks.instantiate(
             slug,
             str(invocation.get("engagement_name") or ""),

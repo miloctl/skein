@@ -106,7 +106,12 @@ def atlas_module(
         jobs=(
             JobContribution(
                 "atlas.workplace.sync",
-                lambda context: integration.sync(context.work_items, context.subject),
+                lambda context: integration.sync(
+                    context.work_items,
+                    context.subject,
+                    actor=context.subject.name,
+                    correlation_id=context.run_id,
+                ),
                 service_identity="atlas-sync",
                 policy_action="atlas.integration.sync",
                 effect="write",

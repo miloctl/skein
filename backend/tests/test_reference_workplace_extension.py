@@ -141,8 +141,8 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     assert denied.status_code == 403
     assert denied.json()["code"] == "POLICY_DENIED"
     assert client.updates[:2] == [
-        ("ATLAS-7", "in_progress", ""),
-        ("ATLAS-7", "in_progress", ""),
+        ("ATLAS-7", "in_progress", "atlas.workplace.sync:test"),
+        ("ATLAS-7", "in_progress", "atlas.workplace.sync:test"),
     ]
 
     delivery = dispatch_events(
@@ -154,7 +154,9 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
         ),
     )
     assert delivery["delivered"] == 3
-    event_updates = [update for update in client.updates if update[2]]
+    event_updates = [
+        update for update in client.updates if update[2] != "atlas.workplace.sync:test"
+    ]
     assert len(event_updates) == 2
     assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
 

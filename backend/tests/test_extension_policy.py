@@ -1143,6 +1143,7 @@ def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
                 "acme.workplace.profile",
                 lambda *_args: {},
                 resolver=lambda _name: {"active": True},
+                resolves_groups=False,
             ),
         ),
     )
@@ -1157,6 +1158,30 @@ def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
                 refresh_required=True,
             )
         )
+
+
+def test_registry_rejects_multiple_authoritative_group_resolvers():
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.first-directory",
+                lambda *_args: {},
+                resolver=lambda _name: {"groups": ()},
+            ),
+            IdentityContribution(
+                "acme.workplace.second-directory",
+                lambda *_args: {},
+                resolver=lambda _name: {"groups": ()},
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="only one identity contribution can resolve groups"):
+        ExtensionRegistry.build((module,))
 
 
 def test_rest_playbook_policy_uses_authoritative_project_class(fresh_db):
@@ -1362,6 +1387,43 @@ milestones:
             reviewer_groups=("playbook-approvers",),
             policy_registry=registry,
         )
+    pending = fresh_db.query_one(
+        "SELECT payload, policy_context FROM pending_changes WHERE id = ?",
+        (queued["id"],),
+    )
+    payload = json.loads(pending["payload"])
+    payload.pop("expected_definition_digest")
+    policy_context = json.loads(pending["policy_context"])
+    policy_context["contract"]["payload"].pop("expected_definition_digest")
+    fresh_db.execute(
+        "UPDATE pending_changes SET payload = ?, policy_context = ? WHERE id = ?",
+        (json.dumps(payload), json.dumps(policy_context), queued["id"]),
+    )
+    with pytest.raises(PermissionError, match="no content digest"):
+        review.approve_change(
+            queued["id"],
+            actor="manager",
+            reviewer_groups=("playbook-approvers",),
+            policy_registry=registry,
+        )
+    assert review.reject_change(
+        queued["id"],
+        actor="manager",
+        reviewer_groups=("playbook-approvers",),
+        policy_registry=registry,
+    ) == {"id": queued["id"], "status": "rejected"}
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (queued["id"],)
+    ) == {"status": "rejected"}
+    assert fresh_db.query_one(
+        "SELECT read_at FROM notifications WHERE message LIKE ?",
+        (f"Review needed: #{queued['id']}%",),
+    )["read_at"]
+    assert fresh_db.query_one(
+        "SELECT action FROM activity WHERE action = 'reject_change'"
+        " AND detail LIKE ? ORDER BY id DESC LIMIT 1",
+        (f"#{queued['id']}%",),
+    ) == {"action": "reject_change"}
     assert (
         fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Changed agent review'") is None
     )
@@ -1423,6 +1485,120 @@ def test_rest_playbook_policy_review_resumes_before_any_work(fresh_db):
     assert fresh_db.query_one("SELECT name FROM engagements WHERE name = 'Reviewed prototype'") == {
         "name": "Reviewed prototype"
     }
+
+
+def test_playbook_approval_uses_one_current_policy_decision(fresh_db):
+    from app.services import users
+
+    calls = {"count": 0}
+
+    def identity(name, _groups, _strong):
+        return {"capabilities": ("old-approver",) if name == "manager" else ()}
+
+    def changing_review(request: PolicyInput):
+        if request.action != "playbook.create":
+            return None
+        calls["count"] += 1
+        capability = "new-approver" if calls["count"] >= 4 else "old-approver"
+        return PolicyDecision(
+            PolicyEffect.REVIEW,
+            approver_capabilities=(capability,),
+        )
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(IdentityContribution("acme.workplace.identity", identity),),
+        policies=(PolicyContribution("acme.workplace.changing-review", changing_review),),
+    )
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    with TestClient(create_app(modules=(module,))) as client:
+        queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "prototype", "engagement_name": "Single policy verdict"},
+        ).json()["workflow"]
+        approved = client.post(
+            f"/api/review/{queued['review_id']}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Approved under the current verdict."},
+        )
+    assert approved.status_code == 200, approved.text
+    assert calls["count"] == 3
+    assert fresh_db.query_one(
+        "SELECT name FROM engagements WHERE name = 'Single policy verdict'"
+    ) == {"name": "Single policy verdict"}
+
+
+def test_legacy_playbook_review_can_be_rejected_but_not_approved(fresh_db):
+    from app.services import users
+
+    def identity(name, _groups, _strong):
+        return {"capabilities": ("playbook-approver",) if name == "manager" else ()}
+
+    def review_playbook(request: PolicyInput):
+        if request.action == "playbook.create":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=("playbook-approver",),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(IdentityContribution("acme.workplace.identity", identity),),
+        policies=(PolicyContribution("acme.workplace.playbook-review", review_playbook),),
+    )
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    with TestClient(create_app(modules=(module,))) as client:
+        review_id = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "prototype", "engagement_name": "Legacy pending review"},
+        ).json()["workflow"]["review_id"]
+        stored = fresh_db.query_one(
+            "SELECT invocation FROM extension_review_invocations WHERE change_id = ?",
+            (review_id,),
+        )
+        invocation = json.loads(stored["invocation"])
+        invocation.pop("definition_digest")
+        fresh_db.execute(
+            "UPDATE extension_review_invocations SET invocation = ? WHERE change_id = ?",
+            (json.dumps(invocation), review_id),
+        )
+
+        approval = client.post(
+            f"/api/review/{review_id}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Old release proposal."},
+        )
+        rejection = client.post(
+            f"/api/review/{review_id}/reject",
+            headers={"X-User": "manager"},
+            json={"note": "Replace this legacy proposal."},
+        )
+    assert approval.status_code == 403
+    assert "no content digest" in approval.json()["detail"].lower()
+    assert rejection.status_code == 200, rejection.text
+    assert fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (review_id,)) == {
+        "status": "rejected"
+    }
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?", (review_id,)
+    ) == {"status": "rejected"}
+    assert fresh_db.query_one(
+        "SELECT read_at FROM notifications WHERE message LIKE ?",
+        (f"Review needed: #{review_id}%",),
+    )["read_at"]
 
 
 def test_playbook_policy_review_rejects_definition_drift(

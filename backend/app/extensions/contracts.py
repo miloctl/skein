@@ -149,6 +149,7 @@ class IdentityContribution:
     name: str
     mapper: IdentityMapper
     resolver: Callable[[str], Mapping[str, Any] | None] | None = None
+    resolves_groups: bool = True
 
 
 @dataclass(frozen=True)

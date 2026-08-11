@@ -154,7 +154,11 @@ class AtlasIntegration:
                     (item.external_id, task.id, item.classification),
                 )
                 created += 1
-            self.client.update_status(item.external_id, task.status)
+            self.client.update_status(
+                item.external_id,
+                task.status,
+                correlation_id or f"atlas-sync:{item.external_id}:{task.status}",
+            )
         self.store.execute(
             "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
             " VALUES (?, ?, datetime('now'))",

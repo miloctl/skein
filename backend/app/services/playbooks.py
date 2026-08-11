@@ -8,10 +8,11 @@ added and deleted, and a ritual that never happened leaves no row at all, so
 by the time an engagement closes the plan it started with is gone.
 """
 
+import base64
 import hashlib
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -189,8 +190,47 @@ def get_playbook(slug: str) -> dict:
 
 def definition_digest(definition: dict) -> str:
     """Return the canonical identity of executable playbook content."""
-    encoded = json.dumps(definition, sort_keys=True, separators=(",", ":"))
+    encoded = json.dumps(_canonical_yaml_value(definition), separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _canonical_yaml_value(value: object) -> object:
+    """Tag every SafeLoader value before hashing to prevent type collisions."""
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, float):
+        return ["float", value.hex()]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, bytes):
+        return ["bytes", base64.b64encode(value).decode("ascii")]
+    if isinstance(value, datetime):
+        return ["datetime", value.isoformat()]
+    if isinstance(value, date):
+        return ["date", value.isoformat()]
+    if isinstance(value, list):
+        return ["list", [_canonical_yaml_value(item) for item in value]]
+    if isinstance(value, tuple):
+        return ["tuple", [_canonical_yaml_value(item) for item in value]]
+    if isinstance(value, (set, frozenset)):
+        items = [_canonical_yaml_value(item) for item in value]
+        items.sort(key=_canonical_sort_key)
+        return ["set", items]
+    if isinstance(value, dict):
+        pairs: list[tuple[object, object]] = [
+            (_canonical_yaml_value(key), _canonical_yaml_value(item)) for key, item in value.items()
+        ]
+        pairs.sort(key=lambda pair: _canonical_sort_key(pair[0]))
+        return ["map", pairs]
+    raise TypeError(f"unsupported playbook value type: {type(value).__name__}")
+
+
+def _canonical_sort_key(value: object) -> str:
+    return json.dumps(value, separators=(",", ":"))
 
 
 def validate_all(workflow_actions: set[str] | None = None) -> list[str]:

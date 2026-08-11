@@ -547,6 +547,7 @@ def _revalidate_policy(
             change,
             registry,
             policy_input_from_data(policy_data, subject),
+            approving=approving,
         )
         decision = registry.policy_engine.decide(current)
         if decision.effect == PolicyEffect.DENY and approving:
@@ -596,13 +597,17 @@ def _revalidate_policy(
     )
     if change["entity"] == "playbook":
         expected_digest = str(expected["payload"].get("expected_definition_digest") or "")
-        if not expected_digest:
+        if not expected_digest and approving:
             raise PermissionError(
                 "The reviewed playbook has no content digest; request a new review."
             )
-        if not hmac.compare_digest(
-            expected_digest,
-            str(actual.get("definition_digest") or ""),
+        if (
+            expected_digest
+            and not hmac.compare_digest(
+                expected_digest,
+                str(actual.get("definition_digest") or ""),
+            )
+            and approving
         ):
             raise PermissionError("The reviewed playbook changed; request a new review.")
     current = replace(
@@ -629,7 +634,7 @@ def _revalidate_policy(
             raise PermissionError("This approval requires the current workplace approver.")
 
 
-def _current_extension_policy_input(change: dict, registry, current):
+def _current_extension_policy_input(change: dict, registry, current, *, approving: bool):
     """Resolve mutable extension resources again before either verdict."""
     from dataclasses import replace
 
@@ -644,6 +649,13 @@ def _current_extension_policy_input(change: dict, registry, current):
     except (TypeError, ValueError) as exc:
         raise PermissionError("The reviewed extension invocation is invalid.") from exc
     kind = str(stored["kind"] or "")
+    if kind == "core_tool":
+        from ..agents.core_tools import reviewed_policy_input
+
+        try:
+            return reviewed_policy_input(invocation, current.subject)
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("The reviewed stock tool resource cannot be refreshed.") from exc
     if kind == "tool":
         tool = registry.tool(str(invocation.get("tool") or ""))
         if invocation.get("version") != tool.version:
@@ -669,13 +681,13 @@ def _current_extension_policy_input(change: dict, registry, current):
 
         slug = str(invocation.get("playbook") or "")
         expected = str(invocation.get("definition_digest") or "")
-        if not expected:
+        if not expected and approving:
             raise PermissionError(
                 "The reviewed playbook has no content digest; request a new review."
             )
         definition = playbooks.get_playbook(slug)
         digest = playbooks.definition_digest(definition)
-        if not hmac.compare_digest(expected, digest):
+        if expected and not hmac.compare_digest(expected, digest) and approving:
             raise PermissionError("The reviewed playbook changed; request a new review.")
         project_type = str(definition.get("project_class") or slug)
         resource = replace(current.resource, project_type=project_type)

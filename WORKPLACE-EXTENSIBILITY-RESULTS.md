@@ -22,6 +22,8 @@ Sixth-review commit: `d4deff1`
 
 Seventh-review commit: `4c7a450`
 
+Eighth-review commit: `5493d61`
+
 The final remediation and report commits are recorded after the final
 independent review.
 
@@ -868,13 +870,66 @@ Verification after the seventh remediation:
 A fresh independent review is pending. Chrome remains blocked until that gate
 passes.
 
+### Eighth independent review
+
+The eighth gate reviewed commit `5493d61`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.8 | 7.2 | 7.4 | Reject |
+| Security and policy correctness | 7.9 | 7.3 | 7.9 | Reject |
+| Adversarial score audit | 7.8 | 7.0 | 6.8 | Reject |
+| Compatibility and reliability | 8.3 | 8.2 | 7.7 | Reject |
+
+The reviewers found six valid gate problems:
+
+- Playbook approval could use new policy requirements after reviewer checks.
+- Accepted legacy YAML types could fail canonical digest generation.
+- Pre-digest pending playbook reviews could remain pending forever.
+- Stock-tool rejection did not refresh the target project.
+- Multiple identity resolvers had no explicit group-source owner.
+- The Atlas scheduled adapter did not use its run ID for remote idempotency.
+
+The eighth remediation removes the second playbook decision. It uses a tagged
+canonical digest for all YAML SafeLoader values. Qualified reviewers can
+reject, but not approve, a pre-digest proposal. Stock-tool verdicts use current
+resource data. One identity resolver owns groups. The Atlas adapter sends the
+job run ID on each remote update.
+
+The public guide now states two version 1 limits. Non-REST playbook starts
+support static templates only. Trusted extension code must test its supplied
+provenance values.
+
+Verification after the eighth remediation:
+
+| Command | Result |
+|---|---|
+| Focused policy, workflow, review, playbook, composition, and reference suite | 141 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,716 passed in 108.50 seconds |
+| `npm test -- --run` | 229 passed in 45 files |
+| `./scripts/lint.sh` | All lint, type, content, dead-code, license, and theme gates passed |
+| `npm run build` | Production build passed in 13.84 seconds |
+| `scripts/reference-extension-contract.sh` | Installed 0.2.0 to 0.2.1 upgrade and typed legacy YAML passed |
+| `scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on two hosts in 42.71 seconds |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render passed |
+| `scripts/reference-images-contract.sh` | Four derivative images built in 18.33 seconds |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schema and activity chain passed |
+| `uv build --wheel` | Core wheel built |
+
+A fresh independent review is pending. Chrome remains blocked until that gate
+passes.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.
 - Frontend version 1 has navigation and manager dashboard card slots only.
 - Version 1 workflow support has no timers or parallel branches.
+- Workflow-backed private playbooks start through REST. The deterministic
+  `/plan` command and stock agent tool support static templates only.
 - Core persistence remains concrete SQLite.
 - In-process extensions are fully trusted code.
+- Trusted extension code supplies public command actor and origin values.
+  Contract tests must verify them.
 - Published frontend host images and archives do not have production release
   history yet. Local versioned artifacts pass the upgrade rehearsal.
 - Production scale and real enterprise credentials remain unverified.

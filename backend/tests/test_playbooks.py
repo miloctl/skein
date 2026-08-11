@@ -40,6 +40,52 @@ def test_overlay_playbook_joins_the_roster_and_instantiates(fresh_db, tmp_path, 
     assert "List the vendors" in titles  # the overlay's task really lands
 
 
+def test_legacy_yaml_types_have_a_stable_collision_safe_digest(fresh_db, tmp_path, monkeypatch):
+    from datetime import date
+
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.services import playbooks
+
+    _overlay(
+        tmp_path,
+        monkeypatch,
+        {
+            "legacy_types.yaml": """\
+name: Legacy typed metadata
+project_class: standard
+private_metadata:
+  review_date: 2026-08-11
+  flags: !!set
+    one: null
+    two: null
+  payload: !!binary |
+    SGVsbG8=
+  mixed_keys:
+    1: integer
+    "1": string
+milestones:
+  - title: Prepare
+""",
+        },
+    )
+    definition = playbooks.get_playbook("legacy_types")
+    digest = playbooks.definition_digest(definition)
+    assert digest == playbooks.definition_digest(definition)
+    assert playbooks.definition_digest({"value": date(2026, 8, 11)}) != (
+        playbooks.definition_digest({"value": "2026-08-11"})
+    )
+
+    with TestClient(create_app(), headers={"X-User": "mira"}) as client:
+        response = client.post(
+            "/api/playbooks/instantiate",
+            json={"playbook": "legacy_types", "engagement_name": "Legacy typed delivery"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["engagement"]["name"] == "Legacy typed delivery"
+
+
 def test_overlay_wins_a_slug_collision(fresh_db, tmp_path, monkeypatch):
     from app.services import playbooks
 

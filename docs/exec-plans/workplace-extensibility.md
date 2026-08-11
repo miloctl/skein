@@ -226,8 +226,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 11 | 3 through 10 | Atlas reference extension | Scenarios A through G | Complete |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Complete before review |
-| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | Sixth review rejected `d4deff1` |
-| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Sixth remediation complete; final review pending |
+| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | Eighth review rejected `5493d61` |
+| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Eighth remediation verified; fresh review pending |
 
 ## Test strategy
 
@@ -313,6 +313,10 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Require a group result during directory refresh | A profile resolver must not preserve stale approval groups during a directory outage |
 | 2026-08-11 | Use `playbook.create` on every surface | REST, deterministic chat, and agent tools need one project-aware policy action |
 | 2026-08-11 | Run artifact contracts in main CI | Installed packages, deployment overlays, and derivative images need continuous checks |
+| 2026-08-11 | Use one policy decision for a playbook verdict | A second decision can name new approvers after the review service qualifies the reviewer |
+| 2026-08-11 | Give one identity resolver ownership of groups | Two directory sources cannot safely mask or merge unavailable group authority |
+| 2026-08-11 | Let qualified reviewers reject legacy pending work | A pre-digest proposal must not execute, but it must not remain pending forever |
+| 2026-08-11 | Limit non-REST playbook starts to static templates | Only the REST composition path currently receives the private workflow action registry |
 
 ## Risks
 
@@ -899,4 +903,67 @@ Verification after this remediation:
 - Core, frontend host, Atlas backend, and Atlas frontend images: built.
 
 A new independent review is required. Chrome validation remains blocked until
+that review approves the exact remediation commit.
+
+### Eighth independent review
+
+Four specialists reviewed commit `5493d61`. All four rejected the gate.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.8 | 7.2 | 7.4 | Reject |
+| Security and policy correctness | 7.9 | 7.3 | 7.9 | Reject |
+| Adversarial score audit | 7.8 | 7.0 | 6.8 | Reject |
+| Compatibility and reliability | 8.3 | 8.2 | 7.7 | Reject |
+
+The valid gate findings were:
+
+- Playbook approval made a second policy decision after it qualified the
+  reviewer. The second decision could require a different approver.
+- The playbook digest could not encode all values accepted by legacy YAML.
+- A pre-digest pending playbook could not be approved or rejected.
+- A stock-tool rejection used the proposal-time project context.
+- Multiple identity resolvers had no explicit owner for group authority.
+- The Atlas scheduled adapter did not send its run ID as an idempotency key.
+
+The reviewers also required clear limits for non-REST workflow starts and for
+extension-supplied provenance values.
+
+### Eighth-review remediation
+
+This remediation is implemented and verified on the working branch.
+
+- The review service makes one current policy decision and qualifies one
+  reviewer before the playbook executor starts.
+- The canonical digest tags every YAML SafeLoader value. Dates, bytes, sets,
+  and mixed map keys cannot collide with strings.
+- Approval fails closed for a missing digest. A qualified rejection can
+  settle a legacy or stale proposal without execution.
+- Stock-tool approval and rejection rebuild the resource from current data.
+- One identity resolver owns groups. Profile resolvers declare
+  `resolves_groups=False` and cannot return groups.
+- The Atlas scheduled adapter uses the stable job run ID for remote writes.
+- The authoring guide states that version 1 non-REST starts support static
+  playbooks only. It also states that trusted extensions own provenance input
+  accuracy.
+
+Verification after this remediation:
+
+- Focused policy, workflow, review, playbook, composition, and reference tests:
+  141 passed.
+- Full backend suite: 1,716 passed in 108.50 seconds.
+- Frontend suite: 229 passed in 45 files.
+- Production frontend build: passed in 13.84 seconds.
+- Full lint, Python type, dead-code, content, license, theme, TypeScript, and
+  frontend static-analysis gate: passed in 14.92 seconds.
+- Installed backend and unchanged Atlas upgrade rehearsal: passed. Typed
+  legacy YAML loaded and instantiated on installed core 0.2.0 and 0.2.1.
+- Unchanged Atlas frontend package built on two hosts in 42.71 seconds.
+- Standard Kustomize render: passed.
+- Base schema and activity-chain upgrade: passed.
+- Core wheel build: passed.
+- Core, frontend host, Atlas backend, and Atlas frontend images: built in
+  18.33 seconds.
+
+A fresh four-role review is required. Chrome validation remains blocked until
 that review approves the exact remediation commit.
