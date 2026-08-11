@@ -411,6 +411,16 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
+    registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    from .extensions.registry import validate_machine_identity_ownership
+
+    try:
+        validate_machine_identity_ownership(registry, (("MCP actor", ACTOR),))
+    except RuntimeError as exc:
+        import sys
+
+        print(f"skein-mcp: {exc}.", file=sys.stderr)
+        raise SystemExit(1) from exc
     # reserve THIS process's identity as kind=agent before any request — the
     # API server only reserves its own env's SKEIN_MCP_USER, and a human
     # picking this name first would permanently shadow the agent
@@ -430,7 +440,6 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1) from exc
-    registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
     attributes = registry.identity_attributes(ACTOR, (), True)
     roles = attributes.pop("roles", ())
     capabilities = attributes.pop("capabilities", ())

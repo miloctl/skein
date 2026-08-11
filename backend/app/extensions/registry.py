@@ -336,6 +336,48 @@ class ExtensionRegistry:
         )
 
 
+def validate_machine_identity_ownership(
+    registry: ExtensionRegistry,
+    additional: tuple[tuple[str, str], ...] = (),
+) -> None:
+    """Keep one owner for each composed machine identity.
+
+    Persona and flock overlays are deployment content. Validate them after
+    composition and before a process reserves any machine user.
+    """
+    from ..services import flocks, personas
+    from ..services.activity import SYSTEM_ACTORS
+    from ..services.users import fold
+
+    content_owners = {
+        **{fold(slug): f"persona {slug!r}" for slug in personas.bench_slugs()},
+        **{fold(item["slug"]): f"flock {item['slug']!r}" for item in flocks.list_flocks()},
+    }
+    claims = [
+        *(("service", identity.subject) for identity in registry.service_identities),
+        *(("specialist", specialist.name) for specialist in registry.specialists),
+        *additional,
+    ]
+    machine_owners: dict[str, str] = {}
+    core_owners = {fold(name): f"core actor {name!r}" for name in SYSTEM_ACTORS}
+    collisions: list[str] = []
+    for kind, name in claims:
+        owner = f"{kind} {name!r}"
+        folded = fold(name)
+        content_owner = content_owners.get(folded)
+        if content_owner:
+            collisions.append(f"{owner} conflicts with {content_owner}")
+        if (kind, name) in additional and (core_owner := core_owners.get(folded)):
+            collisions.append(f"{owner} conflicts with {core_owner}")
+        machine_owner = machine_owners.get(folded)
+        if machine_owner:
+            collisions.append(f"{owner} conflicts with {machine_owner}")
+        else:
+            machine_owners[folded] = owner
+    if collisions:
+        raise RuntimeError("machine identity ownership conflict: " + "; ".join(sorted(collisions)))
+
+
 def _order_modules(modules: tuple[SkeinModule, ...]) -> tuple[SkeinModule, ...]:
     by_id: dict[str, SkeinModule] = {}
     for module in modules:

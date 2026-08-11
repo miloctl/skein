@@ -158,7 +158,7 @@ def test_configured_mcp_identity_cannot_overlap_a_contributed_service(fresh_db):
     )
 
     with (
-        pytest.raises(RuntimeError, match="conflicts with a contributed machine identity"),
+        pytest.raises(RuntimeError, match="machine identity ownership conflict"),
         TestClient(create_app(settings, (module,))),
     ):
         pass
@@ -420,10 +420,35 @@ def test_composed_machine_identities_cannot_claim_stock_persona_names(fresh_db, 
         pass
 
 
+@pytest.mark.parametrize("subject", ["code-reviewer", "CODE-REVIEWER", "system"])
+def test_api_mcp_actor_cannot_claim_stock_persona_names(fresh_db, subject):
+    settings = replace(AppSettings.from_config(), mcp_user=subject)
+
+    with (
+        pytest.raises(RuntimeError, match="machine identity ownership conflict"),
+        TestClient(create_app(settings=settings)),
+    ):
+        pass
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
+
+
+@pytest.mark.parametrize("subject", ["code-reviewer", "system"])
+def test_standalone_mcp_actor_cannot_claim_a_reserved_identity(fresh_db, monkeypatch, subject):
+    from app import mcp_server
+
+    monkeypatch.setattr(mcp_server, "ACTOR", subject)
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: None)
+
+    with pytest.raises(SystemExit) as raised:
+        mcp_server.main()
+    assert raised.value.code == 1
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
+
+
 def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names(
     fresh_db, tmp_path, monkeypatch
 ):
-    from app import config
+    from app import config, mcp_server
     from app.services import personas
 
     persona_dir = tmp_path / "personas"
@@ -442,6 +467,7 @@ def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names
         "synthesis: false\n"
     )
     monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: None)
 
     for subject in ("atlas-overlay", "atlas-flock"):
         module = _module(
@@ -455,6 +481,19 @@ def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names
             TestClient(create_app(modules=(module,))),
         ):
             pass
+
+        settings = replace(AppSettings.from_config(), mcp_user=subject)
+        with (
+            pytest.raises(RuntimeError, match="machine identity ownership conflict"),
+            TestClient(create_app(settings=settings)),
+        ):
+            pass
+
+        monkeypatch.setattr(mcp_server, "ACTOR", subject)
+        with pytest.raises(SystemExit) as raised:
+            mcp_server.main()
+        assert raised.value.code == 1
+        assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
 
 
 def test_dependencies_are_ordered_independently_of_input_order():
