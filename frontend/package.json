@@ -4,7 +4,10 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
+    "compose:extensions": "node scripts/compose-extensions.mjs",
+    "predev": "npm run compose:extensions",
     "dev": "NODE_OPTIONS=--max-old-space-size=8192 next dev",
+    "prebuild": "npm run compose:extensions",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -44,5 +47,10 @@
   "overrides": {
     "sharp": "^0.35.0",
     "postcss": "^8.5.10"
+  },
+  "knip": {
+    "entry": [
+      "lib/extensions/public.tsx"
+    ]
   }
 }

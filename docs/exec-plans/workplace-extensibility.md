@@ -222,7 +222,7 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 7 | 2 | Extension-owned migration and data boundaries | Separate store and migration tests | Complete |
 | 8 | 2, 3, 5 | Minimum typed workflow steps | Condition, approval, action, and checkpoint tests | Complete |
 | 9 | 2 | Versioned content schemas and deployment validator | Version 1 compatibility and invalid-content tests | Complete |
-| 10 | 2, 3 | Frontend extension manifest and UI primitives | External navigation and dashboard card tests | Pending |
+| 10 | 2, 3 | Frontend extension manifest and UI primitives | External navigation and dashboard card tests | Complete |
 | 11 | 3 through 10 | Acme reference extension | Scenarios A through G | Pending |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Pending |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Pending |
@@ -297,6 +297,8 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Keep workflow steps limited to four types | Conditions, approvals, actions, and checkpoints cover the verified scenario |
 | 2026-08-11 | Stop direct workflow-playbook instantiation | A caller without the composed action registry must not skip private steps |
 | 2026-08-11 | Treat unversioned content as version 1 | Existing playbooks, personas, and flocks remain compatible |
+| 2026-08-11 | Compose frontend code before the build | Trusted static imports preserve CSP controls and avoid remote runtime code |
+| 2026-08-11 | Hide policy-bound UI until the backend permits it | A failed capability request must not show an action that the backend can refuse |
 
 ## Risks
 
@@ -369,6 +371,14 @@ Scores can increase only when core behavior and the reference extension use the 
 - The first full suite found one missing activity-feed verb. The workflow
   action now has a registered reader-facing verb.
 - Confirmed the full backend suite passes with 1,610 tests after remediation.
+- Added a versioned frontend extension manifest with compatibility and
+  namespace checks.
+- Added build-time composition through `SKEIN_FRONTEND_EXTENSIONS`.
+- Added policy-aware navigation and manager dashboard card contributions.
+- Exported a narrow frontend API with the shared card and authenticated API
+  client.
+- Confirmed 229 frontend tests, TypeScript, ESLint, knip, and the production
+  build pass.
 
 ## Review findings
 

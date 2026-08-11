@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@skein/extension-api": [
+        "./lib/extensions/public.tsx"
       ]
     }
   },
