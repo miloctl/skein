@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
@@ -140,6 +142,57 @@ class PolicyEngine:
             tuple(dict.fromkeys(value for item in same for value in item.approver_groups)),
             tuple(dict.fromkeys(value for item in same for value in item.approver_capabilities)),
         )
+
+
+def approval_fingerprint(
+    request: PolicyInput,
+    decision: PolicyDecision,
+    contract: Mapping[str, Any],
+) -> str:
+    """Bind one verdict to the exact policy input and executable contract."""
+    value = {
+        "subject": {
+            "name": request.subject.name,
+            "kind": request.subject.kind,
+            "roles": request.subject.roles,
+            "groups": request.subject.groups,
+            "capabilities": request.subject.capabilities,
+            "attributes": request.subject.attributes,
+        },
+        "action": request.action,
+        "resource": {
+            "type": request.resource.type,
+            "id": request.resource.id,
+            "project_type": request.resource.project_type,
+            "classification": request.resource.classification,
+            "attributes": request.resource.attributes,
+        },
+        "origin": request.origin,
+        "agent": request.agent,
+        "tool": request.tool,
+        "tool_effect": request.tool_effect,
+        "tool_risk": request.tool_risk,
+        "context": request.context,
+        "decision": {
+            "effect": decision.effect.value,
+            "obligations": decision.obligations,
+            "approver_groups": decision.approver_groups,
+            "approver_capabilities": decision.approver_capabilities,
+        },
+        "contract": contract,
+    }
+    encoded = json.dumps(_plain(value), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [_plain(item) for item in value]
+    if isinstance(value, PolicyEffect):
+        return value.value
+    return value
 
 
 _DEFAULT_ENGINE = PolicyEngine()

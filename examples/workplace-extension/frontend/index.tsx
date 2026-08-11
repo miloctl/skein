@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 
 import {
   Card,
-  FRONTEND_EXTENSION_API,
   type DashboardCardProps,
   type FrontendExtension,
 } from "@skein/extension-api";
@@ -37,7 +36,7 @@ function AtlasDeliveryCard({ api }: DashboardCardProps) {
 const extension: FrontendExtension = {
   id: "atlas.workplace",
   version: "1.0.0",
-  extensionApi: FRONTEND_EXTENSION_API,
+  extensionApi: "1.0",
   minimumCore: "0.2.0",
   maximumCoreExclusive: "0.3.0",
   navigation: [

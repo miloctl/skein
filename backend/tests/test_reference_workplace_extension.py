@@ -8,7 +8,6 @@ import tomllib
 from dataclasses import replace
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,7 +33,7 @@ from app.extensions import (  # noqa: E402
     SkeinModule,
 )
 from app.main import create_app  # noqa: E402
-from app.public import PublicError, WorkItems  # noqa: E402
+from app.public import WorkItems  # noqa: E402
 from app.public.events import dispatch_events  # noqa: E402
 
 
@@ -93,7 +92,13 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     with TestClient(app, headers={"X-User": "tester"}) as http:
         registry = app.state.skein_registry
         work_items = WorkItems(registry.policy_engine)
-        context = JobExecutionContext(settings, registry.policy_engine, work_items)
+        context = JobExecutionContext(
+            settings,
+            registry.policy_engine,
+            work_items,
+            registry.service_subject("atlas-sync"),
+            "atlas.workplace.sync:test",
+        )
         job = next(item for item in registry.jobs if item.name.endswith(".sync"))
         assert job.handler(context) == {"created": 1, "updated": 0}
         assert job.handler(context) == {"created": 0, "updated": 1}
@@ -116,7 +121,11 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
 
     delivery = dispatch_events(
         app.state.skein_registry.events,
-        EventExecutionContext(registry.policy_engine, work_items),
+        EventExecutionContext(
+            registry.policy_engine,
+            work_items,
+            registry.service_subject,
+        ),
     )
     assert delivery["delivered"] == 3
     event_updates = [update for update in client.updates if update[2]]
@@ -126,29 +135,32 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
 
 def test_a_second_module_can_deny_the_reference_background_job(fresh_db, tmp_path):
     def compliance_rule(request: PolicyInput):
-        if request.action == "work.task.create" and request.subject.kind == "service":
+        if request.action == "atlas.integration.sync" and request.subject.kind == "service":
             return PolicyDecision(PolicyEffect.DENY, ("Background imports are paused.",))
         return None
 
     compliance = SkeinModule(
         module_id="compliance.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         policies=(PolicyContribution("compliance.workplace.background-policy", compliance_rule),),
     )
     client = MemoryAtlasClient((AtlasItem("ATLAS-9", "Must not land"),))
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     app = create_app(settings, (_module(tmp_path, client), compliance))
     with TestClient(app):
-        registry = app.state.skein_registry
-        context = JobExecutionContext(
-            settings,
-            registry.policy_engine,
-            WorkItems(registry.policy_engine),
+        from app.main import _job_specs
+
+        spec = next(
+            item
+            for item in _job_specs(app.state.skein_registry, settings)
+            if item.name == "atlas.workplace.sync"
         )
-        job = next(item for item in registry.jobs if item.name == "atlas.workplace.sync")
-        with pytest.raises(PublicError):
-            job.handler(context)
+        assert spec.fn()["error_code"] == "POLICY_DENIED"
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+    assert client.updates == []
 
 
 def test_directory_groups_map_to_roles_and_backend_policy(tmp_path):
@@ -281,6 +293,84 @@ def test_reference_playbook_uses_real_policy_and_workflow_registry(fresh_db, tmp
         "SELECT status FROM extension_review_invocations WHERE change_id = ?",
         (workflow["review_id"],),
     ) == {"status": "approved"}
+
+
+def test_rest_review_resumes_only_the_exact_workflow_step(fresh_db, tmp_path, monkeypatch):
+    from app import config, oidc
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "two_approvals.yaml").write_text(
+        """\
+schema_version: 1
+name: Two approvals
+project_class: regulated
+description: Each occurrence needs a separate manager verdict.
+milestones:
+  - title: Prepare delivery
+workflow:
+  - type: approval
+    name: manager-approval
+    action: atlas.release.approve
+    resource_type: release
+    risk: high
+  - type: approval
+    name: manager-approval
+    action: atlas.release.approve
+    resource_type: release
+    risk: high
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    monkeypatch.setattr(oidc, "validate", lambda token: {"token": token})
+    monkeypatch.setattr(
+        oidc,
+        "principal",
+        lambda claims: (
+            ("mira", ["atlas-delivery-managers"])
+            if claims["token"] == "manager-token"
+            else ("ava", [])
+        ),
+    )
+    settings = replace(
+        AppSettings.from_config(),
+        scheduler_enabled=False,
+        auth_mode="oidc",
+        auth_error="",
+        api_token="",
+        docs_enabled=False,
+    )
+    with TestClient(
+        create_app(settings, (_module(tmp_path),)),
+        headers={"Authorization": "Bearer requester-token"},
+    ) as http:
+        started = http.post(
+            "/api/playbooks/instantiate",
+            json={"playbook": "two_approvals", "engagement_name": "Exact grants"},
+        ).json()
+        first_id = started["workflow"]["review_id"]
+        first_key = started["workflow"]["review_key"]
+
+        first = http.post(
+            f"/api/review/{first_id}/approve",
+            json={"note": "First occurrence only."},
+            headers={"Authorization": "Bearer manager-token"},
+        )
+        assert first.status_code == 200, first.text
+        resumed = first.json()["result"]["workflow"]
+        assert resumed["status"] == "review_required"
+        assert resumed["review_key"] != first_key
+        assert fresh_db.query_one("SELECT name FROM engagements") is None
+
+        second = http.post(
+            f"/api/review/{resumed['review_id']}/approve",
+            json={"note": "Second occurrence."},
+            headers={"Authorization": "Bearer manager-token"},
+        )
+        assert second.status_code == 200, second.text
+        assert second.json()["result"]["workflow"]["status"] == "completed"
+
+    assert fresh_db.query_one("SELECT name FROM engagements") == {"name": "Exact grants"}
 
 
 def test_extension_store_upgrades_its_own_v1_data_during_composition(fresh_db, tmp_path):

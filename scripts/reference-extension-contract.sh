@@ -14,7 +14,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p \
     "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
-    "$tmp/extension" "$tmp/extension-source" "$tmp/site" "$tmp/run"
+    "$tmp/extension" "$tmp/extension-source" "$tmp/run"
 
 git archive d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3 backend | tar -x -C "$tmp/base"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
@@ -30,6 +30,8 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
 
 cp -R "$tmp/current-source" "$tmp/core-next"
 sed -i 's/version = "0.2.0"/version = "0.2.1"/' "$tmp/core-next/pyproject.toml"
+cp scripts/fixtures/015_compatible_upgrade_probe.sql \
+    "$tmp/core-next/app/core_migrations/015_compatible_upgrade_probe.sql"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/next" "$tmp/core-next"
 
@@ -68,15 +70,15 @@ assert Version("0.2.0") in requirement.specifier
 assert Version("0.2.1") in requirement.specifier
 PY
 
+UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --target "$tmp/site" --no-deps "${current_wheels[0]}" "${extension_wheels[0]}"
+    --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}"
 
 (
     cd "$tmp/run"
     SKEIN_DATA_DIR="$tmp/core-data" \
     ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
-    PYTHONPATH="$tmp/site" \
-    "$python" - <<'PY'
+    "$tmp/venv/bin/python" - <<'PY'
 from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
@@ -107,14 +109,13 @@ PY
 )
 
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --target "$tmp/site" --no-deps --upgrade "${next_wheels[0]}"
+    --python "$tmp/venv/bin/python" --no-deps --upgrade --reinstall "${next_wheels[0]}"
 
 (
     cd "$tmp/run"
     SKEIN_DATA_DIR="$tmp/core-data" \
     ATLAS_SKEIN_DATA="$tmp/atlas-data/atlas.db" \
-    PYTHONPATH="$tmp/site" \
-    "$python" - <<'PY'
+    "$tmp/venv/bin/python" - <<'PY'
 from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
@@ -131,6 +132,11 @@ module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 settings = replace(AppSettings.from_config(), scheduler_enabled=False)
 with TestClient(create_app(settings, (module,))) as client:
     assert client.get("/health").status_code == 200
+from app import db
+assert db.query_one(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    ("compatible_upgrade_probe",),
+) == {"name": "compatible_upgrade_probe"}
 assert module.migrations[0].store.query_one(
     "SELECT external_id FROM work_links WHERE skein_task_id = ?", (42,)
 ) == {"external_id": "ATLAS-CORE-UPGRADE"}

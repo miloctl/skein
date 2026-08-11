@@ -21,7 +21,7 @@ from .contracts import (
     ToolContribution,
     WorkflowActionContribution,
 )
-from .policy import PolicyEngine
+from .policy import PolicyEngine, PolicySubject
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
 _MODEL_TOOL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
@@ -29,6 +29,12 @@ _MODEL_TOOL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 
 class ExtensionValidationError(ValueError):
     """A module cannot be composed safely."""
+
+
+def _string_tuple(value: object, label: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple, set)):
+        raise ExtensionValidationError(f"identity {label} must be a list or tuple")
+    return tuple(str(item) for item in value)
 
 
 def _version(value: str, label: str) -> tuple[int, int, int]:
@@ -79,6 +85,46 @@ class ExtensionRegistry:
         attributes["roles"] = tuple(dict.fromkeys(roles))
         attributes["capabilities"] = tuple(dict.fromkeys(capabilities))
         return attributes
+
+    def service_subject(self, name: str) -> PolicySubject:
+        """Resolve one registered service identity through workplace mapping."""
+        attributes = self.identity_attributes(name, (), True)
+        roles = _string_tuple(attributes.pop("roles", ()), "roles")
+        capabilities = _string_tuple(attributes.pop("capabilities", ()), "capabilities")
+        return PolicySubject(
+            name,
+            kind="service",
+            roles=roles,
+            capabilities=capabilities,
+            attributes=attributes,
+        )
+
+    def refresh_subject(self, subject: PolicySubject) -> PolicySubject:
+        """Refresh a saved requester through configured directory resolvers."""
+        groups = tuple(subject.groups)
+        active = True
+        for contribution in self.identities:
+            if contribution.resolver is None:
+                continue
+            value = contribution.resolver(subject.name)
+            if value is None:
+                continue
+            active = active and bool(value.get("active", True))
+            if "groups" in value:
+                groups = tuple(str(item) for item in value.get("groups") or ())
+        if not active:
+            raise PermissionError("The requester identity is no longer active.")
+        attributes = self.identity_attributes(subject.name, groups, True)
+        roles = _string_tuple(attributes.pop("roles", ()), "roles")
+        capabilities = _string_tuple(attributes.pop("capabilities", ()), "capabilities")
+        return PolicySubject(
+            subject.name,
+            kind=subject.kind,
+            roles=roles,
+            groups=groups,
+            capabilities=capabilities,
+            attributes=attributes,
+        )
 
     def tool(self, name: str) -> ToolContribution:
         try:
@@ -255,6 +301,14 @@ def _validate_module(module: SkeinModule) -> None:
                 f"module {module.module_id!r} has invalid contribution name "
                 f"{job_contribution.name!r}"
             )
+        if not job_contribution.service_identity or not job_contribution.policy_action:
+            raise ExtensionValidationError(
+                f"job {job_contribution.name!r} needs a service identity and policy action"
+            )
+        if job_contribution.effect not in ("none", "read", "write", "unknown"):
+            raise ExtensionValidationError(f"job {job_contribution.name!r} has invalid effect")
+        if job_contribution.risk not in ("low", "medium", "high", "critical"):
+            raise ExtensionValidationError(f"job {job_contribution.name!r} has invalid risk")
     for lifecycle_contribution in module.lifecycle:
         if not _IDENTIFIER.fullmatch(lifecycle_contribution.name):
             raise ExtensionValidationError(
@@ -298,6 +352,19 @@ def _validate_module(module: SkeinModule) -> None:
             )
     for event_contribution in module.events:
         _validate_contribution_name(module, event_contribution.name)
+        _version(event_contribution.version, f"event {event_contribution.name} version")
+        if not event_contribution.service_identity or not event_contribution.policy_action:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} needs a service identity and policy action"
+            )
+        if event_contribution.effect not in ("none", "read", "write", "unknown"):
+            raise ExtensionValidationError(f"event {event_contribution.name!r} has invalid effect")
+        if event_contribution.risk not in ("low", "medium", "high", "critical"):
+            raise ExtensionValidationError(f"event {event_contribution.name!r} has invalid risk")
+        if event_contribution.timeout_seconds <= 0:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} needs a positive timeout"
+            )
         if not event_contribution.event_types:
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} must select an event type"

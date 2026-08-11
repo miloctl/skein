@@ -88,6 +88,8 @@ class JobExecutionContext:
     settings: AppSettings
     policy: PolicyEngine
     work_items: WorkItems
+    subject: PolicySubject
+    run_id: str
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,10 @@ class JobContribution:
 
     name: str
     handler: Callable[[JobExecutionContext], Any]
+    service_identity: str
+    policy_action: str
+    effect: str
+    risk: str
     trigger: Mapping[str, Any] = field(default_factory=dict)
     period_hours: float = 24
     catch_up: bool = False
@@ -139,6 +145,7 @@ class IdentityContribution:
 
     name: str
     mapper: IdentityMapper
+    resolver: Callable[[str], Mapping[str, Any] | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +186,7 @@ class ToolContribution:
     receipt: str = "required"
     provenance: str = "service"
     resource: Callable[[BaseModel], PolicyResource] | None = None
+    review_preview: Callable[[BaseModel], Mapping[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "allowed_agents", tuple(self.allowed_agents))
@@ -211,6 +219,9 @@ class EventExecutionContext:
 
     policy: PolicyEngine
     work_items: WorkItems
+    subject_resolver: Callable[[str], PolicySubject]
+    subject: PolicySubject | None = None
+    delivery_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -218,11 +229,17 @@ class EventContribution:
     """A durable subscriber for selected versions and visibility tiers."""
 
     name: str
+    version: str
     handler: Callable[[DomainEvent, EventExecutionContext], None]
     event_types: tuple[str, ...]
+    service_identity: str
+    policy_action: str
+    effect: str
+    risk: str
     schema_versions: tuple[int, ...] = (1,)
     visibilities: tuple[str, ...] = ("workspace",)
     max_attempts: int = 5
+    timeout_seconds: float = 30
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "event_types", tuple(self.event_types))
@@ -296,9 +313,9 @@ class SkeinModule:
 
     module_id: str
     version: str
-    extension_api: str = EXTENSION_API_VERSION
-    minimum_core: str = SKEIN_CORE_VERSION
-    maximum_core_exclusive: str = "0.3.0"
+    extension_api: str
+    minimum_core: str
+    maximum_core_exclusive: str
     requires: tuple[str, ...] = ()
     routes: tuple[RouteContribution, ...] = ()
     jobs: tuple[JobContribution, ...] = ()

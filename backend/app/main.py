@@ -2,6 +2,7 @@ import logging
 import sqlite3
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from functools import partial
 from inspect import isawaitable
 from typing import Any, cast
@@ -42,11 +43,41 @@ log = logging.getLogger("skein")
 def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobSpec, ...]:
     from .public.work import WorkItems
 
-    execution = JobExecutionContext(
-        settings, registry.policy_engine, WorkItems(registry.policy_engine)
-    )
+    policy = registry.policy_engine
+    work_items = WorkItems(policy)
 
     def invoke(contribution: JobContribution) -> Any:
+        from .extensions.policy import PolicyEffect, PolicyInput, PolicyResource
+
+        subject = registry.service_subject(contribution.service_identity)
+        decision = policy.decide(
+            PolicyInput(
+                subject,
+                contribution.policy_action,
+                PolicyResource("job", contribution.name),
+                "background",
+                agent=subject.name,
+                tool=contribution.name,
+                tool_effect=contribution.effect,
+                tool_risk=contribution.risk,
+            )
+        )
+        if decision.effect != PolicyEffect.PERMIT:
+            return {
+                "status": "error",
+                "error_code": (
+                    "POLICY_REVIEW_REQUIRED"
+                    if decision.effect == PolicyEffect.REVIEW
+                    else "POLICY_DENIED"
+                ),
+            }
+        seconds = max(int(contribution.period_hours * 3600), 60)
+        run_id = f"{contribution.name}:{int(datetime.now(UTC).timestamp()) // seconds}"
+        if not contribution.name.startswith("skein.core.") and not db.claim_job(
+            f"extension:{contribution.name}", run_id
+        ):
+            return {"skipped": "this job run is already claimed", "run_id": run_id}
+        execution = JobExecutionContext(settings, policy, work_items, subject, run_id)
         return contribution.handler(execution)
 
     specs = []
@@ -66,7 +97,7 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
     from .extensions.contracts import EventExecutionContext
     from .public.events import dispatch_events
 
-    event_context = EventExecutionContext(execution.policy, execution.work_items)
+    event_context = EventExecutionContext(policy, work_items, registry.service_subject)
 
     specs.append(
         JobSpec(

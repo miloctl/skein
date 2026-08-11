@@ -226,8 +226,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 11 | 3 through 10 | Atlas reference extension | Scenarios A through G | Complete |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Complete before review |
-| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | First review complete; second pending |
-| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Remediation implemented; second review pending |
+| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | Second review rejected `952ff3a` |
+| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Second remediation in progress |
 
 ## Test strategy
 
@@ -511,8 +511,80 @@ Resolved findings include:
 - The upgrade rehearsal rejects the old `0.1.0` core, starts installed `0.2.0`,
   and moves the unchanged Atlas package to a separate `0.2.1` artifact.
 
+### Second independent review
+
+Four read-only specialists reviewed commit `952ff3a`. All four rejected it.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.6 | 7.3 | 7.4 | Reject |
+| Security and provenance | 7.4 | 6.9 | 7.5 | Reject |
+| Compatibility and reliability | 7.8 | 7.6 | 6.8 | Reject |
+| Adversarial score auditor | 7.3 | 6.8 | 5.8 | Reject |
+
+The valid gate findings are:
+
+- A standard virtual-environment install cannot find packaged stock content.
+- Workflow approvals use non-unique step names and can authorize later calls.
+- Tool and workflow approvals can bypass changed review requirements.
+- Reviewed workflows are not bound to the reviewed playbook content.
+- MCP review decisions cannot create and resume a durable proposal.
+- Jobs and event subscribers receive policy but are not gated before execution.
+- The reference route reads undocumented application state for public services.
+- Some inbound MCP and delegated-write paths do not use workplace policy.
+- Backend and frontend extension API declarations can self-certify at runtime.
+- Contributed specialists do not honor their contract in keyless mode.
+- Background jobs need a supported topology or an idempotent claim.
+- The repository instructions still name the old core migration directory.
+
+Medium findings that affect the same boundaries are also in scope. These
+include authoritative task context, review previews, service identity,
+event deadlines, version drift checks, and truthful post-write failure status.
+
+### Second-review remediation
+
+The second remediation is complete on the working branch.
+
+- Stock content now resolves from the normal virtual-environment data path.
+- The installed-wheel rehearsal uses a normal virtual environment.
+- The compatible `0.2.1` artifact includes an additive migration.
+- Workflow grants now bind one structural path, policy result, input, action
+  version, and complete workflow definition.
+- Tool, workflow, and MCP approvals recheck the current identity and policy.
+- MCP review decisions now create durable, resumable proposals.
+- Jobs and event subscribers declare a service identity, policy action,
+  effect, and risk. Skein checks policy before each handler.
+- Extension jobs use a durable time-window claim across scheduler workers.
+- Extension routes now receive public route services. Atlas does not read
+  private application state.
+- Inbound MCP reads and direct delegated writes use the composed policy.
+- Backend and frontend extension compatibility values are extension-owned
+  literals. A release drift test checks the package manifests.
+- Keyless contributed specialists are deterministic and cannot capture work.
+- Review previews have an explicit audience. Skein records the reviewer
+  groups and capabilities that satisfied the verdict.
+- Task policy uses the persisted engagement class and task visibility.
+- Write timeouts and invalid post-write output report uncertain completion.
+- `CLAUDE.md` now names `backend/app/core_migrations/`.
+
+Verification after this remediation:
+
+- `backend/.venv/bin/pytest -q -n auto backend/tests`: 1,647 passed in
+  102.72 seconds.
+- `./scripts/lint.sh`: Ruff, formatting, mypy, vulture, content, licenses,
+  theme contrast, TypeScript, ESLint, and knip passed in 12.94 seconds.
+- `npm --prefix frontend test -- --run`: 229 passed in 45 files.
+- `npm run build` in `frontend/`: the production build passed in 13.52
+  seconds.
+- `scripts/reference-extension-contract.sh`: normal installed-wheel startup
+  and the `0.2.0` to `0.2.1` migration upgrade passed in 14.66 seconds.
+- `scripts/reference-frontend-contract.sh`: packed API, Atlas package, clean
+  consumer import, and derivative production build passed in 15.18 seconds.
+- `scripts/upgrade-path.sh d3b0f2e...`: schema and activity-chain upgrade
+  passed in 0.57 seconds.
+- `uv build --wheel --out-dir /tmp/skein-final-dist backend`: passed.
+
 ## Final results
 
-Implementation and first-review remediation are complete. The second
-independent review, any required follow-up, final verification, and live Chrome
-validation are pending.
+The second remediation and full verification pass. A new independent review,
+review remediation if needed, and live Chrome validation are pending.

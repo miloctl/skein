@@ -4,17 +4,28 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
 from .. import db
+from ..extensions.policy import PolicyEffect, PolicyInput, PolicyResource
 
 if TYPE_CHECKING:
     from ..extensions.contracts import EventContribution, EventExecutionContext
 
 log = logging.getLogger("skein.extensions.events")
+
+
+class _DeliveryRefused(RuntimeError):
+    def __init__(self, code: str, *, terminal: bool) -> None:
+        super().__init__(code)
+        self.code = code
+        self.terminal = terminal
 
 
 class EventActor(BaseModel):
@@ -116,6 +127,7 @@ def dispatch_events(
         matches = [item for item in contributions if _matches(item, event)]
         pending_subscribers = False
         dead_subscribers = False
+        row_error_code = ""
         for contribution in matches:
             prior = db.query_one(
                 "SELECT 1 AS present FROM extension_event_deliveries"
@@ -132,8 +144,57 @@ def dispatch_events(
             if attempt and attempt["status"] == "dead":
                 dead_subscribers = True
                 continue
+            error_code = "SUBSCRIBER_ERROR"
+            terminal = False
             try:
-                contribution.handler(event, context)
+                subject = context.subject_resolver(contribution.service_identity)
+                decision = context.policy.decide(
+                    PolicyInput(
+                        subject,
+                        contribution.policy_action,
+                        PolicyResource(
+                            event.resource.type,
+                            event.resource.id,
+                            classification=event.visibility,
+                            attributes={"event_type": event.event_type},
+                        ),
+                        "event",
+                        agent=subject.name,
+                        tool=contribution.name,
+                        tool_effect=contribution.effect,
+                        tool_risk=contribution.risk,
+                    )
+                )
+                if decision.effect != PolicyEffect.PERMIT:
+                    raise _DeliveryRefused(
+                        (
+                            "POLICY_REVIEW_REQUIRED"
+                            if decision.effect == PolicyEffect.REVIEW
+                            else "POLICY_DENIED"
+                        ),
+                        terminal=decision.effect == PolicyEffect.DENY,
+                    )
+                delivery_context = replace(
+                    context,
+                    subject=subject,
+                    delivery_id=f"{event.event_id}:{contribution.name}",
+                )
+                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-event")
+                future = executor.submit(contribution.handler, event, delivery_context)
+                try:
+                    future.result(timeout=contribution.timeout_seconds)
+                except FutureTimeout as exc:
+                    future.cancel()
+                    raise _DeliveryRefused(
+                        (
+                            "COMPLETION_UNKNOWN"
+                            if contribution.effect in ("write", "unknown")
+                            else "SUBSCRIBER_TIMEOUT"
+                        ),
+                        terminal=contribution.effect in ("write", "unknown"),
+                    ) from exc
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
                 db.execute(
                     "INSERT OR IGNORE INTO extension_event_deliveries"
                     " (event_id, subscriber, delivered_at) VALUES (?, ?, ?)",
@@ -143,20 +204,31 @@ def dispatch_events(
                     "DELETE FROM extension_event_attempts WHERE event_id = ? AND subscriber = ?",
                     (event.event_id, contribution.name),
                 )
-            except Exception:
+            except Exception as exc:
+                if isinstance(exc, _DeliveryRefused):
+                    error_code = exc.code
+                    terminal = exc.terminal
                 attempts = int((attempt or {}).get("attempts") or 0) + 1
-                status = "dead" if attempts >= contribution.max_attempts else "pending"
+                status = "dead" if terminal or attempts >= contribution.max_attempts else "pending"
                 db.execute(
                     "INSERT INTO extension_event_attempts"
                     " (event_id, subscriber, attempts, status, last_error_code, updated_at)"
-                    " VALUES (?, ?, ?, ?, 'SUBSCRIBER_ERROR', ?)"
+                    " VALUES (?, ?, ?, ?, ?, ?)"
                     " ON CONFLICT(event_id, subscriber) DO UPDATE SET"
                     " attempts = excluded.attempts, status = excluded.status,"
                     " last_error_code = excluded.last_error_code, updated_at = excluded.updated_at",
-                    (event.event_id, contribution.name, attempts, status, db.now()),
+                    (
+                        event.event_id,
+                        contribution.name,
+                        attempts,
+                        status,
+                        error_code,
+                        db.now(),
+                    ),
                 )
                 dead_subscribers = dead_subscribers or status == "dead"
                 pending_subscribers = pending_subscribers or status == "pending"
+                row_error_code = error_code
                 log.exception(
                     "event subscriber failed",
                     extra={"event_id": event.event_id, "subscriber": contribution.name},
@@ -165,8 +237,8 @@ def dispatch_events(
             final_status = "dead" if dead_subscribers else "delivered"
             db.execute(
                 "UPDATE extension_outbox SET status = ?, delivered_at = ?,"
-                " last_error_code = '' WHERE event_id = ?",
-                (final_status, db.now(), event.event_id),
+                " last_error_code = ? WHERE event_id = ?",
+                (final_status, db.now(), row_error_code, event.event_id),
             )
             if final_status == "dead":
                 dead += 1
@@ -177,8 +249,8 @@ def dispatch_events(
             attempts = int(row["attempts"]) + 1
             db.execute(
                 "UPDATE extension_outbox SET status = 'pending', attempts = ?,"
-                " last_error_code = 'SUBSCRIBER_ERROR' WHERE event_id = ?",
-                (attempts, event.event_id),
+                " last_error_code = ? WHERE event_id = ?",
+                (attempts, row_error_code or "SUBSCRIBER_ERROR", event.event_id),
             )
             failed += 1
     return {"delivered": delivered, "failed": failed, "dead": dead}

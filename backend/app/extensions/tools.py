@@ -10,7 +10,14 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from .contracts import ToolContribution, ToolHandlerContext
-from .policy import PolicyEffect, PolicyEngine, PolicyInput, PolicyResource, PolicySubject
+from .policy import (
+    PolicyEffect,
+    PolicyEngine,
+    PolicyInput,
+    PolicyResource,
+    PolicySubject,
+    approval_fingerprint,
+)
 
 
 class ExtensionToolError(ValueError):
@@ -50,7 +57,7 @@ async def execute_tool(
     context: ToolCallContext,
     policy: PolicyEngine,
     *,
-    _approval_granted: bool = False,
+    _approved_fingerprint: str = "",
 ) -> ToolExecution:
     """Validate, authorize, execute, and validate one contributed tool."""
     if contribution.allowed_agents and context.agent not in contribution.allowed_agents:
@@ -68,17 +75,25 @@ async def execute_tool(
     except (TypeError, ValueError):
         return _finish(contribution, context, _refused(contribution, "deny", "invalid_resource"))
 
-    decision = policy.decide(
-        PolicyInput(
-            subject=context.subject,
-            action=contribution.policy_action,
-            resource=resource,
-            origin=context.origin,
-            agent=context.agent,
-            tool=contribution.name,
-            tool_effect=contribution.effect,
-            tool_risk=contribution.risk,
-        )
+    policy_input = PolicyInput(
+        subject=context.subject,
+        action=contribution.policy_action,
+        resource=resource,
+        origin=context.origin,
+        agent=context.agent,
+        tool=contribution.name,
+        tool_effect=contribution.effect,
+        tool_risk=contribution.risk,
+    )
+    decision = policy.decide(policy_input)
+    fingerprint = approval_fingerprint(
+        policy_input,
+        decision,
+        {
+            "tool": contribution.name,
+            "version": contribution.version,
+            "arguments": validated.model_dump(mode="json"),
+        },
     )
     common: dict[str, Any] = {
         "tool": contribution.name,
@@ -94,10 +109,22 @@ async def execute_tool(
             context,
             ToolExecution(status="refused", error_code="policy_denied", **common),
         )
-    if decision.effect == PolicyEffect.REVIEW and not _approval_granted:
+    if decision.effect == PolicyEffect.REVIEW and _approved_fingerprint != fingerprint:
         from ..services import review
+        from ..services import scope as visibility_scope
 
-        invocation = _review_invocation(contribution, validated, context, resource)
+        invocation = _review_invocation(
+            contribution,
+            validated,
+            context,
+            resource,
+            fingerprint,
+        )
+        preview = (
+            dict(contribution.review_preview(validated))
+            if contribution.review_preview is not None
+            else {}
+        )
         proposal = review.propose_extension_invocation(
             "tool",
             {
@@ -106,6 +133,7 @@ async def execute_tool(
                 "resource_type": resource.type,
                 "resource_id": resource.id,
                 "agent": context.agent,
+                "preview": preview,
             },
             invocation,
             summary=f"Run governed tool {contribution.name}",
@@ -114,6 +142,13 @@ async def execute_tool(
             policy_obligations=decision.obligations,
             approver_groups=decision.approver_groups,
             approver_capabilities=decision.approver_capabilities,
+            review_visibility=(
+                resource.classification
+                if resource.classification in visibility_scope.TIERS
+                else visibility_scope.WORKSPACE
+            ),
+            review_crew_id=int(resource.attributes.get("crew_id") or 0),
+            review_owner=context.subject.name,
         )
         return _finish(
             contribution,
@@ -153,10 +188,11 @@ async def execute_tool(
             ToolExecution(status="failed", error_code=code, detail=exc.detail, **common),
         )
     except (TypeError, ValueError, ValidationError):
+        status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
         return _finish(
             contribution,
             context,
-            ToolExecution(status="failed", error_code="invalid_output", **common),
+            ToolExecution(status=status, error_code="invalid_output", **common),
         )
     except Exception:
         return _finish(
@@ -174,7 +210,7 @@ async def execute_tool(
 async def execute_reviewed_tool(
     contribution: ToolContribution,
     invocation: dict[str, Any],
-    policy: PolicyEngine,
+    registry: Any,
 ) -> ToolExecution:
     """Execute the exact tool call stored with an approved review."""
     if (
@@ -189,7 +225,7 @@ async def execute_reviewed_tool(
         raise ValueError("the reviewed tool identity or resource is not valid")
     if not isinstance(arguments, dict):
         raise ValueError("the reviewed tool arguments are not valid")
-    subject = PolicySubject(
+    saved_subject = PolicySubject(
         name=str(subject_data.get("name") or ""),
         kind=str(subject_data.get("kind") or "human"),
         roles=tuple(str(item) for item in subject_data.get("roles", ())),
@@ -197,6 +233,7 @@ async def execute_reviewed_tool(
         capabilities=tuple(str(item) for item in subject_data.get("capabilities", ())),
         attributes=dict(subject_data.get("attributes") or {}),
     )
+    subject = registry.refresh_subject(saved_subject)
     resource = PolicyResource(
         type=str(resource_data.get("type") or "tool"),
         id=str(resource_data.get("id") or ""),
@@ -213,8 +250,8 @@ async def execute_reviewed_tool(
             str(invocation.get("origin") or "agent_tool"),
             resource,
         ),
-        policy,
-        _approval_granted=True,
+        registry.policy_engine,
+        _approved_fingerprint=str(invocation.get("approval_fingerprint") or ""),
     )
 
 
@@ -223,6 +260,7 @@ def _review_invocation(
     validated: BaseModel,
     context: ToolCallContext,
     resource: PolicyResource,
+    fingerprint: str,
 ) -> dict[str, Any]:
     return {
         "tool": contribution.name,
@@ -238,6 +276,7 @@ def _review_invocation(
         },
         "agent": context.agent,
         "origin": context.origin,
+        "approval_fingerprint": fingerprint,
         "resource": {
             "type": resource.type,
             "id": resource.id,

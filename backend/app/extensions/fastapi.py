@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, Header, Request
 from fastapi.routing import APIRoute
 
 from ..public.errors import PublicError
 from ..routes.deps import CurrentUser
-from .policy import PolicyDecision, PolicyInput, PolicyResource, PolicySubject
+from .policy import PolicyDecision, PolicyEngine, PolicyInput, PolicyResource, PolicySubject
 
-_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+if TYPE_CHECKING:
+    from ..public.work import WorkItems
 
 
 def subject_for(request: Request, user: str) -> PolicySubject:
@@ -35,6 +37,28 @@ def policy_subject(request: Request, user: CurrentUser) -> PolicySubject:
 
 
 PolicySubjectDep = Annotated[PolicySubject, Depends(policy_subject)]
+
+
+@dataclass(frozen=True)
+class ExtensionRouteServices:
+    """Public composed services for one trusted extension route."""
+
+    subject: PolicySubject
+    policy: PolicyEngine
+    work_items: WorkItems
+
+
+def extension_route_services(request: Request, subject: PolicySubjectDep) -> ExtensionRouteServices:
+    from ..public.work import WorkItems
+
+    policy = request.app.state.skein_registry.policy_engine
+    return ExtensionRouteServices(subject, policy, WorkItems(policy))
+
+
+ExtensionRouteServicesDep = Annotated[
+    ExtensionRouteServices,
+    Depends(extension_route_services),
+]
 
 
 def decide(
@@ -89,8 +113,11 @@ def enforce_mutation_policy(
     x_user: Annotated[str, Header()] = "",
     authorization: Annotated[str, Header()] = "",
 ) -> None:
-    """Apply workplace policy before one authenticated REST mutation."""
-    if request.method in _READ_METHODS:
+    """Apply workplace policy before one authenticated REST operation."""
+
+    # The calendar feed has its own query-token gate because calendar clients
+    # cannot send API headers. It is not an authenticated REST operation.
+    if request.url.path == "/api/calendar.ics":
         return
 
     # Use the existing identity swap point. Do not record adoption here:
@@ -144,11 +171,11 @@ def enforce_decision(decision: PolicyDecision) -> None:
 
 
 class PolicyAPIRoute(APIRoute):
-    """Add the central policy dependency to mutation routes."""
+    """Add the central policy dependency to authenticated routes."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         methods = {str(value).upper() for value in kwargs.get("methods", ())}
-        if methods and not methods.issubset(_READ_METHODS):
+        if methods:
             dependencies = list(kwargs.get("dependencies") or ())
             dependencies.insert(0, Depends(enforce_mutation_policy))
             kwargs["dependencies"] = dependencies

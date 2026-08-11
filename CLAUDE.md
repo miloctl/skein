@@ -42,7 +42,7 @@ model and constraints, is archived at
   exception class appears. An error response is always JSON, and it never
   echoes the rejected value back.
 - **Migrations are append-only.** Schema changes go in a new numbered file in
-  `backend/migrations/`; never edit an applied migration or `db.py` schema
+  `backend/app/core_migrations/`; never edit an applied migration or `db.py` schema
   inline. A migration must never UPDATE or DELETE an `activity` row that
   carries a `seq` — those rows are hash-chained, and a bulk rewrite breaks
   verification permanently at the earliest row it touches.
@@ -110,7 +110,7 @@ that hasn't passed it will fail on push-to-main.
 - `backend/app/tools/` — Strands `@tool` wrappers over services (agent write path)
 - `backend/app/routes/` — FastAPI routers: REST wrappers over services + chat SSE
 - `backend/app/agents/` — Chief-of-Staff orchestrator, planner sub-agent, mock provider
-- `backend/migrations/` — numbered SQL, applied at startup, tracked in `schema_version`
+- `backend/app/core_migrations/` — numbered SQL, applied at startup, tracked in `schema_version`
 - `backend/playbooks/*.yaml` — project-class templates (edited like code)
 - `backend/personas/*.md`, `backend/flocks/*.yaml` — the bench, and the groups
   of it that answer one message together (both edited like code)

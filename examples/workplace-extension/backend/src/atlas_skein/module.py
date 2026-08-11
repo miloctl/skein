@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.extensions import (
     ContextContribution,
     EventContribution,
     ExtensionMigration,
+    ExtensionRouteServicesDep,
     ExtensionStore,
     IdentityContribution,
     JobContribution,
@@ -19,7 +20,6 @@ from app.extensions import (
     PolicyContribution,
     PolicyInput,
     PolicyResource,
-    PolicySubjectDep,
     RouteContribution,
     SkeinModule,
     SpecialistContribution,
@@ -27,7 +27,6 @@ from app.extensions import (
     WorkflowActionContribution,
     enforce_decision,
 )
-from app.public import WorkItems
 
 from .integration import AtlasClient, AtlasIntegration, MemoryAtlasClient
 from .policy import atlas_identity, atlas_policy
@@ -64,10 +63,10 @@ def atlas_module(
     integration = AtlasIntegration(client or MemoryAtlasClient(), store)
     router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
-    def require(request: Request, subject, action: str) -> None:
-        decision = request.app.state.skein_registry.policy_engine.decide(
+    def require(services, action: str) -> None:
+        decision = services.policy.decide(
             PolicyInput(
-                subject=subject,
+                subject=services.subject,
                 action=action,
                 resource=PolicyResource("atlas"),
                 origin="human",
@@ -76,14 +75,13 @@ def atlas_module(
         enforce_decision(decision)
 
     @router.post("/sync", response_model=SyncOut)
-    def sync(request: Request, subject: PolicySubjectDep):
-        require(request, subject, "atlas.integration.sync")
-        policy = request.app.state.skein_registry.policy_engine
-        return integration.sync(WorkItems(policy))
+    def sync(services: ExtensionRouteServicesDep):
+        require(services, "atlas.integration.sync")
+        return integration.sync(services.work_items, services.subject)
 
     @router.get("/metrics")
-    def metrics(request: Request, subject: PolicySubjectDep):
-        require(request, subject, "atlas.dashboard.view")
+    def metrics(services: ExtensionRouteServicesDep):
+        require(services, "atlas.dashboard.view")
         return integration.metrics()
 
     def notify(_context, request: NotifyIn):
@@ -93,12 +91,19 @@ def atlas_module(
     return SkeinModule(
         module_id="atlas.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         routes=(RouteContribution("atlas.workplace.routes", router),),
         jobs=(
             JobContribution(
                 "atlas.workplace.sync",
-                lambda context: integration.sync(context.work_items),
-                {"trigger": "interval", "minutes": 15},
+                lambda context: integration.sync(context.work_items, context.subject),
+                service_identity="atlas-sync",
+                policy_action="atlas.integration.sync",
+                effect="write",
+                risk="high",
+                trigger={"trigger": "interval", "minutes": 15},
                 period_hours=0.25,
             ),
         ),
@@ -116,7 +121,10 @@ def atlas_module(
                 version="1.0.0",
                 model_name="atlas_sync",
                 description="Synchronize work items with the fictional Atlas system.",
-                handler=lambda context, _request: integration.sync(context.work_items),
+                handler=lambda context, _request: integration.sync(
+                    context.work_items,
+                    context.subject,
+                ),
                 input_schema=SyncIn,
                 output_schema=SyncOut,
                 effect="write",
@@ -126,6 +134,7 @@ def atlas_module(
                 required_capabilities=("atlas.integration",),
                 timeout_seconds=20,
                 error_codes=("ATLAS_UNAVAILABLE",),
+                review_preview=lambda request: {"full_sync": request.full},
             ),
         ),
         specialists=(
@@ -142,9 +151,19 @@ def atlas_module(
         ),
         events=(
             EventContribution(
-                "atlas.workplace.task-events",
-                lambda event, context: integration.deliver_task_event(event, context.work_items),
-                ("skein.task.updated",),
+                name="atlas.workplace.task-events",
+                version="1.0.0",
+                handler=lambda event, context: integration.deliver_task_event(
+                    event,
+                    context.work_items,
+                    context.subject,
+                    context.delivery_id,
+                ),
+                event_types=("skein.task.updated",),
+                service_identity="atlas-events",
+                policy_action="atlas.integration.deliver-task-event",
+                effect="write",
+                risk="high",
             ),
         ),
         migrations=(

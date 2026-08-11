@@ -693,13 +693,35 @@ def build_agent(
     if config.MODEL_PROVIDER_ERROR:
         raise ValueError(config.MODEL_PROVIDER_ERROR)
 
+    contributed_specialist = None
+    if persona and extensions is not None:
+        contributed_specialist = next(
+            (item for item in extensions.specialists if item.name == persona), None
+        )
+
     if config.EFFECTIVE_PROVIDER == "mock":
-        from .mock_agent import MockAgent, MockFlockMember
+        from .mock_agent import MockAgent, MockExtensionSpecialist, MockFlockMember
 
         if stateless:
             # MockAgent captures freeform text outside the gate — see
             # MockFlockMember's docstring for what that does to a flock turn
             return MockFlockMember(persona)
+        if contributed_specialist is not None and extensions is not None:
+            from ..extensions.agents import missing_specialist_capabilities
+            from ..extensions.policy import current_policy_subject
+
+            missing = missing_specialist_capabilities(
+                extensions,
+                contributed_specialist.name,
+                current_policy_subject(),
+            )
+            if missing:
+                raise PermissionError("this specialist needs a workplace capability")
+            sources = {item.name: item for item in extensions.contexts}
+            context = tuple(
+                sources[name].provider(user) for name in contributed_specialist.context_sources
+            )
+            return MockExtensionSpecialist(contributed_specialist, context)
         return MockAgent(thread_id, user, persona=persona)
 
     from strands import Agent, tool
@@ -712,11 +734,6 @@ def build_agent(
     from .mcp_tools import mcp_tools
 
     beh: dict[str, Any] = {"model": "", "temperature": None, "tools": None}
-    contributed_specialist = None
-    if persona and extensions is not None:
-        contributed_specialist = next(
-            (item for item in extensions.specialists if item.name == persona), None
-        )
     if persona:
         if contributed_specialist is not None:
             beh["tools"] = list(contributed_specialist.tools)

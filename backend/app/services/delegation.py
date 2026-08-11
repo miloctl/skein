@@ -804,7 +804,8 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     from .review import _readable
 
     rejected = db.query(
-        "SELECT id, entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
+        "SELECT id, entity, entity_id, summary, review_note, reviewed_by,"
+        " review_visibility, review_crew_id, review_owner FROM pending_changes"
         " WHERE proposed_by = ? AND status = 'rejected' ORDER BY id DESC LIMIT 10",
         (agent,),
     )

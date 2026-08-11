@@ -10,6 +10,8 @@ Feature branch: `feature/workplace-extensibility`
 
 First-review commit: `8e5feec`
 
+Second-review commit: `952ff3a`
+
 The remediation commit and final report commit are recorded after the second
 independent review.
 
@@ -40,7 +42,7 @@ unsupported entity or for a new frontend slot. Timers, parallel workflow
 branches, and service-level escalation need more architecture.
 
 These scores are candidates. The final conservative scores are the lower of
-these scores and the median second-review scores. Section 14 records that
+these scores and the median final-review scores. Section 14 records that
 calculation after review.
 
 ### Scoring rubric
@@ -158,23 +160,23 @@ line, but not independent production consumers across releases.
 | Contribution types are concern-specific | `RouteContribution`, `JobContribution`, `PolicyContribution`, `ToolContribution`, `EventContribution`, and other contracts in `backend/app/extensions/contracts.py` |
 | Startup validates compatibility and collisions | `backend/app/extensions/registry.py::ExtensionRegistry.build` and `_validate_module` |
 | Core routes and jobs use contribution shapes | `backend/app/extensions/core.py::core_module` and `backend/app/main.py::_job_specs` |
-| Authenticated core mutations use workplace policy | `backend/app/extensions/fastapi.py::PolicyAPIRoute` and `enforce_mutation_policy`; used by `routes/api.py` and `routes/private.py` |
+| Authenticated core operations use workplace policy | `backend/app/extensions/fastapi.py::PolicyAPIRoute` and `enforce_mutation_policy`; used by `routes/api.py` and `routes/private.py` |
 | Identity groups can map to private roles and capabilities | `ExtensionRegistry.identity_attributes` and `extensions/fastapi.py::subject_for` |
 | Existing agent authority maps into the default policy | `backend/app/extensions/policy.py::CorePolicy` and `backend/app/tools/_gate.py` |
 | Contributed tools are governed | `backend/app/extensions/tools.py::execute_tool` validates schemas, agent allowlists, capabilities, policy, timeout, output, and safe errors |
-| MCP tools need metadata | `backend/app/agents/mcp_tools.py::MCPToolMetadata` and `GovernedMCPTool` |
+| MCP tools need metadata and support durable review | `backend/app/agents/mcp_tools.py::MCPToolMetadata`, `GovernedMCPTool`, and `execute_reviewed_mcp` |
 | Specialists join the Chief without private imports | `backend/app/extensions/agents.py` and `backend/app/agents/team_agent.py::build_agent` |
 | Task commands are public and typed | `backend/app/public/work.py::WorkItems`, `CreateTaskCommand`, `UpdateTaskCommand`, and `TaskView` |
 | All shared task writes emit safe events | `backend/app/services/work.py::_emit_task_event`; REST and built-in tools use the same service |
-| Event delivery is durable and idempotent | `backend/app/core_migrations/012_extension_outbox.sql` and `backend/app/public/events.py::dispatch_events` |
+| Event delivery is durable, policy-gated, and idempotent | `backend/app/core_migrations/012_extension_outbox.sql` and `backend/app/public/events.py::dispatch_events` |
 | Extension stores are isolated | `backend/app/extensions/data.py::ExtensionStore._make_sure_is_separate` |
-| Workflow actions are typed and governed | `backend/app/public/workflow.py::WorkflowEngine` |
+| Workflow actions are typed and exact grants fail closed | `backend/app/public/workflow.py::WorkflowEngine` and `approval_fingerprint` |
 | Content has explicit version validation | `backend/app/content.py`, `services/playbooks.py`, `services/personas.py`, and `services/flocks.py` |
 | Frontend extensions compose before build | `frontend/scripts/compose-extensions.mjs` and `frontend/extensions/generated.ts` |
 | Frontend compatibility and collisions are checked | `frontend/lib/extensions/registry.ts::registerFrontendExtensions` |
 | UI contributions fail closed on capability errors | `frontend/lib/extensions/context.tsx::ExtensionProvider` |
 | A separate package exercises the contracts | `examples/workplace-extension/` and `backend/tests/test_reference_workplace_extension.py` |
-| Released artifacts compose without a source merge | `scripts/reference-extension-contract.sh` builds, installs, migrates, and checks separate wheels |
+| Released artifacts compose without a source merge | `scripts/reference-extension-contract.sh` builds, installs in a normal virtual environment, migrates, and checks separate wheels |
 | The core wheel contains migrations and stock content | `backend/pyproject.toml`, `backend/app/core_migrations`, and the installed-wheel lifespan rehearsal |
 
 ### Inferences
@@ -557,7 +559,7 @@ version ranges. Startup and build reject incompatible inputs.
 
 1. Build a Skein wheel.
 2. Build an Atlas wheel.
-3. Install both into a clean target outside the source trees.
+3. Install both into a normal virtual environment outside the source trees.
 4. Confirm package versions and requirements.
 5. Enter the installed application lifespan and load stock content.
 6. Compose Atlas through the installed public contracts.
@@ -595,6 +597,19 @@ The packed frontend package also passes a production build through
 The packed Atlas frontend package also passed a separate production build.
 Atlas playbook, persona, and flock validation passed.
 
+### Verification after second-review remediation
+
+| Command | Result | Duration |
+|---|---|---:|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,647 passed | 102.72 seconds |
+| `npm --prefix frontend test -- --run` | 229 passed in 45 files | 11.51 seconds |
+| `npm run build` | Production build passed | 13.52 seconds |
+| `./scripts/lint.sh` | All backend, frontend, content, license, and theme checks passed | 12.94 seconds |
+| `./scripts/reference-extension-contract.sh` | Normal installed startup and additive `0.2.0` to `0.2.1` upgrade passed | 14.66 seconds |
+| `./scripts/reference-frontend-contract.sh` | Clean packed consumer and derivative production build passed | 15.18 seconds |
+| `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.57 seconds |
+| `uv build --wheel --out-dir /tmp/skein-final-dist backend` | Core wheel passed | Passed |
+
 ## 14. Independent review
 
 The first review rejected commit `8e5feec`.
@@ -617,7 +632,22 @@ two-core-artifact upgrade, approval and resume, OIDC group approval, composed
 job policy, specialist identity reservation, successful MCP receipts, truthful
 timeout status, per-subscriber retries, and strict content validation.
 
-The second four-reviewer report is pending.
+The second review rejected commit `952ff3a`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.6 | 7.3 | 7.4 | Reject |
+| Security and provenance | 7.4 | 6.9 | 7.5 | Reject |
+| Compatibility and reliability | 7.8 | 7.6 | 6.8 | Reject |
+| Adversarial score auditor | 7.3 | 6.8 | 5.8 | Reject |
+
+The second remediation binds approvals to exact inputs and policy results. It
+adds durable MCP reviews, background pre-handler policy gates, route service
+injection, authoritative task context, keyless specialist safety, and review
+audiences. The installed rehearsal now uses a normal virtual environment and
+an additive compatible-release migration.
+
+The final four-reviewer report is pending.
 
 ## 15. Remaining limitations and deferred work
 

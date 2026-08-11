@@ -95,7 +95,8 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
 
     stale_proposals = _readable(
         db.query(
-            "SELECT id, entity, entity_id, summary, proposed_by, created_at FROM pending_changes"
+            "SELECT id, entity, entity_id, summary, proposed_by, created_at,"
+            " review_visibility, review_crew_id, review_owner FROM pending_changes"
             " WHERE status = 'pending' AND created_at < ? ORDER BY id",
             ((datetime.now(UTC) - timedelta(days=3)).isoformat(timespec="seconds"),),
         ),

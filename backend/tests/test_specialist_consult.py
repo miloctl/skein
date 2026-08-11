@@ -130,6 +130,9 @@ def test_chief_cannot_consult_a_contributed_specialist_without_its_capability(
     module = SkeinModule(
         module_id="acme.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         specialists=(
             SpecialistContribution(
                 name="acme.workplace.private-specialist",
@@ -155,6 +158,63 @@ def test_chief_cannot_consult_a_contributed_specialist_without_its_capability(
         reset_policy_subject(token)
 
     assert json.loads(events[-1]) == {"error": "this specialist needs a workplace capability"}
+
+
+def test_keyless_contributed_specialist_is_deterministic_and_cannot_write(fresh_db):
+    from app.agents.mock_agent import MockExtensionSpecialist
+    from app.extensions import (
+        ContextContribution,
+        ExtensionRegistry,
+        SkeinModule,
+        SpecialistContribution,
+    )
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_subject,
+        set_policy_subject,
+    )
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        contexts=(
+            ContextContribution("acme.workplace.delivery-context", lambda user: f"for {user}"),
+        ),
+        specialists=(
+            SpecialistContribution(
+                name="acme.workplace.delivery",
+                version="1.0.0",
+                display_name="Delivery Specialist",
+                description="Reads delivery context.",
+                system_prompt="Use delivery context.",
+                context_sources=("acme.workplace.delivery-context",),
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    token = set_policy_subject(PolicySubject("mira", capabilities=("acme.specialist",)))
+    try:
+        specialist = team_agent.build_agent(
+            "keyless-specialist",
+            "mira",
+            persona="acme.workplace.delivery",
+            extensions=registry,
+        )
+        events = asyncio.run(_drain(specialist.stream_async("Create a task from this text")))
+    finally:
+        reset_policy_subject(token)
+
+    assert isinstance(specialist, MockExtensionSpecialist)
+    assert specialist.system_prompt == "Use delivery context."
+    assert specialist.context == ("for mira",)
+    assert specialist.tool_names == []
+    assert "No tool ran and no work was written" in events[-1]["data"]
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+    assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
 
 
 def test_an_empty_bench_says_so_rather_than_rendering_nothing(monkeypatch):

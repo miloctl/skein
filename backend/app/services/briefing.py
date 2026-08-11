@@ -310,7 +310,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
                 # It is the difference between "your agent is waiting on you"
                 # and "the team has a queue".
                 "SELECT id, entity, entity_id, action, summary, proposed_by,"
-                " requested_by, created_at"
+                " requested_by, created_at, review_visibility, review_crew_id, review_owner"
                 " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
             ),
             viewer,
