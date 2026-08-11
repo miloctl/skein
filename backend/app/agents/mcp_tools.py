@@ -162,6 +162,7 @@ class GovernedMCPTool(AgentTool):
                     approver_groups=decision.approver_groups,
                     approver_capabilities=decision.approver_capabilities,
                     review_owner=subject.name,
+                    policy_input=policy_input,
                 )
             except (TypeError, ValueError):
                 record("refused", self.tool_name, "review state is not serializable", actor=actor)

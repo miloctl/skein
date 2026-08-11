@@ -186,6 +186,8 @@ class ToolHandlerContext:
     subject: PolicySubject
     policy: PolicyEngine
     work_items: WorkItems
+    agent: str = ""
+    correlation_id: str = ""
 
 
 @dataclass(frozen=True)

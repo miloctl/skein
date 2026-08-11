@@ -10,7 +10,14 @@ from fastapi.routing import APIRoute
 
 from ..public.errors import PublicError
 from ..routes.deps import CurrentUser
-from .policy import PolicyDecision, PolicyEngine, PolicyInput, PolicyResource, PolicySubject
+from .policy import (
+    PolicyDecision,
+    PolicyEffect,
+    PolicyEngine,
+    PolicyInput,
+    PolicyResource,
+    PolicySubject,
+)
 
 if TYPE_CHECKING:
     from ..public.work import WorkItems
@@ -104,7 +111,12 @@ def _route_policy_action(request: Request) -> tuple[str, str, str]:
         if segment and segment != "api" and not segment.startswith("{")
     ]
     resource_type = literals[0] if literals else "api"
-    action = ".".join(("skein", "rest", request.method.lower(), *literals))
+    if request.method == "POST" and template == "/api/playbooks/instantiate":
+        # Use the same domain action as deterministic chat and agent tools.
+        # The resource context below supplies the definition's project class.
+        action = "playbook.create"
+    else:
+        action = ".".join(("skein", "rest", request.method.lower(), *literals))
     resource_id = next(
         (str(value) for value in request.path_params.values() if value is not None),
         "",
@@ -169,6 +181,12 @@ async def enforce_mutation_policy(
         project_type=domain.get("project_type", ""),
         classification=domain.get("classification", ""),
     )
+    if action == "playbook.create" and decision.effect == PolicyEffect.REVIEW:
+        # The playbook route has a durable, exact-input review adapter. Other
+        # direct REST mutations remain fail-closed because they cannot resume
+        # a reviewed call safely.
+        request.state.skein_playbook_policy_review = True
+        return
     enforce_decision(decision)
 
 

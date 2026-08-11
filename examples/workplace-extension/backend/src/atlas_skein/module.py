@@ -152,6 +152,8 @@ def atlas_module(
                 handler=lambda context, _request: integration.sync(
                     context.work_items,
                     context.subject,
+                    actor=context.agent,
+                    correlation_id=context.correlation_id,
                 ),
                 input_schema=SyncIn,
                 output_schema=SyncOut,

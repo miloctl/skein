@@ -212,6 +212,7 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
             result.review_id,
             actor="manager",
             extension_executor=resume,
+            policy_registry=registry,
         )
     approved = review.approve_change(
         result.review_id,
@@ -219,6 +220,7 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
         reviewer_groups=("delivery-managers",),
         reviewer_capabilities=("acme.approve-atlas",),
         extension_executor=resume,
+        policy_registry=registry,
     )
     assert approved["result"]["status"] == "completed"
     assert approved["result"]["output"] == {"updated": "A-7"}
@@ -844,6 +846,7 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
         reviewer_groups=("delivery-managers",),
         reviewer_capabilities=("acme.approve-atlas",),
         extension_executor=resume,
+        policy_registry=registry,
     )
     assert approved["result"]["status"] == "completed"
     assert remote.called is True
@@ -1116,6 +1119,191 @@ def test_zero_group_directory_subject_still_requires_refresh(fresh_db):
     )
     with pytest.raises(PermissionError, match="could not be refreshed"):
         ExtensionRegistry.build((module,)).refresh_subject(subject)
+
+
+def test_profile_resolver_cannot_mask_unavailable_group_directory(fresh_db):
+    from app.services import users
+
+    users.ensure_user("mira")
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda _name, groups, _strong: {
+                    "capabilities": ("acme.approve",) if "managers" in groups else (),
+                },
+                resolver=lambda _name: None,
+            ),
+            IdentityContribution(
+                "acme.workplace.profile",
+                lambda *_args: {},
+                resolver=lambda _name: {"active": True},
+            ),
+        ),
+    )
+    with pytest.raises(PermissionError, match="could not be refreshed"):
+        ExtensionRegistry.build((module,)).refresh_subject(
+            PolicySubject(
+                "mira",
+                groups=("managers",),
+                capabilities=("acme.approve",),
+                strong=True,
+                source="oidc",
+                refresh_required=True,
+            )
+        )
+
+
+def test_rest_playbook_policy_uses_authoritative_project_class(fresh_db):
+    def deny_prototype_playbooks(request: PolicyInput):
+        if request.action == "playbook.create" and request.resource.project_type == "prototype":
+            return PolicyDecision(PolicyEffect.DENY, ("prototype work is closed",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.playbook-policy", deny_prototype_playbooks),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.post(
+            "/api/playbooks/instantiate",
+            json={"playbook": "prototype", "engagement_name": "Must not exist"},
+        )
+    assert response.status_code == 403
+    assert response.json()["code"] == "POLICY_DENIED"
+    assert fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Must not exist'") is None
+
+
+def test_rest_playbook_policy_review_resumes_before_any_work(fresh_db):
+    from app.services import users
+
+    def identity(name, _groups, _strong):
+        return {
+            "capabilities": ("acme.approve-playbook",) if name == "manager" else (),
+        }
+
+    def review_prototype_playbooks(request: PolicyInput):
+        if request.action == "playbook.create" and request.resource.project_type == "prototype":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=("acme.approve-playbook",),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(IdentityContribution("acme.workplace.identity", identity),),
+        policies=(
+            PolicyContribution("acme.workplace.playbook-review", review_prototype_playbooks),
+        ),
+    )
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    with TestClient(create_app(modules=(module,))) as client:
+        queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "prototype", "engagement_name": "Reviewed prototype"},
+        )
+        assert queued.status_code == 200, queued.text
+        workflow = queued.json()["workflow"]
+        assert workflow["status"] == "review_required"
+        assert workflow["checkpoint"] == "workplace-policy"
+        assert workflow["review_id"] > 0
+        assert (
+            fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Reviewed prototype'")
+            is None
+        )
+
+        approved = client.post(
+            f"/api/review/{workflow['review_id']}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Approved."},
+        )
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["result"]["engagement"]["name"] == "Reviewed prototype"
+
+    assert fresh_db.query_one("SELECT name FROM engagements WHERE name = 'Reviewed prototype'") == {
+        "name": "Reviewed prototype"
+    }
+
+
+def test_extension_rejection_uses_current_approver_group(fresh_db):
+    from app.services import review, users
+
+    required = {"group": "old-approvers"}
+
+    def current_approval_policy(request: PolicyInput):
+        if request.action == "acme.sync":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(required["group"],),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.current-approval", current_approval_policy),),
+        tools=(
+            ToolContribution(
+                name="acme.workplace.sync",
+                version="1.0.0",
+                model_name="acme_sync",
+                description="Test current approval authority.",
+                handler=lambda _context, request: {"updated": request.external_id},
+                input_schema=SyncIn,
+                output_schema=SyncOut,
+                effect="write",
+                risk="high",
+                policy_action="acme.sync",
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    for name in ("requester", "old-manager", "new-manager"):
+        users.ensure_user(name)
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "ATLAS-9"},
+            ToolCallContext(PolicySubject("requester"), "acme-agent"),
+            registry.policy_engine,
+        )
+    )
+    assert queued.status == "review_required"
+    required["group"] = "new-approvers"
+
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.reject_change(
+            queued.review_id,
+            actor="old-manager",
+            reviewer_groups=("old-approvers",),
+            policy_registry=registry,
+        )
+    rejected = review.reject_change(
+        queued.review_id,
+        actor="new-manager",
+        reviewer_groups=("new-approvers",),
+        policy_registry=registry,
+    )
+    assert rejected["status"] == "rejected"
 
 
 def test_subject_refresh_never_increases_authentication_strength(fresh_db):

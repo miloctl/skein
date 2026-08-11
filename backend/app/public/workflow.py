@@ -21,6 +21,7 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
     approval_fingerprint,
+    policy_input_data,
 )
 from .errors import PublicError
 
@@ -115,6 +116,7 @@ class WorkflowResult(BaseModel):
     obligations: tuple[str, ...] = ()
     review_key: str = ""
     review_fingerprint: str = ""
+    review_policy: dict[str, Any] = Field(default_factory=dict, exclude=True)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -264,6 +266,9 @@ class WorkflowEngine:
                     obligations=_obligations(decision),
                     review_key=step_path,
                     review_fingerprint=fingerprint,
+                    review_policy=(
+                        policy_input_data(request) if decision.effect == PolicyEffect.REVIEW else {}
+                    ),
                 )
         return None
 
@@ -344,6 +349,7 @@ class WorkflowEngine:
                         obligations=obligations,
                         review_key=step_path,
                         review_fingerprint=fingerprint,
+                        review_policy=policy_input_data(request),
                         outputs=state.outputs,
                     )
                 state.completed.append(step.name)
@@ -412,6 +418,9 @@ class WorkflowEngine:
                 obligations=_obligations(decision),
                 review_key=step_path,
                 review_fingerprint=fingerprint,
+                review_policy=(
+                    policy_input_data(request) if decision.effect == PolicyEffect.REVIEW else {}
+                ),
                 outputs=state.outputs,
             )
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-workflow")

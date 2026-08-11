@@ -27,9 +27,19 @@ class CommandContext:
     correlation_id: str = ""
     project_type: str = ""
     attributes: dict[str, Any] = field(default_factory=dict)
+    actor: str = ""
+    actor_kind: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+
+    @property
+    def execution_actor(self) -> str:
+        return self.actor or self.subject.name
+
+    @property
+    def execution_actor_kind(self) -> str:
+        return self.actor_kind or self.subject.kind
 
 
 class CreateTaskCommand(BaseModel):
@@ -190,24 +200,24 @@ class WorkItems:
                         (context.origin, command.idempotency_key),
                     )
                 if prior:
-                    return self._task_view(int(prior["result_id"]), actor=context.subject.name)
+                    return self._task_view(int(prior["result_id"]), actor=context.execution_actor)
                 values = command.model_dump(exclude={"status", "idempotency_key"})
                 result = work.create_task(
                     **values,
-                    actor=context.subject.name,
+                    actor=context.execution_actor,
                     origin=context.origin,
                     correlation_id=context.correlation_id,
-                    event_actor_kind=context.subject.kind,
+                    event_actor_kind=context.execution_actor_kind,
                 )
                 if command.status != "todo":
                     work.update_task(
                         result["id"],
                         status=command.status,
-                        actor=context.subject.name,
+                        actor=context.execution_actor,
                         origin=context.origin,
                         note=f" through {context.origin}",
                         correlation_id=context.correlation_id,
-                        event_actor_kind=context.subject.kind,
+                        event_actor_kind=context.execution_actor_kind,
                     )
                 if command.idempotency_key:
                     db.execute(
@@ -221,7 +231,7 @@ class WorkItems:
                             db.now(),
                         ),
                     )
-                return self._task_view(result["id"], actor=context.subject.name)
+                return self._task_view(result["id"], actor=context.execution_actor)
         except PublicError:
             raise
         except (ValueError, PermissionError) as exc:
@@ -251,11 +261,11 @@ class WorkItems:
             work.update_task(
                 command.task_id,
                 **changes,
-                actor=context.subject.name,
+                actor=context.execution_actor,
                 origin=context.origin,
                 note=f" through {context.origin}",
                 correlation_id=context.correlation_id,
-                event_actor_kind=context.subject.kind,
+                event_actor_kind=context.execution_actor_kind,
             )
         except PublicError:
             raise

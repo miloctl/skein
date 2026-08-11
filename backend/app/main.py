@@ -80,6 +80,14 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
         ):
             return {"skipped": "this job run is already claimed", "run_id": run_id}
         execution = JobExecutionContext(policy, work_items, subject, run_id)
+        if contribution.name == "skein.core.agent-run":
+            # This core adapter needs the full trusted composition root. The
+            # public JobExecutionContext stays narrow for private jobs, while
+            # every model-facing tool in an unattended turn receives the same
+            # policy engine and extension registry as an interactive turn.
+            from .services.agent_runner import run as run_agents
+
+            return run_agents(actor=subject.name, extensions=registry, policy=policy)
         if contribution.name.startswith("skein.core."):
             return contribution.handler(execution)
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-extension-job")
@@ -184,9 +192,14 @@ async def _stop_extensions(
     for contribution in reversed(started):
         if contribution.shutdown is None:
             continue
-        result = contribution.shutdown(context)
-        if isawaitable(result):
-            await result
+        try:
+            result = contribution.shutdown(context)
+            if isawaitable(result):
+                await result
+        except Exception:
+            # One private cleanup must not strand resources owned by another
+            # module or mask the startup error that triggered this rollback.
+            log.exception("extension shutdown failed", extra={"extension": contribution.name})
 
 
 async def _start_extensions(

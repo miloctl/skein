@@ -264,12 +264,18 @@ def instantiate(
     if prepared_workflow is not None and workflow_engine is not None:
         workflow_result = workflow_engine.authorize(prepared_workflow, workflow_context)
         if workflow_result.status != "completed":
-            return {"workflow": workflow_result.model_dump(mode="json")}
+            serialized = workflow_result.model_dump(mode="json")
+            if workflow_result.review_policy:
+                serialized["_review_policy"] = workflow_result.review_policy
+            return {"workflow": serialized}
     with db.transaction():
         created = _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
     if prepared_workflow is not None and workflow_engine is not None:
         result = workflow_engine.run(prepared_workflow, workflow_context)
-        created["workflow"] = result.model_dump(mode="json")
+        serialized = result.model_dump(mode="json")
+        if result.review_policy:
+            serialized["_review_policy"] = result.review_policy
+        created["workflow"] = serialized
     return created
 
 

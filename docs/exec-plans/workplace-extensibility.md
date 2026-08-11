@@ -226,8 +226,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 11 | 3 through 10 | Atlas reference extension | Scenarios A through G | Complete |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Complete before review |
-| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | Second review rejected `952ff3a` |
-| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Fifth remediation complete; fresh review pending |
+| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | Sixth review rejected `d4deff1` |
+| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Sixth remediation complete; final review pending |
 
 ## Test strategy
 
@@ -308,6 +308,11 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Report synchronous write timeouts as completion unknown | A thread cannot be cancelled after it starts, so a timeout is not proof that no side effect occurred |
 | 2026-08-11 | Use one retry budget for each event subscriber | A tolerant subscriber must not extend another subscriber's declared retry limit |
 | 2026-08-11 | Package stock content and core migrations with the wheel | An installed core artifact must start without the source tree |
+| 2026-08-11 | Pass the composed registry into unattended turns | Scheduled agents must use the same tools and workplace policy as interactive agents |
+| 2026-08-11 | Separate requester and execution actor | Policy uses the requester, while provenance records the specialist that performed the write |
+| 2026-08-11 | Require a group result during directory refresh | A profile resolver must not preserve stale approval groups during a directory outage |
+| 2026-08-11 | Use `playbook.create` on every surface | REST, deterministic chat, and agent tools need one project-aware policy action |
+| 2026-08-11 | Run artifact contracts in main CI | Installed packages, deployment overlays, and derivative images need continuous checks |
 
 ## Risks
 
@@ -784,3 +789,63 @@ Verification after this remediation:
 
 The next step is a fresh four-role independent review. Chrome validation stays
 blocked until every review gate passes.
+
+### Sixth independent review and remediation
+
+Four specialists reviewed commit `d4deff1`. The compatibility reviewer
+approved it. The architecture, security, and adversarial reviewers rejected
+it.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.7 | 8.3 | Reject |
+| Security and provenance | 7.7 | 6.8 | 8.0 | Reject |
+| Compatibility and reliability | 8.2 | 8.2 | 8.2 | Approve |
+| Adversarial score auditor | 7.6 | 7.1 | 8.0 | Reject |
+
+The reviewers found four high-severity defects:
+
+- The unattended agent runner lost the composed policy and registry.
+- A profile resolver could mask an unavailable group resolver.
+- REST playbook policy did not receive the selected project class.
+- A contributed specialist tool recorded the requester as the writer.
+
+The compatibility reviewer also found a lifecycle cleanup defect. The
+security reviewer found that extension rejection used old approver grants.
+
+This remediation does the following:
+
+- The core agent job passes the composed registry and policy into each turn.
+  Each turn uses an explicit agent subject. Context cleanup runs in `finally`.
+- Group refresh succeeds only when a resolver returns the `groups` key. An
+  empty group tuple is valid. A profile-only result cannot hide an outage.
+- REST, deterministic chat, and agent tools use `playbook.create`. REST loads
+  the selected playbook before policy evaluation.
+- A REST policy review stores the exact playbook call before any project work.
+  Current policy and identity govern approval and rejection.
+- A tool handler receives the requester, agent, and correlation ID separately.
+  Public commands record the agent as the writer and retain the requester for
+  policy evaluation.
+- Extension shutdown isolates callback failures. One failed callback cannot
+  skip cleanup for another module.
+- The public API exports `LifecycleContext`.
+- The main CI workflow runs installed backend, frontend host, deployment, and
+  derivative image contracts.
+
+Verification after this remediation:
+
+- Focused security, review, workflow, and public-contract tests: 189 passed.
+- Full backend suite: 1,704 passed in 115.41 seconds.
+- Frontend suite: 229 passed in 45 files.
+- Production frontend build: passed in 20.59 seconds.
+- Full lint, type, dead-code, content, license, and theme gate: passed.
+- Installed backend and unchanged Atlas upgrade rehearsal: passed.
+- Packed frontend two-host rehearsal: passed.
+- Standard Kustomize render: passed.
+- Base schema and activity-chain upgrade: passed.
+- Core wheel build: passed.
+- Core, frontend host, Atlas backend, and Atlas frontend images: built and
+  inspected successfully.
+
+A fresh four-role review is the next gate. Chrome validation remains blocked
+until that review approves the exact commit.

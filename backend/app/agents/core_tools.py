@@ -152,6 +152,7 @@ class GovernedCoreTool(AgentTool):
                 approver_groups=decision.approver_groups,
                 approver_capabilities=decision.approver_capabilities,
                 review_owner=subject.name,
+                policy_input=request,
             )
             receipts.record("queued", self.tool_name, "review required", proposal["id"], actor)
             yield _error(

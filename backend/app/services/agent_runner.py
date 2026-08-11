@@ -33,14 +33,20 @@ Bounds, because nobody is watching:
     re-spend an agent's allowance.
 """
 
+from __future__ import annotations
+
 import contextlib
 import contextvars
 import logging
 import threading
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from .. import config, db
 from . import delegation, usage
+
+if TYPE_CHECKING:
+    from ..extensions import ExtensionRegistry, PolicyEngine
 
 log = logging.getLogger("skein")
 
@@ -165,7 +171,13 @@ def _failed(agent: str, reason: str) -> dict:
     return {"agent": agent, "ran": False, "fault": True, "reason": reason}
 
 
-def run_one(agent: str, *, actor: str = "scheduler") -> dict:
+def run_one(
+    agent: str,
+    *,
+    actor: str = "scheduler",
+    extensions: ExtensionRegistry | None = None,
+    policy: PolicyEngine | None = None,
+) -> dict:
     """One bounded, unattended turn for one agent.
 
     Returns a reason rather than raising for every refusal an operator can
@@ -194,14 +206,38 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
 
     from ..agents.identity import reset_agent_identity, set_agent_identity
     from ..agents.team_agent import build_agent
+    from ..extensions.policy import (
+        PolicySubject,
+        current_policy_engine,
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
 
     # A thread id per agent per day, so the run has somewhere to keep its
     # session and a human can read the transcript afterwards on /chat.
     thread = f"run-{agent}-{db.today().isoformat()}"
+    agent_subject = PolicySubject(
+        agent,
+        kind="agent",
+        strong=True,
+        source="agent-runner",
+    )
+    policy_token = set_policy_engine(policy or current_policy_engine())
+    subject_token = set_policy_subject(agent_subject)
     token = set_agent_identity(agent)
     try:
         try:
-            built = build_agent(thread, user=agent)
+            if extensions is not None:
+                built = build_agent(
+                    thread,
+                    user=agent,
+                    extensions=extensions,
+                    policy_subject=agent_subject,
+                )
+            else:
+                built = build_agent(thread, user=agent)
         except Exception as exc:
             # the claim is RELEASED here: nothing reached the provider, so
             # nothing was spent, and a 30-second blip at 05:30 must not cost
@@ -281,14 +317,23 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
         # otherwise leave this thread's identity set to the agent, and the
         # next write on it would carry the wrong actor
         reset_agent_identity(token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
 
 
-def run(*, actor: str = "scheduler") -> dict:
+def run(
+    *,
+    actor: str = "scheduler",
+    extensions: ExtensionRegistry | None = None,
+    policy: PolicyEngine | None = None,
+) -> dict:
     """The scheduled entry point: the deterministic sweep, then one bounded
     turn per allowlisted agent. The sweep runs FIRST and unconditionally, so
     a sponsor still hears about quiet work on a day every run refuses."""
     swept = sweep()
-    runs = [run_one(a, actor=actor) for a in config.AGENT_RUNNER]
+    runs = [
+        run_one(a, actor=actor, extensions=extensions, policy=policy) for a in config.AGENT_RUNNER
+    ]
     ran = sum(1 for r in runs if r["ran"])
     faults = [r for r in runs if r.get("fault")]
     # `status` is read by jobs.run_job, which otherwise records `ok` for any

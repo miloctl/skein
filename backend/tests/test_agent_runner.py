@@ -405,3 +405,85 @@ def test_the_run_is_recorded_under_the_scheduler_not_the_agent(fresh_db, monkeyp
     # registered, so the feed renders its own sentence rather than the
     # honest-but-generic fallback for an unknown action
     assert rows[0]["action"] in activity.VERBS
+
+
+def test_unattended_turn_uses_composed_policy_and_registry(fresh_db, monkeypatch):
+    """An allowed scheduler job must not replace per-tool workplace policy."""
+    from app.extensions import (
+        AppSettings,
+        ExtensionRegistry,
+        PolicyContribution,
+        PolicyDecision,
+        PolicyEffect,
+        PolicyInput,
+        PolicyResource,
+        PolicySubject,
+        SkeinModule,
+    )
+    from app.extensions.core import core_module
+    from app.extensions.policy import current_policy_engine, current_policy_subject
+    from app.main import _job_specs
+    from app.tools._gate import gated_write
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    def deny_agent_create(request):
+        if request.action == "task.create" and request.subject.name == "research-agent":
+            return PolicyDecision(PolicyEffect.DENY, ("unattended create denied",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.runner-policy", deny_agent_create),),
+    )
+    registry = ExtensionRegistry.build((core_module(), module))
+    observed = {}
+
+    def build(_thread, user="", **options):
+        observed["extensions"] = options.get("extensions")
+        observed["subject"] = options.get("policy_subject")
+        observed["engine"] = current_policy_engine()
+
+        def turn(_message):
+            observed["worker_subject"] = current_policy_subject()
+            return gated_write(
+                "task",
+                "create",
+                {"title": "must stay denied"},
+                lambda: work.create_task("must stay denied", actor=user, origin="agent"),
+            )
+
+        return turn
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", build)
+    spec = next(
+        item for item in _job_specs(registry, AppSettings.from_config()) if item.name == "agent-run"
+    )
+    result = spec.fn()
+
+    assert result["runs"][0]["ran"] is True
+    assert observed["extensions"] is registry
+    assert (
+        observed["engine"]
+        .decide(
+            PolicyInput(
+                PolicySubject("research-agent", kind="agent"),
+                "task.create",
+                PolicyResource("task"),
+                "agent_tool",
+            )
+        )
+        .effect
+        == PolicyEffect.DENY
+    )
+    assert observed["subject"] == PolicySubject(
+        "research-agent", kind="agent", strong=True, source="agent-runner"
+    )
+    assert observed["worker_subject"] == observed["subject"]
+    assert db.query_one("SELECT id FROM tasks WHERE title = 'must stay denied'") is None
