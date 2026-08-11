@@ -22,8 +22,10 @@ from ..extensions.policy import (
     PolicyInput,
     PolicyResource,
     PolicySubject,
+    approval_fingerprint,
     current_policy_engine,
     current_policy_subject,
+    policy_input_data,
 )
 from ..services import lexicon, review
 from ..services.delegation import authority_level
@@ -115,15 +117,15 @@ def gated_write(
         ratelimit.check("write", requester_identity() or actor)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
-    project_type = str(payload.get("project_type") or payload.get("project_class") or "")
-    classification = str(payload.get("classification") or payload.get("visibility") or "")
-    attributes = {}
-    if entity == "task" and entity_id:
-        from ..services.work import task_policy_context
+    from ..services import policy_context as domain_policy
 
-        attributes = task_policy_context(entity_id)
-        project_type = project_type or str(attributes.get("project_type") or "")
-        classification = classification or str(attributes.get("classification") or "")
+    attributes = (
+        domain_policy.existing(entity, entity_id)
+        if entity_id
+        else domain_policy.proposed(entity, payload)
+    )
+    project_type = str(attributes.get("project_type") or "")
+    classification = str(attributes.get("classification") or "")
     subject = current_policy_subject()
     resolved_subject = requester_identity() or actor
     if subject.name == "agent" and resolved_subject != "agent":
@@ -131,24 +133,23 @@ def gated_write(
             resolved_subject,
             kind="human" if requester_identity() else "agent",
         )
-    decision = current_policy_engine().decide(
-        PolicyInput(
-            subject=subject,
-            action=f"{entity}.{action}",
-            resource=PolicyResource(
-                entity,
-                str(entity_id or ""),
-                project_type,
-                classification,
-                attributes,
-            ),
-            origin="agent",
-            agent=actor,
-            tool=f"skein.{entity}.{action}",
-            tool_effect="write",
-            tool_risk="high" if entity in ALWAYS_REVIEW else "medium",
-        )
+    policy_input = PolicyInput(
+        subject=subject,
+        action=f"{entity}.{action}",
+        resource=PolicyResource(
+            entity,
+            str(entity_id or ""),
+            project_type,
+            classification,
+            attributes,
+        ),
+        origin="agent",
+        agent=actor,
+        tool=f"skein.{entity}.{action}",
+        tool_effect="write",
+        tool_risk="high" if entity in ALWAYS_REVIEW else "medium",
     )
+    decision = current_policy_engine().decide(policy_input)
     if decision.effect == PolicyEffect.DENY:
         # actor is passed even though the detail already names it: the live
         # chip composes its own sentence ("forbidden for ...") and needs the
@@ -198,6 +199,25 @@ def gated_write(
             policy_obligations=decision.obligations,
             approver_groups=decision.approver_groups,
             approver_capabilities=decision.approver_capabilities,
+            policy_context={
+                "input": policy_input_data(policy_input),
+                "contract": {
+                    "entity": entity,
+                    "action": action,
+                    "entity_id": entity_id,
+                    "payload": payload,
+                },
+                "approval_fingerprint": approval_fingerprint(
+                    policy_input,
+                    decision,
+                    {
+                        "entity": entity,
+                        "action": action,
+                        "entity_id": entity_id,
+                        "payload": payload,
+                    },
+                ),
+            },
         )
     except ValueError as exc:
         receipts.record("failed", entity, str(exc), actor=actor)

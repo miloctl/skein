@@ -8,6 +8,7 @@ import tomllib
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,6 +55,10 @@ def test_reference_package_imports_only_public_skein_modules():
                 module = node.module or ""
                 if module not in allowed:
                     offenders.append(f"{path.name}: {module}")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("app.") and alias.name not in allowed:
+                        offenders.append(f"{path.name}: {alias.name}")
     assert offenders == []
 
 
@@ -76,12 +81,34 @@ def test_reference_module_exercises_each_supported_backend_contribution(tmp_path
     assert len(registry.jobs) == 1
     assert len(registry.policies) == 1
     assert len(registry.identities) == 1
+    assert len(registry.service_identities) == 2
     assert len(registry.contexts) == 1
     assert len(registry.tools) == 1
     assert len(registry.specialists) == 1
     assert len(registry.events) == 1
     assert len(registry.migrations) == 1
     assert len(registry.workflow_actions) == 1
+
+
+def test_service_identities_cannot_be_claimed_by_humans(fresh_db, tmp_path):
+    from app.services.users import ensure_user
+
+    ensure_user("atlas-sync", kind="human")
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with (
+        pytest.raises(RuntimeError, match="already owned by a human"),
+        TestClient(create_app(settings, (_module(tmp_path),))),
+    ):
+        pass
+
+
+def test_human_identity_mapping_never_grants_service_capabilities(tmp_path):
+    registry = ExtensionRegistry.build((_module(tmp_path),))
+    human = registry.identity_attributes("atlas-sync", (), True)
+    service = registry.service_subject("atlas-sync")
+    assert "atlas.integration" not in human["capabilities"]
+    assert service.kind == "service"
+    assert service.capabilities == ("atlas.integration",)
 
 
 def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, tmp_path):
@@ -93,7 +120,6 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
         registry = app.state.skein_registry
         work_items = WorkItems(registry.policy_engine)
         context = JobExecutionContext(
-            settings,
             registry.policy_engine,
             work_items,
             registry.service_subject("atlas-sync"),

@@ -74,6 +74,21 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
     --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}"
 
+ATLAS_SOURCE="$tmp/extension-source" "$tmp/venv/bin/python" - <<'PY'
+import os
+from pathlib import Path
+
+from app import config
+from app.services import playbooks
+from atlas_skein import AtlasSettings, atlas_module
+
+root = Path(os.environ["ATLAS_SOURCE"])
+config.PLAYBOOKS_OVERLAY = root / "content" / "playbooks"
+module = atlas_module(AtlasSettings(root / "atlas-validation.db"))
+registered = {action.name for action in module.workflow_actions}
+assert playbooks.validate_all(registered) == []
+PY
+
 (
     cd "$tmp/run"
     SKEIN_DATA_DIR="$tmp/core-data" \
@@ -119,19 +134,93 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
 from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
+import asyncio
 
 from fastapi.testclient import TestClient
 
-from app.extensions import AppSettings, SKEIN_CORE_VERSION
-from app.main import create_app
+from app.extensions import AppSettings, PolicySubject, SKEIN_CORE_VERSION
+from app.extensions.tools import ToolCallContext, execute_tool
+from app.main import _job_specs, create_app
+from app.public import CommandContext, CreateTaskCommand, UpdateTaskCommand, WorkItems
+from app.public.events import dispatch_events
+from app.public.workflow import WorkflowContext, WorkflowEngine
+from app.extensions import EventExecutionContext
 from atlas_skein import AtlasSettings, atlas_module
 
 assert version("skein") == "0.2.1"
 assert SKEIN_CORE_VERSION == "0.2.1"
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 settings = replace(AppSettings.from_config(), scheduler_enabled=False)
-with TestClient(create_app(settings, (module,))) as client:
+app = create_app(settings, (module,))
+with TestClient(app) as client:
     assert client.get("/health").status_code == 200
+    from app.routes import deps
+    original_resolve = deps._resolve
+    deps._resolve = lambda *_args, **_kwargs: (
+        "mira", True, ("atlas-delivery-managers", "atlas-integrations")
+    )
+    try:
+        assert client.get(
+            "/api/extensions/atlas.workplace/metrics",
+            headers={"X-User": "mira"},
+        ).status_code == 200
+        assert client.post(
+            "/api/extensions/atlas.workplace/sync",
+            headers={"X-User": "mira"},
+            json={"full": False},
+        ).status_code == 200
+    finally:
+        deps._resolve = original_resolve
+
+registry = app.state.skein_registry
+subject = PolicySubject(
+    "mira",
+    groups=("atlas-delivery-managers", "atlas-integrations"),
+    capabilities=("atlas.dashboard", "atlas.specialist", "atlas.integration"),
+)
+tool = registry.tools[0]
+tool_result = asyncio.run(
+    execute_tool(
+        tool,
+        {"full": False},
+        ToolCallContext(subject, "atlas.workplace.delivery-specialist"),
+        registry.policy_engine,
+    )
+)
+assert tool_result.status == "completed"
+
+workflow = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+workflow_result = workflow.run(
+    workflow.prepare(
+        [{
+            "type": "action",
+            "name": "atlas.workplace.notify-manager",
+            "input": {"channel": "delivery", "message": "upgrade passed"},
+        }]
+    ),
+    WorkflowContext(subject, "workflow"),
+)
+assert workflow_result.status == "completed"
+
+work = WorkItems(registry.policy_engine)
+command_context = CommandContext(
+    subject=registry.service_subject("atlas-sync"),
+    origin="atlas-upgrade-test",
+)
+task = work.create_task(CreateTaskCommand(title="Upgrade event"), command_context)
+work.update_task(UpdateTaskCommand(task_id=task.id, status="in_progress"), command_context)
+delivered = dispatch_events(
+    registry.events,
+    EventExecutionContext(
+        registry.policy_engine,
+        work,
+        registry.service_subject,
+    ),
+)
+assert delivered["delivered"] >= 1
+
+job = next(item for item in _job_specs(registry, settings) if item.name == "atlas.workplace.sync")
+assert "error_code" not in job.fn()
 from app import db
 assert db.query_one(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",

@@ -42,6 +42,7 @@ from ..services import (
     personas,
     planning,
     playbooks,
+    policy_context,
     portfolio,
     promises,
     provenance,
@@ -1327,8 +1328,25 @@ class TaskIn(BaseModel):
 
 
 @router.post("/tasks")
-def post_task(body: TaskIn, user: CurrentUser):
+def post_task(
+    body: TaskIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
+    domain = policy_context.proposed("task", body.model_dump())
+    enforce_decision(
+        decide(
+            request,
+            subject,
+            "skein.rest.post.tasks",
+            "task",
+            project_type=domain["project_type"],
+            classification=domain["classification"],
+            attributes=body.model_dump(),
+        )
+    )
     return work.create_task(**body.model_dump(), actor=user)
 
 
@@ -1817,6 +1835,7 @@ def post_approve(
         extension_executor=lambda invocation, change_id: _execute_extension_review(
             request, invocation, change_id
         ),
+        policy_registry=request.app.state.skein_registry,
     )
 
 
@@ -1910,6 +1929,7 @@ def post_approve_batch(
                 extension_executor=lambda invocation, change_id: _execute_extension_review(
                     request, invocation, change_id
                 ),
+                policy_registry=request.app.state.skein_registry,
             )
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:

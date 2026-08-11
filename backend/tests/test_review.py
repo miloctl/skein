@@ -223,6 +223,8 @@ def test_review_gate_covers_all_mutating_tools(fresh_db, monkeypatch):
 
 def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
     from app import config
+    from app.extensions import ExtensionRegistry
+    from app.extensions.core import core_module
     from app.services import engagements, review
     from app.tools import platform as tp
 
@@ -232,7 +234,11 @@ def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
             playbook_slug="incident", engagement_name="Sev1 db outage"
         )
     )
-    review.approve_change(out["id"], actor="alice")
+    review.approve_change(
+        out["id"],
+        actor="alice",
+        policy_registry=ExtensionRegistry.build((core_module(),)),
+    )
     assert engagements.list_engagements()[0]["name"] == "Sev1 db outage"
 
 

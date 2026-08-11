@@ -185,6 +185,66 @@ def approval_fingerprint(
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def policy_input_data(request: PolicyInput) -> dict[str, Any]:
+    """Return the stable JSON form stored with a reviewed core write."""
+    return _plain(
+        {
+            "subject": {
+                "name": request.subject.name,
+                "kind": request.subject.kind,
+                "roles": request.subject.roles,
+                "groups": request.subject.groups,
+                "capabilities": request.subject.capabilities,
+                "attributes": request.subject.attributes,
+            },
+            "action": request.action,
+            "resource": {
+                "type": request.resource.type,
+                "id": request.resource.id,
+                "project_type": request.resource.project_type,
+                "classification": request.resource.classification,
+                "attributes": request.resource.attributes,
+            },
+            "origin": request.origin,
+            "agent": request.agent,
+            "tool": request.tool,
+            "tool_effect": request.tool_effect,
+            "tool_risk": request.tool_risk,
+            "context": request.context,
+        }
+    )
+
+
+def policy_input_from_data(value: Mapping[str, Any], subject: PolicySubject) -> PolicyInput:
+    """Rebuild a saved policy input with an authoritatively refreshed subject."""
+    resource = value.get("resource")
+    if not isinstance(resource, Mapping):
+        raise ValueError("the reviewed policy resource is invalid")
+    context = value.get("context")
+    if not isinstance(context, Mapping):
+        raise ValueError("the reviewed policy context is invalid")
+    attributes = resource.get("attributes")
+    if not isinstance(attributes, Mapping):
+        raise ValueError("the reviewed policy resource attributes are invalid")
+    return PolicyInput(
+        subject=subject,
+        action=str(value.get("action") or ""),
+        resource=PolicyResource(
+            type=str(resource.get("type") or ""),
+            id=str(resource.get("id") or ""),
+            project_type=str(resource.get("project_type") or ""),
+            classification=str(resource.get("classification") or ""),
+            attributes=dict(attributes),
+        ),
+        origin=str(value.get("origin") or "agent"),
+        agent=str(value.get("agent") or ""),
+        tool=str(value.get("tool") or ""),
+        tool_effect=str(value.get("tool_effect") or "none"),
+        tool_risk=str(value.get("tool_risk") or "low"),
+        context=dict(context),
+    )
+
+
 def _plain(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}

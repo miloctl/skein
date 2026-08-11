@@ -586,5 +586,80 @@ Verification after this remediation:
 
 ## Final results
 
-The second remediation and full verification pass. A new independent review,
-review remediation if needed, and live Chrome validation are pending.
+### Third independent review
+
+Four read-only specialists reviewed commit `4f1374f`. One approved it. Three
+rejected it.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Compatibility and reliability | 8.2 | 8.1 | 8.3 | Approve |
+| Security and provenance | 7.5 | 6.8 | 7.4 | Reject |
+| Extension author | 8.1 | 7.8 | 7.7 | Reject |
+| Adversarial score auditor | 7.8 | 7.5 | 7.1 | Reject |
+
+The valid gate findings are:
+
+- Core agent proposals do not recheck current policy and identity.
+- The keyless capture path can bypass workplace domain policy.
+- Human names can collide with job and event service identities.
+- An MCP review does not bind the selected server.
+- A saved directory subject can retain inactive or removed group membership.
+- Unexpected write failures can report a known failure after a late write.
+- Direct routes, jobs, and events do not have a safe review-resume contract.
+- Frontend upgrades lack a versioned host artifact and two-version rehearsal.
+- Nested playbook steps and action references lack complete validation.
+- Lifecycle handlers receive unnecessary application internals.
+- The import-boundary test does not inspect plain `import` statements.
+
+### Third-review remediation
+
+The third remediation is implemented on the working branch.
+
+- Core review records bind the exact policy input and command. Approval
+  refreshes the requester, reloads current domain attributes, and rechecks the
+  composed policy.
+- Keyless agent captures use the same governed write gate as model-backed
+  tools. Signed Slack captures remain human writes.
+- Jobs and subscribers use explicit non-human service identities. Startup
+  rejects a human-name collision. Human identity mapping cannot grant a
+  service capability by name.
+- MCP reviews bind the server, tool, version, and input. Same-named tools on
+  different servers fail closed.
+- Directory-backed review subjects need an available resolver. Inactive users
+  and removed groups fail the current approval check.
+- Timed-out and unexpected writes report `completion_unknown` when a late side
+  effect is possible.
+- Direct routes, jobs, and subscribers reject `review` with
+  `POLICY_REVIEW_UNSUPPORTED`. Governed tools and workflows are the supported
+  durable review surfaces.
+- The repository can create a versioned frontend host archive. The container
+  build has a public host stage. One unchanged Atlas package builds against
+  synthetic compatible core hosts `0.2.0` and `0.2.1`.
+- Content validation walks nested workflow steps and verifies registered
+  workflow actions.
+- Lifecycle handlers receive only the installed core version. Scheduled jobs
+  do not receive application settings or secrets.
+- Import-boundary tests inspect `import` and `from ... import ...` statements.
+- Extension job and event handlers must be synchronous. Job execution is
+  bounded, and each run window has a tested durable claim.
+
+Verification after this remediation:
+
+- `backend/.venv/bin/pytest -q -n auto backend/tests`: 1,671 passed in
+  104.92 seconds.
+- `npm --prefix frontend test -- --run`: 229 passed in 45 files.
+- `./scripts/lint.sh`: all Python, TypeScript, content, license, dead-code,
+  and theme checks passed.
+- `npm run build` in `frontend/`: the production build passed in 16.91
+  seconds.
+- `scripts/reference-extension-contract.sh`: installed startup and the full
+  unchanged Atlas `0.2.0` to `0.2.1` backend upgrade passed in 17.71 seconds.
+- `scripts/reference-frontend-contract.sh`: the unchanged Atlas package built
+  on frontend hosts `0.2.0` and `0.2.1` in 43.76 seconds.
+- `scripts/upgrade-path.sh d3b0f2e...`: schema equality and the activity chain
+  passed in 0.51 seconds.
+- `uv build --wheel --out-dir /tmp/skein-final-remediation-dist backend`:
+  the core wheel built successfully.
+
+A new independent review and live Chrome validation are pending.

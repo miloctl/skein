@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from inspect import iscoroutinefunction
 
 from .contracts import (
     EXTENSION_API_VERSION,
@@ -16,6 +17,7 @@ from .contracts import (
     MigrationContribution,
     PolicyContribution,
     RouteContribution,
+    ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
@@ -54,6 +56,7 @@ class ExtensionRegistry:
     lifecycle: tuple[LifecycleContribution, ...]
     policies: tuple[PolicyContribution, ...]
     identities: tuple[IdentityContribution, ...]
+    service_identities: tuple[ServiceIdentityContribution, ...]
     contexts: tuple[ContextContribution, ...]
     tools: tuple[ToolContribution, ...]
     specialists: tuple[SpecialistContribution, ...]
@@ -74,8 +77,8 @@ class ExtensionRegistry:
         capabilities: list[str] = []
         for contribution in self.identities:
             contributed = dict(contribution.mapper(name, groups, strong))
-            roles.extend(str(value) for value in contributed.pop("roles", ()))
-            capabilities.extend(str(value) for value in contributed.pop("capabilities", ()))
+            roles.extend(_string_tuple(contributed.pop("roles", ()), "roles"))
+            capabilities.extend(_string_tuple(contributed.pop("capabilities", ()), "capabilities"))
             overlap = set(attributes) & set(contributed)
             if overlap:
                 raise ExtensionValidationError(
@@ -87,31 +90,40 @@ class ExtensionRegistry:
         return attributes
 
     def service_subject(self, name: str) -> PolicySubject:
-        """Resolve one registered service identity through workplace mapping."""
-        attributes = self.identity_attributes(name, (), True)
-        roles = _string_tuple(attributes.pop("roles", ()), "roles")
-        capabilities = _string_tuple(attributes.pop("capabilities", ()), "capabilities")
+        """Resolve one registered service identity without human mapping."""
+        try:
+            identity = next(item for item in self.service_identities if item.subject == name)
+        except StopIteration as exc:
+            raise ExtensionValidationError(f"unknown service identity {name!r}") from exc
         return PolicySubject(
             name,
             kind="service",
-            roles=roles,
-            capabilities=capabilities,
-            attributes=attributes,
+            roles=identity.roles,
+            capabilities=identity.capabilities,
+            attributes=identity.attributes,
         )
 
     def refresh_subject(self, subject: PolicySubject) -> PolicySubject:
         """Refresh a saved requester through configured directory resolvers."""
+        from ..services.users import is_active
+
+        if subject.kind != "service" and not is_active(subject.name):
+            raise PermissionError("The requester identity is no longer active.")
         groups = tuple(subject.groups)
         active = True
+        resolved = False
         for contribution in self.identities:
             if contribution.resolver is None:
                 continue
             value = contribution.resolver(subject.name)
             if value is None:
                 continue
+            resolved = True
             active = active and bool(value.get("active", True))
             if "groups" in value:
                 groups = tuple(str(item) for item in value.get("groups") or ())
+        if subject.groups and not resolved:
+            raise PermissionError("The requester directory identity could not be refreshed.")
         if not active:
             raise PermissionError("The requester identity is no longer active.")
         attributes = self.identity_attributes(subject.name, groups, True)
@@ -148,6 +160,7 @@ class ExtensionRegistry:
         lifecycle: list[LifecycleContribution] = []
         policies: list[PolicyContribution] = []
         identities: list[IdentityContribution] = []
+        service_identities: list[ServiceIdentityContribution] = []
         contexts: list[ContextContribution] = []
         tools: list[ToolContribution] = []
         specialists: list[SpecialistContribution] = []
@@ -165,6 +178,7 @@ class ExtensionRegistry:
                 ("lifecycle", module.lifecycle),
                 ("policy", module.policies),
                 ("identity", module.identities),
+                ("service-identity", module.service_identities),
                 ("context", module.contexts),
                 ("tool", module.tools),
                 ("specialist", module.specialists),
@@ -197,6 +211,7 @@ class ExtensionRegistry:
             lifecycle.extend(module.lifecycle)
             policies.extend(module.policies)
             identities.extend(module.identities)
+            service_identities.extend(module.service_identities)
             contexts.extend(module.contexts)
             tools.extend(module.tools)
             specialists.extend(module.specialists)
@@ -209,6 +224,25 @@ class ExtensionRegistry:
         if len(model_tool_names) != len(set(model_tool_names)):
             raise ExtensionValidationError("duplicate model-facing tool name")
         context_names = {contribution.name for contribution in contexts}
+        service_subjects = [contribution.subject for contribution in service_identities]
+        if len(service_subjects) != len(set(service_subjects)):
+            raise ExtensionValidationError("duplicate service identity subject")
+        missing_service_identities = sorted(
+            {
+                contribution.service_identity
+                for contribution in jobs
+                if contribution.service_identity not in service_subjects
+            }
+            | {
+                contribution.service_identity
+                for contribution in events
+                if contribution.service_identity not in service_subjects
+            }
+        )
+        if missing_service_identities:
+            raise ExtensionValidationError(
+                "unregistered service identities: " + ", ".join(missing_service_identities)
+            )
         for specialist in specialists:
             missing = sorted(
                 (set(specialist.tools) - tool_names)
@@ -227,6 +261,7 @@ class ExtensionRegistry:
             tuple(lifecycle),
             tuple(policies),
             tuple(identities),
+            tuple(service_identities),
             tuple(contexts),
             tuple(tools),
             tuple(specialists),
@@ -309,6 +344,14 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(f"job {job_contribution.name!r} has invalid effect")
         if job_contribution.risk not in ("low", "medium", "high", "critical"):
             raise ExtensionValidationError(f"job {job_contribution.name!r} has invalid risk")
+        if job_contribution.timeout_seconds <= 0:
+            raise ExtensionValidationError(
+                f"job {job_contribution.name!r} needs a positive timeout"
+            )
+        if iscoroutinefunction(job_contribution.handler):
+            raise ExtensionValidationError(
+                f"job {job_contribution.name!r} must use a synchronous handler"
+            )
     for lifecycle_contribution in module.lifecycle:
         if not _IDENTIFIER.fullmatch(lifecycle_contribution.name):
             raise ExtensionValidationError(
@@ -319,6 +362,12 @@ def _validate_module(module: SkeinModule) -> None:
         _validate_contribution_name(module, policy_contribution.name)
     for identity_contribution in module.identities:
         _validate_contribution_name(module, identity_contribution.name)
+    for service_identity in module.service_identities:
+        _validate_contribution_name(module, service_identity.name)
+        if not service_identity.subject or len(service_identity.subject) > 64:
+            raise ExtensionValidationError(
+                f"service identity {service_identity.name!r} needs a valid subject"
+            )
     for context_contribution in module.contexts:
         _validate_contribution_name(module, context_contribution.name)
     for tool_contribution in module.tools:
@@ -328,6 +377,8 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"tool {tool_contribution.name!r} has invalid model_name"
             )
+        if not tool_contribution.policy_action:
+            raise ExtensionValidationError(f"tool {tool_contribution.name!r} needs a policy action")
         if tool_contribution.effect not in ("none", "read", "write", "unknown"):
             raise ExtensionValidationError(f"tool {tool_contribution.name!r} has invalid effect")
         if tool_contribution.risk not in ("low", "medium", "high", "critical"):
@@ -377,6 +428,10 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} has invalid max_attempts"
             )
+        if iscoroutinefunction(event_contribution.handler):
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} must use a synchronous handler"
+            )
     for migration_contribution in module.migrations:
         _validate_contribution_name(module, migration_contribution.name)
         versions = [migration.version for migration in migration_contribution.migrations]
@@ -394,6 +449,10 @@ def _validate_module(module: SkeinModule) -> None:
     for action_contribution in module.workflow_actions:
         _validate_contribution_name(module, action_contribution.name)
         _version(action_contribution.version, f"workflow action {action_contribution.name} version")
+        if not action_contribution.policy_action:
+            raise ExtensionValidationError(
+                f"workflow action {action_contribution.name!r} needs a policy action"
+            )
         if action_contribution.effect not in ("none", "read", "write", "unknown"):
             raise ExtensionValidationError(
                 f"workflow action {action_contribution.name!r} has invalid effect"
@@ -442,6 +501,8 @@ def _validate_namespace(module: SkeinModule) -> None:
         _validate_owned(module, policy_contribution.name)
     for identity_contribution in module.identities:
         _validate_owned(module, identity_contribution.name)
+    for service_identity in module.service_identities:
+        _validate_owned(module, service_identity.name)
     for context_contribution in module.contexts:
         _validate_owned(module, context_contribution.name)
     for tool_contribution in module.tools:

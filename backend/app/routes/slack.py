@@ -94,7 +94,10 @@ async def slack_command(request: Request):
             "response_type": "ephemeral",
             "text": f"{first[0].lower()} runs in the web chat only — open /chat and use it there.",
         }
-    agent = MockAgent(thread_id="slack", user=user)
+    # Slack has already authenticated a human through the signed webhook.
+    # Keep its capture on the human service path. The keyless web agent uses
+    # the default governed agent path instead.
+    agent = MockAgent(thread_id="slack", user=user, gated_capture=False)
     chunks = []
     try:
         async for event in agent.stream_async(text or "/help"):

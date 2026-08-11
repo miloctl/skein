@@ -21,6 +21,7 @@ from app.extensions import (
     PolicyInput,
     PolicyResource,
     RouteContribution,
+    ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
@@ -29,7 +30,7 @@ from app.extensions import (
 )
 
 from .integration import AtlasClient, AtlasIntegration, MemoryAtlasClient
-from .policy import atlas_identity, atlas_policy
+from .policy import atlas_directory, atlas_identity, atlas_policy
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,27 @@ def atlas_module(
             ),
         ),
         policies=(PolicyContribution("atlas.workplace.policy", atlas_policy),),
-        identities=(IdentityContribution("atlas.workplace.identity", atlas_identity),),
+        identities=(
+            IdentityContribution(
+                "atlas.workplace.identity",
+                atlas_identity,
+                resolver=atlas_directory,
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "atlas.workplace.sync-identity",
+                "atlas-sync",
+                roles=("integration",),
+                capabilities=("atlas.integration",),
+            ),
+            ServiceIdentityContribution(
+                "atlas.workplace.event-identity",
+                "atlas-events",
+                roles=("integration",),
+                capabilities=("atlas.integration",),
+            ),
+        ),
         contexts=(
             ContextContribution(
                 "atlas.workplace.delivery-context",

@@ -60,4 +60,24 @@ mkdir -p "$installed"
 tar -xzf "${atlas_tar[0]}" --strip-components=1 -C "$installed"
 SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension npm --prefix frontend run build >/dev/null
 
-echo "reference-frontend-contract: source, packed artifacts, and production build passed"
+build_host() {
+    version="$1"
+    host="$tmp/host-$version"
+    archive="$tmp/tarballs/skein-frontend-host-$version.tar.gz"
+    scripts/package-frontend-host.sh "$version" "$archive"
+    mkdir -p "$host"
+    tar -xzf "$archive" -C "$host"
+    cp -a --reflink=auto frontend/node_modules "$host/frontend/node_modules"
+    mkdir -p "$host/frontend/node_modules/@atlas/skein-extension"
+    tar -xzf "${atlas_tar[0]}" --strip-components=1 \
+        -C "$host/frontend/node_modules/@atlas/skein-extension"
+    SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension \
+        npm --prefix "$host/frontend" run build >/dev/null
+    grep -q '@atlas/skein-extension' "$host/frontend/extensions/generated.ts"
+    rm -rf "$host"
+}
+
+build_host 0.2.0
+build_host 0.2.1
+
+echo "reference-frontend-contract: packed API and extension; unchanged Atlas package built on frontend hosts 0.2.0 and 0.2.1"

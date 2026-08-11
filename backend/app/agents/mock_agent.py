@@ -3,18 +3,29 @@ a real Strands Agent. Slash commands come from the shared commands engine
 (also used by the chat route for every provider); freeform text is
 smart-captured — no model, no keys, fully testable."""
 
+import json
+
 from starlette.concurrency import run_in_threadpool
 
 from .. import ratelimit
 from ..services import capture
+from ..tools._gate import gated_write
 from . import commands, receipts
 
 
 class MockAgent:
-    def __init__(self, thread_id: str, user: str = "anonymous", persona: str = ""):
+    def __init__(
+        self,
+        thread_id: str,
+        user: str = "anonymous",
+        persona: str = "",
+        *,
+        gated_capture: bool = True,
+    ):
         self.thread_id = thread_id
         self.user = user
         self.persona = persona
+        self.gated_capture = gated_capture
 
     async def stream_async(self, message: str):
         text = message.strip()
@@ -30,11 +41,42 @@ class MockAgent:
         yield {"current_tool_use": {"toolUseId": "mock-capture", "name": "capture"}}
         try:
             ratelimit.check("capture", self.user)
+            actor = self.persona or "agent"
+            kind, entity, payload = capture.plan(text, actor=actor)
             # threadpooled: this generator is iterated on the event loop
             # (chat SSE, the Slack route), and capture writes SQLite plus the
             # search index — inline, the keyless default path was the one
             # chat path that stalled every open stream on a busy ledger
-            result = await run_in_threadpool(capture.capture, text, actor=self.user, origin="human")
+            if self.gated_capture:
+                encoded = await run_in_threadpool(
+                    gated_write,
+                    entity,
+                    "create",
+                    payload,
+                    lambda: capture.capture(text, actor=actor, origin="agent"),
+                    summary=text[:160],
+                    actor=actor,
+                )
+            else:
+                direct = await run_in_threadpool(
+                    capture.capture,
+                    text,
+                    actor=self.user,
+                    origin="human",
+                )
+                encoded = json.dumps(direct)
+            result = json.loads(encoded)
+            if result.get("error"):
+                yield {"data": f"⚠️ {result['error']}"}
+                return
+            if result.get("status") == "pending":
+                yield {
+                    "data": (
+                        f"Queued {kind} #{result['id']} for human review."
+                        " *(rule-based — `/help` for commands)*"
+                    )
+                }
+                return
             acks = {
                 "task": (
                     "Filed as task #{id}. It will not escape.",
@@ -66,12 +108,6 @@ class MockAgent:
                 result["kind"], ("Captured as {kind} #{id}.".replace("{kind}", result["kind"]),)
             )
             line = pool[sum(ord(c) for c in text) % len(pool)].format(id=result["id"])
-            # the mock writes straight through capture.capture rather than the
-            # tool gate, so nothing else would report this write. Without a
-            # receipt the keyless path is the one path where the UI cannot
-            # state what happened to your data — and the turn guard would call
-            # a successful capture "nothing was filed".
-            receipts.record("wrote", result["kind"], text[:160], int(result["id"] or 0))
             yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
         except ValueError as exc:
             receipts.record("failed", capture.classify(text), str(exc))

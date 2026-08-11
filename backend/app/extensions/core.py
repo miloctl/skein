@@ -14,6 +14,7 @@ from .contracts import (
     JobContribution,
     JobExecutionContext,
     RouteContribution,
+    ServiceIdentityContribution,
     SkeinModule,
 )
 
@@ -51,5 +52,12 @@ def core_module() -> SkeinModule:
                 catch_up=spec.catch_up,
             )
             for spec in JOBS
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                name="skein.core.scheduler-identity",
+                subject="skein.scheduler",
+                roles=("scheduler",),
+            ),
         ),
     )

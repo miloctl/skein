@@ -576,6 +576,16 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "policy_context.py::existing": (
+        "reads only classification and project type for one exact resource id."
+        " The policy gate uses these values to restrict the operation and never"
+        " returns them to the caller. Applying the caller visibility filter here"
+        " would remove the data that a stronger workplace policy must inspect"
+    ),
+    "policy_context.py::proposed": (
+        "reads only project type for one exact engagement id supplied to a create"
+        " operation. The value goes only to policy evaluation and is not returned"
+    ),
     "promises.py::chase_received": (
         "a job, so no viewer exists. It reads every tier ON PURPOSE: the"
         " personal nudge goes to the row's own author and leaks nothing at any"

@@ -4,6 +4,7 @@ resources:
   - skein.yaml
 patches:
   - path: workplace-patch.yaml
+  - path: workplace-frontend-patch.yaml
 configMapGenerator:
   - name: atlas-skein-content
     files:

@@ -85,3 +85,39 @@ def test_content_validation_cli_accepts_explicit_directories(fresh_db, tmp_path,
     )
     assert content.main() == 0
     assert isinstance(empty, Path)
+
+
+def test_playbook_validation_rejects_nested_entries_without_titles(fresh_db, tmp_path, monkeypatch):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "broken.yaml").write_text(
+        "schema_version: 1\nname: Broken\n"
+        "milestones:\n  - title: Build\n    tasks:\n      - description: no title\n"
+        "rituals:\n  - day_offset: 1\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    errors = playbooks.validate_all()
+    assert any("task 1 has no title" in error for error in errors)
+    assert any("ritual 1 has no title" in error for error in errors)
+
+
+def test_deployment_validation_checks_composed_workflow_action_names(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "atlas.yaml").write_text(
+        "schema_version: 1\nname: Atlas\nworkflow:\n"
+        "  - type: action\n    name: atlas.workplace.missing\n    input: {}\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    assert any(
+        "workflow steps are not valid" in error
+        for error in playbooks.validate_all({"atlas.workplace.notify-manager"})
+    )

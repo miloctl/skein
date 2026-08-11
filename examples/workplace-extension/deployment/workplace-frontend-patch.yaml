@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skein-frontend
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          image: atlas-skein-frontend:1.0.0

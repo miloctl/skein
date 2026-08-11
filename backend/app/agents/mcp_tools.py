@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from functools import partial
@@ -53,10 +54,11 @@ class MCPToolMetadata:
 class GovernedMCPTool(AgentTool):
     """A remote tool that cannot execute before Skein policy decides."""
 
-    def __init__(self, delegate, metadata: MCPToolMetadata) -> None:
+    def __init__(self, delegate, metadata: MCPToolMetadata, server_id: str) -> None:
         super().__init__()
         self._delegate = delegate
         self.metadata = metadata
+        self.server_id = server_id
 
     @property
     def tool_name(self) -> str:
@@ -112,7 +114,7 @@ class GovernedMCPTool(AgentTool):
         policy_input = PolicyInput(
             subject,
             self.metadata.policy_action,
-            PolicyResource("mcp-tool", self.tool_name),
+            PolicyResource("mcp-tool", f"{self.server_id}:{self.tool_name}"),
             "mcp",
             agent=actor,
             tool=self.tool_name,
@@ -125,6 +127,7 @@ class GovernedMCPTool(AgentTool):
             decision,
             {
                 "tool": self.tool_name,
+                "server": self.server_id,
                 "version": self.metadata.version,
                 "input": tool_use.get("input") or {},
             },
@@ -135,6 +138,7 @@ class GovernedMCPTool(AgentTool):
             try:
                 invocation = {
                     "tool": self.tool_name,
+                    "server": self.server_id,
                     "version": self.metadata.version,
                     "tool_use": _json_mapping(tool_use),
                     "invocation_state": _json_mapping(invocation_state),
@@ -146,6 +150,7 @@ class GovernedMCPTool(AgentTool):
                     "mcp_tool",
                     {
                         "tool": self.tool_name,
+                        "server": self.server_id,
                         "version": self.metadata.version,
                         "agent": actor,
                     },
@@ -187,7 +192,9 @@ class GovernedMCPTool(AgentTool):
             status = "completion unknown" if self.metadata.effect == "write" else "timed out"
             record("failed", self.tool_name, status, actor=actor)
             _audit_mcp(actor, self.tool_name, "completion_unknown", "deadline_exceeded")
-            yield _refusal(tool_use, f"The remote tool {status}.")
+            yield _refusal(
+                tool_use, f"The remote tool {status}.", completion_status=status.replace(" ", "_")
+            )
             return
         except Exception as exc:
             declared = str(getattr(exc, "code", ""))
@@ -198,7 +205,11 @@ class GovernedMCPTool(AgentTool):
             record("failed", self.tool_name, completion_status, actor=actor)
             _audit_mcp(actor, self.tool_name, completion_status, code)
             log.exception("governed MCP tool failed", extra={"tool": self.tool_name})
-            yield _refusal(tool_use, "The remote tool failed. Read the server log for the cause.")
+            yield _refusal(
+                tool_use,
+                "The remote tool failed. Read the server log for the cause.",
+                completion_status=completion_status,
+            )
             return
         if not events or not _schema_matches(events[-1], self.metadata.output_schema):
             record("failed", self.tool_name, "invalid output", actor=actor)
@@ -206,7 +217,11 @@ class GovernedMCPTool(AgentTool):
                 "completion_unknown" if self.metadata.effect == "write" else "failed"
             )
             _audit_mcp(actor, self.tool_name, completion_status, "invalid_output")
-            yield _refusal(tool_use, "The remote tool returned data outside its declared schema.")
+            yield _refusal(
+                tool_use,
+                "The remote tool returned data outside its declared schema.",
+                completion_status=completion_status,
+            )
             return
         if self.metadata.effect == "write":
             record("wrote", self.tool_name, "remote write completed", actor=actor)
@@ -245,11 +260,14 @@ def _json_mapping(value: Any) -> dict[str, Any]:
 async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str, Any]:
     """Resume one exact remote call through its current governed wrapper."""
     name = str(invocation.get("tool") or "")
+    server = str(invocation.get("server") or "")
     try:
         governed = next(
             item
             for item in mcp_tools()
-            if isinstance(item, GovernedMCPTool) and item.tool_name == name
+            if isinstance(item, GovernedMCPTool)
+            and item.tool_name == name
+            and item.server_id == server
         )
     except StopIteration as exc:
         raise ValueError("the reviewed remote tool is not currently composed") from exc
@@ -285,7 +303,11 @@ async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str
         reset_policy_engine(policy_token)
     last = events[-1] if events else {}
     return {
-        "status": "completed" if last.get("status") == "success" else "failed",
+        "status": (
+            "completed"
+            if last.get("status") == "success"
+            else str(last.get("completionStatus") or "failed")
+        ),
         "events": events,
     }
 
@@ -321,10 +343,11 @@ def _schema_matches(value: Any, schema: dict[str, Any]) -> bool:
     return expected in checks
 
 
-def _refusal(tool_use: dict, detail: str) -> dict:
+def _refusal(tool_use: dict, detail: str, *, completion_status: str = "failed") -> dict:
     return {
         "toolUseId": tool_use.get("toolUseId", "unknown"),
         "status": "error",
+        "completionStatus": completion_status,
         "content": [{"text": detail}],
     }
 
@@ -427,17 +450,28 @@ def _connect_servers() -> tuple[list, list]:
         log.warning("SKEIN_MCP_SERVERS is not valid JSON — MCP disabled")
         return tools, clients
 
+    if not isinstance(servers, list):
+        log.warning("SKEIN_MCP_SERVERS must be a JSON list — MCP disabled")
+        return tools, clients
+    seen_servers: set[str] = set()
     for server in servers:
         try:
             from mcp.client.streamable_http import streamablehttp_client
             from strands.tools.mcp import MCPClient
 
+            server_id = str(server.get("name") or "").strip()
+            if not server_id or server_id in seen_servers:
+                raise ValueError("each MCP server needs a unique stable name")
+            seen_servers.add(server_id)
             url = server["url"]
-            headers = (
-                {"Authorization": f"Bearer {server['auth_token']}"}
-                if server.get("auth_token")
-                else None
-            )
+            token_env = str(server.get("auth_token_env") or "").strip()
+            token = os.getenv(token_env, "") if token_env else str(server.get("auth_token") or "")
+            if server.get("auth_token") and not token_env:
+                log.warning(
+                    "MCP server %r embeds a token in configuration; use auth_token_env",
+                    server_id,
+                )
+            headers = {"Authorization": f"Bearer {token}"} if token else None
             client = MCPClient(partial(streamablehttp_client, url, headers=headers))
             client.__enter__()  # keep the session open for the process lifetime
             clients.append(client)
@@ -452,7 +486,7 @@ def _connect_servers() -> tuple[list, list]:
                         server.get("name", url),
                     )
                     continue
-                accepted.append(GovernedMCPTool(remote_tool, metadata))
+                accepted.append(GovernedMCPTool(remote_tool, metadata, server_id))
             tools.extend(accepted)
             log.info(
                 "MCP server '%s': %d of %d tools governed and loaded",
@@ -462,6 +496,16 @@ def _connect_servers() -> tuple[list, list]:
             )
         except Exception as exc:
             log.warning("MCP server '%s' failed to connect: %s", server.get("name", "?"), exc)
+    counts: dict[str, int] = {}
+    for tool in tools:
+        counts[tool.tool_name] = counts.get(tool.tool_name, 0) + 1
+    duplicates = {name for name, count in counts.items() if count > 1}
+    if duplicates:
+        log.error(
+            "MCP tool names collide across servers and were omitted: %s",
+            ", ".join(sorted(duplicates)),
+        )
+        tools = [tool for tool in tools if tool.tool_name not in duplicates]
     return tools, clients
 
 

@@ -1027,6 +1027,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             persona=persona,
             viewer=viewer,
             extensions=request.app.state.skein_registry,
+            policy_subject=subject,
         )
     except Exception as exc:
         # keep the SSE protocol even when agent construction fails (bad model id, etc.)

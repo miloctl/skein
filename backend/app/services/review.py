@@ -109,6 +109,7 @@ def propose_change(
     review_visibility: str = scope.WORKSPACE,
     review_crew_id: int = 0,
     review_owner: str = "",
+    policy_context: dict | None = None,
 ) -> dict:
     reg = _registry()
     extension_entity = (entity, action) in lexicon.REVIEW_ONLY
@@ -127,6 +128,9 @@ def propose_change(
         raise ValueError("review visibility must be private, crew, or workspace")
     if review_visibility == scope.CREW and not review_crew_id:
         raise ValueError("a crew review must name its crew")
+    encoded_policy = json.dumps(policy_context or {})
+    if len(encoded_policy) > 20_000:
+        raise ValueError("reviewed policy context must be under 20k characters")
     # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
     # ingester both file proposals, and a guard in either one leaves the other
     # storing rows that can never be approved.
@@ -137,8 +141,8 @@ def propose_change(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by, policy_obligations,"
         " approver_groups, approver_capabilities, review_visibility, review_crew_id,"
-        " review_owner)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " review_owner, policy_context)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entity,
             entity_id or None,
@@ -155,6 +159,7 @@ def propose_change(
             review_visibility,
             review_crew_id or None,
             review_owner,
+            encoded_policy,
         ),
     )
     db.log_activity(
@@ -203,7 +208,7 @@ def propose_extension_invocation(
             public_payload,
             summary,
             actor=actor,
-            origin="agent" if kind == "tool" else "human",
+            origin="agent" if kind in ("tool", "mcp_tool") else "human",
             requested_by=requested_by,
             policy_obligations=policy_obligations,
             approver_groups=approver_groups,
@@ -344,6 +349,7 @@ def approve_change(
     reviewer_groups: tuple[str, ...] = (),
     reviewer_capabilities: tuple[str, ...] = (),
     extension_executor: Callable[[dict, int], dict] | None = None,
+    policy_registry=None,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
@@ -354,6 +360,12 @@ def approve_change(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    _revalidate_policy(
+        change,
+        policy_registry,
+        reviewer_groups,
+        reviewer_capabilities,
+    )
     qualifications = _check_policy_approver(
         change,
         reviewer_groups,
@@ -490,6 +502,78 @@ def approve_change(
     )
     _clear_review_ping(change_id)
     return {"id": change_id, "status": "approved", "result": result}
+
+
+def _revalidate_policy(
+    change: dict,
+    registry,
+    reviewer_groups: tuple[str, ...],
+    reviewer_capabilities: tuple[str, ...],
+) -> None:
+    """Refresh and re-evaluate the policy that created a core proposal."""
+    saved = json.loads(change.get("policy_context") or "{}")
+    if not saved:
+        return
+    if registry is None:
+        raise PermissionError("The reviewed policy cannot be refreshed.")
+    contract = saved.get("contract")
+    policy_data = saved.get("input")
+    if not isinstance(contract, dict) or not isinstance(policy_data, dict):
+        raise PermissionError("The reviewed policy context is invalid.")
+    expected = {
+        "entity": change["entity"],
+        "action": change["action"],
+        "entity_id": int(change.get("entity_id") or 0),
+        "payload": json.loads(change["payload"]),
+    }
+    if contract != expected:
+        raise PermissionError("The reviewed action no longer matches its policy context.")
+    subject_data = policy_data.get("subject")
+    if not isinstance(subject_data, dict):
+        raise PermissionError("The reviewed requester identity is invalid.")
+    from ..extensions.policy import (
+        PolicyEffect,
+        PolicySubject,
+        policy_input_from_data,
+    )
+
+    saved_subject = PolicySubject(
+        name=str(subject_data.get("name") or ""),
+        kind=str(subject_data.get("kind") or "human"),
+        roles=tuple(str(item) for item in subject_data.get("roles") or ()),
+        groups=tuple(str(item) for item in subject_data.get("groups") or ()),
+        capabilities=tuple(str(item) for item in subject_data.get("capabilities") or ()),
+        attributes=dict(subject_data.get("attributes") or {}),
+    )
+    subject = registry.refresh_subject(saved_subject)
+    current = policy_input_from_data(policy_data, subject)
+    if change.get("entity_id"):
+        from dataclasses import replace
+
+        from ..extensions.policy import PolicyResource
+        from . import policy_context as domain_policy
+
+        actual = domain_policy.existing(change["entity"], int(change["entity_id"]))
+        current = replace(
+            current,
+            resource=PolicyResource(
+                current.resource.type,
+                current.resource.id,
+                str(actual.get("project_type") or ""),
+                str(actual.get("classification") or ""),
+                current.resource.attributes,
+            ),
+        )
+    decision = registry.policy_engine.decide(current)
+    if decision.effect == PolicyEffect.DENY:
+        raise PermissionError("The current workplace policy denies this reviewed action.")
+    if decision.effect == PolicyEffect.REVIEW:
+        required_groups = set(decision.approver_groups)
+        required_capabilities = set(decision.approver_capabilities)
+        if required_groups - set(reviewer_groups) or required_capabilities - set(
+            reviewer_capabilities
+        ):
+            raise PermissionError("This approval requires the current workplace approver.")
 
 
 def _clear_review_ping(change_id: int) -> None:

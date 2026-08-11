@@ -11,9 +11,18 @@ def atlas_identity(name: str, groups: tuple[str, ...], _strong: bool):
         roles.append("delivery-manager")
     if "atlas-integrations" in groups:
         capabilities.append("atlas.integration")
-    if name in ("atlas-sync", "atlas-events"):
-        capabilities.append("atlas.integration")
     return {"roles": tuple(roles), "capabilities": tuple(capabilities)}
+
+
+def atlas_directory(name: str):
+    """Fictional directory refresh used by the executable example.
+
+    A real private package calls its directory adapter here. Returning no
+    record makes approval fail closed.
+    """
+    if name == "mira":
+        return {"active": True, "groups": ("atlas-delivery-managers",)}
+    return None
 
 
 def atlas_policy(request: PolicyInput):
