@@ -57,7 +57,7 @@ backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
   ├─ app/tools/      58 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
-  ├─ migrations/     numbered SQL, applied at startup (schema_version)
+  ├─ app/core_migrations/ numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
   ├─ personas/       the bench: one markdown file per specialist persona
   ├─ flocks/         YAML groups of personas, called with one message

@@ -1,5 +1,6 @@
 """Typed workflow steps and composed playbook execution."""
 
+import time
 from dataclasses import replace
 
 import pytest
@@ -31,8 +32,8 @@ class SendOut(BaseModel):
 
 
 def _action(calls: list[str]) -> WorkflowActionContribution:
-    def send(target: str):
-        calls.append(target)
+    def send(_context, request: SendIn):
+        calls.append(request.target)
         return {"sent": True}
 
     return WorkflowActionContribution(
@@ -150,6 +151,40 @@ def test_unknown_actions_and_invalid_shapes_fail_before_execution(fresh_db):
     with pytest.raises(PublicError) as invalid:
         engine.prepare([{"type": "sleep", "seconds": 10}])
     assert invalid.value.code == "INVALID_WORKFLOW"
+
+
+def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
+    calls: list[str] = []
+
+    def slow(_context, request: SendIn):
+        time.sleep(0.08)
+        calls.append(request.target)
+        return {"sent": True}
+
+    action = replace(_action(calls), handler=slow, timeout_seconds=0.01)
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        workflow_actions=(action,),
+    )
+    registry = ExtensionRegistry.build((module,))
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    result = engine.run(
+        engine.prepare(
+            [
+                {
+                    "type": "action",
+                    "name": "atlas.workplace.notify-manager",
+                    "input": {"target": "delivery"},
+                }
+            ]
+        ),
+        WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow"),
+    )
+    assert result.status == "completion_unknown"
+    assert result.error_code == "DEADLINE_EXCEEDED"
+    time.sleep(0.1)
+    assert calls == ["delivery"]
 
 
 def test_direct_instantiation_cannot_silently_skip_a_workflow(fresh_db, tmp_path, monkeypatch):

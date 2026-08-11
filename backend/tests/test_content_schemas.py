@@ -49,7 +49,7 @@ def test_deployment_validator_rejects_future_versions_and_unknown_fields(
     (playbook_dir / "atlas.yaml").write_text("schema_version: 2\nname: Atlas\nprivate_hook: yes\n")
     (persona_dir / "atlas-reviewer.md").write_text(
         "---\nschema_version: 2\nname: Atlas Reviewer\n"
-        "description: Reviews Atlas work\n---\nReview the work.\n"
+        "description: Reviews Atlas work\nprivate_hook: yes\n---\nReview the work.\n"
     )
     (flock_dir / "atlas-team.yaml").write_text(
         "schema_version: 2\nname: Atlas Team\ndescription: Two views\n"
@@ -61,6 +61,7 @@ def test_deployment_validator_rejects_future_versions_and_unknown_fields(
     errors = content.validate()
     assert any("playbook" in error and "schema_version" in error for error in errors)
     assert any("persona" in error and "schema_version" in error for error in errors)
+    assert any("persona" in error and "unknown frontmatter" in error for error in errors)
     assert any("flock" in error and "schema_version" in error for error in errors)
     assert any("unknown top-level" in error for error in errors)
 

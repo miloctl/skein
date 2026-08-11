@@ -226,8 +226,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 11 | 3 through 10 | Atlas reference extension | Scenarios A through G | Complete |
 | 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Complete before review |
-| 14 | 13 | Five independent reviewer roles | Review reports and conservative scores | Pending |
-| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Pending |
+| 14 | 13 | Four independent reviewer roles | Review reports and conservative scores | First review complete; second pending |
+| 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Remediation implemented; second review pending |
 
 ## Test strategy
 
@@ -262,9 +262,9 @@ Scores can increase only when core behavior and the reference extension use the 
 
 | Area | Baseline | Target | Required evidence | Current justified score |
 |---|---:|---:|---|---:|
-| Overall modularity | 5/10 | 8/10 | Factory, typed registries, public contracts, dependency tests | 8.1/10 before final review |
-| Workplace extensibility | 3/10 | 8/10 | Scenarios A through G and private package boundary | 8.0/10 before final review |
-| Upgradeability | 4/10 | 8/10 | Compatibility metadata, package build, migration and upgrade rehearsal | 8.0/10 before final review |
+| Overall modularity | 5/10 | 8/10 | Factory, typed registries, public contracts, dependency tests | 8.3/10 candidate after remediation |
+| Workplace extensibility | 3/10 | 8/10 | Scenarios A through G and private package boundary | 8.4/10 candidate after remediation |
+| Upgradeability | 4/10 | 8/10 | Compatibility metadata, package build, migration and upgrade rehearsal | 8.3/10 candidate after remediation |
 | Domain model | 2/5 | 4/5 | Public typed commands, queries, results, and references | 4/5 |
 | Service layer | 3/5 | 4/5 | Public facade and no private extension imports | 4/5 |
 | API | 2/5 | 4/5 | Router contributions and stable error contracts | 4/5 |
@@ -280,14 +280,14 @@ Scores can increase only when core behavior and the reference extension use the 
 |---|---|---|
 | 2026-08-10 | Use `CLAUDE.md` instead of `AGENTS.md` | The user specified the repository instruction source |
 | 2026-08-10 | Keep the main agent as the only integrator | This avoids parallel edits and preserves coherent commits |
-| 2026-08-10 | Run five reviewer roles in waves if needed | The environment has fewer concurrent subagent slots than reviewer roles |
+| 2026-08-10 | Run four specialist reviewers in waves | The user set the final review limit to four agents |
 | 2026-08-10 | Keep existing services behind public facades | A full service rewrite adds risk without extension value |
 | 2026-08-10 | Use explicit module lists | Automatic discovery adds supply-chain and startup risk |
 | 2026-08-10 | Keep SQLite and add a small outbox | Database replacement is outside the verified requirement |
 | 2026-08-10 | Use frozen fixture time for schedule-age tests | Real wall time made the baseline test depend on the UTC date |
 | 2026-08-10 | Run HTTP tests outside the sandbox | The host sandbox blocks cross-thread asyncio wakeups |
 | 2026-08-10 | Use Playwright's documented pre-started-server mode | The host health poll stalled although both test endpoints responded |
-| 2026-08-10 | Preserve request-time auth compatibility | Existing tests and callers can change the legacy config module before a request; the immutable snapshot owns composition, while the request gate keeps the compatibility adapter |
+| 2026-08-10 | Preserve request-time auth compatibility | Superseded after review: the compatibility adapter made explicit application settings non-authoritative |
 | 2026-08-10 | Require explicit, namespaced module routes | Private routes cannot collide with the core API and installed packages never execute automatically |
 | 2026-08-10 | Combine policy by strongest result | A workplace permit cannot erase a core deny; deny outranks review, and review outranks permit |
 | 2026-08-10 | Omit unclassified MCP tools | A remote tool with unknown effects cannot bypass Skein policy, review, and receipts |
@@ -304,6 +304,10 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Derive stable core REST policy actions from route templates | One route class covers current and future authenticated mutations without editing every handler |
 | 2026-08-11 | Keep auth and signed webhooks on specialized gates | These calls do not have a verified human subject for workplace policy |
 | 2026-08-11 | Emit task events inside the shared service transaction | REST, built-in tools, reviews, and extensions must produce the same event contract |
+| 2026-08-11 | Store reviewed extension invocations outside the review queue | Reviewers need a safe summary, while the approval executor needs the exact typed call |
+| 2026-08-11 | Report synchronous write timeouts as completion unknown | A thread cannot be cancelled after it starts, so a timeout is not proof that no side effect occurred |
+| 2026-08-11 | Use one retry budget for each event subscriber | A tolerant subscriber must not extend another subscriber's declared retry limit |
+| 2026-08-11 | Package stock content and core migrations with the wheel | An installed core artifact must start without the source tree |
 
 ## Risks
 
@@ -414,15 +418,101 @@ Scores can increase only when core behavior and the reference extension use the 
 - Completed the final pre-review verification: 1,620 backend tests, 229
   frontend tests, the default production build, full lint, both upgrade
   rehearsals, and 25 Chrome tests all pass.
+- The first four independent reviewers rejected the first implementation.
+- Fixed every blocker and high-severity finding. Added durable tool and
+  workflow approval, installed-wheel startup, honest version ranges, composed
+  policy for background work, specialist identity protection, MCP success
+  audit, public frontend packaging, and two-core-artifact upgrade tests.
+- Added per-subscriber event retries and retention. Added strict persona
+  frontmatter validation.
+- Confirmed 1,635 backend tests in 97.02 seconds after remediation.
+- Confirmed 229 frontend tests, full lint and types, and the default production build.
+- Confirmed installed-wheel startup, the `0.2.0` to `0.2.1` core upgrade,
+  both package rehearsals, and the database upgrade path.
+- Added an inbound MCP composition test. It proves that identity mapping and
+  workplace policy apply outside the FastAPI process.
 
 ## Review findings
 
-No independent review has run.
+### First independent review
+
+Four read-only specialists reviewed commit `8e5feec`. All four rejected it.
+
+| Reviewer | Modularity | Workplace extensibility | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and dependency direction | 6.8 | 6.2 | 5.5 | Reject |
+| Security, authorization, and provenance | 6.8 | 5.8 | 6.8 | Reject |
+| Compatibility and reliability | 6.6 | 5.9 | 5.4 | Reject |
+| Adversarial extension author | 7.0 | 6.5 | 6.5 | Reject |
+
+The findings below are valid and need code or executable evidence:
+
+- The frontend reads the wrong capability response shape.
+- The `0.1.0` compatibility claim includes the assessed core, which has no
+  extension contracts. The rehearsal does not install two core releases.
+- An installed core wheel cannot start because it omits stock content.
+- The wheel puts core migrations in a generic top-level package.
+- Jobs and event subscribers can use a private policy engine instead of the
+  final composed policy.
+- Extension mutation routes are not mechanically governed.
+- Explicit `AppSettings` do not control the request authentication gate.
+- Identity mappers cannot independently contribute roles and capabilities.
+- Approval obligations are not stored or checked when a reviewer approves.
+- Built-in agent writes discard the mapped subject and useful resource data.
+- Indirect specialist consultation skips required capabilities, and contributed
+  specialist names are not reserved as agent identities.
+- Successful MCP writes have no durable execution record. Declared MCP errors
+  and total timeouts are not enforced.
+- Public task reads accept a forgeable subject instead of a verified viewer or
+  registered service identity.
+- Tool and workflow timeouts can report cancellation while a synchronous side
+  effect continues.
+- The frontend API is an internal alias. Atlas JavaScript is maintained apart
+  from its TypeScript source.
+- The extension-author work command example does not execute.
+- Public event emission lets an extension forge core event types.
+- Tool collision checks omit model-facing names owned by core tools.
+- Applied extension migrations do not detect changed SQL.
+- The Atlas importer needs an idempotency key and must preserve imported status.
+- Playbook work is created before its approval workflow runs.
 
 ## Remediation status
 
-No review remediation is pending.
+The first-review remediation is implemented. The full backend and frontend
+tests pass. Lint, types, production builds, installed startup, upgrade checks,
+and both package rehearsals also pass. The second review starts after the
+remediation commit.
+
+Resolved findings include:
+
+- The frontend now reads `capabilities.actions` and tests the real response.
+- The backend and frontend compatibility floor is `0.2.0`.
+- The installed wheel contains stock content and package-owned migrations.
+- Jobs, event subscribers, public work, tools, and workflows receive the final
+  composed policy and service facades.
+- Namespaced mutation routes receive a mandatory composed-policy check.
+- The application factory settings control the real authentication gate.
+- Identity roles and capabilities aggregate across independent modules.
+- Approval groups and capabilities persist and are enforced on the verdict.
+- Contributed tools and playbooks create durable reviews and resume the exact
+  stored invocation after a qualified approval.
+- Built-in agent writes retain mapped identity and task context.
+- Specialist capabilities apply to direct and Chief-mediated access. Startup
+  reserves specialist identities as agents.
+- Successful MCP writes create durable activity. MCP versions, capabilities,
+  output schemas, declared errors, and total deadlines are enforced.
+- Public task queries do not treat a forgeable name as visibility proof.
+- Write deadlines return `completion_unknown` and have late-side-effect tests.
+- Frontend contracts come from a buildable public package. Atlas has one TSX
+  source and generated package output with a drift rehearsal.
+- Event emission is internal, extension migration SQL is hashed, tool names
+  cannot shadow core, Atlas imports are idempotent, and approval happens before
+  playbook work is created.
+- The upgrade rehearsal rejects the old `0.1.0` core, starts installed `0.2.0`,
+  and moves the unchanged Atlas package to a separate `0.2.1` artifact.
 
 ## Final results
 
-Pending implementation and independent review.
+Implementation and first-review remediation are complete. The second
+independent review, any required follow-up, final verification, and live Chrome
+validation are pending.

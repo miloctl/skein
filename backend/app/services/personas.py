@@ -29,7 +29,7 @@ from pathlib import Path
 
 from .. import config
 
-PERSONAS_DIR = Path(__file__).resolve().parent.parent.parent / "personas"
+PERSONAS_DIR = config.STOCK_DIR / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
 
 
@@ -285,6 +285,20 @@ def validate_all() -> list[str]:
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
                 continue
+            text = path.read_text(encoding="utf-8")
+            try:
+                _, front, _body = text.split("---", 2)
+            except ValueError:
+                front = ""
+            keys = {
+                key.strip()
+                for line in front.splitlines()
+                for key, separator, _value in (line.partition(":"),)
+                if separator
+            }
+            unknown = keys - set(_FIELDS)
+            if unknown:
+                errors.append(f"{label}: unknown frontmatter field(s): {sorted(unknown)}")
             p = _parse(path)
             if p is None:
                 errors.append(

@@ -8,7 +8,10 @@ Base commit: `d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3`
 
 Feature branch: `feature/workplace-extensibility`
 
-Latest implementation commit before this report: `15fd5cf`
+First-review commit: `8e5feec`
+
+The remediation commit and final report commit are recorded after the second
+independent review.
 
 The report commit is necessarily newer than the commit named above. Use
 `git rev-parse HEAD` for the exact branch head that contains this file.
@@ -19,11 +22,11 @@ Execution plan: `docs/exec-plans/workplace-extensibility.md`
 
 ## 1. Executive verdict
 
-| Measure | Historical | Current main-agent score | Explanation |
+| Measure | Historical | Provisional remediated score | Explanation |
 |---|---:|---:|---|
-| Overall modularity | 5/10 | 8.2/10 | The application has an explicit composition root, typed concern-specific contracts, public work APIs, central policy, versioned events, isolated extension data, and build-time UI composition. Internal services still use concrete SQLite and global compatibility adapters. |
-| Workplace extensibility | 3/10 | 8.3/10 | A separate Atlas package exercises backend, agent, data, workflow, content, frontend, and deployment extensions. Public commands and UI slots do not yet cover every core entity or screen. |
-| Upgradeability without forking | 4/10 | 8.1/10 | Backend and frontend manifests declare compatibility ranges. Separate wheels and a packed frontend package pass upgrade contracts. Multi-release production evidence does not exist yet. |
+| Overall modularity | 5/10 | 8.3/10 | The application has an explicit composition root, typed concern-specific contracts, public work APIs, central policy, versioned events, isolated extension data, and build-time UI composition. Internal services still use concrete SQLite. |
+| Workplace extensibility | 3/10 | 8.4/10 | A separate Atlas package exercises backend, agent, approval, data, workflow, content, frontend, and deployment extensions. Public commands and UI slots do not yet cover every core entity or screen. |
+| Upgradeability without forking | 4/10 | 8.3/10 | Backend and frontend manifests declare honest compatibility ranges. Installed wheels, installed startup, two compatible core artifacts, and packed frontend packages pass contract tests. Production release history does not exist yet. |
 
 Verdict: **Extendable with limitations**.
 
@@ -33,11 +36,12 @@ identity mapping, governed tools, specialists, task-linked data, versioned
 content, private routes, jobs, events, navigation, and dashboard cards.
 
 A workplace still needs a core contribution for a new public command on an
-unsupported entity or for a new frontend slot. A durable workflow that pauses
-for days and resumes after approval also needs more architecture.
+unsupported entity or for a new frontend slot. Timers, parallel workflow
+branches, and service-level escalation need more architecture.
 
-The final conservative scores are the lower of these scores and the median
-independent-review scores. Section 14 records that calculation after review.
+These scores are candidates. The final conservative scores are the lower of
+these scores and the median second-review scores. Section 14 records that
+calculation after review.
 
 ### Scoring rubric
 
@@ -130,9 +134,9 @@ flowchart LR
 | Integrations | 4/5 | Job, public work facade, events, routes | Public commands cover task work first | Yes for tested adapter | Integration adapter or external service | Medium |
 | Activity and provenance | 4/5 | Shared service path and workflow activity | Arbitrary external side effects need their own receipt | Yes | Public command plus event subscriber | Low |
 | Agent registration | 4/5 | `SpecialistContribution` | No dynamic untrusted agent loading | Yes | Agent plugin in trusted module | Low |
-| Tool registration | 4/5 | Governed tool and MCP metadata | Review result stops execution but is not a durable generic tool proposal | Yes with stated limit | Agent or tool plugin | Medium |
+| Tool registration | 4/5 | Governed tool and MCP metadata | In-process handlers remain trusted code | Yes | Agent or tool plugin | Medium |
 | Prompt configuration | 4/5 | Specialist prompts, persona overlays, context providers | Core Chief prompt is not replaced | Yes | Agent contribution or content overlay | Low |
-| Playbooks | 4/5 | Versioned YAML plus four typed workflow steps | No durable pause and resume | Yes for bounded workflows | Declarative playbook plus workflow action | Medium |
+| Playbooks | 4/5 | Versioned YAML plus four typed workflow steps | No timers or parallel branches | Yes for bounded workflows | Declarative playbook plus workflow action | Medium |
 | Frontend navigation | 4/5 | Build-time manifest | Trusted build required | Yes | Frontend extension | Low |
 | Frontend components | 3/5 | Stable card primitive and dashboard card slot | No detail-panel, form, or general route slot | Only for current slots | Add narrow frontend slot on demand | Medium |
 | Custom fields | 4/5 | Stable IDs, sparse metadata guidance, private tables | No generic core custom-field UI | Yes outside core schema | Extension-owned data | Medium |
@@ -162,7 +166,7 @@ line, but not independent production consumers across releases.
 | Specialists join the Chief without private imports | `backend/app/extensions/agents.py` and `backend/app/agents/team_agent.py::build_agent` |
 | Task commands are public and typed | `backend/app/public/work.py::WorkItems`, `CreateTaskCommand`, `UpdateTaskCommand`, and `TaskView` |
 | All shared task writes emit safe events | `backend/app/services/work.py::_emit_task_event`; REST and built-in tools use the same service |
-| Event delivery is durable and idempotent | `backend/migrations/012_extension_outbox.sql` and `backend/app/public/events.py::dispatch_events` |
+| Event delivery is durable and idempotent | `backend/app/core_migrations/012_extension_outbox.sql` and `backend/app/public/events.py::dispatch_events` |
 | Extension stores are isolated | `backend/app/extensions/data.py::ExtensionStore._make_sure_is_separate` |
 | Workflow actions are typed and governed | `backend/app/public/workflow.py::WorkflowEngine` |
 | Content has explicit version validation | `backend/app/content.py`, `services/playbooks.py`, `services/personas.py`, and `services/flocks.py` |
@@ -171,7 +175,7 @@ line, but not independent production consumers across releases.
 | UI contributions fail closed on capability errors | `frontend/lib/extensions/context.tsx::ExtensionProvider` |
 | A separate package exercises the contracts | `examples/workplace-extension/` and `backend/tests/test_reference_workplace_extension.py` |
 | Released artifacts compose without a source merge | `scripts/reference-extension-contract.sh` builds, installs, migrates, and checks separate wheels |
-| The core wheel contains migrations | `backend/pyproject.toml` package data and `backend/migrations/__init__.py` |
+| The core wheel contains migrations and stock content | `backend/pyproject.toml`, `backend/app/core_migrations`, and the installed-wheel lifespan rehearsal |
 
 ### Inferences
 
@@ -225,11 +229,11 @@ for each future change. `docs/EXTENSIONS.md` defines those rules.
 |---|---|---|---|---|
 | Public commands cover tasks first | Private integration must create a blocker or decision | Extension may call REST or request a core addition | Add one typed public facade for the proven operation | When required |
 | Frontend has two slots | Workplace needs a task detail panel or full manager route | Editing core UI would create a fork | Add a named slot with stable primitives and capability checks | Before that UI ships |
-| Workflow state is in one request | Approval waits for a manager for several days | Re-running can duplicate earlier effects | Add durable run IDs, step receipts, and resume semantics | Before long-lived workflows |
+| Workflow state is durable only at review boundaries | A process needs timers or parallel branches | The bounded interpreter cannot express it | Add run IDs and step receipts for that proven need | Before complex workflows |
 | Core internals use concrete SQLite | Workplace wants PostgreSQL as the core store | Large internal refactor is required | Define persistence ports only around proven replacement needs | Not now |
-| Global config remains as compatibility adapter | Multiple differently configured apps run in one process | Some internal reads can observe shared config | Continue moving composition-sensitive reads into `AppSettings` | When multi-app hosting is real |
+| Global config remains behind the default entry point | A process needs different model stacks per app | Some model services still use process settings | Add scoped provider settings for that proven need | When multi-app model hosting is real |
 | In-process modules share process permissions | Integration is less trusted than Skein | A bug can read process files or memory | Run it as an external service with public APIs and events | Now for untrusted code |
-| Tool review is a stop result | Generic contributed tool needs durable approve-and-resume | Workplace must model the approval in its workflow or service | Add a typed extension-action proposal only with a real consumer | When required |
+| Approved extension work executes in the API process | The process stops after claim and before a remote side effect | Completion can be uncertain until retry | Add an idempotent worker boundary for remote high-risk actions | Before such an integration |
 | Event schemas cover task changes first | Integration needs every core entity event | Polling or custom routes remain necessary | Add versioned events at the shared service path per entity | When required |
 | Frontend needs build-stage core input | Private package only has a runtime image | It cannot add code after `next build` | Publish a versioned frontend build artifact or source package | Before external distribution |
 
@@ -311,7 +315,7 @@ skein-core/
 │   ├── app/
 │   │   ├── extensions/        # versioned composition contracts
 │   │   └── public/            # commands, events, workflows, errors
-│   └── migrations/            # append-only core schema
+│   └── app/core_migrations/   # append-only, package-owned core schema
 ├── frontend/
 │   ├── lib/extensions/        # stable frontend contract and primitives
 │   └── scripts/compose-extensions.mjs
@@ -334,8 +338,8 @@ skein-workplace/               # private repository
 │   └── flocks/
 ├── frontend/
 │   ├── src/index.tsx
-│   ├── index.js
-│   ├── index.d.ts
+│   ├── dist/index.js
+│   ├── dist/index.d.ts
 │   └── package.json
 ├── deployment/
 │   ├── Dockerfile
@@ -399,15 +403,16 @@ Atlas import.
 
 ### Frontend exposure
 
-`examples/workplace-extension/frontend/index.js` exports a compatible manifest.
-It adds one navigation item and one manager dashboard card. Both use the
-`atlas.dashboard.view` policy action.
+`examples/workplace-extension/frontend/index.tsx` is the single source for the
+compiled package in `dist`. It adds one navigation item and one manager
+dashboard card. Both use the `atlas.dashboard.view` policy action.
 
 ### Tests and deployment
 
 - `backend/tests/test_reference_workplace_extension.py` covers backend scenarios.
 - `scripts/reference-extension-contract.sh` builds and installs separate wheels.
-- A packed `@atlas/skein-extension` passes a real Next.js production build.
+- `scripts/reference-frontend-contract.sh` compiles, packs, and imports both
+  frontend packages in a clean directory.
 - `deployment/Dockerfile` layers the private wheel on a core image.
 - The Kustomize patch selects the private image and external Secret.
 
@@ -443,7 +448,7 @@ It adds one navigation item and one manager dashboard card. Both use the
 
 - More public entity commands and events
 - More frontend slots and stable primitives
-- Durable workflow run persistence and resume
+- Timers and parallel branches in long-running workflows
 - A frontend build-stage distribution artifact
 - Extension metrics registration
 - Alternative core persistence
@@ -502,7 +507,7 @@ The three changes with the greatest benefit are now implemented:
 | Scenario | Today without core edits? | Mechanism | Public contracts | Private location | Upgrade risk | Result |
 |---|---|---|---|---|---|---|
 | A. Enterprise integration | Yes | Integration adapter, job, event subscriber | `WorkItems`, `DomainEvent`, contributions | Private Python package | Contract-version risk | Pass |
-| B. Custom approval | Yes for tested policy boundary | Policy definition | `PolicyInput`, `PolicyDecision` | Private policy module | Action-name and schema-version risk | Pass |
+| B. Custom approval | Yes | Policy definition and durable review | `PolicyInput`, `PolicyDecision`, review result | Private policy module | Action-name and schema-version risk | Pass |
 | C. Manager dashboard | Yes for navigation and card | Frontend extension | `FrontendExtension`, capability API | Private npm package | Slot and API-version risk | Pass |
 | D. Specialist agent | Yes | Agent and tool plugin | Specialist, context, tool contracts | Private Python package | Contract-version risk | Pass |
 | E. Custom domain data | Yes | Extension-owned data | `ExtensionStore`, stable task IDs | Private database and migrations | Identifier and contract risk | Pass |
@@ -554,10 +559,11 @@ version ranges. Startup and build reject incompatible inputs.
 2. Build an Atlas wheel.
 3. Install both into a clean target outside the source trees.
 4. Confirm package versions and requirements.
-5. Initialize the installed core migrations.
+5. Enter the installed application lifespan and load stock content.
 6. Compose Atlas through the installed public contracts.
-7. Upgrade Atlas data from migration 1 to migration 2.
-8. Confirm private data remains present.
+7. Preserve Atlas data while core moves from `0.2.0` to a separate compatible
+   `0.2.1` artifact.
+8. Enter the upgraded installed application lifespan and confirm private data.
 
 The packed frontend package also passes a production build through
 `SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension`.
@@ -572,16 +578,18 @@ The packed frontend package also passes a production build through
 - Lint, types, dead code, content, theme, production build, wheel, and schema
   upgrade checks passed.
 
-### Final pre-review verification
+### Verification after first-review remediation
 
 | Command | Result | Duration |
 |---|---|---:|
-| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,620 passed | 104.38 seconds |
-| `npm test` | 229 passed in 45 files | 15.92 seconds |
-| `npm run build` | Production build passed | 12.81 seconds |
-| `./scripts/lint.sh` | Ruff, format, mypy, vulture, content, license, theme, TypeScript, ESLint, and knip passed | 15.30 seconds |
-| `./scripts/reference-extension-contract.sh` | Separate wheels installed and private data upgraded | 4.10 seconds |
-| `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.53 seconds |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,635 passed | 97.02 seconds |
+| `npm test` | 229 passed in 45 files | 9.44 seconds |
+| `npm run build` | Production build passed | 13.32 seconds |
+| `./scripts/lint.sh` | Ruff, format, mypy, vulture, content, license, theme, TypeScript, ESLint, and knip passed | 14.49 seconds |
+| `./scripts/reference-extension-contract.sh` | Installed startup and `0.2.0` to `0.2.1` core upgrade passed | 7.87 seconds |
+| `./scripts/reference-frontend-contract.sh` | Public and Atlas packages compiled, packed, and production-built | 15.28 seconds |
+| `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.52 seconds |
+| `uv build --wheel --out-dir /tmp/... backend` | Core wheel passed | 0.77 seconds |
 | `PW_REUSE=1 npx playwright test --reporter=dot` | 25 passed in Chrome | 134.23 seconds |
 
 The packed Atlas frontend package also passed a separate production build.
@@ -589,16 +597,33 @@ Atlas playbook, persona, and flock validation passed.
 
 ## 14. Independent review
 
-Pending. Five reviewer roles will assess architecture, security, compatibility,
-extension-author experience, and score inflation. This section will record
-their independent scores, findings, approval decisions, and remediation.
+The first review rejected commit `8e5feec`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture | 6.8 | 6.2 | 5.5 | Reject |
+| Security | 6.8 | 5.8 | 6.8 | Reject |
+| Compatibility | 6.6 | 5.9 | 5.4 | Reject |
+| Adversarial extension author | 7.0 | 6.5 | 6.5 | Reject |
+
+The reviewers found real blockers. The frontend used the wrong capability
+shape. The installed wheel could not start. The upgrade script did not upgrade
+core. Policy and identity context did not reach all execution paths. Tool and
+workflow reviews could not resume. Specialist and MCP controls were
+incomplete.
+
+The remediation added tests for each blocker. It also added installed startup,
+two-core-artifact upgrade, approval and resume, OIDC group approval, composed
+job policy, specialist identity reservation, successful MCP receipts, truthful
+timeout status, per-subscriber retries, and strict content validation.
+
+The second four-reviewer report is pending.
 
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.
 - Frontend version 1 has navigation and manager dashboard card slots only.
-- Workflow review stops a run but does not persist and resume it.
-- A contributed tool review result does not create a generic durable proposal.
+- Version 1 workflow support has no timers or parallel branches.
 - Core persistence remains concrete SQLite.
 - In-process extensions are fully trusted code.
 - The frontend needs a compatible core build-stage artifact.
@@ -629,7 +654,7 @@ Full authoring instructions are in `docs/EXTENSIONS.md`.
 
 ## 18. Hard blockers
 
-No hard external blocker is known. Live enterprise integrations and a real
-second core release were unavailable, but local fakes and artifact contracts
-were sufficient for the stated acceptance gates. The report does not claim
+No hard external blocker is known. Live enterprise integrations and a second
+published core release were unavailable. Local fakes and two separately built
+compatible core artifacts test the contract. This report does not claim
 production or multi-release evidence.

@@ -7,7 +7,9 @@ from app.services.review import _registry
 
 
 def _pairs():
-    return {(e, a) for e, handlers in _registry().items() for a in handlers}
+    return {(e, a) for e, handlers in _registry().items() for a in handlers} | set(
+        lexicon.REVIEW_ONLY
+    )
 
 
 def test_every_registry_pair_has_a_phrase():

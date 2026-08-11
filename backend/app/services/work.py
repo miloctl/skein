@@ -40,9 +40,9 @@ def _emit_task_event(
     actor_kind: str,
 ) -> None:
     """Emit from the shared write path so every caller gets one event."""
-    from ..public.events import EventActor, ResourceReference, emit_event
+    from ..public.events import EventActor, ResourceReference, _emit_event
 
-    emit_event(
+    _emit_event(
         event_type,
         actor=EventActor(name=actor, kind=actor_kind or _event_actor_kind(origin)),
         origin=origin,
@@ -312,6 +312,18 @@ def create_task(
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
 WAITING_ON_TYPES = ("task", "blocker", "promise")
 _WAITING_TABLES = {"task": "tasks", "blocker": "blockers", "promise": "promises"}
+
+
+def task_policy_context(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+    """Return non-content task attributes used by the central policy."""
+    frag, params = scope.visible_filter(viewer, "tasks", alias="t")
+    sql = (
+        "SELECT t.visibility AS classification, COALESCE(e.project_class, '') AS project_type"  # noqa: S608 -- visible_filter returns bound SQL
+        f" FROM tasks t LEFT JOIN engagements e ON e.id = t.engagement_id"
+        f" WHERE t.id = ? AND {frag}"
+    )
+    row = db.query_one(sql, (task_id, *params))
+    return row or {}
 
 
 def update_task(

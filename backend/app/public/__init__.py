@@ -1,7 +1,7 @@
 """Stable contracts for trusted extension packages."""
 
 from .errors import PublicError
-from .events import DomainEvent, EventActor, ResourceReference, dispatch_events, emit_event
+from .events import DomainEvent, EventActor, ResourceReference
 from .work import (
     CommandContext,
     CreateTaskCommand,
@@ -24,6 +24,4 @@ __all__ = [
     "WorkflowContext",
     "WorkflowEngine",
     "WorkflowResult",
-    "dispatch_events",
-    "emit_event",
 ]

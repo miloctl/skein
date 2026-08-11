@@ -51,7 +51,7 @@ export function registerFrontendExtensions(
 
     for (const contribution of extension.navigation ?? []) {
       registerContribution(extension.id, contribution.id, contributionIds);
-      if (!contribution.href.startsWith("/"))
+      if (!contribution.href.startsWith("/") || contribution.href.startsWith("//"))
         throw new Error(`${contribution.id} must use an application-relative href`);
       if (contribution.policyAction) actions.add(contribution.policyAction);
       navigation.push({ ...contribution, extensionId: extension.id });

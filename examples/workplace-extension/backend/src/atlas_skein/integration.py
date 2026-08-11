@@ -38,12 +38,11 @@ class MemoryAtlasClient:
 
 
 class AtlasIntegration:
-    def __init__(self, client: AtlasClient, store: ExtensionStore, work: WorkItems) -> None:
+    def __init__(self, client: AtlasClient, store: ExtensionStore) -> None:
         self.client = client
         self.store = store
-        self.work = work
 
-    def sync(self) -> dict[str, int]:
+    def sync(self, work: WorkItems) -> dict[str, int]:
         context = CommandContext(
             PolicySubject(
                 "atlas-sync",
@@ -60,7 +59,7 @@ class AtlasIntegration:
                 (item.external_id,),
             )
             if link:
-                task = self.work.update_task(
+                task = work.update_task(
                     UpdateTaskCommand(
                         task_id=int(link["skein_task_id"]),
                         title=item.title,
@@ -70,8 +69,12 @@ class AtlasIntegration:
                 )
                 updated += 1
             else:
-                task = self.work.create_task(
-                    CreateTaskCommand(title=item.title),
+                task = work.create_task(
+                    CreateTaskCommand(
+                        title=item.title,
+                        status=item.status,
+                        idempotency_key=f"atlas-item:{item.external_id}",
+                    ),
                     context,
                 )
                 self.store.execute(
@@ -88,7 +91,7 @@ class AtlasIntegration:
         )
         return {"created": created, "updated": updated}
 
-    def deliver_task_event(self, event) -> None:
+    def deliver_task_event(self, event, work: WorkItems) -> None:
         link = self.store.query_one(
             "SELECT external_id FROM work_links WHERE skein_task_id = ?",
             (int(event.resource.id),),
@@ -100,7 +103,7 @@ class AtlasIntegration:
             "atlas-event",
             correlation_id=event.event_id,
         )
-        task = self.work.get_task(int(event.resource.id), context)
+        task = work.get_task(int(event.resource.id), context)
         self.client.update_status(link["external_id"], task.status, event.event_id)
 
     def metrics(self) -> dict[str, int]:

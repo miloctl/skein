@@ -36,10 +36,13 @@ _generation = 0
 
 @dataclass(frozen=True)
 class MCPToolMetadata:
+    version: str
     effect: str
     risk: str
     policy_action: str
     allowed_agents: tuple[str, ...]
+    required_capabilities: tuple[str, ...]
+    output_schema: dict[str, Any]
     timeout_seconds: float
     error_codes: tuple[str, ...]
     receipt: str
@@ -75,13 +78,23 @@ class GovernedMCPTool(AgentTool):
         from .receipts import record
 
         actor = agent_identity()
+        subject = current_policy_subject()
         if self.metadata.allowed_agents and actor not in self.metadata.allowed_agents:
             record("refused", self.tool_name, "agent not allowed", actor=actor)
+            if self.metadata.effect == "write":
+                _audit_mcp(actor, self.tool_name, "refused", "agent_not_allowed")
             yield _refusal(tool_use, "This agent is not allowed to use the remote tool.")
+            return
+        missing = set(self.metadata.required_capabilities) - set(subject.capabilities)
+        if missing:
+            record("refused", self.tool_name, "capability required", actor=actor)
+            if self.metadata.effect == "write":
+                _audit_mcp(actor, self.tool_name, "refused", "capability_required")
+            yield _refusal(tool_use, "This identity cannot use the remote tool.")
             return
         decision = current_policy_engine().decide(
             PolicyInput(
-                current_policy_subject(),
+                subject,
                 self.metadata.policy_action,
                 PolicyResource("mcp-tool", self.tool_name),
                 "mcp",
@@ -94,22 +107,69 @@ class GovernedMCPTool(AgentTool):
         if decision.effect != PolicyEffect.PERMIT:
             status = "review required" if decision.effect == PolicyEffect.REVIEW else "denied"
             record("refused", self.tool_name, status, actor=actor)
+            if self.metadata.effect == "write":
+                _audit_mcp(actor, self.tool_name, "refused", decision.effect.value)
             yield _refusal(tool_use, f"Skein policy {status} for this remote tool.")
             return
-
-        iterator = self._delegate.stream(tool_use, invocation_state, **kwargs).__aiter__()
-        while True:
-            try:
-                event = await asyncio.wait_for(
-                    anext(iterator), timeout=self.metadata.timeout_seconds
-                )
-            except StopAsyncIteration:
-                break
-            except TimeoutError:
-                record("failed", self.tool_name, "remote tool timed out", actor=actor)
-                yield _refusal(tool_use, "The remote tool timed out.")
-                return
+        events = []
+        try:
+            async with asyncio.timeout(self.metadata.timeout_seconds):
+                async for event in self._delegate.stream(tool_use, invocation_state, **kwargs):
+                    events.append(event)
+        except TimeoutError:
+            status = "completion unknown" if self.metadata.effect == "write" else "timed out"
+            record("failed", self.tool_name, status, actor=actor)
+            _audit_mcp(actor, self.tool_name, "completion_unknown", "deadline_exceeded")
+            yield _refusal(tool_use, f"The remote tool {status}.")
+            return
+        except Exception as exc:
+            declared = str(getattr(exc, "code", ""))
+            code = declared if declared in self.metadata.error_codes else "remote_error"
+            record("failed", self.tool_name, code, actor=actor)
+            _audit_mcp(actor, self.tool_name, "failed", code)
+            yield _refusal(tool_use, "The remote tool failed. Read the server log for the cause.")
+            return
+        if not events or not _schema_matches(events[-1], self.metadata.output_schema):
+            record("failed", self.tool_name, "invalid output", actor=actor)
+            _audit_mcp(actor, self.tool_name, "failed", "invalid_output")
+            yield _refusal(tool_use, "The remote tool returned data outside its declared schema.")
+            return
+        if self.metadata.effect == "write":
+            record("wrote", self.tool_name, "remote write completed", actor=actor)
+            _audit_mcp(actor, self.tool_name, "completed")
+        for event in events:
             yield event
+
+
+def _schema_matches(value: Any, schema: dict[str, Any]) -> bool:
+    """Validate the small JSON Schema subset allowed for MCP result events."""
+    expected = schema.get("type")
+    checks = {
+        "object": lambda item: isinstance(item, dict),
+        "array": lambda item: isinstance(item, list),
+        "string": lambda item: isinstance(item, str),
+        "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+        "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+        "boolean": lambda item: isinstance(item, bool),
+        "null": lambda item: item is None,
+    }
+    if expected in checks and not checks[expected](value):
+        return False
+    if expected == "object" and isinstance(value, dict):
+        required = schema.get("required") or ()
+        if any(name not in value for name in required):
+            return False
+        properties = schema.get("properties") or {}
+        if not isinstance(properties, dict):
+            return False
+        return all(
+            name not in value or _schema_matches(value[name], subschema)
+            for name, subschema in properties.items()
+            if isinstance(subschema, dict)
+        )
+    if expected == "array" and isinstance(value, list) and isinstance(schema.get("items"), dict):
+        return all(_schema_matches(item, schema["items"]) for item in value)
+    return expected in checks
 
 
 def _refusal(tool_use: dict, detail: str) -> dict:
@@ -123,10 +183,13 @@ def _refusal(tool_use: dict, detail: str) -> dict:
 def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
     value = (server.get("tools") or {}).get(tool_name)
     required = {
+        "version",
         "effect",
         "risk",
         "policy_action",
         "allowed_agents",
+        "required_capabilities",
+        "output_schema",
         "timeout_seconds",
         "error_codes",
         "receipt",
@@ -140,6 +203,11 @@ def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
         return None
     if value["receipt"] != "required" or value["provenance"] != "service":
         return None
+    if not isinstance(value["output_schema"], dict):
+        return None
+    version = str(value["version"])
+    if len(version.split(".")) != 3 or any(not part.isdigit() for part in version.split(".")):
+        return None
     try:
         timeout = float(value["timeout_seconds"])
     except (TypeError, ValueError):
@@ -147,15 +215,24 @@ def _metadata(server: dict, tool_name: str) -> MCPToolMetadata | None:
     if timeout <= 0:
         return None
     return MCPToolMetadata(
+        version,
         value["effect"],
         value["risk"],
         str(value["policy_action"]),
         tuple(str(item) for item in value["allowed_agents"]),
+        tuple(str(item) for item in value["required_capabilities"]),
+        dict(value["output_schema"]),
         timeout,
         tuple(str(item) for item in value["error_codes"]),
         value["receipt"],
         value["provenance"],
     )
+
+
+def _audit_mcp(actor: str, tool: str, status: str, error_code: str = "") -> None:
+    from ..services.tool_audit import record_tool_execution
+
+    record_tool_execution(actor=actor, tool=tool, status=status, error_code=error_code)
 
 
 def mcp_tools() -> list:

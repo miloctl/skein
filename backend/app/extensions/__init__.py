@@ -6,9 +6,11 @@ from .contracts import (
     AppSettings,
     ContextContribution,
     EventContribution,
+    EventExecutionContext,
     ExtensionMigration,
     IdentityContribution,
     JobContribution,
+    JobExecutionContext,
     LifecycleContribution,
     MigrationContribution,
     PolicyContribution,
@@ -16,10 +18,12 @@ from .contracts import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
+    ToolHandlerContext,
+    WorkflowActionContext,
     WorkflowActionContribution,
 )
 from .data import ExtensionStore
-from .fastapi import PolicyAPIRoute, PolicySubjectDep, decide, subject_for
+from .fastapi import PolicyAPIRoute, PolicySubjectDep, decide, enforce_decision, subject_for
 from .policy import (
     PolicyDecision,
     PolicyEffect,
@@ -36,12 +40,14 @@ __all__ = [
     "AppSettings",
     "ContextContribution",
     "EventContribution",
+    "EventExecutionContext",
     "ExtensionMigration",
     "ExtensionRegistry",
     "ExtensionStore",
     "ExtensionValidationError",
     "IdentityContribution",
     "JobContribution",
+    "JobExecutionContext",
     "LifecycleContribution",
     "MigrationContribution",
     "PolicyAPIRoute",
@@ -57,7 +63,10 @@ __all__ = [
     "SkeinModule",
     "SpecialistContribution",
     "ToolContribution",
+    "ToolHandlerContext",
+    "WorkflowActionContext",
     "WorkflowActionContribution",
     "decide",
+    "enforce_decision",
     "subject_for",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 from collections.abc import Sequence
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -39,19 +40,41 @@ class ExtensionStore:
             connection.isolation_level = None
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS extension_schema_version"
-                " (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+                " (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL,"
+                " digest TEXT NOT NULL DEFAULT '')"
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(extension_schema_version)"
+                ).fetchall()
+            }
+            if "digest" not in columns:
+                connection.execute(
+                    "ALTER TABLE extension_schema_version"
+                    " ADD COLUMN digest TEXT NOT NULL DEFAULT ''"
+                )
             for migration in sorted(migrations, key=lambda item: item.version):
+                digest = sha256("\0".join(migration.statements).encode()).hexdigest()
                 connection.execute("BEGIN IMMEDIATE")
                 try:
                     row = connection.execute(
-                        "SELECT name FROM extension_schema_version WHERE version = ?",
+                        "SELECT name, digest FROM extension_schema_version WHERE version = ?",
                         (migration.version,),
                     ).fetchone()
                     if row:
                         if row["name"] != migration.name:
                             raise ValueError(
                                 f"extension migration {migration.version} changed its name"
+                            )
+                        if row["digest"] and row["digest"] != digest:
+                            raise ValueError(
+                                f"extension migration {migration.version} changed its statements"
+                            )
+                        if not row["digest"]:
+                            connection.execute(
+                                "UPDATE extension_schema_version SET digest = ? WHERE version = ?",
+                                (digest, migration.version),
                             )
                         connection.execute("COMMIT")
                         continue
@@ -64,8 +87,8 @@ class ExtensionStore:
                         )
                     connection.execute(
                         "INSERT INTO extension_schema_version"
-                        " (version, name, applied_at) VALUES (?, ?, ?)",
-                        (migration.version, migration.name, db.now()),
+                        " (version, name, applied_at, digest) VALUES (?, ?, ?, ?)",
+                        (migration.version, migration.name, db.now(), digest),
                     )
                     connection.execute("COMMIT")
                 except Exception:

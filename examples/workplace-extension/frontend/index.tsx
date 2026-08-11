@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 import {
   Card,
   FRONTEND_EXTENSION_API,
-  api,
+  type DashboardCardProps,
   type FrontendExtension,
 } from "@skein/extension-api";
 
-function AtlasDeliveryCard() {
+function AtlasDeliveryCard({ api }: DashboardCardProps) {
   const [metrics, setMetrics] = useState<{
     linked_items: number;
     sync_runs: number;
@@ -20,7 +20,7 @@ function AtlasDeliveryCard() {
     )
       .then(setMetrics)
       .catch(() => setMetrics({ linked_items: 0, sync_runs: 0 }));
-  }, []);
+  }, [api]);
   return (
     <div id="atlas-delivery" className="md:col-span-2">
       <Card title="Atlas delivery indicators">
@@ -38,8 +38,8 @@ const extension: FrontendExtension = {
   id: "atlas.workplace",
   version: "1.0.0",
   extensionApi: FRONTEND_EXTENSION_API,
-  minimumCore: "0.1.0",
-  maximumCoreExclusive: "0.2.0",
+  minimumCore: "0.2.0",
+  maximumCoreExclusive: "0.3.0",
   navigation: [
     {
       id: "atlas.workplace.manager-nav",

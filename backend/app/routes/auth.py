@@ -22,13 +22,18 @@ router = APIRouter(prefix="/api/auth")
 
 
 @router.get("/config")
-def get_auth_config():
+def get_auth_config(request: Request):
     """What the web app needs to render the right sign-in affordance.
 
     Always answers, in every mode: the frontend has no other way to learn that
     the self-asserted name picker is not the identity model here."""
-    out: dict = {"mode": config.AUTH_MODE, "error": config.AUTH_ERROR}
-    if config.AUTH_ERROR or config.AUTH_MODE != "oidc":
+    settings = request.app.state.skein_settings
+    if not request.app.state.skein_explicit_settings:
+        from ..extensions import AppSettings
+
+        settings = AppSettings.from_config()
+    out: dict = {"mode": settings.auth_mode, "error": settings.auth_error}
+    if settings.auth_error or settings.auth_mode != "oidc":
         return out
     out["client_id"] = config.OIDC_CLIENT_ID
     out["scopes"] = config.OIDC_SCOPES
@@ -55,9 +60,14 @@ class TokenIn(BaseModel):
 
 @router.post("/token")
 def post_token(body: TokenIn, request: Request):
-    if config.AUTH_ERROR:
-        raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
-    if config.AUTH_MODE != "oidc":
+    settings = request.app.state.skein_settings
+    if not request.app.state.skein_explicit_settings:
+        from ..extensions import AppSettings
+
+        settings = AppSettings.from_config()
+    if settings.auth_error:
+        raise HTTPException(status_code=503, detail=settings.auth_error)
+    if settings.auth_mode != "oidc":
         raise HTTPException(
             status_code=404,
             detail="If SKEIN_AUTH_MODE is not oidc, browser sign-in is off.",

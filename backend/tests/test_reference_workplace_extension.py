@@ -8,6 +8,7 @@ import tomllib
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,13 +22,19 @@ from atlas_skein.integration import AtlasItem, MemoryAtlasClient  # noqa: E402
 
 from app.extensions import (  # noqa: E402
     AppSettings,
+    EventExecutionContext,
     ExtensionRegistry,
+    JobExecutionContext,
+    PolicyContribution,
+    PolicyDecision,
     PolicyEffect,
     PolicyInput,
     PolicyResource,
     PolicySubject,
+    SkeinModule,
 )
 from app.main import create_app  # noqa: E402
+from app.public import PublicError, WorkItems  # noqa: E402
 from app.public.events import dispatch_events  # noqa: E402
 
 
@@ -84,9 +91,12 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     app = create_app(settings, (module,))
     with TestClient(app, headers={"X-User": "tester"}) as http:
-        job = next(item for item in app.state.skein_registry.jobs if item.name.endswith(".sync"))
-        assert job.handler() == {"created": 1, "updated": 0}
-        assert job.handler() == {"created": 0, "updated": 1}
+        registry = app.state.skein_registry
+        work_items = WorkItems(registry.policy_engine)
+        context = JobExecutionContext(settings, registry.policy_engine, work_items)
+        job = next(item for item in registry.jobs if item.name.endswith(".sync"))
+        assert job.handler(context) == {"created": 1, "updated": 0}
+        assert job.handler(context) == {"created": 0, "updated": 1}
         denied = http.get("/api/extensions/atlas.workplace/metrics")
 
     task = fresh_db.query_one("SELECT * FROM tasks")
@@ -100,15 +110,45 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     assert denied.status_code == 403
     assert denied.json()["code"] == "POLICY_DENIED"
     assert client.updates[:2] == [
-        ("ATLAS-7", "todo", ""),
+        ("ATLAS-7", "in_progress", ""),
         ("ATLAS-7", "in_progress", ""),
     ]
 
-    delivery = dispatch_events(app.state.skein_registry.events)
-    assert delivery["delivered"] == 2
+    delivery = dispatch_events(
+        app.state.skein_registry.events,
+        EventExecutionContext(registry.policy_engine, work_items),
+    )
+    assert delivery["delivered"] == 3
     event_updates = [update for update in client.updates if update[2]]
-    assert len(event_updates) == 1
-    assert event_updates[0][0:2] == ("ATLAS-7", "in_progress")
+    assert len(event_updates) == 2
+    assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
+
+
+def test_a_second_module_can_deny_the_reference_background_job(fresh_db, tmp_path):
+    def compliance_rule(request: PolicyInput):
+        if request.action == "work.task.create" and request.subject.kind == "service":
+            return PolicyDecision(PolicyEffect.DENY, ("Background imports are paused.",))
+        return None
+
+    compliance = SkeinModule(
+        module_id="compliance.workplace",
+        version="1.0.0",
+        policies=(PolicyContribution("compliance.workplace.background-policy", compliance_rule),),
+    )
+    client = MemoryAtlasClient((AtlasItem("ATLAS-9", "Must not land"),))
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    app = create_app(settings, (_module(tmp_path, client), compliance))
+    with TestClient(app):
+        registry = app.state.skein_registry
+        context = JobExecutionContext(
+            settings,
+            registry.policy_engine,
+            WorkItems(registry.policy_engine),
+        )
+        job = next(item for item in registry.jobs if item.name == "atlas.workplace.sync")
+        with pytest.raises(PublicError):
+            job.handler(context)
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
 
 
 def test_directory_groups_map_to_roles_and_backend_policy(tmp_path):
@@ -187,25 +227,60 @@ def test_reference_specialist_tool_is_governed_and_uses_public_work(fresh_db, tm
 
 
 def test_reference_playbook_uses_real_policy_and_workflow_registry(fresh_db, tmp_path, monkeypatch):
-    from app import config
+    from app import config, oidc
 
     monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", EXAMPLE / "content" / "playbooks")
+    monkeypatch.setattr(oidc, "validate", lambda token: {"token": token})
+    monkeypatch.setattr(
+        oidc,
+        "principal",
+        lambda claims: (
+            ("mira", ["atlas-delivery-managers"])
+            if claims["token"] == "manager-token"
+            else ("ava", [])
+        ),
+    )
     module = _module(tmp_path)
-    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
-    with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as http:
+    settings = replace(
+        AppSettings.from_config(),
+        scheduler_enabled=False,
+        auth_mode="oidc",
+        auth_error="",
+        api_token="",
+        docs_enabled=False,
+    )
+    with TestClient(
+        create_app(settings, (module,)),
+        headers={"Authorization": "Bearer requester-token"},
+    ) as http:
         response = http.post(
             "/api/playbooks/instantiate",
             json={"playbook": "atlas_delivery", "engagement_name": "Atlas launch"},
         )
-    assert response.status_code == 200, response.text
-    workflow = response.json()["workflow"]
-    assert workflow["status"] == "review_required"
-    assert workflow["checkpoint"] == "manager-approval"
-    assert workflow["obligations"] == [
-        "approver-group:atlas-delivery-managers",
-        "approver-capability:atlas.approve",
-    ]
-    assert fresh_db.query_one("SELECT name FROM engagements")["name"] == "Atlas launch"
+        assert response.status_code == 200, response.text
+        workflow = response.json()["workflow"]
+        assert workflow["status"] == "review_required"
+        assert workflow["checkpoint"] == "manager-approval"
+        assert workflow["review_id"] > 0
+        assert workflow["obligations"] == [
+            "approver-group:atlas-delivery-managers",
+            "approver-capability:atlas.approve",
+        ]
+        assert fresh_db.query_one("SELECT name FROM engagements") is None
+
+        approved = http.post(
+            f"/api/review/{workflow['review_id']}/approve",
+            json={"note": "Approved for delivery."},
+            headers={"Authorization": "Bearer manager-token"},
+        )
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["result"]["workflow"]["status"] == "completed"
+
+    assert fresh_db.query_one("SELECT name FROM engagements") == {"name": "Atlas launch"}
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+        (workflow["review_id"],),
+    ) == {"status": "approved"}
 
 
 def test_extension_store_upgrades_its_own_v1_data_during_composition(fresh_db, tmp_path):

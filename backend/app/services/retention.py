@@ -17,11 +17,13 @@ PRUNE_LABEL = {
     "job_runs": "job run",
     "job_outcomes": "job outcome",
     "mention_log": "orphan mention record",
+    "extension_outbox": "delivered extension event",
 }
 
 FORECAST_SNAPSHOT_DAYS = 365
 READ_NOTIFICATION_DAYS = 90
 JOB_ROW_DAYS = 90
+EXTENSION_EVENT_DAYS = 90
 
 
 def _cutoff(days: int) -> str:
@@ -87,6 +89,10 @@ def prune(*, actor: str = "scheduler") -> dict:
         ),
         "job_outcomes": db.execute_rowcount(
             "DELETE FROM job_outcomes WHERE created_at < ?", (_cutoff(JOB_ROW_DAYS),)
+        ),
+        "extension_outbox": db.execute_rowcount(
+            "DELETE FROM extension_outbox WHERE status IN ('delivered', 'dead') AND created_at < ?",
+            (_cutoff(EXTENSION_EVENT_DAYS),),
         ),
         # orphans only, never by age: the (entity, entity_id, person) key is
         # the notify-once promise, and an age prune would let an edit of an

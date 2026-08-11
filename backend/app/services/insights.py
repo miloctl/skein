@@ -151,7 +151,8 @@ def automation_ratio(months: int = 6) -> list[dict]:
         m = months_map.setdefault(
             r["month"], {"month": r["month"], "human": 0, "agent": 0, "agent_verified": 0}
         )
-        m[r["origin"]] = m.get(r["origin"], 0) + r["n"]
+        origin = r["origin"] if r["origin"] in ("human", "agent", "agent_verified") else "agent"
+        m[origin] += r["n"]
     out = []
     for m in months_map.values():
         total = m["human"] + m["agent"] + m["agent_verified"]

@@ -1,13 +1,19 @@
 """REST API: reads for the dashboard, writes for humans (the second write path
 alongside agent tools — both go through app.services)."""
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
-from ..extensions.fastapi import PolicyAPIRoute, PolicySubjectDep, decide
+from ..extensions.fastapi import (
+    PolicyAPIRoute,
+    PolicySubjectDep,
+    decide,
+    enforce_decision,
+)
 from ..services import (
     absences,
     activity,
@@ -1343,10 +1349,30 @@ class TaskPatch(BaseModel):
 
 
 @router.patch("/tasks/{task_id}")
-def patch_task(task_id: int, body: TaskPatch, user: CurrentUser, viewer: ViewerDep):
+def patch_task(
+    task_id: int,
+    body: TaskPatch,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     # edits scan for @mentions, so an uncapped PATCH is a notification
     # amplifier — same cap as the create routes
     ratelimit.check("write", user)
+    policy_context = work.task_policy_context(task_id, viewer)
+    enforce_decision(
+        decide(
+            request,
+            subject,
+            "skein.rest.patch.tasks",
+            "task",
+            resource_id=str(task_id),
+            project_type=str(policy_context.get("project_type") or ""),
+            classification=str(policy_context.get("classification") or ""),
+            attributes=body.model_dump(),
+        )
+    )
     # `strong` is read off the viewer, whose name survives only a proved
     # identity (services/scope.py::Viewer). A sponsor closing delegated work
     # here settles the acceptance proposal, and that verdict records whether
@@ -1660,6 +1686,102 @@ class ReviewActionIn(BaseModel):
     note: str = Field("", max_length=1000)
 
 
+def _execute_extension_review(request: Request, invocation: dict, _change_id: int) -> dict:
+    """Resume an approved invocation through the current composed registry."""
+    registry = request.app.state.skein_registry
+    if invocation.get("kind") == "tool":
+        from ..extensions.tools import execute_reviewed_tool
+
+        tool = registry.tool(str(invocation.get("tool") or ""))
+        tool_execution = asyncio.run(
+            execute_reviewed_tool(tool, invocation, registry.policy_engine)
+        )
+        return tool_execution.model_dump(mode="json")
+    if invocation.get("kind") == "workflow":
+        from ..extensions.policy import PolicySubject
+        from ..public.workflow import WorkflowContext, WorkflowEngine
+
+        subject_data = invocation.get("subject") or {}
+        subject = PolicySubject(
+            name=str(subject_data.get("name") or ""),
+            kind=str(subject_data.get("kind") or "human"),
+            roles=tuple(subject_data.get("roles") or ()),
+            groups=tuple(subject_data.get("groups") or ()),
+            capabilities=tuple(subject_data.get("capabilities") or ()),
+            attributes=dict(subject_data.get("attributes") or {}),
+        )
+        approved_steps = (
+            *tuple(invocation.get("approved_steps") or ()),
+            str(invocation.get("reviewed_step") or ""),
+        )
+        workflow_result = playbooks.instantiate(
+            str(invocation.get("playbook") or ""),
+            str(invocation.get("engagement_name") or ""),
+            str(invocation.get("lead") or ""),
+            str(invocation.get("start_date") or ""),
+            actor=str(invocation.get("actor") or subject.name),
+            origin="human",
+            workflow_engine=WorkflowEngine(
+                registry.workflow_actions,
+                registry.policy_engine,
+            ),
+            workflow_context=WorkflowContext(
+                subject=subject,
+                origin="human",
+                project_type=str(invocation.get("project_type") or ""),
+                resource_id=str(invocation.get("resource_id") or ""),
+                values=dict(invocation.get("values") or {}),
+                approved_steps=approved_steps,
+            ),
+        )
+        if workflow_result.get("workflow", {}).get("status") == "review_required":
+            return _queue_workflow_review(
+                workflow_result,
+                {**invocation, "approved_steps": list(approved_steps)},
+            )
+        return workflow_result
+    raise ValueError("the extension review kind is not supported")
+
+
+def _queue_workflow_review(result: dict, invocation: dict) -> dict:
+    workflow = result.get("workflow") or {}
+    obligations = tuple(str(value) for value in workflow.get("obligations") or ())
+    groups = tuple(
+        value.removeprefix("approver-group:")
+        for value in obligations
+        if value.startswith("approver-group:")
+    )
+    capabilities = tuple(
+        value.removeprefix("approver-capability:")
+        for value in obligations
+        if value.startswith("approver-capability:")
+    )
+    plain = tuple(
+        value
+        for value in obligations
+        if not value.startswith(("approver-group:", "approver-capability:"))
+    )
+    checkpoint = str(workflow.get("checkpoint") or "")
+    proposal = review.propose_extension_invocation(
+        "workflow",
+        {
+            "playbook": invocation["playbook"],
+            "engagement_name": invocation["engagement_name"],
+            "checkpoint": checkpoint,
+        },
+        {**invocation, "reviewed_step": checkpoint},
+        summary=f"Continue workflow {invocation['playbook']} at {checkpoint}",
+        actor=str(invocation["actor"]),
+        requested_by=str(invocation["actor"]),
+        policy_obligations=plain,
+        approver_groups=groups,
+        approver_capabilities=capabilities,
+    )
+    workflow["review_id"] = proposal["id"]
+    result["workflow"] = workflow
+    return result
+
+
 @router.post("/review/{change_id}/approve")
 def post_approve(
     change_id: int,
@@ -1667,9 +1789,21 @@ def post_approve(
     user: CurrentUser,
     viewer: ViewerDep,
     request: Request,
+    subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.approve_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
+    return review.approve_change(
+        change_id,
+        body.note,
+        actor=user,
+        strong=strong,
+        viewer=viewer,
+        reviewer_groups=subject.groups,
+        reviewer_capabilities=subject.capabilities,
+        extension_executor=lambda invocation, change_id: _execute_extension_review(
+            request, invocation, change_id
+        ),
+    )
 
 
 @router.post("/review/{change_id}/reject")
@@ -1738,7 +1872,11 @@ def post_review_seen(body: SeenIn, user: CurrentUser):
 
 @router.post("/review/approve-batch")
 def post_approve_batch(
-    body: BatchApproveIn, user: CurrentUser, viewer: ViewerDep, request: Request
+    body: BatchApproveIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
     results = []
@@ -1748,7 +1886,17 @@ def post_approve_batch(
     # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
         try:
-            r = review.approve_change(cid, actor=user, strong=strong, viewer=viewer)
+            r = review.approve_change(
+                cid,
+                actor=user,
+                strong=strong,
+                viewer=viewer,
+                reviewer_groups=subject.groups,
+                reviewer_capabilities=subject.capabilities,
+                extension_executor=lambda invocation, change_id: _execute_extension_review(
+                    request, invocation, change_id
+                ),
+            )
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
@@ -1856,19 +2004,44 @@ def post_instantiate(
     registry = request.app.state.skein_registry
     playbook = playbooks.get_playbook(body.playbook)
     project_type = str(playbook.get("project_class") or body.playbook)
-    return playbooks.instantiate(
+    workflow_context = WorkflowContext(
+        subject=subject,
+        origin="human",
+        values={"project_type": project_type},
+        project_type=project_type,
+    )
+    result = playbooks.instantiate(
         body.playbook,
         body.engagement_name,
         body.lead or user,
         body.start_date,
         actor=user,
         workflow_engine=WorkflowEngine(registry.workflow_actions, registry.policy_engine),
-        workflow_context=WorkflowContext(
-            subject=subject,
-            origin="human",
-            values={"project_type": project_type},
-            project_type=project_type,
-        ),
+        workflow_context=workflow_context,
+    )
+    if result.get("workflow", {}).get("status") != "review_required":
+        return result
+    return _queue_workflow_review(
+        result,
+        {
+            "playbook": body.playbook,
+            "engagement_name": body.engagement_name,
+            "lead": body.lead or user,
+            "start_date": body.start_date,
+            "actor": user,
+            "project_type": project_type,
+            "resource_id": "",
+            "values": dict(workflow_context.values),
+            "approved_steps": [],
+            "subject": {
+                "name": subject.name,
+                "kind": subject.kind,
+                "roles": list(subject.roles),
+                "groups": list(subject.groups),
+                "capabilities": list(subject.capabilities),
+                "attributes": dict(subject.attributes),
+            },
+        },
     )
 
 
@@ -1885,7 +2058,7 @@ def post_digest(user: CurrentUser):
 
 
 @router.get("/calendar.ics")
-def get_calendar_ics(token: str = ""):
+def get_calendar_ics(request: Request, token: str = ""):
     """iCalendar feed of events + due dates (team-visible data only).
     Keep the feed inside the trusted network. Calendar clients can't send
     headers, so auth is a DEDICATED
@@ -1905,7 +2078,15 @@ def get_calendar_ics(token: str = ""):
         # bytes compare: str compare_digest raises on non-ASCII input (→500)
         if not hmac.compare_digest(token.encode(), config.ICS_TOKEN.encode()):
             raise HTTPException(status_code=401, detail="token required")
-    elif config.API_TOKEN or config.AUTH_MODE != "trusted-header":
+    elif (
+        request.app.state.skein_settings.api_token
+        if request.app.state.skein_explicit_settings
+        else config.API_TOKEN
+    ) or (
+        request.app.state.skein_settings.auth_mode
+        if request.app.state.skein_explicit_settings
+        else config.AUTH_MODE
+    ) != "trusted-header":
         raise HTTPException(
             status_code=403,
             detail="calendar feed disabled — set SKEIN_ICS_TOKEN to enable it",

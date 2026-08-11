@@ -21,11 +21,21 @@ delegation is not a proposal — and each one honors the forbidden kill switch.
 
 import json
 import os
+from collections.abc import Sequence
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from . import db, ratelimit
+from .extensions import PolicySubject, SkeinModule
+from .extensions.core import core_module
+from .extensions.policy import (
+    reset_policy_engine,
+    reset_policy_subject,
+    set_policy_engine,
+    set_policy_subject,
+)
+from .extensions.registry import ExtensionRegistry
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
@@ -306,7 +316,7 @@ def context_pack_resource() -> str:
     return context_pack.get_pack(actor=ACTOR)["content"]
 
 
-def main() -> None:
+def main(modules: Sequence[SkeinModule] = ()) -> None:
     # a long-lived side process must never apply schema — that is the API
     # server's job (migrations + startup jobs belong to one owner)
     pending = db.pending_migrations()
@@ -338,7 +348,28 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(1) from exc
-    mcp.run()  # stdio: stdout carries the protocol, so diagnostics (the print above) go to stderr
+    registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    attributes = registry.identity_attributes(ACTOR, (), True)
+    roles = attributes.pop("roles", ())
+    capabilities = attributes.pop("capabilities", ())
+    if not isinstance(roles, (list, tuple)) or not isinstance(capabilities, (list, tuple)):
+        raise RuntimeError("identity roles and capabilities must be lists or tuples")
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(
+        PolicySubject(
+            ACTOR,
+            kind="agent",
+            roles=tuple(str(value) for value in roles),
+            capabilities=tuple(str(value) for value in capabilities),
+            attributes=attributes,
+        )
+    )
+    try:
+        # stdio: stdout carries the protocol, so diagnostics above go to stderr.
+        mcp.run()
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
 
 
 if __name__ == "__main__":

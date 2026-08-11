@@ -6,9 +6,22 @@ from collections.abc import Iterable
 from typing import Any
 
 from .contracts import ToolContribution
-from .policy import current_policy_engine, current_policy_subject
+from .policy import PolicySubject, current_policy_engine, current_policy_subject
 from .registry import ExtensionRegistry
 from .tools import ToolCallContext, execute_tool
+
+
+def missing_specialist_capabilities(
+    registry: ExtensionRegistry,
+    specialist: str,
+    subject: PolicySubject,
+) -> tuple[str, ...]:
+    """Return missing capabilities for one contributed specialist."""
+    try:
+        contribution = registry.specialist(specialist)
+    except ValueError:
+        return ()
+    return tuple(sorted(set(contribution.required_capabilities) - set(subject.capabilities)))
 
 
 def strands_tools(

@@ -22,7 +22,7 @@ import yaml
 from .. import config, db
 from . import personas
 
-FLOCKS_DIR = Path(__file__).resolve().parent.parent.parent / "flocks"
+FLOCKS_DIR = config.STOCK_DIR / "flocks"
 
 # same charset as a persona slug: both name an agent head in chat, and
 # services/personas.py holds the matching pattern

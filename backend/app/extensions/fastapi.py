@@ -118,9 +118,13 @@ def enforce_mutation_policy(
         resource_type,
         resource_id=resource_id,
     )
+    enforce_decision(decision)
+
+
+def enforce_decision(decision: PolicyDecision) -> None:
+    """Convert one public policy result into the stable HTTP error contract."""
     if decision.effect.value == "permit":
         return
-
     obligations = tuple(decision.obligations)
     obligations += tuple(f"approver-group:{value}" for value in decision.approver_groups)
     obligations += tuple(f"approver-capability:{value}" for value in decision.approver_capabilities)

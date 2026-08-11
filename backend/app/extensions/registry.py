@@ -64,14 +64,20 @@ class ExtensionRegistry:
         self, name: str, groups: tuple[str, ...], strong: bool
     ) -> dict[str, object]:
         attributes: dict[str, object] = {}
+        roles: list[str] = []
+        capabilities: list[str] = []
         for contribution in self.identities:
             contributed = dict(contribution.mapper(name, groups, strong))
+            roles.extend(str(value) for value in contributed.pop("roles", ()))
+            capabilities.extend(str(value) for value in contributed.pop("capabilities", ()))
             overlap = set(attributes) & set(contributed)
             if overlap:
                 raise ExtensionValidationError(
                     f"identity attribute collision: {', '.join(sorted(overlap))}"
                 )
             attributes.update(contributed)
+        attributes["roles"] = tuple(dict.fromkeys(roles))
+        attributes["capabilities"] = tuple(dict.fromkeys(capabilities))
         return attributes
 
     def tool(self, name: str) -> ToolContribution:
@@ -223,6 +229,7 @@ def _order_modules(modules: tuple[SkeinModule, ...]) -> tuple[SkeinModule, ...]:
 def _validate_module(module: SkeinModule) -> None:
     if not _IDENTIFIER.fullmatch(module.module_id):
         raise ExtensionValidationError(f"invalid module id {module.module_id!r}")
+    _version(module.version, f"module {module.module_id} version")
     if module.extension_api != EXTENSION_API_VERSION:
         raise ExtensionValidationError(
             f"module {module.module_id!r} needs extension API {module.extension_api}; "
@@ -285,6 +292,10 @@ def _validate_module(module: SkeinModule) -> None:
             specialist_contribution.version,
             f"specialist {specialist_contribution.name} version",
         )
+        if len(specialist_contribution.name) > 64:
+            raise ExtensionValidationError(
+                f"specialist {specialist_contribution.name!r} exceeds the identity limit"
+            )
     for event_contribution in module.events:
         _validate_contribution_name(module, event_contribution.name)
         if not event_contribution.event_types:
@@ -343,6 +354,7 @@ def _validate_namespace(module: SkeinModule) -> None:
     prefix = f"/api/extensions/{module.module_id}/"
     bare_prefix = prefix.removesuffix("/")
     for route_contribution in module.routes:
+        _validate_owned(module, route_contribution.name)
         for route in route_contribution.router.routes:
             path = getattr(route, "path", "")
             if path != bare_prefix and not path.startswith(prefix):
@@ -381,4 +393,13 @@ def _validate_owned(module: SkeinModule, name: str) -> None:
     if not name.startswith(f"{module.module_id}."):
         raise ExtensionValidationError(
             f"contribution {name!r} must start with {module.module_id!r}"
+        )
+
+
+def validate_core_tool_names(registry: ExtensionRegistry, names: set[str]) -> None:
+    """Refuse model-facing names already owned by a built-in tool."""
+    overlap = sorted(names & {item.model_name for item in registry.tools})
+    if overlap:
+        raise ExtensionValidationError(
+            f"contributed model tool collides with core: {', '.join(overlap)}"
         )

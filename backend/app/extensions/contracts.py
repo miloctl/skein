@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -17,12 +19,17 @@ from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 
 from .. import config
-from .policy import IdentityMapper, PolicyRule
+from .policy import IdentityMapper, PolicyEngine, PolicyResource, PolicyRule, PolicySubject
 
 if TYPE_CHECKING:
     from ..public.events import DomainEvent
+    from ..public.work import WorkItems
 
-SKEIN_CORE_VERSION = "0.1.0"
+
+try:
+    SKEIN_CORE_VERSION = package_version("skein")
+except PackageNotFoundError:
+    SKEIN_CORE_VERSION = "0.2.0"
 EXTENSION_API_VERSION = "1.0"
 
 
@@ -75,11 +82,20 @@ class RouteContribution:
 
 
 @dataclass(frozen=True)
+class JobExecutionContext:
+    """Composed services and policy supplied to one scheduled job."""
+
+    settings: AppSettings
+    policy: PolicyEngine
+    work_items: WorkItems
+
+
+@dataclass(frozen=True)
 class JobContribution:
     """A scheduled job and the cadence used by health reporting."""
 
     name: str
-    handler: Callable[[], Any]
+    handler: Callable[[JobExecutionContext], Any]
     trigger: Mapping[str, Any] = field(default_factory=dict)
     period_hours: float = 24
     catch_up: bool = False
@@ -134,6 +150,15 @@ class ContextContribution:
 
 
 @dataclass(frozen=True)
+class ToolHandlerContext:
+    """Composed services supplied after a tool call passes policy."""
+
+    subject: PolicySubject
+    policy: PolicyEngine
+    work_items: WorkItems
+
+
+@dataclass(frozen=True)
 class ToolContribution:
     """A governed agent tool with explicit effects and error behavior."""
 
@@ -141,7 +166,7 @@ class ToolContribution:
     version: str
     model_name: str
     description: str
-    handler: Callable[..., Any]
+    handler: Callable[[ToolHandlerContext, BaseModel], Any]
     input_schema: type[BaseModel]
     output_schema: type[BaseModel]
     effect: str
@@ -153,6 +178,7 @@ class ToolContribution:
     error_codes: tuple[str, ...] = ()
     receipt: str = "required"
     provenance: str = "service"
+    resource: Callable[[BaseModel], PolicyResource] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "allowed_agents", tuple(self.allowed_agents))
@@ -180,11 +206,19 @@ class SpecialistContribution:
 
 
 @dataclass(frozen=True)
+class EventExecutionContext:
+    """Composed services and policy supplied to one event subscriber."""
+
+    policy: PolicyEngine
+    work_items: WorkItems
+
+
+@dataclass(frozen=True)
 class EventContribution:
     """A durable subscriber for selected versions and visibility tiers."""
 
     name: str
-    handler: Callable[[DomainEvent], None]
+    handler: Callable[[DomainEvent, EventExecutionContext], None]
     event_types: tuple[str, ...]
     schema_versions: tuple[int, ...] = (1,)
     visibilities: tuple[str, ...] = ("workspace",)
@@ -225,12 +259,21 @@ class MigrationContribution:
 
 
 @dataclass(frozen=True)
+class WorkflowActionContext:
+    """Composed services supplied after a workflow action passes policy."""
+
+    subject: PolicySubject
+    policy: PolicyEngine
+    work_items: WorkItems
+
+
+@dataclass(frozen=True)
 class WorkflowActionContribution:
     """A governed action that a declarative workflow can invoke."""
 
     name: str
     version: str
-    handler: Callable[..., Any]
+    handler: Callable[[WorkflowActionContext, BaseModel], Any]
     input_schema: type[BaseModel]
     output_schema: type[BaseModel]
     effect: str
@@ -255,7 +298,7 @@ class SkeinModule:
     version: str
     extension_api: str = EXTENSION_API_VERSION
     minimum_core: str = SKEIN_CORE_VERSION
-    maximum_core_exclusive: str = "0.2.0"
+    maximum_core_exclusive: str = "0.3.0"
     requires: tuple[str, ...] = ()
     routes: tuple[RouteContribution, ...] = ()
     jobs: tuple[JobContribution, ...] = ()

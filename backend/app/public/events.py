@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from .. import db
 
 if TYPE_CHECKING:
-    from ..extensions.contracts import EventContribution
+    from ..extensions.contracts import EventContribution, EventExecutionContext
 
 log = logging.getLogger("skein.extensions.events")
 
@@ -48,7 +48,7 @@ class DomainEvent(BaseModel):
     visibility: str = "workspace"
 
 
-def emit_event(
+def _emit_event(
     event_type: str,
     *,
     actor: EventActor,
@@ -95,7 +95,10 @@ def _matches(contribution: EventContribution, event: DomainEvent) -> bool:
 
 
 def dispatch_events(
-    contributions: Sequence[EventContribution], *, limit: int = 100
+    contributions: Sequence[EventContribution],
+    context: EventExecutionContext,
+    *,
+    limit: int = 100,
 ) -> Mapping[str, int]:
     """Deliver pending events once per matching subscriber.
 
@@ -111,8 +114,8 @@ def dispatch_events(
     for row in rows:
         event = DomainEvent.model_validate_json(row["payload"])
         matches = [item for item in contributions if _matches(item, event)]
-        complete = True
-        error = False
+        pending_subscribers = False
+        dead_subscribers = False
         for contribution in matches:
             prior = db.query_one(
                 "SELECT 1 AS present FROM extension_event_deliveries"
@@ -121,39 +124,61 @@ def dispatch_events(
             )
             if prior:
                 continue
+            attempt = db.query_one(
+                "SELECT attempts, status FROM extension_event_attempts"
+                " WHERE event_id = ? AND subscriber = ?",
+                (event.event_id, contribution.name),
+            )
+            if attempt and attempt["status"] == "dead":
+                dead_subscribers = True
+                continue
             try:
-                contribution.handler(event)
+                contribution.handler(event, context)
                 db.execute(
                     "INSERT OR IGNORE INTO extension_event_deliveries"
                     " (event_id, subscriber, delivered_at) VALUES (?, ?, ?)",
                     (event.event_id, contribution.name, db.now()),
                 )
+                db.execute(
+                    "DELETE FROM extension_event_attempts WHERE event_id = ? AND subscriber = ?",
+                    (event.event_id, contribution.name),
+                )
             except Exception:
-                complete = False
-                error = True
+                attempts = int((attempt or {}).get("attempts") or 0) + 1
+                status = "dead" if attempts >= contribution.max_attempts else "pending"
+                db.execute(
+                    "INSERT INTO extension_event_attempts"
+                    " (event_id, subscriber, attempts, status, last_error_code, updated_at)"
+                    " VALUES (?, ?, ?, ?, 'SUBSCRIBER_ERROR', ?)"
+                    " ON CONFLICT(event_id, subscriber) DO UPDATE SET"
+                    " attempts = excluded.attempts, status = excluded.status,"
+                    " last_error_code = excluded.last_error_code, updated_at = excluded.updated_at",
+                    (event.event_id, contribution.name, attempts, status, db.now()),
+                )
+                dead_subscribers = dead_subscribers or status == "dead"
+                pending_subscribers = pending_subscribers or status == "pending"
                 log.exception(
                     "event subscriber failed",
                     extra={"event_id": event.event_id, "subscriber": contribution.name},
                 )
-        if complete:
+        if not pending_subscribers:
+            final_status = "dead" if dead_subscribers else "delivered"
             db.execute(
-                "UPDATE extension_outbox SET status = 'delivered', delivered_at = ?,"
+                "UPDATE extension_outbox SET status = ?, delivered_at = ?,"
                 " last_error_code = '' WHERE event_id = ?",
-                (db.now(), event.event_id),
+                (final_status, db.now(), event.event_id),
             )
-            delivered += 1
-            continue
-        if error:
-            attempts = int(row["attempts"]) + 1
-            max_attempts = max((item.max_attempts for item in matches), default=5)
-            status = "dead" if attempts >= max_attempts else "pending"
-            db.execute(
-                "UPDATE extension_outbox SET status = ?, attempts = ?,"
-                " last_error_code = 'SUBSCRIBER_ERROR' WHERE event_id = ?",
-                (status, attempts, event.event_id),
-            )
-            if status == "dead":
+            if final_status == "dead":
                 dead += 1
             else:
-                failed += 1
+                delivered += 1
+            continue
+        if pending_subscribers:
+            attempts = int(row["attempts"]) + 1
+            db.execute(
+                "UPDATE extension_outbox SET status = 'pending', attempts = ?,"
+                " last_error_code = 'SUBSCRIBER_ERROR' WHERE event_id = ?",
+                (attempts, event.event_id),
+            )
+            failed += 1
     return {"delivered": delivered, "failed": failed, "dead": dead}
