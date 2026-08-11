@@ -161,6 +161,8 @@ def _target_engagement(entity: str, entity_id: int, payload: dict) -> int:
 
 def for_change(entity: str, entity_id: int, payload: dict) -> dict[str, str]:
     """Return authoritative context for the state that one write would create."""
+    if entity == "playbook":
+        return playbook_context(str(payload.get("slug") or payload.get("playbook") or ""))
     selected = _TABLES.get(entity)
     if selected is None:
         return {}
@@ -188,22 +190,8 @@ def proposed(entity: str, payload: dict) -> dict[str, str]:
 def for_route(resource_type: str, resource_id: str, payload: dict) -> dict[str, str]:
     """Return current and proposed non-content attributes for one REST route."""
     if resource_type == "playbooks":
-        # Resolve the selected definition before the route-level policy runs.
-        # An invalid slug remains the route's validation error; policy must not
-        # turn it into a different response or trust a caller-supplied class.
-        from . import playbooks
-
         slug = str(payload.get("playbook") or resource_id or "")
-        if not slug:
-            return {}
-        try:
-            definition = playbooks.get_playbook(slug)
-        except ValueError:
-            return {}
-        return {
-            "classification": "workspace",
-            "project_type": str(definition.get("project_class") or slug),
-        }
+        return playbook_context(slug)
     entity = _ROUTE_ENTITIES.get(resource_type)
     if entity is None:
         return {}
@@ -212,3 +200,23 @@ def for_route(resource_type: str, resource_id: str, payload: dict) -> dict[str, 
     except ValueError:
         entity_id = 0
     return for_change(entity, entity_id, payload)
+
+
+def playbook_context(slug: str, definition: dict | None = None) -> dict[str, str]:
+    """Resolve one selected definition for REST, agent, and command policy."""
+    # An invalid slug remains the entry point's validation error. Policy must
+    # not turn it into a different response or trust a caller-supplied class.
+    if not slug:
+        return {}
+    from . import playbooks
+
+    if definition is None:
+        try:
+            definition = playbooks.get_playbook(slug)
+        except ValueError:
+            return {}
+    return {
+        "classification": "workspace",
+        "project_type": str(definition.get("project_class") or slug),
+        "definition_digest": playbooks.definition_digest(definition),
+    }

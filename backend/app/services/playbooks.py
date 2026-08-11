@@ -8,6 +8,7 @@ added and deleted, and a ritual that never happened leaves no row at all, so
 by the time an engagement closes the plan it started with is gone.
 """
 
+import hashlib
 import json
 import re
 from datetime import date, timedelta
@@ -186,6 +187,12 @@ def get_playbook(slug: str) -> dict:
     return pb
 
 
+def definition_digest(definition: dict) -> str:
+    """Return the canonical identity of executable playbook content."""
+    encoded = json.dumps(definition, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
 def validate_all(workflow_actions: set[str] | None = None) -> list[str]:
     """Return all schema errors from stock files and the configured overlay."""
     errors = []
@@ -252,8 +259,11 @@ def instantiate(
     origin: str = "human",
     workflow_engine: Any | None = None,
     workflow_context: Any | None = None,
+    expected_definition_digest: str = "",
 ) -> dict:
     pb = get_playbook(slug)
+    if expected_definition_digest and definition_digest(pb) != expected_definition_digest:
+        raise ValueError("the selected playbook changed; retry the request")
     prepared_workflow = None
     if pb.get("workflow"):
         if workflow_engine is None or workflow_context is None:
@@ -261,6 +271,7 @@ def instantiate(
         prepared_workflow = workflow_engine.prepare(pb["workflow"])
     start = date.fromisoformat(start_date) if start_date else db.today()
     workflow_result = None
+    authorized_context = workflow_context
     if prepared_workflow is not None and workflow_engine is not None:
         workflow_result = workflow_engine.authorize(prepared_workflow, workflow_context)
         if workflow_result.status != "completed":
@@ -268,10 +279,18 @@ def instantiate(
             if workflow_result.review_policy:
                 serialized["_review_policy"] = workflow_result.review_policy
             return {"workflow": serialized}
+        from dataclasses import replace
+
+        if workflow_context is None:
+            raise ValueError("this playbook workflow has no execution context")
+        authorized_context = replace(
+            workflow_context,
+            authorization_grants=workflow_result.authorization_grants,
+        )
     with db.transaction():
         created = _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
     if prepared_workflow is not None and workflow_engine is not None:
-        result = workflow_engine.run(prepared_workflow, workflow_context)
+        result = workflow_engine.run(prepared_workflow, authorized_context)
         serialized = result.model_dump(mode="json")
         if result.review_policy:
             serialized["_review_policy"] = result.review_policy

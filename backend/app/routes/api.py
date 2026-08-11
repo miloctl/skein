@@ -2,6 +2,7 @@
 alongside agent tools — both go through app.services)."""
 
 import asyncio
+import hmac
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -1741,7 +1742,7 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             raise ValueError("the reviewed playbook identity is invalid")
         subject = registry.refresh_subject(policy_subject_from_data(saved_subject))
         slug = str(invocation.get("playbook") or "")
-        definition = playbooks.get_playbook(slug)
+        definition = _reviewed_playbook_definition(invocation)
         project_type = str(definition.get("project_class") or slug)
         decision = registry.policy_engine.decide(
             PolicyInput(
@@ -1770,6 +1771,7 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
                 project_type=project_type,
                 values={"project_type": project_type},
             ),
+            expected_definition_digest=str(invocation.get("definition_digest") or ""),
         )
         if workflow_result.get("workflow", {}).get("status") == "review_required":
             return _queue_workflow_review(
@@ -1788,6 +1790,10 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         subject_data = invocation.get("subject") or {}
         saved_subject = policy_subject_from_data(subject_data)
         subject = registry.refresh_subject(saved_subject)
+        definition = _reviewed_playbook_definition(invocation)
+        current_project_type = str(
+            definition.get("project_class") or invocation.get("playbook") or ""
+        )
         approval_grants = dict(invocation.get("approval_grants") or {})
         reviewed_key = str(invocation.get("reviewed_key") or "")
         reviewed_fingerprint = str(invocation.get("reviewed_fingerprint") or "")
@@ -1808,11 +1814,15 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             workflow_context=WorkflowContext(
                 subject=subject,
                 origin="human",
-                project_type=str(invocation.get("project_type") or ""),
+                project_type=current_project_type,
                 resource_id=str(invocation.get("resource_id") or ""),
-                values=dict(invocation.get("values") or {}),
+                values={
+                    **dict(invocation.get("values") or {}),
+                    "project_type": current_project_type,
+                },
                 approval_grants=approval_grants,
             ),
+            expected_definition_digest=str(invocation.get("definition_digest") or ""),
         )
         if workflow_result.get("workflow", {}).get("status") == "review_required":
             return _queue_workflow_review(
@@ -1821,6 +1831,19 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             )
         return workflow_result
     raise ValueError("the extension review kind is not supported")
+
+
+def _reviewed_playbook_definition(invocation: dict) -> dict:
+    """Load only the exact playbook content stored with a durable review."""
+    slug = str(invocation.get("playbook") or "")
+    expected = str(invocation.get("definition_digest") or "")
+    if not expected:
+        raise PermissionError("the reviewed playbook has no content digest; request a new review")
+    definition = playbooks.get_playbook(slug)
+    current = playbooks.definition_digest(definition)
+    if not hmac.compare_digest(expected, current):
+        raise PermissionError("the reviewed playbook changed; request a new review")
+    return definition
 
 
 def _queue_workflow_review(result: dict, invocation: dict) -> dict:
@@ -1891,6 +1914,7 @@ def _queue_playbook_policy_review(
     subject,
     registry,
     project_type: str,
+    definition_digest: str,
 ) -> dict:
     from ..extensions.policy import (
         PolicyEffect,
@@ -1922,6 +1946,7 @@ def _queue_playbook_policy_review(
             "actor": actor,
             "subject": policy_subject_data(subject),
             "workflow_kind": "playbook_policy",
+            "definition_digest": definition_digest,
         },
         summary=f"Start governed playbook {body.playbook}",
         actor=actor,
@@ -2181,6 +2206,16 @@ def post_instantiate(
     registry = request.app.state.skein_registry
     playbook = playbooks.get_playbook(body.playbook)
     project_type = str(playbook.get("project_class") or body.playbook)
+    definition_digest = playbooks.definition_digest(playbook)
+    evaluated = dict(getattr(request.state, "skein_playbook_policy_context", {}))
+    if evaluated.get("definition_digest") != definition_digest:
+        from ..public.errors import PublicError
+
+        raise PublicError(
+            "PLAYBOOK_CHANGED",
+            "The selected playbook changed during this request. Retry the request.",
+            status_code=409,
+        )
     if getattr(request.state, "skein_playbook_policy_review", False):
         return _queue_playbook_policy_review(
             body,
@@ -2188,6 +2223,7 @@ def post_instantiate(
             subject=subject,
             registry=registry,
             project_type=project_type,
+            definition_digest=definition_digest,
         )
     workflow_context = WorkflowContext(
         subject=subject,
@@ -2203,6 +2239,7 @@ def post_instantiate(
         actor=user,
         workflow_engine=WorkflowEngine(registry.workflow_actions, registry.policy_engine),
         workflow_context=workflow_context,
+        expected_definition_digest=definition_digest,
     )
     if result.get("workflow", {}).get("status") != "review_required":
         return result
@@ -2219,6 +2256,7 @@ def post_instantiate(
             "values": dict(workflow_context.values),
             "approval_grants": {},
             "subject": policy_subject_data(subject),
+            "definition_digest": definition_digest,
         },
     )
 

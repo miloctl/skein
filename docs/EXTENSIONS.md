@@ -235,11 +235,15 @@ A tool contribution declares its full security contract:
 
 Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
-human can approve the proposal and run the exact saved call.
+human can approve the proposal and run the exact saved call. Before each
+verdict, Skein runs the registered resource resolver again. Current target
+classification controls both approval and rejection.
 
 `ToolHandlerContext.subject` is the human or service requester for policy.
 `ToolHandlerContext.agent` is the specialist that executes the tool.
 `ToolHandlerContext.correlation_id` links the tool receipt to outbox events.
+The same correlation ID follows a reviewed call from its queue entry to its
+final execution receipt.
 If a tool writes through `WorkItems`, set `CommandContext.actor` to the agent
 and set `actor_kind` to `agent`. Keep the requester as `subject`. This split
 records the agent as the writer without giving it the requester's roles.
@@ -248,6 +252,8 @@ Stock model-facing reads use actions in the form `skein.tool.<tool-name>`.
 Stock writes use their domain action through the shared write gate. The four
 stock writers with sponsor or artifact rules also use the tool action. A
 review of one of these four writers stores the exact input and can resume.
+Stock playbook proposals also store the expected content digest. Changed
+playbook content cannot use an earlier agent-tool verdict.
 
 A write-capable MCP tool needs the same metadata. Skein omits an unclassified
 MCP tool from the agent. A review decision creates a durable proposal. Skein
@@ -349,10 +355,19 @@ Workflow actions declare schemas, effect, risk, policy action, timeout, and
 safe error codes. A playbook cannot call arbitrary Python or an arbitrary URL.
 
 The REST, deterministic chat, and agent-tool paths use `playbook.create`.
-They resolve the project class from the selected playbook. The REST path
+They use one resolver to load the project class from the selected playbook.
+The REST path
 stores a workplace-policy review before it creates project work. A qualified
 human can approve it. Skein then runs the exact saved playbook request and
 records the result. A workflow approval step can create a second proposal.
+
+Each durable playbook review stores a canonical content digest. Skein compares
+that digest before approval or rejection. A changed overlay needs a new
+review. No changed task, action, or project class can use the old verdict.
+
+Skein evaluates all selected workflow steps before it creates core work. It
+binds each successful decision to that immediate execution. The runner cannot
+observe a second policy result after core work exists.
 
 Each approval grant covers one structural step path. It also covers one input,
 action version, policy result, and complete workflow definition. A changed

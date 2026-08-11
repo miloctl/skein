@@ -1183,6 +1183,190 @@ def test_rest_playbook_policy_uses_authoritative_project_class(fresh_db):
     assert fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Must not exist'") is None
 
 
+def test_stock_agent_playbook_tool_uses_authoritative_project_class(fresh_db):
+    from app.tools.platform import start_engagement_from_playbook
+
+    def deny_prototype_playbooks(request: PolicyInput):
+        if request.action == "playbook.create" and request.resource.project_type == "prototype":
+            return PolicyDecision(PolicyEffect.DENY, ("prototype work is closed",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(
+                    PolicyContribution(
+                        "acme.workplace.playbook-policy",
+                        deny_prototype_playbooks,
+                    ),
+                ),
+            ),
+        )
+    )
+    invoke = next(
+        candidate
+        for name in ("original_function", "_tool_func", "func", "__wrapped__")
+        if callable(candidate := getattr(start_engagement_from_playbook, name, None))
+    )
+    token = set_policy_engine(registry.policy_engine)
+    try:
+        result = json.loads(
+            invoke(
+                playbook_slug="prototype",
+                engagement_name="Agent must not create this",
+            )
+        )
+    finally:
+        reset_policy_engine(token)
+    assert "forbidden" in result["error"]
+    assert (
+        fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Agent must not create this'")
+        is None
+    )
+
+
+def test_rest_playbook_fails_if_the_definition_changes_after_policy(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    from app import config
+    from app.services import policy_context
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    definition = overlay / "moving.yaml"
+    definition.write_text(
+        """\
+schema_version: 1
+name: Moving definition
+project_class: standard
+milestones:
+  - title: Before policy
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    original = policy_context.for_route
+
+    def change_after_policy(resource_type, resource_id, payload):
+        attributes = original(resource_type, resource_id, payload)
+        if resource_type == "playbooks":
+            definition.write_text(
+                """\
+schema_version: 1
+name: Moving definition
+project_class: regulated
+milestones:
+  - title: After policy
+"""
+            )
+        return attributes
+
+    monkeypatch.setattr(policy_context, "for_route", change_after_policy)
+    with TestClient(create_app(), headers={"X-User": "mira"}) as client:
+        response = client.post(
+            "/api/playbooks/instantiate",
+            json={"playbook": "moving", "engagement_name": "Race must not land"},
+        )
+    assert response.status_code == 409
+    assert response.json()["code"] == "PLAYBOOK_CHANGED"
+    assert (
+        fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Race must not land'") is None
+    )
+
+
+def test_stock_agent_playbook_review_rejects_definition_drift(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    from app import config
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+    from app.tools.platform import start_engagement_from_playbook
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    definition = overlay / "agent_review.yaml"
+    definition.write_text(
+        """\
+schema_version: 1
+name: Reviewed agent playbook
+project_class: standard
+milestones:
+  - title: Reviewed milestone
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+
+    def review_playbooks(request: PolicyInput):
+        if request.action == "playbook.create":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=("playbook-approvers",),
+            )
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.review-playbook", review_playbooks),),
+            ),
+        )
+    )
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    invoke = next(
+        candidate
+        for name in ("original_function", "_tool_func", "func", "__wrapped__")
+        if callable(candidate := getattr(start_engagement_from_playbook, name, None))
+    )
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    requester_token = set_requester_identity("requester")
+    try:
+        queued = json.loads(
+            invoke(
+                playbook_slug="agent_review",
+                engagement_name="Changed agent review",
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    definition.write_text(
+        """\
+schema_version: 1
+name: Reviewed agent playbook
+project_class: regulated
+milestones:
+  - title: Changed after review
+"""
+    )
+    with pytest.raises(PermissionError, match="playbook changed"):
+        review.approve_change(
+            queued["id"],
+            actor="manager",
+            reviewer_groups=("playbook-approvers",),
+            policy_registry=registry,
+        )
+    assert (
+        fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Changed agent review'") is None
+    )
+
+
 def test_rest_playbook_policy_review_resumes_before_any_work(fresh_db):
     from app.services import users
 
@@ -1238,6 +1422,103 @@ def test_rest_playbook_policy_review_resumes_before_any_work(fresh_db):
 
     assert fresh_db.query_one("SELECT name FROM engagements WHERE name = 'Reviewed prototype'") == {
         "name": "Reviewed prototype"
+    }
+
+
+def test_playbook_policy_review_rejects_definition_drift(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    from app import config
+    from app.services import users
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    definition = overlay / "governed.yaml"
+    definition.write_text(
+        """\
+schema_version: 1
+name: Governed delivery
+project_class: standard
+milestones:
+  - title: Prepare
+    tasks:
+      - Reviewed task
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+
+    def identity(name, _groups, _strong):
+        return {
+            "capabilities": (
+                ("standard-approvers",)
+                if name == "standard-manager"
+                else (("regulated-approvers",) if name == "regulated-manager" else ())
+            )
+        }
+
+    def review_playbooks(request: PolicyInput):
+        if request.action == "playbook.create":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=(f"{request.resource.project_type}-approvers",),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(IdentityContribution("acme.workplace.identity", identity),),
+        policies=(PolicyContribution("acme.workplace.playbook-review", review_playbooks),),
+    )
+    for name in ("requester", "standard-manager", "regulated-manager"):
+        users.ensure_user(name)
+    with TestClient(create_app(modules=(module,))) as client:
+        queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "governed", "engagement_name": "Changed delivery"},
+        ).json()["workflow"]
+        definition.write_text(
+            """\
+schema_version: 1
+name: Governed delivery
+project_class: regulated
+milestones:
+  - title: Prepare
+    tasks:
+      - Reviewed task
+      - Added after review
+"""
+        )
+        stale = client.post(
+            f"/api/review/{queued['review_id']}/approve",
+            headers={"X-User": "standard-manager"},
+            json={"note": "Approve the old definition."},
+        )
+        assert stale.status_code == 403
+        assert "playbook changed" in stale.json()["detail"].lower()
+        assert (
+            fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Changed delivery'") is None
+        )
+
+        current = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "governed", "engagement_name": "Changed delivery"},
+        ).json()["workflow"]
+        approved = client.post(
+            f"/api/review/{current['review_id']}/approve",
+            headers={"X-User": "regulated-manager"},
+            json={"note": "Approve the current definition."},
+        )
+    assert approved.status_code == 200, approved.text
+    assert fresh_db.query_one("SELECT project_class FROM engagements") == {
+        "project_class": "regulated"
     }
 
 
@@ -1301,6 +1582,75 @@ def test_extension_rejection_uses_current_approver_group(fresh_db):
         queued.review_id,
         actor="new-manager",
         reviewer_groups=("new-approvers",),
+        policy_registry=registry,
+    )
+    assert rejected["status"] == "rejected"
+
+
+def test_extension_rejection_recomputes_the_tool_resource(fresh_db):
+    from app.services import review, users
+
+    target = {"project_type": "standard"}
+
+    def current_target_policy(request: PolicyInput):
+        if request.action == "acme.sync":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(f"{request.resource.project_type}-approvers",),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.current-target", current_target_policy),),
+        tools=(
+            ToolContribution(
+                name="acme.workplace.sync",
+                version="1.0.0",
+                model_name="acme_sync",
+                description="Test current target authority.",
+                handler=lambda _context, request: {"updated": request.external_id},
+                input_schema=SyncIn,
+                output_schema=SyncOut,
+                effect="write",
+                risk="high",
+                policy_action="acme.sync",
+                resource=lambda request: PolicyResource(
+                    "work-item",
+                    request.external_id,
+                    project_type=target["project_type"],
+                ),
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    for name in ("requester", "standard-manager", "regulated-manager"):
+        users.ensure_user(name)
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "ATLAS-10"},
+            ToolCallContext(PolicySubject("requester"), "acme-agent"),
+            registry.policy_engine,
+        )
+    )
+    target["project_type"] = "regulated"
+
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.reject_change(
+            queued.review_id,
+            actor="standard-manager",
+            reviewer_groups=("standard-approvers",),
+            policy_registry=registry,
+        )
+    rejected = review.reject_change(
+        queued.review_id,
+        actor="regulated-manager",
+        reviewer_groups=("regulated-approvers",),
         policy_registry=registry,
     )
     assert rejected["status"] == "rejected"

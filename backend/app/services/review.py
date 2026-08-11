@@ -2,6 +2,7 @@
 approve. Approval applies the payload through the same service registry the
 rest of the platform uses, stamped origin='agent_verified'."""
 
+import hmac
 import json
 from collections.abc import Callable
 
@@ -542,7 +543,12 @@ def _revalidate_policy(
         )
 
         subject = registry.refresh_subject(policy_subject_from_data(subject_data))
-        decision = registry.policy_engine.decide(policy_input_from_data(policy_data, subject))
+        current = _current_extension_policy_input(
+            change,
+            registry,
+            policy_input_from_data(policy_data, subject),
+        )
+        decision = registry.policy_engine.decide(current)
         if decision.effect == PolicyEffect.DENY and approving:
             raise PermissionError("The current workplace policy denies this reviewed action.")
         # The next qualification check must use current requirements. Reusing
@@ -588,6 +594,17 @@ def _revalidate_policy(
         int(change.get("entity_id") or 0),
         expected["payload"],
     )
+    if change["entity"] == "playbook":
+        expected_digest = str(expected["payload"].get("expected_definition_digest") or "")
+        if not expected_digest:
+            raise PermissionError(
+                "The reviewed playbook has no content digest; request a new review."
+            )
+        if not hmac.compare_digest(
+            expected_digest,
+            str(actual.get("definition_digest") or ""),
+        ):
+            raise PermissionError("The reviewed playbook changed; request a new review.")
     current = replace(
         current,
         resource=PolicyResource(
@@ -610,6 +627,60 @@ def _revalidate_policy(
             reviewer_capabilities
         ):
             raise PermissionError("This approval requires the current workplace approver.")
+
+
+def _current_extension_policy_input(change: dict, registry, current):
+    """Resolve mutable extension resources again before either verdict."""
+    from dataclasses import replace
+
+    stored = db.query_one(
+        "SELECT kind, invocation FROM extension_review_invocations WHERE change_id = ?",
+        (change["id"],),
+    )
+    if stored is None:
+        raise PermissionError("The reviewed extension invocation is missing.")
+    try:
+        invocation = json.loads(stored["invocation"])
+    except (TypeError, ValueError) as exc:
+        raise PermissionError("The reviewed extension invocation is invalid.") from exc
+    kind = str(stored["kind"] or "")
+    if kind == "tool":
+        tool = registry.tool(str(invocation.get("tool") or ""))
+        if invocation.get("version") != tool.version:
+            raise PermissionError("The reviewed tool contract changed.")
+        arguments = invocation.get("arguments")
+        if not isinstance(arguments, dict):
+            raise PermissionError("The reviewed tool arguments are invalid.")
+        try:
+            validated = tool.input_schema.model_validate(arguments)
+            resource = tool.resource(validated) if tool.resource else current.resource
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("The reviewed tool resource cannot be refreshed.") from exc
+        return replace(
+            current,
+            action=tool.policy_action,
+            resource=resource,
+            tool=tool.name,
+            tool_effect=tool.effect,
+            tool_risk=tool.risk,
+        )
+    if kind == "workflow":
+        from . import playbooks
+
+        slug = str(invocation.get("playbook") or "")
+        expected = str(invocation.get("definition_digest") or "")
+        if not expected:
+            raise PermissionError(
+                "The reviewed playbook has no content digest; request a new review."
+            )
+        definition = playbooks.get_playbook(slug)
+        digest = playbooks.definition_digest(definition)
+        if not hmac.compare_digest(expected, digest):
+            raise PermissionError("The reviewed playbook changed; request a new review.")
+        project_type = str(definition.get("project_class") or slug)
+        resource = replace(current.resource, project_type=project_type)
+        return replace(current, resource=resource)
+    return current
 
 
 def _clear_review_ping(change_id: int) -> None:

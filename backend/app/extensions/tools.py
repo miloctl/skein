@@ -256,6 +256,7 @@ async def execute_reviewed_tool(
             str(invocation.get("agent") or ""),
             str(invocation.get("origin") or "agent_tool"),
             resource,
+            str(invocation.get("correlation_id") or uuid4().hex),
         ),
         registry.policy_engine,
         _approved_fingerprint=str(invocation.get("approval_fingerprint") or ""),
@@ -276,6 +277,7 @@ def _review_invocation(
         "subject": policy_subject_data(context.subject),
         "agent": context.agent,
         "origin": context.origin,
+        "correlation_id": context.correlation_id,
         "approval_fingerprint": fingerprint,
         "resource": {
             "type": resource.type,

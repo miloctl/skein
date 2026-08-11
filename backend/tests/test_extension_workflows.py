@@ -408,3 +408,149 @@ workflow:
     assert response.status_code == 200, response.text
     assert response.json()["workflow"]["status"] == "completed"
     assert calls == ["delivery"]
+
+
+def test_playbook_execution_uses_the_exact_successful_preflight(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "race.yaml").write_text(
+        """\
+schema_version: 1
+name: Policy race
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: atlas.workplace.notify-manager
+    input:
+      target: delivery
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    calls: list[str] = []
+    policy_calls = {"count": 0}
+
+    def changing_policy(request: PolicyInput):
+        if request.action != "atlas.notification.send":
+            return None
+        policy_calls["count"] += 1
+        if policy_calls["count"] > 1:
+            return PolicyDecision(PolicyEffect.REVIEW)
+        return PolicyDecision(PolicyEffect.PERMIT)
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(_action(calls),),
+        policies=(PolicyContribution("atlas.workplace.changing", changing_policy),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    context = WorkflowContext(
+        PolicySubject("mira"),
+        "human",
+        project_type="standard",
+    )
+    result = playbooks.instantiate(
+        "race",
+        "Race engagement",
+        actor="mira",
+        workflow_engine=WorkflowEngine(registry.workflow_actions, registry.policy_engine),
+        workflow_context=context,
+    )
+    assert result["workflow"]["status"] == "completed"
+    assert policy_calls["count"] == 1
+    assert calls == ["delivery"]
+    assert fresh_db.query_one("SELECT name FROM engagements") == {"name": "Race engagement"}
+
+
+def test_inner_workflow_review_rejects_playbook_drift(fresh_db, tmp_path, monkeypatch):
+    from app import config
+    from app.services import users
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    definition = overlay / "reviewed.yaml"
+    definition.write_text(
+        """\
+schema_version: 1
+name: Reviewed workflow
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: atlas.workplace.notify-manager
+    input:
+      target: delivery
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    calls: list[str] = []
+
+    def review_action(request: PolicyInput):
+        if request.action == "atlas.notification.send":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=("delivery-manager",),
+            )
+        return None
+
+    def identity(name, _groups, _strong):
+        return {"capabilities": ("delivery-manager",) if name == "manager" else ()}
+
+    from app.extensions import IdentityContribution
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(_action(calls),),
+        policies=(PolicyContribution("atlas.workplace.review", review_action),),
+        identities=(IdentityContribution("atlas.workplace.identity", identity),),
+    )
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    with TestClient(create_app(modules=(module,))) as client:
+        queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "reviewed", "engagement_name": "Must stay absent"},
+        ).json()["workflow"]
+        definition.write_text(
+            """\
+schema_version: 1
+name: Reviewed workflow
+project_class: regulated
+milestones:
+  - title: Prepare
+    tasks:
+      - Added after workflow review
+workflow:
+  - type: action
+    name: atlas.workplace.notify-manager
+    input:
+      target: delivery
+"""
+        )
+        response = client.post(
+            f"/api/review/{queued['review_id']}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Approve the old workflow."},
+        )
+    assert response.status_code == 403
+    assert "playbook changed" in response.json()["detail"].lower()
+    assert fresh_db.query_one("SELECT id FROM engagements WHERE name = 'Must stay absent'") is None
+    assert calls == []
