@@ -905,6 +905,32 @@ def reject_change(
     reviewer_capabilities: tuple[str, ...] = (),
     policy_registry=None,
 ) -> dict:
+    # Rejection is a durable policy verdict. Serialize current target lookup,
+    # reviewer qualification, and settlement just as approval does.
+    with db.transaction():
+        return _reject_change_locked(
+            change_id,
+            note,
+            actor=actor,
+            strong=strong,
+            viewer=viewer,
+            reviewer_groups=reviewer_groups,
+            reviewer_capabilities=reviewer_capabilities,
+            policy_registry=policy_registry,
+        )
+
+
+def _reject_change_locked(
+    change_id: int,
+    note: str = "",
+    *,
+    actor: str = "system",
+    strong: bool = False,
+    viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    policy_registry=None,
+) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:

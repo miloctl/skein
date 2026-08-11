@@ -125,15 +125,23 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     with TestClient(app, headers={"X-User": "tester"}) as http:
         registry = app.state.skein_registry
         work_items = WorkItems(registry.policy_engine)
-        context = work_items._bind_execution_context(
-            JobExecutionContext(
-                registry.policy_engine,
-                work_items,
-                registry.service_subject("atlas-sync"),
-                "atlas.workplace.sync:test",
-                "atlas.workplace.sync",
-            ),
+        from app.public.work import _bind_execution_context
+
+        subject = registry.service_subject("atlas-sync")
+        execution_context = JobExecutionContext(
+            registry.policy_engine,
+            work_items,
+            subject,
+            "atlas.workplace.sync:test",
+            "atlas.workplace.sync",
+        )
+        context = _bind_execution_context(
+            work_items,
+            execution_context,
+            subject=subject,
+            namespace="atlas.workplace.sync",
             receipt_namespace="job:atlas.workplace.sync",
+            correlation_id="atlas.workplace.sync:test",
         )
         job = next(item for item in registry.jobs if item.name.endswith(".sync"))
         assert job.handler(context) == {"created": 1, "updated": 0}
@@ -226,15 +234,23 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
         registry = app.state.skein_registry
         integration = AtlasIntegration(client, ExtensionStore(store_path))
         work_items = WorkItems(registry.policy_engine)
-        execution = work_items._bind_execution_context(
-            JobExecutionContext(
-                registry.policy_engine,
-                work_items,
-                registry.service_subject("atlas-sync"),
-                "atlas.workplace.sync:window-7",
-                "atlas.workplace.sync",
-            ),
+        from app.public.work import _bind_execution_context
+
+        subject = registry.service_subject("atlas-sync")
+        execution_context = JobExecutionContext(
+            registry.policy_engine,
+            work_items,
+            subject,
+            "atlas.workplace.sync:window-7",
+            "atlas.workplace.sync",
+        )
+        execution = _bind_execution_context(
+            work_items,
+            execution_context,
+            subject=subject,
+            namespace="atlas.workplace.sync",
             receipt_namespace="job:atlas.workplace.sync",
+            correlation_id="atlas.workplace.sync:window-7",
         )
         context = execution.command_context(project_type="standard")
         with ThreadPoolExecutor(max_workers=2) as executor:

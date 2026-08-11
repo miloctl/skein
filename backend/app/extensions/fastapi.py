@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import uuid4
 
@@ -61,8 +61,6 @@ class ExtensionRouteServices:
     work_items: WorkItems
     namespace: str = ""
     correlation_id: str = ""
-    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
-    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -72,26 +70,28 @@ class ExtensionRouteServices:
     ) -> CommandContext:
         """Return the command context bound to this route contribution."""
         return self.work_items._issue_context(
-            self.subject,
-            self.namespace,
-            correlation_id=self.correlation_id,
+            self,
             project_type=project_type,
             attributes=attributes,
-            issuer=self._command_issuer,
-            receipt_namespace=self._receipt_namespace,
         )
 
 
 def extension_route_services(request: Request, subject: PolicySubjectDep) -> ExtensionRouteServices:
-    from ..public.work import WorkItems
+    from ..public.work import WorkItems, _bind_execution_context
 
     policy = request.app.state.skein_registry.policy_engine
     action, _resource_type, _resource_id = _route_policy_action(request)
     namespace = str(getattr(request.state, "skein_extension_namespace", action))
     work_items = WorkItems(policy)
-    return work_items._bind_execution_context(
-        ExtensionRouteServices(subject, policy, work_items, namespace, uuid4().hex),
+    correlation_id = uuid4().hex
+    context = ExtensionRouteServices(subject, policy, work_items, namespace, correlation_id)
+    return _bind_execution_context(
+        work_items,
+        context,
+        subject=subject,
+        namespace=namespace,
         receipt_namespace=f"route:{namespace}",
+        correlation_id=correlation_id,
     )
 
 

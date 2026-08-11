@@ -273,6 +273,11 @@ The composed execution boundary binds the agent, origin, contribution
 namespace, and correlation ID. A caller-created `CommandContext` cannot write.
 Caller-created route, job, tool, event, or workflow execution contexts also
 cannot mint command authority. Only the core adapter binds that authority.
+`WorkItems` does not expose a binding method. The core keeps an internal
+identity registry for the exact execution object. It also saves the granted
+subject, actor, namespace, receipt namespace, and correlation ID. Changing a
+context field does not change that grant. Changing an issued command makes
+the facade reject it.
 Receipt namespaces include the contribution kind, so a job and tool can use
 the same stable name without sharing idempotency receipts. This split records
 the agent as the writer without giving it the requester's roles.

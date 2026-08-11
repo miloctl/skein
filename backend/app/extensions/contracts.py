@@ -110,8 +110,6 @@ class JobExecutionContext:
     subject: PolicySubject
     run_id: str
     namespace: str = ""
-    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
-    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -121,13 +119,9 @@ class JobExecutionContext:
     ) -> CommandContext:
         """Return the command context bound to this job contribution."""
         return self.work_items._issue_context(
-            self.subject,
-            self.namespace,
-            correlation_id=self.run_id,
+            self,
             project_type=project_type,
             attributes=dict(attributes or {}),
-            issuer=self._command_issuer,
-            receipt_namespace=self._receipt_namespace,
         )
 
 
@@ -238,8 +232,6 @@ class ToolHandlerContext:
     agent: str = ""
     correlation_id: str = ""
     namespace: str = ""
-    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
-    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -249,15 +241,9 @@ class ToolHandlerContext:
     ) -> CommandContext:
         """Return the command context bound to this governed tool call."""
         return self.work_items._issue_context(
-            self.subject,
-            self.namespace,
-            correlation_id=self.correlation_id,
+            self,
             project_type=project_type,
             attributes=dict(attributes or {}),
-            actor=self.agent or self.subject.name,
-            actor_kind="agent" if self.agent else self.subject.kind,
-            issuer=self._command_issuer,
-            receipt_namespace=self._receipt_namespace,
         )
 
 
@@ -319,8 +305,6 @@ class EventExecutionContext:
     subject: PolicySubject | None = None
     delivery_id: str = ""
     namespace: str = ""
-    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
-    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -332,13 +316,9 @@ class EventExecutionContext:
         if self.subject is None:
             raise ValueError("The event delivery has no service identity.")
         return self.work_items._issue_context(
-            self.subject,
-            self.namespace,
-            correlation_id=self.delivery_id,
+            self,
             project_type=project_type,
             attributes=dict(attributes or {}),
-            issuer=self._command_issuer,
-            receipt_namespace=self._receipt_namespace,
         )
 
 
@@ -402,8 +382,6 @@ class WorkflowActionContext:
     work_items: WorkItems
     namespace: str = ""
     correlation_id: str = ""
-    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
-    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -413,13 +391,9 @@ class WorkflowActionContext:
     ) -> CommandContext:
         """Return the command context bound to this workflow action."""
         return self.work_items._issue_context(
-            self.subject,
-            self.namespace,
-            correlation_id=self.correlation_id,
+            self,
             project_type=project_type,
             attributes=dict(attributes or {}),
-            issuer=self._command_issuer,
-            receipt_namespace=self._receipt_namespace,
         )
 
 

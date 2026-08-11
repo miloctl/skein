@@ -589,6 +589,34 @@ def _validate_route_operation(
 def _validate_namespace(module: SkeinModule) -> None:
     if module.module_id == "skein.core":
         return
+    # These actors identify core-owned activity and policy principals. A
+    # private module must not reuse them for a service or specialist.
+    reserved_subjects = {
+        "agent",
+        "anonymous",
+        "ci",
+        "forge",
+        "mcp",
+        "scheduler",
+        "system",
+        "team",
+    }
+    claimed_reserved = sorted(
+        {
+            contribution.subject
+            for contribution in module.service_identities
+            if contribution.subject.casefold() in reserved_subjects
+        }
+        | {
+            contribution.name
+            for contribution in module.specialists
+            if contribution.name.casefold() in reserved_subjects
+        }
+    )
+    if claimed_reserved:
+        raise ExtensionValidationError(
+            "private module claims a reserved core subject: " + ", ".join(claimed_reserved)
+        )
     prefix = f"/api/extensions/{module.module_id}/"
     bare_prefix = prefix.removesuffix("/")
     for route_contribution in module.routes:

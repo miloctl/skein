@@ -174,19 +174,26 @@ async def execute_tool(
         )
 
     async def invoke() -> Any:
-        from ..public.work import WorkItems
+        from ..public.work import WorkItems, _bind_execution_context
 
         work_items = WorkItems(policy)
-        services = work_items._bind_execution_context(
-            ToolHandlerContext(
-                context.subject,
-                policy,
-                work_items,
-                context.agent,
-                context.correlation_id,
-                contribution.name,
-            ),
+        handler_context = ToolHandlerContext(
+            context.subject,
+            policy,
+            work_items,
+            context.agent,
+            context.correlation_id,
+            contribution.name,
+        )
+        services = _bind_execution_context(
+            work_items,
+            handler_context,
+            subject=context.subject,
+            namespace=contribution.name,
             receipt_namespace=f"tool:{contribution.name}",
+            correlation_id=context.correlation_id,
+            actor=context.agent or context.subject.name,
+            actor_kind="agent" if context.agent else context.subject.kind,
         )
         result = await asyncio.to_thread(contribution.handler, services, validated)
         if isawaitable(result):

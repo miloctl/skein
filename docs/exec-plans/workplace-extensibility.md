@@ -1221,3 +1221,62 @@ outcomes, not Skein test failures.
 
 A fresh four-role review is the next gate. Chrome remains blocked until that
 review approves the exact remediation commit.
+
+### Twelfth review gate
+
+Three specialists started a fresh review of commit `348b4f3`. The gate stopped
+after they reproduced high-severity findings. Their final report generation
+hit an automated safety filter, so this round has no complete score table.
+The reproduced evidence was sufficient to reject the gate.
+
+The findings were:
+
+- `WorkItems._bind_execution_context` remained reachable on the facade given
+  to extensions. A private handler could register a caller-created execution
+  context and select false provenance.
+- Rejection did not hold policy revalidation and the verdict in one database
+  transaction. A target relink could race the verdict.
+- Private services could claim reserved core actor names such as `system`.
+- A failed reviewed apply rolled SQL back to a savepoint. Its deferred commit
+  callbacks remained queued on the outer transaction.
+
+### Twelfth-gate remediation
+
+The working branch now does the following:
+
+- It removes the binding method from the public `WorkItems` object.
+- An internal identity registry binds the exact core-created execution object
+  to a frozen subject, actor, namespace, receipt namespace, and correlation ID.
+- It records each issued command object and its complete signature. A changed
+  command is rejected before policy or persistence.
+- Rejection holds current resource resolution, reviewer qualification, and
+  settlement in one `BEGIN IMMEDIATE` transaction.
+- A deterministic concurrency test proves that a target relink waits until
+  the rejection verdict commits.
+- Registry validation rejects private service and specialist use of reserved
+  core actor names.
+- Startup rejects a configured MCP identity that overlaps a contributed
+  machine identity.
+- Savepoint rollback removes deferred callbacks created after the savepoint.
+
+Verification after this remediation:
+
+- Focused extension, policy, workflow, reference, and transaction tests: 162
+  passed.
+- Focused new authority, identity, and transaction tests: 87 passed.
+- Full backend suite: 1,757 passed in 149.32 seconds.
+- Complete lint, formatting, type, content, dead-code, license, theme,
+  TypeScript, ESLint, and frontend dead-code gate: passed in 21.83 seconds.
+- Frontend unit tests: 230 passed in 45 files.
+- Frontend production build: passed with 23 routes.
+- Backend wheel and source distribution: built successfully.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+- Installed frontend extension rehearsal: the unchanged Atlas package passed
+  on two different compatible frontend hosts.
+- Standard Kustomize render: passed.
+- Base-to-feature schema and activity-chain upgrade: passed.
+- Derivative backend and frontend images built and started as non-root.
+
+The remediation is ready for its milestone commit. A new four-role review will
+score that exact commit. Chrome remains blocked until that review passes.

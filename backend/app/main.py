@@ -79,15 +79,22 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             f"extension:{contribution.name}", run_id
         ):
             return {"skipped": "this job run is already claimed", "run_id": run_id}
-        execution = work_items._bind_execution_context(
-            JobExecutionContext(
-                policy,
-                work_items,
-                subject,
-                run_id,
-                contribution.name,
-            ),
+        from .public.work import _bind_execution_context
+
+        execution_context = JobExecutionContext(
+            policy,
+            work_items,
+            subject,
+            run_id,
+            contribution.name,
+        )
+        execution = _bind_execution_context(
+            work_items,
+            execution_context,
+            subject=subject,
+            namespace=contribution.name,
             receipt_namespace=f"job:{contribution.name}",
+            correlation_id=run_id,
         )
         if contribution.name == "skein.core.agent-run":
             # This core adapter needs the full trusted composition root. The
@@ -282,6 +289,21 @@ async def lifespan(app: FastAPI):
     # fresh install. Say so at boot instead of letting the operator find out
     # by being locked out; the recovery is a rename of the agent row.
     mcp_user = settings.mcp_user
+    conflicting_machine = next(
+        (
+            name
+            for name in (
+                *(identity.subject for identity in registry.service_identities),
+                *(specialist.name for specialist in registry.specialists),
+            )
+            if name.casefold() == mcp_user.casefold()
+        ),
+        "",
+    )
+    if conflicting_machine:
+        raise RuntimeError(
+            f"SKEIN_MCP_USER={mcp_user!r} conflicts with a contributed machine identity"
+        )
     minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
     try:
         ensure_user(mcp_user, kind="agent")

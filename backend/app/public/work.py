@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, TypeVar
+from typing import Any
+from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,7 +33,6 @@ class CommandContext:
     attributes: dict[str, Any] = field(default_factory=dict)
     actor: str = ""
     actor_kind: str = ""
-    _issuer: object | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
@@ -43,6 +44,91 @@ class CommandContext:
     @property
     def execution_actor_kind(self) -> str:
         return self.actor_kind or self.subject.kind
+
+
+@dataclass(frozen=True)
+class _ExecutionGrant:
+    subject: PolicySubject
+    namespace: str
+    receipt_namespace: str
+    correlation_id: str
+    actor: str
+    actor_kind: str
+
+
+_RegistryPayload = _ExecutionGrant | tuple[Any, ...]
+_IdentityRegistry = dict[int, tuple[ReferenceType[Any], _RegistryPayload]]
+_BOUND_EXECUTIONS: WeakKeyDictionary[object, _IdentityRegistry] = WeakKeyDictionary()
+_ISSUED_COMMANDS: WeakKeyDictionary[object, _IdentityRegistry] = WeakKeyDictionary()
+
+
+def _remember_identity(
+    registry: _IdentityRegistry, value: object, payload: _RegistryPayload
+) -> None:
+    """Retain authority by object identity without retaining the request object."""
+    identity = id(value)
+
+    def forget(reference: ReferenceType[Any]) -> None:
+        current = registry.get(identity)
+        if current is not None and current[0] is reference:
+            registry.pop(identity, None)
+
+    reference = ref(value, forget)
+    registry[identity] = (reference, payload)
+
+
+def _identity_payload(registry: _IdentityRegistry, value: object) -> _RegistryPayload | None:
+    current = registry.get(id(value))
+    if current is None or current[0]() is not value:
+        return None
+    return current[1]
+
+
+def _command_signature(context: CommandContext) -> tuple[Any, ...]:
+    return (
+        context.subject,
+        context.origin,
+        context.namespace,
+        context.receipt_namespace,
+        context.correlation_id,
+        context.project_type,
+        deepcopy(dict(context.attributes)),
+        context.actor,
+        context.actor_kind,
+    )
+
+
+def _bind_execution_context[ExecutionContextT](
+    work_items: WorkItems,
+    context: ExecutionContextT,
+    *,
+    subject: PolicySubject,
+    namespace: str,
+    receipt_namespace: str,
+    correlation_id: str,
+    actor: str = "",
+    actor_kind: str = "",
+) -> ExecutionContextT:
+    """Bind a core-created adapter object to one immutable provenance grant.
+
+    This helper is an internal composition function. It is not a method on the
+    public facade supplied to extension handlers.
+    """
+    if not namespace.strip():
+        raise ValueError("A command namespace is required.")
+    if not receipt_namespace.strip():
+        raise ValueError("A command receipt namespace is required.")
+    grant = _ExecutionGrant(
+        subject,
+        namespace,
+        receipt_namespace,
+        correlation_id,
+        actor or subject.name,
+        actor_kind or subject.kind,
+    )
+    registry = _BOUND_EXECUTIONS.setdefault(work_items, {})
+    _remember_identity(registry, context, grant)
+    return context
 
 
 class CreateTaskCommand(BaseModel):
@@ -103,65 +189,40 @@ class WorkItems:
 
     def __init__(self, policy: PolicyEngine) -> None:
         self._policy = policy
-        self._issuer = object()
-
-    _ExecutionContextT = TypeVar("_ExecutionContextT")
-
-    def _bind_execution_context(
-        self, context: _ExecutionContextT, *, receipt_namespace: str
-    ) -> _ExecutionContextT:
-        """Bind one core-created adapter context to this facade.
-
-        The method is internal to Skein's composition adapters. Extension
-        handlers receive the bound object, but constructing the exported data
-        class themselves does not grant command authority.
-        """
-        if not receipt_namespace.strip():
-            raise ValueError("A command receipt namespace is required.")
-        object.__setattr__(context, "_command_issuer", self._issuer)
-        object.__setattr__(context, "_receipt_namespace", receipt_namespace)
-        return context
 
     def _issue_context(
         self,
-        subject: PolicySubject,
-        namespace: str,
+        execution_context: object,
         *,
-        correlation_id: str = "",
         project_type: str = "",
         attributes: dict[str, Any] | None = None,
-        actor: str = "",
-        actor_kind: str = "",
-        issuer: object | None = None,
-        receipt_namespace: str = "",
     ) -> CommandContext:
         """Create the provenance context used by one composed execution boundary."""
-        if issuer is not self._issuer:
+        grant = _identity_payload(_BOUND_EXECUTIONS.get(self, {}), execution_context)
+        if not isinstance(grant, _ExecutionGrant):
             raise PublicError(
                 "COMMAND_CONTEXT_REQUIRED",
                 "Use the command context from the composed execution boundary.",
                 status_code=403,
             )
-        if not namespace.strip():
-            raise ValueError("A command namespace is required.")
-        if not receipt_namespace.strip():
-            raise ValueError("A command receipt namespace is required.")
         context = CommandContext(
-            subject=subject,
-            origin=f"extension:{namespace}",
-            namespace=namespace,
-            receipt_namespace=receipt_namespace,
-            correlation_id=correlation_id,
+            subject=grant.subject,
+            origin=f"extension:{grant.namespace}",
+            namespace=grant.namespace,
+            receipt_namespace=grant.receipt_namespace,
+            correlation_id=grant.correlation_id,
             project_type=project_type,
             attributes=attributes or {},
-            actor=actor or subject.name,
-            actor_kind=actor_kind or subject.kind,
+            actor=grant.actor,
+            actor_kind=grant.actor_kind,
         )
-        object.__setattr__(context, "_issuer", self._issuer)
+        issued = _ISSUED_COMMANDS.setdefault(self, {})
+        _remember_identity(issued, context, _command_signature(context))
         return context
 
     def _require_issued_context(self, context: CommandContext) -> None:
-        if context._issuer is not self._issuer:
+        signature = _identity_payload(_ISSUED_COMMANDS.get(self, {}), context)
+        if signature is None or signature != _command_signature(context):
             raise PublicError(
                 "COMMAND_CONTEXT_REQUIRED",
                 "Use the command context from the composed execution boundary.",
