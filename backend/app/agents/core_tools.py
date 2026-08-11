@@ -8,6 +8,7 @@ from typing import Any, cast
 from strands.types.tools import AgentTool, ToolUse
 
 from ..extensions.policy import (
+    PolicyDecision,
     PolicyEffect,
     PolicyInput,
     PolicyResource,
@@ -95,6 +96,7 @@ class GovernedCoreTool(AgentTool):
             current_policy_subject(),
             agent_identity(),
             "",
+            None,
             **kwargs,
         ):
             yield event
@@ -106,6 +108,7 @@ class GovernedCoreTool(AgentTool):
         subject,
         actor: str,
         approved_fingerprint: str,
+        approved_decision: PolicyDecision | None = None,
         **kwargs: Any,
     ):
         from . import receipts
@@ -125,14 +128,22 @@ class GovernedCoreTool(AgentTool):
             tool_risk=self.risk,
             context={"core_governance": "specialized"} if self.effect == "write" else {},
         )
-        decision = current_policy_engine().decide(request)
+        decision = approved_decision or current_policy_engine().decide(request)
         fingerprint = approval_fingerprint(
             request,
             decision,
             {"tool": self.tool_name, "input": arguments},
         )
+        if approved_decision is not None and approved_fingerprint != fingerprint:
+            yield _error(
+                tool_use,
+                "The reviewed stock tool approval is stale.",
+                "approval_stale",
+            )
+            return
         if decision.effect == PolicyEffect.REVIEW and approved_fingerprint != fingerprint:
             from ..services import review
+            from ..services import scope as visibility_scope
 
             proposal = review.propose_extension_invocation(
                 "core_tool",
@@ -151,6 +162,12 @@ class GovernedCoreTool(AgentTool):
                 policy_obligations=decision.obligations,
                 approver_groups=decision.approver_groups,
                 approver_capabilities=decision.approver_capabilities,
+                review_visibility=(
+                    request.resource.classification
+                    if request.resource.classification in visibility_scope.TIERS
+                    else visibility_scope.WORKSPACE
+                ),
+                review_crew_id=int(request.resource.attributes.get("crew_id") or 0),
                 review_owner=subject.name,
                 policy_input=request,
             )
@@ -216,11 +233,18 @@ def reviewed_policy_input(invocation: dict[str, Any], subject) -> PolicyInput:
 async def execute_reviewed_core(invocation: dict[str, Any], registry) -> dict[str, Any]:
     """Resume one exact stock tool call through current workplace policy."""
     from ..extensions.policy import (
+        policy_decision_from_data,
         policy_subject_from_data,
         reset_policy_engine,
         set_policy_engine,
     )
     from ..tools import ALL_TOOLS
+    from .identity import (
+        reset_agent_identity,
+        reset_requester_identity,
+        set_agent_identity,
+        set_requester_identity,
+    )
 
     name = str(invocation.get("tool") or "")
     delegate = next((item for item in ALL_TOOLS if _name(item) == name), None)
@@ -230,8 +254,14 @@ async def execute_reviewed_core(invocation: dict[str, Any], registry) -> dict[st
     if not isinstance(subject_data, dict):
         raise ValueError("the reviewed stock tool identity is invalid")
     subject = registry.refresh_subject(policy_subject_from_data(subject_data))
+    decision_data = invocation.get("_approval_decision")
+    approved_decision = (
+        policy_decision_from_data(decision_data) if isinstance(decision_data, dict) else None
+    )
     wrapper = GovernedCoreTool(cast(AgentTool, delegate), effect="write", risk="high")
     policy_token = set_policy_engine(registry.policy_engine)
+    agent_token = set_agent_identity(str(invocation.get("agent") or "agent"))
+    requester_token = set_requester_identity("" if subject.kind == "agent" else subject.name)
     try:
         events = [
             event
@@ -240,10 +270,17 @@ async def execute_reviewed_core(invocation: dict[str, Any], registry) -> dict[st
                 dict(invocation.get("invocation_state") or {}),
                 subject,
                 str(invocation.get("agent") or "agent"),
-                str(invocation.get("approval_fingerprint") or ""),
+                str(
+                    invocation.get("_approval_grant")
+                    or invocation.get("approval_fingerprint")
+                    or ""
+                ),
+                approved_decision,
             )
         ]
     finally:
+        reset_requester_identity(requester_token)
+        reset_agent_identity(agent_token)
         reset_policy_engine(policy_token)
     last = events[-1] if events else {}
     status = (

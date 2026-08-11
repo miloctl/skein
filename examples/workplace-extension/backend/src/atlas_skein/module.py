@@ -30,7 +30,7 @@ from app.extensions import (
 )
 
 from .integration import AtlasClient, AtlasHttpClient, AtlasIntegration, MemoryAtlasClient
-from .policy import atlas_directory, atlas_identity, atlas_policy
+from .policy import atlas_directory, atlas_identity, atlas_policy, atlas_profile
 
 
 @dataclass(frozen=True)
@@ -126,6 +126,11 @@ def atlas_module(
                 "atlas.workplace.identity",
                 atlas_identity,
                 resolver=atlas_directory,
+            ),
+            IdentityContribution(
+                "atlas.workplace.profile",
+                lambda *_args: {},
+                resolver=atlas_profile,
             ),
         ),
         service_identities=(

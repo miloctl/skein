@@ -188,6 +188,10 @@ return a `groups` key. An empty tuple is a successful group refresh. Set
 `resolves_groups=False` on profile-only resolvers. A profile resolver cannot
 return groups or replace an unavailable group resolver. These rules prevent
 stale approval groups when a workplace uses more than one identity module.
+Extension API 1.0 packages that omit `resolves_groups` keep the original
+resolver inference. All legacy resolvers must be available. Their group
+results must be identical. New packages must declare one group owner with
+`resolves_groups=True`.
 
 Register every job and event subject with `ServiceIdentityContribution`.
 Service identities do not pass through the human identity mapper. Startup
@@ -239,6 +243,9 @@ Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call. Before each
 verdict, Skein runs the registered resource resolver again. Current target
 classification controls both approval and rejection.
+The review service supplies the exact current decision to the executor. The
+executor checks the bound request and contract. It does not ask a mutable
+policy source for a second decision after the reviewer qualifies.
 
 `ToolHandlerContext.subject` is the human or service requester for policy.
 `ToolHandlerContext.agent` is the specialist that executes the tool.
@@ -265,6 +272,8 @@ rechecks the identity, policy, server ID, tool version, and exact input at
 approval time. Each MCP server needs a stable, unique name. Skein omits
 same-named tools from different servers because a model could not select them
 safely.
+Approval and rejection use current MCP metadata. If the tool is removed,
+approval fails. A qualified reviewer can still reject the stale proposal.
 
 MCP metadata must use a non-empty policy action and arrays for allowlists,
 capabilities, and error codes. A remote tool cannot use the same model-facing
@@ -372,6 +381,14 @@ keys. Skein compares the digest before approval. A changed overlay needs a new
 review. No changed task, action, or project class can use the old verdict.
 Skein still lets a qualified reviewer reject a stale or pre-digest proposal.
 This action removes old work from the pending queue without executing it.
+Digest values include an algorithm prefix. The version 2 reader also accepts
+the untagged digest from the previous compatible release when the content is
+unchanged. An agent-origin proposal with no saved policy binding cannot be
+approved. A qualified reviewer can reject it.
+
+Core migration 017 marks the review-contract version. An unbound row from an
+older core remains version 0. Approval fails closed for that row. New core
+proposals use version 1 and keep their existing review behavior.
 
 Skein evaluates all selected workflow steps before it creates core work. It
 binds each successful decision to that immediate execution. The runner cannot
@@ -500,6 +517,10 @@ reference overlay renders with the standard command:
 kubectl kustomize examples/workplace-extension
 ```
 
+Set a pod file-system group for persistent volumes that the non-root process
+writes. The reference deployment uses `fsGroup: 1000` and tests both core and
+extension data paths in the derivative backend image.
+
 ## Compatibility and deprecation
 
 Every module and frontend manifest declares these values:
@@ -517,6 +538,9 @@ practical.
 Keep a deprecated contract for at least one released compatibility range.
 Document its replacement and removal release. Do not change event data or
 error meanings within one schema version.
+Rehearse upgrades with two distinct core revisions. Do not change only the
+version string on one source tree. Keep the private extension artifact
+unchanged during the rehearsal.
 
 ## Required tests
 
@@ -545,11 +569,12 @@ scripts/reference-images-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
-artifact contains an additive migration. The frontend script creates two
-compatible host artifacts. It installs the same packed private package into
-both hosts and runs a production build in each one. The image script builds
-the backend and frontend derivative images from staged release artifacts.
-The main CI workflow runs all four extension contracts.
+artifact contains the additive migration from the current source. The script
+does not inject a test-only migration. The frontend script creates two host
+artifacts. It installs the same packed private package into both hosts. Then
+it runs a production build in each host. The image script builds the backend
+and frontend derivative images from staged release artifacts. The main CI
+workflow runs all four extension contracts.
 
 ## Upgrade a workplace deployment
 

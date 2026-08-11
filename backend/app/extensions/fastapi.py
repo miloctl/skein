@@ -86,18 +86,41 @@ def decide(
 ) -> PolicyDecision:
     engine = request.app.state.skein_registry.policy_engine
     return engine.decide(
-        PolicyInput(
-            subject=subject,
-            action=action,
-            resource=PolicyResource(
-                resource_type,
-                resource_id,
-                project_type,
-                classification,
-                attributes or {},
-            ),
+        _policy_input(
+            subject,
+            action,
+            resource_type,
+            resource_id=resource_id,
+            project_type=project_type,
+            classification=classification,
             origin=origin,
+            attributes=attributes,
         )
+    )
+
+
+def _policy_input(
+    subject: PolicySubject,
+    action: str,
+    resource_type: str,
+    *,
+    resource_id: str = "",
+    project_type: str = "",
+    classification: str = "",
+    origin: str = "human",
+    attributes: dict[str, Any] | None = None,
+) -> PolicyInput:
+    return PolicyInput(
+        subject=subject,
+        action=action,
+        resource=PolicyResource(
+            resource_type,
+            resource_id,
+            project_type,
+            classification,
+            attributes or {},
+        ),
+        origin=origin,
     )
 
 
@@ -174,8 +197,7 @@ async def enforce_mutation_policy(
     domain = for_route(resource_type, resource_id, payload)
     if action == "playbook.create":
         request.state.skein_playbook_policy_context = dict(domain)
-    decision = decide(
-        request,
+    policy_input = _policy_input(
         subject,
         action,
         resource_type,
@@ -183,11 +205,14 @@ async def enforce_mutation_policy(
         project_type=domain.get("project_type", ""),
         classification=domain.get("classification", ""),
     )
+    decision = request.app.state.skein_registry.policy_engine.decide(policy_input)
     if action == "playbook.create" and decision.effect == PolicyEffect.REVIEW:
         # The playbook route has a durable, exact-input review adapter. Other
         # direct REST mutations remain fail-closed because they cannot resume
         # a reviewed call safely.
         request.state.skein_playbook_policy_review = True
+        request.state.skein_playbook_policy_input = policy_input
+        request.state.skein_playbook_policy_decision = decision
         return
     enforce_decision(decision)
 

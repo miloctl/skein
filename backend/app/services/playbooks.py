@@ -10,6 +10,7 @@ by the time an engagement closes the plan it started with is gone.
 
 import base64
 import hashlib
+import hmac
 import json
 import re
 from datetime import date, datetime, timedelta
@@ -26,6 +27,7 @@ PLAYBOOKS_DIR = config.STOCK_DIR / "playbooks"
 
 _SLUG = re.compile(r"^[a-z0-9_-]+$")
 SCHEMA_VERSION = 1
+DEFINITION_DIGEST_VERSION = "v2"
 _TOP_LEVEL = {
     "schema_version",
     "name",
@@ -191,7 +193,18 @@ def get_playbook(slug: str) -> dict:
 def definition_digest(definition: dict) -> str:
     """Return the canonical identity of executable playbook content."""
     encoded = json.dumps(_canonical_yaml_value(definition), separators=(",", ":"))
-    return hashlib.sha256(encoded.encode()).hexdigest()
+    return f"{DEFINITION_DIGEST_VERSION}:{hashlib.sha256(encoded.encode()).hexdigest()}"
+
+
+def definition_digest_matches(expected: str, definition: dict) -> bool:
+    """Match current or legacy digests stored by a compatible core release."""
+    if expected.startswith(f"{DEFINITION_DIGEST_VERSION}:"):
+        return hmac.compare_digest(expected, definition_digest(definition))
+    try:
+        legacy = json.dumps(definition, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return False
+    return hmac.compare_digest(expected, hashlib.sha256(legacy.encode()).hexdigest())
 
 
 def _canonical_yaml_value(value: object) -> object:
@@ -302,7 +315,7 @@ def instantiate(
     expected_definition_digest: str = "",
 ) -> dict:
     pb = get_playbook(slug)
-    if expected_definition_digest and definition_digest(pb) != expected_definition_digest:
+    if expected_definition_digest and not definition_digest_matches(expected_definition_digest, pb):
         raise ValueError("the selected playbook changed; retry the request")
     prepared_workflow = None
     if pb.get("workflow"):

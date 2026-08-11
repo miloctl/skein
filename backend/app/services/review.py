@@ -2,12 +2,28 @@
 approve. Approval applies the payload through the same service registry the
 rest of the platform uses, stamped origin='agent_verified'."""
 
-import hmac
 import json
 from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Any
 
 from .. import db
+from ..public.errors import PublicError
 from . import lexicon, scope
+
+
+@dataclass(frozen=True)
+class _CurrentExtensionReview:
+    request: Any
+    contract: dict[str, Any] | None = None
+    decision: Any | None = None
+    fingerprint: str = ""
+
+
+@dataclass(frozen=True)
+class _ApprovalGrant:
+    fingerprint: str
+    decision: Any
 
 
 def _registry() -> dict:
@@ -142,8 +158,8 @@ def propose_change(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by, policy_obligations,"
         " approver_groups, approver_capabilities, review_visibility, review_crew_id,"
-        " review_owner, policy_context)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " review_owner, policy_context, review_contract_version)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entity,
             entity_id or None,
@@ -161,6 +177,7 @@ def propose_change(
             review_crew_id or None,
             review_owner,
             encoded_policy,
+            1,
         ),
     )
     db.log_activity(
@@ -371,7 +388,7 @@ def approve_change(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
-    _revalidate_policy(
+    approval_grant = _revalidate_policy(
         change,
         policy_registry,
         reviewer_groups,
@@ -403,6 +420,11 @@ def approve_change(
         if stored is None:
             raise ValueError("the reviewed extension invocation is missing")
         invocation = json.loads(stored["invocation"])
+        if approval_grant is not None:
+            from ..extensions.policy import policy_decision_data
+
+            invocation["_approval_grant"] = approval_grant.fingerprint
+            invocation["_approval_decision"] = policy_decision_data(approval_grant.decision)
         fn = None
     else:
         try:
@@ -522,11 +544,15 @@ def _revalidate_policy(
     reviewer_capabilities: tuple[str, ...],
     *,
     approving: bool = True,
-) -> None:
+) -> _ApprovalGrant | None:
     """Refresh and re-evaluate the policy that created a core proposal."""
     saved = json.loads(change.get("policy_context") or "{}")
     if not saved:
-        return
+        if approving and _legacy_review_needs_binding(change, registry):
+            raise PermissionError(
+                "The reviewed action has no policy binding. Request a new review."
+            )
+        return None
     if registry is None:
         raise PermissionError("The reviewed policy cannot be refreshed.")
     policy_data = saved.get("input")
@@ -543,13 +569,25 @@ def _revalidate_policy(
         )
 
         subject = registry.refresh_subject(policy_subject_from_data(subject_data))
-        current = _current_extension_policy_input(
-            change,
-            registry,
-            policy_input_from_data(policy_data, subject),
-            approving=approving,
-        )
-        decision = registry.policy_engine.decide(current)
+        current = policy_input_from_data(policy_data, subject)
+        try:
+            state = _current_extension_review(
+                change,
+                registry,
+                current,
+                approving=approving,
+            )
+        except PermissionError:
+            if approving:
+                raise
+            return None
+        except (KeyError, TypeError, ValueError, PublicError) as exc:
+            if approving:
+                raise PermissionError(
+                    "The reviewed extension contract cannot be refreshed. Request a new review."
+                ) from exc
+            return None
+        decision = state.decision or registry.policy_engine.decide(state.request)
         if decision.effect == PolicyEffect.DENY and approving:
             raise PermissionError("The current workplace policy denies this reviewed action.")
         # The next qualification check must use current requirements. Reusing
@@ -561,7 +599,18 @@ def _revalidate_policy(
         change["approver_capabilities"] = json.dumps(
             decision.approver_capabilities if decision.effect == PolicyEffect.REVIEW else ()
         )
-        return
+        if not approving:
+            return None
+        if state.fingerprint:
+            return _ApprovalGrant(state.fingerprint, decision)
+        if state.contract is None:
+            return None
+        from ..extensions.policy import approval_fingerprint
+
+        return _ApprovalGrant(
+            approval_fingerprint(state.request, decision, state.contract),
+            decision,
+        )
     contract = saved.get("contract")
     if not isinstance(contract, dict):
         raise PermissionError("The reviewed policy context is invalid.")
@@ -585,8 +634,6 @@ def _revalidate_policy(
     saved_subject = policy_subject_from_data(subject_data)
     subject = registry.refresh_subject(saved_subject)
     current = policy_input_from_data(policy_data, subject)
-    from dataclasses import replace
-
     from ..extensions.policy import PolicyResource
     from . import policy_context as domain_policy
 
@@ -596,20 +643,23 @@ def _revalidate_policy(
         expected["payload"],
     )
     if change["entity"] == "playbook":
+        from . import playbooks
+
         expected_digest = str(expected["payload"].get("expected_definition_digest") or "")
         if not expected_digest and approving:
             raise PermissionError(
-                "The reviewed playbook has no content digest; request a new review."
+                "The reviewed playbook has no content digest. Request a new review."
             )
-        if (
-            expected_digest
-            and not hmac.compare_digest(
-                expected_digest,
-                str(actual.get("definition_digest") or ""),
-            )
-            and approving
-        ):
-            raise PermissionError("The reviewed playbook changed; request a new review.")
+        if expected_digest and approving:
+            slug = str(expected["payload"].get("slug") or "")
+            try:
+                definition = playbooks.get_playbook(slug)
+            except ValueError as exc:
+                raise PermissionError(
+                    "The reviewed playbook is no longer available. Request a new review."
+                ) from exc
+            if not playbooks.definition_digest_matches(expected_digest, definition):
+                raise PermissionError("The reviewed playbook changed. Request a new review.")
     current = replace(
         current,
         resource=PolicyResource(
@@ -623,21 +673,34 @@ def _revalidate_policy(
     decision = registry.policy_engine.decide(current)
     if decision.effect == PolicyEffect.DENY and approving:
         raise PermissionError("The current workplace policy denies this reviewed action.")
-    if decision.effect == PolicyEffect.REVIEW:
-        change["approver_groups"] = json.dumps(decision.approver_groups)
-        change["approver_capabilities"] = json.dumps(decision.approver_capabilities)
-        required_groups = set(decision.approver_groups)
-        required_capabilities = set(decision.approver_capabilities)
-        if required_groups - set(reviewer_groups) or required_capabilities - set(
-            reviewer_capabilities
-        ):
-            raise PermissionError("This approval requires the current workplace approver.")
+    change["approver_groups"] = json.dumps(
+        decision.approver_groups if decision.effect == PolicyEffect.REVIEW else ()
+    )
+    change["approver_capabilities"] = json.dumps(
+        decision.approver_capabilities if decision.effect == PolicyEffect.REVIEW else ()
+    )
+    return None
 
 
-def _current_extension_policy_input(change: dict, registry, current, *, approving: bool):
+def _legacy_review_needs_binding(change: dict, registry) -> bool:
+    """Return true when an old agent review reaches a composed policy boundary."""
+    if registry is None:
+        return False
+    if int(change.get("review_contract_version") or 0) >= 1:
+        return False
+    return (change["entity"], change["action"]) in lexicon.REVIEW_ONLY or change.get(
+        "origin"
+    ) == "agent"
+
+
+def _current_extension_review(
+    change: dict,
+    registry,
+    current,
+    *,
+    approving: bool,
+) -> _CurrentExtensionReview:
     """Resolve mutable extension resources again before either verdict."""
-    from dataclasses import replace
-
     stored = db.query_one(
         "SELECT kind, invocation FROM extension_review_invocations WHERE change_id = ?",
         (change["id"],),
@@ -652,13 +715,20 @@ def _current_extension_policy_input(change: dict, registry, current, *, approvin
     if kind == "core_tool":
         from ..agents.core_tools import reviewed_policy_input
 
-        try:
-            return reviewed_policy_input(invocation, current.subject)
-        except (TypeError, ValueError) as exc:
-            raise PermissionError("The reviewed stock tool resource cannot be refreshed.") from exc
+        request = reviewed_policy_input(invocation, current.subject)
+        tool_use = invocation.get("tool_use")
+        if not isinstance(tool_use, dict):
+            raise ValueError("the reviewed stock tool call is invalid")
+        return _CurrentExtensionReview(
+            request,
+            {
+                "tool": str(invocation.get("tool") or ""),
+                "input": tool_use.get("input") or {},
+            },
+        )
     if kind == "tool":
         tool = registry.tool(str(invocation.get("tool") or ""))
-        if invocation.get("version") != tool.version:
+        if invocation.get("version") != tool.version and approving:
             raise PermissionError("The reviewed tool contract changed.")
         arguments = invocation.get("arguments")
         if not isinstance(arguments, dict):
@@ -668,7 +738,7 @@ def _current_extension_policy_input(change: dict, registry, current, *, approvin
             resource = tool.resource(validated) if tool.resource else current.resource
         except (TypeError, ValueError) as exc:
             raise PermissionError("The reviewed tool resource cannot be refreshed.") from exc
-        return replace(
+        request = replace(
             current,
             action=tool.policy_action,
             resource=resource,
@@ -676,6 +746,24 @@ def _current_extension_policy_input(change: dict, registry, current, *, approvin
             tool_effect=tool.effect,
             tool_risk=tool.risk,
         )
+        return _CurrentExtensionReview(
+            request,
+            {
+                "tool": tool.name,
+                "version": tool.version,
+                "arguments": validated.model_dump(mode="json"),
+            },
+        )
+    if kind == "mcp_tool":
+        from ..agents.mcp_tools import reviewed_policy_contract
+
+        request, contract, version_matches = reviewed_policy_contract(
+            invocation,
+            current.subject,
+        )
+        if not version_matches and approving:
+            raise PermissionError("The reviewed remote tool contract changed.")
+        return _CurrentExtensionReview(request, contract)
     if kind == "workflow":
         from . import playbooks
 
@@ -683,16 +771,46 @@ def _current_extension_policy_input(change: dict, registry, current, *, approvin
         expected = str(invocation.get("definition_digest") or "")
         if not expected and approving:
             raise PermissionError(
-                "The reviewed playbook has no content digest; request a new review."
+                "The reviewed playbook has no content digest. Request a new review."
             )
         definition = playbooks.get_playbook(slug)
-        digest = playbooks.definition_digest(definition)
-        if expected and not hmac.compare_digest(expected, digest) and approving:
-            raise PermissionError("The reviewed playbook changed; request a new review.")
+        if expected and not playbooks.definition_digest_matches(expected, definition) and approving:
+            raise PermissionError("The reviewed playbook changed. Request a new review.")
         project_type = str(definition.get("project_class") or slug)
         resource = replace(current.resource, project_type=project_type)
-        return replace(current, resource=resource)
-    return current
+        request = replace(current, resource=resource)
+        if invocation.get("workflow_kind") == "playbook_policy":
+            return _CurrentExtensionReview(request)
+        raw_workflow = definition.get("workflow")
+        if raw_workflow is None:
+            raise ValueError("the reviewed playbook no longer has a workflow")
+        from ..public.workflow import WorkflowContext, WorkflowEngine
+
+        engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+        steps = engine.prepare(raw_workflow)
+        context = WorkflowContext(
+            subject=current.subject,
+            origin=str(invocation.get("origin") or "human"),
+            project_type=project_type,
+            resource_id=str(invocation.get("resource_id") or ""),
+            values={
+                **dict(invocation.get("values") or {}),
+                "project_type": project_type,
+            },
+            approval_grants=dict(invocation.get("approval_grants") or {}),
+        )
+        review_key = str(invocation.get("reviewed_key") or "")
+        workflow_request, decision, fingerprint = engine.current_review(
+            steps,
+            context,
+            review_key,
+        )
+        return _CurrentExtensionReview(
+            workflow_request,
+            decision=decision,
+            fingerprint=fingerprint,
+        )
+    return _CurrentExtensionReview(current)
 
 
 def _clear_review_ping(change_id: int) -> None:

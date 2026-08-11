@@ -33,11 +33,16 @@ class MemoryAtlasClient:
     def __init__(self, items: tuple[AtlasItem, ...] = ()) -> None:
         self.items = items
         self.updates: list[tuple[str, str, str]] = []
+        self._seen_events: set[str] = set()
 
     def list_items(self) -> tuple[AtlasItem, ...]:
         return self.items
 
     def update_status(self, external_id: str, status: str, event_id: str = "") -> None:
+        if event_id and event_id in self._seen_events:
+            return
+        if event_id:
+            self._seen_events.add(event_id)
         self.updates.append((external_id, status, event_id))
 
 
@@ -148,16 +153,25 @@ class AtlasIntegration:
                     ),
                     context,
                 )
-                self.store.execute(
-                    "INSERT INTO work_links"
+                inserted = self.store.execute(
+                    "INSERT OR IGNORE INTO work_links"
                     " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
                     (item.external_id, task.id, item.classification),
                 )
-                created += 1
+                stored = self.store.query_one(
+                    "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+                    (item.external_id,),
+                )
+                if stored is None or int(stored["skein_task_id"]) != task.id:
+                    raise RuntimeError("The Atlas work mapping conflicts with the Skein task.")
+                if inserted:
+                    created += 1
+                else:
+                    updated += 1
             self.client.update_status(
                 item.external_id,
                 task.status,
-                correlation_id or f"atlas-sync:{item.external_id}:{task.status}",
+                f"{correlation_id or 'atlas-sync'}:{item.external_id}:{task.status}",
             )
         self.store.execute(
             "INSERT INTO sync_runs (created_count, updated_count, finished_at)"

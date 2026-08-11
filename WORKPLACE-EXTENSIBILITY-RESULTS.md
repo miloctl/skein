@@ -919,6 +919,61 @@ Verification after the eighth remediation:
 A fresh independent review is pending. Chrome remains blocked until that gate
 passes.
 
+### Ninth independent review
+
+The ninth gate reviewed commit `8e43626`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and extension author | 7.9 | 7.3 | 7.1 | Reject |
+| Security and policy correctness | 7.7 | 6.8 | 6.9 | Reject |
+| Compatibility and reliability | 8.2 | 7.8 | 7.2 | Reject |
+| Adversarial score auditor | 7.4 | 6.8 | 6.7 | Reject |
+
+The reviewers found identity, review-scope, approval-binding, and upgrade
+contract defects. Unattended and resumed stock tools used the wrong agent
+identity. Crew reviews became workspace reviews. Old unbound agent proposals
+bypassed current policy. Resumable executors did not use
+the exact decision that qualified the reviewer. The identity contract broke
+an old two-resolver package. The artifact rehearsals did not use two distinct
+host implementations.
+
+The ninth remediation closes these findings. It keeps one active identity
+through policy, handler, receipt, and provenance. It binds target scope to
+stock-tool reviews. It refuses unsafe legacy approval and retains safe
+rejection. It passes one verdict-time decision to every resumable executor.
+It preserves extension API 1.0 resolver inference. It versions content
+digests and accepts the prior digest for unchanged content.
+
+The Atlas example now uses operation-scoped idempotency keys and tolerates a
+concurrent mapping insert. Backend and frontend upgrade rehearsals use commit
+`5493d61` as the previous implementation and the working tree as the next
+implementation. The private Atlas artifacts stay unchanged. The deployment
+adds non-root volume ownership, and the image contract starts both derivative
+images.
+
+Migration 017 records the review-contract version. It blocks approval of an
+old unbound proposal without blocking a current proposal.
+
+Verification after the ninth remediation:
+
+| Command | Result |
+|---|---|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,729 passed in 143.11 seconds |
+| Sequential backend suite | 1,729 passed in 441.47 seconds |
+| `npm test` | 229 passed in 45 files |
+| `./scripts/lint.sh` | All lint, type, content, dead-code, license, and theme gates passed in 21.73 seconds |
+| `npm run build` | Production build passed in 13.87 seconds |
+| `scripts/reference-extension-contract.sh` | Distinct installed revisions and the unchanged Atlas wheel passed in 38.13 seconds |
+| `scripts/reference-frontend-contract.sh` | Distinct host revisions and the unchanged Atlas package passed in 43.14 seconds |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render passed in 0.24 seconds |
+| `scripts/reference-images-contract.sh` | Derivative images started as non-root and wrote both data paths in 25.34 seconds |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schema and activity chain passed in 0.47 seconds |
+| `uv build --wheel` | The core wheel built and included migration 017 |
+
+A fresh independent review is pending. Chrome remains blocked until that gate
+passes.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.

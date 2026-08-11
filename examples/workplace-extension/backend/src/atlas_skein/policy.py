@@ -27,6 +27,11 @@ def atlas_directory(name: str):
     return None
 
 
+def atlas_profile(_name: str):
+    """Return profile state through the legacy two-resolver API contract."""
+    return {"active": True}
+
+
 def atlas_policy(request: PolicyInput):
     capabilities = set(request.subject.capabilities)
     if request.action == "atlas.dashboard.view" and "atlas.dashboard" not in capabilities:

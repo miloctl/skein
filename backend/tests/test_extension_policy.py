@@ -238,9 +238,11 @@ def test_reviewed_tool_fails_closed_when_current_policy_changes(fresh_db):
 
     calls: list[str] = []
     required = {"group": "delivery-managers"}
+    policy_calls = {"count": 0}
 
     def rule(request: PolicyInput):
         if request.action == "atlas.update":
+            policy_calls["count"] += 1
             return PolicyDecision(
                 PolicyEffect.REVIEW,
                 approver_groups=(required["group"],),
@@ -277,6 +279,65 @@ def test_reviewed_tool_fails_closed_when_current_policy_changes(fresh_db):
     assert resumed.status == "review_required"
     assert resumed.approver_groups == ["security-managers"]
     assert calls == []
+
+
+def test_review_verdict_supplies_the_current_grant_to_contributed_tool(fresh_db):
+    from app.extensions.tools import execute_reviewed_tool
+    from app.services import review, users
+
+    calls: list[str] = []
+    required = {"group": "delivery-managers"}
+    policy_calls = {"count": 0}
+
+    def rule(request: PolicyInput):
+        if request.action == "atlas.update":
+            policy_calls["count"] += 1
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(required["group"],),
+            )
+        return None
+
+    base = _module(lambda external_id: calls.append(external_id) or {"updated": external_id})
+    registry = ExtensionRegistry.build(
+        (
+            replace(
+                base,
+                policies=(PolicyContribution("acme.workplace.current-policy", rule),),
+            ),
+        )
+    )
+    for name in ("requester", "security-manager"):
+        users.ensure_user(name)
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "A-10"},
+            ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    required["group"] = "security-managers"
+
+    def resume(invocation, _change_id):
+        return asyncio.run(
+            execute_reviewed_tool(registry.tools[0], invocation, registry)
+        ).model_dump(mode="json")
+
+    approved = review.approve_change(
+        queued.review_id,
+        actor="security-manager",
+        reviewer_groups=("security-managers",),
+        extension_executor=resume,
+        policy_registry=registry,
+    )
+
+    assert approved["result"]["status"] == "completed"
+    assert calls == ["A-10"]
+    assert policy_calls["count"] == 2
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM pending_changes WHERE entity = 'extension_tool'"
+    ) == {"count": 1}
 
 
 def test_governed_tool_checks_agent_capability_input_and_output(fresh_db):
@@ -719,6 +780,88 @@ def test_specialist_and_governed_tool_join_the_real_agent_composition(fresh_db, 
     )
 
 
+def test_unattended_agent_identity_reaches_the_real_contributed_wrapper(fresh_db, monkeypatch):
+    from app import config
+    from app.agents import receipts, team_agent
+    from app.extensions.policy import (
+        reset_policy_subject,
+        set_policy_subject,
+    )
+    from app.services import delegation, users
+
+    observed: dict[str, str] = {}
+
+    def handler(context, request: SyncIn):
+        observed["agent"] = context.agent
+        observed["subject"] = context.subject.name
+        return {"updated": request.external_id}
+
+    base = _module()
+    contributed = replace(
+        base.tools[0],
+        handler=handler,
+        allowed_agents=("research-agent",),
+        resource=lambda _request: PolicyResource("task"),
+    )
+    registry = ExtensionRegistry.build(
+        (replace(base, policies=(), tools=(contributed,), specialists=()),)
+    )
+    users.ensure_user("manager")
+    delegation.set_authority(
+        "research-agent",
+        "task",
+        "autonomous",
+        actor="manager",
+    )
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _FakeModel())
+    subject = PolicySubject(
+        "research-agent",
+        kind="agent",
+        strong=True,
+        source="agent-runner",
+    )
+    built = team_agent.build_agent(
+        "run-research-agent",
+        user="research-agent",
+        extensions=registry,
+        policy_subject=subject,
+    )
+    wrapped = built.tool_registry.registry["acme_atlas_update"]
+    invoke = next(
+        candidate
+        for name in ("original_function", "_tool_func", "func", "__wrapped__")
+        if callable(candidate := getattr(wrapped, name, None))
+    )
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(subject)
+    receipts.start()
+    try:
+        result = json.loads(asyncio.run(invoke(external_id="ATLAS-RUNNER")))
+        recorded = receipts.drain()
+    finally:
+        receipts.reset()
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+
+    assert result["status"] == "completed"
+    assert observed == {"agent": "research-agent", "subject": "research-agent"}
+    assert recorded == [
+        {
+            "kind": "wrote",
+            "entity": "acme.workplace.atlas-update",
+            "detail": "completed",
+            "ref": 0,
+            "actor": "research-agent",
+        }
+    ]
+    assert fresh_db.query_one(
+        "SELECT actor, action FROM activity WHERE action = 'external_tool'"
+    ) == {"actor": "research-agent", "action": "external_tool"}
+
+
 def test_contributed_specialist_identity_cannot_be_claimed_by_a_human(fresh_db):
     from app.services.users import ensure_user
 
@@ -850,6 +993,190 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
     )
     assert approved["result"]["status"] == "completed"
     assert remote.called is True
+
+
+def test_review_verdict_supplies_the_current_grant_to_mcp_tool(fresh_db, monkeypatch):
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, MCPToolMetadata, execute_reviewed_mcp
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    required = {"group": "old-managers"}
+    policy_calls = {"count": 0}
+
+    def review_remote(request: PolicyInput):
+        if request.action == "atlas.remote.write":
+            policy_calls["count"] += 1
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(required["group"],),
+            )
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.remote-review", review_remote),),
+            ),
+        )
+    )
+    remote = _RemoteTool()
+    governed = GovernedMCPTool(
+        remote,
+        MCPToolMetadata(
+            version="1.0.0",
+            effect="write",
+            risk="high",
+            policy_action="atlas.remote.write",
+            allowed_agents=("agent",),
+            required_capabilities=(),
+            output_schema={"type": "object"},
+            timeout_seconds=1,
+            error_codes=(),
+            receipt="required",
+            provenance="service",
+        ),
+        "atlas-server",
+    )
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    agent_token = set_agent_identity("agent")
+
+    async def queue():
+        return [
+            event
+            async for event in governed.stream(
+                {"toolUseId": "mcp-current", "name": "atlas_remote", "input": {}},
+                {},
+            )
+        ]
+
+    try:
+        events = asyncio.run(queue())
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    assert events[-1]["completionStatus"] == "review_required"
+    pending = fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool'"
+    )
+    required["group"] = "new-managers"
+    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [governed])
+    approved = review.approve_change(
+        pending["id"],
+        actor="manager",
+        reviewer_groups=("new-managers",),
+        extension_executor=lambda invocation, _change_id: asyncio.run(
+            execute_reviewed_mcp(invocation, registry)
+        ),
+        policy_registry=registry,
+    )
+
+    assert approved["result"]["status"] == "completed"
+    assert remote.called is True
+    assert policy_calls["count"] == 2
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM pending_changes WHERE entity = 'extension_mcp_tool'"
+    ) == {"count": 1}
+
+
+def test_mcp_rejection_uses_current_tool_metadata(fresh_db, monkeypatch):
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.agents.mcp_tools import GovernedMCPTool, MCPToolMetadata
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
+
+    def review_remote(request: PolicyInput):
+        if request.action == "atlas.remote.write":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(f"{request.tool_risk}-managers",),
+            )
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.remote-review", review_remote),),
+            ),
+        )
+    )
+    remote = _RemoteTool()
+
+    def wrapper(version: str, risk: str):
+        return GovernedMCPTool(
+            remote,
+            MCPToolMetadata(
+                version=version,
+                effect="write",
+                risk=risk,
+                policy_action="atlas.remote.write",
+                allowed_agents=("agent",),
+                required_capabilities=(),
+                output_schema={"type": "object"},
+                timeout_seconds=1,
+                error_codes=(),
+                receipt="required",
+                provenance="service",
+            ),
+            "atlas-server",
+        )
+
+    original = wrapper("1.0.0", "low")
+    users.ensure_user("requester")
+    users.ensure_user("manager")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    agent_token = set_agent_identity("agent")
+
+    async def queue():
+        return [
+            event
+            async for event in original.stream(
+                {"toolUseId": "mcp-metadata", "name": "atlas_remote", "input": {}},
+                {},
+            )
+        ]
+
+    try:
+        asyncio.run(queue())
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    pending = fresh_db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'extension_mcp_tool'"
+    )
+    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [wrapper("2.0.0", "critical")])
+
+    with pytest.raises(PermissionError, match="configured workplace approver"):
+        review.reject_change(
+            pending["id"],
+            actor="manager",
+            reviewer_groups=("low-managers",),
+            policy_registry=registry,
+        )
+    assert review.reject_change(
+        pending["id"],
+        actor="manager",
+        reviewer_groups=("critical-managers",),
+        policy_registry=registry,
+    ) == {"id": pending["id"], "status": "rejected"}
 
 
 def test_mcp_metadata_rejects_empty_actions_and_string_lists():
@@ -1026,6 +1353,59 @@ def test_core_agent_approval_rechecks_current_workplace_policy(fresh_db):
     ) == {"status": "pending"}
 
 
+def test_legacy_unbound_agent_review_cannot_bypass_workplace_policy(fresh_db):
+    from app.services import review, users
+
+    def deny_task(request: PolicyInput):
+        if request.action == "task.create":
+            return PolicyDecision(PolicyEffect.DENY, ("Task creation is paused.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.task-policy", deny_task),),
+            ),
+        )
+    )
+    users.ensure_user("legacy-agent", kind="agent")
+    users.ensure_user("manager")
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "Must remain absent"},
+        actor="legacy-agent",
+        origin="agent",
+        policy_context=None,
+    )
+    assert fresh_db.query_one(
+        "SELECT review_contract_version FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
+    ) == {"review_contract_version": 1}
+    fresh_db.execute(
+        "UPDATE pending_changes SET review_contract_version = 0 WHERE id = ?",
+        (proposal["id"],),
+    )
+
+    with pytest.raises(PermissionError, match="no policy binding"):
+        review.approve_change(
+            proposal["id"],
+            actor="manager",
+            policy_registry=registry,
+        )
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'Must remain absent'") is None
+    assert review.reject_change(
+        proposal["id"],
+        actor="manager",
+        policy_registry=registry,
+    ) == {"id": proposal["id"], "status": "rejected"}
+
+
 def test_core_agent_approval_refuses_a_deactivated_requester(fresh_db):
     from app.agents.identity import reset_requester_identity, set_requester_identity
     from app.extensions.policy import reset_policy_subject, set_policy_subject
@@ -1172,16 +1552,52 @@ def test_registry_rejects_multiple_authoritative_group_resolvers():
                 "acme.workplace.first-directory",
                 lambda *_args: {},
                 resolver=lambda _name: {"groups": ()},
+                resolves_groups=True,
             ),
             IdentityContribution(
                 "acme.workplace.second-directory",
                 lambda *_args: {},
                 resolver=lambda _name: {"groups": ()},
+                resolves_groups=True,
             ),
         ),
     )
     with pytest.raises(ValueError, match="only one identity contribution can resolve groups"):
         ExtensionRegistry.build((module,))
+
+
+def test_legacy_two_resolver_identity_package_remains_compatible(fresh_db):
+    from app.services import users
+
+    users.ensure_user("mira")
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda *_args: {},
+                resolver=lambda _name: {"groups": ("delivery-managers",)},
+            ),
+            IdentityContribution(
+                "acme.workplace.profile",
+                lambda *_args: {},
+                resolver=lambda _name: {"active": True},
+            ),
+        ),
+    )
+    refreshed = ExtensionRegistry.build((module,)).refresh_subject(
+        PolicySubject(
+            "mira",
+            groups=("old-group",),
+            source="oidc",
+            refresh_required=True,
+        )
+    )
+    assert refreshed.groups == ("delivery-managers",)
 
 
 def test_rest_playbook_policy_uses_authoritative_project_class(fresh_db):
@@ -1528,7 +1944,7 @@ def test_playbook_approval_uses_one_current_policy_decision(fresh_db):
             json={"note": "Approved under the current verdict."},
         )
     assert approved.status_code == 200, approved.text
-    assert calls["count"] == 3
+    assert calls["count"] == 2
     assert fresh_db.query_one(
         "SELECT name FROM engagements WHERE name = 'Single policy verdict'"
     ) == {"name": "Single policy verdict"}
@@ -1599,6 +2015,69 @@ def test_legacy_playbook_review_can_be_rejected_but_not_approved(fresh_db):
         "SELECT read_at FROM notifications WHERE message LIKE ?",
         (f"Review needed: #{review_id}%",),
     )["read_at"]
+
+
+def test_removed_playbook_review_can_be_rejected(fresh_db, tmp_path, monkeypatch):
+    from app import config
+    from app.services import users
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    definition = overlay / "removed.yaml"
+    definition.write_text(
+        """\
+schema_version: 1
+name: Removed delivery
+project_class: standard
+milestones:
+  - title: Prepare
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+
+    def identity(name, _groups, _strong):
+        return {"capabilities": ("playbook-approver",) if name == "manager" else ()}
+
+    def review_playbook(request: PolicyInput):
+        if request.action == "playbook.create":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=("playbook-approver",),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(IdentityContribution("acme.workplace.identity", identity),),
+        policies=(PolicyContribution("acme.workplace.playbook-review", review_playbook),),
+    )
+    for name in ("requester", "manager"):
+        users.ensure_user(name)
+    with TestClient(create_app(modules=(module,))) as client:
+        review_id = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={"playbook": "removed", "engagement_name": "Removed review"},
+        ).json()["workflow"]["review_id"]
+        definition.unlink()
+        rejected = client.post(
+            f"/api/review/{review_id}/reject",
+            headers={"X-User": "manager"},
+            json={"note": "The playbook is no longer available."},
+        )
+
+    assert rejected.status_code == 200, rejected.text
+    assert fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (review_id,)) == {
+        "status": "rejected"
+    }
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+        (review_id,),
+    ) == {"status": "rejected"}
 
 
 def test_playbook_policy_review_rejects_definition_drift(

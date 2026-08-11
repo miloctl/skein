@@ -20,6 +20,7 @@ from strands.types.tools import AgentTool
 
 from .. import config
 from ..extensions.policy import (
+    PolicyDecision,
     PolicyEffect,
     PolicyInput,
     PolicyResource,
@@ -83,6 +84,7 @@ class GovernedMCPTool(AgentTool):
             current_policy_subject(),
             _agent_name(),
             "",
+            None,
             **kwargs,
         ):
             yield event
@@ -94,6 +96,7 @@ class GovernedMCPTool(AgentTool):
         subject,
         actor: str,
         approved_fingerprint: str,
+        approved_decision: PolicyDecision | None = None,
         **kwargs: Any,
     ):
         from .receipts import record
@@ -121,7 +124,7 @@ class GovernedMCPTool(AgentTool):
             tool_effect=self.metadata.effect,
             tool_risk=self.metadata.risk,
         )
-        decision = current_policy_engine().decide(policy_input)
+        decision = approved_decision or current_policy_engine().decide(policy_input)
         fingerprint = approval_fingerprint(
             policy_input,
             decision,
@@ -132,6 +135,13 @@ class GovernedMCPTool(AgentTool):
                 "input": tool_use.get("input") or {},
             },
         )
+        if approved_decision is not None and approved_fingerprint != fingerprint:
+            yield _refusal(
+                tool_use,
+                "The reviewed remote tool approval is stale.",
+                completion_status="approval_stale",
+            )
+            return
         if decision.effect == PolicyEffect.REVIEW and approved_fingerprint != fingerprint:
             from ..services import review
 
@@ -181,6 +191,7 @@ class GovernedMCPTool(AgentTool):
             yield _refusal(
                 tool_use,
                 f"Skein review #{proposal['id']} is required for this remote tool.",
+                completion_status="review_required",
             )
             return
         if decision.effect == PolicyEffect.DENY:
@@ -243,6 +254,43 @@ def _agent_name() -> str:
     return agent_identity()
 
 
+def reviewed_policy_contract(
+    invocation: dict[str, Any], subject
+) -> tuple[PolicyInput, dict[str, Any], bool]:
+    """Resolve the current governed contract for one pending MCP verdict."""
+    name = str(invocation.get("tool") or "")
+    server = str(invocation.get("server") or "")
+    try:
+        governed = next(
+            item
+            for item in mcp_tools()
+            if isinstance(item, GovernedMCPTool)
+            and item.tool_name == name
+            and item.server_id == server
+        )
+    except StopIteration as exc:
+        raise ValueError("the reviewed remote tool is not currently composed") from exc
+    tool_use = _json_mapping(invocation.get("tool_use"))
+    actor = str(invocation.get("agent") or "")
+    request = PolicyInput(
+        subject,
+        governed.metadata.policy_action,
+        PolicyResource("mcp-tool", f"{server}:{name}"),
+        "mcp",
+        agent=actor,
+        tool=name,
+        tool_effect=governed.metadata.effect,
+        tool_risk=governed.metadata.risk,
+    )
+    contract = {
+        "tool": name,
+        "server": server,
+        "version": governed.metadata.version,
+        "input": tool_use.get("input") or {},
+    }
+    return request, contract, str(invocation.get("version") or "") == governed.metadata.version
+
+
 def _subject_data(subject) -> dict[str, Any]:
     from ..extensions.policy import policy_subject_data
 
@@ -278,10 +326,19 @@ async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str
     subject_data = invocation.get("subject")
     if not isinstance(subject_data, dict):
         raise ValueError("the reviewed remote tool identity is invalid")
-    from ..extensions.policy import policy_subject_from_data, reset_policy_engine, set_policy_engine
+    from ..extensions.policy import (
+        policy_decision_from_data,
+        policy_subject_from_data,
+        reset_policy_engine,
+        set_policy_engine,
+    )
 
     saved = policy_subject_from_data(subject_data)
     subject = registry.refresh_subject(saved)
+    decision_data = invocation.get("_approval_decision")
+    approved_decision = (
+        policy_decision_from_data(decision_data) if isinstance(decision_data, dict) else None
+    )
     policy_token = set_policy_engine(registry.policy_engine)
     try:
         events = [
@@ -291,7 +348,12 @@ async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str
                 _json_mapping(invocation.get("invocation_state")),
                 subject,
                 str(invocation.get("agent") or ""),
-                str(invocation.get("approval_fingerprint") or ""),
+                str(
+                    invocation.get("_approval_grant")
+                    or invocation.get("approval_fingerprint")
+                    or ""
+                ),
+                approved_decision,
             )
         ]
     finally:

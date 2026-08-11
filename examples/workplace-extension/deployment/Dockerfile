@@ -10,6 +10,8 @@ ENV SKEIN_PLAYBOOKS_DIR=/opt/atlas/content/playbooks
 ENV SKEIN_PERSONAS_DIR=/opt/atlas/content/personas
 ENV SKEIN_FLOCKS_DIR=/opt/atlas/content/flocks
 COPY content /opt/atlas/content
+RUN mkdir -p /atlas-data \
+    && chown -R appuser:appuser /atlas-data /opt/atlas/content
 
 USER appuser
 CMD ["uvicorn", "atlas_skein.app:app", "--host", "0.0.0.0", "--port", "8000"]

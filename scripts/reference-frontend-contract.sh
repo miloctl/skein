@@ -6,17 +6,19 @@ cd "$(dirname "$0")/.."
 
 tmp="$(mktemp -d)"
 export npm_config_cache="$tmp/npm-cache"
-installed="frontend/node_modules/@atlas/skein-extension"
 cleanup() {
     status=$?
     trap - EXIT
     rm -rf "$tmp"
-    rm -rf "$installed"
-    npm --prefix frontend run --silent compose:extensions >/dev/null 2>&1 || true
     exit "$status"
 }
 trap cleanup EXIT
 mkdir -p "$tmp/tarballs" "$tmp/build/node_modules/@skein" "$tmp/build/node_modules/@types"
+mkdir -p "$tmp/current-source/frontend"
+tar --exclude=node_modules --exclude=.next --exclude='*.tsbuildinfo' \
+    -cf - -C frontend . | tar -xf - -C "$tmp/current-source/frontend"
+cp -a --reflink=auto frontend/node_modules "$tmp/current-source/frontend/node_modules"
+installed="$tmp/current-source/frontend/node_modules/@atlas/skein-extension"
 [ ! -e "$installed" ] || { echo "temporary Atlas install path already exists" >&2; exit 1; }
 
 npm pack --silent --pack-destination "$tmp/tarballs" frontend/packages/extension-api >/dev/null
@@ -58,13 +60,20 @@ JS
 
 mkdir -p "$installed"
 tar -xzf "${atlas_tar[0]}" --strip-components=1 -C "$installed"
-SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension npm --prefix frontend run build >/dev/null
+SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension \
+    npm --prefix "$tmp/current-source/frontend" run build >/dev/null
+
+mkdir -p "$tmp/previous-source"
+git archive 5493d618cb8fee04cc7b0ce614b09c9857648b27 frontend \
+    | tar -x -C "$tmp/previous-source"
 
 build_host() {
     version="$1"
+    source="$2"
     host="$tmp/host-$version"
     archive="$tmp/tarballs/skein-frontend-host-$version.tar.gz"
-    scripts/package-frontend-host.sh "$version" "$archive"
+    SKEIN_FRONTEND_SOURCE="$source" \
+        scripts/package-frontend-host.sh "$version" "$archive"
     mkdir -p "$host"
     tar -xzf "$archive" -C "$host"
     [ "$(sed -n '1,12p' "$host/frontend/package-lock.json" \
@@ -81,7 +90,7 @@ build_host() {
     rm -rf "$host"
 }
 
-build_host 0.2.0
-build_host 0.2.1
+build_host 0.2.0 "$tmp/previous-source/frontend"
+build_host 0.2.1 "$tmp/current-source/frontend"
 
-echo "reference-frontend-contract: packed API and extension; unchanged Atlas package built on frontend hosts 0.2.0 and 0.2.1"
+echo "reference-frontend-contract: unchanged Atlas package built on distinct 0.2.0 and 0.2.1 frontend implementations"

@@ -116,19 +116,52 @@ class ExtensionRegistry:
         groups = tuple(subject.groups)
         active = True
         groups_resolved = False
+        explicit_group_resolver = next(
+            (
+                contribution
+                for contribution in self.identities
+                if contribution.resolver is not None and contribution.resolves_groups is True
+            ),
+            None,
+        )
+        legacy_group_results: list[tuple[str, ...]] = []
+        legacy_resolvers_available = True
         for contribution in self.identities:
             if contribution.resolver is None:
                 continue
             value = contribution.resolver(subject.name)
             if value is None:
+                if explicit_group_resolver is contribution or (
+                    explicit_group_resolver is None and contribution.resolves_groups is None
+                ):
+                    legacy_resolvers_available = False
                 continue
             active = active and bool(value.get("active", True))
-            if contribution.resolves_groups and "groups" in value:
+            if explicit_group_resolver is contribution and "groups" in value:
                 groups_resolved = True
                 groups = tuple(str(item) for item in value.get("groups") or ())
-            elif not contribution.resolves_groups and "groups" in value:
+            elif explicit_group_resolver is contribution:
+                legacy_resolvers_available = False
+            elif contribution.resolves_groups is False and "groups" in value:
                 raise PermissionError(
                     f"Identity profile resolver {contribution.name!r} returned groups."
+                )
+            elif explicit_group_resolver is not None and "groups" in value:
+                raise PermissionError(
+                    f"Legacy identity resolver {contribution.name!r} returned groups beside"
+                    " the explicit group resolver."
+                )
+            elif "groups" in value:
+                legacy_group_results.append(tuple(str(item) for item in value.get("groups") or ()))
+        if explicit_group_resolver is None and legacy_resolvers_available:
+            distinct = set(legacy_group_results)
+            if len(distinct) == 1:
+                groups = legacy_group_results[0]
+                groups_resolved = True
+            elif len(distinct) > 1:
+                raise PermissionError(
+                    "Legacy identity resolvers returned different group results."
+                    " Declare one resolver with resolves_groups=True."
                 )
         if (subject.refresh_required or subject.groups) and not groups_resolved:
             raise PermissionError("The requester directory identity could not be refreshed.")
@@ -245,7 +278,7 @@ class ExtensionRegistry:
         group_resolvers = [
             contribution.name
             for contribution in identities
-            if contribution.resolver is not None and contribution.resolves_groups
+            if contribution.resolver is not None and contribution.resolves_groups is True
         ]
         if len(group_resolvers) > 1:
             raise ExtensionValidationError(
