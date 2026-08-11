@@ -622,7 +622,7 @@ Atlas playbook, persona, and flock validation passed.
 | `npm --prefix frontend test -- --run` | 229 passed in 45 files | 11.51 seconds |
 | `npm run build` | Production build passed | 13.52 seconds |
 | `./scripts/lint.sh` | All backend, frontend, content, license, and theme checks passed | 12.94 seconds |
-| `./scripts/reference-extension-contract.sh` | Normal installed startup and additive `0.2.0` to `0.2.1` upgrade passed | 14.66 seconds |
+| `./scripts/reference-extension-contract.sh` | Normal installed startup and compatible `0.2.0` to `0.2.1` artifact upgrade passed | 14.66 seconds |
 | `./scripts/reference-frontend-contract.sh` | Clean packed consumer and derivative production build passed | 15.18 seconds |
 | `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.57 seconds |
 | `uv build --wheel --out-dir /tmp/skein-final-dist backend` | Core wheel passed | Passed |
@@ -1032,6 +1032,61 @@ Verification after the ninth remediation:
 
 A fresh independent review is pending. Chrome remains blocked until that gate
 passes.
+
+### Eleventh independent review and remediation
+
+Four specialists reviewed commit `bf8a839`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture | 7.9 | 7.5 | 7.8 | Reject |
+| Compatibility | 8.2 | 8.2 | 8.0 | Reject |
+| Extension author | 7.7 | 6.8 | 7.5 | Reject |
+| Policy correctness | 7.7 | 6.6 | 8.0 | Reject |
+
+The review found valid authority, transaction, event, idempotency, and upgrade
+evidence defects. Caller-created execution contexts could mint provenance.
+Policy checks and writes did not always share one transaction. Some task state
+changes did not emit outbox events. Separate workflow runs could share one
+action key. A removed OIDC module could strand its pending reviews.
+
+The remediation binds execution authority to the composition root. It gives
+each contribution type a separate receipt namespace. It assigns a unique,
+durable run ID to each workflow. It resolves removed contracts before identity
+refresh on rejection. Approval still fails closed.
+
+Task policy and writes now share a transaction on supported public, REST,
+agent, and review paths. Reviewed compound applies use a savepoint. Direct task
+state changes emit versioned events in the same transaction. MCP policy uses
+authoritative crew-task context. Workflow attempts have complete outcome audit
+records.
+
+The artifact documents no longer claim that the compared installed pair
+crosses a new migration. The backend script proves that its two Git trees
+differ. The deployment check now asserts the private frontend image.
+
+Verification after remediation:
+
+| Command | Result |
+|---|---|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,745 passed in 108.63 seconds |
+| `npm test -- --run` | 230 passed in 45 files |
+| `./scripts/lint.sh` | All gates passed in 20.19 seconds |
+| `npm run build` | Production build passed in 14.05 seconds |
+| `uv build` | Backend wheel and source distribution built |
+| `scripts/reference-extension-contract.sh` | Different installed core trees and unchanged Atlas wheel passed |
+| `scripts/reference-frontend-contract.sh` | Different host trees and unchanged Atlas package passed |
+| `scripts/reference-deployment-contract.sh` | Standard Kustomize render and private frontend image passed |
+| `scripts/reference-images-contract.sh` | Derivative images started as non-root |
+| `scripts/upgrade-path.sh d3b0f2e...` | Schema and activity chain passed |
+
+The first installed-backend run stalled during a cold dependency download and
+was interrupted. An offline retry lacked `setuptools>=77`. A final run used the
+existing package cache and passed in 17.50 seconds. No Skein test failed in
+those two environment attempts.
+
+The final scores remain provisional. A fresh independent review must approve
+the exact remediation commit. Chrome validation remains blocked until then.
 
 ## 15. Remaining limitations and deferred work
 

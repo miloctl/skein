@@ -1478,12 +1478,24 @@ def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str =
         raise db.NotFound(f"finding #{finding_id} not found")
     text = title.strip() or finding["message"]
     if kind == "task":
-        from .work import create_task
+        from .work import _emit_task_event, create_task
 
-        created = create_task(title=text[:120], description=text, actor=actor, origin="human")
-        db.execute(
-            "UPDATE tasks SET source_finding_id = ? WHERE id = ?", (finding_id, created["id"])
-        )
+        with db.transaction():
+            created = create_task(title=text[:120], description=text, actor=actor, origin="human")
+            db.execute(
+                "UPDATE tasks SET source_finding_id = ? WHERE id = ?",
+                (finding_id, created["id"]),
+            )
+            _emit_task_event(
+                "skein.task.updated",
+                int(created["id"]),
+                actor=actor,
+                origin="human",
+                visibility="workspace",
+                changes=("source_finding_id",),
+                correlation_id="",
+                actor_kind="human",
+            )
     elif kind == "question":
         from .collab import ask_question
 

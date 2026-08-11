@@ -95,8 +95,10 @@ def forge_event(
     body: str = "",
     url: str = "",
     login: str = "",
+    *,
+    actor: str = "forge",
 ) -> dict:
-    """The actor is ALWAYS 'forge', and the pusher is named NOWHERE.
+    """The actor is the registered forge service, and the pusher is named nowhere.
 
     Two rules meet here. activity rows are hash-chained and can never be
     corrected, so a caller holding the shared secret must not be able to
@@ -146,7 +148,7 @@ def forge_event(
         # the link is carried by the transition that earns it, so a merge
         # leaves the PR and a first push leaves the branch page
         forge_url=url,
-        actor="forge",
+        actor=actor,
         origin="forge",
         note=" (from the forge)",
     )

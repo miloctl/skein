@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,6 +25,7 @@ class CommandContext:
     subject: PolicySubject
     origin: str
     namespace: str = ""
+    receipt_namespace: str = ""
     correlation_id: str = ""
     project_type: str = ""
     attributes: dict[str, Any] = field(default_factory=dict)
@@ -104,6 +105,23 @@ class WorkItems:
         self._policy = policy
         self._issuer = object()
 
+    _ExecutionContextT = TypeVar("_ExecutionContextT")
+
+    def _bind_execution_context(
+        self, context: _ExecutionContextT, *, receipt_namespace: str
+    ) -> _ExecutionContextT:
+        """Bind one core-created adapter context to this facade.
+
+        The method is internal to Skein's composition adapters. Extension
+        handlers receive the bound object, but constructing the exported data
+        class themselves does not grant command authority.
+        """
+        if not receipt_namespace.strip():
+            raise ValueError("A command receipt namespace is required.")
+        object.__setattr__(context, "_command_issuer", self._issuer)
+        object.__setattr__(context, "_receipt_namespace", receipt_namespace)
+        return context
+
     def _issue_context(
         self,
         subject: PolicySubject,
@@ -114,19 +132,30 @@ class WorkItems:
         attributes: dict[str, Any] | None = None,
         actor: str = "",
         actor_kind: str = "",
+        issuer: object | None = None,
+        receipt_namespace: str = "",
     ) -> CommandContext:
         """Create the provenance context used by one composed execution boundary."""
+        if issuer is not self._issuer:
+            raise PublicError(
+                "COMMAND_CONTEXT_REQUIRED",
+                "Use the command context from the composed execution boundary.",
+                status_code=403,
+            )
         if not namespace.strip():
             raise ValueError("A command namespace is required.")
+        if not receipt_namespace.strip():
+            raise ValueError("A command receipt namespace is required.")
         context = CommandContext(
-            subject,
-            f"extension:{namespace}",
-            namespace,
-            correlation_id,
-            project_type,
-            attributes or {},
-            actor or subject.name,
-            actor_kind or subject.kind,
+            subject=subject,
+            origin=f"extension:{namespace}",
+            namespace=namespace,
+            receipt_namespace=receipt_namespace,
+            correlation_id=correlation_id,
+            project_type=project_type,
+            attributes=attributes or {},
+            actor=actor or subject.name,
+            actor_kind=actor_kind or subject.kind,
         )
         object.__setattr__(context, "_issuer", self._issuer)
         return context
@@ -198,6 +227,12 @@ class WorkItems:
         return TaskView.model_validate(row)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
+        # Keep linked-project resolution, policy, idempotency, and creation in
+        # one serialized write boundary.
+        with db.transaction():
+            return self._create_task_locked(command, context)
+
+    def _create_task_locked(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         self._require_issued_context(context)
         project_type = context.project_type
         link_attributes: dict[str, Any] = {}
@@ -237,7 +272,7 @@ class WorkItems:
                     prior = db.query_one(
                         "SELECT result_id FROM extension_command_receipts"
                         " WHERE namespace = ? AND idempotency_key = ?",
-                        (context.namespace, command.idempotency_key),
+                        (context.receipt_namespace, command.idempotency_key),
                     )
                 if prior:
                     return self._task_view(int(prior["result_id"]), actor=context.execution_actor)
@@ -265,7 +300,7 @@ class WorkItems:
                         " (namespace, idempotency_key, result_type, result_id, created_at)"
                         " VALUES (?, ?, 'task', ?, ?)",
                         (
-                            context.namespace,
+                            context.receipt_namespace,
                             command.idempotency_key,
                             result["id"],
                             db.now(),
@@ -279,35 +314,37 @@ class WorkItems:
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
         self._require_issued_context(context)
-        current = self.get_task(command.task_id, context)
-        changes = command.model_dump(exclude={"task_id"}, exclude_none=True)
-        if not changes:
-            raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
-        # Use the same target-state resolver as REST, agent writes, and review
-        # resume. A milestone relink or a direct-engagement unlink can change
-        # the governing project even when engagement_id is absent or negative.
-        attributes = policy_context.for_change("task", command.task_id, changes)
-        self._authorize(
-            context,
-            "work.task.update",
-            PolicyResource(
-                "task",
-                str(command.task_id),
-                project_type=str(attributes.get("project_type") or ""),
-                classification=str(attributes.get("classification") or current.visibility),
-                attributes=attributes,
-            ),
-        )
         try:
-            work.update_task(
-                command.task_id,
-                **changes,
-                actor=context.execution_actor,
-                origin=context.origin,
-                note=f" through {context.origin}",
-                correlation_id=context.correlation_id,
-                event_actor_kind=context.execution_actor_kind,
-            )
+            # BEGIN IMMEDIATE serializes the authoritative target lookup,
+            # policy decision, and mutation. A concurrent relink cannot move
+            # the task under a stricter policy between the check and write.
+            with db.transaction():
+                current = self.get_task(command.task_id, context)
+                changes = command.model_dump(exclude={"task_id"}, exclude_none=True)
+                if not changes:
+                    raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
+                attributes = policy_context.for_change("task", command.task_id, changes)
+                self._authorize(
+                    context,
+                    "work.task.update",
+                    PolicyResource(
+                        "task",
+                        str(command.task_id),
+                        project_type=str(attributes.get("project_type") or ""),
+                        classification=str(attributes.get("classification") or current.visibility),
+                        attributes=attributes,
+                    ),
+                )
+                work.update_task(
+                    command.task_id,
+                    **changes,
+                    actor=context.execution_actor,
+                    origin=context.origin,
+                    note=f" through {context.origin}",
+                    correlation_id=context.correlation_id,
+                    event_actor_kind=context.execution_actor_kind,
+                )
+                result = self._task_view(command.task_id)
         except PublicError:
             raise
         except db.NotFound as exc:
@@ -316,7 +353,7 @@ class WorkItems:
             raise PublicError("TASK_UPDATE_FORBIDDEN", str(exc), status_code=403) from exc
         except ValueError as exc:
             raise PublicError("TASK_UPDATE_REJECTED", str(exc)) from exc
-        return self._task_view(command.task_id)
+        return result
 
     @staticmethod
     def _task_view(task_id: int, *, actor: str = "") -> TaskView:

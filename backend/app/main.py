@@ -79,12 +79,15 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             f"extension:{contribution.name}", run_id
         ):
             return {"skipped": "this job run is already claimed", "run_id": run_id}
-        execution = JobExecutionContext(
-            policy,
-            work_items,
-            subject,
-            run_id,
-            contribution.name,
+        execution = work_items._bind_execution_context(
+            JobExecutionContext(
+                policy,
+                work_items,
+                subject,
+                run_id,
+                contribution.name,
+            ),
+            receipt_namespace=f"job:{contribution.name}",
         )
         if contribution.name == "skein.core.agent-run":
             # This core adapter needs the full trusted composition root. The
@@ -246,6 +249,7 @@ async def lifespan(app: FastAPI):
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
+    from .services.activity import SYSTEM_ACTORS
     from .services.users import ensure_user
 
     try:
@@ -265,7 +269,12 @@ async def lifespan(app: FastAPI):
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (identity.subject,))
         if existing is not None and existing["kind"] != "agent":
             raise RuntimeError(f"service identity {identity.subject!r} is already owned by a human")
-        ensure_user(identity.subject, kind="agent")
+        # Core machine actors are reserved independently of the users table.
+        # `ensure_user` intentionally refuses those names, and no human entry
+        # point can claim them. Private service names still get an agent row so
+        # they cannot be claimed later through a legacy or direct user path.
+        if identity.subject not in SYSTEM_ACTORS:
+            ensure_user(identity.subject, kind="agent")
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing

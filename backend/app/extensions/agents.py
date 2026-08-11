@@ -37,13 +37,13 @@ def missing_specialist_capabilities(
 
 def resolve_context(
     contribution: ContextContribution,
-    query: str,
+    requester_name: str,
     subject: PolicySubject,
     agent: str,
     policy: PolicyEngine,
     correlation_id: str = "",
 ) -> str:
-    """Authorize and bound one specialist context retrieval."""
+    """Authorize and bound context for one authenticated requester name."""
     missing = sorted(set(contribution.required_capabilities) - set(subject.capabilities))
     if missing:
         _record_context(
@@ -71,7 +71,7 @@ def resolve_context(
         _record_context(contribution, agent, "refused", code, correlation_id)
         raise PermissionError("the workplace policy denied this context source")
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-extension-context")
-    future = executor.submit(contribution.provider, query)
+    future = executor.submit(contribution.provider, requester_name)
     try:
         value = future.result(timeout=contribution.timeout_seconds)
         if isawaitable(value) or not isinstance(value, str):

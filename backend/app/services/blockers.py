@@ -137,20 +137,37 @@ def resolve_blocker(
     scope.assert_editable("blockers", row, actor, verb="resolve")
     if row["status"] == "resolved":
         raise ValueError(f"blocker #{blocker_id} is already resolved")
-    db.execute(
-        "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
-        " detail = detail || CASE WHEN ? != '' THEN char(10) || 'Resolved: ' || ? ELSE '' END"
-        " WHERE id = ?",
-        (db.now(), db.now(), resolution, resolution, blocker_id),
-    )
-    if row["task_id"]:
-        # un-block the linked task that raise_blocker flipped
-        db.execute_rowcount(
-            "UPDATE tasks SET status = 'in_progress', updated_at = ?"
-            " WHERE id = ? AND status = 'blocked'",
-            (db.now(), row["task_id"]),
+    with db.transaction():
+        db.execute(
+            "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
+            " detail = detail || CASE WHEN ? != '' THEN char(10) || 'Resolved: ' || ? ELSE '' END"
+            " WHERE id = ?",
+            (db.now(), db.now(), resolution, resolution, blocker_id),
         )
-    db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
+        task_unblocked = 0
+        if row["task_id"]:
+            # un-block the linked task that raise_blocker flipped
+            task_unblocked = db.execute_rowcount(
+                "UPDATE tasks SET status = 'in_progress', updated_at = ?"
+                " WHERE id = ? AND status = 'blocked'",
+                (db.now(), row["task_id"]),
+            )
+            if task_unblocked:
+                from .work import _emit_task_event
+
+                task = db.query_one("SELECT visibility FROM tasks WHERE id = ?", (row["task_id"],))
+                if task:
+                    _emit_task_event(
+                        "skein.task.updated",
+                        int(row["task_id"]),
+                        actor=actor,
+                        origin=origin,
+                        visibility=str(task["visibility"]),
+                        changes=("status",),
+                        correlation_id="",
+                        actor_kind="",
+                    )
+        db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
 
     # tasks explicitly waiting on this blocker can move again — tell their
     # owners, or the unblock is a tree falling in an empty forest

@@ -110,6 +110,8 @@ class JobExecutionContext:
     subject: PolicySubject
     run_id: str
     namespace: str = ""
+    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
+    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -124,6 +126,8 @@ class JobExecutionContext:
             correlation_id=self.run_id,
             project_type=project_type,
             attributes=dict(attributes or {}),
+            issuer=self._command_issuer,
+            receipt_namespace=self._receipt_namespace,
         )
 
 
@@ -234,6 +238,8 @@ class ToolHandlerContext:
     agent: str = ""
     correlation_id: str = ""
     namespace: str = ""
+    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
+    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -250,6 +256,8 @@ class ToolHandlerContext:
             attributes=dict(attributes or {}),
             actor=self.agent or self.subject.name,
             actor_kind="agent" if self.agent else self.subject.kind,
+            issuer=self._command_issuer,
+            receipt_namespace=self._receipt_namespace,
         )
 
 
@@ -311,6 +319,8 @@ class EventExecutionContext:
     subject: PolicySubject | None = None
     delivery_id: str = ""
     namespace: str = ""
+    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
+    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -327,6 +337,8 @@ class EventExecutionContext:
             correlation_id=self.delivery_id,
             project_type=project_type,
             attributes=dict(attributes or {}),
+            issuer=self._command_issuer,
+            receipt_namespace=self._receipt_namespace,
         )
 
 
@@ -390,6 +402,8 @@ class WorkflowActionContext:
     work_items: WorkItems
     namespace: str = ""
     correlation_id: str = ""
+    _command_issuer: object | None = field(default=None, init=False, repr=False, compare=False)
+    _receipt_namespace: str = field(default="", init=False, repr=False, compare=False)
 
     def command_context(
         self,
@@ -404,6 +418,8 @@ class WorkflowActionContext:
             correlation_id=self.correlation_id,
             project_type=project_type,
             attributes=dict(attributes or {}),
+            issuer=self._command_issuer,
+            receipt_namespace=self._receipt_namespace,
         )
 
 

@@ -60,12 +60,25 @@ def delegate_task(
         author=task["created_by"],
     )
     ensure_user(agent, kind="agent")
-    db.execute(
-        "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
-        " WHERE id = ?",
-        (agent, sponsor, agent, db.now(), task_id),
-    )
-    db.log_activity(actor, "delegate_task", f"#{task_id} -> {agent} (sponsor: {sponsor})")
+    with db.transaction():
+        db.execute(
+            "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
+            " WHERE id = ?",
+            (agent, sponsor, agent, db.now(), task_id),
+        )
+        db.log_activity(actor, "delegate_task", f"#{task_id} -> {agent} (sponsor: {sponsor})")
+        from .work import _emit_task_event
+
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=actor,
+            origin=origin,
+            visibility=task["visibility"],
+            changes=("delegated_agent", "sponsor", "assignee"),
+            correlation_id="",
+            actor_kind="",
+        )
     from .notifications import notify
 
     notify(
@@ -119,13 +132,26 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
         raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
     if task["status"] not in ("todo", "blocked"):
         raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
-    db.execute(
-        "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
-        (db.now(), task_id),
-    )
-    db.log_activity(
-        actor, "claim_task", scope.detail(task["visibility"], f"#{task_id}", task["title"])
-    )
+    with db.transaction():
+        db.execute(
+            "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
+            (db.now(), task_id),
+        )
+        db.log_activity(
+            actor, "claim_task", scope.detail(task["visibility"], f"#{task_id}", task["title"])
+        )
+        from .work import _emit_task_event
+
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=actor,
+            origin=origin,
+            visibility=task["visibility"],
+            changes=("status",),
+            correlation_id="",
+            actor_kind="",
+        )
     if task["sponsor"]:
         from .notifications import notify
 
@@ -274,31 +300,46 @@ def accept_completion(
     # task accepted here would otherwise count zero in cycle time AND in
     # throughput. The forge routes every delegated close to this function, so
     # the more work a team delegates, the more of its throughput disappears.
-    db.execute(
-        "UPDATE tasks SET status = 'done', completed_at = ?, updated_at = ? WHERE id = ?",
-        (db.now(), db.now(), task_id),
-    )
-    if summary:
-        tier, cid = scope.inherit(task)
+    event_actor = actor or "agent"
+    event_origin = origin or "agent_verified"
+    with db.transaction():
         db.execute(
-            "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
-            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                actor or "agent",
-                f"[accepted] {summary}",
-                origin or "agent_verified",
-                db.now(),
-                tier,
-                cid,
-            ),
+            "UPDATE tasks SET status = 'done', completed_at = ?, updated_at = ? WHERE id = ?",
+            (db.now(), db.now(), task_id),
         )
-    db.log_activity(
-        actor or "agent",
-        "complete_task",
-        scope.detail(task["visibility"], f"#{task_id}", task["title"]),
-    )
-    clear_acceptance_ping(task_id, task["delegated_agent"] or actor)
+        if summary:
+            tier, cid = scope.inherit(task)
+            db.execute(
+                "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
+                " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    event_actor,
+                    f"[accepted] {summary}",
+                    event_origin,
+                    db.now(),
+                    tier,
+                    cid,
+                ),
+            )
+        db.log_activity(
+            event_actor,
+            "complete_task",
+            scope.detail(task["visibility"], f"#{task_id}", task["title"]),
+        )
+        from .work import _emit_task_event
+
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=event_actor,
+            origin=event_origin,
+            visibility=task["visibility"],
+            changes=("status", "completed_at"),
+            correlation_id="",
+            actor_kind="",
+        )
+        clear_acceptance_ping(task_id, task["delegated_agent"] or actor)
     return {"id": task_id, "status": "done"}
 
 

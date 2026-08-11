@@ -11,6 +11,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
@@ -97,12 +98,15 @@ class WorkflowContext:
     origin: str
     project_type: str = ""
     resource_id: str = ""
+    run_id: str = field(default_factory=lambda: uuid4().hex)
     values: dict[str, Any] = field(default_factory=dict)
     approval_grants: dict[str, str] = field(default_factory=dict)
     authorization_grants: dict[str, str] = field(default_factory=dict)
     approval_decisions: dict[str, PolicyDecision] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not self.run_id.strip():
+            object.__setattr__(self, "run_id", uuid4().hex)
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
         object.__setattr__(
             self,
@@ -134,6 +138,20 @@ class WorkflowResult(BaseModel):
     review_policy: dict[str, Any] = Field(default_factory=dict, exclude=True)
     authorization_grants: dict[str, str] = Field(default_factory=dict, exclude=True)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+def _log_action_outcome(
+    context: WorkflowContext,
+    contribution: WorkflowActionContribution,
+    step_path: str,
+    outcome: str,
+) -> None:
+    """Record a content-free execution receipt, including uncertain writes."""
+    db.log_activity(
+        context.subject.name,
+        f"workflow_action_{outcome}",
+        f"{contribution.name} {context.run_id}:{step_path} ({context.origin})",
+    )
 
 
 class WorkflowEngine:
@@ -572,13 +590,18 @@ class WorkflowEngine:
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-workflow")
         from .work import WorkItems
 
-        services = WorkflowActionContext(
-            context.subject,
-            self._policy,
-            WorkItems(self._policy),
-            contribution.name,
-            f"{context.resource_id}:{step_path}",
+        work_items = WorkItems(self._policy)
+        services = work_items._bind_execution_context(
+            WorkflowActionContext(
+                context.subject,
+                self._policy,
+                work_items,
+                contribution.name,
+                f"{context.run_id}:{step_path}",
+            ),
+            receipt_namespace=f"workflow:{contribution.name}",
         )
+        _log_action_outcome(context, contribution, step_path, "attempt")
         future = executor.submit(contribution.handler, services, input_data)
         try:
             raw = future.result(timeout=contribution.timeout_seconds)
@@ -586,6 +609,7 @@ class WorkflowEngine:
         except FutureTimeout:
             future.cancel()
             if contribution.effect in ("write", "unknown"):
+                _log_action_outcome(context, contribution, step_path, "completion_unknown")
                 return WorkflowResult(
                     status="completion_unknown",
                     completed=tuple(state.completed),
@@ -593,10 +617,12 @@ class WorkflowEngine:
                     error_code="DEADLINE_EXCEEDED",
                     outputs=state.outputs,
                 )
+            _log_action_outcome(context, contribution, step_path, "failed")
             return self._failed(state, step.name, "ACTION_TIMEOUT")
         except PublicError as exc:
             code = exc.code if exc.code in contribution.error_codes else "ACTION_ERROR"
             if contribution.effect in ("write", "unknown"):
+                _log_action_outcome(context, contribution, step_path, "completion_unknown")
                 return WorkflowResult(
                     status="completion_unknown",
                     completed=tuple(state.completed),
@@ -604,9 +630,11 @@ class WorkflowEngine:
                     error_code=code,
                     outputs=state.outputs,
                 )
+            _log_action_outcome(context, contribution, step_path, "failed")
             return self._failed(state, step.name, code)
         except (TypeError, ValueError, ValidationError):
             if contribution.effect in ("write", "unknown"):
+                _log_action_outcome(context, contribution, step_path, "completion_unknown")
                 return WorkflowResult(
                     status="completion_unknown",
                     completed=tuple(state.completed),
@@ -614,9 +642,11 @@ class WorkflowEngine:
                     error_code="INVALID_ACTION_OUTPUT",
                     outputs=state.outputs,
                 )
+            _log_action_outcome(context, contribution, step_path, "failed")
             return self._failed(state, step.name, "INVALID_ACTION_OUTPUT")
         except Exception:
             if contribution.effect in ("write", "unknown"):
+                _log_action_outcome(context, contribution, step_path, "completion_unknown")
                 return WorkflowResult(
                     status="completion_unknown",
                     completed=tuple(state.completed),
@@ -624,6 +654,7 @@ class WorkflowEngine:
                     error_code="ACTION_ERROR",
                     outputs=state.outputs,
                 )
+            _log_action_outcome(context, contribution, step_path, "failed")
             return self._failed(state, step.name, "ACTION_ERROR")
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
