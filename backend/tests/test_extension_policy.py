@@ -79,6 +79,9 @@ def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule
     return SkeinModule(
         module_id="acme.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         policies=(PolicyContribution("acme.workplace.policy", _workplace_rule),),
         identities=(
             IdentityContribution(
@@ -179,7 +182,10 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
         execute_tool(
             registry.tool("acme.workplace.atlas-update"),
             {"external_id": "A-7"},
-            ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+            ToolCallContext(
+                registry.refresh_subject(PolicySubject("requester")),
+                "acme.workplace.delivery",
+            ),
             registry.policy_engine,
         )
     )
@@ -194,7 +200,7 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
             execute_reviewed_tool(
                 registry.tool("acme.workplace.atlas-update"),
                 invocation,
-                registry.policy_engine,
+                registry,
             )
         )
         return execution.model_dump(mode="json")
@@ -221,6 +227,52 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
     )
     assert stored["status"] == "approved"
     assert json.loads(stored["result"])["status"] == "completed"
+
+
+def test_reviewed_tool_fails_closed_when_current_policy_changes(fresh_db):
+    from app.extensions.tools import execute_reviewed_tool
+
+    calls: list[str] = []
+    required = {"group": "delivery-managers"}
+
+    def rule(request: PolicyInput):
+        if request.action == "atlas.update":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(required["group"],),
+            )
+        return None
+
+    base = _module(lambda external_id: calls.append(external_id) or {"updated": external_id})
+    module = replace(
+        base,
+        policies=(PolicyContribution("acme.workplace.changing-policy", rule),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    subject = registry.refresh_subject(PolicySubject("requester"))
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "A-9"},
+            ToolCallContext(subject, "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    stored = fresh_db.query_one(
+        "SELECT invocation FROM extension_review_invocations WHERE change_id = ?",
+        (queued.review_id,),
+    )
+    required["group"] = "security-managers"
+    resumed = asyncio.run(
+        execute_reviewed_tool(
+            registry.tools[0],
+            json.loads(stored["invocation"]),
+            registry,
+        )
+    )
+    assert resumed.status == "review_required"
+    assert resumed.approver_groups == ["security-managers"]
+    assert calls == []
 
 
 def test_governed_tool_checks_agent_capability_input_and_output(fresh_db):
@@ -378,6 +430,8 @@ def _rest_rule(request: PolicyInput):
             ("delivery-managers",),
             ("acme.approve-task",),
         )
+    if request.action == "skein.rest.get.tasks" and request.subject.name == "blocked-reader":
+        return PolicyDecision(PolicyEffect.DENY, ("Task reads are disabled.",))
     return None
 
 
@@ -400,10 +454,16 @@ def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
             headers={"X-User": "manager"},
             json={"status": "in_progress"},
         )
+        read_denied = client.get(
+            "/api/tasks",
+            headers={"X-User": "blocked-reader"},
+        )
 
     assert denied.status_code == 403
     assert denied.json()["code"] == "POLICY_DENIED"
     assert review.status_code == 409
+    assert read_denied.status_code == 403
+    assert read_denied.json()["code"] == "POLICY_DENIED"
     assert review.json() == {
         "detail": "This action needs review before it can run.",
         "code": "POLICY_REVIEW_REQUIRED",
@@ -419,7 +479,7 @@ def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
     }
 
 
-def test_contributed_mutation_routes_receive_the_composed_policy(fresh_db):
+def test_all_contributed_routes_receive_the_composed_policy(fresh_db):
     from fastapi import APIRouter
 
     from app.extensions import RouteContribution
@@ -430,8 +490,15 @@ def test_contributed_mutation_routes_receive_the_composed_policy(fresh_db):
     def unguarded():
         return {"unsafe": True}
 
+    @router.get("/unguarded-read")
+    def unguarded_read():
+        return {"unsafe": True}
+
     def deny_route(request: PolicyInput):
-        if request.action == "skein.rest.post.extensions.acme.workplace.unguarded":
+        if request.action in (
+            "skein.rest.post.extensions.acme.workplace.unguarded",
+            "skein.rest.get.extensions.acme.workplace.unguarded-read",
+        ):
             return PolicyDecision(PolicyEffect.DENY, ("This route is disabled.",))
         return None
 
@@ -443,8 +510,11 @@ def test_contributed_mutation_routes_receive_the_composed_policy(fresh_db):
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     with TestClient(create_app(settings, (module,)), headers={"X-User": "mira"}) as client:
         response = client.post("/api/extensions/acme.workplace/unguarded")
+        read_response = client.get("/api/extensions/acme.workplace/unguarded-read")
     assert response.status_code == 403
     assert response.json()["code"] == "POLICY_DENIED"
+    assert read_response.status_code == 403
+    assert read_response.json()["code"] == "POLICY_DENIED"
 
 
 class _FakeModel:
@@ -519,9 +589,17 @@ def test_contributed_tools_cannot_shadow_a_core_model_tool():
         create_app(modules=(replace(module, tools=(collision,), specialists=(specialist,)),))
 
 
-def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db):
+def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monkeypatch):
+    from app.agents import mcp_tools as mcp_module
     from app.agents.identity import reset_agent_identity, set_agent_identity
-    from app.agents.mcp_tools import GovernedMCPTool, MCPToolMetadata, _metadata
+    from app.agents.mcp_tools import (
+        GovernedMCPTool,
+        MCPToolMetadata,
+        _metadata,
+        execute_reviewed_mcp,
+    )
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import review, users
 
     assert _metadata({"tools": {}}, "atlas_remote") is None
     remote = _RemoteTool()
@@ -543,6 +621,7 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db):
     )
     registry = ExtensionRegistry.build((_module(),))
     policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(registry.refresh_subject(PolicySubject("requester")))
     agent_token = set_agent_identity("acme.workplace.delivery")
 
     async def run():
@@ -557,9 +636,31 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db):
         events = asyncio.run(run())
     finally:
         reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
         reset_policy_engine(policy_token)
     assert events[-1]["status"] == "error"
     assert remote.called is False
+    pending = fresh_db.query_one(
+        "SELECT pc.id, eri.invocation FROM pending_changes pc"
+        " JOIN extension_review_invocations eri ON eri.change_id = pc.id"
+        " WHERE pc.entity = 'extension_mcp_tool'"
+    )
+    assert pending is not None
+    users.ensure_user("manager")
+    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [governed])
+
+    def resume(invocation, _change_id):
+        return asyncio.run(execute_reviewed_mcp(invocation, registry))
+
+    approved = review.approve_change(
+        pending["id"],
+        actor="manager",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("acme.approve-atlas",),
+        extension_executor=resume,
+    )
+    assert approved["result"]["status"] == "completed"
+    assert remote.called is True
 
 
 def test_successful_mcp_write_records_a_durable_receipt(fresh_db):

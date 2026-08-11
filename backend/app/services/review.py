@@ -106,6 +106,9 @@ def propose_change(
     policy_obligations: tuple[str, ...] = (),
     approver_groups: tuple[str, ...] = (),
     approver_capabilities: tuple[str, ...] = (),
+    review_visibility: str = scope.WORKSPACE,
+    review_crew_id: int = 0,
+    review_owner: str = "",
 ) -> dict:
     reg = _registry()
     extension_entity = (entity, action) in lexicon.REVIEW_ONLY
@@ -120,6 +123,10 @@ def propose_change(
     # oversized payloads would also fail at apply and wedge in the queue
     if len(json.dumps(payload)) > 20_000:
         raise ValueError("proposal payload too large — keep it under 20k characters")
+    if review_visibility not in scope.TIERS:
+        raise ValueError("review visibility must be private, crew, or workspace")
+    if review_visibility == scope.CREW and not review_crew_id:
+        raise ValueError("a crew review must name its crew")
     # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
     # ingester both file proposals, and a guard in either one leaves the other
     # storing rows that can never be approved.
@@ -129,8 +136,9 @@ def propose_change(
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by, policy_obligations,"
-        " approver_groups, approver_capabilities)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " approver_groups, approver_capabilities, review_visibility, review_crew_id,"
+        " review_owner)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entity,
             entity_id or None,
@@ -144,6 +152,9 @@ def propose_change(
             json.dumps(tuple(dict.fromkeys(policy_obligations))),
             json.dumps(tuple(dict.fromkeys(approver_groups))),
             json.dumps(tuple(dict.fromkeys(approver_capabilities))),
+            review_visibility,
+            review_crew_id or None,
+            review_owner,
         ),
     )
     db.log_activity(
@@ -174,10 +185,13 @@ def propose_extension_invocation(
     policy_obligations: tuple[str, ...] = (),
     approver_groups: tuple[str, ...] = (),
     approver_capabilities: tuple[str, ...] = (),
+    review_visibility: str = scope.WORKSPACE,
+    review_crew_id: int = 0,
+    review_owner: str = "",
 ) -> dict:
     """Create one review and keep its executable arguments out of the queue."""
-    if kind not in ("tool", "workflow"):
-        raise ValueError("extension review kind must be tool or workflow")
+    if kind not in ("tool", "workflow", "mcp_tool"):
+        raise ValueError("extension review kind must be tool, workflow, or MCP tool")
     stored_invocation = {**invocation, "kind": kind}
     encoded = json.dumps(stored_invocation)
     if len(encoded) > 20_000:
@@ -194,6 +208,9 @@ def propose_extension_invocation(
             policy_obligations=policy_obligations,
             approver_groups=approver_groups,
             approver_capabilities=approver_capabilities,
+            review_visibility=review_visibility,
+            review_crew_id=review_crew_id,
+            review_owner=review_owner,
         )
         db.execute(
             "INSERT INTO extension_review_invocations"
@@ -216,13 +233,17 @@ def _check_policy_approver(
     change: dict,
     groups: tuple[str, ...],
     capabilities: tuple[str, ...],
-) -> None:
+) -> dict[str, list[str]]:
     required_groups = set(json.loads(change.get("approver_groups") or "[]"))
     required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
     missing_groups = required_groups - set(groups)
     missing_capabilities = required_capabilities - set(capabilities)
     if missing_groups or missing_capabilities:
         raise PermissionError("This approval requires the configured workplace approver.")
+    return {
+        "matched_groups": sorted(required_groups & set(groups)),
+        "matched_capabilities": sorted(required_capabilities & set(capabilities)),
+    }
 
 
 def _sponsor_of(change: dict) -> str:
@@ -333,7 +354,11 @@ def approve_change(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
-    _check_policy_approver(change, reviewer_groups, reviewer_capabilities)
+    qualifications = _check_policy_approver(
+        change,
+        reviewer_groups,
+        reviewer_capabilities,
+    )
     # the direct authority endpoint requires a personal key; the proposal
     # path must not be the weaker door to the same lever
     if change["entity"] == "authority" and not strong:
@@ -364,6 +389,10 @@ def approve_change(
     payload = json.loads(change["payload"])
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "approved", note, actor, strong, override=bool(sponsor))
+    db.execute(
+        "UPDATE pending_changes SET reviewer_qualifications = ? WHERE id = ?",
+        (json.dumps(qualifications), change_id),
+    )
     try:
         if is_extension:
             if executor is None:
@@ -438,7 +467,7 @@ def approve_change(
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, reviewed_strong = 0, reviewed_override = 0,"
-            " review_note = ? WHERE id = ?",
+            " reviewer_qualifications = '{}', review_note = ? WHERE id = ?",
             (f"apply failed: {exc}" + (f" (reviewer note: {note})" if note else ""), change_id),
         )
         if is_extension:
@@ -493,7 +522,7 @@ def reject_change(
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "rejected", note, actor, strong, override=bool(sponsor))
-    if (change["entity"], change["action"]) in lexicon.REVIEW_ONLY:
+    if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
         db.execute(
             "UPDATE extension_review_invocations SET status = 'rejected', executed_at = ?"
             " WHERE change_id = ?",
@@ -667,7 +696,8 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     # proposal against a crew note republished it to the whole roster.
     rejection_reasons = _readable(
         db.query(
-            "SELECT entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
+            "SELECT entity, entity_id, summary, review_note, reviewed_by,"
+            " review_visibility, review_crew_id, review_owner FROM pending_changes"
             " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
         ),
         viewer,
@@ -710,6 +740,12 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     Three sources, in order: the row `entity_id` names (updates), the row the
     payload names (_CREATE_PARENT), then the tier the payload declares.
     """
+    if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
+        return (
+            str(change.get("review_visibility") or scope.WORKSPACE),
+            change.get("review_crew_id"),
+            str(change.get("review_owner") or change.get("requested_by") or ""),
+        )
     table = _TARGET_TABLE.get(change["entity"])
     if table not in scope.CLASSIFIED:
         return None

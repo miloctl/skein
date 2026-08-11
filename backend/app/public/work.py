@@ -130,10 +130,17 @@ class WorkItems:
             )
 
     def get_task(self, task_id: int, context: CommandContext) -> TaskView:
+        attributes = work.task_policy_context(task_id)
         self._authorize(
             context,
             "work.task.read",
-            PolicyResource("task", str(task_id), project_type=context.project_type),
+            PolicyResource(
+                "task",
+                str(task_id),
+                project_type=str(attributes.get("project_type") or ""),
+                classification=str(attributes.get("classification") or ""),
+                attributes=attributes,
+            ),
         )
         try:
             row = work.get_task(task_id, scope.NOBODY)
@@ -142,13 +149,35 @@ class WorkItems:
         return TaskView.model_validate(row)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
+        project_type = context.project_type
+        link_attributes: dict[str, Any] = {}
+        if command.engagement_id:
+            row = db.query_one(
+                "SELECT project_class, visibility FROM engagements"
+                " WHERE id = ? AND visibility = 'workspace'",
+                (command.engagement_id,),
+            )
+            if row:
+                project_type = str(row["project_class"] or "")
+                link_attributes["engagement_id"] = command.engagement_id
+        elif command.milestone_id:
+            row = db.query_one(
+                "SELECT e.project_class, m.engagement_id FROM milestones m"
+                " LEFT JOIN engagements e ON e.id = m.engagement_id"
+                " WHERE m.id = ? AND m.visibility = 'workspace'",
+                (command.milestone_id,),
+            )
+            if row and row["project_class"]:
+                project_type = str(row["project_class"])
+                link_attributes["engagement_id"] = int(row["engagement_id"])
         self._authorize(
             context,
             "work.task.create",
             PolicyResource(
                 "task",
-                project_type=context.project_type,
+                project_type=project_type,
                 classification=command.visibility,
+                attributes=link_attributes,
             ),
         )
         try:
@@ -200,14 +229,27 @@ class WorkItems:
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
         current = self.get_task(command.task_id, context)
+        attributes = work.task_policy_context(command.task_id)
+        if command.engagement_id and command.engagement_id > 0:
+            target = db.query_one(
+                "SELECT project_class FROM engagements WHERE id = ? AND visibility = 'workspace'",
+                (command.engagement_id,),
+            )
+            if target:
+                attributes = {
+                    **attributes,
+                    "project_type": str(target["project_class"] or ""),
+                    "target_engagement_id": command.engagement_id,
+                }
         self._authorize(
             context,
             "work.task.update",
             PolicyResource(
                 "task",
                 str(command.task_id),
-                project_type=context.project_type,
-                classification=current.visibility,
+                project_type=str(attributes.get("project_type") or ""),
+                classification=str(attributes.get("classification") or current.visibility),
+                attributes=attributes,
             ),
         )
         changes = command.model_dump(exclude={"task_id"}, exclude_none=True)

@@ -23,7 +23,15 @@ from .contracts import (
     WorkflowActionContribution,
 )
 from .data import ExtensionStore
-from .fastapi import PolicyAPIRoute, PolicySubjectDep, decide, enforce_decision, subject_for
+from .fastapi import (
+    ExtensionRouteServices,
+    ExtensionRouteServicesDep,
+    PolicyAPIRoute,
+    PolicySubjectDep,
+    decide,
+    enforce_decision,
+    subject_for,
+)
 from .policy import (
     PolicyDecision,
     PolicyEffect,
@@ -31,6 +39,7 @@ from .policy import (
     PolicyInput,
     PolicyResource,
     PolicySubject,
+    approval_fingerprint,
 )
 from .registry import ExtensionRegistry, ExtensionValidationError
 
@@ -43,6 +52,8 @@ __all__ = [
     "EventExecutionContext",
     "ExtensionMigration",
     "ExtensionRegistry",
+    "ExtensionRouteServices",
+    "ExtensionRouteServicesDep",
     "ExtensionStore",
     "ExtensionValidationError",
     "IdentityContribution",
@@ -66,6 +77,7 @@ __all__ = [
     "ToolHandlerContext",
     "WorkflowActionContext",
     "WorkflowActionContribution",
+    "approval_fingerprint",
     "decide",
     "enforce_decision",
     "subject_for",

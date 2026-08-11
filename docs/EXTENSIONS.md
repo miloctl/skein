@@ -91,32 +91,42 @@ composition root. Do not load all Python entry points automatically.
 The backend is the enforcement point. Frontend capability checks only control
 presentation.
 
-Use `PolicySubjectDep` to get mapped roles, groups, capabilities, and other
-identity attributes. Use the application policy engine before an extension
-route performs work. Return `PublicError` codes that clients can handle.
+Use `ExtensionRouteServicesDep` on an extension route. It supplies the mapped
+subject, the composed policy engine, and the public work facade. Do not read
+private values from `request.app.state`.
 
 ```python
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
-from app.extensions import PolicyEffect, PolicySubjectDep, decide
-from app.public import PublicError
+from app.extensions import (
+    ExtensionRouteServicesDep,
+    PolicyInput,
+    PolicyResource,
+    enforce_decision,
+)
 
 router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
 @router.post("/sync")
-def sync(request: Request, subject: PolicySubjectDep):
-    result = decide(request, subject, "atlas.integration.sync", "atlas")
-    if result.effect != PolicyEffect.PERMIT:
-        raise PublicError("POLICY_DENIED", "The policy denied this action.", status_code=403)
-    return run_sync()
+def sync(services: ExtensionRouteServicesDep):
+    decision = services.policy.decide(
+        PolicyInput(
+            services.subject,
+            "atlas.integration.sync",
+            PolicyResource("atlas"),
+            "human",
+        )
+    )
+    enforce_decision(decision)
+    return run_sync(services.work_items, services.subject)
 ```
 
-Skein applies the composed policy to all namespaced extension mutations. This
+Skein applies the composed policy to all namespaced extension operations. This
 check uses the stable REST action for the route. An extension route must also
 check its domain action before it starts work. The Atlas example checks
 `atlas.integration.sync` in addition to the route action.
 
-Skein also applies the same composed policy to core REST mutations, agent
+Skein also applies the same composed policy to core REST operations, agent
 tools, classified MCP tools, workflow steps, jobs, and capability responses.
 Core REST actions use this stable form:
 
@@ -198,10 +208,13 @@ Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call.
 
-A write-capable MCP tool needs the same metadata. Skein omits unclassified
-MCP tools from the agent. A timed-out synchronous write has the status
-`completion_unknown`. A worker thread can finish after the deadline. Make
-write handlers idempotent and use the supplied stable identifiers.
+A write-capable MCP tool needs the same metadata. Skein omits an unclassified
+MCP tool from the agent. A review decision creates a durable proposal. Skein
+rechecks the identity, policy, tool version, and exact input at approval time.
+
+A timed-out synchronous write has the status `completion_unknown`. A worker
+thread can finish after the deadline. Make write handlers idempotent. Use the
+supplied stable identifiers.
 
 A specialist contribution contains its prompt, context sources, tools, and
 required capabilities. The Chief of Staff reads the registry. A private
@@ -220,6 +233,14 @@ Subscribers select event types, schema versions, and visibility tiers. The
 dispatcher retries failures. It records one delivery receipt for each event
 and subscriber. A subscriber must also use the event ID as the idempotency key
 for its external side effect.
+
+Each subscriber declares a service identity, policy action, effect, risk, and
+timeout. Skein checks policy before it calls the handler. A write timeout is
+terminal because the side effect can finish after the deadline.
+
+A scheduled job declares the same identity and effect data. Skein claims each
+time window before it calls an extension job. This claim prevents two workers
+from running the same extension job in the same window.
 
 Event data does not contain task body text. Query authorized public data when
 the integration needs more information.
@@ -261,6 +282,10 @@ The REST playbook path stores a review proposal before it creates project
 work. A qualified human can approve it. Skein then runs the exact saved
 playbook request and records the result. A second review step creates a new
 proposal.
+
+Each approval grant covers one structural step path. It also covers one input,
+action version, policy result, and complete workflow definition. A changed
+policy or playbook needs a new verdict.
 
 Version 1 does not support timers, parallel branches, or a general workflow
 state machine. Keep these processes in an extension service.
@@ -390,10 +415,11 @@ scripts/reference-extension-contract.sh
 scripts/reference-frontend-contract.sh
 ```
 
-The backend script builds and installs separate wheels. It starts the installed
-application, then moves the unchanged private package from core `0.2.0` to a
-second compatible `0.2.1` artifact. The frontend script packs the public and
-private packages and imports them in a clean consumer directory.
+The backend script builds and installs separate wheels in a normal virtual
+environment. It starts the installed application. It then moves the unchanged
+private package from core `0.2.0` to a compatible `0.2.1` artifact. That
+artifact contains an additive migration. The frontend script imports packed
+packages in a clean consumer directory.
 
 ## Upgrade a workplace deployment
 

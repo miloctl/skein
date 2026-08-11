@@ -3,13 +3,15 @@
 from app.extensions import PolicyDecision, PolicyEffect, PolicyInput
 
 
-def atlas_identity(_name: str, groups: tuple[str, ...], _strong: bool):
+def atlas_identity(name: str, groups: tuple[str, ...], _strong: bool):
     capabilities = []
     roles = []
     if "atlas-delivery-managers" in groups:
         capabilities.extend(("atlas.dashboard", "atlas.approve", "atlas.specialist"))
         roles.append("delivery-manager")
     if "atlas-integrations" in groups:
+        capabilities.append("atlas.integration")
+    if name in ("atlas-sync", "atlas-events"):
         capabilities.append("atlas.integration")
     return {"roles": tuple(roles), "capabilities": tuple(capabilities)}
 

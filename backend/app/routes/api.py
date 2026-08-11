@@ -1693,16 +1693,18 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         from ..extensions.tools import execute_reviewed_tool
 
         tool = registry.tool(str(invocation.get("tool") or ""))
-        tool_execution = asyncio.run(
-            execute_reviewed_tool(tool, invocation, registry.policy_engine)
-        )
+        tool_execution = asyncio.run(execute_reviewed_tool(tool, invocation, registry))
         return tool_execution.model_dump(mode="json")
+    if invocation.get("kind") == "mcp_tool":
+        from ..agents.mcp_tools import execute_reviewed_mcp
+
+        return asyncio.run(execute_reviewed_mcp(invocation, registry))
     if invocation.get("kind") == "workflow":
         from ..extensions.policy import PolicySubject
         from ..public.workflow import WorkflowContext, WorkflowEngine
 
         subject_data = invocation.get("subject") or {}
-        subject = PolicySubject(
+        saved_subject = PolicySubject(
             name=str(subject_data.get("name") or ""),
             kind=str(subject_data.get("kind") or "human"),
             roles=tuple(subject_data.get("roles") or ()),
@@ -1710,10 +1712,13 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             capabilities=tuple(subject_data.get("capabilities") or ()),
             attributes=dict(subject_data.get("attributes") or {}),
         )
-        approved_steps = (
-            *tuple(invocation.get("approved_steps") or ()),
-            str(invocation.get("reviewed_step") or ""),
-        )
+        subject = registry.refresh_subject(saved_subject)
+        approval_grants = dict(invocation.get("approval_grants") or {})
+        reviewed_key = str(invocation.get("reviewed_key") or "")
+        reviewed_fingerprint = str(invocation.get("reviewed_fingerprint") or "")
+        if not reviewed_key or not reviewed_fingerprint:
+            raise ValueError("the reviewed workflow grant is incomplete")
+        approval_grants[reviewed_key] = reviewed_fingerprint
         workflow_result = playbooks.instantiate(
             str(invocation.get("playbook") or ""),
             str(invocation.get("engagement_name") or ""),
@@ -1731,13 +1736,13 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
                 project_type=str(invocation.get("project_type") or ""),
                 resource_id=str(invocation.get("resource_id") or ""),
                 values=dict(invocation.get("values") or {}),
-                approved_steps=approved_steps,
+                approval_grants=approval_grants,
             ),
         )
         if workflow_result.get("workflow", {}).get("status") == "review_required":
             return _queue_workflow_review(
                 workflow_result,
-                {**invocation, "approved_steps": list(approved_steps)},
+                {**invocation, "approval_grants": approval_grants},
             )
         return workflow_result
     raise ValueError("the extension review kind is not supported")
@@ -1762,6 +1767,10 @@ def _queue_workflow_review(result: dict, invocation: dict) -> dict:
         if not value.startswith(("approver-group:", "approver-capability:"))
     )
     checkpoint = str(workflow.get("checkpoint") or "")
+    review_key = str(workflow.get("review_key") or "")
+    review_fingerprint = str(workflow.get("review_fingerprint") or "")
+    if not review_key or not review_fingerprint:
+        raise ValueError("the workflow review grant is incomplete")
     proposal = review.propose_extension_invocation(
         "workflow",
         {
@@ -1769,13 +1778,18 @@ def _queue_workflow_review(result: dict, invocation: dict) -> dict:
             "engagement_name": invocation["engagement_name"],
             "checkpoint": checkpoint,
         },
-        {**invocation, "reviewed_step": checkpoint},
+        {
+            **invocation,
+            "reviewed_key": review_key,
+            "reviewed_fingerprint": review_fingerprint,
+        },
         summary=f"Continue workflow {invocation['playbook']} at {checkpoint}",
         actor=str(invocation["actor"]),
         requested_by=str(invocation["actor"]),
         policy_obligations=plain,
         approver_groups=groups,
         approver_capabilities=capabilities,
+        review_owner=str(invocation["actor"]),
     )
     workflow["review_id"] = proposal["id"]
     result["workflow"] = workflow
@@ -2032,7 +2046,7 @@ def post_instantiate(
             "project_type": project_type,
             "resource_id": "",
             "values": dict(workflow_context.values),
-            "approved_steps": [],
+            "approval_grants": {},
             "subject": {
                 "name": subject.name,
                 "kind": subject.kind,

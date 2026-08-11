@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import sysconfig
 from datetime import UTC, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,9 +13,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-STOCK_DIR = BASE_DIR / "skein_stock"
-if not STOCK_DIR.is_dir():
-    STOCK_DIR = BASE_DIR
+_stock_candidates = (
+    BASE_DIR / "skein_stock",
+    Path(sysconfig.get_path("data")) / "skein_stock",
+    BASE_DIR,
+)
+STOCK_DIR = next((path for path in _stock_candidates if (path / "fieldguide").is_dir()), BASE_DIR)
 DATA_DIR = Path(os.getenv("SKEIN_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

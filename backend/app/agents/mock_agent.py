@@ -91,6 +91,26 @@ class MockAgent:
         return "\n".join(chunks)
 
 
+class MockExtensionSpecialist:
+    """A keyless contributed specialist that cannot execute or capture work."""
+
+    def __init__(self, specialist, context: tuple[str, ...] = ()):
+        self.specialist = specialist
+        self.system_prompt = specialist.system_prompt
+        self.context = tuple(context)
+        # No model is configured, so no executable tool is exposed.
+        self.tool_names: list[str] = []
+
+    async def stream_async(self, message: str):
+        del message
+        yield {
+            "data": (
+                f"{self.specialist.display_name} is available, but no model provider is"
+                " configured. No tool ran and no work was written."
+            )
+        }
+
+
 # One line per member of a keyless flock turn. This pool is one of the five
 # CLAUDE.md commits to keeping in voice — a future author is expected to feed
 # it. Nothing is asked of the reader here, so warmth is allowed.

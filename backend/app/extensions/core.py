@@ -9,6 +9,7 @@ from typing import Any
 from ..routes import api, auth, chat, private, slack, webhooks
 from ..services.jobs import JOBS
 from .contracts import (
+    EXTENSION_API_VERSION,
     SKEIN_CORE_VERSION,
     JobContribution,
     JobExecutionContext,
@@ -26,6 +27,9 @@ def core_module() -> SkeinModule:
     return SkeinModule(
         module_id="skein.core",
         version=SKEIN_CORE_VERSION,
+        extension_api=EXTENSION_API_VERSION,
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         routes=(
             RouteContribution("skein.core.api", api.router),
             RouteContribution("skein.core.auth", auth.router),
@@ -38,6 +42,10 @@ def core_module() -> SkeinModule:
             JobContribution(
                 name=f"skein.core.{spec.name}",
                 handler=partial(_run_core_job, fn=spec.fn),
+                service_identity="skein.scheduler",
+                policy_action=f"skein.job.{spec.name}",
+                effect="write",
+                risk="medium",
                 trigger=dict(spec.trigger),
                 period_hours=spec.period_hours,
                 catch_up=spec.catch_up,

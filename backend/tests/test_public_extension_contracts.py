@@ -1,5 +1,6 @@
 """Commands, events, and data boundaries used by private packages."""
 
+import time
 from dataclasses import replace
 
 import pytest
@@ -40,7 +41,26 @@ def _context(**changes) -> CommandContext:
 
 def _event_context() -> EventExecutionContext:
     registry = ExtensionRegistry.build(())
-    return EventExecutionContext(registry.policy_engine, WorkItems(registry.policy_engine))
+    return EventExecutionContext(
+        registry.policy_engine,
+        WorkItems(registry.policy_engine),
+        registry.service_subject,
+    )
+
+
+def _event(name, handler, event_types, **changes) -> EventContribution:
+    values = {
+        "name": name,
+        "version": "1.0.0",
+        "handler": handler,
+        "event_types": event_types,
+        "service_identity": "atlas-events",
+        "policy_action": "atlas.events.deliver",
+        "effect": "write",
+        "risk": "medium",
+    }
+    values.update(changes)
+    return EventContribution(**values)
 
 
 def test_public_work_commands_keep_service_invariants_and_emit_safe_events(fresh_db):
@@ -127,6 +147,9 @@ def test_a_workplace_policy_can_require_a_manager_before_the_write(fresh_db):
     module = SkeinModule(
         module_id="atlas.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         policies=(PolicyContribution("atlas.workplace.manager-review", manager_review),),
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
@@ -135,6 +158,41 @@ def test_a_workplace_policy_can_require_a_manager_before_the_write(fresh_db):
     assert raised.value.code == "REVIEW_REQUIRED"
     assert raised.value.obligations == ("approver-group:delivery-managers",)
     assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+
+def test_linked_engagement_context_overrides_caller_policy_context(fresh_db):
+    from app.services import engagements
+
+    engagement = engagements.create_engagement(
+        "Regulated launch",
+        project_class="regulated",
+        actor="atlas-sync",
+    )
+
+    def require_review(request: PolicyInput):
+        if request.action == "work.task.create" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.REVIEW, ("Regulated work needs review.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.regulated", require_review),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(
+                title="Linked work",
+                engagement_id=engagement["id"],
+            ),
+            _context(project_type="standard"),
+        )
+    assert raised.value.code == "REVIEW_REQUIRED"
+    assert fresh_db.query_one("SELECT title FROM tasks") is None
 
 
 def test_policy_approval_requirements_are_enforced_on_the_verdict(fresh_db):
@@ -163,6 +221,36 @@ def test_policy_approval_requirements_are_enforced_on_the_verdict(fresh_db):
     )
     assert result["status"] == "approved"
     assert fresh_db.query_one("SELECT title FROM tasks") == {"title": "approved task"}
+    assert fresh_db.query_one(
+        "SELECT reviewer_qualifications FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
+    ) == {
+        "reviewer_qualifications": (
+            '{"matched_groups": ["delivery-managers"], "matched_capabilities": ["atlas.approve"]}'
+        )
+    }
+
+
+def test_extension_review_preview_obeys_its_declared_audience(fresh_db):
+    from app.services import review, scope
+
+    proposal = review.propose_extension_invocation(
+        "tool",
+        {"tool": "atlas.workplace.private", "preview": {"count": 1}},
+        {"tool": "atlas.workplace.private", "version": "1.0.0"},
+        summary="Private Atlas action",
+        actor="atlas-agent",
+        requested_by="mira",
+        review_visibility=scope.PRIVATE,
+        review_owner="mira",
+    )
+    assert review.list_changes(viewer=scope.Viewer("other", True)) == []
+    visible = review.list_changes(viewer=scope.Viewer("mira", True))
+    assert [item["id"] for item in visible] == [proposal["id"]]
+    assert visible[0]["payload"] == {
+        "tool": "atlas.workplace.private",
+        "preview": {"count": 1},
+    }
 
 
 def test_public_query_does_not_treat_a_forgeable_name_as_private_access(fresh_db):
@@ -188,7 +276,7 @@ def test_event_delivery_retries_and_uses_event_id_as_the_receipt(fresh_db):
         if len(calls) == 1:
             raise RuntimeError("temporary remote error")
 
-    contribution = EventContribution(
+    contribution = _event(
         "atlas.workplace.sync",
         subscriber,
         ("skein.task.created",),
@@ -221,7 +309,7 @@ def test_event_delivery_retries_and_uses_event_id_as_the_receipt(fresh_db):
 
 def test_workspace_subscribers_do_not_receive_private_events(fresh_db):
     calls = []
-    contribution = EventContribution(
+    contribution = _event(
         "atlas.workplace.sync",
         lambda event, _context: calls.append(event),
         ("skein.task.created",),
@@ -249,13 +337,13 @@ def test_each_event_subscriber_has_its_own_retry_budget(fresh_db):
             raise RuntimeError("temporary")
 
     contributions = (
-        EventContribution(
+        _event(
             "atlas.workplace.strict",
             strict,
             ("skein.task.created",),
             max_attempts=1,
         ),
-        EventContribution(
+        _event(
             "atlas.workplace.tolerant",
             tolerant,
             ("skein.task.created",),
@@ -283,6 +371,79 @@ def test_each_event_subscriber_has_its_own_retry_budget(fresh_db):
         "SELECT subscriber, attempts, status FROM extension_event_attempts ORDER BY subscriber"
     )
     assert attempts == [{"subscriber": "atlas.workplace.strict", "attempts": 1, "status": "dead"}]
+
+
+def test_event_policy_denial_stops_the_handler_before_external_effects(fresh_db):
+    calls: list[str] = []
+
+    def deny_event(request: PolicyInput):
+        if request.action == "atlas.events.deliver":
+            return PolicyDecision(PolicyEffect.DENY, ("Delivery is paused.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("atlas.workplace.event-policy", deny_event),),
+            ),
+        )
+    )
+    WorkItems(registry.policy_engine).create_task(
+        CreateTaskCommand(title="delivery"),
+        _context(),
+    )
+    contribution = _event(
+        "atlas.workplace.delivery",
+        lambda event, _context: calls.append(event.event_id),
+        ("skein.task.created",),
+    )
+    result = dispatch_events(
+        (contribution,),
+        EventExecutionContext(
+            registry.policy_engine,
+            WorkItems(registry.policy_engine),
+            registry.service_subject,
+        ),
+    )
+    assert result == {"delivered": 0, "failed": 0, "dead": 1}
+    assert calls == []
+    assert fresh_db.query_one("SELECT last_error_code FROM extension_outbox") == {
+        "last_error_code": "POLICY_DENIED"
+    }
+
+
+def test_write_event_timeout_is_terminal_completion_unknown(fresh_db):
+    calls: list[str] = []
+
+    def slow(event, _context):
+        time.sleep(0.05)
+        calls.append(event.event_id)
+
+    WorkItems(ExtensionRegistry.build(()).policy_engine).create_task(
+        CreateTaskCommand(title="delivery"),
+        _context(),
+    )
+    contribution = _event(
+        "atlas.workplace.slow",
+        slow,
+        ("skein.task.created",),
+        timeout_seconds=0.01,
+    )
+    assert dispatch_events((contribution,), _event_context()) == {
+        "delivered": 0,
+        "failed": 0,
+        "dead": 1,
+    }
+    time.sleep(0.06)
+    assert len(calls) == 1
+    assert fresh_db.query_one("SELECT last_error_code FROM extension_outbox") == {
+        "last_error_code": "COMPLETION_UNKNOWN"
+    }
 
 
 def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):
@@ -349,6 +510,9 @@ def test_composition_applies_extension_migrations_before_routes(fresh_db, tmp_pa
     module = SkeinModule(
         module_id="atlas.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         migrations=(
             MigrationContribution(
                 "atlas.workplace.data",
@@ -377,8 +541,11 @@ def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
                 SkeinModule(
                     module_id="atlas.workplace",
                     version="1.0.0",
+                    extension_api="1.0",
+                    minimum_core="0.2.0",
+                    maximum_core_exclusive="0.3.0",
                     events=(
-                        EventContribution(
+                        _event(
                             "atlas.workplace.empty",
                             lambda _event, _context: None,
                             (),
@@ -393,6 +560,9 @@ def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
                 SkeinModule(
                     module_id="atlas.workplace",
                     version="1.0.0",
+                    extension_api="1.0",
+                    minimum_core="0.2.0",
+                    maximum_core_exclusive="0.3.0",
                     migrations=(
                         MigrationContribution(
                             "atlas.workplace.data",

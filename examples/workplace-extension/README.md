@@ -27,9 +27,10 @@ scripts/reference-extension-contract.sh
 ```
 
 The script builds separate Skein and Atlas wheels. It installs them into a
-clean target directory and starts the installed application. It rejects the
-old core, then moves the unchanged Atlas package from core `0.2.0` to a second
-compatible `0.2.1` artifact. The test keeps the private Atlas data.
+normal virtual environment and starts the installed application. It rejects
+the old core. It then moves the unchanged Atlas package from core `0.2.0` to a
+compatible `0.2.1` artifact. That artifact contains an additive migration.
+The test keeps the private Atlas data.
 
 ## Verify the frontend package
 

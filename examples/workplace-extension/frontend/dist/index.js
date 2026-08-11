@@ -1,7 +1,7 @@
 "use client";
 import { jsx as _jsx } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
-import { Card, FRONTEND_EXTENSION_API, } from "@skein/extension-api";
+import { Card, } from "@skein/extension-api";
 function AtlasDeliveryCard({ api }) {
     const [metrics, setMetrics] = useState(null);
     useEffect(() => {
@@ -16,7 +16,7 @@ function AtlasDeliveryCard({ api }) {
 const extension = {
     id: "atlas.workplace",
     version: "1.0.0",
-    extensionApi: FRONTEND_EXTENSION_API,
+    extensionApi: "1.0",
     minimumCore: "0.2.0",
     maximumCoreExclusive: "0.3.0",
     navigation: [

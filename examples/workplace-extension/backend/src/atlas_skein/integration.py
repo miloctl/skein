@@ -42,13 +42,9 @@ class AtlasIntegration:
         self.client = client
         self.store = store
 
-    def sync(self, work: WorkItems) -> dict[str, int]:
+    def sync(self, work: WorkItems, subject: PolicySubject) -> dict[str, int]:
         context = CommandContext(
-            PolicySubject(
-                "atlas-sync",
-                kind="service",
-                capabilities=("atlas.integration",),
-            ),
+            subject,
             "atlas-integration",
             project_type="standard",
         )
@@ -91,7 +87,13 @@ class AtlasIntegration:
         )
         return {"created": created, "updated": updated}
 
-    def deliver_task_event(self, event, work: WorkItems) -> None:
+    def deliver_task_event(
+        self,
+        event,
+        work: WorkItems,
+        subject: PolicySubject | None,
+        delivery_id: str,
+    ) -> None:
         link = self.store.query_one(
             "SELECT external_id FROM work_links WHERE skein_task_id = ?",
             (int(event.resource.id),),
@@ -99,12 +101,12 @@ class AtlasIntegration:
         if not link:
             return
         context = CommandContext(
-            PolicySubject("atlas-events", kind="service", capabilities=("atlas.integration",)),
+            subject or PolicySubject("atlas-events", kind="service"),
             "atlas-event",
             correlation_id=event.event_id,
         )
         task = work.get_task(int(event.resource.id), context)
-        self.client.update_status(link["external_id"], task.status, event.event_id)
+        self.client.update_status(link["external_id"], task.status, delivery_id)
 
     def metrics(self) -> dict[str, int]:
         links = self.store.query_one("SELECT COUNT(*) AS count FROM work_links")

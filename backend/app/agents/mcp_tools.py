@@ -22,6 +22,7 @@ from ..extensions.policy import (
     PolicyEffect,
     PolicyInput,
     PolicyResource,
+    approval_fingerprint,
     current_policy_engine,
     current_policy_subject,
 )
@@ -74,11 +75,27 @@ class GovernedMCPTool(AgentTool):
         return False
 
     async def stream(self, tool_use, invocation_state: dict[str, Any], **kwargs: Any):
-        from .identity import agent_identity
+        async for event in self._stream(
+            tool_use,
+            invocation_state,
+            current_policy_subject(),
+            _agent_name(),
+            "",
+            **kwargs,
+        ):
+            yield event
+
+    async def _stream(
+        self,
+        tool_use: dict[str, Any],
+        invocation_state: dict[str, Any],
+        subject,
+        actor: str,
+        approved_fingerprint: str,
+        **kwargs: Any,
+    ):
         from .receipts import record
 
-        actor = agent_identity()
-        subject = current_policy_subject()
         if self.metadata.allowed_agents and actor not in self.metadata.allowed_agents:
             record("refused", self.tool_name, "agent not allowed", actor=actor)
             if self.metadata.effect == "write":
@@ -92,24 +109,74 @@ class GovernedMCPTool(AgentTool):
                 _audit_mcp(actor, self.tool_name, "refused", "capability_required")
             yield _refusal(tool_use, "This identity cannot use the remote tool.")
             return
-        decision = current_policy_engine().decide(
-            PolicyInput(
-                subject,
-                self.metadata.policy_action,
-                PolicyResource("mcp-tool", self.tool_name),
-                "mcp",
-                agent=actor,
-                tool=self.tool_name,
-                tool_effect=self.metadata.effect,
-                tool_risk=self.metadata.risk,
-            )
+        policy_input = PolicyInput(
+            subject,
+            self.metadata.policy_action,
+            PolicyResource("mcp-tool", self.tool_name),
+            "mcp",
+            agent=actor,
+            tool=self.tool_name,
+            tool_effect=self.metadata.effect,
+            tool_risk=self.metadata.risk,
         )
-        if decision.effect != PolicyEffect.PERMIT:
-            status = "review required" if decision.effect == PolicyEffect.REVIEW else "denied"
+        decision = current_policy_engine().decide(policy_input)
+        fingerprint = approval_fingerprint(
+            policy_input,
+            decision,
+            {
+                "tool": self.tool_name,
+                "version": self.metadata.version,
+                "input": tool_use.get("input") or {},
+            },
+        )
+        if decision.effect == PolicyEffect.REVIEW and approved_fingerprint != fingerprint:
+            from ..services import review
+
+            try:
+                invocation = {
+                    "tool": self.tool_name,
+                    "version": self.metadata.version,
+                    "tool_use": _json_mapping(tool_use),
+                    "invocation_state": _json_mapping(invocation_state),
+                    "subject": _subject_data(subject),
+                    "agent": actor,
+                    "approval_fingerprint": fingerprint,
+                }
+                proposal = review.propose_extension_invocation(
+                    "mcp_tool",
+                    {
+                        "tool": self.tool_name,
+                        "version": self.metadata.version,
+                        "agent": actor,
+                    },
+                    invocation,
+                    summary=f"Run governed remote tool {self.tool_name}",
+                    actor=actor,
+                    requested_by=subject.name,
+                    policy_obligations=decision.obligations,
+                    approver_groups=decision.approver_groups,
+                    approver_capabilities=decision.approver_capabilities,
+                    review_owner=subject.name,
+                )
+            except (TypeError, ValueError):
+                record("refused", self.tool_name, "review state is not serializable", actor=actor)
+                _audit_mcp(actor, self.tool_name, "refused", "review_state_invalid")
+                yield _refusal(tool_use, "Skein could not store this remote tool review safely.")
+                return
+            record("refused", self.tool_name, "review required", actor=actor)
+            if self.metadata.effect == "write":
+                _audit_mcp(actor, self.tool_name, "review_required", "review_required")
+            yield _refusal(
+                tool_use,
+                f"Skein review #{proposal['id']} is required for this remote tool.",
+            )
+            return
+        if decision.effect == PolicyEffect.DENY:
+            status = "denied"
             record("refused", self.tool_name, status, actor=actor)
             if self.metadata.effect == "write":
                 _audit_mcp(actor, self.tool_name, "refused", decision.effect.value)
-            yield _refusal(tool_use, f"Skein policy {status} for this remote tool.")
+            yield _refusal(tool_use, "Skein policy denied this remote tool.")
             return
         events = []
         try:
@@ -125,13 +192,20 @@ class GovernedMCPTool(AgentTool):
         except Exception as exc:
             declared = str(getattr(exc, "code", ""))
             code = declared if declared in self.metadata.error_codes else "remote_error"
-            record("failed", self.tool_name, code, actor=actor)
-            _audit_mcp(actor, self.tool_name, "failed", code)
+            completion_status = (
+                "completion_unknown" if self.metadata.effect == "write" else "failed"
+            )
+            record("failed", self.tool_name, completion_status, actor=actor)
+            _audit_mcp(actor, self.tool_name, completion_status, code)
+            log.exception("governed MCP tool failed", extra={"tool": self.tool_name})
             yield _refusal(tool_use, "The remote tool failed. Read the server log for the cause.")
             return
         if not events or not _schema_matches(events[-1], self.metadata.output_schema):
             record("failed", self.tool_name, "invalid output", actor=actor)
-            _audit_mcp(actor, self.tool_name, "failed", "invalid_output")
+            completion_status = (
+                "completion_unknown" if self.metadata.effect == "write" else "failed"
+            )
+            _audit_mcp(actor, self.tool_name, completion_status, "invalid_output")
             yield _refusal(tool_use, "The remote tool returned data outside its declared schema.")
             return
         if self.metadata.effect == "write":
@@ -139,6 +213,81 @@ class GovernedMCPTool(AgentTool):
             _audit_mcp(actor, self.tool_name, "completed")
         for event in events:
             yield event
+
+
+def _agent_name() -> str:
+    from .identity import agent_identity
+
+    return agent_identity()
+
+
+def _subject_data(subject) -> dict[str, Any]:
+    return {
+        "name": subject.name,
+        "kind": subject.kind,
+        "roles": list(subject.roles),
+        "groups": list(subject.groups),
+        "capabilities": list(subject.capabilities),
+        "attributes": dict(subject.attributes),
+    }
+
+
+def _json_mapping(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError("reviewed MCP state must be a mapping")
+    encoded = json.dumps(value)
+    decoded = json.loads(encoded)
+    if not isinstance(decoded, dict):
+        raise TypeError("reviewed MCP state must be a mapping")
+    return decoded
+
+
+async def execute_reviewed_mcp(invocation: dict[str, Any], registry) -> dict[str, Any]:
+    """Resume one exact remote call through its current governed wrapper."""
+    name = str(invocation.get("tool") or "")
+    try:
+        governed = next(
+            item
+            for item in mcp_tools()
+            if isinstance(item, GovernedMCPTool) and item.tool_name == name
+        )
+    except StopIteration as exc:
+        raise ValueError("the reviewed remote tool is not currently composed") from exc
+    if str(invocation.get("version") or "") != governed.metadata.version:
+        raise ValueError("the reviewed remote tool contract has changed")
+    subject_data = invocation.get("subject")
+    if not isinstance(subject_data, dict):
+        raise ValueError("the reviewed remote tool identity is invalid")
+    from ..extensions.policy import PolicySubject, reset_policy_engine, set_policy_engine
+
+    saved = PolicySubject(
+        name=str(subject_data.get("name") or ""),
+        kind=str(subject_data.get("kind") or "human"),
+        roles=tuple(str(item) for item in subject_data.get("roles") or ()),
+        groups=tuple(str(item) for item in subject_data.get("groups") or ()),
+        capabilities=tuple(str(item) for item in subject_data.get("capabilities") or ()),
+        attributes=dict(subject_data.get("attributes") or {}),
+    )
+    subject = registry.refresh_subject(saved)
+    policy_token = set_policy_engine(registry.policy_engine)
+    try:
+        events = [
+            event
+            async for event in governed._stream(
+                _json_mapping(invocation.get("tool_use")),
+                _json_mapping(invocation.get("invocation_state")),
+                subject,
+                str(invocation.get("agent") or ""),
+                str(invocation.get("approval_fingerprint") or ""),
+            )
+        ]
+    finally:
+        reset_policy_engine(policy_token)
+    last = events[-1] if events else {}
+    return {
+        "status": "completed" if last.get("status") == "success" else "failed",
+        "events": events,
+    }
 
 
 def _schema_matches(value: Any, schema: dict[str, Any]) -> bool:

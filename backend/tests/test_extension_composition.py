@@ -1,5 +1,6 @@
 """The public application-composition contract used by workplace packages."""
 
+import json
 from dataclasses import FrozenInstanceError, replace
 
 import pytest
@@ -39,6 +40,9 @@ def _module(**changes) -> SkeinModule:
     values = {
         "module_id": "acme.workplace",
         "version": "1.2.0",
+        "extension_api": "1.0",
+        "minimum_core": "0.2.0",
+        "maximum_core_exclusive": "0.3.0",
         "routes": (RouteContribution("acme.workplace.routes", _router()),),
     }
     values.update(changes)
@@ -86,6 +90,10 @@ def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
             JobContribution(
                 "acme.workplace.sync",
                 lambda _context: events.append("job") or {"synced": 1},
+                service_identity="acme-sync",
+                policy_action="acme.sync",
+                effect="write",
+                risk="medium",
                 catch_up=True,
             ),
         ),
@@ -168,7 +176,18 @@ def test_factory_settings_control_auth_health_and_docs(fresh_db):
             "must be under",
         ),
         (
-            _module(jobs=(JobContribution("sync", lambda _context: None),)),
+            _module(
+                jobs=(
+                    JobContribution(
+                        "sync",
+                        lambda _context: None,
+                        service_identity="acme-sync",
+                        policy_action="acme.sync",
+                        effect="write",
+                        risk="medium",
+                    ),
+                )
+            ),
             "must start with",
         ),
     ],
@@ -215,7 +234,15 @@ def test_dependencies_are_ordered_independently_of_input_order():
 
 def test_job_trigger_input_is_copied_and_read_only():
     trigger = {"trigger": "interval", "hours": 1}
-    job = JobContribution("acme.workplace.sync", lambda _context: None, trigger)
+    job = JobContribution(
+        "acme.workplace.sync",
+        lambda _context: None,
+        service_identity="acme-sync",
+        policy_action="acme.sync",
+        effect="write",
+        risk="medium",
+        trigger=trigger,
+    )
     trigger["hours"] = 99
     assert job.trigger["hours"] == 1
     with pytest.raises(TypeError):
@@ -229,13 +256,20 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
     observed = {}
 
     def deny_private_action(request):
-        if request.action == "acme.workplace.private-read":
+        if request.action in (
+            "acme.workplace.private-read",
+            "skein.mcp.tasks.read",
+            "skein.mcp.delegation.progress",
+        ):
             return PolicyDecision(PolicyEffect.DENY, ("workplace MCP policy",))
         return None
 
     module = SkeinModule(
         module_id="acme.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         requires=("skein.core",),
         policies=(PolicyContribution("acme.workplace.mcp-policy", deny_private_action),),
         identities=(
@@ -261,6 +295,8 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
                 agent=subject.name,
             )
         )
+        observed["read"] = json.loads(mcp_server.list_tasks())
+        observed["write"] = json.loads(mcp_server.report_progress(999, "must not land"))
 
     monkeypatch.setattr(mcp_server, "ACTOR", "acme-mcp")
     monkeypatch.setattr(mcp_server.mcp, "run", run)
@@ -269,3 +305,6 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
     assert observed["subject"].roles == ("integration",)
     assert observed["subject"].capabilities == ("acme.mcp",)
     assert observed["decision"].effect == PolicyEffect.DENY
+    assert observed["read"]["policy_effect"] == "deny"
+    assert observed["write"]["policy_effect"] == "deny"
+    assert fresh_db.query_one("SELECT 1 AS present FROM task_worklog") is None

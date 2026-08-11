@@ -63,6 +63,9 @@ def _engine(calls: list[str], *, policy=True) -> WorkflowEngine:
     module = SkeinModule(
         module_id="atlas.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         workflow_actions=(_action(calls),),
         policies=(
             (PolicyContribution("atlas.workplace.regulated-release", _review_regulated),)
@@ -120,6 +123,108 @@ def test_a_condition_and_policy_review_stop_external_actions(fresh_db):
     assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
 
 
+def test_one_grant_cannot_approve_two_occurrences_of_the_same_action(fresh_db):
+    calls: list[str] = []
+
+    def review_send(request: PolicyInput):
+        if request.action == "atlas.notification.send":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                ("Each notification needs its own verdict.",),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(_action(calls),),
+        policies=(PolicyContribution("atlas.workplace.review-send", review_send),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    steps = engine.prepare(
+        [
+            {
+                "type": "action",
+                "name": "atlas.workplace.notify-manager",
+                "input": {"target": "first"},
+            },
+            {
+                "type": "action",
+                "name": "atlas.workplace.notify-manager",
+                "input": {"target": "second"},
+            },
+        ]
+    )
+    subject = PolicySubject("atlas-sync", kind="service")
+    first = engine.run(steps, WorkflowContext(subject, "workflow"))
+    assert first.status == "review_required"
+    assert first.review_key == "root.0"
+
+    second = engine.run(
+        steps,
+        WorkflowContext(
+            subject,
+            "workflow",
+            approval_grants={first.review_key: first.review_fingerprint},
+        ),
+    )
+    assert second.status == "review_required"
+    assert second.review_key == "root.1"
+    assert calls == ["first"]
+
+
+def test_workflow_grant_fails_closed_when_policy_obligations_change(fresh_db):
+    calls: list[str] = []
+    requirement = {"group": "delivery-managers"}
+
+    def changing_policy(request: PolicyInput):
+        if request.action == "atlas.notification.send":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_groups=(requirement["group"],),
+            )
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(_action(calls),),
+        policies=(PolicyContribution("atlas.workplace.changing-policy", changing_policy),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    steps = engine.prepare(
+        [
+            {
+                "type": "action",
+                "name": "atlas.workplace.notify-manager",
+                "input": {"target": "delivery"},
+            }
+        ]
+    )
+    subject = PolicySubject("atlas-sync", kind="service")
+    before = engine.run(steps, WorkflowContext(subject, "workflow"))
+    requirement["group"] = "security-managers"
+    after = engine.run(
+        steps,
+        WorkflowContext(
+            subject,
+            "workflow",
+            approval_grants={before.review_key: before.review_fingerprint},
+        ),
+    )
+    assert after.status == "review_required"
+    assert after.obligations == ("approver-group:security-managers",)
+    assert calls == []
+
+
 def test_the_nonregulated_branch_runs_the_action_and_checkpoints(fresh_db):
     calls: list[str] = []
     engine = _engine(calls)
@@ -165,6 +270,9 @@ def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
     module = SkeinModule(
         module_id="atlas.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         workflow_actions=(action,),
     )
     registry = ExtensionRegistry.build((module,))
@@ -237,6 +345,9 @@ workflow:
     module = SkeinModule(
         module_id="atlas.workplace",
         version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
         workflow_actions=(_action(calls),),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
