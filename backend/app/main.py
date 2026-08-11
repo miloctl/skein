@@ -235,6 +235,33 @@ async def _start_extensions(
     return started
 
 
+def _validate_machine_identity_ownership(registry: ExtensionRegistry) -> None:
+    """Keep one owner for every agent-facing identity.
+
+    Persona and flock overlays are deployment content, so registry construction
+    cannot see their complete roster. Validate the composed roster during
+    startup, after content paths are available and before machine users exist.
+    """
+    from .services import flocks, personas
+    from .services.users import fold
+
+    content_owners = {
+        **{fold(slug): f"persona {slug!r}" for slug in personas.bench_slugs()},
+        **{fold(item["slug"]): f"flock {item['slug']!r}" for item in flocks.list_flocks()},
+    }
+    collisions: list[str] = []
+    for service_identity in registry.service_identities:
+        owner = content_owners.get(fold(service_identity.subject))
+        if owner:
+            collisions.append(f"service {service_identity.subject!r} conflicts with {owner}")
+    for specialist in registry.specialists:
+        owner = content_owners.get(fold(specialist.name))
+        if owner:
+            collisions.append(f"specialist {specialist.name!r} conflicts with {owner}")
+    if collisions:
+        raise RuntimeError("machine identity ownership conflict: " + "; ".join(sorted(collisions)))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: AppSettings = app.state.skein_settings
@@ -253,6 +280,7 @@ async def lifespan(app: FastAPI):
     )
     if content_errors:
         raise RuntimeError("invalid playbook content: " + "; ".join(content_errors))
+    _validate_machine_identity_ownership(registry)
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
