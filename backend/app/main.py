@@ -1,7 +1,9 @@
 import logging
-import os
 import sqlite3
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from inspect import isawaitable
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -11,10 +13,12 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
-from .routes import api, auth, chat, private, slack, webhooks
+from .extensions import AppSettings, ExtensionRegistry, SkeinModule
+from .extensions.contracts import LifecycleContext, LifecycleContribution
+from .extensions.core import core_module
 from .services import handoff
 from .services.activity import chain_health
-from .services.jobs import JOBS, job_health, run_job
+from .services.jobs import JOBS, JobSpec, job_health, run_job
 from .services.personas import unlisted_model_warnings
 from .services.settings import effective_context_strategy, model_pick_state
 from .telemetry import setup_telemetry
@@ -26,25 +30,79 @@ logging.basicConfig(
 log = logging.getLogger("skein")
 
 
-def _start_scheduler():
-    """Background jobs in the TEAM's zone (config.TZ_NAME), one per
-    services.jobs.JOBS entry. Jobs are once-only via db.claim_job or CAS status
-    flips, so an accidental multi-worker deployment can't double-run them.
+def _job_specs(registry: ExtensionRegistry) -> tuple[JobSpec, ...]:
+    specs = []
+    for contribution in registry.jobs:
+        name = contribution.name
+        if name.startswith("skein.core."):
+            name = name.removeprefix("skein.core.")
+        specs.append(
+            JobSpec(
+                name=name,
+                fn=contribution.handler,
+                trigger=dict(contribution.trigger),
+                period_hours=contribution.period_hours,
+                catch_up=contribution.catch_up,
+            )
+        )
+    return tuple(specs)
+
+
+def _start_scheduler(
+    specs: Sequence[JobSpec] = JOBS,
+    timezone: str | None = None,
+):
+    """Background jobs in the team's zone, from the composed registry.
+
+    Jobs are once-only via db.claim_job or CAS status flips, so an accidental
+    multi-worker deployment cannot double-run them.
 
     The hours in JOBS are the hours a person experiences: the 07:00 digest is
     07:00 where the team works. APScheduler resolves the DST edges — a job at
     an hour that a spring-forward skips runs once, not zero times."""
-    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.schedulers.background import (
+        BackgroundScheduler,
+    )
 
-    scheduler = BackgroundScheduler(daemon=True, timezone=config.TZ_NAME)
-    for spec in JOBS:
+    scheduler = BackgroundScheduler(daemon=True, timezone=timezone or config.TZ_NAME)
+    for spec in specs:
         scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **spec.trigger)
     scheduler.start()
     return scheduler
 
 
+async def _stop_extensions(
+    started: Sequence[LifecycleContribution], context: LifecycleContext
+) -> None:
+    for contribution in reversed(started):
+        if contribution.shutdown is None:
+            continue
+        result = contribution.shutdown(context)
+        if isawaitable(result):
+            await result
+
+
+async def _start_extensions(
+    registry: ExtensionRegistry, context: LifecycleContext
+) -> list[LifecycleContribution]:
+    started: list[LifecycleContribution] = []
+    try:
+        for contribution in registry.lifecycle:
+            result = contribution.startup(context)
+            if isawaitable(result):
+                await result
+            started.append(contribution)
+    except Exception:
+        await _stop_extensions(started, context)
+        raise
+    return started
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings: AppSettings = app.state.skein_settings
+    registry: ExtensionRegistry = app.state.skein_registry
+    specs = _job_specs(registry)
     db.init_db()  # a failed migration MUST abort startup — everything else must not
     # same rule for the field-guide registry: malformed knots.yaml aborts boot
     # here, instead of 500ing the first /field-guide request at 3pm
@@ -68,7 +126,7 @@ async def lifespan(app: FastAPI):
     # human row is safe (INSERT OR IGNORE leaves it alone), so the trap is a
     # fresh install. Say so at boot instead of letting the operator find out
     # by being locked out; the recovery is a rename of the agent row.
-    mcp_user = os.getenv("SKEIN_MCP_USER", "mcp-agent")
+    mcp_user = settings.mcp_user
     minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
     try:
         ensure_user(mcp_user, kind="agent")
@@ -102,17 +160,17 @@ async def lifespan(app: FastAPI):
             config.TZ_REJECTED,
             config.TZ_ERROR,
         )
-    if config.AUTH_ERROR:
+    if settings.auth_error:
         # the rejected value goes to the LOG, never to the 503 body: that
         # response is served to unauthenticated callers, and an operator who
         # pastes a secret into the wrong variable must not broadcast it
         log.error(
             "auth is misconfigured (SKEIN_AUTH_MODE=%r): %s — every /api request"
             " is refused until this is fixed",
-            config.AUTH_MODE,
-            config.AUTH_ERROR,
+            settings.auth_mode,
+            settings.auth_error,
         )
-    elif config.AUTH_MODE == "trusted-header":
+    elif settings.auth_mode == "trusted-header":
         log.warning(
             "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted X-User"
             " header. This mode is for a trusted network or local development. If the"
@@ -134,20 +192,22 @@ async def lifespan(app: FastAPI):
             stuck,
         )
 
-    if config.API_TOKEN and config.AUTH_MODE != "trusted-header":
+    if settings.api_token and settings.auth_mode != "trusted-header":
         log.warning(
             "SKEIN_API_TOKEN has no effect with SKEIN_AUTH_MODE=%s — that mode"
             " already demands a per-caller credential on every request",
-            config.AUTH_MODE,
+            settings.auth_mode,
         )
     # one-time import of pre-045 file sessions; flagged, so it never
     # resurrects a deleted chat. Per-session failures log and skip.
     from .agents.session_store import import_file_sessions
 
     import_file_sessions()
+    lifecycle_context = LifecycleContext(app=app, settings=settings)
+    started = await _start_extensions(registry, lifecycle_context)
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises
-    for spec in JOBS:
+    for spec in specs:
         if spec.catch_up:
             run_job(spec)
     setup_telemetry()
@@ -169,7 +229,7 @@ async def lifespan(app: FastAPI):
     # honest: an administrator's override reaches the process here and
     # nowhere else, so it takes effect at the next boot and not before.
     # db.init_db() ran at the top of this function, so the read is safe.
-    pools = {"thread_pool": config.THREAD_POOL, "tool_threads": config.TOOL_THREADS}
+    pools = {"thread_pool": settings.thread_pool, "tool_threads": settings.tool_threads}
     try:
         from .services.tuning import effective
 
@@ -185,7 +245,7 @@ async def lifespan(app: FastAPI):
     # held for the process lifetime so writes stop paying WAL
     # checkpoint-on-close — 42x per write when idle, measured (db.py)
     db.open_keepalive()
-    scheduler = _start_scheduler() if config.SCHEDULER_ENABLED else None
+    scheduler = _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
     yield
     if scheduler:
         scheduler.shutdown(wait=False)
@@ -195,25 +255,10 @@ async def lifespan(app: FastAPI):
     from .services import adoption
 
     adoption.flush()
+    await _stop_extensions(started, lifecycle_context)
     db.close_keepalive()
 
 
-# /docs, /redoc and /openapi.json sit OUTSIDE /api, so the perimeter
-# middleware never sees them. In the locked modes the endpoint map is
-# credentialed surface like everything else — an unauthenticated caller must
-# not be able to read the whole admin route list.
-_open_docs = config.AUTH_MODE == "trusted-header"
-app = FastAPI(
-    title="Skein",
-    description="Many strands. One formation.",
-    lifespan=lifespan,
-    docs_url="/docs" if _open_docs else None,
-    redoc_url="/redoc" if _open_docs else None,
-    openapi_url="/openapi.json" if _open_docs else None,
-)
-
-
-@app.middleware("http")
 async def perimeter_auth(request: Request, call_next):
     """Perimeter gate, by SKEIN_AUTH_MODE. Route dependencies (routes/deps.py)
     resolve WHO the caller is; this layer only refuses requests that carry no
@@ -335,23 +380,9 @@ async def perimeter_auth(request: Request, call_next):
 # and a 251 KB /api/tasks response measured 1.37 ms at level 9 against
 # 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire — on an
 # internal deployment the loop time is the scarce resource, not the bytes.
-app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
-
-
 # added AFTER perimeter_auth so CORS is the OUTERMOST layer — a 401 short-circuit
 # must still carry Access-Control-Allow-Origin, or the browser reports an
 # opaque CORS failure instead of a readable auth error
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    # X-User/X-Client make every call non-simple, so each one preflights;
-    # a 10-minute cache meant a phone re-preflighted constantly
-    max_age=7200,
-)
-
-
 # Malformed input is the caller's error. The rule is the classification, not
 # this list of handlers: if a request body, path, or query can produce the
 # exception, it maps to a 4xx here. If only our own state can produce it, it
@@ -362,14 +393,12 @@ app.add_middleware(
 # class looked familiar. A handler never echoes the rejected value back. The
 # caller already has it, and rendering it turned a 50 MB body into a 50 MB
 # response.
-@app.exception_handler(db.NotFound)
 async def not_found_handler(request: Request, exc: db.NotFound):
     # one rule for the surface: entity-lookup failures are 404, everywhere
     # an owner-scoped miss is a 404 too, because any other status confirms the row exists
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
-@app.exception_handler(PermissionError)
 async def permission_error_handler(request: Request, exc: PermissionError):
     # 403, not 404: a crew is not a secret. GET /api/crews lists every crew to
     # every caller (scope.UNSCOPED classifies `crews` that way), so refusing a
@@ -378,12 +407,10 @@ async def permission_error_handler(request: Request, exc: PermissionError):
     return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
-@app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
-@app.exception_handler(ratelimit.RateLimited)
 async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
     # starlette matches handlers by walking the exception's MRO, so this wins
     # over the ValueError handler above even though RateLimited subclasses it
@@ -394,7 +421,6 @@ async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
     )
 
 
-@app.exception_handler(sqlite3.OperationalError)
 async def database_busy_handler(request: Request, exc: sqlite3.OperationalError):
     # A held write lock past busy_timeout (db.py) is LOAD, not fault: the same
     # request succeeds on a retry with nothing changed, which is the 503 +
@@ -410,7 +436,6 @@ async def database_busy_handler(request: Request, exc: sqlite3.OperationalError)
     )
 
 
-@app.exception_handler(handoff.ArtifactUnreadable)
 async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
     # The 500 CLASS is right — the row is readable and the FILE is not, which
     # is our own state and belongs in the error rate. What was wrong is the
@@ -427,13 +452,11 @@ async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
-@app.exception_handler(OverflowError)
 async def overflow_error_handler(request: Request, exc: OverflowError):
     # absurd ints (ids > 2^63, weeks=1e18) must be a 400, never a 500
     return JSONResponse(status_code=400, content={"detail": "value out of range"})
 
 
-@app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception):
     """Anything with no handler above, as JSON with NOTHING from the exception.
 
@@ -454,7 +477,6 @@ async def unhandled_error_handler(request: Request, exc: Exception):
     )
 
 
-@app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     """FastAPI's default handler renders the rejected value back into the body
     with jsonable_encoder. That recurses on a deeply nested body (2000 nested
@@ -473,16 +495,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
-app.include_router(api.router)
-app.include_router(auth.router)
-app.include_router(chat.router)
-app.include_router(private.router)
-app.include_router(slack.router)
-app.include_router(webhooks.router)
-
-
-@app.get("/health")
-def health():
+def health(specs: Sequence[JobSpec] = JOBS):
     return {
         "ok": True,
         "auth_mode": config.AUTH_MODE,
@@ -508,6 +521,67 @@ def health():
         # at the wrong hour reads it here first
         "timezone": config.TZ_NAME,
         "timezone_error": config.TZ_ERROR,
-        "jobs": job_health(),
+        "jobs": job_health(specs),
         "activity_chain": chain_health(),
     }
+
+
+def create_app(
+    settings: AppSettings | None = None,
+    modules: Sequence[SkeinModule] = (),
+) -> FastAPI:
+    """Compose one immutable Skein application from trusted modules.
+
+    The caller supplies modules explicitly. Installed packages are never
+    scanned or executed automatically.
+    """
+    selected_settings = settings or AppSettings.from_config()
+    registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    specs = _job_specs(registry)
+
+    # /docs, /redoc and /openapi.json sit outside /api, so the perimeter
+    # middleware cannot protect them. Locked modes do not expose the map.
+    application = FastAPI(
+        title="Skein",
+        description="Many strands. One formation.",
+        lifespan=lifespan,
+        docs_url="/docs" if selected_settings.docs_enabled else None,
+        redoc_url="/redoc" if selected_settings.docs_enabled else None,
+        openapi_url="/openapi.json" if selected_settings.docs_enabled else None,
+    )
+    application.state.skein_settings = selected_settings
+    application.state.skein_registry = registry
+
+    application.middleware("http")(perimeter_auth)
+    # JSON payloads compress well at any level. Add gzip before CORS so CORS
+    # stays outermost and also decorates perimeter-auth refusals.
+    application.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(selected_settings.cors_origins),
+        allow_methods=["*"],
+        allow_headers=["*"],
+        max_age=7200,
+    )
+
+    application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
+    application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
+    application.add_exception_handler(ValueError, cast(Any, value_error_handler))
+    application.add_exception_handler(ratelimit.RateLimited, cast(Any, rate_limited_handler))
+    application.add_exception_handler(sqlite3.OperationalError, cast(Any, database_busy_handler))
+    application.add_exception_handler(
+        handoff.ArtifactUnreadable, cast(Any, artifact_unreadable_handler)
+    )
+    application.add_exception_handler(OverflowError, cast(Any, overflow_error_handler))
+    application.add_exception_handler(Exception, unhandled_error_handler)
+    application.add_exception_handler(RequestValidationError, cast(Any, validation_error_handler))
+
+    for contribution in registry.routes:
+        application.include_router(contribution.router)
+    application.add_api_route("/health", lambda: health(specs), methods=["GET"])
+    return application
+
+
+# Backward-compatible ASGI entry point. Private deployments can expose their
+# own module that calls create_app(settings, modules) without editing this file.
+app = create_app()
