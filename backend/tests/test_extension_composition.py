@@ -2,6 +2,8 @@
 
 import json
 from dataclasses import FrozenInstanceError, replace
+from threading import Event
+from time import sleep
 
 import pytest
 from fastapi import APIRouter
@@ -20,6 +22,7 @@ from app.extensions import (
     PolicyInput,
     PolicyResource,
     RouteContribution,
+    ServiceIdentityContribution,
     SkeinModule,
 )
 from app.main import app as default_app
@@ -78,8 +81,10 @@ def test_a_private_router_is_composed_without_mutating_the_default_app(fresh_db)
 
 def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
     events: list[str] = []
+    contexts = []
 
-    def startup(_context):
+    def startup(context):
+        contexts.append(context)
         events.append("startup")
 
     def shutdown(_context):
@@ -97,6 +102,12 @@ def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
                 catch_up=True,
             ),
         ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
         lifecycle=(LifecycleContribution("acme.workplace.lifecycle", startup, shutdown),),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
@@ -105,6 +116,9 @@ def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
         assert events[:2] == ["startup", "job"]
         assert "acme.workplace.sync" in names
     assert events[-1] == "shutdown"
+    assert contexts[0].core_version
+    assert not hasattr(contexts[0], "app")
+    assert not hasattr(contexts[0], "settings")
 
 
 def test_started_lifecycle_is_stopped_if_a_later_startup_fails(fresh_db):
@@ -247,6 +261,105 @@ def test_job_trigger_input_is_copied_and_read_only():
     assert job.trigger["hours"] == 1
     with pytest.raises(TypeError):
         job.trigger["hours"] = 2  # type: ignore[index]
+
+
+def test_extension_job_claims_one_run_per_time_window(fresh_db):
+    calls: list[str] = []
+    module = _module(
+        jobs=(
+            JobContribution(
+                "acme.workplace.sync",
+                lambda context: calls.append(context.run_id) or {"synced": 1},
+                service_identity="acme-sync",
+                policy_action="acme.sync",
+                effect="write",
+                risk="medium",
+                period_hours=1,
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
+    )
+    from app.main import _job_specs
+
+    registry = ExtensionRegistry.build((module,))
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "acme.workplace.sync"
+    )
+    assert spec.fn() == {"synced": 1}
+    assert spec.fn()["skipped"] == "this job run is already claimed"
+    assert len(calls) == 1
+
+
+def test_timed_out_write_job_reports_unknown_completion(fresh_db):
+    finished = Event()
+
+    def slow_write(_context):
+        sleep(0.05)
+        finished.set()
+        return {"synced": 1}
+
+    module = _module(
+        jobs=(
+            JobContribution(
+                "acme.workplace.slow-sync",
+                slow_write,
+                service_identity="acme-sync",
+                policy_action="acme.sync",
+                effect="write",
+                risk="medium",
+                timeout_seconds=0.001,
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
+    )
+    from app.main import _job_specs
+
+    registry = ExtensionRegistry.build((module,))
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "acme.workplace.slow-sync"
+    )
+    assert spec.fn() == {"status": "error", "error_code": "COMPLETION_UNKNOWN"}
+    assert finished.wait(1)
+
+
+def test_async_background_handlers_are_rejected_during_composition():
+    async def async_job(_context):
+        return {"synced": 1}
+
+    module = _module(
+        jobs=(
+            JobContribution(
+                "acme.workplace.sync",
+                async_job,
+                service_identity="acme-sync",
+                policy_action="acme.sync",
+                effect="write",
+                risk="medium",
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
+    )
+    with pytest.raises(ExtensionValidationError, match="synchronous handler"):
+        ExtensionRegistry.build((module,))
 
 
 def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_db, monkeypatch):

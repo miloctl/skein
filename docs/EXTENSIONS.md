@@ -34,6 +34,7 @@ and components only from `@skein/extension-api`.
 | Startup and shutdown | `LifecycleContribution` | Application lifespan |
 | Policy | `PolicyContribution` | Application creation |
 | Identity attributes | `IdentityContribution` | Each resolved identity |
+| Service identities | `ServiceIdentityContribution` | Application creation |
 | Agent context | `ContextContribution` | Agent construction |
 | Governed tools | `ToolContribution` | Agent construction |
 | Specialists | `SpecialistContribution` | Agent construction |
@@ -86,6 +87,10 @@ conditions:
 The module list is an allowlist. Import and instantiate modules in the private
 composition root. Do not load all Python entry points automatically.
 
+A lifecycle handler receives only the installed core version. It does not
+receive the FastAPI application, raw settings, or secrets. Use a route, job,
+event subscriber, or external service for work that needs those boundaries.
+
 ## Protect routes and apply policy
 
 The backend is the enforcement point. Frontend capability checks only control
@@ -136,8 +141,10 @@ skein.rest.<method>.<literal-path-segments>
 
 For example, `PATCH /api/tasks/{task_id}` is
 `skein.rest.patch.tasks`. A policy rule can return `permit`, `deny`, or
-`review`. A deny returns `POLICY_DENIED`. A review returns
-`POLICY_REVIEW_REQUIRED` and does not run the mutation.
+`review`. A deny returns `POLICY_DENIED`. Direct routes cannot resume a review
+safely. A review on a direct route returns `POLICY_REVIEW_UNSUPPORTED` and does
+not run the operation. Use a governed tool or workflow when the operation
+needs durable human review.
 
 The existing strong-identity, administrator, visibility, authority, and review
 checks still run. A workplace permit cannot remove a core denial. Deny is
@@ -163,6 +170,15 @@ def map_identity(name: str, groups: tuple[str, ...], strong: bool):
 
 Do not validate tokens in an extension rule. Do not trust browser-supplied
 roles. Use the groups that the configured OIDC claim supplies.
+
+Configure a directory resolver when saved review subjects contain groups.
+Skein uses the resolver to refresh group membership before approval. Approval
+fails closed when the resolver is unavailable. Skein also rejects an inactive
+local user.
+
+Register every job and event subject with `ServiceIdentityContribution`.
+Service identities do not pass through the human identity mapper. Startup
+reserves their names and rejects a collision with a human account.
 
 ## Use public work commands
 
@@ -210,7 +226,18 @@ human can approve the proposal and run the exact saved call.
 
 A write-capable MCP tool needs the same metadata. Skein omits an unclassified
 MCP tool from the agent. A review decision creates a durable proposal. Skein
-rechecks the identity, policy, tool version, and exact input at approval time.
+rechecks the identity, policy, server ID, tool version, and exact input at
+approval time. Each MCP server needs a stable, unique name. Skein omits
+same-named tools from different servers because a model could not select them
+safely.
+
+Use `auth_token_env` to name an environment variable that contains an MCP
+token. An inline `auth_token` remains compatible, but Skein logs a warning.
+Keep tokens in the deployment secret manager.
+
+Reviewed tools store their exact input in the core review database. Do not put
+credentials or unneeded sensitive content in tool arguments. Apply the
+workplace backup and retention policy to this database.
 
 A timed-out synchronous write has the status `completion_unknown`. A worker
 thread can finish after the deadline. Make write handlers idempotent. Use the
@@ -220,8 +247,10 @@ A specialist contribution contains its prompt, context sources, tools, and
 required capabilities. The Chief of Staff reads the registry. A private
 package does not import or patch the Chief implementation.
 
-Use a registered tool for side effects. A context provider must return text
-and must not write.
+Use a registered tool for side effects. A context provider must return
+deterministic, non-sensitive text and must not write. Put sensitive retrieval
+behind a governed read tool. This rule keeps policy and audit controls on the
+retrieval boundary.
 
 ## Subscribe to events
 
@@ -236,11 +265,17 @@ for its external side effect.
 
 Each subscriber declares a service identity, policy action, effect, risk, and
 timeout. Skein checks policy before it calls the handler. A write timeout is
-terminal because the side effect can finish after the deadline.
+terminal because the side effect can finish after the deadline. Handlers must
+be synchronous and return a dictionary. A policy review is unsupported for a
+subscriber because there is no safe request to resume. Use a governed workflow
+when the side effect needs human review.
 
 A scheduled job declares the same identity and effect data. Skein claims each
 time window before it calls an extension job. This claim prevents two workers
-from running the same extension job in the same window.
+from running the same extension job in the same window. Job handlers are also
+synchronous and bounded by their declared timeout. A timed-out write reports
+`completion_unknown`. Make external writes idempotent. A policy review is
+unsupported for a scheduled job.
 
 Event data does not contain task body text. Query authorized public data when
 the integration needs more information.
@@ -341,6 +376,18 @@ Set the package allowlist during the frontend build:
 SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension npm run build
 ```
 
+Create a versioned host artifact when the private repository cannot use the
+core source tree:
+
+```sh
+scripts/package-frontend-host.sh 0.2.0 dist/frontend-host
+```
+
+The archive contains the trusted build host and a manifest with the core and
+frontend API versions. The `host` stage in `frontend/Dockerfile` provides the
+same boundary for derivative container builds. Install the private packed
+package in that stage. Then compose the manifest and run `next build`.
+
 The generator creates static imports. Registry validation rejects duplicate
 IDs, invalid namespaces, unsupported API versions, and incompatible core
 versions. A card or navigation item can declare a policy action. Skein hides
@@ -357,13 +404,14 @@ Use separate versioned artifacts:
 - A Skein Python wheel or backend image
 - A private workplace Python wheel
 - A packed private frontend package
-- A frontend build based on a compatible Skein source or build image
+- A versioned frontend host archive or compatible `skein-frontend-host` image
 - A deployment overlay with secret references
 
 Container layering is suitable for the backend. A derivative backend image
 can install the private wheel on top of a released Skein image. Frontend code
-must compose before `next build`, so a source or build-stage artifact is
-required. Copying edited core frontend files into an image is a hidden fork.
+must compose before `next build`. Use the versioned host archive or container
+stage as the build input. Copying edited core frontend files into an image is
+a hidden fork.
 
 Kustomize or Helm overlays are suitable for environment values, image tags,
 volumes, and Secret references. They are not suitable for changing application
@@ -418,8 +466,9 @@ scripts/reference-frontend-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
-artifact contains an additive migration. The frontend script imports packed
-packages in a clean consumer directory.
+artifact contains an additive migration. The frontend script creates two
+compatible host artifacts. It installs the same packed private package into
+both hosts and runs a production build in each one.
 
 ## Upgrade a workplace deployment
 

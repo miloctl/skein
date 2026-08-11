@@ -15,6 +15,7 @@ from .contracts import (
     MigrationContribution,
     PolicyContribution,
     RouteContribution,
+    ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
@@ -40,6 +41,8 @@ from .policy import (
     PolicyResource,
     PolicySubject,
     approval_fingerprint,
+    policy_input_data,
+    policy_input_from_data,
 )
 from .registry import ExtensionRegistry, ExtensionValidationError
 
@@ -71,6 +74,7 @@ __all__ = [
     "PolicySubject",
     "PolicySubjectDep",
     "RouteContribution",
+    "ServiceIdentityContribution",
     "SkeinModule",
     "SpecialistContribution",
     "ToolContribution",
@@ -80,5 +84,7 @@ __all__ = [
     "approval_fingerprint",
     "decide",
     "enforce_decision",
+    "policy_input_data",
+    "policy_input_from_data",
     "subject_for",
 ]

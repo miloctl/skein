@@ -108,7 +108,7 @@ def _route_policy_action(request: Request) -> tuple[str, str, str]:
     return action, resource_type, resource_id
 
 
-def enforce_mutation_policy(
+async def enforce_mutation_policy(
     request: Request,
     x_user: Annotated[str, Header()] = "",
     authorization: Annotated[str, Header()] = "",
@@ -138,12 +138,28 @@ def enforce_mutation_policy(
         attributes=attributes,
     )
     action, resource_type, resource_id = _route_policy_action(request)
+    payload: dict[str, Any] = {}
+    if request.headers.get("content-type", "").split(";", 1)[0] == "application/json":
+        try:
+            candidate = await request.json()
+            if isinstance(candidate, dict):
+                payload = candidate
+        except ValueError:
+            # FastAPI owns the public request-validation error. Policy still
+            # applies to the route and current resource without trusting a
+            # malformed body.
+            pass
+    from ..services.policy_context import for_route
+
+    domain = for_route(resource_type, resource_id, payload)
     decision = decide(
         request,
         subject,
         action,
         resource_type,
         resource_id=resource_id,
+        project_type=domain.get("project_type", ""),
+        classification=domain.get("classification", ""),
     )
     enforce_decision(decision)
 
@@ -157,9 +173,9 @@ def enforce_decision(decision: PolicyDecision) -> None:
     obligations += tuple(f"approver-capability:{value}" for value in decision.approver_capabilities)
     if decision.effect.value == "review":
         raise PublicError(
-            "POLICY_REVIEW_REQUIRED",
-            "This action needs review before it can run.",
-            status_code=409,
+            "POLICY_REVIEW_UNSUPPORTED",
+            "This direct route cannot resume a reviewed action. Use a governed tool or workflow.",
+            status_code=403,
             obligations=tuple(dict.fromkeys(obligations)),
         )
     raise PublicError(

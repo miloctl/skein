@@ -258,6 +258,20 @@ def test_unknown_actions_and_invalid_shapes_fail_before_execution(fresh_db):
     assert invalid.value.code == "INVALID_WORKFLOW"
 
 
+def test_workflow_actions_require_a_policy_action():
+    action = replace(_action([]), policy_action="")
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(action,),
+    )
+    with pytest.raises(ValueError, match="needs a policy action"):
+        ExtensionRegistry.build((module,))
+
+
 def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
     calls: list[str] = []
 
@@ -293,6 +307,41 @@ def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
     assert result.error_code == "DEADLINE_EXCEEDED"
     time.sleep(0.1)
     assert calls == ["delivery"]
+
+
+def test_workflow_write_exception_after_side_effect_reports_unknown_completion(fresh_db):
+    calls: list[str] = []
+
+    def write_then_fail(_context, request: SendIn):
+        calls.append(request.target)
+        raise RuntimeError("remote response was lost")
+
+    action = replace(_action(calls), handler=write_then_fail)
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(action,),
+    )
+    registry = ExtensionRegistry.build((module,))
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    result = engine.run(
+        engine.prepare(
+            [
+                {
+                    "type": "action",
+                    "name": "atlas.workplace.notify-manager",
+                    "input": {"target": "delivery"},
+                }
+            ]
+        ),
+        WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow"),
+    )
+    assert calls == ["delivery"]
+    assert result.status == "completion_unknown"
+    assert result.error_code == "ACTION_ERROR"
 
 
 def test_direct_instantiation_cannot_silently_skip_a_workflow(fresh_db, tmp_path, monkeypatch):

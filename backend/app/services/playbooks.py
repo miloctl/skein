@@ -35,7 +35,7 @@ _TOP_LEVEL = {
 }
 
 
-def _schema_errors(data: object) -> list[str]:
+def _schema_errors(data: object, workflow_actions: set[str] | None = None) -> list[str]:
     if not isinstance(data, dict):
         return ["expected an object"]
     errors = []
@@ -54,14 +54,32 @@ def _schema_errors(data: object) -> list[str]:
         for index, milestone in enumerate(milestones):
             if not isinstance(milestone, dict) or not str(milestone.get("title") or "").strip():
                 errors.append(f"milestone {index + 1} has no title")
+                continue
+            tasks = milestone.get("tasks", [])
+            if not isinstance(tasks, list):
+                errors.append(f"milestone {index + 1} tasks must be a list")
+                continue
+            for task_index, task in enumerate(tasks):
+                if isinstance(task, str):
+                    valid = bool(task.strip())
+                else:
+                    valid = isinstance(task, dict) and bool(str(task.get("title") or "").strip())
+                if not valid:
+                    errors.append(f"milestone {index + 1} task {task_index + 1} has no title")
     rituals = data.get("rituals", [])
     if not isinstance(rituals, list):
         errors.append("rituals must be a list")
+    else:
+        for index, ritual in enumerate(rituals):
+            if not isinstance(ritual, dict) or not str(ritual.get("title") or "").strip():
+                errors.append(f"ritual {index + 1} has no title")
     if "workflow" in data:
         try:
-            from ..public.workflow import validate_workflow_shape
+            from ..public.workflow import validate_workflow_actions, validate_workflow_shape
 
             validate_workflow_shape(data["workflow"])
+            if workflow_actions is not None:
+                validate_workflow_actions(data["workflow"], workflow_actions)
         except Exception:
             errors.append("workflow steps are not valid")
     return errors
@@ -132,7 +150,7 @@ def get_playbook(slug: str) -> dict:
     return pb
 
 
-def validate_all() -> list[str]:
+def validate_all(workflow_actions: set[str] | None = None) -> list[str]:
     """Return all schema errors from stock files and the configured overlay."""
     errors = []
     directories = [PLAYBOOKS_DIR]
@@ -149,7 +167,7 @@ def validate_all() -> list[str]:
             except (OSError, yaml.YAMLError) as exc:
                 errors.append(f"{label}: not valid YAML ({type(exc).__name__})")
                 continue
-            errors.extend(f"{label}: {error}" for error in _schema_errors(data))
+            errors.extend(f"{label}: {error}" for error in _schema_errors(data, workflow_actions))
     return errors
 
 

@@ -1,6 +1,8 @@
 import logging
 import sqlite3
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -15,7 +17,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
-from .extensions import AppSettings, ExtensionRegistry, SkeinModule
+from .extensions import SKEIN_CORE_VERSION, AppSettings, ExtensionRegistry, SkeinModule
 from .extensions.contracts import (
     JobContribution,
     JobExecutionContext,
@@ -66,7 +68,7 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             return {
                 "status": "error",
                 "error_code": (
-                    "POLICY_REVIEW_REQUIRED"
+                    "POLICY_REVIEW_UNSUPPORTED"
                     if decision.effect == PolicyEffect.REVIEW
                     else "POLICY_DENIED"
                 ),
@@ -77,8 +79,43 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             f"extension:{contribution.name}", run_id
         ):
             return {"skipped": "this job run is already claimed", "run_id": run_id}
-        execution = JobExecutionContext(settings, policy, work_items, subject, run_id)
-        return contribution.handler(execution)
+        execution = JobExecutionContext(policy, work_items, subject, run_id)
+        if contribution.name.startswith("skein.core."):
+            return contribution.handler(execution)
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-extension-job")
+        future = executor.submit(contribution.handler, execution)
+        try:
+            result = future.result(timeout=contribution.timeout_seconds)
+            if isawaitable(result):
+                close = getattr(result, "close", None)
+                if close is not None:
+                    close()
+                return {"status": "error", "error_code": "ASYNC_HANDLER_UNSUPPORTED"}
+            if not isinstance(result, dict):
+                return {"status": "error", "error_code": "INVALID_JOB_RESULT"}
+            return result
+        except FutureTimeout:
+            future.cancel()
+            return {
+                "status": "error",
+                "error_code": (
+                    "COMPLETION_UNKNOWN"
+                    if contribution.effect in ("write", "unknown")
+                    else "JOB_TIMEOUT"
+                ),
+            }
+        except Exception:
+            log.exception("extension job failed", extra={"job": contribution.name})
+            return {
+                "status": "error",
+                "error_code": (
+                    "COMPLETION_UNKNOWN"
+                    if contribution.effect in ("write", "unknown")
+                    else "JOB_FAILED"
+                ),
+            }
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     specs = []
     for contribution in registry.jobs:
@@ -148,6 +185,7 @@ async def _stop_extensions(
 async def _start_extensions(
     registry: ExtensionRegistry, context: LifecycleContext
 ) -> list[LifecycleContribution]:
+    log.debug("starting extension lifecycle for Skein %s", context.core_version)
     started: list[LifecycleContribution] = []
     try:
         for contribution in registry.lifecycle:
@@ -192,6 +230,11 @@ async def lifespan(app: FastAPI):
                 f"specialist identity {specialist.name!r} is already owned by a human"
             )
         ensure_user(specialist.name, kind="agent")
+    for identity in registry.service_identities:
+        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (identity.subject,))
+        if existing is not None and existing["kind"] != "agent":
+            raise RuntimeError(f"service identity {identity.subject!r} is already owned by a human")
+        ensure_user(identity.subject, kind="agent")
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing
@@ -275,7 +318,7 @@ async def lifespan(app: FastAPI):
     from .agents.session_store import import_file_sessions
 
     import_file_sessions()
-    lifecycle_context = LifecycleContext(app=app, settings=settings)
+    lifecycle_context = LifecycleContext(core_version=SKEIN_CORE_VERSION)
     started = await _start_extensions(registry, lifecycle_context)
     # claim-guarded catch-up runs fill in for cron firings missed while the
     # process was down (no misfire replay); run_job never raises

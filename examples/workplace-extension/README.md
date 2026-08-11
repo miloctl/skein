@@ -40,8 +40,9 @@ Run the clean package rehearsal:
 scripts/reference-frontend-contract.sh
 ```
 
-The script compiles `index.tsx`, checks the committed output, packs the public
-and private packages, and imports them in a clean directory.
+The script compiles `index.tsx` and packs the unchanged private package. It
+creates Skein frontend host artifacts for core `0.2.0` and `0.2.1`. It installs
+the same Atlas archive into each host and runs two production builds.
 
 A workplace build can then install the package archive. Do not add Atlas to
 the core `package.json`.
@@ -59,6 +60,11 @@ npm run --silent compose:extensions
 The last command restores the empty core manifest. A workplace deployment sets
 `SKEIN_FRONTEND_EXTENSIONS` during its image build.
 
+For an independent workplace repository, use
+`scripts/package-frontend-host.sh` to create a versioned source archive. You can
+also derive from the `host` stage in `frontend/Dockerfile`. The example
+`deployment/Frontend.Dockerfile` shows the container workflow.
+
 ## Run content validation
 
 ```sh
@@ -71,8 +77,9 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.content \
 ## Deploy
 
 Build the Atlas wheel into `dist/`. Then build `deployment/Dockerfile` with a
-released Skein image as `SKEIN_IMAGE`. Store the database on its own volume.
-Create the `atlas-skein-secrets` Secret outside Git before you apply the
-Kustomize overlay.
+released Skein image as `SKEIN_IMAGE`. Build
+`deployment/Frontend.Dockerfile` with a compatible `SKEIN_FRONTEND_HOST` image.
+Store the database on its own volume. Create the `atlas-skein-secrets` Secret
+outside Git before you apply the Kustomize overlay.
 
 Do not put real workplace names, URLs, or credentials in this example.

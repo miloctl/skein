@@ -671,6 +671,7 @@ def build_agent(
     stateless: bool = False,
     viewer=None,
     extensions: ExtensionRegistry | None = None,
+    policy_subject=None,
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -713,7 +714,7 @@ def build_agent(
             missing = missing_specialist_capabilities(
                 extensions,
                 contributed_specialist.name,
-                current_policy_subject(),
+                policy_subject or current_policy_subject(),
             )
             if missing:
                 raise PermissionError("this specialist needs a workplace capability")
@@ -981,6 +982,7 @@ def build_agent(
                             slug,
                             True,
                             extensions=extensions,
+                            policy_subject=current_policy_subject(),
                         )
                     # isolate() BEFORE the task: create_task copies the context,
                     # so the feed (and every gate call under it) records into this

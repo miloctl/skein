@@ -764,7 +764,7 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 
 # MCP servers for the real agent, JSON list:
-# [{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "..."}]
+# [{"name": "github", "url": "https://.../mcp/", "auth_token_env": "GITHUB_MCP_TOKEN"}]
 MCP_SERVERS = os.getenv("SKEIN_MCP_SERVERS", "")
 
 # OpenTelemetry OTLP endpoint (e.g. http://jaeger:4318). Empty = disabled.

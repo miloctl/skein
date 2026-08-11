@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import replace
+from inspect import isawaitable
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -168,11 +169,11 @@ def dispatch_events(
                 if decision.effect != PolicyEffect.PERMIT:
                     raise _DeliveryRefused(
                         (
-                            "POLICY_REVIEW_REQUIRED"
+                            "POLICY_REVIEW_UNSUPPORTED"
                             if decision.effect == PolicyEffect.REVIEW
                             else "POLICY_DENIED"
                         ),
-                        terminal=decision.effect == PolicyEffect.DENY,
+                        terminal=True,
                     )
                 delivery_context = replace(
                     context,
@@ -182,7 +183,12 @@ def dispatch_events(
                 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-event")
                 future = executor.submit(contribution.handler, event, delivery_context)
                 try:
-                    future.result(timeout=contribution.timeout_seconds)
+                    result = future.result(timeout=contribution.timeout_seconds)
+                    if isawaitable(result):
+                        close = getattr(result, "close", None)
+                        if close is not None:
+                            close()
+                        raise _DeliveryRefused("ASYNC_HANDLER_UNSUPPORTED", terminal=True)
                 except FutureTimeout as exc:
                     future.cancel()
                     raise _DeliveryRefused(

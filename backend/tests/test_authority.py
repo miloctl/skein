@@ -317,6 +317,7 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
     users.ensure_user("mcp-agent", kind="agent")
 
     from app import mcp_server
+    from app.main import create_app
     from app.services import review, work
 
     out = json.loads(mcp_server.capture("todo: ungated straight into the tracker"))
@@ -326,7 +327,9 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
     # and the queued proposal must be APPLICABLE. A payload the registry
     # handler cannot take made every capture fail at apply and reset to
     # pending, wedging the inbox — a gate that swallows the work is not a gate
-    review.approve_change(out["id"], actor="mira")
+    review.approve_change(
+        out["id"], actor="mira", policy_registry=create_app().state.skein_registry
+    )
     assert [t["title"] for t in work.list_tasks()] == ["ungated straight into the tracker"]
 
 
@@ -336,6 +339,7 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
     import json
 
     from app import config, mcp_server
+    from app.main import create_app
     from app.services import blockers, collab, intake, promises, review, users, work
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
@@ -352,7 +356,9 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
     for text, rows in cases:
         out = json.loads(mcp_server.capture(text))
         assert out.get("status") == "pending", (text, out)
-        review.approve_change(out["id"], actor="mira")  # must not raise
+        review.approve_change(
+            out["id"], actor="mira", policy_registry=create_app().state.skein_registry
+        )  # must not raise
         assert rows(), text
 
 

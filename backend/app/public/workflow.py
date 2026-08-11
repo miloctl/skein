@@ -76,6 +76,17 @@ def validate_workflow_shape(raw: object) -> None:
             validate_workflow_shape(step.otherwise)
 
 
+def validate_workflow_actions(raw: object, registered: set[str]) -> None:
+    """Reject workflow action names absent from one composed deployment."""
+    steps = tuple(_STEPS.validate_python(raw))
+    for step in steps:
+        if isinstance(step, ActionStep) and step.name not in registered:
+            raise ValueError(f"workflow action {step.name!r} is not registered")
+        if isinstance(step, ConditionStep):
+            validate_workflow_actions(step.then, registered)
+            validate_workflow_actions(step.otherwise, registered)
+
+
 @dataclass(frozen=True)
 class WorkflowContext:
     subject: PolicySubject
@@ -428,6 +439,14 @@ class WorkflowEngine:
             return self._failed(state, step.name, "ACTION_TIMEOUT")
         except PublicError as exc:
             code = exc.code if exc.code in contribution.error_codes else "ACTION_ERROR"
+            if contribution.effect in ("write", "unknown"):
+                return WorkflowResult(
+                    status="completion_unknown",
+                    completed=tuple(state.completed),
+                    checkpoint=step.name,
+                    error_code=code,
+                    outputs=state.outputs,
+                )
             return self._failed(state, step.name, code)
         except (TypeError, ValueError, ValidationError):
             if contribution.effect in ("write", "unknown"):
@@ -440,6 +459,14 @@ class WorkflowEngine:
                 )
             return self._failed(state, step.name, "INVALID_ACTION_OUTPUT")
         except Exception:
+            if contribution.effect in ("write", "unknown"):
+                return WorkflowResult(
+                    status="completion_unknown",
+                    completed=tuple(state.completed),
+                    checkpoint=step.name,
+                    error_code="ACTION_ERROR",
+                    outputs=state.outputs,
+                )
             return self._failed(state, step.name, "ACTION_ERROR")
         finally:
             executor.shutdown(wait=False, cancel_futures=True)

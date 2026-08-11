@@ -19,6 +19,7 @@ from app.extensions import (
     PolicyDecision,
     PolicyEffect,
     RouteContribution,
+    ServiceIdentityContribution,
     SkeinModule,
 )
 from app.extensions.data import ExtensionStore
@@ -40,7 +41,23 @@ def _context(**changes) -> CommandContext:
 
 
 def _event_context() -> EventExecutionContext:
-    registry = ExtensionRegistry.build(())
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                service_identities=(
+                    ServiceIdentityContribution(
+                        "atlas.workplace.event-identity",
+                        "atlas-events",
+                    ),
+                ),
+            ),
+        )
+    )
     return EventExecutionContext(
         registry.policy_engine,
         WorkItems(registry.policy_engine),
@@ -390,6 +407,12 @@ def test_event_policy_denial_stops_the_handler_before_external_effects(fresh_db)
                 minimum_core="0.2.0",
                 maximum_core_exclusive="0.3.0",
                 policies=(PolicyContribution("atlas.workplace.event-policy", deny_event),),
+                service_identities=(
+                    ServiceIdentityContribution(
+                        "atlas.workplace.event-identity",
+                        "atlas-events",
+                    ),
+                ),
             ),
         )
     )
@@ -444,6 +467,34 @@ def test_write_event_timeout_is_terminal_completion_unknown(fresh_db):
     assert fresh_db.query_one("SELECT last_error_code FROM extension_outbox") == {
         "last_error_code": "COMPLETION_UNKNOWN"
     }
+
+
+def test_async_event_handlers_are_rejected_before_startup():
+    async def subscriber(_event, _context):
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        service_identities=(
+            ServiceIdentityContribution(
+                "atlas.workplace.event-identity",
+                "atlas-events",
+            ),
+        ),
+        events=(
+            _event(
+                "atlas.workplace.async-event",
+                subscriber,
+                ("skein.task.created",),
+            ),
+        ),
+    )
+    with pytest.raises(ExtensionValidationError, match="synchronous handler"):
+        ExtensionRegistry.build((module,))
 
 
 def test_extension_store_owns_its_schema_and_migrations(fresh_db, tmp_path):

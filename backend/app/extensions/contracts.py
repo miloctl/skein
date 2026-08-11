@@ -15,7 +15,7 @@ from importlib.metadata import version as package_version
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from .. import config
@@ -85,7 +85,6 @@ class RouteContribution:
 class JobExecutionContext:
     """Composed services and policy supplied to one scheduled job."""
 
-    settings: AppSettings
     policy: PolicyEngine
     work_items: WorkItems
     subject: PolicySubject
@@ -94,7 +93,7 @@ class JobExecutionContext:
 
 @dataclass(frozen=True)
 class JobContribution:
-    """A scheduled job and the cadence used by health reporting."""
+    """A synchronous scheduled job with a bounded execution window."""
 
     name: str
     handler: Callable[[JobExecutionContext], Any]
@@ -105,6 +104,7 @@ class JobContribution:
     trigger: Mapping[str, Any] = field(default_factory=dict)
     period_hours: float = 24
     catch_up: bool = False
+    timeout_seconds: float = 300
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "trigger", MappingProxyType(dict(self.trigger)))
@@ -112,10 +112,13 @@ class JobContribution:
 
 @dataclass(frozen=True)
 class LifecycleContext:
-    """The limited startup context supplied to a trusted module."""
+    """Stable release information supplied to a trusted startup hook.
 
-    app: FastAPI
-    settings: AppSettings
+    A hook captures its private settings in its module closure. It does not
+    receive the FastAPI application or core secrets.
+    """
+
+    core_version: str
 
 
 LifecycleHandler = Callable[[LifecycleContext], Awaitable[None] | None]
@@ -149,8 +152,28 @@ class IdentityContribution:
 
 
 @dataclass(frozen=True)
+class ServiceIdentityContribution:
+    """One non-human identity used by a contributed job or subscriber."""
+
+    name: str
+    subject: str
+    roles: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    attributes: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "roles", tuple(self.roles))
+        object.__setattr__(self, "capabilities", tuple(self.capabilities))
+        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+
+
+@dataclass(frozen=True)
 class ContextContribution:
-    """A named context source available to contributed specialists."""
+    """A deterministic, non-sensitive specialist context source.
+
+    Sensitive retrieval must use a governed read tool. A context provider
+    has no network, policy, or secret contract.
+    """
 
     name: str
     provider: Callable[[str], str]
@@ -322,6 +345,7 @@ class SkeinModule:
     lifecycle: tuple[LifecycleContribution, ...] = ()
     policies: tuple[PolicyContribution, ...] = ()
     identities: tuple[IdentityContribution, ...] = ()
+    service_identities: tuple[ServiceIdentityContribution, ...] = ()
     contexts: tuple[ContextContribution, ...] = ()
     tools: tuple[ToolContribution, ...] = ()
     specialists: tuple[SpecialistContribution, ...] = ()
@@ -336,6 +360,7 @@ class SkeinModule:
         object.__setattr__(self, "lifecycle", tuple(self.lifecycle))
         object.__setattr__(self, "policies", tuple(self.policies))
         object.__setattr__(self, "identities", tuple(self.identities))
+        object.__setattr__(self, "service_identities", tuple(self.service_identities))
         object.__setattr__(self, "contexts", tuple(self.contexts))
         object.__setattr__(self, "tools", tuple(self.tools))
         object.__setattr__(self, "specialists", tuple(self.specialists))

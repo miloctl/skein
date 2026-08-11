@@ -356,6 +356,37 @@ def test_write_timeout_reports_unknown_completion_and_does_not_claim_cancellatio
     assert calls == ["A-LATE"]
 
 
+def test_write_exception_after_side_effect_reports_unknown_completion(fresh_db):
+    calls: list[str] = []
+    module = _module()
+
+    def write_then_fail(_context, request: SyncIn):
+        calls.append(request.external_id)
+        raise RuntimeError("remote response was lost")
+
+    contribution = replace(
+        module.tools[0],
+        handler=write_then_fail,
+        risk="low",
+        policy_action="atlas.background.write",
+    )
+    specialist = replace(module.specialists[0], tools=(contribution.name,))
+    registry = ExtensionRegistry.build(
+        (replace(module, policies=(), tools=(contribution,), specialists=(specialist,)),)
+    )
+    result = asyncio.run(
+        execute_tool(
+            contribution,
+            {"external_id": "A-UNKNOWN"},
+            ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    assert calls == ["A-UNKNOWN"]
+    assert result.status == "completion_unknown"
+    assert result.error_code == "internal_error"
+
+
 def test_workplace_policy_also_narrows_the_existing_agent_gate(fresh_db):
     registry = ExtensionRegistry.build((_module(),))
     token = set_policy_engine(registry.policy_engine)
@@ -367,6 +398,46 @@ def test_workplace_policy_also_narrows_the_existing_agent_gate(fresh_db):
                 {"title": "must not land"},
                 lambda: {"id": 1},
                 actor="blocked-user",
+            )
+        )
+    finally:
+        reset_policy_engine(token)
+    assert "forbidden" in result["error"]
+
+
+def test_agent_policy_uses_persisted_classification_for_non_task_entities(fresh_db):
+    from app.services import blockers
+
+    blocker = blockers.raise_blocker(
+        "private blocker",
+        actor="mira",
+        visibility="private",
+    )
+
+    def deny_private(request: PolicyInput):
+        if request.resource.classification == "private":
+            return PolicyDecision(PolicyEffect.DENY, ("private records are protected",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.private-records", deny_private),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    token = set_policy_engine(registry.policy_engine)
+    try:
+        result = json.loads(
+            gated_write(
+                "blocker_edit",
+                "update",
+                {"title": "must not land"},
+                lambda: pytest.fail("private update bypassed policy"),
+                entity_id=blocker["id"],
+                actor="agent",
             )
         )
     finally:
@@ -461,12 +532,14 @@ def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
 
     assert denied.status_code == 403
     assert denied.json()["code"] == "POLICY_DENIED"
-    assert review.status_code == 409
+    assert review.status_code == 403
     assert read_denied.status_code == 403
     assert read_denied.json()["code"] == "POLICY_DENIED"
     assert review.json() == {
-        "detail": "This action needs review before it can run.",
-        "code": "POLICY_REVIEW_REQUIRED",
+        "detail": (
+            "This direct route cannot resume a reviewed action. Use a governed tool or workflow."
+        ),
+        "code": "POLICY_REVIEW_UNSUPPORTED",
         "retryable": False,
         "obligations": [
             "record-manager-verdict",
@@ -477,6 +550,79 @@ def test_workplace_policy_governs_existing_rest_mutations(fresh_db):
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],)) == {
         "status": "todo"
     }
+
+
+def test_rest_task_policy_uses_persisted_project_class(fresh_db):
+    from app.services import engagements
+
+    engagement = engagements.create_engagement(
+        "Regulated launch",
+        project_class="regulated",
+        actor="manager",
+    )
+
+    def deny_regulated_task(request: PolicyInput):
+        if (
+            request.action == "skein.rest.post.tasks"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("regulated task creation is paused",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.regulated-task", deny_regulated_task),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.post(
+            "/api/tasks",
+            json={"title": "must not land", "engagement_id": engagement["id"]},
+        )
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'must not land'") is None
+
+
+def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
+    from app.services import engagements, work
+
+    engagement = engagements.create_engagement(
+        "Regulated launch",
+        project_class="regulated",
+        actor="manager",
+    )
+    task = work.create_task(
+        "Regulated task",
+        engagement_id=engagement["id"],
+        actor="manager",
+    )
+
+    def deny_regulated_read(request: PolicyInput):
+        if (
+            request.action == "skein.rest.get.tasks"
+            and request.resource.id
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("regulated task read is paused",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.regulated-read", deny_regulated_read),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.get(f"/api/tasks/{task['id']}")
+        listing = client.get("/api/tasks")
+    assert response.status_code == 403
+    assert response.json()["code"] == "POLICY_DENIED"
+    assert listing.status_code == 200
 
 
 def test_all_contributed_routes_receive_the_composed_policy(fresh_db):
@@ -581,12 +727,49 @@ def test_contributed_specialist_identity_cannot_be_claimed_by_a_human(fresh_db):
         pass
 
 
+def test_keyless_direct_specialist_uses_the_request_policy_subject(fresh_db):
+    module = replace(
+        _module(),
+        identities=(
+            IdentityContribution(
+                "acme.workplace.identity",
+                lambda name, _groups, _strong: {
+                    "roles": (),
+                    "capabilities": (
+                        ("acme.use-delivery-specialist",) if name == "manager" else ()
+                    ),
+                },
+            ),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,)), headers={"X-User": "manager"}) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "thread_id": "extension-specialist",
+                "message": "/as acme.workplace.delivery summarize delivery",
+            },
+        )
+    assert response.status_code == 200
+    assert "Acme Delivery Specialist is available" in response.text
+    assert "needs a workplace capability" not in response.text
+
+
 def test_contributed_tools_cannot_shadow_a_core_model_tool():
     module = _module()
     collision = replace(module.tools[0], model_name="create_task")
     specialist = replace(module.specialists[0], tools=(collision.name,))
     with pytest.raises(ValueError, match="collides with core"):
         create_app(modules=(replace(module, tools=(collision,), specialists=(specialist,)),))
+
+
+def test_governed_tools_require_a_policy_action():
+    module = _module()
+    invalid = replace(module.tools[0], policy_action="")
+    specialist = replace(module.specialists[0], tools=(invalid.name,))
+    with pytest.raises(ValueError, match="needs a policy action"):
+        ExtensionRegistry.build((replace(module, tools=(invalid,), specialists=(specialist,)),))
 
 
 def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monkeypatch):
@@ -618,6 +801,7 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
             receipt="required",
             provenance="service",
         ),
+        "atlas-server",
     )
     registry = ExtensionRegistry.build((_module(),))
     policy_token = set_policy_engine(registry.policy_engine)
@@ -691,6 +875,7 @@ def test_successful_mcp_write_records_a_durable_receipt(fresh_db):
             receipt="required",
             provenance="service",
         ),
+        "atlas-server",
     )
     registry = ExtensionRegistry.build(())
     policy_token = set_policy_engine(registry.policy_engine)
@@ -720,3 +905,334 @@ def test_successful_mcp_write_records_a_durable_receipt(fresh_db):
         "action": "external_tool",
         "detail": "atlas_remote completed",
     }
+
+
+def test_core_agent_approval_rechecks_current_workplace_policy(fresh_db):
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import users
+
+    state = {"effect": PolicyEffect.REVIEW}
+
+    def mutable_policy(request: PolicyInput):
+        if request.action == "task.create":
+            return PolicyDecision(state["effect"], ("current workplace rule",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.mutable-policy", mutable_policy),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    users.ensure_user("requester")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "must not land"},
+                lambda: pytest.fail("a reviewed write executed before approval"),
+                actor="agent",
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+
+    state["effect"] = PolicyEffect.DENY
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.post(f"/api/review/{proposal['id']}/approve", json={"note": ""})
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'must not land'") is None
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (proposal["id"],)
+    ) == {"status": "pending"}
+
+
+def test_core_agent_approval_refuses_a_deactivated_requester(fresh_db):
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import users
+
+    def review_task(request: PolicyInput):
+        if request.action == "task.create":
+            return PolicyDecision(PolicyEffect.REVIEW)
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.review-task", review_task),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    users.ensure_user("requester")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("requester"))
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "revoked request"},
+                lambda: pytest.fail("a reviewed write executed before approval"),
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    users.set_active("requester", False)
+
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.post(f"/api/review/{proposal['id']}/approve", json={"note": ""})
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'revoked request'") is None
+
+
+def test_subject_refresh_fails_closed_when_directory_claims_are_unavailable(fresh_db):
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                lambda _name, groups, _strong: {
+                    "roles": (),
+                    "capabilities": ("acme.approve",) if "managers" in groups else (),
+                },
+                resolver=lambda _name: None,
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    with pytest.raises(PermissionError, match="could not be refreshed"):
+        registry.refresh_subject(PolicySubject("mira", groups=("managers",)))
+
+
+def test_core_agent_approval_observes_directory_group_removal(fresh_db):
+    from app.agents.identity import reset_requester_identity, set_requester_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import users
+
+    directory = {"groups": ("operators",)}
+
+    def identity(_name, groups, _strong):
+        return {
+            "roles": (),
+            "capabilities": ("acme.request-task",) if "operators" in groups else (),
+        }
+
+    def policy(request: PolicyInput):
+        if request.action != "task.create":
+            return None
+        if "acme.request-task" not in request.subject.capabilities:
+            return PolicyDecision(PolicyEffect.DENY, ("operator access was removed",))
+        return PolicyDecision(PolicyEffect.REVIEW)
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.directory",
+                identity,
+                resolver=lambda _name: {"active": True, "groups": directory["groups"]},
+            ),
+        ),
+        policies=(PolicyContribution("acme.workplace.operator-policy", policy),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    users.ensure_user("requester")
+    policy_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(
+        PolicySubject(
+            "requester",
+            groups=("operators",),
+            capabilities=("acme.request-task",),
+        )
+    )
+    requester_token = set_requester_identity("requester")
+    try:
+        proposal = json.loads(
+            gated_write(
+                "task",
+                "create",
+                {"title": "group-revoked request"},
+                lambda: pytest.fail("a reviewed write executed before approval"),
+            )
+        )
+    finally:
+        reset_requester_identity(requester_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
+    directory["groups"] = ()
+
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.post(f"/api/review/{proposal['id']}/approve", json={"note": ""})
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'group-revoked request'") is None
+
+
+def test_identity_mapper_rejects_string_role_and_capability_containers():
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        identities=(
+            IdentityContribution(
+                "acme.workplace.invalid-identity",
+                lambda _name, _groups, _strong: {
+                    "roles": "manager",
+                    "capabilities": "acme.approve",
+                },
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="roles must be a list or tuple"):
+        ExtensionRegistry.build((module,)).identity_attributes("mira", (), True)
+
+
+def test_keyless_capture_obeys_the_domain_policy(fresh_db):
+    def deny_agent_task(request: PolicyInput):
+        if request.action == "task.create" and request.origin == "agent":
+            return PolicyDecision(PolicyEffect.DENY, ("agent task creation is disabled",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.keyless-policy", deny_agent_task),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.post(
+            "/api/chat",
+            json={"thread_id": "keyless-policy", "message": "task: forbidden capture"},
+        )
+    assert response.status_code == 200
+    assert "forbidden" in response.text
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'forbidden capture'") is None
+
+
+def test_reviewed_mcp_call_is_bound_to_one_server(fresh_db, monkeypatch):
+    from app.agents import mcp_tools as mcp_module
+    from app.agents.mcp_tools import (
+        GovernedMCPTool,
+        MCPToolMetadata,
+        execute_reviewed_mcp,
+    )
+
+    metadata = MCPToolMetadata(
+        version="1.0.0",
+        effect="write",
+        risk="low",
+        policy_action="atlas.remote.write",
+        allowed_agents=("agent",),
+        required_capabilities=(),
+        output_schema={"type": "object"},
+        timeout_seconds=1,
+        error_codes=(),
+        receipt="required",
+        provenance="service",
+    )
+    first = _RemoteTool()
+    second = _RemoteTool()
+    server_a = GovernedMCPTool(first, metadata, "server-a")
+    server_b = GovernedMCPTool(second, metadata, "server-b")
+    monkeypatch.setattr(mcp_module, "mcp_tools", lambda: [server_a, server_b])
+    invocation = {
+        "tool": "atlas_remote",
+        "server": "server-b",
+        "version": "1.0.0",
+        "tool_use": {"toolUseId": "bound-call", "input": {}},
+        "invocation_state": {},
+        "subject": {
+            "name": "mira",
+            "kind": "human",
+            "roles": [],
+            "groups": [],
+            "capabilities": [],
+            "attributes": {},
+        },
+        "agent": "agent",
+        "approval_fingerprint": "",
+    }
+    result = asyncio.run(execute_reviewed_mcp(invocation, ExtensionRegistry.build(())))
+    assert result["status"] == "completed"
+    assert first.called is False
+    assert second.called is True
+
+
+def test_mcp_name_collisions_are_omitted_from_agent_composition(monkeypatch):
+    from app.agents import mcp_tools as mcp_module
+
+    class FakeClient:
+        def __init__(self, _factory):
+            self.remote = _RemoteTool()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def list_tools_sync(self):
+            return [self.remote]
+
+    metadata = {
+        "version": "1.0.0",
+        "effect": "write",
+        "risk": "high",
+        "policy_action": "atlas.remote.write",
+        "allowed_agents": ["agent"],
+        "required_capabilities": [],
+        "output_schema": {"type": "object"},
+        "timeout_seconds": 1,
+        "error_codes": [],
+        "receipt": "required",
+        "provenance": "service",
+    }
+    monkeypatch.setattr(
+        mcp_module.config,
+        "MCP_SERVERS",
+        json.dumps(
+            [
+                {
+                    "name": "server-a",
+                    "url": "https://a.invalid/mcp",
+                    "tools": {"atlas_remote": metadata},
+                },
+                {
+                    "name": "server-b",
+                    "url": "https://b.invalid/mcp",
+                    "tools": {"atlas_remote": metadata},
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", FakeClient)
+    tools, clients = mcp_module._connect_servers()
+    assert tools == []
+    assert len(clients) == 2

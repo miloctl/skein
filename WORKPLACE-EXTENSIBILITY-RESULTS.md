@@ -610,6 +610,19 @@ Atlas playbook, persona, and flock validation passed.
 | `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.57 seconds |
 | `uv build --wheel --out-dir /tmp/skein-final-dist backend` | Core wheel passed | Passed |
 
+### Verification after third-review remediation
+
+| Command | Result | Duration |
+|---|---|---:|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,671 passed | 104.92 seconds |
+| `npm --prefix frontend test -- --run` | 229 passed in 45 files | 15.20 seconds |
+| `npm run build` | Production build passed | 16.91 seconds |
+| `./scripts/lint.sh` | All backend, frontend, content, license, and theme checks passed | Passed |
+| `./scripts/reference-extension-contract.sh` | Full installed `0.2.0` to `0.2.1` Atlas upgrade passed | 17.71 seconds |
+| `./scripts/reference-frontend-contract.sh` | Unchanged Atlas package built on frontend hosts `0.2.0` and `0.2.1` | 43.76 seconds |
+| `./scripts/upgrade-path.sh d3b0f2e...` | Schemas identical; activity chain valid | 0.51 seconds |
+| `uv build --wheel --out-dir /tmp/skein-final-remediation-dist backend` | Core wheel passed | Passed |
+
 ## 14. Independent review
 
 The first review rejected commit `8e5feec`.
@@ -647,6 +660,21 @@ injection, authoritative task context, keyless specialist safety, and review
 audiences. The installed rehearsal now uses a normal virtual environment and
 an additive compatible-release migration.
 
+The third review rejected commit `4f1374f`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Compatibility and reliability | 8.2 | 8.1 | 8.3 | Approve |
+| Security and provenance | 7.5 | 6.8 | 7.4 | Reject |
+| Extension author | 8.1 | 7.8 | 7.7 | Reject |
+| Adversarial score auditor | 7.8 | 7.5 | 7.1 | Reject |
+
+The third remediation binds core approvals to current policy and identity. It
+governs keyless capture, isolates service identities, binds reviewed MCP calls
+to one server, refreshes directory groups, and reports uncertain write results
+truthfully. It also adds nested workflow validation, narrow lifecycle context,
+versioned frontend host artifacts, and two-version frontend production builds.
+
 The final four-reviewer report is pending.
 
 ## 15. Remaining limitations and deferred work
@@ -656,7 +684,8 @@ The final four-reviewer report is pending.
 - Version 1 workflow support has no timers or parallel branches.
 - Core persistence remains concrete SQLite.
 - In-process extensions are fully trusted code.
-- The frontend needs a compatible core build-stage artifact.
+- Published frontend host images and archives do not have production release
+  history yet. Local versioned artifacts pass the upgrade rehearsal.
 - Production scale and real enterprise credentials remain unverified.
 
 These are explicit limits, not hidden extension claims.

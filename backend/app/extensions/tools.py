@@ -182,10 +182,11 @@ async def execute_tool(
         )
     except ExtensionToolError as exc:
         code = exc.code if exc.code in contribution.error_codes else "tool_error"
+        status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
         return _finish(
             contribution,
             context,
-            ToolExecution(status="failed", error_code=code, detail=exc.detail, **common),
+            ToolExecution(status=status, error_code=code, detail=exc.detail, **common),
         )
     except (TypeError, ValueError, ValidationError):
         status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
@@ -195,10 +196,11 @@ async def execute_tool(
             ToolExecution(status=status, error_code="invalid_output", **common),
         )
     except Exception:
+        status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
         return _finish(
             contribution,
             context,
-            ToolExecution(status="failed", error_code="internal_error", **common),
+            ToolExecution(status=status, error_code="internal_error", **common),
         )
     return _finish(
         contribution,
