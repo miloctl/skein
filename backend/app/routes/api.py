@@ -1854,6 +1854,8 @@ def post_instantiate(
     from ..public.workflow import WorkflowContext, WorkflowEngine
 
     registry = request.app.state.skein_registry
+    playbook = playbooks.get_playbook(body.playbook)
+    project_type = str(playbook.get("project_class") or body.playbook)
     return playbooks.instantiate(
         body.playbook,
         body.engagement_name,
@@ -1864,8 +1866,8 @@ def post_instantiate(
         workflow_context=WorkflowContext(
             subject=subject,
             origin="human",
-            values={"project_type": body.playbook},
-            project_type=body.playbook,
+            values={"project_type": project_type},
+            project_type=project_type,
         ),
     )
 

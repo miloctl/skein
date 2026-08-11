@@ -223,8 +223,8 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 8 | 2, 3, 5 | Minimum typed workflow steps | Condition, approval, action, and checkpoint tests | Complete |
 | 9 | 2 | Versioned content schemas and deployment validator | Version 1 compatibility and invalid-content tests | Complete |
 | 10 | 2, 3 | Frontend extension manifest and UI primitives | External navigation and dashboard card tests | Complete |
-| 11 | 3 through 10 | Acme reference extension | Scenarios A through G | Pending |
-| 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Pending |
+| 11 | 3 through 10 | Atlas reference extension | Scenarios A through G | Complete |
+| 12 | 11 | Package composition and upgrade rehearsal | Scenario H and derivative builds | Complete |
 | 13 | All | Full verification and final documentation | CI-equivalent commands and score evidence | Pending |
 | 14 | 13 | Five independent reviewer roles | Review reports and conservative scores | Pending |
 | 15 | 14 | Review remediation and repeated verification | No blocker or high finding | Pending |
@@ -247,14 +247,14 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 
 | Scenario | Required executable proof | Planned contract | Status |
 |---|---|---|---|
-| A | Atlas reads and updates work without a core registration edit | Public command, query, event, job, and integration adapter | Pending |
-| B | Regulated work requires manager review by subject, action, project, and risk | Policy decision and obligations | Partial: subject, action, and project test passes |
-| C | Acme adds navigation and a manager dashboard card | Frontend manifest and capability | Pending |
-| D | Delivery specialist adds prompt, context, tool, and permissions | Specialist, context, tool, and policy contributions | Pending |
-| E | Atlas mappings use an extension-owned store and migration | Extension data contract | Pending |
-| F | Delivery playbook uses a condition, approval, registered action, and checkpoint | Versioned workflow steps | Contract complete; reference playbook pending |
-| G | OIDC groups map to workplace capabilities | Identity attributes and policy | Pending |
-| H | The extension moves across compatible core versions without source patches | Compatibility metadata and upgrade test | Pending |
+| A | Atlas reads and updates work without a core registration edit | Public command, query, event, job, and integration adapter | Complete: reference integration and event test |
+| B | Regulated work requires manager review by subject, action, project, and risk | Policy decision and obligations | Complete: reference policy and playbook tests |
+| C | Atlas adds navigation and a manager dashboard card | Frontend manifest and capability | Complete: packed-package production build |
+| D | Delivery specialist adds prompt, context, tool, and permissions | Specialist, context, tool, and policy contributions | Complete: governed reference tool and specialist test |
+| E | Atlas mappings use an extension-owned store and migration | Extension data contract | Complete: isolation and upgrade tests |
+| F | Delivery playbook uses a condition, approval, registered action, and checkpoint | Versioned workflow steps | Complete: reference content and API tests |
+| G | OIDC groups map to workplace capabilities | Identity attributes and policy | Complete: reference identity and policy test |
+| H | The extension moves across compatible core versions without source patches | Compatibility metadata and upgrade test | Complete: installed-wheel upgrade rehearsal |
 
 ## Score-to-evidence matrix
 
@@ -262,17 +262,17 @@ Scores can increase only when core behavior and the reference extension use the 
 
 | Area | Baseline | Target | Required evidence | Current justified score |
 |---|---:|---:|---|---:|
-| Overall modularity | 5/10 | 8/10 | Factory, typed registries, public contracts, dependency tests | 5/10 |
-| Workplace extensibility | 3/10 | 8/10 | Scenarios A through G and private package boundary | 3/10 |
-| Upgradeability | 4/10 | 8/10 | Compatibility metadata, package build, migration and upgrade rehearsal | 4/10 |
-| Domain model | 2/5 | 4/5 | Public typed commands, queries, results, and references | 2/5 |
-| Service layer | 3/5 | 4/5 | Public facade and no private extension imports | 3/5 |
-| API | 2/5 | 4/5 | Router contributions and stable error contracts | 2/5 |
-| Authorization | 2/5 | 4/5 | Default and workplace policy tests | 2/5 |
-| Agent registration | 2/5 | 4/5 | External specialist uses real Chief composition | 2/5 |
-| Tool registration | 2/5 | 4/5 | Governed external tool with receipts | 2/5 |
-| Frontend navigation | 1/5 | 4/5 | External manifest drives core shell | 1/5 |
-| Policy enforcement | 2/5 | 4/5 | REST, agent, workflow, and capability enforcement | 2/5 |
+| Overall modularity | 5/10 | 8/10 | Factory, typed registries, public contracts, dependency tests | 7.8/10 before final review |
+| Workplace extensibility | 3/10 | 8/10 | Scenarios A through G and private package boundary | 8.0/10 before final review |
+| Upgradeability | 4/10 | 8/10 | Compatibility metadata, package build, migration and upgrade rehearsal | 8.0/10 before final review |
+| Domain model | 2/5 | 4/5 | Public typed commands, queries, results, and references | 4/5 |
+| Service layer | 3/5 | 4/5 | Public facade and no private extension imports | 4/5 |
+| API | 2/5 | 4/5 | Router contributions and stable error contracts | 4/5 |
+| Authorization | 2/5 | 4/5 | Default and workplace policy tests | 4/5 |
+| Agent registration | 2/5 | 4/5 | External specialist uses real Chief composition | 4/5 |
+| Tool registration | 2/5 | 4/5 | Governed external tool with receipts | 4/5 |
+| Frontend navigation | 1/5 | 4/5 | External manifest drives core shell | 4/5 |
+| Policy enforcement | 2/5 | 4/5 | REST, agent, workflow, and capability enforcement | 3/5; core REST migration remains staged |
 
 ## Decision log
 
@@ -299,6 +299,8 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-11 | Treat unversioned content as version 1 | Existing playbooks, personas, and flocks remain compatible |
 | 2026-08-11 | Compose frontend code before the build | Trusted static imports preserve CSP controls and avoid remote runtime code |
 | 2026-08-11 | Hide policy-bound UI until the backend permits it | A failed capability request must not show an action that the backend can refuse |
+| 2026-08-11 | Publish JavaScript and declarations for frontend extensions | Next.js does not transpile TSX that a separate package ships from `node_modules` |
+| 2026-08-11 | Include SQL migrations in the core wheel | An installed core artifact must initialize its schema without a source checkout |
 
 ## Risks
 
@@ -379,6 +381,18 @@ Scores can increase only when core behavior and the reference extension use the 
   client.
 - Confirmed 229 frontend tests, TypeScript, ESLint, knip, and the production
   build pass.
+- Added the fictional Atlas private extension with a router, scheduled job,
+  integration, policy, identity map, governed tool, specialist, context source,
+  event subscriber, workflow action, data store, and migration stream.
+- Added versioned Atlas playbook, persona, and flock overlays.
+- Added a separately packed frontend extension with policy-aware navigation and
+  a manager dashboard card. Its real Next.js production build passes.
+- Added a derivative image, Kustomize overlay, and external Secret reference.
+- Added artifact-level compatibility metadata and an installed-wheel upgrade
+  rehearsal. The rehearsal found and corrected missing migrations in the core
+  wheel, then passed with separate Skein and Atlas artifacts.
+- Confirmed 42 focused reference and extension tests and all reference content
+  validation.
 
 ## Review findings
 

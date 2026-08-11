@@ -1,0 +1,12 @@
+ARG SKEIN_IMAGE=skein:0.1.0
+FROM ${SKEIN_IMAGE}
+
+COPY dist/atlas_skein_extension-*.whl /tmp/
+RUN uv pip install --system --no-deps /tmp/atlas_skein_extension-*.whl
+
+ENV SKEIN_PLAYBOOKS_DIR=/opt/atlas/content/playbooks
+ENV SKEIN_PERSONAS_DIR=/opt/atlas/content/personas
+ENV SKEIN_FLOCKS_DIR=/opt/atlas/content/flocks
+COPY content /opt/atlas/content
+
+CMD ["uvicorn", "atlas_skein.app:app", "--host", "0.0.0.0", "--port", "8600"]

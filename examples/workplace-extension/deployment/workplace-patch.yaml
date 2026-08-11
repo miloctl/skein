@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skein
+spec:
+  template:
+    spec:
+      containers:
+        - name: skein
+          image: atlas-skein:1.0.0
+          env:
+            - name: ATLAS_SKEIN_DATA
+              value: /data/atlas-extension.db
+            - name: ATLAS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: atlas-skein-secrets
+                  key: ATLAS_API_TOKEN

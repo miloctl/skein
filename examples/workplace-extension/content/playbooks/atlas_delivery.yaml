@@ -1,0 +1,27 @@
+schema_version: 1
+name: Atlas delivery
+project_class: regulated
+description: A fictional delivery process with governed workplace actions.
+milestones:
+  - title: Prepare delivery
+    due_after_days: 5
+    tasks:
+      - title: Map the Atlas work items
+        priority: high
+workflow:
+  - type: condition
+    field: project_type
+    equals: regulated
+    then:
+      - type: approval
+        name: manager-approval
+        action: atlas.release.approve
+        resource_type: release
+        risk: high
+  - type: action
+    name: atlas.workplace.notify-manager
+    input:
+      channel: delivery-managers
+      message: Atlas delivery work is ready.
+  - type: checkpoint
+    name: manager-notified
