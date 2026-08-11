@@ -912,6 +912,23 @@ Targeted backend, frontend, lint, and frontend artifact checks pass. A full
 verification and a fresh independent review are still required. Chrome
 remains blocked.
 
+The complete pre-review verification now passes:
+
+| Command | Result |
+|---|---|
+| Full backend suite | 1,737 passed in 121.35 seconds |
+| Full frontend suite | 230 passed in 45 files |
+| `./scripts/lint.sh` | All gates passed |
+| Frontend production build | Passed in 29.10 seconds |
+| Installed backend upgrade | Unchanged Atlas wheel passed `d611d79` to the current implementation |
+| Installed frontend upgrade | Different source trees and packed Atlas runtime render passed |
+| Standard Kustomize render | Passed |
+| Base schema and activity chain | Passed |
+| Backend wheel | Built with stock content and migration 017 |
+| Derivative images | Built, ran as non-root, wrote both data volumes, and stayed healthy |
+
+The fresh review is the next gate. Chrome remains blocked.
+
 ### Eighth independent review
 
 The eighth gate reviewed commit `5493d61`.

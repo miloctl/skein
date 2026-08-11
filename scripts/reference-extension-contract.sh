@@ -19,7 +19,7 @@ mkdir -p \
 git archive d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3 backend | tar -x -C "$tmp/base"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/base-dist" "$tmp/base/backend"
-git archive 5493d618cb8fee04cc7b0ce614b09c9857648b27 backend \
+git archive d611d79c3c2962adcbc09a68b92976d8baf47b4a backend \
     | tar -x -C "$tmp/current-source"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/current" "$tmp/current-source/backend"
@@ -171,6 +171,10 @@ legacy = review.propose_change(
     actor="legacy-agent",
     origin="agent",
 )
+db.execute(
+    "UPDATE pending_changes SET policy_context = '{}', review_contract_version = 0 WHERE id = ?",
+    (legacy["id"],),
+)
 Path("../legacy-review-id").write_text(str(legacy["id"]))
 
 store = module.migrations[0].store
@@ -227,6 +231,7 @@ from fastapi.testclient import TestClient
 from app.extensions import (
     AppSettings,
     IdentityContribution,
+    JobExecutionContext,
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,

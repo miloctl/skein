@@ -222,7 +222,7 @@ def test_keyless_contributed_specialist_is_deterministic_and_cannot_write(fresh_
     assert fresh_db.query_one("SELECT actor, action, detail FROM activity") == {
         "actor": "acme.workplace.delivery",
         "action": "external_tool",
-        "detail": "acme.workplace.delivery-context completed",
+        "detail": ("acme.workplace.delivery-context completed correlation=keyless-specialist"),
     }
 
 

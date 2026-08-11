@@ -1116,3 +1116,27 @@ Targeted verification passed: 180 backend extension and policy tests, five
 frontend extension tests, the complete lint gate, and the two-host frontend
 artifact rehearsal. The next milestone records a compatible prior backend
 implementation. Full verification follows the next commit.
+
+Milestone `d611d79` records the complete contract change. The final working
+implementation adds correlation data to context receipts. The backend upgrade
+rehearsal uses `d611d79` as core 0.2.0 and the working implementation as core
+0.2.1. The unchanged Atlas wheel passes both.
+
+Pre-review verification results:
+
+- Backend: 1,737 tests passed in 121.35 seconds.
+- Frontend: 230 tests passed in 45 files.
+- Frontend production build: passed in 29.10 seconds.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Installed backend upgrade: passed in 39.79 seconds.
+- Installed frontend upgrade and packed runtime render: passed in 43.93
+  seconds.
+- Standard Kustomize render: passed.
+- Base-to-feature schema and activity-chain upgrade: passed.
+- Backend wheel: built with stock content and migration 017.
+- Four derivative images: built and started in 167.53 seconds. Both processes
+  were non-root. The backend wrote both data volumes and stayed healthy.
+
+The next action is an independent four-role review of the exact committed
+implementation. Chrome remains blocked until that gate passes.
