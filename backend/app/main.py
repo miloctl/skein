@@ -235,33 +235,6 @@ async def _start_extensions(
     return started
 
 
-def _validate_machine_identity_ownership(registry: ExtensionRegistry) -> None:
-    """Keep one owner for every agent-facing identity.
-
-    Persona and flock overlays are deployment content, so registry construction
-    cannot see their complete roster. Validate the composed roster during
-    startup, after content paths are available and before machine users exist.
-    """
-    from .services import flocks, personas
-    from .services.users import fold
-
-    content_owners = {
-        **{fold(slug): f"persona {slug!r}" for slug in personas.bench_slugs()},
-        **{fold(item["slug"]): f"flock {item['slug']!r}" for item in flocks.list_flocks()},
-    }
-    collisions: list[str] = []
-    for service_identity in registry.service_identities:
-        owner = content_owners.get(fold(service_identity.subject))
-        if owner:
-            collisions.append(f"service {service_identity.subject!r} conflicts with {owner}")
-    for specialist in registry.specialists:
-        owner = content_owners.get(fold(specialist.name))
-        if owner:
-            collisions.append(f"specialist {specialist.name!r} conflicts with {owner}")
-    if collisions:
-        raise RuntimeError("machine identity ownership conflict: " + "; ".join(sorted(collisions)))
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: AppSettings = app.state.skein_settings
@@ -280,7 +253,12 @@ async def lifespan(app: FastAPI):
     )
     if content_errors:
         raise RuntimeError("invalid playbook content: " + "; ".join(content_errors))
-    _validate_machine_identity_ownership(registry)
+    from .extensions.registry import validate_machine_identity_ownership
+
+    validate_machine_identity_ownership(
+        registry,
+        (("MCP actor", settings.mcp_user),),
+    )
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
@@ -317,21 +295,6 @@ async def lifespan(app: FastAPI):
     # fresh install. Say so at boot instead of letting the operator find out
     # by being locked out; the recovery is a rename of the agent row.
     mcp_user = settings.mcp_user
-    conflicting_machine = next(
-        (
-            name
-            for name in (
-                *(identity.subject for identity in registry.service_identities),
-                *(specialist.name for specialist in registry.specialists),
-            )
-            if name.casefold() == mcp_user.casefold()
-        ),
-        "",
-    )
-    if conflicting_machine:
-        raise RuntimeError(
-            f"SKEIN_MCP_USER={mcp_user!r} conflicts with a contributed machine identity"
-        )
     minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
     try:
         ensure_user(mcp_user, kind="agent")

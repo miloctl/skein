@@ -1313,3 +1313,28 @@ Verification for this remediation:
 
 The remediation commit and repeated review follow. Chrome remains blocked
 until the repeated review passes.
+
+### Fourteenth review gate and remediation
+
+Three reviewers approved commit `b78265d` with all scores above 8. The fourth
+reviewer rejected it at 8.1, 7.8, and 8.2 because the configured MCP actor was
+not part of the content identity roster. `SKEIN_MCP_USER=code-reviewer` could
+still share one actor and provenance history with the stock persona.
+
+One runtime ownership validator now covers contributed services, specialists,
+the configured MCP actor, stock content, overlays, and reserved core actors.
+The API startup path and the standalone MCP process both call it before they
+reserve any machine user.
+
+Verification for this remediation:
+
+- Focused API and standalone MCP ownership tests: 7 passed.
+- MCP, policy, composition, authority, integration, memory, and privacy tests:
+  174 passed.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Full backend suite: 1,765 passed in 164.91 seconds.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+
+The exact commit and repeated review follow. Chrome remains blocked.

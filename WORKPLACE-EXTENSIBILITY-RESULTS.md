@@ -1160,6 +1160,30 @@ Verification after this remediation:
 The exact commit and repeated independent review follow. Chrome remains
 blocked.
 
+### Fourteenth review gate and remediation
+
+The architecture, compatibility, and extension-author reviewers approved
+commit `b78265d` with all scores above 8. The fourth score auditor rejected it
+at 8.1, 7.8, and 8.2 because the configured MCP actor could still equal a
+stock or overlay persona or flock slug.
+
+The API and standalone MCP process now call the same folded runtime ownership
+validator. It covers services, specialists, the MCP actor, content identities,
+and reserved core actors before either process creates a machine user.
+
+Verification after this remediation:
+
+| Command | Result |
+|---|---|
+| API and standalone MCP ownership regressions | 7 passed |
+| MCP, policy, composition, authority, integration, memory, and privacy suite | 174 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,765 passed in 164.91 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The exact commit and repeated independent review follow. Chrome remains
+blocked.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.
