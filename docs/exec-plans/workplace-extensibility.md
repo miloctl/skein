@@ -1280,3 +1280,36 @@ Verification after this remediation:
 
 The remediation is ready for its milestone commit. A new four-role review will
 score that exact commit. Chrome remains blocked until that review passes.
+
+### Thirteenth review gate
+
+Three independent reviewers assessed commit `904af1c`. The extension-author
+and compatibility reviewers approved it with scores above 8. The architecture
+reviewer rejected it with scores of 7.9, 7.7, and 8.2 because one high-severity
+identity-ownership issue remained.
+
+A private service identity could use a stock or overlay persona or flock slug.
+For example, `code-reviewer` could name both a service and a core persona. The
+two roles then shared one actor, provenance history, and user row. Specialist
+names are already module-namespaced, but the same startup ownership check now
+covers them for defense in depth.
+
+The remediation validates the folded union of stock and overlay persona and
+flock slugs during application startup. It rejects collisions before Skein
+creates any contributed machine user. The extension guide now requires a
+restart after persona or flock overlay changes.
+
+Verification for this remediation:
+
+- Exact, case-folded, overlay-persona, and overlay-flock ownership tests: 3
+  passed.
+- Composition, content, specialist, reference, and public-contract tests: 129
+  passed.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Full backend suite: 1,760 passed in 163.53 seconds.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+
+The remediation commit and repeated review follow. Chrome remains blocked
+until the repeated review passes.

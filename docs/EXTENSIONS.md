@@ -214,7 +214,10 @@ results must be identical. New packages must declare one group owner with
 
 Register every job and event subject with `ServiceIdentityContribution`.
 Service identities do not pass through the human identity mapper. Startup
-reserves their names and rejects a collision with a human account.
+reserves their names and rejects a collision with a human account, a core
+actor, an MCP actor, a specialist, a persona, or a flock. This check includes
+stock content and deployment overlays. Restart Skein after you change persona
+or flock overlays so startup can validate the complete identity roster.
 
 ## Use public work commands
 

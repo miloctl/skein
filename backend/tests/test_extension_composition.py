@@ -398,6 +398,65 @@ def test_private_modules_cannot_claim_reserved_core_machine_subjects(subject):
         ExtensionRegistry.build((module,))
 
 
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "code-reviewer",
+        "CODE-REVIEWER",
+    ],
+)
+def test_composed_machine_identities_cannot_claim_stock_persona_names(fresh_db, subject):
+    module = _module(
+        routes=(),
+        service_identities=(
+            ServiceIdentityContribution("acme.workplace.persona-service", subject),
+        ),
+    )
+
+    with (
+        pytest.raises(RuntimeError, match="machine identity ownership conflict"),
+        TestClient(create_app(modules=(module,))),
+    ):
+        pass
+
+
+def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import personas
+
+    persona_dir = tmp_path / "personas"
+    persona_dir.mkdir()
+    (persona_dir / "atlas-overlay.md").write_text("not parsed for identity ownership\n")
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+
+    flock_dir = tmp_path / "flocks"
+    flock_dir.mkdir()
+    members = sorted(personas.bench_slugs() - {"atlas-overlay"})[:2]
+    (flock_dir / "atlas-flock.yaml").write_text(
+        "schema_version: 1\n"
+        "name: Atlas flock\n"
+        "description: Test overlay identity ownership.\n"
+        f"members:\n  - {members[0]}\n  - {members[1]}\n"
+        "synthesis: false\n"
+    )
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+
+    for subject in ("atlas-overlay", "atlas-flock"):
+        module = _module(
+            routes=(),
+            service_identities=(
+                ServiceIdentityContribution("acme.workplace.overlay-service", subject),
+            ),
+        )
+        with (
+            pytest.raises(RuntimeError, match="machine identity ownership conflict"),
+            TestClient(create_app(modules=(module,))),
+        ):
+            pass
+
+
 def test_dependencies_are_ordered_independently_of_input_order():
     base = _module(module_id="acme.base", routes=())
     child = _module(module_id="acme.child", requires=("acme.base",), routes=())

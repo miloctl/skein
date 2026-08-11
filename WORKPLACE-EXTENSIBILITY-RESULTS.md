@@ -1133,6 +1133,33 @@ Verification after this remediation:
 The remediation is ready for its milestone commit and exact-commit review.
 Chrome remains blocked until that review passes.
 
+### Thirteenth review gate and remediation
+
+Three reviewers assessed commit `904af1c`. The extension-author reviewer
+approved it at 8.3, 8.4, and 8.3. The compatibility reviewer approved it at
+8.3, 8.4, and 8.4. The architecture reviewer rejected it at 7.9, 7.7, and 8.2
+because one high-severity identity collision remained.
+
+A private service could use a stock or overlay persona or flock slug. That
+made one name refer to two owners. It could merge provenance, user history,
+and policy identity. Startup now builds the folded identity roster from stock
+content and deployment overlays. It rejects a service or specialist collision
+before it creates machine users. Persona and flock overlay changes require an
+application restart so this check runs on the complete roster.
+
+Verification after this remediation:
+
+| Command | Result |
+|---|---|
+| Identity-ownership regressions | 3 passed |
+| Composition, content, specialist, reference, and public-contract suite | 129 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,760 passed in 163.53 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The exact commit and repeated independent review follow. Chrome remains
+blocked.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.
