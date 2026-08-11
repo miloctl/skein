@@ -217,9 +217,9 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | 2 | 1 | Typed module, route, job, tool, specialist, context, and handler registries | Collision and compatibility tests | Complete for current extension concerns |
 | 3 | 2 | Core policy decision point and capability reporting | Existing behavior tests plus conditional workplace policy | Complete |
 | 4 | 3 | Governed private and MCP tool wrappers | Policy, receipt, timeout, and provenance tests | Complete |
-| 5 | 2 | Public commands, queries, results, and errors | Reference extension imports only public modules | Pending |
-| 6 | 5 | Versioned events and durable outbox | Delivery, retry, and idempotency tests | Pending |
-| 7 | 2 | Extension-owned migration and data boundaries | Separate store and migration tests | Pending |
+| 5 | 2 | Public commands, queries, results, and errors | Reference extension imports only public modules | Complete for task work |
+| 6 | 5 | Versioned events and durable outbox | Delivery, retry, and idempotency tests | Complete |
+| 7 | 2 | Extension-owned migration and data boundaries | Separate store and migration tests | Complete |
 | 8 | 2, 3, 5 | Minimum typed workflow steps | Condition, approval, action, and checkpoint tests | Pending |
 | 9 | 2 | Versioned content schemas and deployment validator | Version 1 compatibility and invalid-content tests | Pending |
 | 10 | 2, 3 | Frontend extension manifest and UI primitives | External navigation and dashboard card tests | Pending |
@@ -248,7 +248,7 @@ Current coupling: the interpreter recognizes one fixed YAML shape and directly i
 | Scenario | Required executable proof | Planned contract | Status |
 |---|---|---|---|
 | A | Atlas reads and updates work without a core registration edit | Public command, query, event, job, and integration adapter | Pending |
-| B | Regulated work requires manager review by subject, action, project, and risk | Policy decision and obligations | Pending |
+| B | Regulated work requires manager review by subject, action, project, and risk | Policy decision and obligations | Partial: subject, action, and project test passes |
 | C | Acme adds navigation and a manager dashboard card | Frontend manifest and capability | Pending |
 | D | Delivery specialist adds prompt, context, tool, and permissions | Specialist, context, tool, and policy contributions | Pending |
 | E | Atlas mappings use an extension-owned store and migration | Extension data contract | Pending |
@@ -291,6 +291,9 @@ Scores can increase only when core behavior and the reference extension use the 
 | 2026-08-10 | Require explicit, namespaced module routes | Private routes cannot collide with the core API and installed packages never execute automatically |
 | 2026-08-10 | Combine policy by strongest result | A workplace permit cannot erase a core deny; deny outranks review, and review outranks permit |
 | 2026-08-10 | Omit unclassified MCP tools | A remote tool with unknown effects cannot bypass Skein policy, review, and receipts |
+| 2026-08-10 | Keep extension data in a separate store | This prevents private code from depending on core tables or migration order |
+| 2026-08-10 | Send safe event summaries through the outbox | Subscribers receive identifiers and changed field names, not private row bodies |
+| 2026-08-10 | Require subscribers to use the event ID for idempotency | A process can stop after an external side effect and before it stores the receipt |
 
 ## Risks
 
@@ -298,8 +301,8 @@ Scores can increase only when core behavior and the reference extension use the 
 |---|---|---|
 | App factory changes startup order | Characterization tests and default `app` parity | Open |
 | Policy duplicates current authorization | Default policy delegates to current checks first | Open |
-| Public facade leaks internal dictionaries | Typed result contracts and import-boundary tests | Open |
-| Extension migrations enter core security inventories | Separate extension store by default | Open |
+| Public facade leaks internal dictionaries | Typed task views and public errors hide service dictionaries | Controlled for task work |
+| Extension migrations enter core security inventories | The store refuses both Skein database paths | Controlled |
 | MCP wrappers cannot infer write effects | Explicit metadata and deny-unknown default | Open |
 | Next.js build-time extension imports become core hard-coding | External composition manifest and generated build input | Open |
 | Scope expands into unused abstractions | Remove any contract unused by core and Acme | Open |
@@ -339,6 +342,16 @@ Scores can increase only when core behavior and the reference extension use the 
 - Added MCP governance metadata and a deny-by-omission rule for unclassified
   remote tools.
 - Confirmed the full backend suite passes with 1,592 tests after this slice.
+- Added typed task commands, task views, command context, and machine-readable
+  public errors for extension packages.
+- Kept public task writes on the existing service path and in one transaction
+  with their outbox event.
+- Added versioned task events, durable retries, subscriber receipts, and
+  visibility filters. Event payloads contain no task body text.
+- Added extension-owned SQLite stores and isolated append-only migrations.
+- Added a startup migration contribution that never opens a Skein database.
+- Confirmed 65 focused contract, migration, scope, and composition tests.
+- Confirmed the full backend suite passes with 1,601 tests after this slice.
 
 ## Review findings
 
