@@ -1338,3 +1338,31 @@ Verification for this remediation:
   two different compatible core implementations.
 
 The exact commit and repeated review follow. Chrome remains blocked.
+
+### Fifteenth review gate and remediation
+
+The architecture and score reviewers approved commit `7644949` at or above
+8.2. The extension-author reviewer rejected it at 8.2, 8.2, and 7.8 because an
+invalid MCP actor stopped the complete API. The compatibility reviewer rejected
+it at 8.1, 7.8, and 8.3 because the runtime reserved set omitted `agent`,
+`anonymous`, `ci`, and `mcp`.
+
+The registry now defines one complete reserved machine-subject set for module
+and runtime composition. The API applies fatal validation to contributed
+service and specialist ownership. It treats an invalid operator MCP actor as
+nonfatal, logs that MCP is unavailable, and keeps REST healthy. The standalone
+MCP process still exits because it cannot operate without its actor.
+
+Verification for this remediation:
+
+- API and standalone stock, overlay, contributed, case-folded, and core-name
+  ownership tests: 15 passed.
+- MCP, policy, composition, authority, integration, memory, and privacy tests:
+  182 passed.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Full backend suite: 1,773 passed in 164.69 seconds.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+
+The exact commit and repeated review follow. Chrome remains blocked.

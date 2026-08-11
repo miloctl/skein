@@ -141,7 +141,7 @@ def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
     assert not hasattr(contexts[0], "settings")
 
 
-def test_configured_mcp_identity_cannot_overlap_a_contributed_service(fresh_db):
+def test_configured_mcp_identity_collision_disables_only_mcp(fresh_db, caplog):
     module = _module(
         routes=(),
         service_identities=(
@@ -157,11 +157,12 @@ def test_configured_mcp_identity_cannot_overlap_a_contributed_service(fresh_db):
         mcp_user="acme-mcp-agent",
     )
 
-    with (
-        pytest.raises(RuntimeError, match="machine identity ownership conflict"),
-        TestClient(create_app(settings, (module,))),
-    ):
-        pass
+    with TestClient(create_app(settings, (module,))) as client:
+        assert client.get("/health").status_code == 200
+    assert "The REST API is unaffected" in caplog.text
+    assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'acme-mcp-agent'") == {
+        "kind": "agent"
+    }
 
 
 def test_started_lifecycle_is_stopped_if_a_later_startup_fails(fresh_db):
@@ -420,19 +421,21 @@ def test_composed_machine_identities_cannot_claim_stock_persona_names(fresh_db, 
         pass
 
 
-@pytest.mark.parametrize("subject", ["code-reviewer", "CODE-REVIEWER", "system"])
-def test_api_mcp_actor_cannot_claim_stock_persona_names(fresh_db, subject):
+@pytest.mark.parametrize(
+    "subject",
+    ["code-reviewer", "CODE-REVIEWER", "system", "agent", "anonymous", "ci", "mcp"],
+)
+def test_api_mcp_collision_disables_only_mcp(fresh_db, caplog, subject):
     settings = replace(AppSettings.from_config(), mcp_user=subject)
 
-    with (
-        pytest.raises(RuntimeError, match="machine identity ownership conflict"),
-        TestClient(create_app(settings=settings)),
-    ):
-        pass
-    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
+    with TestClient(create_app(settings=settings)) as client:
+        assert client.get("/health").status_code == 200
+    assert "The REST API is unaffected" in caplog.text
+    if subject != "agent":
+        assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
 
 
-@pytest.mark.parametrize("subject", ["code-reviewer", "system"])
+@pytest.mark.parametrize("subject", ["code-reviewer", "system", "agent", "anonymous", "ci", "mcp"])
 def test_standalone_mcp_actor_cannot_claim_a_reserved_identity(fresh_db, monkeypatch, subject):
     from app import mcp_server
 
@@ -483,11 +486,8 @@ def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names
             pass
 
         settings = replace(AppSettings.from_config(), mcp_user=subject)
-        with (
-            pytest.raises(RuntimeError, match="machine identity ownership conflict"),
-            TestClient(create_app(settings=settings)),
-        ):
-            pass
+        with TestClient(create_app(settings=settings)) as client:
+            assert client.get("/health").status_code == 200
 
         monkeypatch.setattr(mcp_server, "ACTOR", subject)
         with pytest.raises(SystemExit) as raised:

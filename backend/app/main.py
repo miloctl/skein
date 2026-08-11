@@ -255,10 +255,24 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("invalid playbook content: " + "; ".join(content_errors))
     from .extensions.registry import validate_machine_identity_ownership
 
-    validate_machine_identity_ownership(
-        registry,
-        (("MCP actor", settings.mcp_user),),
-    )
+    # Invalid contributed machine ownership is an application composition
+    # error. An invalid operator-supplied MCP actor disables only MCP; REST
+    # stays available, as it did before the extension composition work.
+    validate_machine_identity_ownership(registry)
+    mcp_identity_available = True
+    try:
+        validate_machine_identity_ownership(
+            registry,
+            (("MCP actor", settings.mcp_user),),
+        )
+    except RuntimeError as exc:
+        mcp_identity_available = False
+        log.error(
+            "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
+            " unavailable until this is changed. The REST API is unaffected.",
+            settings.mcp_user,
+            exc,
+        )
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
@@ -295,22 +309,21 @@ async def lifespan(app: FastAPI):
     # fresh install. Say so at boot instead of letting the operator find out
     # by being locked out; the recovery is a rename of the agent row.
     mcp_user = settings.mcp_user
-    minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
-    try:
-        ensure_user(mcp_user, kind="agent")
-    except ValueError as exc:
-        # operator-supplied config NEVER takes down the REST API — the same
-        # rule the model provider follows when it degrades to mock. Without
-        # this, one typo in SKEIN_MCP_USER refuses every request in the
-        # deployment, which is worse than the lockout the warning below
-        # exists to prevent.
-        minted = False
-        log.error(
-            "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
-            " unavailable until this is changed. The REST API is unaffected.",
-            mcp_user,
-            exc,
-        )
+    minted = False
+    if mcp_identity_available:
+        minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
+        try:
+            ensure_user(mcp_user, kind="agent")
+        except ValueError as exc:
+            # Operator-supplied config never takes down REST. The same rule
+            # lets a bad model provider degrade to deterministic mode.
+            minted = False
+            log.error(
+                "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
+                " unavailable until this is changed. The REST API is unaffected.",
+                mcp_user,
+                exc,
+            )
     if minted and mcp_user != "mcp-agent":
         log.warning(
             "reserved %r as an AGENT identity (SKEIN_MCP_USER). Agent identities cannot"

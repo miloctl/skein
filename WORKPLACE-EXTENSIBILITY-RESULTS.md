@@ -1160,6 +1160,32 @@ Verification after this remediation:
 The exact commit and repeated independent review follow. Chrome remains
 blocked.
 
+### Fifteenth review gate and remediation
+
+The architecture and score reviewers approved commit `7644949` at or above
+8.2. The extension-author reviewer rejected it at 8.2, 8.2, and 7.8 because an
+invalid MCP actor stopped the API. The compatibility reviewer rejected it at
+8.1, 7.8, and 8.3 because four reserved actor names were missing from runtime
+validation.
+
+One canonical reserved set now drives module and runtime validation. Invalid
+contributed service or specialist ownership remains fatal. An invalid API MCP
+actor disables MCP, logs the cause, and leaves REST healthy. The standalone
+MCP process still exits before it creates a conflicting user.
+
+Verification after this remediation:
+
+| Command | Result |
+|---|---|
+| API and standalone ownership regressions | 15 passed |
+| MCP, policy, composition, authority, integration, memory, and privacy suite | 182 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,773 passed in 164.69 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The exact commit and repeated independent review follow. Chrome remains
+blocked.
+
 ### Fourteenth review gate and remediation
 
 The architecture, compatibility, and extension-author reviewers approved
