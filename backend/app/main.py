@@ -515,7 +515,7 @@ async def perimeter_auth(request: Request, call_next):
         is_shared_token,
     )
     from .services.api_keys import PREFIX, verify_key
-    from .services.users import is_active, is_agent, reserved_refusal
+    from .services.users import ensure_human_identity, is_active, is_agent, reserved_refusal
 
     auth = request.headers.get("Authorization", "")
     # The shared token is checked BEFORE the key prefix: an operator whose
@@ -576,7 +576,18 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": reserved})
         if not await run_in_threadpool(is_active, name):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
+        try:
+            human = await run_in_threadpool(ensure_human_identity, name)
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
+                    " that gives each person one name."
+                },
+            )
         request.state.auth_claims = claims
+        request.state.auth_human_owner = human["name"]
         return await call_next(request)
     detail = NEED_KEY if settings.auth_mode == "api-key" else NEED_LOGIN
     return JSONResponse(status_code=401, content={"detail": detail})

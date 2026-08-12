@@ -72,7 +72,7 @@ ignore_names = [
     "model_config",  # pydantic v2 model settings, read by the metaclass
     # request.state fields the perimeter middleware sets and routes/deps.py
     # reads back through getattr, which static analysis cannot follow
-    "auth_key_owner", "auth_claims",
+    "auth_key_owner", "auth_claims", "auth_human_owner",
     # the SDK's SessionRepository ABC requires the multi-agent trio; Skein
     # never builds a Swarm or Graph, so nothing here calls them. The import
     # is real but appears only in quoted annotations under TYPE_CHECKING.

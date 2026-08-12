@@ -224,6 +224,9 @@ Skein reserves each human or machine name in one database transaction. The
 transaction covers exact names and Unicode case-folded variants. A concurrent
 human sign-in cannot claim a machine name during that reservation. Skein
 refuses the human request if the machine reservation wins.
+Validated OIDC reads reserve human ownership before a handler runs. Weak
+trusted-header reads do not create roster rows and do not receive strong or
+private-data authority.
 Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
 

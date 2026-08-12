@@ -1219,6 +1219,30 @@ Verification after this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Nineteenth review gate and remediation
+
+The architecture reviewer approved commit `8147fea` at 8.3 for all three
+measures. The score auditor rejected it at 8.2, 7.9, and 8.3 because a strong
+OIDC read did not reserve durable human ownership.
+
+The OIDC perimeter now reserves the validated human name before any handler
+runs. Route dependencies reuse that reservation. Direct dependency calls use
+the same strict human helper. Weak trusted-header reads remain weak and do not
+create roster rows.
+
+Deterministic tests cover exact and folded names with both human-first and
+machine-first ordering. A real client test verifies that the first validated
+OIDC read stores a human ownership row. The focused identity, privacy, policy,
+and extension suite passed 235 tests.
+
+| Command | Result |
+|---|---|
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,782 passed in 106.95 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The exact commit and repeated review follow. Chrome remains blocked.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The
