@@ -362,6 +362,9 @@ def validate_machine_identity_ownership(
     machine_owners: dict[str, str] = {}
     core_owners = {fold(name): f"core actor {name!r}" for name in _RESERVED_CORE_SUBJECTS}
     collisions: list[str] = []
+    for folded, configured_content_owner in content_owners.items():
+        if core_owner := core_owners.get(folded):
+            collisions.append(f"{configured_content_owner} conflicts with {core_owner}")
     for kind, name in claims:
         owner = f"{kind} {name!r}"
         folded = fold(name)

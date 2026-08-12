@@ -1430,6 +1430,10 @@ The extension-author review also found that the new Atlas example used legacy
 two-resolver inference. Atlas now declares its directory resolver as the group
 owner and its profile resolver as profile-only.
 
+The next architecture review found that persona and flock overlay slugs were
+not compared with the canonical core-machine set. Startup now rejects any
+content owner that claims a core actor before it reserves machine identities.
+
 Verification for this remediation:
 
 - Focused repair, reservation, and ownership tests: 52 passed.
@@ -1450,7 +1454,8 @@ Verification after the synthetic-identity correction:
   passed.
 - Reserved-name tests: 16 passed.
 - OIDC sign-in, reference package, and release-contract tests: 40 passed.
-- Full backend suite: 1,812 passed in 118.88 seconds.
+- Composition, content, and identity focused tests: 252 passed.
+- Full backend suite: 1,822 passed in 111.72 seconds.
 - Complete static gate: passed.
 - Installed backend extension rehearsal: the unchanged Atlas wheel passed
   both installed core artifacts.

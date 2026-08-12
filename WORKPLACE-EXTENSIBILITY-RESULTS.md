@@ -1430,6 +1430,11 @@ for its two identity resolvers. The reference package now declares one group
 resolver and one profile-only resolver explicitly, as the extension guide
 requires for new packages.
 
+The next architecture review found that a persona or flock overlay could use a
+core-machine slug such as `agent`. Startup now compares every content owner
+with the canonical core set before any machine row is reserved. Deployment
+content cannot replace a core prompt or merge its provenance with a core actor.
+
 | Target-integrity remediation command | Result |
 |---|---|
 | Focused repair, reservation, and ownership tests | 52 passed |
@@ -1443,7 +1448,8 @@ requires for new packages.
 | Auth, authority, integration, repair, gate, provenance, and golden-trace tests | 230 passed |
 | Reserved-name tests | 16 passed |
 | OIDC sign-in, reference package, and release-contract tests | 40 passed |
-| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,812 passed in 118.88 seconds |
+| Composition, content, and identity focused tests | 252 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,822 passed in 111.72 seconds |
 | `./scripts/lint.sh` | All gates passed |
 | `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed both installed core artifacts |
 

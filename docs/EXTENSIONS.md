@@ -274,6 +274,10 @@ either. Browser OIDC token exchange refuses it before the UI reports a
 successful sign-in. Only an absent weak identity and old unnamed records use
 it.
 
+Persona and flock overlays cannot use a core-machine slug. Startup rejects the
+deployment before it reserves an actor, so an overlay cannot replace the Chief
+prompt or merge its provenance with a system identity.
+
 ## Use public work commands
 
 `WorkItems` is the first public command and query facade. It validates policy
