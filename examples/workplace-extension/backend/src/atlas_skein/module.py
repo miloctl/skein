@@ -136,7 +136,17 @@ def atlas_module(
                 period_hours=0.25,
             ),
         ),
-        policies=(PolicyContribution("atlas.workplace.policy", atlas_policy),),
+        policies=(
+            PolicyContribution(
+                "atlas.workplace.policy",
+                atlas_policy,
+                actions=(
+                    "atlas.dashboard.view",
+                    "atlas.integration.sync",
+                    "atlas.release.approve",
+                ),
+            ),
+        ),
         identities=(
             IdentityContribution(
                 "atlas.workplace.identity",

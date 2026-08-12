@@ -166,6 +166,8 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
                     f"{agent} holds task #{task['id']} '{task['title']}'"
                     f" with no progress note for {QUIET_DAYS}"
                     f" day{'' if QUIET_DAYS == 1 else 's'}.{said}",
+                    source_entity="task",
+                    source_id=int(task["id"]),
                     tier="digest",
                     link="/agents",
                 )

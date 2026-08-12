@@ -259,6 +259,8 @@ def chase_received(*, actor: str = "scheduler") -> dict:
             f"Still open with {who}: “{row['promise'][:80]}” was due {row['due_date']}.",
             tier="digest",
             link="/planning",
+            source_entity="promise",
+            source_id=int(row["id"]),
         )
         nudged.append(row["id"])
         # The team-wide escalation withholds `to_whom`, which is free text that
@@ -289,6 +291,8 @@ def chase_received(*, actor: str = "scheduler") -> dict:
                 " to whoever recorded it.",
                 tier="digest",
                 link="/planning",
+                source_entity="promise",
+                source_id=int(row["id"]),
             )
             escalated.append(row["id"])
         db.execute(

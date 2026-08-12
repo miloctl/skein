@@ -87,6 +87,8 @@ def delegate_task(
         f"You sponsor task #{task_id} '{task['title']}' delegated to {agent}.",
         tier="digest",
         link="/agents",
+        source_entity="task",
+        source_id=task_id,
     )
     return {"id": task_id, "delegated_agent": agent, "sponsor": sponsor}
 
@@ -161,6 +163,8 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
             f"{actor} started on task #{task_id} '{task['title']}'.",
             tier="digest",
             link="/agents",
+            source_entity="task",
+            source_id=task_id,
         )
     return {"id": task_id, "status": "in_progress"}
 
@@ -419,6 +423,8 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
             f" acceptance (proposal #{p['id']}).",
             tier="immediate",
             link="/review",
+            source_entity="task",
+            source_id=task_id,
         )
     return {"proposal_id": p["id"], "task_id": task_id, "status": "pending"}
 
@@ -815,6 +821,9 @@ def agent_inbox(
     agent: str,
     viewer: "scope.Viewer | None" = None,
     task_filter: Callable[[int, dict[str, str]], bool] | None = None,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    *,
+    allow_unclassified: bool = True,
 ) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped.
@@ -856,11 +865,39 @@ def agent_inbox(
                 policy_context.existing("task", int(task["id"])),
             )
         ]
+    elif resource_filter is not None:
+        from . import policy_context
+
+        tasks = [
+            task
+            for task in tasks
+            if resource_filter(
+                "task",
+                int(task["id"]),
+                policy_context.existing("task", int(task["id"]))
+                if viewer is None
+                else policy_context.existing_scoped("task", int(task["id"]), viewer),
+            )
+        ]
     questions = db.query(
         "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" AND status = 'open' AND {qfrag} ORDER BY id",
         (agent, *qp),
     )
+    if resource_filter is not None:
+        from . import policy_context
+
+        questions = [
+            question
+            for question in questions
+            if resource_filter(
+                "question",
+                int(question["id"]),
+                policy_context.existing("question", int(question["id"]))
+                if viewer is None
+                else policy_context.existing_scoped("question", int(question["id"]), viewer),
+            )
+        ]
     # through _readable on the REST door for the same reason the two queries
     # above take a filter: `summary` and `review_note` quote the target row's
     # own text, and GET /api/agents/{agent}/inbox answers any CurrentUser with
@@ -876,12 +913,39 @@ def agent_inbox(
     )
     if viewer is not None:
         rejected = _readable(rejected, viewer)
+    if resource_filter is not None:
+        from . import policy_context
+
+        filtered_rejected = []
+        for proposal in rejected:
+            entity = str(proposal.get("entity") or "")
+            entity_id = int(proposal.get("entity_id") or 0)
+            if not policy_context.supports_resource(entity) or entity_id <= 0:
+                if allow_unclassified:
+                    filtered_rejected.append(proposal)
+                continue
+            attributes = (
+                policy_context.existing(entity, entity_id)
+                if viewer is None
+                else policy_context.existing_scoped(entity, entity_id, viewer)
+            )
+            if attributes and resource_filter(entity, entity_id, attributes):
+                filtered_rejected.append(proposal)
+        rejected = filtered_rejected
     # `notifications` carries no tier (scope.UNSCOPED) and its bodies quote
     # scoped rows, so the REST door gets counts and the agent gets the text.
     notifications = db.query(
-        "SELECT id, message, link, created_at FROM notifications"
+        "SELECT id, message, link, created_at, source_entity, source_id FROM notifications"
         " WHERE user = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20",
         (agent,),
+    )
+    from .notifications import policy_filter as filter_notifications
+
+    notifications = filter_notifications(
+        notifications,
+        resource_filter,
+        allow_unclassified=allow_unclassified,
+        viewer=viewer,
     )
     if viewer is not None:
         notifications = [{k: v for k, v in n.items() if k != "message"} for n in notifications]

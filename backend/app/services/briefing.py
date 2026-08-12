@@ -264,6 +264,7 @@ def my_day(
     row_filter: Callable[[str, list[dict]], list[dict]] | None = None,
     mixed_filter: Callable[[list[dict]], list[dict]] | None = None,
     allow_unclassified: bool = True,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> dict:
     """`viewer`, not just `user`: these three lists are addressed to a person
     BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
@@ -466,16 +467,16 @@ def my_day(
         needs["meetings_awaiting_outcome"] = row_filter("event", needs["meetings_awaiting_outcome"])
         needs["your_blockers"] = row_filter("blocker", needs["your_blockers"])
         needs["intake_to_triage"] = row_filter("intake", needs["intake_to_triage"])
-        if allow_unclassified:
-            if mixed_filter is not None:
-                needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
-            needs["notifications"] = row_filter("notification", needs["notifications"])
-        else:
-            # These summaries can carry free-form domain content without a
-            # durable project key. If one project is denied, text is not a
-            # safe source from which to guess its policy context.
-            needs["pending_reviews"] = []
-            needs["notifications"] = []
+        if mixed_filter is not None:
+            needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
+        from .notifications import policy_filter as filter_notifications
+
+        needs["notifications"] = filter_notifications(
+            needs["notifications"],
+            resource_filter,
+            allow_unclassified=allow_unclassified,
+            viewer=viewer,
+        )
         result["your_work"]["tasks"] = row_filter("task", result["your_work"]["tasks"])
         result["your_work"]["due_soon"] = row_filter("task", result["your_work"]["due_soon"])
         if not allow_unclassified:

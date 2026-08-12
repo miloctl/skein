@@ -173,6 +173,12 @@ The existing strong-identity, administrator, visibility, authority, and review
 checks still run. A workplace permit cannot remove a core denial. Deny is
 stronger than review, and review is stronger than permit.
 
+Declare the stable actions that a policy contribution can inspect. New
+packages set `PolicyContribution(actions=(...))`. An empty action list keeps
+the extension API 1.0 legacy behavior and can inspect every action. Skein
+treats unclassified free-form text as unsafe when an applicable workplace
+rule exists. A scoped rule does not disable unrelated core readouts.
+
 Auth bootstrap endpoints keep their specialized gates. Signed Slack and forge
 requests first pass signature checks. Skein then evaluates
 `skein.integration.slack` or `skein.integration.forge`. CI requests evaluate
@@ -186,11 +192,15 @@ meaning. Skein checks every project domain that can affect these aggregates.
 This check includes hidden inputs whose names are masked in the response.
 The aggregate fails closed if policy denies one of these project domains.
 
-Free-form derivatives do not always retain a source key. Notifications,
-activity summaries, findings, and saved review text are examples. Before
-Skein returns these derivatives, policy checks every exact domain resource
-and every project domain that can contribute. An ID-specific denial therefore
-fails the derivative closed. Hidden attributes stay inside the policy engine.
+Migration 019 gives each new notification a source entity and source ID.
+Policy-aware readers check that source before they return the body. They omit
+an old notification that has no source when workplace rules are active.
+Saved reviews retain their target entity and ID and use the same rule.
+
+Some older free-form derivatives have no reliable source. Activity summaries
+and findings are examples. Skein omits or refuses unclassified text when
+workplace rules are active. It does not scan all historical rows on each
+request. Exact policy checks run beside the rows that contribute to a result.
 
 Delegated agent inboxes and crew context packs can remove individual tasks.
 Skein applies policy to each task before it returns or stores the content.
@@ -776,8 +786,8 @@ scripts/reference-images-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
-pair uses different backend source trees. It applies migration 018 and runs
-the documented legacy identity-owner claims before startup.
+pair uses different backend source trees. It applies migrations 018 and 019.
+It also runs the documented legacy identity-owner claims before startup.
 `scripts/upgrade-path.sh` separately verifies all additive core migrations
 from the historical base, schema equality, and activity-chain integrity. The
 frontend script creates two host artifacts from distinct source

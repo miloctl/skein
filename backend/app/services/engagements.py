@@ -241,6 +241,8 @@ def update_engagement(
                 f" {'it' if open_tasks['n'] == 1 else 'them'}.",
                 tier="digest",
                 link="/dashboard",
+                source_entity="engagement",
+                source_id=engagement_id,
             )
             return {
                 "id": engagement_id,
@@ -425,7 +427,14 @@ def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
     # "team" is every person on the roster, so a scoped closure is not
     # announced at all — the crew reads it on the note above.
     if eng["visibility"] == scope.WORKSPACE:
-        notify("team", recap.replace("**", ""), tier="immediate", link="/dashboard")
+        notify(
+            "team",
+            recap.replace("**", ""),
+            tier="immediate",
+            link="/dashboard",
+            source_entity="engagement",
+            source_id=engagement_id,
+        )
 
 
 def list_engagements(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:

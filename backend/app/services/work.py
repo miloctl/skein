@@ -136,6 +136,8 @@ def create_milestone(
                 " matches — it will not count in health/forecast until you relink it.",
                 tier="digest",
                 link="/dashboard",
+                source_entity="milestone",
+                source_id=mid,
             )
         db.log_activity(actor, "create_milestone", scope.detail(tier, f"#{mid}", title))
         index_record("milestone", mid, title, f"{description} {project} {owner}")
@@ -1157,6 +1159,55 @@ def redact_task_relationships(
     return tasks
 
 
+def filter_task_projection(
+    task: dict,
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool],
+) -> dict:
+    """Apply one action's policy to every resource nested in a task view."""
+    from . import policy_context
+
+    result = redact_task_relationships([task], viewer, resource_filter)[0]
+
+    def permitted_rows(entity: str, rows: list[dict]) -> list[dict]:
+        if not rows:
+            return []
+        if policy_context.supports_resource(entity):
+            contexts = policy_context.resource_contexts(
+                [(entity, int(row["id"])) for row in rows], viewer
+            )
+        else:
+            contexts = {
+                (entity, int(row["id"])): {
+                    "classification": "workspace",
+                    "project_type": "",
+                }
+                for row in rows
+            }
+        return [
+            row
+            for row in rows
+            if resource_filter(
+                entity,
+                int(row["id"]),
+                contexts.get((entity, int(row["id"])), {"relationship_conflict": "true"}),
+            )
+        ]
+
+    result["blockers"] = permitted_rows("blocker", list(result.get("blockers") or []))
+    policy_downstream = downstream(
+        int(result["id"]),
+        viewer,
+        resource_filter=resource_filter,
+    )
+    result.update(policy_downstream)
+    source = result.get("source_finding")
+    if source and not permitted_rows("finding", [source]):
+        result["source_finding"] = None
+        result["source_finding_id"] = None
+    return result
+
+
 def _source_finding(task: dict) -> dict | None:
     """The finding a task was converted from.
 
@@ -1234,7 +1285,12 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
     )
 
 
-def downstream(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def downstream(
+    task_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict:
     """What finishing this task releases: the tasks waiting on it directly,
     and how many wait behind those.
 
@@ -1246,12 +1302,31 @@ def downstream(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     through the chain either, and a bare count would leak its existence.
     """
     seen: set[int] = {task_id}
-    direct = _blocked_by({task_id}, viewer)
+
+    def permitted(rows: list[dict]) -> list[dict]:
+        if resource_filter is None or not rows:
+            return rows
+        from . import policy_context
+
+        contexts = policy_context.resource_contexts(
+            [("task", int(row["id"])) for row in rows], viewer
+        )
+        return [
+            row
+            for row in rows
+            if resource_filter(
+                "task",
+                int(row["id"]),
+                contexts.get(("task", int(row["id"])), {"relationship_conflict": "true"}),
+            )
+        ]
+
+    direct = permitted(_blocked_by({task_id}, viewer))
     frontier = {t["id"] for t in direct}
     seen |= frontier
     transitive, depth, truncated = len(frontier), 1, False
     while frontier:
-        nxt = {t["id"] for t in _blocked_by(frontier, viewer)} - seen
+        nxt = {t["id"] for t in permitted(_blocked_by(frontier, viewer))} - seen
         # the next hop is read BEFORE the depth test, so `truncated` means work
         # was really left uncounted rather than "the walk reached ten". A chain
         # of exactly _WAIT_DEPTH hops is counted in full, and the peek must not

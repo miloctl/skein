@@ -198,6 +198,8 @@ def propose_change(
             f"Review needed: #{pid} {summary or f'{action} {entity}'}",
             tier="digest",
             link="/review",
+            source_entity=entity,
+            source_id=entity_id,
         )
     return {"id": pid, "status": "pending"}
 

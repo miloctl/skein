@@ -84,6 +84,19 @@ class PolicyRule(Protocol):
     def __call__(self, request: PolicyInput) -> PolicyDecision | None: ...
 
 
+@dataclass(frozen=True)
+class ScopedPolicyRule:
+    """Limit one contributed rule to its declared stable actions."""
+
+    rule: PolicyRule
+    actions: tuple[str, ...] = ()
+
+    def __call__(self, request: PolicyInput) -> PolicyDecision | None:
+        if self.actions and request.action not in self.actions:
+            return None
+        return self.rule(request)
+
+
 class CorePolicy:
     """Safe defaults after every workplace rule has had a chance to narrow."""
 
@@ -132,7 +145,15 @@ class PolicyEngine:
     """Combine independent rules without allowing one permit to erase a deny."""
 
     def __init__(self, rules: Sequence[PolicyRule] = ()) -> None:
-        self._rules = (*tuple(rules), CorePolicy())
+        self._workplace_rules = tuple(rules)
+        self._rules = (*self._workplace_rules, CorePolicy())
+
+    def has_workplace_rules_for(self, action: str) -> bool:
+        """Return true when a contributed rule can inspect this action."""
+        return any(
+            not isinstance(rule, ScopedPolicyRule) or not rule.actions or action in rule.actions
+            for rule in self._workplace_rules
+        )
 
     def decide(self, request: PolicyInput) -> PolicyDecision:
         decisions = [decision for rule in self._rules if (decision := rule(request)) is not None]

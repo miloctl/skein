@@ -102,7 +102,7 @@ def _require_opaque_project_policy(
     viewer: scope.Viewer,
     action: str,
     *,
-    exact_resources: bool = True,
+    unclassified_inputs: bool = True,
 ) -> projection_policy.ProjectionPolicy:
     """Refuse an opaque derivative when it cannot remove a denied input."""
     policy = projection_policy.ProjectionPolicy(
@@ -112,8 +112,9 @@ def _require_opaque_project_policy(
         "rest",
         viewer,
     )
-    allowed = policy.allows_all_inputs() if exact_resources else policy.allows_all_projects()
-    if not allowed:
+    if not policy.allows_all_projects() or (
+        unclassified_inputs and not policy.allows_unclassified()
+    ):
         enforce_decision(
             PolicyDecision(
                 PolicyEffect.DENY,
@@ -237,23 +238,19 @@ def get_tasks(
 ):
     """Return only rows that the composed workplace policy permits."""
     with db.read_transaction():
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.tasks",
+            "rest",
+            viewer,
+        )
         rows = work.list_tasks_joined(viewer)
         contexts = work.task_collection_policy_contexts(rows, viewer)
-        return [
-            row
-            for row in rows
-            if decide(
-                request,
-                subject,
-                "skein.rest.get.tasks",
-                "task",
-                resource_id=str(row["id"]),
-                project_type=contexts[int(row["id"])]["project_type"],
-                classification=contexts[int(row["id"])]["classification"],
-                attributes=contexts[int(row["id"])],
-            ).effect.value
-            == "permit"
+        permitted = [
+            row for row in rows if policy.permits("task", int(row["id"]), contexts[int(row["id"])])
         ]
+        return work.redact_task_relationships(permitted, viewer, policy.permits)
 
 
 @router.get("/tasks/{task_id}")
@@ -289,7 +286,14 @@ def get_task(
                     attributes=domain,
                 )
             )
-            return task
+            policy = projection_policy.ProjectionPolicy(
+                request.app.state.skein_registry.policy_engine,
+                subject,
+                "skein.rest.get.tasks",
+                "rest",
+                viewer,
+            )
+            return work.filter_task_projection(task, viewer, policy.permits)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
@@ -1037,7 +1041,8 @@ def get_briefing(
             viewer,
             policy.filter_rows,
             policy.filter_resources,
-            policy.allows_all_inputs(),
+            policy.allows_unclassified(),
+            policy.permits,
         )
 
 
@@ -1111,8 +1116,19 @@ def get_notifications(
     unread_only: bool = True,
 ):
     with db.read_transaction():
-        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.notifications")
-        return notifications.list_notifications(user, unread_only)
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.notifications",
+            "rest",
+            viewer,
+        )
+        return notifications.policy_filter(
+            notifications.list_notifications(user, unread_only),
+            policy.permits,
+            allow_unclassified=policy.allows_unclassified(),
+            viewer=viewer,
+        )
 
 
 class MarkReadIn(BaseModel):
@@ -1724,6 +1740,8 @@ def get_agent_inbox(
             agent,
             viewer,
             task_filter=lambda task_id, attributes: policy.permits("task", task_id, attributes),
+            resource_filter=policy.permits,
+            allow_unclassified=policy.allows_unclassified(),
         )
 
 
@@ -3139,7 +3157,7 @@ def get_interventions(
             subject,
             viewer,
             "skein.rest.get.interventions",
-            exact_resources=False,
+            unclassified_inputs=False,
         )
         return intervention.interventions(viewer, limit, resource_filter=policy.permits)
 

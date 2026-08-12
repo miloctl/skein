@@ -42,6 +42,8 @@ def ask_question(
             f"Question #{qid} assigned to you: {question[:80]}",
             tier="digest",
             link="/",
+            source_entity="question",
+            source_id=qid,
         )
     from .mentions import scan
 
@@ -90,6 +92,8 @@ def assign_question(
             f"Question #{question_id} assigned to you: {row['question'][:80]}",
             tier="digest",
             link="/",
+            source_entity="question",
+            source_id=question_id,
         )
     return {"id": question_id, "assigned_to": assigned_to}
 
@@ -123,6 +127,8 @@ def answer_question(
                 f"Your question #{question_id} was answered: {answer[:120]}",
                 tier="digest",
                 link="/dashboard",
+                source_entity="question",
+                source_id=question_id,
             )
         from .mentions import scan
 
@@ -326,6 +332,8 @@ def sweep_stale_decisions() -> list[dict]:
                 f" ({d['review_by']}). Reconfirm it or supersede it.",
                 tier="digest",
                 link="/",
+                source_entity="decision",
+                source_id=int(d["id"]),
             )
         db.log_activity(
             "scheduler", "stale_decision", scope.detail(d["visibility"], f"#{d['id']}", d["title"])

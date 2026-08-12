@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app.extensions import (
     AppSettings,
     ContextContribution,
+    ExtensionValidationError,
     IdentityContribution,
     PolicyContribution,
     PolicyDecision,
@@ -137,6 +138,103 @@ def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule
             ),
         ),
     )
+
+
+def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
+    called = []
+
+    def rule(request: PolicyInput):
+        called.append(request.action)
+        return PolicyDecision(PolicyEffect.DENY, ("Scoped rule ran.",))
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(
+            PolicyContribution(
+                "acme.workplace.scoped-policy",
+                rule,
+                actions=("acme.release.approve",),
+            ),
+        ),
+    )
+    engine = ExtensionRegistry.build((module,)).policy_engine
+    subject = PolicySubject("mira")
+
+    unrelated = engine.decide(
+        PolicyInput(subject, "skein.rest.get.notifications", PolicyResource("notification"), "rest")
+    )
+    protected = engine.decide(
+        PolicyInput(subject, "acme.release.approve", PolicyResource("release"), "rest")
+    )
+
+    assert unrelated.effect == PolicyEffect.PERMIT
+    assert protected.effect == PolicyEffect.DENY
+    assert called == ["acme.release.approve"]
+    assert engine.has_workplace_rules_for("acme.release.approve")
+    assert not engine.has_workplace_rules_for("skein.rest.get.notifications")
+
+
+@pytest.mark.parametrize("actions", [("",), ("x" * 161,), ("acme.read", "acme.read")])
+def test_policy_contribution_rejects_invalid_action_metadata(fresh_db, actions):
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(
+            PolicyContribution(
+                "acme.workplace.invalid-policy",
+                lambda _request: None,
+                actions=actions,
+            ),
+        ),
+    )
+
+    with pytest.raises(ExtensionValidationError, match=r"invalid action|duplicate actions"):
+        ExtensionRegistry.build((module,))
+
+
+def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, monkeypatch):
+    from app.services import policy_context, projection_policy, scope, work
+
+    for index in range(500):
+        work.create_task(f"Historical row {index}")
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(
+            PolicyContribution(
+                "acme.workplace.unrelated-policy",
+                lambda _request: None,
+                actions=("acme.release.approve",),
+            ),
+        ),
+    )
+    engine = ExtensionRegistry.build((module,)).policy_engine
+    monkeypatch.setattr(
+        policy_context,
+        "for_change",
+        lambda *_args, **_kwargs: pytest.fail("opaque reads must not resolve every exact row"),
+    )
+    policy = projection_policy.ProjectionPolicy(
+        engine,
+        PolicySubject("mira"),
+        "skein.rest.get.notifications",
+        "rest",
+        scope.NOBODY,
+    )
+
+    assert policy.allows_all_projects()
+    assert policy.allows_unclassified()
 
 
 def test_policy_can_use_subject_project_origin_and_tool_risk(fresh_db):
@@ -4214,11 +4312,11 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
         pack_response = client.get("/api/context-pack")
         flow_response = client.get("/api/portfolio/flow")
         inbox_response = client.get("/api/agents/agent/inbox")
+        notifications_response = client.get("/api/notifications")
         opaque_responses = [
             client.get("/api/attention"),
             client.get("/api/review"),
             client.get("/api/review/stats"),
-            client.get("/api/notifications"),
             client.get("/api/pulse"),
             client.get(f"/api/engagements/{regulated}/brief"),
             client.get(f"/api/provenance/engagement/{regulated}"),
@@ -4231,6 +4329,8 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
     assert "composite regulated secret" not in pack_response.json()["content"]
     assert inbox_response.status_code == 200
     assert "regulated task secret" not in inbox_response.text
+    assert notifications_response.status_code == 200
+    assert "regulated task secret" not in notifications_response.text
     assert flow_response.status_code == 403
     assert {response.status_code for response in opaque_responses} == {403}
 
@@ -4536,19 +4636,28 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
         set_requester_viewer,
     )
     from app.extensions.policy import reset_policy_subject, set_policy_subject
-    from app.services import delegation, scope, users, work
-    from app.tools.portfolio import get_attention
+    from app.services import delegation, mentions, scope, users, work
+    from app.tools.portfolio import get_attention, my_agent_inbox
 
     users.ensure_user("sponsor")
     work.create_task("Padding task for distinct project and task IDs")
     task = work.create_task("ID DENIED NOTIFICATION CANARY", actor="sponsor")["id"]
     delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+    mentions.scan("task", task, "@research-agent", actor="sponsor")
+    users.ensure_agent_identity("mcp-reader", owner="mcp")
+    mentions.scan("task", task, "@mcp-reader", actor="sponsor")
+    from app.services.notifications import notify
+
+    notify("sponsor", "LEGACY UNCLASSIFIED NOTIFICATION")
 
     protected = {
         "skein.rest.get.notifications",
         "skein.rest.get.briefing",
         "skein.tool.get_attention",
         "skein.mcp.briefing.read",
+        "skein.rest.get.agents.inbox",
+        "skein.tool.my_agent_inbox",
+        "skein.mcp.inbox.read",
     }
 
     def deny_exact_task(request: PolicyInput):
@@ -4571,16 +4680,19 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     with TestClient(create_app(modules=(module,)), headers={"X-User": "sponsor"}) as client:
         notifications = client.get("/api/notifications")
         briefing = client.get("/api/briefing")
+        rest_inbox = client.get("/api/agents/research-agent/inbox")
 
     engine_token = set_policy_engine(PolicyEngine((deny_exact_task,)))
     subject_token = set_policy_subject(PolicySubject("sponsor", kind="human", strong=True))
-    agent_token = set_agent_identity("agent")
+    agent_token = set_agent_identity("research-agent")
     viewer_token = set_requester_viewer(scope.Viewer("sponsor", True))
     original_actor = mcp_server.ACTOR
-    mcp_server.ACTOR = "sponsor"
+    mcp_server.ACTOR = "mcp-reader"
     try:
         stock_attention = get_attention()
+        stock_inbox = my_agent_inbox()
         mcp_day = mcp_server.get_my_day()
+        mcp_inbox = mcp_server.my_inbox()
     finally:
         mcp_server.ACTOR = original_actor
         reset_requester_viewer(viewer_token)
@@ -4588,12 +4700,102 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
         reset_policy_subject(subject_token)
         reset_policy_engine(engine_token)
 
-    assert notifications.status_code == 403
+    assert notifications.status_code == 200
     assert "ID DENIED NOTIFICATION CANARY" not in notifications.text
+    assert "LEGACY UNCLASSIFIED NOTIFICATION" not in notifications.text
     assert briefing.status_code == 200
     assert "ID DENIED NOTIFICATION CANARY" not in briefing.text
     assert "ID DENIED NOTIFICATION CANARY" not in stock_attention
     assert "ID DENIED NOTIFICATION CANARY" not in mcp_day
+    for response_text in (rest_inbox.text, stock_inbox, mcp_inbox):
+        assert f"task #{task}" not in response_text
+        assert "ID DENIED NOTIFICATION CANARY" not in response_text
+
+
+def test_task_reads_redact_each_denied_nested_resource(fresh_db):
+    from app import mcp_server
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import blockers, engagements, work
+    from app.tools.work import list_tasks as stock_list_tasks
+
+    engagements.create_engagement("Allowed task project")
+    milestone = work.create_milestone("DENIED MILESTONE TITLE", project="Allowed task project")[
+        "id"
+    ]
+    task = work.create_task("Allowed outer task", milestone_id=milestone)["id"]
+    blocker = blockers.raise_blocker("DENIED BLOCKER TITLE", task_id=task)["id"]
+    child = work.create_task("DENIED DOWNSTREAM TITLE")["id"]
+    work.update_task(child, waiting_on=f"task:{task}")
+    finding = fresh_db.execute(
+        "INSERT INTO findings"
+        " (rule_id, subject, severity, message, receipt, week, created_at)"
+        " VALUES ('test', 'task', 'low', 'DENIED FINDING BODY', '{}', '2026-W33', ?)",
+        (fresh_db.now(),),
+    )
+    fresh_db.execute("UPDATE tasks SET source_finding_id = ? WHERE id = ?", (finding, task))
+
+    protected = {
+        "skein.rest.get.tasks",
+        "skein.tool.list_tasks",
+        "skein.mcp.tasks.read",
+    }
+
+    def deny_nested(request: PolicyInput):
+        denied = {
+            ("milestone", str(milestone)),
+            ("blocker", str(blocker)),
+            ("task", str(child)),
+            ("finding", str(finding)),
+        }
+        if request.action in protected and (request.resource.type, request.resource.id) in denied:
+            return PolicyDecision(PolicyEffect.DENY, ("This nested row is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.task-projection", deny_nested),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        listed = client.get("/api/tasks")
+        single = client.get(f"/api/tasks/{task}")
+
+    engine = ExtensionRegistry.build((module,)).policy_engine
+    engine_token = set_policy_engine(engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    agent_token = set_agent_identity("agent")
+    original_actor = mcp_server.ACTOR
+    mcp_server.ACTOR = "agent"
+    try:
+        stock = stock_list_tasks()
+        mcp = mcp_server.list_tasks()
+    finally:
+        mcp_server.ACTOR = original_actor
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+
+    assert listed.status_code == 200
+    listed_outer = next(row for row in listed.json() if row["id"] == task)
+    assert listed_outer["milestone_id"] is None
+    assert "DENIED MILESTONE TITLE" not in listed.text
+    assert single.status_code == 200
+    assert single.json()["milestone_id"] is None
+    assert single.json()["blockers"] == []
+    assert single.json()["unblocks"] == []
+    assert single.json()["unblocks_total"] == 0
+    assert single.json()["source_finding"] is None
+    assert "DENIED" not in single.text
+    stock_outer = next(row for row in json.loads(stock) if row["id"] == task)
+    mcp_outer = next(row for row in json.loads(mcp) if row["id"] == task)
+    assert stock_outer["milestone_id"] is None, stock
+    assert mcp_outer["milestone_id"] is None, mcp
+    assert "DENIED MILESTONE TITLE" not in stock
+    assert "DENIED MILESTONE TITLE" not in mcp
 
 
 def test_stock_and_mcp_engagement_composites_filter_nested_resources(fresh_db, monkeypatch):

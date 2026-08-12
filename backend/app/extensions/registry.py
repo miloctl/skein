@@ -70,8 +70,15 @@ class ExtensionRegistry:
 
     @property
     def policy_engine(self) -> PolicyEngine:
+        from .policy import ScopedPolicyRule
+
         ordered = sorted(self.policies, key=lambda contribution: contribution.priority)
-        return PolicyEngine(tuple(contribution.rule for contribution in ordered))
+        return PolicyEngine(
+            tuple(
+                ScopedPolicyRule(contribution.rule, contribution.actions)
+                for contribution in ordered
+            )
+        )
 
     def identity_attributes(
         self, name: str, groups: tuple[str, ...], strong: bool
@@ -474,6 +481,14 @@ def _validate_module(module: SkeinModule) -> None:
             )
     for policy_contribution in module.policies:
         _validate_contribution_name(module, policy_contribution.name)
+        if any(not action.strip() or len(action) > 160 for action in policy_contribution.actions):
+            raise ExtensionValidationError(
+                f"policy {policy_contribution.name!r} has an invalid action"
+            )
+        if len(set(policy_contribution.actions)) != len(policy_contribution.actions):
+            raise ExtensionValidationError(
+                f"policy {policy_contribution.name!r} has duplicate actions"
+            )
     for identity_contribution in module.identities:
         _validate_contribution_name(module, identity_contribution.name)
     for service_identity in module.service_identities:

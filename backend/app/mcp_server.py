@@ -175,7 +175,8 @@ def get_my_day() -> str:
                 ACTOR,
                 row_filter=policy.filter_rows,
                 mixed_filter=policy.filter_resources,
-                allow_unclassified=policy.allows_all_inputs(),
+                allow_unclassified=policy.allows_unclassified(),
+                resource_filter=policy.permits,
             )
         )
 
@@ -339,18 +340,26 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
     with db.read_transaction():
         rows = work.list_tasks(status=status, assignee=assignee)
         contexts = work.task_collection_policy_contexts(rows, scope.NOBODY)
-        return json.dumps(
-            [
-                row
-                for row in rows
-                if _policy_permits(
-                    "skein.mcp.tasks.read",
-                    "task",
-                    int(row["id"]),
-                    contexts[int(row["id"])],
-                )
-            ]
+        permitted = [
+            row
+            for row in rows
+            if _policy_permits(
+                "skein.mcp.tasks.read",
+                "task",
+                int(row["id"]),
+                contexts[int(row["id"])],
+            )
+        ]
+        policy = projection_policy.ProjectionPolicy(
+            current_policy_engine(),
+            current_policy_subject(),
+            "skein.mcp.tasks.read",
+            "mcp",
+            scope.NOBODY,
+            agent=ACTOR,
+            tool="skein.mcp.tasks.read",
         )
+        return json.dumps(work.redact_task_relationships(permitted, scope.NOBODY, policy.permits))
 
 
 @mcp.tool()
@@ -505,6 +514,8 @@ def my_inbox() -> str:
             delegation.agent_inbox(
                 ACTOR,
                 task_filter=lambda task_id, attributes: policy.permits("task", task_id, attributes),
+                resource_filter=policy.permits,
+                allow_unclassified=policy.allows_unclassified(),
             )
         )
 

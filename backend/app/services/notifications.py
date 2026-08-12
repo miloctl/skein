@@ -10,13 +10,29 @@ import json
 import logging
 import threading
 import urllib.request
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from .. import config, db
+
+if TYPE_CHECKING:
+    from . import scope
 
 log = logging.getLogger(__name__)
 
 TIERS = ("immediate", "digest", "passive")
+_SOURCE_ALIASES = {
+    "blocker_edit": "blocker",
+    "event_cancel": "event",
+    "intake_edit": "intake",
+    "memory_forget": "memory",
+    "note_delete": "note",
+    "note_edit": "note",
+    "promise_edit": "promise",
+    "promise_settle": "promise",
+    "task_completion": "task",
+}
 
 
 def _post_slack(text: str) -> None:
@@ -37,7 +53,15 @@ def _post_slack(text: str) -> None:
     threading.Thread(target=send, daemon=True).start()
 
 
-def notify(user: str, message: str, tier: str = "digest", link: str = "") -> dict | None:
+def notify(
+    user: str,
+    message: str,
+    tier: str = "digest",
+    link: str = "",
+    *,
+    source_entity: str = "",
+    source_id: int = 0,
+) -> dict | None:
     if tier not in TIERS:
         raise ValueError(f"tier must be one of {TIERS}")
     if tier == "passive":
@@ -45,9 +69,19 @@ def notify(user: str, message: str, tier: str = "digest", link: str = "") -> dic
         return None
     ts = db.now()
     nid = db.execute(
-        "INSERT INTO notifications (user, tier, message, link, sent_at, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (user, tier, message, link, ts if tier == "immediate" else None, ts),
+        "INSERT INTO notifications"
+        " (user, tier, message, link, sent_at, created_at, source_entity, source_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            user,
+            tier,
+            message,
+            link,
+            ts if tier == "immediate" else None,
+            ts,
+            source_entity,
+            source_id or None,
+        ),
     )
     if tier == "immediate":
         # The SAME rule flush_digest_tier follows, and for the same reason:
@@ -81,6 +115,56 @@ def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
     return db.query(
         "SELECT * FROM notifications WHERE user IN (?, 'team') ORDER BY id DESC LIMIT 50", (user,)
     )
+
+
+def policy_filter(
+    rows: list[dict],
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+    *,
+    allow_unclassified: bool,
+    viewer: "scope.Viewer | None" = None,
+) -> list[dict]:
+    """Filter notification bodies by their typed source resource.
+
+    Old rows have no source. Keep them when no applicable workplace rule
+    exists. Otherwise, omit them because their body cannot be classified
+    safely.
+    """
+    if resource_filter is None:
+        return rows
+    from . import policy_context
+
+    resources = [source_resource(row) for row in rows]
+    supported = [
+        resource
+        for resource in resources
+        if policy_context.supports_resource(resource[0]) and resource[1] > 0
+    ]
+    contexts = (
+        {resource: policy_context.existing(resource[0], resource[1]) for resource in supported}
+        if viewer is None
+        else policy_context.resource_contexts(supported, viewer)
+    )
+    result: list[dict] = []
+    for row, resource in zip(rows, resources, strict=True):
+        entity, entity_id = resource
+        if not entity or entity_id <= 0:
+            if allow_unclassified:
+                result.append(row)
+            continue
+        attributes = contexts.get((entity, entity_id))
+        if attributes is None:
+            # A deleted or unsupported source cannot make free-form text safe.
+            continue
+        if resource_filter(entity, entity_id, attributes):
+            result.append(row)
+    return result
+
+
+def source_resource(row: dict) -> tuple[str, int]:
+    """Return the canonical domain resource that produced a notification."""
+    entity = str(row.get("source_entity") or "")
+    return _SOURCE_ALIASES.get(entity, entity), int(row.get("source_id") or 0)
 
 
 def mark_read_matching(prefix: str) -> int:

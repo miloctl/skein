@@ -22,6 +22,23 @@ def test_team_notifications_visible_in_inbox(client, monkeypatch):
     assert any("ship recap" in n["message"] for n in inbox)
 
 
+def test_notification_records_its_policy_source(fresh_db):
+    from app.services import notifications, work
+
+    task = work.create_task("Typed notification source")["id"]
+    row = notifications.notify(
+        "mira",
+        "The task changed.",
+        source_entity="task",
+        source_id=task,
+    )
+
+    assert fresh_db.query_one(
+        "SELECT source_entity, source_id FROM notifications WHERE id = ?",
+        (row["id"],),
+    ) == {"source_entity": "task", "source_id": task}
+
+
 def test_ship_notification_is_plain_text(client, fresh_db):
     from app.services import engagements
 

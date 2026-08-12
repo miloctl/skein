@@ -236,6 +236,8 @@ def _gated_write_locked(
                 f"Agent {actor} wrote {entity}.{action}: {summary or json.dumps(payload)[:120]}",
                 tier="digest",
                 link="/review",
+                source_entity=entity,
+                source_id=int(result.get("id") or entity_id or 0),
             )
         return json.dumps(result)
     try:
