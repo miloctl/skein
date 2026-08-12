@@ -297,21 +297,25 @@ class WorkItems:
         self._require_issued_context(context)
         project_type = context.project_type
         link_attributes: dict[str, Any] = {}
+        viewer = scope.Viewer.for_actor(context.execution_actor)
         if command.engagement_id:
+            visible, params = scope.visible_filter(viewer, "engagements", "engagement")
             row = db.query_one(
-                "SELECT project_class, visibility FROM engagements"
-                " WHERE id = ? AND visibility = 'workspace'",
-                (command.engagement_id,),
+                f"SELECT engagement.project_class FROM engagements engagement"  # noqa: S608 -- scope emits only bound marks
+                f" WHERE engagement.id = ? AND {visible}",
+                (command.engagement_id, *params),
             )
             if row:
                 project_type = str(row["project_class"] or "")
                 link_attributes["engagement_id"] = command.engagement_id
         elif command.milestone_id:
+            visible, params = scope.visible_filter(viewer, "milestones", "milestone")
             row = db.query_one(
-                "SELECT e.project_class, m.engagement_id FROM milestones m"
-                " LEFT JOIN engagements e ON e.id = m.engagement_id"
-                " WHERE m.id = ? AND m.visibility = 'workspace'",
-                (command.milestone_id,),
+                f"SELECT engagement.project_class, milestone.engagement_id"  # noqa: S608 -- scope emits only bound marks
+                " FROM milestones milestone LEFT JOIN engagements engagement"
+                " ON engagement.id = milestone.engagement_id"
+                f" WHERE milestone.id = ? AND {visible}",
+                (command.milestone_id, *params),
             )
             if row and row["project_class"]:
                 project_type = str(row["project_class"])

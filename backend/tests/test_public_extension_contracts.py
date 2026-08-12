@@ -379,6 +379,123 @@ def test_linked_engagement_context_overrides_caller_policy_context(fresh_db):
     assert fresh_db.query_one("SELECT title FROM tasks") is None
 
 
+@pytest.mark.parametrize("caller_project_type", ["standard", ""])
+def test_crew_engagement_context_overrides_caller_policy_context(fresh_db, caller_project_type):
+    from app.services import crews, engagements
+
+    crew_id = crews.create_crew("Regulated delivery", actor="atlas-sync")["id"]
+    engagement = engagements.create_engagement(
+        "Crew-regulated launch",
+        project_class="regulated",
+        actor="atlas-sync",
+        visibility="crew",
+        crew_id=crew_id,
+    )
+
+    def require_review(request: PolicyInput):
+        if request.action == "work.task.create" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.REVIEW, ("Regulated work needs review.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.regulated", require_review),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(
+                title="Crew-linked work",
+                engagement_id=engagement["id"],
+                visibility="crew",
+                crew_id=crew_id,
+            ),
+            _context(facade, project_type=caller_project_type),
+        )
+    assert raised.value.code == "REVIEW_REQUIRED"
+    assert fresh_db.query_one("SELECT title FROM tasks") is None
+
+
+@pytest.mark.parametrize("caller_project_type", ["standard", ""])
+def test_crew_milestone_context_overrides_caller_policy_context(fresh_db, caller_project_type):
+    from app.services import crews, engagements
+    from app.services import work as service_work
+
+    crew_id = crews.create_crew("Regulated delivery", actor="atlas-sync")["id"]
+    engagements.create_engagement(
+        "Crew-regulated launch",
+        project_class="regulated",
+        actor="atlas-sync",
+        visibility="crew",
+        crew_id=crew_id,
+    )
+    milestone = service_work.create_milestone(
+        "Regulated gate",
+        project="Crew-regulated launch",
+        actor="atlas-sync",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+
+    def require_review(request: PolicyInput):
+        if request.action == "work.task.create" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.REVIEW, ("Regulated work needs review.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.regulated", require_review),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(
+                title="Milestone-linked work",
+                milestone_id=milestone,
+                visibility="crew",
+                crew_id=crew_id,
+            ),
+            _context(facade, project_type=caller_project_type),
+        )
+    assert raised.value.code == "REVIEW_REQUIRED"
+    assert fresh_db.query_one("SELECT title FROM tasks") is None
+
+
+def test_invisible_link_and_absent_link_have_the_same_public_refusal(fresh_db):
+    from app.services import crews, engagements
+
+    crew_id = crews.create_crew("Hidden delivery", actor="other-person")["id"]
+    hidden_id = engagements.create_engagement(
+        "Hidden engagement",
+        project_class="regulated",
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    command = CreateTaskCommand(title="Unresolved link", engagement_id=hidden_id)
+
+    with pytest.raises(PublicError) as hidden:
+        facade.create_task(command, _context(facade, project_type="standard"))
+    fresh_db.execute("DELETE FROM engagements WHERE id = ?", (hidden_id,))
+    with pytest.raises(PublicError) as absent:
+        facade.create_task(command, _context(facade, project_type="standard"))
+
+    assert (hidden.value.code, hidden.value.detail) == (
+        absent.value.code,
+        absent.value.detail,
+    )
+    assert fresh_db.query_one("SELECT title FROM tasks") is None
+
+
 def test_public_update_policy_uses_target_engagement(fresh_db):
     from app.services import engagements
     from app.services import work as service_work

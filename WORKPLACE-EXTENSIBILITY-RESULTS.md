@@ -1573,3 +1573,16 @@ for `9570b86` are void.
 After this remediation, all 43 specialist-consult tests passed. The complete
 backend suite passed 1,849 tests in 113.48 seconds. The complete static gate
 also passed.
+
+The independent review of `c5f8c78` found one policy bypass. Public task
+creation resolved project class only for workspace links. A crew member could
+link a regulated crew engagement or milestone while the policy received a
+caller-supplied standard class. Scores for `c5f8c78` are void.
+
+The public facade now uses the bound actor's visibility predicate to resolve
+the link. Resolution, policy, and creation stay in one write transaction.
+Tests cover crew engagement and milestone links with false and empty caller
+contexts. A separate test proves that an invisible link and an absent link
+have the same public refusal. The focused policy and visibility suites passed
+183 tests. The complete backend suite passed 1,854 tests in 112.48 seconds,
+and the backend static gate passed.
