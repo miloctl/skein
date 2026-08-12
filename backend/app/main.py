@@ -300,10 +300,10 @@ async def lifespan(app: FastAPI):
         log.error("the built-in 'agent' identity is unavailable: %s", exc)
     for specialist in registry.specialists:
         try:
-            ensure_agent_identity(specialist.name)
+            ensure_agent_identity(specialist.name, owner=f"specialist:{specialist.name}")
         except ValueError as exc:
             raise RuntimeError(
-                f"specialist identity {specialist.name!r} is already owned by a human"
+                f"specialist identity {specialist.name!r} is already owned: {exc}"
             ) from exc
     for identity in registry.service_identities:
         # Core machine actors are reserved independently of the users table.
@@ -312,10 +312,10 @@ async def lifespan(app: FastAPI):
         # they cannot be claimed later through a legacy or direct user path.
         if identity.subject not in SYSTEM_ACTORS:
             try:
-                ensure_agent_identity(identity.subject)
+                ensure_agent_identity(identity.subject, owner=f"service:{identity.name}")
             except ValueError as exc:
                 raise RuntimeError(
-                    f"service identity {identity.subject!r} is already owned by a human"
+                    f"service identity {identity.subject!r} is already owned: {exc}"
                 ) from exc
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
@@ -327,7 +327,7 @@ async def lifespan(app: FastAPI):
     if mcp_identity_available:
         minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
         try:
-            ensure_agent_identity(mcp_user)
+            ensure_agent_identity(mcp_user, owner="mcp")
         except ValueError as exc:
             # Operator-supplied config never takes down REST. The same rule
             # lets a bad model provider degrade to deterministic mode.
@@ -414,9 +414,20 @@ async def lifespan(app: FastAPI):
     # Persona filenames reserve identity even when their prompt is malformed;
     # the strict validator reports that fault. A malformed flock is not an
     # identity until it parses, so fixing or adding one requires restart.
-    runtime_content_owners = personas_svc.bench_slugs() | {
+    configured_content_owners = personas_svc.bench_slugs() | {
         item["slug"] for item in flocks_svc.list_flocks()
     }
+    from .services.users import reserve_content_identities
+
+    runtime_content_owners, content_identity_conflicts = reserve_content_identities(
+        configured_content_owners
+    )
+    for conflict in content_identity_conflicts:
+        log.error(
+            "content identity %r is unavailable because roster ownership belongs to: %s",
+            conflict["claim"],
+            ", ".join(conflict["names"]),
+        )
     runtime_subject_token = activate_runtime_machine_subjects(
         runtime_subjects, runtime_content_owners
     )

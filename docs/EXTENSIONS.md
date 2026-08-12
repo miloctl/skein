@@ -283,6 +283,38 @@ file. A new file stays unavailable until restart. Its valid slug is reserved
 immediately, so a human, delegated agent, service, or tool cannot claim it
 during the restart window.
 
+Core migration 018 records durable ownership for each roster identity. New
+rows identify a human, generic agent, content item, service, specialist, MCP
+actor, or core actor. This prevents a later concern from silently using the
+same provenance and authority.
+
+Migration 018 assigns stock content and the core Chief automatically. It
+cannot infer private ownership from an old generic agent row. Before the first
+restart on the new core, list ownership conflicts:
+
+```sh
+python -m app.identity_audit
+```
+
+If an old row belongs to private persona or flock content, assign it:
+
+```sh
+python -m app.identity_audit claim-content atlas-auditor
+```
+
+If an old row belongs to a private service, specialist, or MCP actor, assign
+its exact owner:
+
+```sh
+python -m app.identity_audit claim-machine atlas-sync service:atlas.workplace.sync-identity
+python -m app.identity_audit claim-machine atlas.workplace.delivery-specialist specialist:atlas.workplace.delivery-specialist
+python -m app.identity_audit claim-machine mcp-agent mcp
+```
+
+The command accepts only an existing generic agent row. It never creates a
+row or takes a human identity. It records `system` and the assigned owner in
+the activity chain. Keep these commands in the deployment upgrade procedure.
+
 ## Use public work commands
 
 `WorkItems` is the first public command and query facade. It validates policy

@@ -15,6 +15,10 @@ IDENTITY_COLLISION = (
     " run 'python -m app.identity_audit'."
 )
 
+HUMAN_OWNER = "human"
+GENERIC_AGENT_OWNER = "generic-agent"
+CONTENT_OWNER = "content"
+
 
 def _is_bench_slug(name: str) -> bool:
     """Names configured for the agent layer, including pending restart.
@@ -99,11 +103,16 @@ def reserved_name_rows() -> list[str]:
     knows every attribution column and the private notes DB."""
     reserved = {fold(a): a for a in HUMAN_RESERVED_SUBJECTS}
     stuck: list[str] = []
-    for row in db.query("SELECT name, kind FROM users"):
+    for row in db.query("SELECT name, kind, identity_owner FROM users"):
         claim = reserved.get(fold(row["name"]))
         if not claim:
             continue
-        if claim in ROSTER_CORE_AGENT_SUBJECTS and row["name"] == claim and row["kind"] == "agent":
+        if (
+            claim in ROSTER_CORE_AGENT_SUBJECTS
+            and row["name"] == claim
+            and row["kind"] == "agent"
+            and row.get("identity_owner") == "core"
+        ):
             continue
         stuck.append(row["name"])
     return stuck
@@ -168,6 +177,42 @@ def _accepted_content_machine_claims() -> set[str]:
     return claims
 
 
+def reserve_content_identities(slugs: set[str]) -> tuple[set[str], list[dict]]:
+    """Claim startup content names and return the safe subset plus conflicts.
+
+    Migration 018 classifies stock content and generic legacy agents. Private
+    overlay ownership is not inferable from an old row, so an operator must
+    claim it explicitly. All new reservations have an owner, so reverse-order
+    content additions fail closed instead of inheriting generic authority.
+    """
+    accepted: set[str] = set()
+    conflicts: list[dict] = []
+    with db.transaction():
+        rows = db.query("SELECT name, kind, identity_owner FROM users")
+        for slug in sorted(slugs):
+            folded = fold(slug)
+            matches = [row for row in rows if fold(row["name"]) == folded]
+            if not matches:
+                accepted.add(slug)
+                continue
+            exact = next((row for row in matches if row["name"] == slug), None)
+            if len(matches) != 1 or exact is None:
+                conflicts.append(
+                    {
+                        "kind": "content-owner",
+                        "names": tuple(row["name"] for row in matches),
+                        "claim": slug,
+                    }
+                )
+                continue
+            owner = exact["identity_owner"]
+            if exact["kind"] == "agent" and owner == CONTENT_OWNER:
+                accepted.add(slug)
+                continue
+            conflicts.append({"kind": "content-owner", "names": (exact["name"],), "claim": slug})
+    return accepted, conflicts
+
+
 def refuse_human_machine_claim(name: str) -> None:
     """Refuse a human name owned by content, including inherited rows."""
     refuse_authenticated_name(name)
@@ -188,7 +233,7 @@ def identity_collision_refusal(name: str) -> str:
 def folded_identity_collisions() -> list[list[dict]]:
     """All legacy roster groups that violate one-folded-name/one-owner."""
     groups: dict[str, list[dict]] = {}
-    for row in db.query("SELECT name, kind FROM users ORDER BY name"):
+    for row in db.query("SELECT name, kind, identity_owner FROM users ORDER BY name"):
         groups.setdefault(fold(row["name"]), []).append(row)
     return [rows for rows in groups.values() if len(rows) > 1]
 
@@ -202,7 +247,7 @@ def identity_ownership_conflicts() -> list[dict]:
     content = _content_machine_claims()
     reserved = {fold(name): name for name in HUMAN_RESERVED_SUBJECTS}
     duplicate_names = {name for item in conflicts for name in item["names"]}
-    for row in db.query("SELECT name, kind FROM users ORDER BY name"):
+    for row in db.query("SELECT name, kind, identity_owner FROM users ORDER BY name"):
         if row["name"] in duplicate_names:
             continue
         folded = fold(row["name"])
@@ -211,6 +256,7 @@ def identity_ownership_conflicts() -> list[dict]:
                 claim in ROSTER_CORE_AGENT_SUBJECTS
                 and row["kind"] == "agent"
                 and row["name"] == claim
+                and row["identity_owner"] == "core"
             )
             if not legitimate_core_agent:
                 conflicts.append(
@@ -222,7 +268,12 @@ def identity_ownership_conflicts() -> list[dict]:
                 )
             continue
         claim = content.get(folded)
-        if claim and (row["kind"] != "agent" or row["name"] != claim):
+        content_owned = (
+            row["kind"] == "agent"
+            and row["name"] == claim
+            and row["identity_owner"] == CONTENT_OWNER
+        )
+        if claim and not content_owned:
             conflicts.append(
                 {
                     "kind": "content-owner",
@@ -242,13 +293,14 @@ def identity_ownership_error() -> str:
     return f"{count} conflicting identity {noun}. Run 'python -m app.identity_audit' on the server."
 
 
-def ensure_user(name: str, kind: str = "human") -> dict:
+def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     effective_kind = kind if kind in ("human", "agent") else "human"
     # The folded-name check and insert are one write transaction. SQLite has
     # no Unicode case-fold collation for a unique index, so serialization is
     # what prevents concurrent `Mira` and `MIRA` rows.
     with db.transaction():
+        owner = HUMAN_OWNER
         if effective_kind == "agent":
             refuse_authenticated_name(name)
             folded = fold(name)
@@ -259,6 +311,11 @@ def ensure_user(name: str, kind: str = "human") -> dict:
                 raise ValueError(
                     "that name belongs to configured content that needs an application restart"
                 )
+            owner = (
+                _owner
+                or (CONTENT_OWNER if folded in _accepted_content_machine_claims() else "")
+                or GENERIC_AGENT_OWNER
+            )
         else:
             refuse_reserved_name(name)
         # bench persona slugs are reserved identities: a human picking one
@@ -277,10 +334,12 @@ def ensure_user(name: str, kind: str = "human") -> dict:
         # an exact existing name. Strict human and agent entry points validate
         # the returned kind below this compatibility layer.
         db.execute(
-            "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
-            (name, effective_kind, db.now()),
+            "INSERT OR IGNORE INTO users (name, kind, identity_owner, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (name, effective_kind, owner, db.now()),
         )
-        return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
+        row = db.query_row("SELECT * FROM users WHERE name = ?", (name,))
+        return row
 
 
 def ensure_human_identity(name: str) -> dict:
@@ -305,7 +364,7 @@ def ensure_human_identity(name: str) -> dict:
         return row
 
 
-def ensure_agent_identity(name: str) -> dict:
+def ensure_agent_identity(name: str, *, owner: str = GENERIC_AGENT_OWNER) -> dict:
     """Reserve one exact name for machine use without reusing a human row.
 
     Keep the collision check, insert, and final kind check under one immediate
@@ -327,14 +386,27 @@ def ensure_agent_identity(name: str) -> dict:
             # A caller can use a core agent that startup already reserved, but
             # it cannot create a system actor from user-supplied text.
             if existing is not None and normalized in ROSTER_CORE_AGENT_SUBJECTS:
-                return existing
+                if existing["identity_owner"] == "core":
+                    return existing
+                raise ValueError(f"'{normalized}' is already owned by another machine identity")
             refuse_authenticated_name(normalized)
-        row = ensure_user(normalized, kind="agent")
+        expected_owner = CONTENT_OWNER if folded in _accepted_content_machine_claims() else owner
+        row = ensure_user(normalized, kind="agent", _owner=expected_owner)
         if row["kind"] != "agent":
             # This is also a postcondition for callers that are already in an
             # outer transaction. A successful machine reservation must never
             # return a human-owned row.
             raise ValueError(f"'{normalized}' is already owned by a human identity")
+        current_owner = row["identity_owner"]
+        if not current_owner and expected_owner == GENERIC_AGENT_OWNER:
+            db.execute(
+                "UPDATE users SET identity_owner = ? WHERE name = ?",
+                (GENERIC_AGENT_OWNER, normalized),
+            )
+            current_owner = GENERIC_AGENT_OWNER
+            row = db.query_row("SELECT * FROM users WHERE name = ?", (normalized,))
+        if current_owner != expected_owner:
+            raise ValueError(f"'{normalized}' is already owned by another machine identity")
         return row
 
 
@@ -348,12 +420,15 @@ def _reserve_core_agent_identity(name: str) -> dict:
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{name}' is already owned by a human identity")
         db.execute(
-            "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, 'agent', ?)",
+            "INSERT OR IGNORE INTO users (name, kind, identity_owner, created_at)"
+            " VALUES (?, 'agent', 'core', ?)",
             (name, db.now()),
         )
         row = db.query_row("SELECT * FROM users WHERE name = ?", (name,))
         if row["kind"] != "agent":
             raise ValueError(f"'{name}' is already owned by a human identity")
+        if row["identity_owner"] != "core":
+            raise ValueError(f"'{name}' is already owned by another machine identity")
         return row
 
 
@@ -786,6 +861,64 @@ def repair_identity_ownership(old: str, new: str) -> dict:
             _identity_repair=True,
         )
     return {**result, "private_notes_moved": True, "repair_origin": "identity-audit"}
+
+
+def claim_content_identity(slug: str) -> dict:
+    """Explicitly adopt one legacy generic agent as configured content.
+
+    Core cannot infer whether a pre-018 agent row was an overlay persona or a
+    delegated helper with the same later filename. This shell-only operation
+    makes the operator's ownership decision durable and auditable.
+    """
+    slug = slug.strip()[:64]
+    if not slug or fold(slug) not in _content_machine_claims():
+        raise ValueError("that name is not configured persona or flock content")
+    with db.transaction():
+        refuse_ambiguous_identity(slug)
+        row = db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (slug,))
+        if row["kind"] != "agent":
+            raise ValueError("content identity ownership requires an agent row")
+        if row["identity_owner"] == CONTENT_OWNER:
+            return row
+        if row["identity_owner"] != GENERIC_AGENT_OWNER:
+            raise ValueError("that agent is owned by another machine concern")
+        db.execute(
+            "UPDATE users SET identity_owner = ? WHERE name = ?",
+            (CONTENT_OWNER, slug),
+        )
+        db.log_activity("system", "claim_content_identity", slug)
+        return db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (slug,))
+
+
+def claim_machine_identity(name: str, owner: str) -> dict:
+    """Assign one pre-018 generic row to an explicit composed concern.
+
+    This operation is for an operator who upgrades a deployment. Core cannot
+    infer whether an old generic row belonged to a private service or agent.
+    The operation does not create rows and does not take human ownership.
+    """
+    name = name.strip()[:64]
+    owner = owner.strip()[:160]
+    valid_owner = owner == "mcp" or owner.startswith(("service:", "specialist:"))
+    if not name or not valid_owner or owner.endswith(":"):
+        raise ValueError("owner must be mcp, service:<name>, or specialist:<name>")
+    if owner.startswith("specialist:") and owner.removeprefix("specialist:") != name:
+        raise ValueError("a specialist owner must use the specialist identity name")
+    with db.transaction():
+        refuse_ambiguous_identity(name)
+        row = db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (name,))
+        if row["kind"] != "agent":
+            raise ValueError("machine identity ownership requires an agent row")
+        if row["identity_owner"] == owner:
+            return row
+        if row["identity_owner"] != GENERIC_AGENT_OWNER:
+            raise ValueError("that agent is owned by another machine concern")
+        db.execute(
+            "UPDATE users SET identity_owner = ? WHERE name = ?",
+            (owner, name),
+        )
+        db.log_activity("system", "claim_machine_identity", f"{name} -> {owner}")
+        return db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (name,))
 
 
 def set_active(name: str, active: bool, *, actor: str = "system") -> dict:

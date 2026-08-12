@@ -665,6 +665,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "request_key": ("requested an API key", "normal"),
     "rename_user": ("renamed a teammate", "loud"),
     "repair_identity_ownership": ("repaired identity ownership", "loud"),
+    "claim_content_identity": ("assigned content identity ownership", "loud"),
+    "claim_machine_identity": ("assigned machine identity ownership", "loud"),
     "set_user_active": ("changed whether a teammate is active", "loud"),
     "set_context_strategy": ("changed the long-chat strategy", "loud"),
     # loud like the strategy above: it changes what every chat costs

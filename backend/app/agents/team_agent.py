@@ -795,7 +795,7 @@ def build_agent(
         from starlette.concurrency import run_in_threadpool
 
         from ..services import personas as personas_svc
-        from ..services.users import ensure_user
+        from ..services.users import ensure_agent_identity
         from .identity import (
             agent_identity,
             force_review,
@@ -875,7 +875,7 @@ def build_agent(
             yield json.dumps({"error": str(exc)})
             return
         try:
-            await run_in_threadpool(ensure_user, slug, kind="agent")
+            await run_in_threadpool(ensure_agent_identity, slug)
         except ValueError as exc:
             yield json.dumps({"error": str(exc)})
             return

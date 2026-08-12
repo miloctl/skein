@@ -1523,3 +1523,29 @@ No hard external blocker is known. Live enterprise integrations and a second
 published core release were unavailable. Local fakes and two separately built
 compatible core artifacts test the contract. This report does not claim
 production or multi-release evidence.
+
+## 19. Latest review remediation
+
+The architecture review rejected commit `d83ce94`. Content could take a
+pre-existing human or generic-agent identity after restart. This merged the
+content prompt with unrelated authority and provenance.
+
+Migration 018 now records the owner of each roster identity. Startup accepts
+content only when the row has the `content` owner. Private services,
+specialists, MCP, generic agents, humans, and the core Chief use separate
+owners. A normal delegation cannot use a service or MCP identity.
+
+The upgrade does not guess private ownership. An operator assigns each old
+private row with the shell-only identity audit. The activity chain records
+the decision as `system`. The unchanged private package remains separate from
+core source.
+
+| Verification | Result |
+|---|---|
+| Focused ownership, migration, authority, specialist, and composition tests | 180 passed |
+| Complete backend suite | 1,845 passed in 112.53 seconds |
+| Complete static gate | Passed |
+| Installed backend extension rehearsal | Passed before the final separate-database MCP assertion |
+
+This report retains the prior scores until the fresh independent review is
+complete. Chrome validation remains blocked.

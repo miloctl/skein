@@ -856,10 +856,10 @@ def test_a_held_slug_returns_the_error_instead_of_raising(real_provider, monkeyp
     agent = team_agent.build_agent("t-held")
     consult = _consult_tool(agent)
 
-    def held(name, kind="human"):
+    def held(name, **_kwargs):
         raise ValueError("that name belongs to a teammate")
 
-    monkeypatch.setattr(users_svc, "ensure_user", held)
+    monkeypatch.setattr(users_svc, "ensure_agent_identity", held)
     out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
     assert "belongs to a teammate" in out["error"]
 
