@@ -1671,7 +1671,7 @@ def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, m
         set_policy_engine,
         set_policy_subject,
     )
-    from app.services import engagements, work
+    from app.services import crews, engagements, users, work
 
     standard = engagements.create_engagement("MCP composite standard", project_class="standard")[
         "id"
@@ -1681,12 +1681,34 @@ def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, m
     )["id"]
     work.create_task("MCP regulated task secret", engagement_id=regulated, assignee="acme-mcp")
     work.create_task("MCP standard task", engagement_id=standard, assignee="acme-mcp")
+    users.ensure_user("sponsor")
+    users.ensure_agent_identity("acme-mcp", owner="mcp")
+    crew_id = crews.create_crew("MCP delegated policy", actor="sponsor")["id"]
+    crew_project = engagements.create_engagement(
+        "MCP delegated regulated",
+        project_class="regulated",
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    delegated = work.create_task(
+        "MCP REGULATED DELEGATION CANARY",
+        engagement_id=crew_project,
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    fresh_db.execute(
+        "UPDATE tasks SET delegated_agent = ?, sponsor = ? WHERE id = ?",
+        ("acme-mcp", "sponsor", delegated),
+    )
 
     protected = {
         "skein.mcp.briefing.read",
         "skein.mcp.search.read",
         "skein.mcp.context.read",
         "skein.mcp.portfolio.read",
+        "skein.mcp.inbox.read",
     }
 
     def deny_regulated(request):
@@ -1715,6 +1737,7 @@ def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, m
         scoped_pack = json.loads(mcp_server.get_context_pack(regulated))
         team_pack = mcp_server.context_pack_resource()
         health = json.loads(mcp_server.portfolio_health())
+        inbox = json.loads(mcp_server.my_inbox())
     finally:
         reset_policy_subject(subject_token)
         reset_policy_engine(engine_token)
@@ -1724,6 +1747,7 @@ def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, m
     assert scoped_pack["policy_effect"] == "deny"
     assert "composite regulated secret" not in team_pack
     assert {row["id"] for row in health} == {standard}
+    assert "MCP REGULATED DELEGATION CANARY" not in json.dumps(inbox)
 
 
 def test_inbound_mcp_delegation_uses_authoritative_crew_task_context(fresh_db, monkeypatch):

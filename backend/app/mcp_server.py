@@ -468,7 +468,7 @@ def get_context_pack(engagement_id: int = 0) -> str:
         return json.dumps(
             context_pack.get_pack(
                 actor=ACTOR,
-                project_filter=None if all_projects else policy.permits_project,
+                resource_filter=None if all_projects else policy.permits,
             )
         )
 
@@ -493,9 +493,12 @@ def my_inbox() -> str:
         tool="skein.mcp.inbox.read",
     )
     with db.read_transaction():
-        if not policy.allows_all_projects():
-            return json.dumps({"error": "workplace policy denied this composite read"})
-        return json.dumps(delegation.agent_inbox(ACTOR))
+        return json.dumps(
+            delegation.agent_inbox(
+                ACTOR,
+                task_filter=lambda task_id, attributes: policy.permits("task", task_id, attributes),
+            )
+        )
 
 
 @mcp.tool()
@@ -541,7 +544,7 @@ def context_pack_resource() -> str:
         all_projects = policy.allows_all_projects()
         return context_pack.get_pack(
             actor=ACTOR,
-            project_filter=None if all_projects else policy.permits_project,
+            resource_filter=None if all_projects else policy.permits,
         )["content"]
 
 

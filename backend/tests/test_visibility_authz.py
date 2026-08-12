@@ -584,6 +584,12 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "policy_context.py::opaque_project_contexts": (
+        "policy-only input inventory for aggregates that intentionally count"
+        " hidden tiers. It returns no row to a caller; hidden attributes go"
+        " only to the composed policy engine, which can fail the aggregate"
+        " closed"
+    ),
     "work.py::_visible_link": (
         "reads only tier metadata after the actor-visible id probe succeeds,"
         " inside the task write transaction; no row data is returned to the caller"

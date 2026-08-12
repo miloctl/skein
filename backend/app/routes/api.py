@@ -1249,8 +1249,22 @@ class WhatIfIn(BaseModel):
 
 
 @router.post("/intake/{request_id}/what-if")
-def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser, viewer: ViewerDep):
-    return portfolio.what_if(request_id, body.people, body.percent, viewer)
+def post_what_if(
+    request_id: int,
+    body: WhatIfIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.post.intake.what-if",
+        )
+        return portfolio.what_if(request_id, body.people, body.percent, viewer)
 
 
 @router.get("/planning")
@@ -1691,14 +1705,19 @@ def get_agent_inbox(
     if not users.is_agent(agent):
         # names no name: an error never echoes a rejected value back (CLAUDE.md)
         raise HTTPException(status_code=404, detail="no such agent. Check the name.")
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.agents.inbox",
+        "rest",
+        viewer,
+    )
     with db.read_transaction():
-        _require_opaque_project_policy(
-            request,
-            subject,
+        return delegation.agent_inbox(
+            agent,
             viewer,
-            "skein.rest.get.agents.inbox",
+            task_filter=lambda task_id, attributes: policy.permits("task", task_id, attributes),
         )
-        return delegation.agent_inbox(agent, viewer)
 
 
 class DelegateIn(BaseModel):
@@ -1786,7 +1805,7 @@ def get_context_pack(
             actor=user,
             crew_id=crew,
             viewer=viewer,
-            project_filter=None if all_projects else policy.permits_project,
+            resource_filter=None if all_projects else policy.permits,
         )
 
 

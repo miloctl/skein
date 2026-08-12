@@ -3,6 +3,7 @@ an authority matrix per (agent, entity), a mission-control view, and trust
 scores computed from the review inbox — promotion is suggested, never automatic."""
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from .. import config, db
@@ -810,7 +811,11 @@ def mission_control() -> list[dict]:
     return out
 
 
-def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
+def agent_inbox(
+    agent: str,
+    viewer: "scope.Viewer | None" = None,
+    task_filter: Callable[[int, dict[str, str]], bool] | None = None,
+) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped.
 
@@ -840,6 +845,17 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
         " WHEN 'medium' THEN 2 ELSE 3 END, id",
         (agent, *tp),
     )
+    if task_filter is not None:
+        from . import policy_context
+
+        tasks = [
+            task
+            for task in tasks
+            if task_filter(
+                int(task["id"]),
+                policy_context.existing("task", int(task["id"])),
+            )
+        ]
     questions = db.query(
         "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" AND status = 'open' AND {qfrag} ORDER BY id",

@@ -15,7 +15,8 @@ from .scope import WORKSPACE_ONLY
 
 def build_pack(
     crew_id: int = 0,
-    project_filter: Callable[[str], bool] | None = None,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    viewer: scope.Viewer = scope.NOBODY,
 ) -> str:
     """Assemble the pack body. Pure read — same data in, same text out.
 
@@ -41,7 +42,22 @@ def build_pack(
     ]
 
     lines.append("## Active engagements")
-    health = engagement_health(project_filter=project_filter)
+    from . import policy_context
+
+    health = engagement_health()
+    if resource_filter is not None:
+        contexts = policy_context.resource_contexts(
+            [("engagement", int(row["id"])) for row in health], scope.NOBODY
+        )
+        health = [
+            row
+            for row in health
+            if resource_filter(
+                "engagement",
+                int(row["id"]),
+                contexts.get(("engagement", int(row["id"])), {}),
+            )
+        ]
     for h in health:
         lines.append(
             f"- **{wording.flatten(h['name'])}** ({h['status']}, lead: {h['lead'] or 'unset'},"
@@ -77,9 +93,18 @@ def build_pack(
     lessons = db.query(
         f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
     )
-    if project_filter is not None:
+    if resource_filter is not None:
+        contexts = policy_context.resource_contexts(
+            [("lesson", int(row["id"])) for row in lessons], scope.NOBODY
+        )
         lessons = [
-            lesson for lesson in lessons if project_filter(str(lesson.get("project_class") or ""))
+            lesson
+            for lesson in lessons
+            if resource_filter(
+                "lesson",
+                int(lesson["id"]),
+                contexts.get(("lesson", int(lesson["id"])), {}),
+            )
         ]
     lines += [
         f"- [{wording.flatten(les['project_class'])}] {wording.flatten(les['lesson'])}"
@@ -116,7 +141,7 @@ def build_pack(
         "- CLI: `skein capture|my-day|tasks|context`",
     ]
     if crew_id:
-        lines += _crew_section(crew_id)
+        lines += _crew_section(crew_id, resource_filter, viewer)
     return "\n".join(lines)
 
 
@@ -170,16 +195,19 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     ] or ["- none recorded"]
     lines.append("")
     lines.append("## Open tasks")
-    from .work import redact_task_relationships
+    from . import work
 
-    tasks = redact_task_relationships(
-        db.query(
-            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-            " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done'"
-            " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-            " WHEN 'medium' THEN 2 ELSE 3 END",
-            (*tp, engagement_id, engagement_id),
+    tasks = work.redact_task_relationships(
+        work.consistent_task_rows(
+            db.query(
+                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+                " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+                " AND t.status != 'done'"
+                " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+                " WHEN 'medium' THEN 2 ELSE 3 END",
+                (*tp, engagement_id, engagement_id),
+            ),
+            viewer,
         ),
         viewer,
     )
@@ -225,7 +253,11 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     return "\n".join(lines)
 
 
-def _crew_section(crew_id: int) -> list[str]:
+def _crew_section(
+    crew_id: int,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    viewer: scope.Viewer = scope.NOBODY,
+) -> list[str]:
     """One crew's own rows, appended to the workspace body.
 
     A crew pack is handed to an agent and written to disk, so it holds the
@@ -266,6 +298,23 @@ def _crew_section(crew_id: int) -> list[str]:
         ),
     ):
         rows = db.query(sql, (crew_id,))
+        if heading == "Open work":
+            from . import policy_context, work
+
+            rows = work.consistent_task_rows(rows, viewer)
+            if resource_filter is not None:
+                contexts = policy_context.resource_contexts(
+                    [("task", int(row["id"])) for row in rows], viewer
+                )
+                rows = [
+                    row
+                    for row in rows
+                    if resource_filter(
+                        "task",
+                        int(row["id"]),
+                        contexts.get(("task", int(row["id"])), {}),
+                    )
+                ]
         lines += [f"### {heading}"] + ([fmt(r) for r in rows] or ["- none recorded"]) + [""]
     return lines
 
@@ -303,7 +352,7 @@ def publish_pack(
         if crew_id not in viewer.crew_ids:
             raise db.NotFound(f"no context pack for crew #{crew_id}")
         crews.assert_writable(crew_id, actor)
-    body = build_pack(crew_id)
+    body = build_pack(crew_id, viewer=viewer)
     digest = hashlib.sha256(body.encode()).hexdigest()[:16]
     last = latest_pack(crew_id)
     if last and last["content_hash"] == digest:
@@ -343,7 +392,7 @@ def get_pack(
     actor: str = "system",
     crew_id: int = 0,
     viewer: scope.Viewer = scope.NOBODY,
-    project_filter: Callable[[str], bool] | None = None,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> dict:
     """Latest published pack, publishing v1 on first call.
 
@@ -364,6 +413,20 @@ def get_pack(
     if crew_id and crew_id not in viewer.crew_ids:
         raise db.NotFound(f"no context pack for crew #{crew_id}")
     last = latest_pack(crew_id)
+    if not last and resource_filter is not None:
+        body = build_pack(crew_id, resource_filter, viewer)
+        digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+        return {
+            "version": 0,
+            "hash": digest,
+            "created_at": db.now(),
+            "content": body.replace(
+                "# Team context pack",
+                f"# Team context pack\n\n*policy-filtered · hash {digest}*",
+                1,
+            ),
+            "crew_id": crew_id or None,
+        }
     if not last:
         # the same viewer: this call publishes, and publish_pack now gates on
         # it. Passing NOBODY here would refuse the member who just passed the
@@ -374,8 +437,8 @@ def get_pack(
             raise ValueError("context pack publish produced no pack — retry")
     content = last["content"]
     digest = last["content_hash"]
-    if project_filter is not None:
-        body = build_pack(crew_id, project_filter)
+    if resource_filter is not None:
+        body = build_pack(crew_id, resource_filter, viewer)
         digest = hashlib.sha256(body.encode()).hexdigest()[:16]
         content = body.replace(
             "# Team context pack",
