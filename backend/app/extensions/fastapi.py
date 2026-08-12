@@ -264,7 +264,9 @@ async def enforce_mutation_policy(
     # hidden target id first, because a project-specific DENY would become a
     # project-class oracle before the service returns the stable missing-id
     # refusal.
-    if resource_type == "tasks" and request.method in {"POST", "PATCH"}:
+    if resource_type == "tasks" and (
+        request.method in {"POST", "PATCH"} or (request.method == "GET" and resource_id)
+    ):
         domain = {}
     else:
         domain = for_route(resource_type, resource_id, payload)

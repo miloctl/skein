@@ -126,13 +126,37 @@ def get_tasks(user: CurrentUser, viewer: ViewerDep):
 
 
 @router.get("/tasks/{task_id}")
-def get_task(user: CurrentUser, viewer: ViewerDep, task_id: int):
+def get_task(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    task_id: int,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     """The side peek's read. Declared BEFORE /tasks/{task_id}/worklog is
     irrelevant to routing here (the paths differ in segment count), but it
     must stay after the literal /tasks route above — FastAPI matches in
     declaration order, and a bare "/tasks/{task_id}" first would swallow it."""
     try:
-        return work.get_task(task_id, viewer)
+        # Bind the viewer-scoped row, domain policy, and returned projection to
+        # one snapshot. The generic route gate skips this exact operation so
+        # an unscoped project lookup cannot reveal a hidden task first.
+        with db.transaction():
+            task = work.get_task(task_id, viewer)
+            domain = work.task_read_policy_context(task, viewer)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.get.tasks",
+                    "task",
+                    resource_id=str(task_id),
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return task
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 

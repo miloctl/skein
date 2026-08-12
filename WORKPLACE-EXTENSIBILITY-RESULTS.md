@@ -1662,3 +1662,17 @@ complete static gate passed after this change.
 
 The prior scores remain unchanged until a fresh independent review passes.
 Chrome validation remains blocked.
+
+The review of `f5730c6` found a task relationship that remained outside the
+containment rule. A workspace task could publish the sequential ID and type
+of a private task, blocker, or promise through `waiting_on`. It also found
+that core task GET policy could inspect a hidden task before the scoped route
+returned not found. Scores for `f5730c6` are void.
+
+The shared update path now validates the waiting target audience in the same
+transaction. Task get and list queries redact hidden waiting relationships
+for legacy rows. The task GET route performs viewer-scoped lookup before
+project policy. It binds lookup, policy, and response to one transaction.
+Focused visibility, policy, API, public-contract, and task tests passed 185
+tests. The complete static gate passed. A fresh review follows the complete
+backend suite. Chrome validation remains blocked.

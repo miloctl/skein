@@ -644,6 +644,46 @@ def test_task_reads_redact_legacy_relationship_ids_the_viewer_cannot_read(fresh_
     assert work.get_task(through_milestone, owner)["milestone_id"] == milestone
 
 
+def test_waiting_relationships_cannot_publish_narrow_work_ids(fresh_db):
+    from app.services import promises
+
+    users.ensure_user("mira")
+    private_task = work.create_task("Private dependency", actor="mira", visibility=scope.PRIVATE)[
+        "id"
+    ]
+    private_blocker = blockers.raise_blocker(
+        "Private blocker", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+    private_promise = promises.add_promise(
+        "Private promise", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+
+    for kind, target in (
+        ("task", private_task),
+        ("blocker", private_blocker),
+        ("promise", private_promise),
+    ):
+        child = work.create_task(f"Workspace waits on {kind}", actor="mira")["id"]
+        with pytest.raises(ValueError, match="cannot be visible to more people"):
+            work.update_task(child, waiting_on=f"{kind}:{target}", actor="mira")
+
+        # Protect data that a release before the containment rule could store.
+        fresh_db.execute(
+            "UPDATE tasks SET waiting_on_type = ?, waiting_on_id = ? WHERE id = ?",
+            (kind, target, child),
+        )
+        assert work.get_task(child)["waiting_on_id"] is None
+        listed = next(row for row in work.list_tasks() if row["id"] == child)
+        joined = next(row for row in work.list_tasks_joined() if row["id"] == child)
+        assert (listed["waiting_on_type"], listed["waiting_on_id"]) == (None, None)
+        assert (joined["waiting_on_type"], joined["waiting_on_id"]) == (None, None)
+
+    private_child = work.create_task("Private waiting child", actor="mira", visibility="private")
+    work.update_task(private_child["id"], waiting_on=f"blocker:{private_blocker}", actor="mira")
+    owner = scope.Viewer("mira", True)
+    assert work.get_task(private_child["id"], owner)["waiting_on_id"] == private_blocker
+
+
 def test_a_create_body_exposes_the_tier_its_service_accepts():
     """A create form that omits `visibility` files at the workspace tier no
     matter what the caller chose, silently. Five did — absence, promise,
