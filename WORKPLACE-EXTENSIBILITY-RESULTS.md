@@ -1817,6 +1817,21 @@ Current verification:
 | Complete backend suite | 1,920 passed in 114.97 seconds |
 | Complete static gate | Passed |
 | Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+
+The next review completed the collection inventory. Events, promises, and
+memories were the remaining engagement-linked collections without per-row
+policy. REST and stock-agent reads now use the same snapshot-bound batch
+resolver. The memory prompt also applies `skein.agent.memory_context` per row
+before content enters an agent system prompt. Hidden or conflicting legacy
+parents fail closed on all these paths.
+
+Verification after completing the collection inventory:
+
+| Verification | Result |
+|---|---|
+| Focused extension policy, memory, agent, API, and Atlas tests | 180 passed |
+| Complete backend suite | 1,935 passed in 118.82 seconds |
+| Complete static gate | Passed |
 | Installed backend extension rehearsal | Retry pending; isolated dependency installation stalled and was stopped cleanly |
 
 These results do not change the score. The next exact commit requires a fresh

@@ -6,8 +6,16 @@ from typing import Any
 
 from strands import tool
 
+from .. import db
 from ..agents import receipts
 from ..agents.identity import agent_identity, requester_viewer
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
 from ..services import (
     absences,
     briefing,
@@ -15,6 +23,7 @@ from ..services import (
     context_pack,
     delegation,
     insights,
+    policy_context,
     portfolio,
     promises,
     scope,
@@ -89,7 +98,38 @@ def list_promises(status: str = "") -> str:
     Args:
         status: open, kept, missed, withdrawn, or empty for all.
     """
-    return json.dumps(promises.list_promises(status))
+    with db.read_transaction():
+        rows = promises.list_promises(status)
+        contexts = policy_context.engagement_linked_collection_contexts(
+            "promise", rows, scope.NOBODY
+        )
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.list_promises",
+                        PolicyResource(
+                            "promise",
+                            str(row["id"]),
+                            contexts[int(row["id"])]["project_type"],
+                            contexts[int(row["id"])]["classification"],
+                            contexts[int(row["id"])],
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="list_promises",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool

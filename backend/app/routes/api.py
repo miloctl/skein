@@ -2,7 +2,7 @@
 alongside agent tools — both go through app.services)."""
 
 import asyncio
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -43,6 +43,7 @@ from ..services import (
     personas,
     planning,
     playbooks,
+    policy_context,
     portfolio,
     promises,
     provenance,
@@ -64,6 +65,33 @@ from ..services import (
 from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep
 
 router = APIRouter(prefix="/api", route_class=PolicyAPIRoute)
+
+
+def _permitted_collection(
+    request: Request,
+    subject: Any,
+    rows: list[dict],
+    contexts: dict[int, dict[str, str]],
+    *,
+    action: str,
+    resource_type: str,
+) -> list[dict]:
+    """Filter visible rows through their authoritative workplace policy context."""
+    return [
+        row
+        for row in rows
+        if decide(
+            request,
+            subject,
+            action,
+            resource_type,
+            resource_id=str(row["id"]),
+            project_type=contexts[int(row["id"])]["project_type"],
+            classification=contexts[int(row["id"])]["classification"],
+            attributes=contexts[int(row["id"])],
+        ).effect.value
+        == "permit"
+    ]
 
 
 # ---- reads -----------------------------------------------------------------
@@ -253,8 +281,24 @@ def get_standups(user: CurrentUser, viewer: ViewerDep):
 
 
 @router.get("/events")
-def get_events(user: CurrentUser, viewer: ViewerDep, from_date: str = ""):
-    return schedule.list_events(from_date, viewer=viewer)
+def get_events(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    from_date: str = "",
+):
+    with db.read_transaction():
+        rows = schedule.list_events(from_date, viewer=viewer)
+        contexts = policy_context.engagement_linked_collection_contexts("event", rows, viewer)
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            contexts,
+            action="skein.rest.get.events",
+            resource_type="event",
+        )
 
 
 @router.get("/personas")
@@ -869,13 +913,29 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 
 
 @router.get("/memories")
-def get_memories(user: CurrentUser, viewer: ViewerDep, q: str = ""):
+def get_memories(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    q: str = "",
+):
     # engagement_id=None: this endpoint BROWSES, and it is the only surface
     # that lists memories or offers to delete one (app/agents/page.tsx). A
     # predicate that hid an engagement's memories here would leave them
     # steering every conversation about that work from a row no human could
     # reach (services/memory.py::recall names the three states).
-    return memory.recall(q, user=user, viewer=viewer, engagement_id=None)
+    with db.read_transaction():
+        rows = memory.recall(q, user=user, viewer=viewer, engagement_id=None)
+        contexts = policy_context.engagement_linked_collection_contexts("memory", rows, viewer)
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            contexts,
+            action="skein.rest.get.memories",
+            resource_type="memory",
+        )
 
 
 @router.delete("/memories/{memory_id}")
@@ -963,11 +1023,23 @@ def post_week_plan(body: WeekPlanIn, user: CurrentUser):
 def get_promises(
     user: CurrentUser,
     viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
     status: str = "",
     audience: str = "",
     direction: str = "",
 ):
-    return promises.list_promises(status, audience, viewer, direction)
+    with db.read_transaction():
+        rows = promises.list_promises(status, audience, viewer, direction)
+        contexts = policy_context.engagement_linked_collection_contexts("promise", rows, viewer)
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            contexts,
+            action="skein.rest.get.promises",
+            resource_type="promise",
+        )
 
 
 class PromiseIn(BaseModel):

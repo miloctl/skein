@@ -1,6 +1,8 @@
 """Cross-thread agent memory: plain rows + FTS relevance, injected into the
 agent's system prompt at build time. Fully keyless."""
 
+from collections.abc import Callable
+
 from .. import db
 from . import scope
 from .search import index_record
@@ -164,7 +166,11 @@ def recall(
 
 
 def memory_prompt(
-    user: str, limit: int = 8, engagement_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+    user: str,
+    limit: int = 8,
+    engagement_id: int = 0,
+    viewer: scope.Viewer = scope.NOBODY,
+    row_filter: Callable[[list[dict], scope.Viewer], list[dict]] | None = None,
 ) -> str:
     """Recent memories rendered for system-prompt injection; empty string when none.
 
@@ -181,7 +187,10 @@ def memory_prompt(
     conversation at all. NOBODY stays the default for the unattended runner,
     where no human is asking and the workspace tier is the honest ceiling.
     """
-    rows = recall(user=user, limit=limit, viewer=viewer, engagement_id=engagement_id)
+    with db.read_transaction():
+        rows = recall(user=user, limit=limit, viewer=viewer, engagement_id=engagement_id)
+        if row_filter is not None:
+            rows = row_filter(rows, viewer)
     if not rows:
         return ""
     lines = [

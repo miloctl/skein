@@ -4,8 +4,16 @@ import json
 
 from strands import tool
 
+from .. import db
 from ..agents.identity import agent_identity, requester_identity
-from ..services import memory, scope
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
+from ..services import memory, policy_context, scope
 from ._gate import gated_write
 
 
@@ -57,7 +65,38 @@ def recall_memories(query: str = "") -> str:
     # An agent in a linked thread already carries that engagement's memories in
     # its prompt, and a tool that could not retrieve them would answer "I have
     # no memory of that" about a fact in front of it.
-    return json.dumps(memory.recall(query, user=requester_identity(), engagement_id=None))
+    with db.read_transaction():
+        rows = memory.recall(query, user=requester_identity(), engagement_id=None)
+        contexts = policy_context.engagement_linked_collection_contexts(
+            "memory", rows, scope.NOBODY
+        )
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.recall_memories",
+                        PolicyResource(
+                            "memory",
+                            str(row["id"]),
+                            contexts[int(row["id"])]["project_type"],
+                            contexts[int(row["id"])]["classification"],
+                            contexts[int(row["id"])],
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="recall_memories",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool

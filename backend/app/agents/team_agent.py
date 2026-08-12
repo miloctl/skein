@@ -1146,6 +1146,45 @@ def build_agent(
     # still lists the bench invites it to report a consult it never made.
     from .identity import MAX_CONSULTS_PER_TURN
 
+    def filter_memory_rows(rows, memory_viewer):
+        from ..extensions.policy import (
+            PolicyEffect,
+            PolicyInput,
+            PolicyResource,
+            current_policy_engine,
+            current_policy_subject,
+        )
+        from ..services import policy_context
+
+        contexts = policy_context.engagement_linked_collection_contexts(
+            "memory", rows, memory_viewer
+        )
+        engine = extensions.policy_engine if extensions is not None else current_policy_engine()
+        subject = policy_subject or current_policy_subject()
+        active_agent = persona or (subject.name if subject.kind == "agent" else "agent")
+        return [
+            row
+            for row in rows
+            if engine.decide(
+                PolicyInput(
+                    subject,
+                    "skein.agent.memory_context",
+                    PolicyResource(
+                        "memory",
+                        str(row["id"]),
+                        contexts[int(row["id"])]["project_type"],
+                        contexts[int(row["id"])]["classification"],
+                        contexts[int(row["id"])],
+                    ),
+                    "agent_context",
+                    agent=active_agent,
+                    tool_effect="read",
+                    tool_risk="low",
+                )
+            ).effect
+            == PolicyEffect.PERMIT
+        ]
+
     system = SYSTEM_PROMPT.format(
         today=db.today().isoformat(),
         user=user,
@@ -1167,6 +1206,7 @@ def build_agent(
         # human is asking — the unattended runner — and memory_prompt reads
         # that as scope.NOBODY.
         viewer=viewer if viewer is not None else scope.NOBODY,
+        row_filter=filter_memory_rows,
     )
     if persona:
         if contributed_specialist is not None:
