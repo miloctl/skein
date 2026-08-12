@@ -2339,3 +2339,5 @@ Verification before the next exact-commit review:
 | Complete backend suite | 1,978 passed in 122.92 seconds |
 | Complete frontend suite | 230 passed in 45 files |
 | Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
