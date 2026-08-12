@@ -1616,6 +1616,53 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
     assert fresh_db.query_one("SELECT 1 AS present FROM task_worklog") is None
 
 
+def test_inbound_mcp_task_list_applies_project_policy_per_row(fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.extensions.policy import (
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.services import engagements, work
+
+    standard = engagements.create_engagement("MCP standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("MCP regulated", project_class="regulated")["id"]
+    allowed = work.create_task("Allowed MCP task", engagement_id=standard)["id"]
+    denied = work.create_task("Denied MCP task", engagement_id=regulated)["id"]
+
+    def deny_regulated(request):
+        if (
+            request.action == "skein.mcp.tasks.read"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated MCP reads are closed.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.mcp-tasks", deny_regulated),),
+            ),
+        )
+    )
+    monkeypatch.setattr(mcp_server, "ACTOR", "acme-mcp")
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("acme-mcp", kind="agent"))
+    try:
+        rows = json.loads(mcp_server.list_tasks())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert allowed in {row["id"] for row in rows}
+    assert denied not in {row["id"] for row in rows}
+
+
 def test_inbound_mcp_delegation_uses_authoritative_crew_task_context(fresh_db, monkeypatch):
     from app import mcp_server
     from app.extensions.policy import (

@@ -1546,6 +1546,19 @@ core source.
 | Focused ownership, migration, authority, specialist, and composition tests | 180 passed |
 | Complete backend suite | 1,845 passed in 112.53 seconds |
 | Complete static gate | Passed |
+
+The next review found that inbound MCP task listing still used only one
+collection-level decision. MCP now preserves that broad denial for backward
+compatibility, then evaluates each visible task with the same snapshot-bound
+task context used by REST and stock tools. Project-specific denial and hidden
+legacy relationship handling therefore apply to the MCP result too.
+
+Verification after the MCP remediation:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,936 passed in 120.38 seconds |
+| Complete static gate | Passed |
 | Installed backend extension rehearsal | Passed before the final separate-database MCP assertion |
 
 This report retains the prior scores until the fresh independent review is
