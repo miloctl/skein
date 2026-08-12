@@ -1339,6 +1339,33 @@ Verification for this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Seventeenth review gate and remediation
+
+The score auditor approved commit `3b2dbd7` at 8.3 for all three measures.
+The architecture and extension-author reviewers found one high-severity race.
+The machine reservation checked for a human row before `INSERT OR IGNORE`.
+A concurrent human insert could make the reservation return a human row.
+
+The complete reservation now runs in one immediate database transaction.
+It includes the collision checks, insert, and final agent-kind postcondition.
+Startup uses this helper for MCP, specialist, and private service identities.
+A deterministic two-thread test holds the reservation at the collision check.
+It verifies that a concurrent human claim cannot create a human-owned row.
+
+Verification for this remediation:
+
+- Deterministic reservation and API/standalone MCP tests: 14 passed.
+- Identity, policy, MCP, workflow, public-contract, and Atlas tests: 324
+  passed.
+- Full backend suite: 1,776 passed in 168.26 seconds.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+
+The exact commit and repeated review follow. Chrome remains blocked until all
+four reviewers approve.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The

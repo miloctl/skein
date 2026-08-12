@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import FrozenInstanceError, replace
-from threading import Event
+from threading import Event, Thread, current_thread
 from time import sleep
 
 import pytest
@@ -475,6 +475,61 @@ def test_standalone_mcp_actor_cannot_claim_a_reserved_identity(fresh_db, monkeyp
         mcp_server.main()
     assert raised.value.code == 1
     assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
+
+
+def test_machine_identity_reservation_serializes_a_concurrent_human_claim(fresh_db, monkeypatch):
+    """A human cannot land between the machine collision check and insert."""
+    from app.services import users
+
+    machine_checked = Event()
+    human_attempted = Event()
+    human_finished = Event()
+    original_refuse_fold_collision = users.refuse_fold_collision
+    results: dict[str, dict] = {}
+    errors: list[BaseException] = []
+
+    def pause_machine_after_collision_check(name: str, *, ignore: str = "") -> None:
+        original_refuse_fold_collision(name, ignore=ignore)
+        if current_thread().name == "machine-reservation":
+            machine_checked.set()
+            assert human_attempted.wait(timeout=2)
+            # BEGIN IMMEDIATE keeps the competing insert blocked until the
+            # machine reservation commits.
+            sleep(0.05)
+            assert not human_finished.is_set()
+
+    monkeypatch.setattr(users, "refuse_fold_collision", pause_machine_after_collision_check)
+
+    def reserve_machine() -> None:
+        try:
+            results["machine"] = users.ensure_agent_identity("race-owner")
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors.append(exc)
+
+    def claim_human() -> None:
+        try:
+            assert machine_checked.wait(timeout=2)
+            human_attempted.set()
+            results["human"] = users.ensure_user("race-owner")
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors.append(exc)
+        finally:
+            human_finished.set()
+
+    machine = Thread(target=reserve_machine, name="machine-reservation")
+    human = Thread(target=claim_human, name="human-claim")
+    machine.start()
+    human.start()
+    machine.join(timeout=3)
+    human.join(timeout=3)
+
+    assert not machine.is_alive() and not human.is_alive()
+    assert errors == []
+    assert results["machine"]["kind"] == "agent"
+    assert results["human"]["kind"] == "agent"
+    assert fresh_db.query_row("SELECT kind FROM users WHERE name = ?", ("race-owner",)) == {
+        "kind": "agent"
+    }
 
 
 def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names(

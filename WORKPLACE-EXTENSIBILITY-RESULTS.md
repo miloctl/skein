@@ -1160,6 +1160,34 @@ Verification after this remediation:
 The exact commit and repeated independent review follow. Chrome remains
 blocked.
 
+### Seventeenth review gate and remediation
+
+The score auditor approved commit `3b2dbd7` at 8.3 for all three measures.
+The architecture reviewer scored it 8.1, 7.8, and 8.2. The extension-author
+reviewer scored it 8.1, 8.0, and 8.3. Both reviewers rejected the commit.
+
+They reproduced a check-then-insert race in machine identity reservation.
+A human row could appear after the collision check but before the machine
+insert. SQLite then ignored the machine insert and returned the human row.
+
+Machine reservation is now one immediate database transaction. The same
+helper reserves MCP, specialist, and private service identities. It checks the
+final row kind before it returns success. A deterministic concurrency test
+proves that a human claim cannot interrupt the reservation.
+
+Verification after this remediation:
+
+| Command | Result |
+|---|---|
+| Deterministic reservation and API/standalone MCP regressions | 14 passed |
+| Identity, policy, MCP, workflow, public-contract, and Atlas suite | 324 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,776 passed in 168.26 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The repeated independent review follows. Chrome remains blocked until all four
+reviewers approve the exact remediation commit.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The

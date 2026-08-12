@@ -220,6 +220,8 @@ stock content and deployment overlays. The API and standalone MCP process use
 the same check. The API logs an invalid MCP actor and keeps REST available.
 The standalone MCP process stops because it cannot operate without its actor.
 Neither path reuses a human-owned roster name for a machine identity.
+Skein reserves each machine name in one database transaction. A concurrent
+human sign-in cannot claim the name during that reservation.
 Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
 
