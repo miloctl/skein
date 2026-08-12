@@ -1963,7 +1963,10 @@ Current verification:
 |---|---|
 | Focused notification and producer tests | 101 passed |
 | Complete backend suite | 1,981 passed in 142.79 seconds |
+| Complete frontend suite | 230 passed in 45 files |
 | Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit before Chrome validation starts.
