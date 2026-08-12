@@ -712,6 +712,7 @@ def _revalidate_policy(
         change["entity"],
         int(change.get("entity_id") or 0),
         expected["payload"],
+        actor=str(current.agent or subject.name),
     )
     if change["entity"] == "playbook":
         from . import playbooks

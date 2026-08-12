@@ -185,7 +185,7 @@ def _task_context(entity_id: int, payload: dict) -> dict[str, str]:
     return result
 
 
-def _blocker_context(entity_id: int, payload: dict) -> dict[str, str]:
+def _blocker_context(entity_id: int, payload: dict, *, actor: str = "") -> dict[str, str]:
     """Resolve a blocker's project through its linked task for review refresh."""
     row = None
     if entity_id:
@@ -206,7 +206,18 @@ def _blocker_context(entity_id: int, payload: dict) -> dict[str, str]:
         "project_type": "",
     }
     if task_id:
-        task = _task_context(task_id, {})
+        if actor:
+            from . import work
+
+            viewer = scope.Viewer.for_actor(actor)
+            try:
+                row = work.get_task(task_id, viewer)
+                task = work.task_read_policy_context(row, viewer)
+            except (db.NotFound, ValueError):
+                result["relationship_conflict"] = "true"
+                return result
+        else:
+            task = _task_context(task_id, {})
         result["project_type"] = str(task.get("project_type") or "")
         if task.get("relationship_conflict"):
             result["relationship_conflict"] = "true"
@@ -252,7 +263,13 @@ def _target_engagement(entity: str, entity_id: int, payload: dict) -> int:
     return existing_engagement
 
 
-def for_change(entity: str, entity_id: int, payload: dict) -> dict[str, str]:
+def for_change(
+    entity: str,
+    entity_id: int,
+    payload: dict,
+    *,
+    actor: str = "",
+) -> dict[str, str]:
     """Return authoritative context for the state that one write would create."""
     if entity == "playbook":
         return playbook_context(str(payload.get("slug") or payload.get("playbook") or ""))
@@ -260,7 +277,7 @@ def for_change(entity: str, entity_id: int, payload: dict) -> dict[str, str]:
     if selected is None:
         return {}
     if entity in {"blocker", "blocker_edit"}:
-        return _blocker_context(entity_id, payload)
+        return _blocker_context(entity_id, payload, actor=actor)
     if entity == "task" and entity_id:
         return _task_context(entity_id, payload)
     current = existing(entity, entity_id) if entity_id else {}

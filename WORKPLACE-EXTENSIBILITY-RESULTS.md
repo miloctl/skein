@@ -1789,3 +1789,34 @@ Current verification:
 
 These results do not change the final score yet. A fresh independent review
 must accept one clean exact commit. Chrome validation follows that gate.
+
+### Review of `fd51fc0`
+
+The review stopped after it confirmed two high-severity policy defects. Scores
+for `fd51fc0` are void.
+
+- Task collection policy used already-redacted relationships. A visible legacy
+  task could lose its regulated parent before policy.
+- Blocker policy loaded a hidden linked task without the actor's scope. The
+  policy response could distinguish a hidden regulated task from a hidden
+  standard task.
+
+The current code batch-loads raw links only for task rows that are already
+visible. Hidden, missing, and conflicting parents fail closed through the core
+policy. Blocker edit, resolve, agent, and review-refresh paths apply one scoped
+rule. Hidden regulated, hidden standard, and dangling links have one stable
+response. The installed upgrade rehearsal carries both legacy shapes into the
+current artifact. Its next successful run will verify the result.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused extension, policy, public-command, visibility, and delegation tests | 262 passed |
+| Complete backend suite | 1,920 passed in 114.97 seconds |
+| Complete static gate | Passed |
+| Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+| Installed backend extension rehearsal | Retry pending; isolated dependency installation stalled and was stopped cleanly |
+
+These results do not change the score. The next exact commit requires a fresh
+independent review before Chrome validation can start.

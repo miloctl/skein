@@ -51,12 +51,12 @@ def existing_policy_context(blocker_id: int, *, actor: str) -> dict[str, str]:
     }
     task_id = int(row["task_id"] or 0)
     if task_id:
-        from . import policy_context
-
-        task_context = policy_context.existing("task", task_id)
-        if task_context.get("relationship_conflict"):
-            raise ValueError("the linked task has conflicting project relationships")
-        result.update(task_context)
+        viewer = scope.Viewer.for_actor(actor)
+        try:
+            task = work.get_task(task_id, viewer)
+            result.update(work.task_read_policy_context(task, viewer))
+        except (db.NotFound, ValueError) as exc:
+            raise scope.missing("blockers", blocker_id) from exc
         result["classification"] = str(row["visibility"])
         result["crew_id"] = str(row["crew_id"] or "")
     return result

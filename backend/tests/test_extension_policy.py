@@ -1020,6 +1020,197 @@ def test_stock_task_list_filters_each_row_through_workplace_policy(fresh_db):
 
 
 @pytest.mark.parametrize("project_class", ["regulated", "standard"])
+@pytest.mark.parametrize("link_kind", ["engagement", "milestone"])
+def test_task_collections_fail_closed_for_hidden_legacy_parent(
+    fresh_db,
+    project_class,
+    link_kind,
+):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import crews, engagements, work
+    from app.tools.work import list_tasks as tool_list_tasks
+
+    crew_id = crews.create_crew("Hidden collection parent", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        f"Hidden {project_class} collection",
+        project_class=project_class,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task("Legacy visible child", actor="other-person")["id"]
+    if link_kind == "engagement":
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (engagement, task),
+        )
+    else:
+        milestone = work.create_milestone(
+            "Hidden milestone",
+            project=f"Hidden {project_class} collection",
+            actor="other-person",
+            visibility="crew",
+            crew_id=crew_id,
+        )["id"]
+        fresh_db.execute(
+            "UPDATE tasks SET milestone_id = ? WHERE id = ?",
+            (milestone, task),
+        )
+
+    registry = ExtensionRegistry.build(())
+    app = create_app(modules=())
+    with TestClient(app, headers={"X-User": "manager"}) as client:
+        listing = client.get("/api/tasks")
+    assert listing.status_code == 200
+    assert task not in {row["id"] for row in listing.json()}
+
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_rows = json.loads(tool_list_tasks())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert task not in {row["id"] for row in tool_rows}
+
+
+@pytest.mark.parametrize("project_class", ["regulated", "standard", "absent"])
+def test_blocker_routes_conceal_a_hidden_legacy_task_project(fresh_db, project_class):
+    from app.services import blockers, crews, engagements, work
+
+    blocker = blockers.raise_blocker("Visible legacy blocker", actor="manager")
+    crew_id = crews.create_crew("Hidden blocker parent", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        f"Hidden blocker {project_class}",
+        project_class="standard" if project_class == "absent" else project_class,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task(
+        "Hidden linked task",
+        engagement_id=engagement,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    fresh_db.execute("UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"]))
+    if project_class == "absent":
+        import sqlite3
+
+        fresh_db.execute("DELETE FROM tasks WHERE id = ?", (task,))
+        # A current write cannot create this row because the foreign key is
+        # strict. Preserve an upgraded legacy dangling link for parity tests.
+        with sqlite3.connect(fresh_db.DB_PATH) as connection:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute(
+                "UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"])
+            )
+
+    with TestClient(create_app(), headers={"X-User": "manager"}) as client:
+        patched = client.patch(
+            f"/api/blockers/{blocker['id']}",
+            json={"title": "must not change"},
+        )
+        resolved = client.post(
+            f"/api/blockers/{blocker['id']}/resolve",
+            json={"resolution": "must not settle"},
+        )
+    expected = {"detail": f"no blocker #{blocker['id']}"}
+    assert patched.status_code == resolved.status_code == 404
+    assert patched.json() == resolved.json() == expected
+    assert fresh_db.query_one(
+        "SELECT title, status FROM blockers WHERE id = ?", (blocker["id"],)
+    ) == {"title": "Visible legacy blocker", "status": "open"}
+
+
+def test_agent_and_review_refresh_fail_closed_for_a_hidden_blocker_task(
+    fresh_db,
+):
+    from app.services import blockers, crews, engagements, review, work
+
+    crew_id = crews.create_crew("Hidden blocker review", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        "Hidden regulated review",
+        project_class="regulated",
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task(
+        "Hidden review task",
+        engagement_id=engagement,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    blocker = blockers.raise_blocker("Agent blocker", actor="agent")
+
+    def review_edits(request: PolicyInput):
+        if request.action == "blocker_edit.update":
+            return PolicyDecision(PolicyEffect.REVIEW, ("manager review",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.blocker-review", review_edits),),
+            ),
+        )
+    )
+    token = set_policy_engine(registry.policy_engine)
+    try:
+        queued = json.loads(
+            gated_write(
+                "blocker_edit",
+                "update",
+                {"title": "reviewed title"},
+                lambda: blockers.edit_blocker(
+                    blocker["id"], "reviewed title", actor="agent", origin="agent"
+                ),
+                entity_id=blocker["id"],
+                actor="agent",
+            )
+        )
+    finally:
+        reset_policy_engine(token)
+    assert queued["status"] == "pending"
+    fresh_db.execute("UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"]))
+
+    with pytest.raises(PermissionError, match="denies"):
+        review.approve_change(
+            int(queued["id"]),
+            actor="manager",
+            strong=True,
+            policy_registry=registry,
+        )
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (queued["id"],)
+    ) == {"status": "pending"}
+
+    token = set_policy_engine(registry.policy_engine)
+    try:
+        direct = json.loads(
+            gated_write(
+                "blocker_edit",
+                "update",
+                {"title": "must not change"},
+                lambda: pytest.fail("hidden linked task bypassed the agent gate"),
+                entity_id=blocker["id"],
+                actor="agent",
+            )
+        )
+    finally:
+        reset_policy_engine(token)
+    assert direct["error"] == f"no blocker #{blocker['id']}"
+
+
+@pytest.mark.parametrize("project_class", ["regulated", "standard"])
 def test_rest_task_read_checks_visibility_before_project_policy(fresh_db, project_class):
     from app.services import crews, engagements, scope, work
 
