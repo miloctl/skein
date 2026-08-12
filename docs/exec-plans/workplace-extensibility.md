@@ -2302,3 +2302,40 @@ Verification before the replacement exact-commit review:
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+
+### Remediation after the `68d5f43` review
+
+The independent review rejected `68d5f43`. It did not issue final scores.
+
+The review found five related defects:
+
+- Briefing and agent-inbox rows returned the internal `policy_context` field.
+- The generic callable attribute `actions` could conflict with legacy policy objects.
+- Extension review summaries did not check the saved target's current state.
+- Notification text and its policy snapshot could come from different task states.
+- A policy callable could see a hidden parent from a saved notification context.
+
+Public review projections now remove `policy_context` after policy evaluation.
+Extension reviews resolve both the saved target and its current target. A
+deleted, hidden, conflicting, or newly denied target removes the summary.
+
+Policy action scope now uses `skein_policy_actions`. An API 1.0 callable can
+keep an unrelated `actions` member. Older compatible cores ignore the new
+namespaced metadata. The callable still limits itself on those cores.
+
+Delegation, task claim, and completion submission now read the task, change
+it, create the notification, and save the policy snapshot in one write
+transaction. An immediate Slack count starts only after the transaction
+commits.
+
+Notification readers check the scoped current relationship before they check
+the saved context. A hidden or conflicting parent removes the notification.
+The workplace policy callable does not receive the hidden saved context.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,978 passed in 122.92 seconds |
+| Complete frontend suite | 230 passed in 45 files |
+| Complete static gate | Passed |

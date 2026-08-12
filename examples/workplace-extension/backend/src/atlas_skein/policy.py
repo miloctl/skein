@@ -68,10 +68,10 @@ def _atlas_policy(request: PolicyInput) -> PolicyDecision | None:
 class _AtlasPolicy:
     """Carry action scope without requiring a newer PolicyContribution constructor."""
 
-    actions: tuple[str, ...] = _ATLAS_POLICY_ACTIONS
+    skein_policy_actions: tuple[str, ...] = _ATLAS_POLICY_ACTIONS
 
     def __call__(self, request: PolicyInput) -> PolicyDecision | None:
-        if request.action not in self.actions:
+        if request.action not in self.skein_policy_actions:
             return None
         return _atlas_policy(request)
 

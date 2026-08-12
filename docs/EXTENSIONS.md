@@ -184,13 +184,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AtlasPolicy:
-    actions: tuple[str, ...] = (
+    skein_policy_actions: tuple[str, ...] = (
         "atlas.dashboard.view",
         "atlas.integration.sync",
     )
 
     def __call__(self, request: PolicyInput) -> PolicyDecision | None:
-        if request.action not in self.actions:
+        if request.action not in self.skein_policy_actions:
             return None
         return decide_atlas(request)
 
@@ -198,10 +198,11 @@ class AtlasPolicy:
 PolicyContribution("atlas.workplace.policy", AtlasPolicy())
 ```
 
-A callable with no `actions` tuple keeps the extension API 1.0 behavior. It
-can inspect every action. Skein treats unclassified free-form text as unsafe
-when an applicable workplace rule exists. A scoped rule does not disable
-unrelated core readouts.
+A callable with no `skein_policy_actions` tuple keeps the extension API 1.0
+behavior. It can inspect every action. The namespaced attribute does not
+reinterpret an existing callable's unrelated `actions` member. Skein treats
+unclassified free-form text as unsafe when an applicable workplace rule
+exists. A scoped rule does not disable unrelated core readouts.
 
 Auth bootstrap endpoints keep their specialized gates. Signed Slack and forge
 requests first pass signature checks. Skein then evaluates
