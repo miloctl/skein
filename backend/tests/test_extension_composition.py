@@ -1117,7 +1117,7 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
     fresh_db, tmp_path, monkeypatch
 ):
     from app import config
-    from app.services import flocks, personas, users
+    from app.services import delegation, flocks, personas, users, work
 
     persona_dir = tmp_path / "personas"
     flock_dir = tmp_path / "flocks"
@@ -1138,7 +1138,7 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
     settings = replace(AppSettings.from_config(), mcp_user="MCP-Agent")
     built = create_app(settings=settings, modules=(module,))
 
-    with TestClient(built):
+    with TestClient(built) as client:
         (persona_dir / "editable-reviewer.md").write_text(
             "---\nname: Updated reviewer\ndescription: Same identity\n---\nReview work.\n"
         )
@@ -1171,6 +1171,11 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
         (persona_dir / "new-reviewer.md").write_text(
             "---\nname: New reviewer\ndescription: Restart required\n---\nReview new work.\n"
         )
+        for slug in ("future-human", "future-agent"):
+            (persona_dir / f"{slug}.md").write_text(
+                f"---\nname: {slug}\ndescription: Pending restart\n"
+                "---\nReserve this identity before restart.\n"
+            )
 
         with pytest.raises(ValueError, match="no persona"):
             personas.get_persona("atlas-sync")
@@ -1181,6 +1186,30 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
                 personas.get_persona(slug)
         with pytest.raises(ValueError, match="no persona"):
             personas.get_persona("new-reviewer")
+        with pytest.raises(ValueError, match="reserved for a bench persona"):
+            users.ensure_human_identity("future-human")
+        with pytest.raises(ValueError, match="needs an application restart"):
+            users.ensure_agent_identity("FUTURE-AGENT")
+        with pytest.raises(ValueError, match="needs an application restart"):
+            users.ensure_user("future-agent", kind="agent")
+        rest = client.post(
+            "/api/capture",
+            json={"text": "todo: must not land"},
+            headers={"X-User": "FUTURE-HUMAN"},
+        )
+        assert rest.status_code == 403
+        users.ensure_human_identity("sponsor")
+        task = work.create_task("Pending content identity", actor="sponsor")
+        with pytest.raises(ValueError, match="needs an application restart"):
+            delegation.delegate_task(task["id"], "Future-Agent", "sponsor", actor="sponsor")
+        with pytest.raises(ValueError, match="needs an application restart"):
+            delegation.set_authority("FUTURE-AGENT", "task", "forbidden", actor="sponsor")
+        users.ensure_human_identity("rename-source")
+        with pytest.raises(ValueError, match="reserved for a bench persona"):
+            users.rename_user("rename-source", "FUTURE-HUMAN", actor="rename-source")
+        assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'future-human'") is None
+        assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'future-agent'") is None
+        assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'FUTURE-AGENT'") is None
         assert "atlas-sync" not in personas.bench_slugs()
         assert "mcp-agent" not in {item["slug"] for item in flocks.list_flocks()}
         assert any("composed machine identity" in error for error in personas.validate_all())
@@ -1190,6 +1219,8 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
     # The scope belongs to this app lifespan. Embedders and tests can compose
     # another app after shutdown without inheriting stale machine claims.
     assert personas.get_persona("new-reviewer")["name"] == "New reviewer"
+    assert personas.get_persona("future-human")["name"] == "future-human"
+    assert personas.get_persona("future-agent")["name"] == "future-agent"
 
 
 def test_dependencies_are_ordered_independently_of_input_order():
