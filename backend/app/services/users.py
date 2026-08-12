@@ -144,12 +144,24 @@ def ensure_user(name: str, kind: str = "human") -> dict:
 
 
 def ensure_agent_identity(name: str) -> dict:
-    """Reserve one exact name for machine use without reusing a human row."""
+    """Reserve one exact name for machine use without reusing a human row.
+
+    Keep the collision check, insert, and final kind check under one immediate
+    transaction. Otherwise a concurrent human claim can land between the
+    first query and ``INSERT OR IGNORE`` and make a machine use the human row.
+    """
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
-    existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
-    if existing is not None and existing["kind"] != "agent":
-        raise ValueError(f"'{normalized}' is already owned by a human identity")
-    return ensure_user(normalized, kind="agent")
+    with db.transaction():
+        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
+        if existing is not None and existing["kind"] != "agent":
+            raise ValueError(f"'{normalized}' is already owned by a human identity")
+        row = ensure_user(normalized, kind="agent")
+        if row["kind"] != "agent":
+            # This is also a postcondition for callers that are already in an
+            # outer transaction. A successful machine reservation must never
+            # return a human-owned row.
+            raise ValueError(f"'{normalized}' is already owned by a human identity")
+        return row
 
 
 def set_growth_interests(name: str, interests: str, *, actor: str = "system") -> dict:

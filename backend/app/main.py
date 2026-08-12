@@ -277,7 +277,7 @@ async def lifespan(app: FastAPI):
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
     from .services.activity import SYSTEM_ACTORS
-    from .services.users import ensure_agent_identity, ensure_user
+    from .services.users import ensure_agent_identity
 
     try:
         ensure_agent_identity("agent")
@@ -286,28 +286,29 @@ async def lifespan(app: FastAPI):
         # guard; it must not brick a boot nobody can reach the rename route on
         log.error("the built-in 'agent' identity is unavailable: %s", exc)
     for specialist in registry.specialists:
-        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (specialist.name,))
-        if existing is not None and existing["kind"] != "agent":
+        try:
+            ensure_agent_identity(specialist.name)
+        except ValueError as exc:
             raise RuntimeError(
                 f"specialist identity {specialist.name!r} is already owned by a human"
-            )
-        ensure_user(specialist.name, kind="agent")
+            ) from exc
     for identity in registry.service_identities:
-        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (identity.subject,))
-        if existing is not None and existing["kind"] != "agent":
-            raise RuntimeError(f"service identity {identity.subject!r} is already owned by a human")
         # Core machine actors are reserved independently of the users table.
         # `ensure_user` intentionally refuses those names, and no human entry
         # point can claim them. Private service names still get an agent row so
         # they cannot be claimed later through a legacy or direct user path.
         if identity.subject not in SYSTEM_ACTORS:
-            ensure_user(identity.subject, kind="agent")
+            try:
+                ensure_agent_identity(identity.subject)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"service identity {identity.subject!r} is already owned by a human"
+                ) from exc
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing
-    # human row is safe (INSERT OR IGNORE leaves it alone), so the trap is a
-    # fresh install. Say so at boot instead of letting the operator find out
-    # by being locked out; the recovery is a rename of the agent row.
+    # human row is unsafe because it would merge human and machine ownership.
+    # Disable MCP and keep REST available when that collision exists.
     mcp_user = settings.mcp_user
     minted = False
     if mcp_identity_available:
