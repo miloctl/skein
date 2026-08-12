@@ -116,8 +116,32 @@ def get_capabilities(
 
 
 @router.get("/milestones")
-def get_milestones(user: CurrentUser, viewer: ViewerDep, project: str = "", status: str = ""):
-    return work.list_milestones(project, status, viewer)
+def get_milestones(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    project: str = "",
+    status: str = "",
+):
+    with db.read_transaction():
+        rows = work.list_milestones(project, status, viewer)
+        contexts = work.milestone_collection_policy_contexts(rows, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.milestones",
+                "milestone",
+                resource_id=str(row["id"]),
+                project_type=contexts[int(row["id"])]["project_type"],
+                classification=contexts[int(row["id"])]["classification"],
+                attributes=contexts[int(row["id"])],
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/tasks")
@@ -354,8 +378,29 @@ def get_blockers(
 
 
 @router.get("/intake")
-def get_intake(user: CurrentUser, viewer: ViewerDep, status: str = ""):
-    return intake.list_requests(status, viewer)
+def get_intake(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "",
+):
+    with db.read_transaction():
+        rows = intake.list_requests(status, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.intake",
+                "intake",
+                resource_id=str(row["id"]),
+                project_type=str(row.get("project_class") or ""),
+                classification=str(row.get("visibility") or ""),
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/review")
@@ -364,8 +409,29 @@ def get_review(user: CurrentUser, viewer: ViewerDep, status: str = "pending"):
 
 
 @router.get("/engagements")
-def get_engagements(user: CurrentUser, viewer: ViewerDep, status: str = ""):
-    return engagements.list_engagements(status, viewer=viewer)
+def get_engagements(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "",
+):
+    with db.read_transaction():
+        rows = engagements.list_engagements(status, viewer=viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.engagements",
+                "engagement",
+                resource_id=str(row["id"]),
+                project_type=str(row.get("project_class") or ""),
+                classification=str(row.get("visibility") or ""),
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/allocations")

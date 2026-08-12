@@ -156,7 +156,13 @@ class AtlasIntegration:
         # Serialize their shared business key in the extension-owned store so
         # both entry points cannot create a different task for one Atlas item.
         with self.store.transaction():
-            return self._sync_locked(work, context)
+            result = self._sync_locked(work, context)
+        # The core and extension stores cannot share one transaction. Commit
+        # the durable core mapping and outbound intent before network I/O.
+        # A retry from a different contribution then reuses the mapping and
+        # the same remote idempotency key instead of creating another task.
+        self._deliver_pending_statuses()
+        return result
 
     def _sync_locked(
         self,
@@ -165,7 +171,6 @@ class AtlasIntegration:
     ) -> dict[str, int]:
         created = updated = 0
         for item in self.client.list_items():
-            changed = False
             link = self.store.query_one(
                 "SELECT skein_task_id FROM work_links WHERE external_id = ?",
                 (item.external_id,),
@@ -182,7 +187,6 @@ class AtlasIntegration:
                         context,
                     )
                     updated += 1
-                    changed = True
             else:
                 task = work.create_task(
                     CreateTaskCommand(
@@ -192,7 +196,6 @@ class AtlasIntegration:
                     ),
                     context,
                 )
-                changed = True
                 inserted = self.store.execute(
                     "INSERT OR IGNORE INTO work_links"
                     " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
@@ -206,20 +209,35 @@ class AtlasIntegration:
                     raise RuntimeError("The Atlas work mapping conflicts with the Skein task.")
                 if inserted:
                     created += 1
-                else:
-                    changed = False
-            if changed:
-                self.client.update_status(
-                    item.external_id,
-                    task.status,
-                    f"{context.correlation_id or 'atlas-sync'}:{item.external_id}:{task.status}",
-                )
+            event_id = f"atlas-status:{item.external_id}:{task.updated_at}:{task.status}"
+            self.store.execute(
+                "INSERT OR IGNORE INTO status_outbox"
+                " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)",
+                (event_id, item.external_id, task.status),
+            )
         self.store.execute(
             "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
             " VALUES (?, ?, datetime('now'))",
             (created, updated),
         )
         return {"created": created, "updated": updated}
+
+    def _deliver_pending_statuses(self) -> None:
+        with self.store.transaction():
+            pending = self.store.query(
+                "SELECT event_id, external_id, status FROM status_outbox"
+                " WHERE delivered = 0 ORDER BY event_id"
+            )
+            for delivery in pending:
+                self.client.update_status(
+                    str(delivery["external_id"]),
+                    str(delivery["status"]),
+                    str(delivery["event_id"]),
+                )
+                self.store.execute(
+                    "UPDATE status_outbox SET delivered = 1 WHERE event_id = ?",
+                    (str(delivery["event_id"]),),
+                )
 
     def deliver_task_event(
         self,

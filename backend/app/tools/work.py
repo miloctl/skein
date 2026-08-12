@@ -97,7 +97,35 @@ def list_milestones(project: str = "", status: str = "") -> str:
         project: Filter to one project (empty for all).
         status: Filter to one status (empty for all).
     """
-    return json.dumps(work.list_milestones(project, status))
+    with db.read_transaction():
+        rows = work.list_milestones(project, status)
+        contexts = work.milestone_collection_policy_contexts(rows, scope.NOBODY)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        permitted = []
+        for row in rows:
+            attributes = contexts[int(row["id"])]
+            decision = engine.decide(
+                PolicyInput(
+                    subject,
+                    "skein.tool.list_milestones",
+                    PolicyResource(
+                        "milestone",
+                        str(row["id"]),
+                        attributes["project_type"],
+                        attributes["classification"],
+                        attributes,
+                    ),
+                    "agent_tool",
+                    agent=agent_identity(),
+                    tool="list_milestones",
+                    tool_effect="read",
+                    tool_risk="low",
+                )
+            )
+            if decision.effect == PolicyEffect.PERMIT:
+                permitted.append(row)
+        return json.dumps(permitted)
 
 
 @tool

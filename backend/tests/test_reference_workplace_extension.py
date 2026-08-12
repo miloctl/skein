@@ -168,9 +168,10 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
     )
     assert denied.status_code == 403
     assert denied.json()["code"] == "POLICY_DENIED"
-    assert sorted(client.updates) == [
-        ("ATLAS-7", "in_progress", "atlas.workplace.sync:test:ATLAS-7:in_progress"),
-    ]
+    assert len(client.updates) == 1
+    assert client.updates[0][0:2] == ("ATLAS-7", "in_progress")
+    assert client.updates[0][2].startswith("atlas-status:ATLAS-7:")
+    sync_event_id = client.updates[0][2]
 
     delivery = dispatch_events(
         app.state.skein_registry.events,
@@ -182,11 +183,7 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
         ),
     )
     assert delivery["delivered"] == 2
-    event_updates = [
-        update
-        for update in client.updates
-        if update[2] != "atlas.workplace.sync:test:ATLAS-7:in_progress"
-    ]
+    event_updates = [update for update in client.updates if update[2] != sync_event_id]
     assert len(event_updates) >= 1
     assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
 
@@ -277,18 +274,11 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
     assert ExtensionStore(store_path).query_one("SELECT COUNT(*) AS count FROM work_links") == {
         "count": 2
     }
-    assert sorted(client.updates) == [
-        (
-            "ATLAS-7",
-            "in_progress",
-            "atlas.workplace.sync:window-7:ATLAS-7:in_progress",
-        ),
-        (
-            "ATLAS-8",
-            "todo",
-            "atlas.workplace.sync:window-7:ATLAS-8:todo",
-        ),
+    assert sorted(update[0:2] for update in client.updates) == [
+        ("ATLAS-7", "in_progress"),
+        ("ATLAS-8", "todo"),
     ]
+    assert all(update[2].startswith(f"atlas-status:{update[0]}:") for update in client.updates)
 
 
 def test_route_and_job_share_one_extension_owned_sync_claim(
@@ -363,6 +353,66 @@ def test_route_and_job_share_one_extension_owned_sync_claim(
     assert ExtensionStore(store_path).query_one(
         "SELECT COUNT(*) AS count FROM work_links WHERE external_id = 'ATLAS-RACE'"
     ) == {"count": 1}
+
+
+def test_failed_remote_delivery_keeps_mapping_for_cross_entry_retry(fresh_db, tmp_path):
+    from app.public.work import _bind_execution_context
+
+    class FailOnceClient(MemoryAtlasClient):
+        def __init__(self):
+            super().__init__((AtlasItem("ATLAS-RETRY", "One durable task"),))
+            self.fail = True
+
+        def update_status(self, external_id: str, status: str, event_id: str = "") -> None:
+            if self.fail:
+                self.fail = False
+                raise RuntimeError("remote response was lost")
+            super().update_status(external_id, status, event_id)
+
+    client = FailOnceClient()
+    store_path = tmp_path / "atlas-extension.db"
+    module = atlas_module(AtlasSettings(store_path), client)
+    app = create_app(replace(AppSettings.from_config(), scheduler_enabled=False), (module,))
+    with TestClient(app):
+        registry = app.state.skein_registry
+        work_items = WorkItems(registry.policy_engine)
+        subject = registry.service_subject("atlas-sync")
+
+        def context(namespace: str):
+            raw = JobExecutionContext(
+                registry.policy_engine,
+                work_items,
+                subject,
+                f"{namespace}:retry",
+                namespace,
+            )
+            return _bind_execution_context(
+                work_items,
+                raw,
+                subject=subject,
+                namespace=namespace,
+                receipt_namespace=f"job:{namespace}",
+                correlation_id=f"{namespace}:retry",
+            ).command_context(project_type="standard")
+
+        first = AtlasIntegration(client, ExtensionStore(store_path))
+        with pytest.raises(RuntimeError, match="response was lost"):
+            first.sync(work_items, context("atlas.workplace.sync"))
+
+        assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+        assert ExtensionStore(store_path).query_one(
+            "SELECT skein_task_id FROM work_links WHERE external_id = 'ATLAS-RETRY'"
+        ) == {"skein_task_id": 1}
+
+        retried = AtlasIntegration(client, ExtensionStore(store_path)).sync(
+            work_items,
+            context("atlas.workplace.routes"),
+        )
+
+    assert retried == {"created": 0, "updated": 0}
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+    assert len(client.updates) == 1
+    assert client.updates[0][0:2] == ("ATLAS-RETRY", "todo")
 
 
 def test_http_adapter_uses_the_deployment_secret(monkeypatch):
@@ -692,4 +742,4 @@ def test_extension_store_upgrades_its_own_v1_data_during_composition(fresh_db, t
     versions = contribution.store.query(
         "SELECT version FROM extension_schema_version ORDER BY version"
     )
-    assert versions == [{"version": 1}, {"version": 2}]
+    assert versions == [{"version": 1}, {"version": 2}, {"version": 3}]

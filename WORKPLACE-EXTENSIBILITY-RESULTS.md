@@ -401,9 +401,10 @@ app = create_app(
 
 ### Data ownership
 
-Atlas owns `work_links` and `sync_runs` in `atlas-extension.db`. Its version 1
-and version 2 migrations do not enter the core migration stream. Tests prove
-that the core database has no `work_links` table.
+Atlas owns `work_links`, `sync_runs`, and its status-delivery outbox in
+`atlas-extension.db`. Its version 1 through version 3 migrations do not enter
+the core migration stream. Tests prove that the core database has no
+`work_links` table.
 
 ### Authorization
 
@@ -1835,3 +1836,24 @@ Verification after this remediation:
 | Complete backend suite | 1,924 passed in 116.53 seconds |
 | Complete static gate | Passed |
 | Installed backend extension rehearsal | The prior exact commit passed in independent review; the local retry stalled during isolated dependency installation and was stopped cleanly |
+
+The next review found that engagement, milestone, and intake collections had
+the same missing row-policy boundary. These REST and stock-agent lists now
+evaluate each visible row in one read snapshot. Milestones use a batched,
+viewer-scoped parent resolver. Hidden or conflicting legacy parents fail
+closed.
+
+The review also found an Atlas failure window between the core and private
+stores. Atlas now commits the core mapping and a private outbound status intent
+before it calls the remote system. A retry from a different route or job
+namespace uses the saved mapping and the same stable remote idempotency key.
+The version 3 private migration owns this small delivery outbox.
+
+Verification after this remediation:
+
+| Verification | Result |
+|---|---|
+| Complete extension policy and Atlas reference suites | 109 passed |
+| Complete backend suite | 1,928 passed in 114.58 seconds |
+| Complete static gate | Passed |
+| Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
