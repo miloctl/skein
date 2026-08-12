@@ -4579,7 +4579,7 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         set_policy_engine,
         set_policy_subject,
     )
-    from app.services import crews, delegation, engagements, users, work
+    from app.services import crews, delegation, engagements, intake, users, work
     from app.tools.platform import search_workspace as search_tool
     from app.tools.portfolio import (
         get_attention,
@@ -4587,6 +4587,7 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         get_findings,
         get_portfolio_health,
         my_agent_inbox,
+        what_if_staffing,
     )
 
     standard = engagements.create_engagement("Stock composite standard", project_class="standard")[
@@ -4615,12 +4616,18 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         crew_id=crew_id,
     )["id"]
     delegation.delegate_task(delegated, "research-agent", "sponsor", actor="sponsor")
+    users.ensure_user("secret-staff")
+    engagements.allocate("secret-staff", crew_project, 80, actor="sponsor")
+    intake_request = intake.submit_request("Stock standard staffing", project_class="standard")[
+        "id"
+    ]
     protected = {
         "skein.tool.get_portfolio_health",
         "skein.tool.search_workspace",
         "skein.tool.get_context_pack",
         "skein.tool.get_attention",
         "skein.tool.my_agent_inbox",
+        "skein.tool.what_if_staffing",
         "skein.tool.get_findings",
     }
 
@@ -4638,6 +4645,7 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         pack = get_context_pack()
         attention = get_attention()
         inbox = my_agent_inbox()
+        what_if = what_if_staffing(intake_request, "secret-staff", 10)
         findings = get_findings()
     finally:
         reset_agent_identity(agent_token)
@@ -4653,4 +4661,5 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
     )
     assert "regulated task secret" not in inbox
     assert "STOCK REGULATED DELEGATION CANARY" not in inbox
+    assert json.loads(what_if)["error"] == "workplace policy denied this composite read"
     assert json.loads(findings)["error"] == "workplace policy denied this composite read"

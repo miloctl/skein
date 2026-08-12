@@ -2100,6 +2100,12 @@ Agent inboxes now apply policy to each delegated task. The delegation itself
 remains the read door. Policy receives the authoritative task project without
 returning hidden parent data.
 
+The unattended runner applies the same task policy before it sends a quiet
+work notification or starts a model turn. A denied task cannot wake the agent.
+
+REST and stock-tool staffing simulations now check all allocation inputs.
+This check prevents a denied hidden allocation from affecting either result.
+
 Crew context packs apply policy to each task. A filtered first read returns an
 ephemeral pack and does not store an unfiltered version. Engagement packs,
 briefs, and health reports remove tasks with conflicting legacy parents.
@@ -2110,7 +2116,7 @@ Verification before the next exact-commit review:
 |---|---|
 | New hidden-input, inbox, context-pack, and legacy-conflict regressions | 8 passed |
 | Focused policy, composition, context, runner, and visibility suites | 258 passed |
-| Complete backend suite | 1,951 passed in 118.52 seconds |
+| Complete backend suite | 1,952 passed in 117.13 seconds |
 | Complete static gate | Passed |
 
 The scores remain provisional. A fresh independent review must accept one

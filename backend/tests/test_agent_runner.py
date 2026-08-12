@@ -487,3 +487,54 @@ def test_unattended_turn_uses_composed_policy_and_registry(fresh_db, monkeypatch
     )
     assert observed["worker_subject"] == observed["subject"]
     assert db.query_one("SELECT id FROM tasks WHERE title = 'must stay denied'") is None
+
+
+def test_unattended_runner_does_not_wake_for_a_denied_delegated_project(
+    fresh_db,
+    monkeypatch,
+):
+    from app.extensions import PolicyDecision, PolicyEffect, PolicyEngine
+    from app.services import crews, engagements, users
+
+    users.ensure_user("sponsor")
+    users.ensure_agent_identity("research-agent")
+    crew_id = crews.create_crew("Runner policy crew", actor="sponsor")["id"]
+    engagement_id = engagements.create_engagement(
+        "Runner regulated project",
+        project_class="regulated",
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task_id = work.create_task(
+        "RUNNER REGULATED CANARY",
+        engagement_id=engagement_id,
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    delegation.delegate_task(task_id, "research-agent", "sponsor", actor="sponsor")
+    notifications_before = db.query_one(
+        "SELECT COUNT(*) AS n FROM notifications WHERE user = 'sponsor'"
+    )["n"]
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("runner woke")),
+    )
+
+    def deny_regulated_runner(request):
+        if request.action == "skein.job.agent-run" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated runner work is closed.",))
+        return None
+
+    result = agent_runner.run(policy=PolicyEngine((deny_regulated_runner,)))
+
+    assert result["sweep"]["swept"] == 0
+    assert result["runs"][0]["ran"] is False
+    assert result["runs"][0]["reason"] == "nothing delegated"
+    assert (
+        db.query_one("SELECT COUNT(*) AS n FROM notifications WHERE user = 'sponsor'")["n"]
+        == notifications_before
+    )
