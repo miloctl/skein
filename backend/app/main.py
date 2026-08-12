@@ -241,6 +241,14 @@ async def lifespan(app: FastAPI):
     registry: ExtensionRegistry = app.state.skein_registry
     specs = _job_specs(registry, settings)
     db.init_db()  # a failed migration MUST abort startup — everything else must not
+    from .services.users import folded_identity_collisions
+
+    for collision in folded_identity_collisions():
+        log.error(
+            "conflicting folded roster ownership: %s. Run python -m app.identity_audit"
+            " before these identities authenticate or run as machines.",
+            ", ".join(f"{row['name']} ({row['kind']})" for row in collision),
+        )
     for contribution in registry.migrations:
         contribution.store.migrate(contribution.migrations)
     # same rule for the field-guide registry: malformed knots.yaml aborts boot
@@ -515,7 +523,13 @@ async def perimeter_auth(request: Request, call_next):
         is_shared_token,
     )
     from .services.api_keys import PREFIX, verify_key
-    from .services.users import ensure_human_identity, is_active, is_agent, reserved_refusal
+    from .services.users import (
+        ensure_human_identity,
+        identity_collision_refusal,
+        is_active,
+        is_agent,
+        reserved_refusal,
+    )
 
     auth = request.headers.get("Authorization", "")
     # The shared token is checked BEFORE the key prefix: an operator whose
@@ -539,6 +553,9 @@ async def perimeter_auth(request: Request, call_next):
         # (tests/test_route_identity.py::OPEN_READS).
         if await run_in_threadpool(is_agent, owner):
             return JSONResponse(status_code=403, content={"detail": agent_on_rest(owner)})
+        collision = await run_in_threadpool(identity_collision_refusal, owner)
+        if collision:
+            return JSONResponse(status_code=403, content={"detail": collision})
         # and the reserved-name wall, for exactly the same reason: deps.py
         # refuses this credential, but the catalog reads never reach deps.
         reserved = await run_in_threadpool(reserved_refusal, owner)
@@ -736,6 +753,8 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 
 def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None):
+    from .services.users import identity_ownership_error
+
     selected = settings or AppSettings.from_config()
     return {
         "ok": True,
@@ -753,6 +772,7 @@ def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None)
         "model_warnings": unlisted_model_warnings() + config.menu_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
         "overlay_errors": config.overlay_errors(),
+        "identity_ownership_error": identity_ownership_error(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,
         # and two surfaces disagreeing about one fact is the bug this avoids
         "context_strategy": effective_context_strategy(),
