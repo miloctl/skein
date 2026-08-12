@@ -27,6 +27,10 @@ class AtlasItem:
     classification: str = "internal"
 
 
+class AtlasUnavailableError(RuntimeError):
+    """The Atlas adapter could not complete a remote operation."""
+
+
 class AtlasClient(Protocol):
     def list_items(self) -> tuple[AtlasItem, ...]: ...
 
@@ -99,20 +103,20 @@ class AtlasHttpClient:
             with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
                 raw = response.read()
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise RuntimeError("The Atlas API request failed.") from exc
+            raise AtlasUnavailableError("The Atlas API request failed.") from exc
         if not raw:
             return None
         try:
             parsed: object = json.loads(raw)
             return parsed
         except (TypeError, ValueError) as exc:
-            raise RuntimeError("The Atlas API returned invalid JSON.") from exc
+            raise AtlasUnavailableError("The Atlas API returned invalid JSON.") from exc
 
     def list_items(self) -> tuple[AtlasItem, ...]:
         result = self._request("GET", "/items")
         rows = result.get("items", []) if isinstance(result, dict) else result
         if not isinstance(rows, list):
-            raise RuntimeError("The Atlas API returned an invalid item list.")
+            raise AtlasUnavailableError("The Atlas API returned an invalid item list.")
         try:
             return tuple(
                 AtlasItem(
@@ -125,7 +129,7 @@ class AtlasHttpClient:
                 if isinstance(row, dict)
             )
         except KeyError as exc:
-            raise RuntimeError("The Atlas API returned an invalid item.") from exc
+            raise AtlasUnavailableError("The Atlas API returned an invalid item.") from exc
 
     def update_status(self, external_id: str, status: str, event_id: str = "") -> None:
         self._request(

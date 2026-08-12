@@ -2463,3 +2463,29 @@ Verification before the next exact-commit review:
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+
+### Remediation after the `bde7a8b` review
+
+The extension-author review rejected `bde7a8b` before it issued final scores.
+
+Contributed tools recognized an internal error type for declared safe codes.
+Extension packages could not import that type through the documented public
+modules. The existing public `PublicError` became a generic tool error.
+
+Contributed tools now recognize `PublicError` from `app.public`. Skein keeps a
+code only when the tool declares it in `error_codes`. It replaces other codes
+with `tool_error`.
+
+The Atlas tool and workflow action now translate adapter failures to their
+declared safe codes. Their detail does not include private transport text.
+The installed strict-type fixture now constructs the public error type.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused policy, reference, workflow, release, and packaging tests | 170 passed in 20.05 seconds |
+| Complete backend suite | 1,987 passed in 130.32 seconds |
+| Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |

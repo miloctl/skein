@@ -14,6 +14,7 @@ from app.extensions import (
 )
 from app.public import (
     CreateTaskCommand,
+    PublicError,
     UpdateTaskCommand,
     WorkflowContext,
     WorkflowEngine,
@@ -44,6 +45,7 @@ assert_type(WorkItems, type[WorkItems])
 assert_type(WorkflowContext, type[WorkflowContext])
 assert_type(WorkflowEngine, type[WorkflowEngine])
 assert_type(CreateTaskCommand(title="Task"), CreateTaskCommand)
+assert_type(PublicError("REMOTE_UNAVAILABLE", "The remote service is unavailable."), PublicError)
 assert_type(UpdateTaskCommand(task_id=1, title="New"), UpdateTaskCommand)
 assert_type(
     ToolContribution(

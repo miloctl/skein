@@ -454,6 +454,11 @@ A tool contribution declares its full security contract:
 - Timeout and safe error codes
 - Receipt and provenance behavior
 
+Raise `PublicError` from `app.public` when a tool returns a safe failure. Skein
+preserves the code only when the contribution declares it in `error_codes`.
+Skein returns `tool_error` for an undeclared code. Keep `detail` safe for the
+requester because it is part of the tool result.
+
 Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call. Before each
