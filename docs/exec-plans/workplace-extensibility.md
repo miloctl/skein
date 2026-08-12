@@ -2053,6 +2053,10 @@ missing, or conflicting parent sets a fail-closed relationship result.
 Opaque aggregates cannot remove unsafe rows reliably. These aggregates fail
 closed if policy denies one visible project domain.
 
+They also fail closed if a visible legacy child has a hidden, missing, or
+conflicting project parent. This rule prevents an aggregate from counting a
+row after policy loses the row's authoritative project boundary.
+
 The resource map now includes delegation, lessons, allocations, and artifacts.
 Task, blocker, event, promise, and memory context use actor-scoped parent data.
 
@@ -2069,7 +2073,7 @@ Verification before the next exact-commit review:
 |---|---|
 | Focused policy, composition, core-tool, and public-contract matrix | 250 passed |
 | Broader cross-surface regression matrix | 348 passed |
-| Complete backend suite | 1,947 passed in 112.64 seconds |
+| Complete backend suite | 1,948 passed in 118.46 seconds |
 | Complete static gate | Passed |
 | Frontend tests | 230 passed in 45 files |
 | Frontend production build | Passed |

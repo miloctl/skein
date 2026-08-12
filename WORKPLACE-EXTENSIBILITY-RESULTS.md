@@ -1908,6 +1908,9 @@ now use the same resource-context contract:
 
 Row-shaped results use per-resource filtering. Opaque aggregates fail closed
 if a denied project can affect the result.
+They also fail closed if a visible legacy child has a hidden, missing, or
+conflicting project parent. This check prevents an aggregate from counting a
+row after policy loses the row's authoritative project boundary.
 
 The policy context map now includes delegation, lessons, allocations, and
 artifacts. Hidden, missing, and conflicting legacy parents give one fail-closed
@@ -1924,7 +1927,7 @@ Current verification:
 |---|---|
 | Focused policy, composition, core-tool, and public-contract matrix | 250 passed |
 | Broader cross-surface regression matrix | 348 passed |
-| Complete backend suite | 1,947 passed in 112.64 seconds |
+| Complete backend suite | 1,948 passed in 118.46 seconds |
 | Complete static gate | Passed |
 | Frontend tests | 230 passed in 45 files |
 | Frontend production build | Passed |

@@ -4233,6 +4233,45 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
     assert {response.status_code for response in opaque_responses} == {403}
 
 
+def test_opaque_composite_fails_closed_for_visible_legacy_child_with_hidden_parent(fresh_db):
+    from app import db
+    from app.services import crews, engagements, work
+
+    crew_id = crews.create_crew("Hidden aggregate parent", actor="other-person")["id"]
+    hidden = engagements.create_engagement(
+        "Hidden regulated aggregate",
+        project_class="regulated",
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task("Visible legacy aggregate child", actor="other-person")["id"]
+    work.update_task(task, status="in_progress", actor="other-person")
+    db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (hidden, task))
+
+    def deny_regulated(request: PolicyInput):
+        if (
+            request.action == "skein.rest.get.portfolio.flow"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated aggregates are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.legacy-aggregate", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.get("/api/portfolio/flow")
+
+    assert response.status_code == 403
+    assert "Visible legacy aggregate child" not in response.text
+
+
 def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(fresh_db):
     from app.services import engagements, weekly, work
 
