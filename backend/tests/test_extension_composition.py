@@ -799,6 +799,31 @@ def test_legacy_core_actor_row_uses_the_same_identity_repair(fresh_db):
     assert users.ensure_human_identity("former-system")["kind"] == "human"
 
 
+@pytest.mark.parametrize("name", ["agent", "ci", "mcp"])
+def test_all_runtime_machine_names_are_quarantined_and_repairable(fresh_db, name):
+    from app import db
+    from app.services import users
+
+    db.execute(
+        "INSERT INTO users (name, kind, created_at) VALUES (?, 'human', ?)",
+        (name, db.now()),
+    )
+    assert users.identity_ownership_error().startswith("1 conflicting identity group")
+    with pytest.raises(ValueError, match="reserved for the system"):
+        users.ensure_human_identity(name)
+
+    users.repair_identity_ownership(name, f"former-{name}")
+    assert users.ensure_human_identity(f"former-{name}")["kind"] == "human"
+    assert users.ensure_agent_identity(name)["kind"] == "agent"
+
+
+def test_anonymous_remains_an_explicit_synthetic_compatibility_subject(fresh_db):
+    from app.services import users
+
+    assert users.ensure_human_identity("anonymous")["kind"] == "human"
+    assert users.identity_ownership_error() == ""
+
+
 def test_identity_repair_can_be_repeated_after_core_step_failure(fresh_db, monkeypatch):
     from app import db
     from app.services import private_notes, users
@@ -809,6 +834,24 @@ def test_identity_repair_can_be_repeated_after_core_step_failure(fresh_db, monke
             (name, kind, db.now()),
         )
     private_notes.add_note("LEGACY", "manager", "recover me")
+
+    with pytest.raises(ValueError, match="reserved for the system"):
+        users.repair_identity_ownership("LEGACY", "system")
+    assert [note["body"] for note in private_notes.list_notes("LEGACY", "manager")] == [
+        "recover me"
+    ]
+    assert private_notes.list_notes("system", "manager") == []
+
+    private_notes.add_note("unused-target", "manager", "unrelated private owner")
+    with pytest.raises(ValueError, match="private identity ownership already exists"):
+        users.repair_identity_ownership("LEGACY", "unused-target")
+    assert [note["body"] for note in private_notes.list_notes("LEGACY", "manager")] == [
+        "recover me"
+    ]
+    assert [note["body"] for note in private_notes.list_notes("unused-target", "manager")] == [
+        "unrelated private owner"
+    ]
+
     real_rename = users.rename_user
     monkeypatch.setattr(
         users,
@@ -826,6 +869,101 @@ def test_identity_repair_can_be_repeated_after_core_step_failure(fresh_db, monke
     monkeypatch.setattr(users, "rename_user", real_rename)
     result = users.repair_identity_ownership("LEGACY", "person-legacy")
     assert result["repair_origin"] == "identity-audit"
+    assert db.query_one("SELECT kind FROM users WHERE name = 'person-legacy'") == {"kind": "human"}
+    assert [note["body"] for note in private_notes.list_notes("person-legacy", "manager")] == [
+        "recover me"
+    ]
+    assert (
+        sum(
+            row["action"] == "system_identity_repair:LEGACY->person-legacy"
+            for row in private_notes.list_audit("person-legacy")
+        )
+        == 1
+    )
+
+
+def test_identity_repair_validates_every_target_before_private_data_moves(fresh_db):
+    from app import db
+    from app.services import private_notes, users
+
+    for name, kind in (("LEGACY", "human"), ("legacy", "agent")):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+    private_notes.add_note("LEGACY", "manager", "stay with old owner")
+    users.ensure_human_identity("existing-user")
+
+    targets = (
+        "",
+        "LEGACY",
+        "anonymous",
+        "system",
+        "backend-architect",
+        "existing-user",
+        "EXISTING-USER",
+    )
+    for target in targets:
+        with pytest.raises(ValueError):
+            users.repair_identity_ownership("LEGACY", target)
+        assert [note["body"] for note in private_notes.list_notes("LEGACY", "manager")] == [
+            "stay with old owner"
+        ]
+        if target and target != "LEGACY":
+            assert not private_notes.author_has_notes(target)
+        if target and target != "LEGACY":
+            assert private_notes.list_audit(target) == []
+        assert db.query_one("SELECT kind FROM users WHERE name = 'LEGACY'") == {"kind": "human"}
+
+
+def test_identity_repair_holds_target_ownership_until_core_rename_finishes(fresh_db, monkeypatch):
+    from app import db
+    from app.services import private_notes, users
+
+    for name, kind in (("LEGACY", "human"), ("legacy", "agent")):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+    recovering = Event()
+    release = Event()
+    machine_started = Event()
+    results: dict[str, object] = {}
+    real_recover = private_notes.recover_identity_ownership
+
+    def pause_recovery(old: str, new: str):
+        recovering.set()
+        assert release.wait(timeout=3)
+        return real_recover(old, new)
+
+    monkeypatch.setattr(private_notes, "recover_identity_ownership", pause_recovery)
+
+    def repair() -> None:
+        results["repair"] = users.repair_identity_ownership("LEGACY", "person-legacy")
+
+    def reserve_machine() -> None:
+        assert recovering.wait(timeout=3)
+        machine_started.set()
+        try:
+            users.ensure_agent_identity("person-legacy")
+        except ValueError as exc:
+            results["machine_error"] = str(exc)
+
+    repair_thread = Thread(target=repair)
+    machine_thread = Thread(target=reserve_machine)
+    repair_thread.start()
+    machine_thread.start()
+    try:
+        assert machine_started.wait(timeout=3)
+        sleep(0.05)
+        assert "machine_error" not in results
+    finally:
+        release.set()
+        repair_thread.join(timeout=3)
+        machine_thread.join(timeout=3)
+
+    assert not repair_thread.is_alive() and not machine_thread.is_alive()
+    assert "already owned by a human identity" in str(results["machine_error"])
     assert db.query_one("SELECT kind FROM users WHERE name = 'person-legacy'") == {"kind": "human"}
 
 

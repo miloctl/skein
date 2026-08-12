@@ -93,7 +93,7 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
     from app import config
     from app.services import users
 
-    users.ensure_user("agent", kind="agent")
+    users.ensure_agent_identity("agent")
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
 
     body = "text=todo%3A+exfiltrate+the+roster&user_name=agent"
@@ -110,7 +110,7 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
     )
     assert r.status_code == 200
     # loose on wording (an STE pass may reword it), strict on the outcome
-    assert "agent" in r.json()["text"].lower()
+    assert "reserved" in r.json()["text"].lower()
     # and nothing was written as that identity
     from app.services import work
 

@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
 
+from ..identity_names import CORE_MACHINE_SUBJECTS
 from .contracts import (
     EXTENSION_API_VERSION,
     SKEIN_CORE_VERSION,
@@ -28,9 +29,7 @@ from .policy import PolicyEngine, PolicySubject
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
 _MODEL_TOOL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
-_RESERVED_CORE_SUBJECTS = frozenset(
-    {"agent", "anonymous", "ci", "forge", "mcp", "scheduler", "system", "team"}
-)
+_RESERVED_CORE_SUBJECTS = CORE_MACHINE_SUBJECTS
 
 
 class ExtensionValidationError(ValueError):

@@ -1395,6 +1395,26 @@ folded duplicates, persona and flock names, and reserved core actors.
 | `./scripts/lint.sh` | All gates passed |
 | `scripts/reference-extension-contract.sh` | Real repair CLI and private audit passed; unchanged Atlas wheel passed both cores |
 
+The review of `2bcf22a` rejected the repair sequence. A reserved target could
+strand private ownership before core validation. An unused core target could
+also have unrelated orphaned private ownership. A separate audit found that
+`agent`, `ci`, and `mcp` were in the extension registry's reserved set but not
+the health and repair set.
+
+The repair now runs all core target checks before any private move. The private
+store refuses unrelated target ownership. It accepts only a matching audit
+marker from the same incomplete repair. One canonical machine-name set now
+drives composition, runtime reservation, human refusal, health, and repair.
+`anonymous` remains the documented synthetic compatibility subject.
+
+| Target-integrity remediation command | Result |
+|---|---|
+| Focused repair, reservation, and ownership tests | 52 passed |
+| Identity, authentication, privacy, provenance, policy, and extension suite | 365 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,796 passed in 119.80 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Real repair CLI passed; unchanged Atlas wheel passed distinct 0.2.0 and 0.2.1 cores |
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.
