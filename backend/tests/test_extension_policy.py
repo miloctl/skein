@@ -4476,6 +4476,57 @@ def test_explicit_engagement_composites_filter_each_nested_resource(fresh_db):
     assert relation_view["waiting_on_id"] is None
 
 
+def test_interventions_filter_an_id_specific_denied_resource(fresh_db):
+    from app.services import blockers, engagements, work
+
+    engagement = engagements.create_engagement(
+        "Permitted intervention project",
+        project_class="standard",
+    )["id"]
+    task = work.create_task(
+        "Permitted intervention task",
+        engagement_id=engagement,
+    )["id"]
+    blockers.raise_blocker(
+        "PERMITTED INTERVENTION BLOCKER",
+        task_id=task,
+        impact="low",
+    )
+    blocker = blockers.raise_blocker(
+        "DENIED INTERVENTION BLOCKER",
+        task_id=task,
+        impact="critical",
+    )["id"]
+    fresh_db.execute(
+        "UPDATE blockers SET status = 'escalated' WHERE id = ?",
+        (blocker,),
+    )
+
+    def deny_one_blocker(request: PolicyInput):
+        if (
+            request.action == "skein.rest.get.interventions"
+            and request.resource.type == "blocker"
+            and request.resource.id == str(blocker)
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("This blocker is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.intervention-row", deny_one_blocker),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.get("/api/interventions")
+
+    assert response.status_code == 200
+    assert "DENIED INTERVENTION BLOCKER" not in response.text
+    assert blocker not in {row["entity_id"] for row in response.json()}
+
+
 def test_stock_and_mcp_engagement_composites_filter_nested_resources(fresh_db, monkeypatch):
     from app import mcp_server
     from app.agents.identity import reset_agent_identity, set_agent_identity

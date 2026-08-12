@@ -2163,3 +2163,26 @@ Verification before the next exact-commit review:
 
 The scores remain provisional. A fresh independent review must accept one
 clean exact commit before Chrome validation can start.
+
+### Remediation after the `e7e071ef` review
+
+The review rejected `e7e071ef`. It did not issue final scores.
+
+The interventions route checked all project domains, but it did not pass the
+action policy to each returned intervention. A rule that denied one blocker
+by ID could therefore receive the blocker title and receipt.
+
+The route now keeps the opaque project check. It also applies the same action
+to each intervention resource in the same read transaction. The standalone
+plan-diff route applies this rule to each nested plan resource.
+
+The new REST regression uses a permitted project and an ID-specific denied
+blocker. The response omits the denied blocker.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Intervention, nested composite, plan-diff, and engagement-brief tests | 13 passed |
+| Complete backend suite | 1,956 passed in 114.27 seconds |
+| Complete static gate | Passed |
