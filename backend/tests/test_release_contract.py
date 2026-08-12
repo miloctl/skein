@@ -44,3 +44,25 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
     ):
         assert f'"{literal}"' in source
         assert f'"{literal}"' in frontend_source
+
+
+def test_extension_api_one_keeps_its_original_public_import_surface():
+    """Security hardening can narrow authority without breaking old imports."""
+    import app.public as public
+
+    original_api_one = {
+        "CommandContext",
+        "CreateTaskCommand",
+        "DomainEvent",
+        "EventActor",
+        "PublicError",
+        "ResourceReference",
+        "TaskView",
+        "UpdateTaskCommand",
+        "WorkItems",
+        "WorkflowContext",
+        "WorkflowEngine",
+        "WorkflowResult",
+    }
+    assert original_api_one <= set(public.__all__)
+    assert all(getattr(public, name, None) is not None for name in original_api_one)

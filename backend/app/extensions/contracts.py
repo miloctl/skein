@@ -248,16 +248,16 @@ class ToolHandlerContext:
 
 
 @dataclass(frozen=True)
-class ToolContribution:
+class ToolContribution[InputModelT: BaseModel, OutputModelT: BaseModel]:
     """A governed agent tool with explicit effects and error behavior."""
 
     name: str
     version: str
     model_name: str
     description: str
-    handler: Callable[[ToolHandlerContext, BaseModel], Any]
-    input_schema: type[BaseModel]
-    output_schema: type[BaseModel]
+    handler: Callable[[ToolHandlerContext, InputModelT], OutputModelT | Mapping[str, Any]]
+    input_schema: type[InputModelT]
+    output_schema: type[OutputModelT]
     effect: str
     risk: str
     policy_action: str
@@ -267,8 +267,8 @@ class ToolContribution:
     error_codes: tuple[str, ...] = ()
     receipt: str = "required"
     provenance: str = "service"
-    resource: Callable[[BaseModel], PolicyResource] | None = None
-    review_preview: Callable[[BaseModel], Mapping[str, Any]] | None = None
+    resource: Callable[[InputModelT], PolicyResource] | None = None
+    review_preview: Callable[[InputModelT], Mapping[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "allowed_agents", tuple(self.allowed_agents))
@@ -398,14 +398,14 @@ class WorkflowActionContext:
 
 
 @dataclass(frozen=True)
-class WorkflowActionContribution:
+class WorkflowActionContribution[InputModelT: BaseModel, OutputModelT: BaseModel]:
     """A governed action that a declarative workflow can invoke."""
 
     name: str
     version: str
-    handler: Callable[[WorkflowActionContext, BaseModel], Any]
-    input_schema: type[BaseModel]
-    output_schema: type[BaseModel]
+    handler: Callable[[WorkflowActionContext, InputModelT], OutputModelT | Mapping[str, Any]]
+    input_schema: type[InputModelT]
+    output_schema: type[OutputModelT]
     effect: str
     risk: str
     policy_action: str

@@ -11,7 +11,14 @@ from typing import Any
 from strands import tool
 
 from ..agents.identity import agent_identity
-from ..services import work
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
+from ..services import scope, work
 from ._gate import gated_write
 
 
@@ -180,4 +187,31 @@ def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> s
         status: Filter to one status (empty for all).
         assignee: Filter to one assignee (empty for all).
     """
-    return json.dumps(work.list_tasks(milestone_id, status, assignee))
+    rows = work.list_tasks(milestone_id, status, assignee)
+    contexts = work.task_collection_policy_contexts(rows, scope.NOBODY)
+    subject = current_policy_subject()
+    engine = current_policy_engine()
+    permitted = []
+    for row in rows:
+        attributes = contexts[int(row["id"])]
+        decision = engine.decide(
+            PolicyInput(
+                subject,
+                "skein.tool.list_tasks",
+                PolicyResource(
+                    "task",
+                    str(row["id"]),
+                    attributes["project_type"],
+                    attributes["classification"],
+                    attributes,
+                ),
+                "agent_tool",
+                agent=agent_identity(),
+                tool="list_tasks",
+                tool_effect="read",
+                tool_risk="low",
+            )
+        )
+        if decision.effect == PolicyEffect.PERMIT:
+            permitted.append(row)
+    return json.dumps(permitted)

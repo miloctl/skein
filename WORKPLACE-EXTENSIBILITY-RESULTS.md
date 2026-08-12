@@ -1751,3 +1751,41 @@ Additional pre-review results:
 
 The report remains provisional. A fresh four-role review must approve one clean
 exact commit. Chrome validation remains blocked until that review passes.
+
+### Review of `dd4b6a0` and current remediation
+
+The four-role review rejected `dd4b6a0`.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and security | 8.0 | 7.0 | 8.0 | Reject |
+| Extension author | 8.2 | 7.9 | 7.8 | Reject |
+| Compatibility | 8.1 | 8.0 | 7.4 | Reject |
+| Conservative result | 8.0 | 7.0 | 7.4 | Reject |
+
+The current branch fixes all valid findings from that review. It preserves the
+API 1.0 workflow imports without restoring caller-issued workflow authority.
+It supplies generic typed tool and workflow contribution contracts. The real
+Atlas package passes strict mypy against the installed wheel.
+
+Blocker policy now resolves the linked task project on REST, agent, and review
+paths. Task collection reads apply workplace policy to each visible row. Atlas
+serializes route and job synchronization through its extension-owned database.
+The two entry points cannot create different core tasks for one external item.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,912 passed in 117.09 seconds |
+| Complete static gate | Passed |
+| Frontend tests | 230 passed in 45 files |
+| Frontend production build | Passed |
+| Installed backend artifact and upgrade rehearsal | Passed |
+| Frontend two-host artifact rehearsal | Passed |
+| Base-to-feature schema and activity rehearsal | Passed |
+| Standard Kustomize rendering | Not run; `kubectl` is unavailable |
+| Derivative image startup | Not run; Docker is unavailable in WSL |
+
+These results do not change the final score yet. A fresh independent review
+must accept one clean exact commit. Chrome validation follows that gate.

@@ -3,9 +3,9 @@
 from app.extensions import PolicyDecision, PolicyEffect, PolicyInput
 
 
-def atlas_identity(name: str, groups: tuple[str, ...], _strong: bool):
-    capabilities = []
-    roles = []
+def atlas_identity(name: str, groups: tuple[str, ...], _strong: bool) -> dict[str, tuple[str, ...]]:
+    capabilities: list[str] = []
+    roles: list[str] = []
     if "atlas-delivery-managers" in groups:
         capabilities.extend(("atlas.dashboard", "atlas.approve", "atlas.specialist"))
         roles.append("delivery-manager")
@@ -14,7 +14,7 @@ def atlas_identity(name: str, groups: tuple[str, ...], _strong: bool):
     return {"roles": tuple(roles), "capabilities": tuple(capabilities)}
 
 
-def atlas_directory(name: str):
+def atlas_directory(name: str) -> dict[str, object] | None:
     """Fictional directory refresh used by the executable example.
 
     A real private package calls its directory adapter here. Returning no
@@ -27,12 +27,12 @@ def atlas_directory(name: str):
     return None
 
 
-def atlas_profile(_name: str):
+def atlas_profile(_name: str) -> dict[str, object]:
     """Return active profile state without owning directory groups."""
     return {"active": True}
 
 
-def atlas_policy(request: PolicyInput):
+def atlas_policy(request: PolicyInput) -> PolicyDecision | None:
     capabilities = set(request.subject.capabilities)
     if request.action == "atlas.dashboard.view" and "atlas.dashboard" not in capabilities:
         return PolicyDecision(PolicyEffect.DENY, ("The manager dashboard needs Atlas access.",))

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextvars import ContextVar
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,10 @@ class ExtensionStore:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
+        self._active: ContextVar[sqlite3.Connection | None] = ContextVar(
+            f"skein_extension_store_{id(self)}",
+            default=None,
+        )
 
     def _make_sure_is_separate(self) -> None:
         target = self.path.resolve()
@@ -96,15 +101,42 @@ class ExtensionStore:
                     raise
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
+        active = self._active.get()
+        if active is not None:
+            cursor = active.execute(sql, tuple(params))
+            return int(cursor.lastrowid or 0)
         with contextlib.closing(self.connect()) as connection:
             cursor = connection.execute(sql, tuple(params))
             connection.commit()
             return int(cursor.lastrowid or 0)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        active = self._active.get()
+        if active is not None:
+            return [dict(row) for row in active.execute(sql, tuple(params)).fetchall()]
         with contextlib.closing(self.connect()) as connection:
             return [dict(row) for row in connection.execute(sql, tuple(params)).fetchall()]
 
     def query_one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
         rows = self.query(sql, params)
         return rows[0] if rows else None
+
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[ExtensionStore]:
+        """Serialize one extension-owned operation across threads and workers."""
+        active = self._active.get()
+        if active is not None:
+            yield self
+            return
+        with contextlib.closing(self.connect()) as connection:
+            connection.isolation_level = None
+            connection.execute("BEGIN IMMEDIATE")
+            token = self._active.set(connection)
+            try:
+                yield self
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+            finally:
+                self._active.reset(token)

@@ -27,7 +27,7 @@ from ..extensions.policy import (
     current_policy_subject,
     policy_input_data,
 )
-from ..services import lexicon, review, scope, work
+from ..services import blockers, lexicon, review, scope, work
 from ..services.delegation import authority_level
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -154,6 +154,16 @@ def _gated_write_locked(
                     engagement_id=int(payload.get("engagement_id") or 0),
                     visibility=str(payload.get("visibility") or scope.WORKSPACE),
                     crew_id=int(payload.get("crew_id") or 0),
+                    actor=actor,
+                )
+        elif entity in {"blocker", "blocker_edit"}:
+            if entity_id:
+                attributes = blockers.existing_policy_context(entity_id, actor=actor)
+            else:
+                attributes = blockers.create_policy_context(
+                    int(payload.get("task_id") or 0),
+                    str(payload.get("visibility") or scope.WORKSPACE),
+                    int(payload.get("crew_id") or 0),
                     actor=actor,
                 )
         else:

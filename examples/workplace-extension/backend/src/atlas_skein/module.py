@@ -25,6 +25,7 @@ from app.extensions import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
+    WorkflowActionContext,
     WorkflowActionContribution,
 )
 
@@ -72,23 +73,23 @@ def atlas_module(
     router = APIRouter(prefix="/api/extensions/atlas.workplace")
 
     @router.post("/sync", response_model=SyncOut)
-    def sync(services: ExtensionRouteServicesDep):
+    def sync(services: ExtensionRouteServicesDep) -> dict[str, int]:
         return integration.sync(
             services.work_items,
             services.command_context(project_type="standard"),
         )
 
     @router.get("/metrics")
-    def metrics(_services: ExtensionRouteServicesDep):
+    def metrics(_services: ExtensionRouteServicesDep) -> dict[str, int]:
         return integration.metrics()
 
-    def notify(context, request: NotifyIn):
+    def notify(context: WorkflowActionContext, request: NotifyIn) -> NotifyOut:
         selected_client.notify_manager(
             request.channel,
             request.message,
             f"{context.correlation_id}:manager-notification",
         )
-        return {"accepted": True}
+        return NotifyOut(accepted=True)
 
     return SkeinModule(
         module_id="atlas.workplace",
@@ -167,9 +168,7 @@ def atlas_module(
         contexts=(
             ContextContribution(
                 "atlas.workplace.delivery-context",
-                lambda _requester_name: (
-                    f"Atlas mappings: {integration.metrics()['linked_items']}"
-                ),
+                lambda _requester_name: f"Atlas mappings: {integration.metrics()['linked_items']}",
                 policy_action="atlas.context.read",
                 risk="low",
                 required_capabilities=("atlas.specialist",),

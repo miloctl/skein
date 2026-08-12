@@ -510,12 +510,13 @@ Version 1 playbooks support four workflow step types:
 Workflow actions declare schemas, effect, risk, policy action, timeout, and
 safe error codes. A playbook cannot call arbitrary Python or an arbitrary URL.
 
-Do not import or construct `WorkflowEngine` or `WorkflowContext` in a private
-package. These are internal execution types. The composed application issues
-the workflow authority. A caller-created context cannot run an action. Start a
-workflow-backed playbook through the REST endpoint and resume it through the
-review endpoint. This rule binds the requester, policy, run ID, and action
-registry to one trusted application boundary.
+Extension API 1.0 still exports `WorkflowEngine` and `WorkflowContext` for
+source compatibility with early packages. Do not use them as an execution
+entry point. The composed application issues the workflow authority. A
+caller-created context cannot run an action and returns
+`WORKFLOW_CONTEXT_REQUIRED`. Start a workflow-backed playbook through the REST
+endpoint. Resume it through the review endpoint. This rule binds the requester,
+policy, run ID, and action registry to one trusted application boundary.
 
 The REST, deterministic chat, and agent-tool paths use `playbook.create`.
 They use one resolver to load the project class from the selected playbook.

@@ -185,6 +185,34 @@ def _task_context(entity_id: int, payload: dict) -> dict[str, str]:
     return result
 
 
+def _blocker_context(entity_id: int, payload: dict) -> dict[str, str]:
+    """Resolve a blocker's project through its linked task for review refresh."""
+    row = None
+    if entity_id:
+        row = db.query_one(
+            "SELECT visibility, crew_id, task_id FROM blockers WHERE id = ?",
+            (entity_id,),
+        )
+        if row is None:
+            return {}
+    task_id = (
+        _integer(payload.get("task_id")) if not entity_id else _integer((row or {}).get("task_id"))
+    )
+    result = {
+        "classification": str(
+            (row or {}).get("visibility") or payload.get("visibility") or scope.WORKSPACE
+        ),
+        "crew_id": str((row or {}).get("crew_id") or payload.get("crew_id") or ""),
+        "project_type": "",
+    }
+    if task_id:
+        task = _task_context(task_id, {})
+        result["project_type"] = str(task.get("project_type") or "")
+        if task.get("relationship_conflict"):
+            result["relationship_conflict"] = "true"
+    return result
+
+
 def _target_engagement(entity: str, entity_id: int, payload: dict) -> int:
     """Resolve only relationship fields that the entity service persists."""
     existing_engagement = 0
@@ -231,6 +259,8 @@ def for_change(entity: str, entity_id: int, payload: dict) -> dict[str, str]:
     selected = _TABLES.get(entity)
     if selected is None:
         return {}
+    if entity in {"blocker", "blocker_edit"}:
+        return _blocker_context(entity_id, payload)
     if entity == "task" and entity_id:
         return _task_context(entity_id, payload)
     current = existing(entity, entity_id) if entity_id else {}
