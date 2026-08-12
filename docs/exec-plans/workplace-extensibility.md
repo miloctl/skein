@@ -1396,6 +1396,19 @@ All 43 specialist-consult tests passed after the fix. The complete backend
 suite passed 1,849 tests in 113.48 seconds. The complete static gate also
 passed. The next step is an independent review of one clean commit.
 
+The independent review of `c5f8c78` found a policy bypass in public task
+creation. Project-class resolution used workspace-only link queries. A crew
+member could link regulated crew work while policy received a false standard
+class from the command context. Scores for `c5f8c78` are void.
+
+The public facade now resolves engagement and milestone links with the bound
+actor's visibility predicate. The lookup, policy decision, and write use one
+serialized transaction. Tests cover false and empty caller contexts for both
+crew link types. Another test proves that invisible and absent links have the
+same refusal. The focused policy and visibility suites passed 183 tests. The
+complete backend suite passed 1,854 tests in 112.48 seconds, and the backend
+static gate passed. A fresh review follows a clean remediation commit.
+
 ### Twenty-first review gate and remediation
 
 The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and
