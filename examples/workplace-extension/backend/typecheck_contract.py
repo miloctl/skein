@@ -30,11 +30,13 @@ class _Output(BaseModel):
     accepted: bool
 
 
-def _tool_handler(_context: ToolHandlerContext, _request: _Input) -> _Output:
+def _tool_handler(_context: ToolHandlerContext, request: BaseModel) -> _Output:
+    _Input.model_validate(request)
     return _Output(accepted=True)
 
 
-def _workflow_handler(_context: WorkflowActionContext, _request: _Input) -> _Output:
+def _workflow_handler(_context: WorkflowActionContext, request: BaseModel) -> _Output:
+    _Input.model_validate(request)
     return _Output(accepted=True)
 
 
@@ -44,34 +46,31 @@ assert_type(CreateTaskCommand, type[CreateTaskCommand])
 assert_type(WorkItems, type[WorkItems])
 assert_type(WorkflowContext, type[WorkflowContext])
 assert_type(WorkflowEngine, type[WorkflowEngine])
-assert_type(CreateTaskCommand(title="Task"), CreateTaskCommand)
+assert_type(CreateTaskCommand.model_validate({"title": "Task"}), CreateTaskCommand)
 assert_type(PublicError("REMOTE_UNAVAILABLE", "The remote service is unavailable."), PublicError)
-assert_type(UpdateTaskCommand(task_id=1, title="New"), UpdateTaskCommand)
 assert_type(
-    ToolContribution(
-        name="acme.workplace.tool",
-        version="1.0.0",
-        model_name="acme_tool",
-        description="Typed tool",
-        handler=_tool_handler,
-        input_schema=_Input,
-        output_schema=_Output,
-        effect="read",
-        risk="low",
-        policy_action="acme.tool.read",
-    ),
-    ToolContribution[_Input, _Output],
+    UpdateTaskCommand.model_validate({"task_id": 1, "title": "New"}),
+    UpdateTaskCommand,
 )
-assert_type(
-    WorkflowActionContribution(
-        name="acme.workplace.action",
-        version="1.0.0",
-        handler=_workflow_handler,
-        input_schema=_Input,
-        output_schema=_Output,
-        effect="write",
-        risk="medium",
-        policy_action="acme.action.run",
-    ),
-    WorkflowActionContribution[_Input, _Output],
+ToolContribution(
+    name="acme.workplace.tool",
+    version="1.0.0",
+    model_name="acme_tool",
+    description="Typed tool",
+    handler=_tool_handler,
+    input_schema=_Input,
+    output_schema=_Output,
+    effect="read",
+    risk="low",
+    policy_action="acme.tool.read",
+)
+WorkflowActionContribution(
+    name="acme.workplace.action",
+    version="1.0.0",
+    handler=_workflow_handler,
+    input_schema=_Input,
+    output_schema=_Output,
+    effect="write",
+    risk="medium",
+    policy_action="acme.action.run",
 )
