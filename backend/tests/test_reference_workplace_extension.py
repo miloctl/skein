@@ -421,6 +421,165 @@ def test_failed_remote_delivery_keeps_mapping_for_cross_entry_retry(fresh_db, tm
     assert client.updates[0][0:2] == ("ATLAS-RETRY", "todo")
 
 
+def test_failed_mapping_keeps_task_claim_for_cross_entry_retry(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    from app.public.work import _bind_execution_context
+
+    client = MemoryAtlasClient((AtlasItem("ATLAS-MAP-RETRY", "One claimed task"),))
+    store_path = tmp_path / "atlas-extension.db"
+    module = atlas_module(AtlasSettings(store_path), client)
+    app = create_app(replace(AppSettings.from_config(), scheduler_enabled=False), (module,))
+    with TestClient(app):
+        registry = app.state.skein_registry
+        work_items = WorkItems(registry.policy_engine)
+        subject = registry.service_subject("atlas-sync")
+
+        def context(namespace: str):
+            raw = JobExecutionContext(
+                registry.policy_engine,
+                work_items,
+                subject,
+                f"{namespace}:mapping-retry",
+                namespace,
+            )
+            return _bind_execution_context(
+                work_items,
+                raw,
+                subject=subject,
+                namespace=namespace,
+                receipt_namespace=f"job:{namespace}",
+                correlation_id=f"{namespace}:mapping-retry",
+            ).command_context(project_type="standard")
+
+        first = AtlasIntegration(client, ExtensionStore(store_path))
+        original_execute = first._execute
+        failed = False
+
+        def fail_mapping_once(sql, params=()):
+            nonlocal failed
+            if not failed and sql.startswith("INSERT OR IGNORE INTO work_links"):
+                failed = True
+                raise RuntimeError("mapping write failed")
+            return original_execute(sql, params)
+
+        monkeypatch.setattr(first, "_execute", fail_mapping_once)
+        with pytest.raises(RuntimeError, match="mapping write failed"):
+            first.sync(work_items, context("atlas.workplace.sync"))
+
+        assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+        store = ExtensionStore(store_path)
+        assert store.query_one(
+            "SELECT owner_namespace, skein_task_id FROM sync_claims"
+            " WHERE external_id = 'ATLAS-MAP-RETRY'"
+        ) == {
+            "owner_namespace": "atlas.workplace.sync",
+            "skein_task_id": 1,
+        }
+        assert (
+            store.query_one(
+                "SELECT skein_task_id FROM work_links WHERE external_id = 'ATLAS-MAP-RETRY'"
+            )
+            is None
+        )
+
+        retried = AtlasIntegration(client, store).sync(
+            work_items,
+            context("atlas.workplace.routes"),
+        )
+
+    assert retried == {"created": 1, "updated": 0}
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+    assert ExtensionStore(store_path).query_one(
+        "SELECT skein_task_id FROM work_links WHERE external_id = 'ATLAS-MAP-RETRY'"
+    ) == {"skein_task_id": 1}
+    assert (
+        ExtensionStore(store_path).query_one(
+            "SELECT external_id FROM sync_claims WHERE external_id = 'ATLAS-MAP-RETRY'"
+        )
+        is None
+    )
+
+
+def test_failed_claim_staging_requires_owner_replay_without_duplicate(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    from app.public.work import _bind_execution_context
+
+    client = MemoryAtlasClient((AtlasItem("ATLAS-STAGE-RETRY", "One staged task"),))
+    store_path = tmp_path / "atlas-extension.db"
+    module = atlas_module(AtlasSettings(store_path), client)
+    app = create_app(replace(AppSettings.from_config(), scheduler_enabled=False), (module,))
+    with TestClient(app):
+        registry = app.state.skein_registry
+        work_items = WorkItems(registry.policy_engine)
+        subject = registry.service_subject("atlas-sync")
+
+        def context(namespace: str):
+            raw = JobExecutionContext(
+                registry.policy_engine,
+                work_items,
+                subject,
+                f"{namespace}:stage-retry",
+                namespace,
+            )
+            return _bind_execution_context(
+                work_items,
+                raw,
+                subject=subject,
+                namespace=namespace,
+                receipt_namespace=f"job:{namespace}",
+                correlation_id=f"{namespace}:stage-retry",
+            ).command_context(project_type="standard")
+
+        first = AtlasIntegration(client, ExtensionStore(store_path))
+        original_execute = first._execute
+        failed = False
+
+        def fail_staging_once(sql, params=()):
+            nonlocal failed
+            if not failed and sql.startswith("UPDATE sync_claims SET skein_task_id"):
+                failed = True
+                raise RuntimeError("claim staging failed")
+            return original_execute(sql, params)
+
+        monkeypatch.setattr(first, "_execute", fail_staging_once)
+        with pytest.raises(RuntimeError, match="claim staging failed"):
+            first.sync(work_items, context("atlas.workplace.sync"))
+
+        store = ExtensionStore(store_path)
+        assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+        assert store.query_one(
+            "SELECT owner_namespace, skein_task_id FROM sync_claims"
+            " WHERE external_id = 'ATLAS-STAGE-RETRY'"
+        ) == {
+            "owner_namespace": "atlas.workplace.sync",
+            "skein_task_id": None,
+        }
+
+        other_result = AtlasIntegration(client, store).sync(
+            work_items,
+            context("atlas.workplace.routes"),
+        )
+        assert other_result == {"created": 0, "updated": 0}
+        assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+
+        owner_result = AtlasIntegration(client, store).sync(
+            work_items,
+            context("atlas.workplace.sync"),
+        )
+
+    assert owner_result == {"created": 1, "updated": 0}
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 1}
+    assert ExtensionStore(store_path).query_one(
+        "SELECT skein_task_id FROM work_links WHERE external_id = 'ATLAS-STAGE-RETRY'"
+    ) == {"skein_task_id": 1}
+
+
 def test_http_adapter_uses_the_deployment_secret(monkeypatch):
     from atlas_skein import integration
 
@@ -781,4 +940,9 @@ def test_extension_store_upgrades_its_own_v1_data_during_composition(fresh_db, t
     versions = contribution.store.query(
         "SELECT version FROM extension_schema_version ORDER BY version"
     )
-    assert versions == [{"version": 1}, {"version": 2}, {"version": 3}]
+    assert versions == [
+        {"version": 1},
+        {"version": 2},
+        {"version": 3},
+        {"version": 4},
+    ]

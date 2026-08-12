@@ -18,6 +18,7 @@ from app.public import (
     CommandContext,
     CreateTaskCommand,
     DomainEvent,
+    TaskView,
     UpdateTaskCommand,
     WorkItems,
 )
@@ -205,11 +206,7 @@ class AtlasIntegration:
         work: WorkItems,
         context: CommandContext,
     ) -> dict[str, int]:
-        # The route and scheduled job have separate core receipt namespaces.
-        # Serialize their shared business key in the extension-owned store so
-        # both entry points cannot create a different task for one Atlas item.
-        with self._transaction():
-            result = self._sync_locked(work, context)
+        result = self._sync_items(work, context)
         # The core and extension stores cannot share one transaction. Commit
         # the durable core mapping and outbound intent before network I/O.
         # A retry from a different contribution then reuses the mapping and
@@ -217,7 +214,7 @@ class AtlasIntegration:
         self._deliver_pending_statuses()
         return result
 
-    def _sync_locked(
+    def _sync_items(
         self,
         work: WorkItems,
         context: CommandContext,
@@ -242,42 +239,140 @@ class AtlasIntegration:
                         context,
                     )
                     updated += 1
+                self._record_status(item.external_id, task)
             else:
-                task = work.create_task(
-                    CreateTaskCommand.model_validate(
-                        {
-                            "title": item.title,
-                            "status": item.status,
-                            "idempotency_key": f"atlas-item:{item.external_id}",
-                        }
-                    ),
-                    context,
+                claim = self._claim_item(
+                    item.external_id,
+                    context.namespace,
                 )
-                inserted = self._execute(
-                    "INSERT OR IGNORE INTO work_links"
-                    " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
-                    (item.external_id, task.id, item.classification),
-                )
-                stored = self._query_one(
-                    "SELECT skein_task_id FROM work_links WHERE external_id = ?",
-                    (item.external_id,),
-                )
-                if stored is None or int(stored["skein_task_id"]) != task.id:
-                    raise RuntimeError("The Atlas work mapping conflicts with the Skein task.")
-                if inserted:
+                linked_task_id = int(claim.get("linked_task_id") or 0)
+                if linked_task_id:
+                    task = work.get_task(linked_task_id, context)
+                    if task.title != item.title or task.status != item.status:
+                        task = work.update_task(
+                            UpdateTaskCommand.model_validate(
+                                {
+                                    "task_id": task.id,
+                                    "title": item.title,
+                                    "status": item.status,
+                                }
+                            ),
+                            context,
+                        )
+                        updated += 1
+                    self._record_status(item.external_id, task)
+                    continue
+                claimed_task_id = int(claim.get("skein_task_id") or 0)
+                if not claimed_task_id and claim["owner_namespace"] != context.namespace:
+                    continue
+                if claimed_task_id:
+                    task = work.get_task(claimed_task_id, context)
+                else:
+                    task = work.create_task(
+                        CreateTaskCommand.model_validate(
+                            {
+                                "title": item.title,
+                                "status": item.status,
+                                "idempotency_key": f"atlas-item:{item.external_id}",
+                            }
+                        ),
+                        context,
+                    )
+                    self._stage_claim_task(
+                        item.external_id,
+                        context.namespace,
+                        task.id,
+                    )
+                if self._complete_mapping(item, task):
                     created += 1
-            event_id = f"atlas-status:{item.external_id}:{task.updated_at}:{task.status}"
+        with self._transaction():
             self._execute(
-                "INSERT OR IGNORE INTO status_outbox"
-                " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)",
-                (event_id, item.external_id, task.status),
+                "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
+                " VALUES (?, ?, datetime('now'))",
+                (created, updated),
             )
-        self._execute(
-            "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
-            " VALUES (?, ?, datetime('now'))",
-            (created, updated),
-        )
         return {"created": created, "updated": updated}
+
+    def _claim_item(self, external_id: str, owner_namespace: str) -> dict[str, Any]:
+        if not owner_namespace:
+            raise RuntimeError("The Atlas synchronization needs a contribution namespace.")
+        with self._transaction():
+            link = self._query_one(
+                "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+                (external_id,),
+            )
+            if link is not None:
+                return {"linked_task_id": int(link["skein_task_id"])}
+            self._execute(
+                "INSERT OR IGNORE INTO sync_claims"
+                " (external_id, owner_namespace, skein_task_id) VALUES (?, ?, NULL)",
+                (external_id, owner_namespace),
+            )
+            claim = self._query_one(
+                "SELECT owner_namespace, skein_task_id FROM sync_claims"
+                " WHERE external_id = ?",
+                (external_id,),
+            )
+            if claim is None:
+                raise RuntimeError("The Atlas synchronization claim was not stored.")
+            return claim
+
+    def _stage_claim_task(
+        self,
+        external_id: str,
+        owner_namespace: str,
+        task_id: int,
+    ) -> None:
+        with self._transaction():
+            self._execute(
+                "UPDATE sync_claims SET skein_task_id = ?"
+                " WHERE external_id = ? AND owner_namespace = ?"
+                " AND (skein_task_id IS NULL OR skein_task_id = ?)",
+                (task_id, external_id, owner_namespace, task_id),
+            )
+            claim = self._query_one(
+                "SELECT skein_task_id FROM sync_claims WHERE external_id = ?",
+                (external_id,),
+            )
+            if claim is None:
+                link = self._query_one(
+                    "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+                    (external_id,),
+                )
+                if link is not None and int(link["skein_task_id"]) == task_id:
+                    return
+                raise RuntimeError("The Atlas synchronization claim was removed.")
+            if int(claim.get("skein_task_id") or 0) != task_id:
+                raise RuntimeError("The Atlas synchronization claim conflicts with the task.")
+
+    def _complete_mapping(self, item: AtlasItem, task: TaskView) -> bool:
+        with self._transaction():
+            prior = self._query_one(
+                "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+                (item.external_id,),
+            )
+            self._execute(
+                "INSERT OR IGNORE INTO work_links"
+                " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
+                (item.external_id, task.id, item.classification),
+            )
+            stored = self._query_one(
+                "SELECT skein_task_id FROM work_links WHERE external_id = ?",
+                (item.external_id,),
+            )
+            if stored is None or int(stored["skein_task_id"]) != task.id:
+                raise RuntimeError("The Atlas work mapping conflicts with the Skein task.")
+            self._record_status(item.external_id, task)
+            self._execute("DELETE FROM sync_claims WHERE external_id = ?", (item.external_id,))
+            return prior is None
+
+    def _record_status(self, external_id: str, task: TaskView) -> None:
+        event_id = f"atlas-status:{external_id}:{task.updated_at}:{task.status}"
+        self._execute(
+            "INSERT OR IGNORE INTO status_outbox"
+            " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)",
+            (event_id, external_id, task.status),
+        )
 
     def _deliver_pending_statuses(self) -> None:
         with self._transaction():

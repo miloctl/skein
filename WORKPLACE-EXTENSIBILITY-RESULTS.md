@@ -2084,3 +2084,31 @@ Current verification:
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit before Chrome validation starts.
+
+### Atlas cross-entry retry claim
+
+The route and job use different core receipt namespaces. A core task can
+commit before the Atlas mapping commits because the two SQLite stores do not
+share one transaction. A later entry point could create a second task after a
+mapping failure.
+
+Atlas migration 4 adds a durable synchronization claim. The claim stores the
+owning contribution namespace before core creation. It stores the core task ID
+before the final mapping write. Thus, another entry point can finish a staged
+mapping without a second core create.
+
+If task-ID staging fails, a different contribution does not create a task. The
+owning contribution replays its core receipt and completes the same claim.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Atlas sync, concurrency, mapping-retry, claim-stage, and migration tests | 8 passed sequentially |
+| Focused reference, composition, public, policy, workflow, transaction, release, and packaging tests | 322 passed in 24.42 seconds |
+| Complete backend suite | 1,988 passed in 125.50 seconds |
+| Complete static gate | Passed |
+| Installed unchanged-Atlas artifact rehearsal | Real sync and strict source checks passed on distinct compatible 0.2.0 and 0.2.1 cores |
+
+These results do not change the final score. A fresh independent review must
+approve one clean exact commit before Chrome validation starts.
