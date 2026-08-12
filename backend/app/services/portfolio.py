@@ -178,15 +178,18 @@ def engagement_health(
     waits_by: dict[int, list[dict]] = {}
     last_by: dict[int, str] = {}
     open_by: dict[int, int] = {}
+    from .work import redact_task_relationships
+
     all_waits: list[dict] = []
-    for t in db.query(
+    task_rows = db.query(
         "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " t.waiting_on_type, t.waiting_on_id,"
         " t.engagement_id AS t_eng, m.engagement_id AS m_eng"
         " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
         f" WHERE {tfrag} ORDER BY t.id",
         tuple(tp),
-    ):
+    )
+    for t in redact_task_relationships(task_rows, viewer):
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
             continue

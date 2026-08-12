@@ -482,6 +482,29 @@ def test_crew_milestone_context_overrides_caller_policy_context(fresh_db, caller
     assert fresh_db.query_one("SELECT title FROM tasks") is None
 
 
+def test_public_create_rejects_links_to_different_engagements(fresh_db):
+    from app.services import engagements
+    from app.services import work as service_work
+
+    direct = engagements.create_engagement("Direct project", project_class="standard")["id"]
+    engagements.create_engagement("Milestone project", project_class="regulated")
+    milestone = service_work.create_milestone("Regulated gate", project="Milestone project")["id"]
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+
+    with pytest.raises(PublicError, match="must belong to the same engagement") as raised:
+        facade.create_task(
+            CreateTaskCommand(
+                title="Conflicting links",
+                engagement_id=direct,
+                milestone_id=milestone,
+            ),
+            _context(facade, project_type="standard"),
+        )
+
+    assert raised.value.code == "TASK_CREATE_REJECTED"
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'Conflicting links'") is None
+
+
 def test_invisible_link_and_absent_link_have_the_same_public_refusal(fresh_db):
     from app.services import crews, engagements
 
@@ -1087,23 +1110,25 @@ def test_public_update_policy_uses_target_milestone(fresh_db):
     )
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
 
-    # The direct standard engagement still governs while it is present.
-    moved = facade.update_task(
-        UpdateTaskCommand(task_id=task, milestone_id=regulated_milestone),
-        _context(facade, project_type="standard"),
-    )
-    assert moved.milestone_id == regulated_milestone
-    assert policy_context.existing("task", task)["project_type"] == "standard"
+    with pytest.raises(PublicError, match="must belong to the same engagement"):
+        facade.update_task(
+            UpdateTaskCommand(task_id=task, milestone_id=regulated_milestone),
+            _context(facade, project_type="standard"),
+        )
 
-    # Clearing the direct link exposes the regulated milestone. Policy must
-    # evaluate that final relationship before the service stores it.
+    # One command can clear the old direct link and set the new milestone.
+    # Policy evaluates that coherent final relationship before the write.
     with pytest.raises(PublicError, match="policy denied"):
         facade.update_task(
-            UpdateTaskCommand(task_id=task, engagement_id=-1),
+            UpdateTaskCommand(
+                task_id=task,
+                engagement_id=-1,
+                milestone_id=regulated_milestone,
+            ),
             _context(facade, project_type="standard"),
         )
     row = fresh_db.query_one("SELECT engagement_id, milestone_id FROM tasks WHERE id = ?", (task,))
-    assert row == {"engagement_id": standard, "milestone_id": regulated_milestone}
+    assert row == {"engagement_id": standard, "milestone_id": None}
     assert policy_context.existing("task", task)["project_type"] == "standard"
 
 

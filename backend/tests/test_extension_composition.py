@@ -100,6 +100,32 @@ def test_a_private_router_is_composed_without_mutating_the_default_app(fresh_db)
     assert "/api/extensions/acme.workplace/ping" not in _paths(default_app.routes)
 
 
+def test_route_resource_id_parameter_must_exist_in_the_declared_path():
+    router = APIRouter(prefix="/api/extensions/acme.workplace")
+
+    @router.get("/items/{item_id}")
+    def item(item_id: str):
+        return {"id": item_id}
+
+    contribution = RouteContribution(
+        "acme.workplace.items",
+        router,
+        (
+            RouteOperationContribution(
+                "GET",
+                "/api/extensions/acme.workplace/items/{item_id}",
+                "acme.item.read",
+                PolicyResource("acme-item"),
+                "read",
+                "low",
+                resource_id_param="wrong_id",
+            ),
+        ),
+    )
+    with pytest.raises(ExtensionValidationError, match="missing resource id parameter"):
+        ExtensionRegistry.build((_module(routes=(contribution,)),))
+
+
 def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
     events: list[str] = []
     contexts = []

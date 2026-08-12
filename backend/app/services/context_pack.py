@@ -162,13 +162,18 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     ] or ["- none recorded"]
     lines.append("")
     lines.append("## Open tasks")
-    tasks = db.query(
-        f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-        " AND t.status != 'done'"
-        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END",
-        (*tp, engagement_id, engagement_id),
+    from .work import redact_task_relationships
+
+    tasks = redact_task_relationships(
+        db.query(
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done'"
+            " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+            " WHEN 'medium' THEN 2 ELSE 3 END",
+            (*tp, engagement_id, engagement_id),
+        ),
+        viewer,
     )
     for t in tasks:
         line = f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.flatten(t['title'])}"
