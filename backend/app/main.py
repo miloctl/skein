@@ -578,6 +578,16 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
         try:
             human = await run_in_threadpool(ensure_human_identity, name)
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc):
+                raise
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "The database is busy. Wait 5 seconds, then send the request again."
+                },
+                headers={"Retry-After": "5"},
+            )
         except ValueError as exc:
             return JSONResponse(
                 status_code=403,

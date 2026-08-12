@@ -1,4 +1,5 @@
 import hmac
+import sqlite3
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -203,6 +204,14 @@ def _resolve(
                 if _cached(request, "auth_human_owner") == name:
                     return name, True, groups
                 return ensure_human_identity(name)["name"], True, groups
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc):
+                    raise
+                raise HTTPException(
+                    status_code=503,
+                    detail="The database is busy. Wait 5 seconds, then send the request again.",
+                    headers={"Retry-After": "5"},
+                ) from exc
             except ValueError as exc:
                 # a reserved name (bench-persona slug) or a fold collision
                 # would otherwise refuse EVERY request, and an OIDC caller

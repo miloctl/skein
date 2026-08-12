@@ -1219,6 +1219,29 @@ Verification after this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Twentieth review gate and remediation
+
+The extension-author reviewer approved commit `5b196ca` at 8.4, 8.5, and 8.5.
+The score auditor approved it at 8.3, 8.4, and 8.3. The architecture reviewer
+rejected it at 8.1, 7.7, and 8.3 because every OIDC request acquired SQLite's
+global writer lock.
+
+Established human ownership now takes a read-only fast path. The immediate
+transaction remains only for first ownership. If a first claim cannot acquire
+the writer lock, the perimeter returns JSON `503` with `Retry-After: 5`.
+
+Held-writer tests verify both cases: established OIDC reads remain available,
+and first-time OIDC reads receive the retryable response.
+
+| Command | Result |
+|---|---|
+| Identity, availability, privacy, policy, extension, and transaction suite | 246 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,784 passed in 106.45 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The exact commit and repeated review follow. Chrome remains blocked.
+
 ### Nineteenth review gate and remediation
 
 The architecture reviewer approved commit `8147fea` at 8.3 for all three
