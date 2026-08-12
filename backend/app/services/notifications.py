@@ -93,7 +93,11 @@ def notify(
         # titles into `message` — blockers.resolve_blocker, delegation and
         # mentions all do. A count carries nothing, whatever a caller writes.
         # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
-        _post_slack(f"Skein — 1 notification for {user}. Open Skein to read it.")
+        def post() -> None:
+            _post_slack(f"Skein — 1 notification for {user}. Open Skein to read it.")
+
+        if not db.on_commit(post):
+            post()
     return {"id": nid, "tier": tier}
 
 
@@ -169,6 +173,12 @@ def policy_filter(
         if current is None:
             # A deleted or unsupported source cannot make free-form text safe.
             continue
+        if str(current.get("relationship_conflict") or "").lower() == "true":
+            # Do not show the saved unscoped parent context to a policy rule.
+            # The current viewer cannot classify this relationship safely.
+            continue
+        if not resource_filter(entity, entity_id, current):
+            continue
         try:
             snapshot = json.loads(str(row.get("source_policy_context") or "{}"))
         except (TypeError, ValueError, json.JSONDecodeError):
@@ -178,9 +188,7 @@ def policy_filter(
                 result.append(_public_row(row))
             continue
         saved = {str(key): str(value) for key, value in snapshot.items()}
-        if resource_filter(entity, entity_id, saved) and resource_filter(
-            entity, entity_id, current
-        ):
+        if resource_filter(entity, entity_id, saved):
             result.append(_public_row(row))
     return result
 

@@ -94,7 +94,7 @@ def test_reference_module_exercises_each_supported_backend_contribution(tmp_path
     assert len(registry.events) == 1
     assert len(registry.migrations) == 1
     assert len(registry.workflow_actions) == 1
-    assert tuple(registry.policies[0].rule.actions) == (
+    assert tuple(registry.policies[0].rule.skein_policy_actions) == (
         "atlas.dashboard.view",
         "atlas.integration.sync",
         "atlas.release.approve",

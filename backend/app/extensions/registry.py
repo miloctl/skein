@@ -45,18 +45,12 @@ def _string_tuple(value: object, label: str) -> tuple[str, ...]:
 
 def _policy_actions(contribution: PolicyContribution) -> tuple[str, ...]:
     """Read action scope carried by an API-1.0-compatible policy callable."""
-    declared = tuple(getattr(contribution, "actions", ()))
-    rule_value = getattr(contribution.rule, "actions", ())
+    rule_value = getattr(contribution.rule, "skein_policy_actions", ())
     if not isinstance(rule_value, (list, tuple, set)):
         raise ExtensionValidationError(
-            f"policy {contribution.name!r} callable actions must be a list or tuple"
+            f"policy {contribution.name!r} callable skein_policy_actions must be a list or tuple"
         )
-    carried = tuple(str(action) for action in rule_value)
-    if declared and carried and declared != carried:
-        raise ExtensionValidationError(
-            f"policy {contribution.name!r} declares conflicting action scopes"
-        )
-    return declared or carried
+    return tuple(str(action) for action in rule_value)
 
 
 def _version(value: str, label: str) -> tuple[int, int, int]:

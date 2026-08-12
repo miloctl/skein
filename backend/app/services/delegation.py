@@ -36,32 +36,32 @@ def delegate_task(
     # human-approved proposal path (origin agent_verified) stays open
     if agent.strip() == actor and origin != "agent_verified":
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
-    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not task:
-        raise scope.missing("tasks", task_id)
-    scope.assert_editable("tasks", task, actor, verb="delegate")
-    # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
-    # ONLY BARRIER: claim_task, report_progress, accept_completion and
-    # submit_completion below each gate on `delegated_agent` alone and never
-    # call scope.assert_editable, so once a private task carries a delegate
-    # nothing downstream refuses it. It would also put the title in
-    # agent_inbox.
-    if task["visibility"] == scope.PRIVATE:
-        raise ValueError(
-            "a private task has one reader, so it cannot be delegated."
-            " Pick a crew, or make this task visible to everyone on the roster."
-        )
-    # the notify below quotes the task title to whatever name the caller
-    # passed, and the sponsor then reviews the agent's work on the task
-    scope.assert_readable_by(
-        task["visibility"],
-        task["crew_id"],
-        sponsor,
-        label="sponsor",
-        author=task["created_by"],
-    )
-    ensure_agent_identity(agent)
     with db.transaction():
+        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if not task:
+            raise scope.missing("tasks", task_id)
+        scope.assert_editable("tasks", task, actor, verb="delegate")
+        # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
+        # ONLY BARRIER: claim_task, report_progress, accept_completion and
+        # submit_completion below each gate on `delegated_agent` alone and never
+        # call scope.assert_editable, so once a private task carries a delegate
+        # nothing downstream refuses it. It would also put the title in
+        # agent_inbox.
+        if task["visibility"] == scope.PRIVATE:
+            raise ValueError(
+                "a private task has one reader, so it cannot be delegated."
+                " Pick a crew, or make this task visible to everyone on the roster."
+            )
+        # The notification quotes this title. Read, mutation, policy snapshot,
+        # and notification insert therefore share the same serialized write.
+        scope.assert_readable_by(
+            task["visibility"],
+            task["crew_id"],
+            sponsor,
+            label="sponsor",
+            author=task["created_by"],
+        )
+        ensure_agent_identity(agent)
         db.execute(
             "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
             " WHERE id = ?",
@@ -80,16 +80,16 @@ def delegate_task(
             correlation_id="",
             actor_kind="",
         )
-    from .notifications import notify
+        from .notifications import notify
 
-    notify(
-        sponsor,
-        f"You sponsor task #{task_id} '{task['title']}' delegated to {agent}.",
-        tier="digest",
-        link="/agents",
-        source_entity="task",
-        source_id=task_id,
-    )
+        notify(
+            sponsor,
+            f"You sponsor task #{task_id} '{task['title']}' delegated to {agent}.",
+            tier="digest",
+            link="/agents",
+            source_entity="task",
+            source_id=task_id,
+        )
     return {"id": task_id, "delegated_agent": agent, "sponsor": sponsor}
 
 
@@ -127,15 +127,15 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     reversible and the sponsor is told."""
     refuse_when_consultative("claim delegated tasks")
     _check_not_forbidden(actor)
-    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not task:
-        raise scope.missing("tasks", task_id)
-    if task["delegated_agent"] != actor:
-        _assert_readable_or_missing(task, actor, task_id)
-        raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
-    if task["status"] not in ("todo", "blocked"):
-        raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
     with db.transaction():
+        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if not task:
+            raise scope.missing("tasks", task_id)
+        if task["delegated_agent"] != actor:
+            _assert_readable_or_missing(task, actor, task_id)
+            raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
+        if task["status"] not in ("todo", "blocked"):
+            raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
         db.execute(
             "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
             (db.now(), task_id),
@@ -155,17 +155,17 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
             correlation_id="",
             actor_kind="",
         )
-    if task["sponsor"]:
-        from .notifications import notify
+        if task["sponsor"]:
+            from .notifications import notify
 
-        notify(
-            task["sponsor"],
-            f"{actor} started on task #{task_id} '{task['title']}'.",
-            tier="digest",
-            link="/agents",
-            source_entity="task",
-            source_id=task_id,
-        )
+            notify(
+                task["sponsor"],
+                f"{actor} started on task #{task_id} '{task['title']}'.",
+                tier="digest",
+                link="/agents",
+                source_entity="task",
+                source_id=task_id,
+            )
     return {"id": task_id, "status": "in_progress"}
 
 
@@ -360,24 +360,6 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     # interrupt a human mid-consultation over work nobody requested
     refuse_when_consultative("submit work for acceptance")
     _check_not_forbidden(actor)
-    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not task:
-        raise scope.missing("tasks", task_id)
-    if task["delegated_agent"] != actor:
-        _assert_readable_or_missing(task, actor, task_id)
-        raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
-    if task["status"] == "done":
-        raise ValueError(f"task #{task_id} is already done")
-    dup = db.query_one(
-        "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
-        " AND entity_id = ? AND status = 'pending'",
-        (task_id,),
-    )
-    if dup:
-        raise ValueError(
-            f"task #{task_id} already awaits acceptance (proposal #{dup['id']})"
-            " — wait for the sponsor's verdict"
-        )
     from .review import propose_change
 
     # ONE transaction for the proposal and its sponsor snapshot (db.transaction
@@ -386,6 +368,24 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     # agent's retry then hit the duplicate guard above, telling it to wait for
     # a verdict nobody had been asked for.
     with db.transaction():
+        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if not task:
+            raise scope.missing("tasks", task_id)
+        if task["delegated_agent"] != actor:
+            _assert_readable_or_missing(task, actor, task_id)
+            raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
+        if task["status"] == "done":
+            raise ValueError(f"task #{task_id} is already done")
+        dup = db.query_one(
+            "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
+            " AND entity_id = ? AND status = 'pending'",
+            (task_id,),
+        )
+        if dup:
+            raise ValueError(
+                f"task #{task_id} already awaits acceptance (proposal #{dup['id']})"
+                " — wait for the sponsor's verdict"
+            )
         p = propose_change(
             "task_completion",
             "update",
@@ -414,18 +414,18 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
             "UPDATE pending_changes SET sponsor_at_submission = ? WHERE id = ?",
             (task["sponsor"] or "", p["id"]),
         )
-    if task["sponsor"]:
-        from .notifications import notify
+        if task["sponsor"]:
+            from .notifications import notify
 
-        notify(
-            task["sponsor"],
-            f"{actor} submitted task #{task_id} '{task['title']}' for your"
-            f" acceptance (proposal #{p['id']}).",
-            tier="immediate",
-            link="/review",
-            source_entity="task",
-            source_id=task_id,
-        )
+            notify(
+                task["sponsor"],
+                f"{actor} submitted task #{task_id} '{task['title']}' for your"
+                f" acceptance (proposal #{p['id']}).",
+                tier="immediate",
+                link="/review",
+                source_entity="task",
+                source_id=task_id,
+            )
     return {"proposal_id": p["id"], "task_id": task_id, "status": "pending"}
 
 

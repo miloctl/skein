@@ -149,7 +149,7 @@ def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
 
     @dataclass(frozen=True)
     class ScopedRule:
-        actions: tuple[str, ...] = ("acme.release.approve",)
+        skein_policy_actions: tuple[str, ...] = ("acme.release.approve",)
 
         def __call__(self, request: PolicyInput):
             return rule(request)
@@ -184,11 +184,45 @@ def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
     assert not engine.has_workplace_rules_for("skein.rest.get.notifications")
 
 
+def test_legacy_policy_callable_actions_member_is_not_scope_metadata(fresh_db):
+    called = []
+
+    @dataclass(frozen=True)
+    class LegacyRule:
+        actions: ClassVar[dict[str, str]] = {"audit": "legacy callable metadata"}
+
+        def __call__(self, request: PolicyInput):
+            called.append(request.action)
+            return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.legacy-policy", LegacyRule()),),
+    )
+    engine = ExtensionRegistry.build((module,)).policy_engine
+
+    engine.decide(
+        PolicyInput(
+            PolicySubject("mira"),
+            "skein.rest.get.notifications",
+            PolicyResource("notification"),
+            "rest",
+        )
+    )
+
+    assert called == ["skein.rest.get.notifications"]
+    assert engine.has_workplace_rules_for("skein.rest.get.notifications")
+
+
 @pytest.mark.parametrize("actions", [("",), ("x" * 161,), ("acme.read", "acme.read")])
 def test_policy_contribution_rejects_invalid_action_metadata(fresh_db, actions):
     @dataclass(frozen=True)
     class InvalidRule:
-        actions: tuple[str, ...]
+        skein_policy_actions: tuple[str, ...]
 
         def __call__(self, _request: PolicyInput):
             return None
@@ -220,7 +254,7 @@ def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, m
 
     @dataclass(frozen=True)
     class UnrelatedPolicy:
-        actions: tuple[str, ...] = ("acme.release.approve",)
+        skein_policy_actions: tuple[str, ...] = ("acme.release.approve",)
 
         def __call__(self, _request: PolicyInput):
             return None
@@ -4806,9 +4840,134 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     assert "UNCLASSIFIED CREATE REVIEW" not in stock_attention
     assert "ID DENIED NOTIFICATION CANARY" not in mcp_day
     assert "UNCLASSIFIED CREATE REVIEW" not in mcp_day
+    for body in (briefing.text, stock_attention, mcp_day, rest_inbox.text, stock_inbox, mcp_inbox):
+        assert "policy_context" not in body
+        assert "capabilities" not in body
     for response_text in (rest_inbox.text, stock_inbox, mcp_inbox):
         assert f"task #{task}" not in response_text
         assert "ID DENIED NOTIFICATION CANARY" not in response_text
+
+
+def test_extension_review_summary_checks_saved_target_current_state(fresh_db):
+    from app.services import engagements, review, users, work
+
+    users.ensure_user("manager")
+    standard = engagements.create_engagement(
+        "Review summary standard",
+        project_class="standard",
+    )["id"]
+    regulated = engagements.create_engagement(
+        "Review summary regulated",
+        project_class="regulated",
+    )["id"]
+    moved_task = work.create_task("Moved review target", engagement_id=standard)["id"]
+    deleted_task = work.create_task("Deleted review target", engagement_id=standard)["id"]
+
+    for task_id, summary in (
+        (moved_task, "MOVED EXTENSION REVIEW SUMMARY"),
+        (deleted_task, "DELETED EXTENSION REVIEW SUMMARY"),
+    ):
+        review.propose_extension_invocation(
+            "tool",
+            {"task_id": task_id},
+            {"contribution": "acme.workplace.sync", "arguments": {"task_id": task_id}},
+            summary=summary,
+            actor="research-agent",
+            requested_by="manager",
+            policy_input=PolicyInput(
+                PolicySubject("research-agent", kind="agent"),
+                "acme.workplace.sync",
+                PolicyResource(
+                    "task",
+                    str(task_id),
+                    project_type="standard",
+                    classification="workspace",
+                ),
+                "agent_tool",
+            ),
+        )
+
+    work.update_task(moved_task, engagement_id=regulated)
+    fresh_db.execute("DELETE FROM tasks WHERE id = ?", (deleted_task,))
+
+    def deny_regulated_briefing(request: PolicyInput):
+        if (
+            request.action == "skein.rest.get.briefing"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated summaries are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(
+            PolicyContribution("acme.workplace.current-review-summary", deny_regulated_briefing),
+        ),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.get("/api/briefing")
+
+    assert response.status_code == 200
+    assert "MOVED EXTENSION REVIEW SUMMARY" not in response.text
+    assert "DELETED EXTENSION REVIEW SUMMARY" not in response.text
+    assert "policy_context" not in response.text
+
+
+def test_extension_review_checks_scoped_current_target_before_saved_context(fresh_db):
+    from app.services import crews, engagements, review, scope, users, work
+
+    users.ensure_user("owner")
+    users.ensure_user("outsider")
+    crew = crews.create_crew("Hidden review target", actor="owner")["id"]
+    regulated = engagements.create_engagement(
+        "Hidden regulated review parent",
+        project_class="regulated",
+        actor="owner",
+        visibility="crew",
+        crew_id=crew,
+    )["id"]
+    task = work.create_task("Visible legacy review child", actor="owner")["id"]
+    fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (regulated, task))
+    proposal = review.propose_extension_invocation(
+        "tool",
+        {"task_id": task},
+        {"contribution": "acme.workplace.sync", "arguments": {"task_id": task}},
+        summary="HIDDEN EXTENSION REVIEW SUMMARY",
+        actor="research-agent",
+        requested_by="outsider",
+        policy_input=PolicyInput(
+            PolicySubject("research-agent", kind="agent"),
+            "acme.workplace.sync",
+            PolicyResource(
+                "task",
+                str(task),
+                project_type="regulated",
+                classification="workspace",
+            ),
+            "agent_tool",
+        ),
+    )
+    row = fresh_db.query_one("SELECT * FROM pending_changes WHERE id = ?", (proposal["id"],))
+    observed = []
+
+    def inspect(_entity, _entity_id, attributes):
+        observed.append(dict(attributes))
+        return True
+
+    assert (
+        review.filter_policy_resources(
+            [row],
+            inspect,
+            allow_unclassified=False,
+            viewer=scope.Viewer("outsider", True),
+        )
+        == []
+    )
+    assert observed == []
 
 
 def test_task_reads_redact_each_denied_nested_resource(fresh_db):

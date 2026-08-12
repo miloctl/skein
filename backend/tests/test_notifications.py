@@ -1,5 +1,8 @@
 """Notification triggers: the actions that file an unread row, and for whom."""
 
+import json
+
+import pytest
 from conftest import _unread_for
 
 
@@ -99,6 +102,122 @@ def test_notification_keeps_its_creation_policy_context_after_relink(fresh_db):
             lambda _entity, _entity_id, attributes: attributes.get("project_type") != "regulated",
             allow_unclassified=False,
             viewer=scope.NOBODY,
+        )
+        == []
+    )
+
+
+def test_notification_checks_scoped_current_context_before_saved_context(fresh_db):
+    from app.services import crews, engagements, notifications, scope, users, work
+
+    users.ensure_user("owner")
+    users.ensure_user("outsider")
+    crew = crews.create_crew("Hidden notification parent", actor="owner")["id"]
+    regulated = engagements.create_engagement(
+        "Hidden regulated notification parent",
+        project_class="regulated",
+        actor="owner",
+        visibility="crew",
+        crew_id=crew,
+    )["id"]
+    task = work.create_task("Visible legacy notification child", actor="owner")["id"]
+    fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (regulated, task))
+    notice = notifications.notify(
+        "outsider",
+        "A hidden-parent task changed.",
+        source_entity="task",
+        source_id=task,
+    )
+    stored = fresh_db.query_one("SELECT * FROM notifications WHERE id = ?", (notice["id"],))
+    observed = []
+
+    def inspect(_entity, _entity_id, attributes):
+        observed.append(dict(attributes))
+        return True
+
+    assert (
+        notifications.policy_filter(
+            [stored],
+            inspect,
+            allow_unclassified=False,
+            viewer=scope.Viewer("outsider", True),
+        )
+        == []
+    )
+    assert observed == []
+
+
+@pytest.mark.parametrize("operation", ["delegate", "claim", "submit"])
+def test_task_notification_text_and_policy_snapshot_share_one_write(
+    fresh_db, monkeypatch, operation
+):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.services import delegation, engagements, notifications, users, work
+
+    users.ensure_user("sponsor")
+    standard = engagements.create_engagement(
+        f"{operation} standard",
+        project_class="standard",
+    )["id"]
+    regulated = engagements.create_engagement(
+        f"{operation} regulated",
+        project_class="regulated",
+    )["id"]
+    task = work.create_task("SNAPSHOT TITLE BEFORE", engagement_id=standard, actor="sponsor")["id"]
+    if operation in {"claim", "submit"}:
+        delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+    if operation == "submit":
+        delegation.claim_task(task, actor="research-agent")
+    fresh_db.execute("DELETE FROM notifications")
+
+    entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    original_context = notifications._source_policy_context
+
+    def coordinated_context(entity, entity_id):
+        entered.set()
+        assert writer_attempted.wait(5)
+        sleep(0.05)
+        assert not writer_done.is_set()
+        return original_context(entity, entity_id)
+
+    monkeypatch.setattr(notifications, "_source_policy_context", coordinated_context)
+    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
+
+    def relink() -> None:
+        assert entered.wait(5)
+        writer_attempted.set()
+        work.update_task(
+            task,
+            title="SNAPSHOT TITLE AFTER",
+            engagement_id=regulated,
+            actor="sponsor",
+        )
+        writer_done.set()
+
+    writer = Thread(target=relink)
+    writer.start()
+    if operation == "delegate":
+        delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+    elif operation == "claim":
+        delegation.claim_task(task, actor="research-agent")
+    else:
+        delegation.submit_completion(task, "ready", actor="research-agent")
+    writer.join(5)
+
+    assert writer_done.is_set()
+    stored = fresh_db.query_one("SELECT * FROM notifications ORDER BY id DESC LIMIT 1")
+    assert "SNAPSHOT TITLE BEFORE" in stored["message"]
+    assert "SNAPSHOT TITLE AFTER" not in stored["message"]
+    assert json.loads(stored["source_policy_context"])["project_type"] == "standard"
+    assert (
+        notifications.policy_filter(
+            [stored],
+            lambda _entity, _entity_id, attributes: attributes.get("project_type") != "regulated",
+            allow_unclassified=False,
         )
         == []
     )
