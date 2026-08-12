@@ -2536,7 +2536,7 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
     from threading import Event, Thread
     from time import sleep
 
-    from app.services import engagements, review, users, work
+    from app.services import engagements, policy_context, review, users, work
 
     standard = engagements.create_engagement("standard", project_class="standard")["id"]
     regulated = engagements.create_engagement("regulated", project_class="regulated")["id"]
@@ -2547,7 +2547,7 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
     armed = {"value": False, "paused": False}
 
     def current_resource(_request):
-        domain = work.task_policy_context(task)
+        domain = policy_context.existing("task", task)
         return PolicyResource(
             "task",
             str(task),
@@ -2848,7 +2848,7 @@ def test_milestone_link_supplies_task_project_context(fresh_db):
         policy_context.for_change("task", 0, {"milestone_id": milestone})["project_type"]
         == "regulated"
     )
-    assert work.task_policy_context(task)["project_type"] == "regulated"
+    assert policy_context.existing("task", task)["project_type"] == "regulated"
 
 
 def test_rest_policy_ignores_unpersisted_context_fields(fresh_db):

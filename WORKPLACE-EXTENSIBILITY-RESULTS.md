@@ -1600,3 +1600,22 @@ scope suites passed 207 tests. The backend static gate passed.
 
 The complete backend suite then passed 1,856 tests in 112.55 seconds. The
 complete cross-language static gate also passed.
+
+The next review rejected `41a3cea`. Public task update and read still used
+unscoped relationship context. Hidden regulated and standard parents produced
+different policy results. A concurrent relink could also change the returned
+relationship after read policy ran. Scores for `41a3cea` are void.
+
+One internal public-facade resolver now serves task create, update, read, and
+idempotent replay. It scopes the task, milestone, direct engagement, and
+milestone parent to the execution actor. It binds policy and the returned
+snapshot to one transaction. Inaccessible relationship identifiers are not
+returned. The old duplicate task-policy helper was removed. Tests cover
+hidden regulated, hidden standard, and absent relationships; direct and
+milestone links; service, agent, weak-human, and proved-human actors; current
+policy on replay; and a coordinated concurrent relink. The focused public
+contract suite passed 46 tests. The broader policy, reference-extension,
+visibility, scope, and provenance suites passed 224 tests.
+
+The complete backend suite passed 1,868 tests in 113.54 seconds. The complete
+cross-language static gate also passed.

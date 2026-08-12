@@ -18,7 +18,7 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
 )
-from ..services import policy_context, scope, work
+from ..services import scope, work
 from .errors import PublicError
 
 
@@ -267,25 +267,142 @@ class WorkItems:
                 obligations=obligations,
             )
 
+    @staticmethod
+    def _viewer(context: CommandContext) -> scope.Viewer:
+        """Return the viewer that matches the identity used by the write."""
+        if context.execution_actor_kind == "human":
+            return scope.Viewer(context.execution_actor, context.subject.strong)
+        return scope.Viewer.for_actor(context.execution_actor)
+
+    @staticmethod
+    def _visible_engagement(engagement_id: int, viewer: scope.Viewer) -> dict | None:
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        return db.query_one(
+            f"SELECT engagement.id, engagement.project_class"  # noqa: S608 -- scope emits only bound marks
+            " FROM engagements engagement"
+            f" WHERE engagement.id = ? AND {visible}",
+            (engagement_id, *params),
+        )
+
+    @staticmethod
+    def _visible_milestone(milestone_id: int, viewer: scope.Viewer) -> dict | None:
+        milestone_visible, milestone_params = scope.visible_filter(
+            viewer, "milestones", "milestone"
+        )
+        engagement_visible, engagement_params = scope.visible_filter(
+            viewer, "engagements", "engagement"
+        )
+        row = db.query_one(
+            f"SELECT milestone.id, milestone.engagement_id,"  # noqa: S608 -- scope emits only bound marks
+            " engagement.id AS visible_engagement_id, engagement.project_class"
+            " FROM milestones milestone LEFT JOIN engagements engagement"
+            " ON engagement.id = milestone.engagement_id"
+            f" AND {engagement_visible}"
+            f" WHERE milestone.id = ? AND {milestone_visible}",
+            (*engagement_params, milestone_id, *milestone_params),
+        )
+        if not row or (row["engagement_id"] and not row["visible_engagement_id"]):
+            return None
+        return row
+
+    def _relationship_context(
+        self,
+        engagement_id: int,
+        milestone_id: int,
+        viewer: scope.Viewer,
+        *,
+        fallback_project_type: str = "",
+        error_code: str,
+        conceal_as_task: int = 0,
+    ) -> dict[str, Any]:
+        """Resolve all task links without exposing an unreadable parent."""
+        engagement = None
+        milestone = None
+        if engagement_id:
+            engagement = self._visible_engagement(engagement_id, viewer)
+            if engagement is None:
+                table, row_id = (
+                    ("tasks", conceal_as_task)
+                    if conceal_as_task
+                    else ("engagements", engagement_id)
+                )
+                raise PublicError(
+                    error_code,
+                    scope.missing_text(table, row_id),
+                    status_code=404 if conceal_as_task else 400,
+                )
+        if milestone_id:
+            milestone = self._visible_milestone(milestone_id, viewer)
+            if milestone is None:
+                table, row_id = (
+                    ("tasks", conceal_as_task) if conceal_as_task else ("milestones", milestone_id)
+                )
+                raise PublicError(
+                    error_code,
+                    scope.missing_text(table, row_id),
+                    status_code=404 if conceal_as_task else 400,
+                )
+
+        effective_engagement = engagement_id or int((milestone or {}).get("engagement_id") or 0)
+        project_type = fallback_project_type
+        if engagement is not None:
+            project_type = str(engagement["project_class"] or "")
+        elif milestone is not None and milestone["project_class"]:
+            project_type = str(milestone["project_class"])
+        attributes: dict[str, Any] = {"project_type": project_type}
+        if effective_engagement:
+            attributes["engagement_id"] = effective_engagement
+        if milestone_id:
+            attributes["milestone_id"] = milestone_id
+        return attributes
+
+    def _task_state(
+        self, task_id: int, context: CommandContext
+    ) -> tuple[dict, scope.Viewer, dict[str, Any]]:
+        viewer = self._viewer(context)
+        visible, params = scope.visible_filter(viewer, "tasks", "task")
+        row = db.query_one(
+            f"SELECT task.* FROM tasks task WHERE task.id = ? AND {visible}",  # noqa: S608 -- scope emits only bound marks
+            (task_id, *params),
+        )
+        if row is None:
+            raise PublicError(
+                "TASK_NOT_FOUND",
+                scope.missing_text("tasks", task_id),
+                status_code=404,
+            )
+        attributes = self._relationship_context(
+            int(row["engagement_id"] or 0),
+            int(row["milestone_id"] or 0),
+            viewer,
+            error_code="TASK_NOT_FOUND",
+            conceal_as_task=task_id,
+        )
+        attributes.update(
+            classification=str(row["visibility"] or ""),
+            crew_id=str(row["crew_id"] or ""),
+        )
+        return row, viewer, attributes
+
     def get_task(self, task_id: int, context: CommandContext) -> TaskView:
         self._require_issued_context(context)
-        attributes = work.task_policy_context(task_id)
-        self._authorize(
-            context,
-            "work.task.read",
-            PolicyResource(
-                "task",
-                str(task_id),
-                project_type=str(attributes.get("project_type") or ""),
-                classification=str(attributes.get("classification") or ""),
-                attributes=attributes,
-            ),
-        )
-        try:
-            row = work.get_task(task_id, scope.NOBODY)
-        except db.NotFound as exc:
-            raise PublicError("TASK_NOT_FOUND", str(exc), status_code=404) from exc
-        return TaskView.model_validate(row)
+        # One snapshot binds relationship visibility, policy, and the view
+        # returned to the extension. A concurrent relink cannot change the
+        # project after policy evaluates it.
+        with db.transaction():
+            _row, viewer, attributes = self._task_state(task_id, context)
+            self._authorize(
+                context,
+                "work.task.read",
+                PolicyResource(
+                    "task",
+                    str(task_id),
+                    project_type=attributes["project_type"],
+                    classification=attributes["classification"],
+                    attributes=attributes,
+                ),
+            )
+            return self._task_view(task_id, viewer=viewer)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # Keep linked-project resolution, policy, idempotency, and creation in
@@ -295,53 +412,20 @@ class WorkItems:
 
     def _create_task_locked(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         self._require_issued_context(context)
-        project_type = context.project_type
-        link_attributes: dict[str, Any] = {}
-        viewer = scope.Viewer.for_actor(context.execution_actor)
-        if command.engagement_id:
-            visible, params = scope.visible_filter(viewer, "engagements", "engagement")
-            row = db.query_one(
-                f"SELECT engagement.project_class FROM engagements engagement"  # noqa: S608 -- scope emits only bound marks
-                f" WHERE engagement.id = ? AND {visible}",
-                (command.engagement_id, *params),
-            )
-            if not row:
-                raise PublicError(
-                    "TASK_CREATE_REJECTED",
-                    scope.missing_text("engagements", command.engagement_id),
-                )
-            project_type = str(row["project_class"] or "")
-            link_attributes["engagement_id"] = command.engagement_id
-        elif command.milestone_id:
-            milestone_visible, milestone_params = scope.visible_filter(
-                viewer, "milestones", "milestone"
-            )
-            engagement_visible, engagement_params = scope.visible_filter(
-                viewer, "engagements", "engagement"
-            )
-            row = db.query_one(
-                f"SELECT engagement.project_class, milestone.engagement_id,"  # noqa: S608 -- scope emits only bound marks
-                " engagement.id AS visible_engagement_id"
-                " FROM milestones milestone LEFT JOIN engagements engagement"
-                " ON engagement.id = milestone.engagement_id"
-                f" AND {engagement_visible}"
-                f" WHERE milestone.id = ? AND {milestone_visible}",
-                (*engagement_params, command.milestone_id, *milestone_params),
-            )
-            if not row or (row["engagement_id"] and not row["visible_engagement_id"]):
-                raise PublicError(
-                    "TASK_CREATE_REJECTED",
-                    scope.missing_text("milestones", command.milestone_id),
-                )
-            if row["project_class"]:
-                project_type = str(row["project_class"])
-                link_attributes["engagement_id"] = int(row["engagement_id"])
+        viewer = self._viewer(context)
+        link_attributes = self._relationship_context(
+            command.engagement_id,
+            command.milestone_id,
+            viewer,
+            fallback_project_type=context.project_type,
+            error_code="TASK_CREATE_REJECTED",
+        )
         self._authorize(
             context,
             "work.task.create",
             PolicyResource(
                 "task",
-                project_type=project_type,
+                project_type=link_attributes["project_type"],
                 classification=command.visibility,
                 attributes=link_attributes,
             ),
@@ -356,7 +440,7 @@ class WorkItems:
                         (context.receipt_namespace, command.idempotency_key),
                     )
                 if prior:
-                    return self._task_view(int(prior["result_id"]), actor=context.execution_actor)
+                    return self.get_task(int(prior["result_id"]), context)
                 values = command.model_dump(exclude={"status", "idempotency_key"})
                 result = work.create_task(
                     **values,
@@ -387,7 +471,12 @@ class WorkItems:
                             db.now(),
                         ),
                     )
-                return self._task_view(result["id"], actor=context.execution_actor)
+                # The caller already supplied every field in this new row.
+                # Return that write result even when a weak human name cannot
+                # later use the public query to read private data.
+                return self._task_view(
+                    result["id"], viewer=scope.Viewer.for_actor(context.execution_actor)
+                )
         except PublicError:
             raise
         except (ValueError, PermissionError) as exc:
@@ -400,19 +489,45 @@ class WorkItems:
             # policy decision, and mutation. A concurrent relink cannot move
             # the task under a stricter policy between the check and write.
             with db.transaction():
-                current = self.get_task(command.task_id, context)
+                current_row, viewer, current_attributes = self._task_state(command.task_id, context)
+                self._authorize(
+                    context,
+                    "work.task.read",
+                    PolicyResource(
+                        "task",
+                        str(command.task_id),
+                        project_type=current_attributes["project_type"],
+                        classification=current_attributes["classification"],
+                        attributes=current_attributes,
+                    ),
+                )
                 changes = command.model_dump(exclude={"task_id"}, exclude_none=True)
                 if not changes:
                     raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
-                attributes = policy_context.for_change("task", command.task_id, changes)
+                engagement_id = int(current_row["engagement_id"] or 0)
+                milestone_id = int(current_row["milestone_id"] or 0)
+                if changes.get("engagement_id"):
+                    engagement_id = max(int(changes["engagement_id"]), 0)
+                if changes.get("milestone_id"):
+                    milestone_id = max(int(changes["milestone_id"]), 0)
+                attributes = self._relationship_context(
+                    engagement_id,
+                    milestone_id,
+                    viewer,
+                    error_code="TASK_UPDATE_REJECTED",
+                )
+                attributes.update(
+                    classification=str(current_row["visibility"] or ""),
+                    crew_id=str(current_row["crew_id"] or ""),
+                )
                 self._authorize(
                     context,
                     "work.task.update",
                     PolicyResource(
                         "task",
                         str(command.task_id),
-                        project_type=str(attributes.get("project_type") or ""),
-                        classification=str(attributes.get("classification") or current.visibility),
+                        project_type=attributes["project_type"],
+                        classification=attributes["classification"],
                         attributes=attributes,
                     ),
                 )
@@ -425,7 +540,7 @@ class WorkItems:
                     correlation_id=context.correlation_id,
                     event_actor_kind=context.execution_actor_kind,
                 )
-                result = self._task_view(command.task_id)
+                result = self._task_view(command.task_id, viewer=viewer)
         except PublicError:
             raise
         except db.NotFound as exc:
@@ -437,9 +552,8 @@ class WorkItems:
         return result
 
     @staticmethod
-    def _task_view(task_id: int, *, actor: str = "") -> TaskView:
+    def _task_view(task_id: int, *, viewer: scope.Viewer = scope.NOBODY) -> TaskView:
         try:
-            viewer = scope.Viewer.for_actor(actor) if actor else scope.NOBODY
             return TaskView.model_validate(work.get_task(task_id, viewer))
         except db.NotFound as exc:
             raise PublicError("TASK_NOT_FOUND", str(exc), status_code=404) from exc
