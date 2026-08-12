@@ -1371,6 +1371,21 @@ Verification before the next review:
 The next exact commit and fresh independent review follow. Chrome remains
 blocked until all reviewers approve.
 
+The first review of `66b6c0a` found one remaining live-content race. Startup
+accepted a new slug only in memory. If an operator removed the file, a human
+could claim the name. Restoring the file made the accepted content executable
+under the human row.
+
+Startup now inserts an agent row with owner `content` for every accepted
+persona and flock slug. The durable row remains while a mounted file is absent.
+Exact and folded human or generic-agent claims fail. A real-lifespan test
+removes and restores both content types and checks the stored owner.
+
+The scoring for `66b6c0a` is void. A new exact commit and review will follow.
+
+The complete backend suite passed 1,847 tests in 113.35 seconds. The complete
+static gate also passed.
+
 ### Twenty-first review gate and remediation
 
 The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and

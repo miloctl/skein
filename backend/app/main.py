@@ -562,6 +562,7 @@ async def perimeter_auth(request: Request, call_next):
         NEED_LOGIN,
         agent_on_rest,
         agent_on_signin,
+        content_on_signin,
         is_shared_token,
     )
     from .services.api_keys import PREFIX, verify_key
@@ -570,6 +571,7 @@ async def perimeter_auth(request: Request, call_next):
         identity_collision_refusal,
         is_active,
         is_agent,
+        is_content_identity,
         reserved_refusal,
     )
 
@@ -629,6 +631,11 @@ async def perimeter_auth(request: Request, call_next):
         # naming an agent row must be refused before any handler, catalog
         # reads included.
         if await run_in_threadpool(is_agent, name):
+            if await run_in_threadpool(is_content_identity, name):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": content_on_signin()},
+                )
             return JSONResponse(status_code=403, content={"detail": agent_on_signin(name)})
         reserved = await run_in_threadpool(reserved_refusal, name)
         if reserved:

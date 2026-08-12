@@ -193,6 +193,12 @@ def reserve_content_identities(slugs: set[str]) -> tuple[set[str], list[dict]]:
             folded = fold(slug)
             matches = [row for row in rows if fold(row["name"]) == folded]
             if not matches:
+                db.execute(
+                    "INSERT INTO users (name, kind, identity_owner, created_at)"
+                    " VALUES (?, 'agent', ?, ?)",
+                    (slug, CONTENT_OWNER, db.now()),
+                )
+                rows.append({"name": slug, "kind": "agent", "identity_owner": CONTENT_OWNER})
                 accepted.add(slug)
                 continue
             exact = next((row for row in matches if row["name"] == slug), None)
@@ -526,6 +532,19 @@ def is_agent(name: str) -> bool:
     # not disagree about what two names being equal means.
     return any(
         fold(r["name"]) == target for r in db.query("SELECT name FROM users WHERE kind = 'agent'")
+    )
+
+
+def is_content_identity(name: str) -> bool:
+    """True when one unambiguous roster owner is persona or flock content."""
+    target = fold(name)
+    rows = [
+        row
+        for row in db.query("SELECT name, kind, identity_owner FROM users")
+        if fold(row["name"]) == target
+    ]
+    return (
+        len(rows) == 1 and rows[0]["kind"] == "agent" and rows[0]["identity_owner"] == CONTENT_OWNER
     )
 
 

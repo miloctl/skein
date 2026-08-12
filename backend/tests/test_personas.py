@@ -140,12 +140,11 @@ def test_bench_slugs_are_reserved_names(client, fresh_db):
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "reserved" in str(exc)
-    # and a human row can't be absorbed by the persona
-    fresh_db.execute(
-        "INSERT INTO users (name, kind, created_at) VALUES ('growth-mentor', 'human', '2026-01-01')"
-    )
-    out = _read_chat(client, "/as growth-mentor hello there")
-    assert "cannot be shared across kinds" in out
+    # Startup persists the reservation, so removing a mounted file cannot
+    # let a human take the identity before the content returns.
+    assert fresh_db.query_one(
+        "SELECT kind, identity_owner FROM users WHERE name = 'growth-mentor'"
+    ) == {"kind": "agent", "identity_owner": "content"}
 
 
 def test_persona_session_suffix_survives_long_thread_ids(client):

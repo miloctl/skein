@@ -288,6 +288,10 @@ rows identify a human, generic agent, content item, service, specialist, MCP
 actor, or core actor. This prevents a later concern from silently using the
 same provenance and authority.
 
+Startup creates an agent-owned row for every accepted persona and flock slug.
+The row remains if a mounted file is temporarily removed. Thus, a human or
+generic agent cannot claim the slug before the file returns.
+
 Migration 018 assigns stock content and the core Chief automatically. It
 cannot infer private ownership from an old generic agent row. Before the first
 restart on the new core, list ownership conflicts:
