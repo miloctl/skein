@@ -1074,6 +1074,158 @@ def test_task_collections_fail_closed_for_hidden_legacy_parent(
     assert task not in {row["id"] for row in tool_rows}
 
 
+def test_stock_task_list_binds_rows_and_policy_to_one_snapshot(fresh_db, monkeypatch):
+    from threading import Event, Thread
+
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import engagements, work
+    from app.tools.work import list_tasks as tool_list_tasks
+
+    standard = engagements.create_engagement("List standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("List regulated", project_class="regulated")["id"]
+    task = work.create_task("Snapshot task", engagement_id=regulated)["id"]
+    context_entered = Event()
+    writer_done = Event()
+    original = work.task_collection_policy_contexts
+
+    def coordinated_contexts(rows, viewer):
+        context_entered.set()
+        assert writer_done.wait(5)
+        return original(rows, viewer)
+
+    monkeypatch.setattr(work, "task_collection_policy_contexts", coordinated_contexts)
+
+    def deny_regulated(request: PolicyInput):
+        if (
+            request.action == "skein.tool.list_tasks"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated task reads are closed.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.task-list", deny_regulated),),
+            ),
+        )
+    )
+
+    def relink() -> None:
+        assert context_entered.wait(5)
+        work.update_task(task, engagement_id=standard)
+        writer_done.set()
+
+    writer = Thread(target=relink)
+    writer.start()
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        rows = json.loads(tool_list_tasks())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    writer.join(5)
+
+    assert writer_done.is_set()
+    assert task not in {row["id"] for row in rows}
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "engagement_id": standard
+    }
+
+
+@pytest.mark.parametrize("project_class", ["regulated", "standard"])
+def test_blocker_collections_fail_closed_for_hidden_legacy_task(fresh_db, project_class):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import blockers, crews, engagements, work
+    from app.tools.platform import list_blockers as tool_list_blockers
+
+    blocker = blockers.raise_blocker("Visible collection blocker", actor="manager")
+    crew_id = crews.create_crew("Hidden blocker collection", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        f"Hidden blocker collection {project_class}",
+        project_class=project_class,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task(
+        "Hidden blocker collection task",
+        engagement_id=engagement,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    fresh_db.execute("UPDATE blockers SET task_id = ? WHERE id = ?", (task, blocker["id"]))
+
+    app = create_app()
+    with TestClient(app, headers={"X-User": "manager"}) as client:
+        listed = client.get("/api/blockers")
+    assert listed.status_code == 200
+    assert blocker["id"] not in {row["id"] for row in listed.json()}
+
+    registry = ExtensionRegistry.build(())
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_rows = json.loads(tool_list_blockers())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert blocker["id"] not in {row["id"] for row in tool_rows}
+
+
+def test_blocker_collections_apply_linked_project_policy_per_row(fresh_db):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import blockers, engagements, work
+    from app.tools.platform import list_blockers as tool_list_blockers
+
+    standard = engagements.create_engagement("Blocker standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Blocker regulated", project_class="regulated")["id"]
+    standard_task = work.create_task("Standard blocker task", engagement_id=standard)["id"]
+    regulated_task = work.create_task("Regulated blocker task", engagement_id=regulated)["id"]
+    allowed = blockers.raise_blocker("Allowed blocker", task_id=standard_task, actor="manager")
+    denied = blockers.raise_blocker("Denied blocker", task_id=regulated_task, actor="manager")
+
+    def deny_regulated(request: PolicyInput):
+        if request.action in {"skein.rest.get.blockers", "skein.tool.list_blockers"} and (
+            request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated blockers are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.blocker-list", deny_regulated),),
+    )
+    app = create_app(modules=(module,))
+    with TestClient(app, headers={"X-User": "manager"}) as client:
+        listed = client.get("/api/blockers")
+    assert listed.status_code == 200
+    assert {row["id"] for row in listed.json()} >= {allowed["id"]}
+    assert denied["id"] not in {row["id"] for row in listed.json()}
+
+    registry = ExtensionRegistry.build((module,))
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_rows = json.loads(tool_list_blockers())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert {row["id"] for row in tool_rows} >= {allowed["id"]}
+    assert denied["id"] not in {row["id"] for row in tool_rows}
+
+
 @pytest.mark.parametrize("project_class", ["regulated", "standard", "absent"])
 def test_blocker_routes_conceal_a_hidden_legacy_task_project(fresh_db, project_class):
     from app.services import blockers, crews, engagements, work

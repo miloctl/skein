@@ -437,6 +437,9 @@ with TestClient(app) as client:
     assert listed.status_code == 200, listed.text
     assert "Legacy visible policy child" not in {row["title"] for row in listed.json()}
     blocker_id = int(Path("../legacy-policy-blocker-id").read_text())
+    blockers_list = client.get("/api/blockers", headers={"X-User": "manager"})
+    assert blockers_list.status_code == 200, blockers_list.text
+    assert blocker_id not in {row["id"] for row in blockers_list.json()}
     concealed = client.patch(
         f"/api/blockers/{blocker_id}",
         headers={"X-User": "manager"},

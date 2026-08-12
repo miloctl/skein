@@ -307,6 +307,50 @@ def list_blockers(
     return rows
 
 
+def blocker_collection_policy_contexts(
+    rows: list[dict], viewer: scope.Viewer
+) -> dict[int, dict[str, str]]:
+    """Resolve each visible blocker's linked project without hidden-row oracles."""
+    blocker_ids = sorted({int(row["id"]) for row in rows})
+    if not blocker_ids:
+        return {}
+    marks = ",".join("?" for _ in blocker_ids)
+    links = {
+        int(row["id"]): int(row.get("task_id") or 0)
+        for row in db.query(
+            f"SELECT id, task_id FROM blockers WHERE id IN ({marks})",  # noqa: S608 -- marks are controlled
+            tuple(blocker_ids),
+        )
+    }
+    task_ids = sorted(set(links.values()) - {0})
+    task_rows: list[dict] = []
+    if task_ids:
+        task_marks = ",".join("?" for _ in task_ids)
+        visible, params = scope.visible_filter(viewer, "tasks", "task")
+        task_rows = db.query(
+            f"SELECT task.* FROM tasks task WHERE task.id IN ({task_marks})"  # noqa: S608 -- marks and scope are controlled
+            f" AND {visible}",
+            (*task_ids, *params),
+        )
+    task_contexts = work.task_collection_policy_contexts(task_rows, viewer)
+    result: dict[int, dict[str, str]] = {}
+    for row in rows:
+        blocker_id = int(row["id"])
+        task_id = links.get(blocker_id, 0)
+        attributes = {
+            "classification": str(row.get("visibility") or ""),
+            "project_type": "",
+        }
+        if task_id:
+            task_context = task_contexts.get(task_id)
+            if task_context is None or task_context.get("relationship_conflict"):
+                attributes["relationship_conflict"] = "true"
+            else:
+                attributes["project_type"] = str(task_context.get("project_type") or "")
+        result[blocker_id] = attributes
+    return result
+
+
 def sweep_escalations() -> list[dict]:
     """Flip aged open blockers to escalated; called by the scheduler and tests."""
     escalated = []

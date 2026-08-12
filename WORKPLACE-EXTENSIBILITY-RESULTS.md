@@ -1820,3 +1820,18 @@ Current verification:
 
 These results do not change the score. The next exact commit requires a fresh
 independent review before Chrome validation can start.
+
+The first review of that checkpoint found a stock-agent task-list snapshot
+race and missing row-level blocker collection policy. Task and blocker lists
+now use one read snapshot on REST and stock-agent surfaces. Blocker rows use a
+batched, viewer-scoped linked-task context. Hidden or conflicting legacy links
+fail closed without exposing a project class or linked identifier.
+
+Verification after this remediation:
+
+| Verification | Result |
+|---|---|
+| Focused policy, core-tool, API, visibility, public-command, and Atlas tests | 253 passed |
+| Complete backend suite | 1,924 passed in 116.53 seconds |
+| Complete static gate | Passed |
+| Installed backend extension rehearsal | The prior exact commit passed in independent review; the local retry stalled during isolated dependency installation and was stopped cleanly |

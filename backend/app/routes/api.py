@@ -324,8 +324,33 @@ def get_activity_verify(user: CurrentUser, tail: int = 0):
 
 
 @router.get("/blockers")
-def get_blockers(user: CurrentUser, viewer: ViewerDep, status: str = "", owner: str = ""):
-    return blockers.list_blockers(status, owner, viewer)
+def get_blockers(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "",
+    owner: str = "",
+):
+    """Return only blocker rows that the composed workplace policy permits."""
+    with db.read_transaction():
+        rows = blockers.list_blockers(status, owner, viewer)
+        contexts = blockers.blocker_collection_policy_contexts(rows, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.blockers",
+                "blocker",
+                resource_id=str(row["id"]),
+                project_type=contexts[int(row["id"])]["project_type"],
+                classification=contexts[int(row["id"])]["classification"],
+                attributes=contexts[int(row["id"])],
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/intake")

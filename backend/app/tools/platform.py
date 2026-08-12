@@ -5,8 +5,16 @@ from typing import Any
 
 from strands import tool
 
+from .. import db
 from ..agents.identity import agent_identity
-from ..services import blockers, engagements, handoff, intake, playbooks, search
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
+from ..services import blockers, engagements, handoff, intake, playbooks, scope, search
 from ._gate import gated_write
 
 
@@ -66,7 +74,35 @@ def list_blockers(status: str = "", owner: str = "") -> str:
         status: 'open', 'escalated', 'resolved', or empty for all unresolved.
         owner: Filter to one owner.
     """
-    return json.dumps(blockers.list_blockers(status, owner))
+    with db.read_transaction():
+        rows = blockers.list_blockers(status, owner)
+        contexts = blockers.blocker_collection_policy_contexts(rows, scope.NOBODY)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        permitted = []
+        for row in rows:
+            attributes = contexts[int(row["id"])]
+            decision = engine.decide(
+                PolicyInput(
+                    subject,
+                    "skein.tool.list_blockers",
+                    PolicyResource(
+                        "blocker",
+                        str(row["id"]),
+                        attributes["project_type"],
+                        attributes["classification"],
+                        attributes,
+                    ),
+                    "agent_tool",
+                    agent=agent_identity(),
+                    tool="list_blockers",
+                    tool_effect="read",
+                    tool_risk="low",
+                )
+            )
+            if decision.effect == PolicyEffect.PERMIT:
+                permitted.append(row)
+        return json.dumps(permitted)
 
 
 @tool
