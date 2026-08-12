@@ -1398,6 +1398,30 @@ Verification for this remediation:
 The exact commit and fresh four-role review will follow. Chrome remains
 blocked.
 
+### Nineteenth review gate and remediation
+
+The architecture reviewer approved commit `8147fea` at 8.3 for all three
+measures. The score auditor rejected it at 8.2, 7.9, and 8.3. A validated OIDC
+read checked identity ownership but did not reserve it. A new machine identity
+could commit while that strong human request was in flight.
+
+The OIDC perimeter now reserves durable human ownership before any handler
+runs. Direct dependency calls use the same strict reservation. The request
+records the reserved owner so route dependencies do not repeat the database
+write. Weak trusted-header reads retain their no-roster-growth behavior and do
+not receive strong or private-data authority.
+
+Deterministic tests cover exact and folded names in both winner orders. A real
+OIDC client test proves that a first validated read creates a human ownership
+row. The focused identity, privacy, policy, and extension suite passed 235
+tests.
+
+Full backend verification passed 1,782 tests in 106.95 seconds. Complete lint,
+type, content, dead-code, license, theme, TypeScript, ESLint, and frontend
+dead-code gates passed. The unchanged Atlas wheel passed the installed-artifact
+rehearsal on two different compatible core implementations. The exact commit
+and repeated review follow. Chrome remains blocked.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The

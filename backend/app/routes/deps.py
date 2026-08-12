@@ -7,7 +7,7 @@ from .. import config
 from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_human_identity, is_agent, refuse_fold_collision
+from ..services.users import ensure_human_identity, is_agent
 
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
@@ -191,19 +191,16 @@ def _resolve(
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             if is_agent(name):
                 raise HTTPException(status_code=403, detail=agent_on_signin(name))
-            # the read path skips ensure_user, so the walls it applies are
-            # applied here too
+            # Apply the same walls for direct dependency calls that do not pass
+            # through the perimeter middleware.
             _refuse_reserved(name)
             _refuse_inactive(name)
             try:
-                if method in ("GET", "HEAD", "OPTIONS"):
-                    # a read never grows the roster, so a polling service
-                    # account does not accumulate rows. It still takes the
-                    # fold wall: resolving the claim onto a fold-equivalent
-                    # roster row would hand `ALICE` (or a zero-width variant)
-                    # every row `alice` owns, private notes included, and
-                    # _is_admin below reads the name this returns.
-                    refuse_fold_collision(name)
+                # The perimeter reserves every validated OIDC principal before
+                # any handler runs. Direct calls and tests do the same here.
+                # Durable ownership prevents a new service, specialist, or MCP
+                # identity from taking the name during this request.
+                if _cached(request, "auth_human_owner") == name:
                     return name, True, groups
                 return ensure_human_identity(name)["name"], True, groups
             except ValueError as exc:
@@ -220,8 +217,8 @@ def _resolve(
     if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
     name = (x_user or "anonymous").strip()[:64] or "anonymous"
-    # the read path returns before ensure_user, so the wall is applied here —
-    # the same gap the key and OIDC doors had
+    # Weak reads do not reserve a roster row. Apply the stable reserved,
+    # inactive, and agent walls before that early return.
     _refuse_reserved(name)
     _refuse_inactive(name)
     if is_agent(name):
