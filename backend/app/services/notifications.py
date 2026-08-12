@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 TIERS = ("immediate", "digest", "passive")
+NotificationBody = str | Callable[[dict], str | None]
 _SOURCE_ALIASES = {
     "blocker_edit": "blocker",
     "event_cancel": "event",
@@ -55,7 +56,7 @@ def _post_slack(text: str) -> None:
 
 def notify(
     user: str,
-    message: str,
+    message: NotificationBody,
     tier: str = "digest",
     link: str = "",
     *,
@@ -65,10 +66,47 @@ def notify(
     if tier not in TIERS:
         raise ValueError(f"tier must be one of {TIERS}")
     if tier == "passive":
+        if not isinstance(message, str):
+            raise ValueError("a passive notification needs plain text")
         db.log_activity("notifier", "notify_passive", message[:120])
         return None
     source_entity = _SOURCE_ALIASES.get(source_entity, source_entity)
-    source_context = _source_policy_context(source_entity, source_id)
+    from . import policy_context
+
+    if source_id > 0 and policy_context.supports_resource(source_entity):
+        if not callable(message):
+            raise ValueError("a typed notification needs a source-row message builder")
+        with db.transaction():
+            source_row = policy_context.resource_row(source_entity, source_id)
+            if source_row is None:
+                return None
+            rendered = message(source_row)
+            if not rendered:
+                return None
+            return _insert_notification(
+                user,
+                rendered,
+                tier,
+                link,
+                source_entity,
+                source_id,
+                policy_context.existing(source_entity, source_id),
+            )
+    rendered = message({"id": source_id}) if callable(message) else message
+    if not rendered:
+        return None
+    return _insert_notification(user, rendered, tier, link, source_entity, source_id, {})
+
+
+def _insert_notification(
+    user: str,
+    message: str,
+    tier: str,
+    link: str,
+    source_entity: str,
+    source_id: int,
+    source_context: dict[str, str],
+) -> dict:
     ts = db.now()
     nid = db.execute(
         "INSERT INTO notifications"
@@ -99,16 +137,6 @@ def notify(
         if not db.on_commit(post):
             post()
     return {"id": nid, "tier": tier}
-
-
-def _source_policy_context(entity: str, entity_id: int) -> dict[str, str]:
-    if not entity or entity_id <= 0:
-        return {}
-    from . import policy_context
-
-    if not policy_context.supports_resource(entity):
-        return {}
-    return policy_context.existing(entity, entity_id)
 
 
 # Unread, for ONE reader. A personal row is unread while its own `read_at` is

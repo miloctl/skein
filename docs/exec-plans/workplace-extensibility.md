@@ -2371,3 +2371,38 @@ Verification before the next exact-commit review:
 | Focused notification, engagement, and visibility tests | 13 passed |
 | Complete backend suite | 1,979 passed in 122.17 seconds |
 | Complete static gate | Passed |
+
+### Remediation after the `1e18db0` review
+
+The independent review rejected `1e18db0`. It did not issue final scores.
+
+Some producers changed a typed source, committed that change, and then created
+the notification. A concurrent relationship change can bind the event text
+to a later policy context.
+
+The notification API now requires a source-row message builder for each typed
+source. It loads the source row, builds the message, captures the policy
+context, and inserts the notification in one write transaction.
+
+Each typed producer now calls this API inside the transaction that changes the
+source. This rule covers questions, mentions, review proposals, promise
+reminders, and the blocker and decision sweeps. A missing or deleted source
+creates no notification.
+
+Summaries with more than one source remain unclassified. A policy-aware reader
+omits these summaries when an applicable workplace rule exists.
+
+Blocker policy snapshots now include the project of the linked task. Thus, a
+project rule can classify an escalation notification.
+
+A coordinated regression pauses notification creation and starts a concurrent
+task relink. The relink waits until the blocker change and notification
+snapshot commit together.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused notification, blocker, promise, mention, question, decision, and review tests | 101 passed |
+| Complete backend suite | 1,981 passed in 142.79 seconds |
+| Complete static gate | Passed |

@@ -19,6 +19,29 @@ def ask_question(
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
 ) -> dict:
+    """Create a question and its directed notices in one transaction."""
+    with db.transaction():
+        return _ask_question_locked(
+            question,
+            asked_by,
+            assigned_to,
+            actor=actor,
+            origin=origin,
+            visibility=visibility,
+            crew_id=crew_id,
+        )
+
+
+def _ask_question_locked(
+    question: str,
+    asked_by: str,
+    assigned_to: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
+) -> dict:
     if not question.strip():
         raise ValueError("the question text is required")
     # one transaction, because scope.resolve_write checks crew membership and
@@ -39,7 +62,7 @@ def ask_question(
 
         notify(
             assigned_to,
-            f"Question #{qid} assigned to you: {question[:80]}",
+            lambda source: f"Question #{source['id']} assigned to you: {source['question'][:80]}",
             tier="digest",
             link="/",
             source_entity="question",
@@ -52,6 +75,19 @@ def ask_question(
 
 
 def assign_question(
+    question_id: int, assigned_to: str, *, actor: str = "", origin: str = "human"
+) -> dict:
+    """Assign a question and create its notice in one transaction."""
+    with db.transaction():
+        return _assign_question_locked(
+            question_id,
+            assigned_to,
+            actor=actor,
+            origin=origin,
+        )
+
+
+def _assign_question_locked(
     question_id: int, assigned_to: str, *, actor: str = "", origin: str = "human"
 ) -> dict:
     row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
@@ -89,7 +125,7 @@ def assign_question(
 
         notify(
             assigned_to,
-            f"Question #{question_id} assigned to you: {row['question'][:80]}",
+            lambda source: f"Question #{source['id']} assigned to you: {source['question'][:80]}",
             tier="digest",
             link="/",
             source_entity="question",
@@ -99,6 +135,20 @@ def assign_question(
 
 
 def answer_question(
+    question_id: int, answer: str, answered_by: str = "", *, actor: str = "", origin: str = "human"
+) -> dict:
+    """Answer a question and create its notices in one transaction."""
+    with db.transaction():
+        return _answer_question_locked(
+            question_id,
+            answer,
+            answered_by,
+            actor=actor,
+            origin=origin,
+        )
+
+
+def _answer_question_locked(
     question_id: int, answer: str, answered_by: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
     row = db.query_one("SELECT * FROM questions WHERE id = ?", (question_id,))
@@ -124,7 +174,9 @@ def answer_question(
 
             notify(
                 row["asked_by"],
-                f"Your question #{question_id} was answered: {answer[:120]}",
+                lambda source: (
+                    f"Your question #{source['id']} was answered: {source['answer'][:120]}"
+                ),
                 tier="digest",
                 link="/dashboard",
                 source_entity="question",
@@ -305,6 +357,12 @@ def supersede_decision(
 
 
 def sweep_stale_decisions() -> list[dict]:
+    """Mark stale decisions and create their notices in one transaction."""
+    with db.transaction():
+        return _sweep_stale_decisions_locked()
+
+
+def _sweep_stale_decisions_locked() -> list[dict]:
     """Flip active decisions past their review_by date to stale (once — the
     status flip is the claim). Scheduled daily; stale ≠ wrong, it means
     'reconfirm or supersede me'."""
@@ -328,8 +386,12 @@ def sweep_stale_decisions() -> list[dict]:
         if d["decided_by"] or d["visibility"] == scope.WORKSPACE:
             notify(
                 d["decided_by"] or "team",
-                f"Decision #{d['id']} '{d['title']}' passed its review-by date"
-                f" ({d['review_by']}). Reconfirm it or supersede it.",
+                lambda source: (
+                    f"Decision #{source['id']} '{source['title']}' passed its review-by date"
+                    f" ({source['review_by']}). Reconfirm it or supersede it."
+                    if source["status"] == "stale"
+                    else None
+                ),
                 tier="digest",
                 link="/",
                 source_entity="decision",

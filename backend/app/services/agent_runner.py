@@ -161,11 +161,21 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
                 iso = db.today().isocalendar()
                 if not db.claim_job(f"sweep-quiet:{task['id']}", f"{iso.year}-W{iso.week:02d}"):
                     continue
+
+                def quiet_body(
+                    source: dict,
+                    current_agent: str = agent,
+                    last_note: str = said,
+                ) -> str:
+                    return (
+                        f"{current_agent} holds task #{source['id']} '{source['title']}'"
+                        f" with no progress note for {QUIET_DAYS}"
+                        f" day{'' if QUIET_DAYS == 1 else 's'}.{last_note}"
+                    )
+
                 notify(
                     task["sponsor"],
-                    f"{agent} holds task #{task['id']} '{task['title']}'"
-                    f" with no progress note for {QUIET_DAYS}"
-                    f" day{'' if QUIET_DAYS == 1 else 's'}.{said}",
+                    quiet_body,
                     source_entity="task",
                     source_id=int(task["id"]),
                     tier="digest",

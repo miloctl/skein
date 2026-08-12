@@ -436,7 +436,9 @@ def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
         event = "concluded" if eng["kind"] == "experiment" else "shipped"
         notify(
             "team",
-            f"Engagement #{engagement_id} '{name}' {event}. Open Skein for the recap.",
+            lambda source: (
+                f"Engagement #{source['id']} '{source['name']}' {event}. Open Skein for the recap."
+            ),
             tier="immediate",
             link="/dashboard",
             source_entity="engagement",

@@ -122,6 +122,27 @@ def scan(
     exclude: tuple = (),
     link: str = "/",
 ) -> list[str]:
+    """Record mentions and create their notices in one transaction."""
+    with db.transaction():
+        return _scan_locked(
+            entity,
+            entity_id,
+            text,
+            actor=actor,
+            exclude=exclude,
+            link=link,
+        )
+
+
+def _scan_locked(
+    entity: str,
+    entity_id: int,
+    text: str,
+    *,
+    actor: str,
+    exclude: tuple,
+    link: str,
+) -> list[str]:
     """Returns the names notified. `exclude` names people the parent write
     already pinged (the assignee on a question, the asker on an answer) —
     a mention must not double-ping. The actor is always excluded: a
@@ -159,7 +180,7 @@ def scan(
         if fresh:
             notify(
                 name,
-                f"{actor or 'system'} mentioned you on {entity} #{entity_id}",
+                lambda source: f"{actor or 'system'} mentioned you on {entity} #{source['id']}",
                 tier="immediate",
                 link=link,
                 source_entity=entity,

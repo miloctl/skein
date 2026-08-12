@@ -233,7 +233,7 @@ def _gated_write_locked(
 
             notify(
                 "team",
-                f"Agent {actor} wrote {entity}.{action}: {summary or json.dumps(payload)[:120]}",
+                lambda source: f"Agent {actor} wrote {entity}.{action} #{source['id']}.",
                 tier="digest",
                 link="/review",
                 source_entity=entity,
