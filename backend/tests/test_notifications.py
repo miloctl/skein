@@ -248,3 +248,33 @@ def test_blocker_resolution_notifies_waiting_task_owner(fresh_db):
     work.update_task(t["id"], waiting_on=f"blocker:{b['id']}", actor="mira")
     blockers.resolve_blocker(b["id"], resolution="key arrived", actor="tomas")
     assert _unread_for(fresh_db, "mira", "%can move again%")
+
+
+def test_blocker_resolution_notification_has_one_task_source(fresh_db, monkeypatch):
+    from app.services import blockers, notifications, work
+
+    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
+    blocker = blockers.raise_blocker("vendor key missing", actor="tomas", owner="tomas")
+    task = work.create_task("integrate private vendor", assignee="mira", actor="mira")
+    work.update_task(task["id"], waiting_on=f"blocker:{blocker['id']}", actor="mira")
+
+    blockers.resolve_blocker(blocker["id"], resolution="key arrived", actor="tomas")
+    stored = fresh_db.query_one(
+        "SELECT * FROM notifications WHERE user = 'mira' ORDER BY id DESC LIMIT 1"
+    )
+
+    assert stored["source_entity"] == "task"
+    assert stored["source_id"] == task["id"]
+    assert f"Task #{task['id']}" in stored["message"]
+    assert "integrate private vendor" in stored["message"]
+    assert "Blocker #" not in stored["message"]
+    assert (
+        notifications.policy_filter(
+            [stored],
+            lambda entity, entity_id, _attributes: (
+                not (entity == "task" and entity_id == task["id"])
+            ),
+            allow_unclassified=False,
+        )
+        == []
+    )

@@ -241,8 +241,9 @@ def update_engagement(
                 f" {'it' if open_tasks['n'] == 1 else 'them'}.",
                 tier="digest",
                 link="/dashboard",
-                source_entity="engagement",
-                source_id=engagement_id,
+                # This count is derived from several task rows. It has no
+                # single authoritative source, so policy-aware readers treat
+                # it as unclassified instead of checking only the engagement.
             )
             return {
                 "id": engagement_id,
@@ -350,6 +351,11 @@ def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
 
 
 def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
+    with db.transaction():
+        _ship_it_locked(engagement_id, actor=actor, origin=origin)
+
+
+def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
     """The Ship It moment: recap card + team notification when an engagement
     closes. Deterministic — all counts from SQL."""
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
@@ -427,9 +433,10 @@ def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
     # "team" is every person on the roster, so a scoped closure is not
     # announced at all — the crew reads it on the note above.
     if eng["visibility"] == scope.WORKSPACE:
+        event = "concluded" if eng["kind"] == "experiment" else "shipped"
         notify(
             "team",
-            recap.replace("**", ""),
+            f"Engagement #{engagement_id} '{name}' {event}. Open Skein for the recap.",
             tier="immediate",
             link="/dashboard",
             source_entity="engagement",

@@ -2341,3 +2341,33 @@ Verification before the next exact-commit review:
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+
+### Remediation after the `cff03f15` review
+
+The independent architecture review rejected `cff03f15`. It did not issue
+final scores.
+
+A blocker-resolution notification quoted both the blocker and a waiting task.
+The row recorded only the blocker as its policy source. An exact task rule
+could not remove the task title.
+
+The notification now names only the waiting task. It records that task as its
+single typed source. The blocker update, task read, notification text, and
+policy snapshot share one write transaction.
+
+Ship notifications now name only their engagement source. The detailed recap
+stays in the scoped note. An open-work count has several task sources, so its
+notification remains unclassified. Policy-aware readers omit that aggregate
+text instead of checking only the engagement.
+
+The new regression creates blocker-resolution notices for REST, briefing,
+stock-tool, and MCP readers. An exact task denial removes the body on every
+surface.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused notification, engagement, and visibility tests | 13 passed |
+| Complete backend suite | 1,979 passed in 122.17 seconds |
+| Complete static gate | Passed |

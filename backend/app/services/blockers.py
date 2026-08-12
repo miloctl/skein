@@ -191,13 +191,13 @@ def edit_blocker(
 def resolve_blocker(
     blocker_id: int, resolution: str = "", *, actor: str = "system", origin: str = "human"
 ) -> dict:
-    row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
-    if not row:
-        raise scope.missing("blockers", blocker_id)
-    scope.assert_editable("blockers", row, actor, verb="resolve")
-    if row["status"] == "resolved":
-        raise ValueError(f"blocker #{blocker_id} is already resolved")
     with db.transaction():
+        row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
+        if not row:
+            raise scope.missing("blockers", blocker_id)
+        scope.assert_editable("blockers", row, actor, verb="resolve")
+        if row["status"] == "resolved":
+            raise ValueError(f"blocker #{blocker_id} is already resolved")
         db.execute(
             "UPDATE blockers SET status = 'resolved', resolved_at = ?, updated_at = ?,"
             " detail = detail || CASE WHEN ? != '' THEN char(10) || 'Resolved: ' || ? ELSE '' END"
@@ -229,54 +229,53 @@ def resolve_blocker(
                     )
         db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
 
-    # tasks explicitly waiting on this blocker can move again — tell their
-    # owners, or the unblock is a tree falling in an empty forest
-    waiting = db.query(
-        "SELECT id, title, assignee FROM tasks"
-        " WHERE waiting_on_type = 'blocker' AND waiting_on_id = ?",
-        (blocker_id,),
-    )
-    if waiting:
-        from .notifications import notify
-
-        for t in waiting:
-            assignee = str(t["assignee"] or "")
-            assignee_reads_blocker = scope.can_read(
-                row["visibility"],
-                row["crew_id"],
-                scope.Viewer.for_actor(assignee),
-                row["created_by"],
-            )
-            if assignee and assignee != actor and assignee_reads_blocker:
-                notify(
-                    assignee,
-                    f"Blocker #{blocker_id} resolved — task #{t['id']}"
-                    f" “{t['title']}” can move again.",
-                    tier="immediate",
-                    link="/dashboard",
-                    source_entity="blocker",
-                    source_id=blocker_id,
-                )
-
-    created = datetime.fromisoformat(row["created_at"])
-    if created.tzinfo is None:
-        created = created.replace(tzinfo=UTC)
-    age = datetime.now(UTC) - created
-    # the workspace tier only: the funeral is addressed to "team", which is
-    # every person on the roster, and it quotes the blocker's own title
-    if age >= timedelta(days=3) and row["visibility"] == scope.WORKSPACE:  # the Blocker Funeral
-        from .notifications import notify
-
-        days = age.days
-        notify(
-            "team",
-            f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
-            f" It fought hard. It lost. {days} days.",
-            tier="digest",
-            link="/dashboard",
-            source_entity="blocker",
-            source_id=blocker_id,
+        # Each notification has one authoritative source. This text names only
+        # the waiting task, so an exact task decision governs the whole body.
+        waiting = db.query(
+            "SELECT id, title, assignee FROM tasks"
+            " WHERE waiting_on_type = 'blocker' AND waiting_on_id = ?",
+            (blocker_id,),
         )
+        if waiting:
+            from .notifications import notify
+
+            for t in waiting:
+                assignee = str(t["assignee"] or "")
+                assignee_reads_blocker = scope.can_read(
+                    row["visibility"],
+                    row["crew_id"],
+                    scope.Viewer.for_actor(assignee),
+                    row["created_by"],
+                )
+                if assignee and assignee != actor and assignee_reads_blocker:
+                    notify(
+                        assignee,
+                        f"Task #{t['id']} “{t['title']}” can move again.",
+                        tier="immediate",
+                        link="/dashboard",
+                        source_entity="task",
+                        source_id=int(t["id"]),
+                    )
+
+        created = datetime.fromisoformat(row["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        age = datetime.now(UTC) - created
+        # the workspace tier only: the funeral is addressed to "team", which is
+        # every person on the roster, and it quotes the blocker's own title
+        if age >= timedelta(days=3) and row["visibility"] == scope.WORKSPACE:  # the Blocker Funeral
+            from .notifications import notify
+
+            days = age.days
+            notify(
+                "team",
+                f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
+                f" It fought hard. It lost. {days} days.",
+                tier="digest",
+                link="/dashboard",
+                source_entity="blocker",
+                source_id=blocker_id,
+            )
     return {"id": blocker_id, "status": "resolved"}
 
 

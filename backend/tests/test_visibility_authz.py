@@ -462,7 +462,7 @@ _EXEMPT_FUNCTIONS = {
         " caller named rather than a content write"
     ),
     "collab.py::sweep_stale_decisions": "a job over every active decision",
-    "engagements.py::_ship_it": "keyed on the engagement update_engagement just closed",
+    "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::create_engagement": (
         "adopts milestones that match the new engagement name; each updated id"
         " comes from the actor-visible candidate query in the same transaction"
@@ -738,7 +738,7 @@ _UNFILTERED_READS = {
     "delegation.py::report_progress": "the actor must be the delegate or the sponsor",
     "delegation.py::accept_completion": "same delegated_agent check",
     "delegation.py::submit_completion": "same delegated_agent check",
-    "engagements.py::_ship_it": "keyed on the engagement update_engagement just closed",
+    "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::_experiment_lesson": "same",
     # --- jobs that carry their own rule ---
     "blockers.py::sweep_escalations": (
