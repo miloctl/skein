@@ -227,6 +227,9 @@ refuses the human request if the machine reservation wins.
 Validated OIDC reads reserve human ownership before a handler runs. Weak
 trusted-header reads do not create roster rows and do not receive strong or
 private-data authority.
+Established OIDC users use a read-only ownership check. A first ownership
+claim can require the SQLite writer lock. Skein returns a retryable `503` if
+that lock is busy.
 Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
 

@@ -149,6 +149,13 @@ def ensure_user(name: str, kind: str = "human") -> dict:
 def ensure_human_identity(name: str) -> dict:
     """Reserve a human name and refuse any exact or folded machine owner."""
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
+    # Durable exact ownership needs no write lock. This is the steady-state
+    # OIDC path, so authenticated reads retain WAL's reader/writer concurrency.
+    existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
+    if existing is not None:
+        if existing["kind"] != "human":
+            raise ValueError(f"'{normalized}' is already owned by an agent identity")
+        return existing
     with db.transaction():
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
         if existing is not None and existing["kind"] != "human":

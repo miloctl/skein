@@ -268,6 +268,77 @@ def test_an_oidc_first_sign_in_reserves_human_ownership(client, monkeypatch, fre
     assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'newcomer'") == {"kind": "human"}
 
 
+def test_established_oidc_read_does_not_wait_for_the_sqlite_writer(client, monkeypatch, fresh_db):
+    """The steady-state OIDC path is a WAL reader, not a global writer."""
+    from app.services.users import ensure_human_identity
+
+    ensure_human_identity("established")
+    _oidc(monkeypatch, {"tok": {"preferred_username": "established"}})
+    holding = Event()
+    release = Event()
+
+    def hold_writer() -> None:
+        connection = fresh_db.connect()
+        connection.isolation_level = None
+        connection.execute("BEGIN IMMEDIATE")
+        holding.set()
+        release.wait(timeout=5)
+        connection.execute("ROLLBACK")
+        connection.close()
+
+    holder = Thread(target=hold_writer)
+    holder.start()
+    try:
+        assert holding.wait(timeout=2)
+        response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+        assert response.status_code == 200
+    finally:
+        release.set()
+        holder.join(timeout=3)
+
+
+def test_first_oidc_read_returns_retryable_503_when_identity_storage_is_busy(
+    client, monkeypatch, fresh_db
+):
+    """A first ownership claim reports load instead of an opaque middleware 500."""
+    from app import db
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "first-reader"}})
+    real_connect = db.connect
+
+    def impatient():
+        connection = real_connect()
+        connection.execute("PRAGMA busy_timeout = 50")
+        return connection
+
+    monkeypatch.setattr(db, "connect", impatient)
+    holding = Event()
+    release = Event()
+
+    def hold_writer() -> None:
+        connection = real_connect()
+        connection.isolation_level = None
+        connection.execute("BEGIN IMMEDIATE")
+        holding.set()
+        release.wait(timeout=5)
+        connection.execute("ROLLBACK")
+        connection.close()
+
+    holder = Thread(target=hold_writer)
+    holder.start()
+    try:
+        assert holding.wait(timeout=2)
+        response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "5"
+        assert response.json() == {
+            "detail": "The database is busy. Wait 5 seconds, then send the request again."
+        }
+    finally:
+        release.set()
+        holder.join(timeout=3)
+
+
 @pytest.mark.parametrize("oidc_name", ["race-owner", "RACE-OWNER"])
 def test_oidc_read_is_refused_when_machine_reservation_wins(fresh_db, monkeypatch, oidc_name):
     """A strong read cannot outlive an exact or folded machine reservation."""

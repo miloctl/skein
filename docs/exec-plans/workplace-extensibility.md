@@ -1422,6 +1422,27 @@ dead-code gates passed. The unchanged Atlas wheel passed the installed-artifact
 rehearsal on two different compatible core implementations. The exact commit
 and repeated review follow. Chrome remains blocked.
 
+### Twentieth review gate and remediation
+
+The extension-author and score reviewers approved commit `5b196ca` above 8
+for all three measures. The architecture reviewer rejected it at 8.1, 7.7,
+and 8.3 because every OIDC request acquired SQLite's global writer lock.
+
+Established human ownership now uses a read-only exact-row fast path. Only a
+first identity claim enters the transaction that serializes folded ownership.
+If that first claim cannot acquire the writer lock, the OIDC perimeter returns
+JSON `503` with `Retry-After: 5`.
+
+A held-writer test proves that an established OIDC read remains available. A
+second held-writer test proves that a first OIDC read receives the retryable
+response instead of an opaque middleware error. Focused ownership and
+availability tests passed. The identity, privacy, policy, extension, and
+transaction suite passed 246 tests. The full backend suite passed 1,784 tests
+in 106.45 seconds. All static gates passed. The unchanged Atlas wheel passed
+the installed-artifact rehearsal on two different compatible core
+implementations. The exact commit and repeated review follow. Chrome remains
+blocked.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The
