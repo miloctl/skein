@@ -114,6 +114,19 @@ def test_set_authority_rejects_blank_agent(client, fresh_db):
     assert not fresh_db.query_one("SELECT * FROM users WHERE name = 'anonymous' AND kind = 'agent'")
 
 
+@pytest.mark.parametrize("name", ["anonymous", "system", "ci", "mcp", "scheduler", "team"])
+def test_caller_supplied_agent_names_cannot_mint_core_subjects(client, fresh_db, name):
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    task = work.create_task("reserved delegate", actor="mira")
+    with pytest.raises(ValueError, match=r"reserved for the system|agent name is required"):
+        delegation.delegate_task(task["id"], name, sponsor="mira", actor="mira")
+    with pytest.raises(ValueError, match=r"reserved for the system|agent name is required"):
+        delegation.set_authority(name, "note", "forbidden", actor="mira")
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (name,)) is None
+
+
 def test_mcp_forbidden_authority_holds(client, fresh_db, monkeypatch):
     """Every MCP writer routes through gated_write now, so the kill switch is
     asserted where it is actually enforced rather than in a private helper."""

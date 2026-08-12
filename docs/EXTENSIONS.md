@@ -267,7 +267,10 @@ legacy folded-roster check.
 One canonical core-machine set protects module registration, runtime
 composition, human authentication, health checks, and repair. `anonymous` is
 the one documented compatibility exception. It is a synthetic unnamed subject,
-not an authenticated person or an extension-owned machine identity.
+not an authenticated person or an extension-owned machine identity. OIDC,
+personal API keys, bootstrap keys, explicit trusted headers, delegation, and
+authority changes cannot claim it. Only an absent weak identity and old unnamed
+records use it.
 
 ## Use public work commands
 

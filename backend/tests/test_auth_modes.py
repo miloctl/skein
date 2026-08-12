@@ -212,6 +212,55 @@ def test_an_oidc_sign_in_naming_an_agent_is_refused_at_the_perimeter(client, mon
     assert "agent identity" in r.json()["detail"]
 
 
+def test_an_oidc_sign_in_cannot_claim_the_synthetic_anonymous_subject(
+    client, monkeypatch, fresh_db
+):
+    from fastapi import HTTPException
+
+    from app.routes.deps import _resolve
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "anonymous"}})
+    catalog = client.get("/api/playbooks", headers={"Authorization": "Bearer tok"})
+    assert catalog.status_code == 403
+    assert "reserved for the system" in catalog.json()["detail"]
+    private = client.post(
+        "/api/private/notes",
+        json={"person": "mira", "body": "must not land"},
+        headers={"Authorization": "Bearer tok"},
+    )
+    assert private.status_code == 403
+    with pytest.raises(HTTPException) as raised:
+        _resolve("", "Bearer tok", "POST")
+    assert raised.value.status_code == 403
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'anonymous'") is None
+
+
+def test_a_legacy_anonymous_api_key_cannot_become_strong_identity(client, monkeypatch, fresh_db):
+    from app import config
+    from app.services import users
+    from app.services.api_keys import create_key
+
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    users.ensure_user("anonymous")
+    token = create_key("anonymous", "legacy")["key"]
+    response = client.get(
+        "/api/private/notes",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403
+    assert "reserved for the system" in response.json()["detail"]
+
+
+def test_absent_weak_header_keeps_the_synthetic_compatibility_subject(fresh_db):
+    from app.routes.deps import _resolve
+
+    assert _resolve("", "", "POST") == ("anonymous", False, [])
+    assert fresh_db.query_one("SELECT name, kind FROM users WHERE name = 'anonymous'") == {
+        "name": "anonymous",
+        "kind": "human",
+    }
+
+
 @pytest.mark.parametrize(
     "claim",
     [

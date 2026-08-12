@@ -814,13 +814,22 @@ def test_all_runtime_machine_names_are_quarantined_and_repairable(fresh_db, name
 
     users.repair_identity_ownership(name, f"former-{name}")
     assert users.ensure_human_identity(f"former-{name}")["kind"] == "human"
-    assert users.ensure_agent_identity(name)["kind"] == "agent"
+    if name == "agent":
+        assert users._reserve_core_agent_identity(name)["kind"] == "agent"
+        assert users.ensure_agent_identity(name)["kind"] == "agent"
+    else:
+        with pytest.raises(ValueError, match="reserved for the system"):
+            users.ensure_agent_identity(name)
 
 
 def test_anonymous_remains_an_explicit_synthetic_compatibility_subject(fresh_db):
     from app.services import users
 
-    assert users.ensure_human_identity("anonymous")["kind"] == "human"
+    assert users.ensure_user("anonymous")["kind"] == "human"
+    with pytest.raises(ValueError, match="reserved for the system"):
+        users.ensure_human_identity("anonymous")
+    with pytest.raises(ValueError, match=r"reserved for the system|owned by a human"):
+        users.ensure_agent_identity("anonymous")
     assert users.identity_ownership_error() == ""
 
 

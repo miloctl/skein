@@ -72,6 +72,14 @@ def test_a_stuck_row_is_named_at_boot_and_moved_by_rename(fresh_db):
     assert users.reserved_name_rows() == []
 
 
+def test_the_startup_reserved_chief_is_not_reported_as_a_stuck_human(fresh_db):
+    from app.services import users
+
+    users._reserve_core_agent_identity("agent")
+    assert users.reserved_name_rows() == []
+    assert users.identity_ownership_error() == ""
+
+
 def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):
     from app.services import users
 

@@ -3,7 +3,11 @@
 import re
 
 from .. import db
-from ..identity_names import HUMAN_RESERVED_SUBJECTS
+from ..identity_names import (
+    CORE_MACHINE_SUBJECTS,
+    HUMAN_RESERVED_SUBJECTS,
+    ROSTER_CORE_AGENT_SUBJECTS,
+)
 
 IDENTITY_COLLISION = (
     "This identity has conflicting roster ownership. Ask whoever runs the server to"
@@ -72,11 +76,21 @@ def refuse_reserved_name(name: str) -> None:
         raise ValueError("that name is reserved for the system — pick another name")
 
 
+def refuse_authenticated_name(name: str) -> None:
+    """Refuse every synthetic or machine-owned authenticated identity.
+
+    ``anonymous`` remains valid for old unnamed records and for the absent
+    weak-header fallback. It is never a person, service, or agent identity.
+    """
+    if fold(name) in {fold(a) for a in CORE_MACHINE_SUBJECTS}:
+        raise ValueError("that name is reserved for the system — pick another name")
+
+
 def reserved_refusal(name: str) -> str:
     """The reserved-name refusal as a STRING, for the perimeter middleware,
     which returns responses rather than raising. One rule, two shapes."""
     try:
-        refuse_reserved_name(name)
+        refuse_authenticated_name(name)
     except ValueError as exc:
         return str(exc)
     return ""
@@ -86,8 +100,16 @@ def reserved_name_rows() -> list[str]:
     """Roster rows whose name the wall now refuses. Named at boot so whoever
     runs the server can move them with rename_user, the one code path that
     knows every attribution column and the private notes DB."""
-    reserved = {fold(a) for a in HUMAN_RESERVED_SUBJECTS}
-    return [r["name"] for r in db.query("SELECT name FROM users") if fold(r["name"]) in reserved]
+    reserved = {fold(a): a for a in HUMAN_RESERVED_SUBJECTS}
+    stuck: list[str] = []
+    for row in db.query("SELECT name, kind FROM users"):
+        claim = reserved.get(fold(row["name"]))
+        if not claim:
+            continue
+        if claim in ROSTER_CORE_AGENT_SUBJECTS and row["name"] == claim and row["kind"] == "agent":
+            continue
+        stuck.append(row["name"])
+    return stuck
 
 
 def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
@@ -142,7 +164,7 @@ def _content_machine_claims() -> dict[str, str]:
 
 def refuse_human_machine_claim(name: str) -> None:
     """Refuse a human name owned by content, including inherited rows."""
-    refuse_reserved_name(name)
+    refuse_authenticated_name(name)
     refuse_ambiguous_identity(name)
     if fold(name) in _content_machine_claims():
         raise ValueError(IDENTITY_COLLISION)
@@ -179,7 +201,12 @@ def identity_ownership_conflicts() -> list[dict]:
             continue
         folded = fold(row["name"])
         if claim := reserved.get(folded):
-            if row["kind"] != "agent" or row["name"] != claim:
+            legitimate_core_agent = (
+                claim in ROSTER_CORE_AGENT_SUBJECTS
+                and row["kind"] == "agent"
+                and row["name"] == claim
+            )
+            if not legitimate_core_agent:
                 conflicts.append(
                     {
                         "kind": "core-owner",
@@ -209,14 +236,13 @@ def identity_ownership_error() -> str:
     return f"{count} conflicting identity {noun}. Run 'python -m app.identity_audit' on the server."
 
 
-def ensure_user(name: str, kind: str = "human", *, _machine_reservation: bool = False) -> dict:
+def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     # The folded-name check and insert are one write transaction. SQLite has
     # no Unicode case-fold collation for a unique index, so serialization is
     # what prevents concurrent `Mira` and `MIRA` rows.
     with db.transaction():
-        if not _machine_reservation:
-            refuse_reserved_name(name)
+        refuse_reserved_name(name)
         # bench persona slugs are reserved identities: a human picking one
         # would silently absorb the persona's trust/authority history (and
         # vice versa)
@@ -242,6 +268,7 @@ def ensure_user(name: str, kind: str = "human", *, _machine_reservation: bool = 
 def ensure_human_identity(name: str) -> dict:
     """Reserve a human name and refuse any exact or folded machine owner."""
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
+    refuse_authenticated_name(normalized)
     # Durable exact ownership needs no write lock. This is the steady-state
     # OIDC path, so authenticated reads retain WAL's reader/writer concurrency.
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
@@ -270,15 +297,40 @@ def ensure_agent_identity(name: str) -> dict:
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
     with db.transaction():
         refuse_ambiguous_identity(normalized)
-        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
+        existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{normalized}' is already owned by a human identity")
-        row = ensure_user(normalized, kind="agent", _machine_reservation=True)
+        if fold(normalized) in {fold(item) for item in CORE_MACHINE_SUBJECTS}:
+            # A caller can use a core agent that startup already reserved, but
+            # it cannot create a system actor from user-supplied text.
+            if existing is not None and normalized in ROSTER_CORE_AGENT_SUBJECTS:
+                return existing
+            refuse_authenticated_name(normalized)
+        row = ensure_user(normalized, kind="agent")
         if row["kind"] != "agent":
             # This is also a postcondition for callers that are already in an
             # outer transaction. A successful machine reservation must never
             # return a human-owned row.
             raise ValueError(f"'{normalized}' is already owned by a human identity")
+        return row
+
+
+def _reserve_core_agent_identity(name: str) -> dict:
+    """Reserve the one roster-backed core agent during application startup."""
+    if name != "agent":
+        raise ValueError("only the built-in agent has a core roster identity")
+    with db.transaction():
+        refuse_ambiguous_identity(name)
+        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
+        if existing is not None and existing["kind"] != "agent":
+            raise ValueError(f"'{name}' is already owned by a human identity")
+        db.execute(
+            "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, 'agent', ?)",
+            (name, db.now()),
+        )
+        row = db.query_row("SELECT * FROM users WHERE name = ?", (name,))
+        if row["kind"] != "agent":
+            raise ValueError(f"'{name}' is already owned by a human identity")
         return row
 
 

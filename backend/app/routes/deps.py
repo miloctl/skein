@@ -50,10 +50,10 @@ def agent_on_signin(name: str) -> str:
 
 
 def _refuse_reserved(name: str) -> None:
-    from ..services.users import refuse_reserved_name
+    from ..services.users import refuse_authenticated_name
 
     try:
-        refuse_reserved_name(name)
+        refuse_authenticated_name(name)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -233,12 +233,15 @@ def _resolve(
         raise HTTPException(status_code=401, detail=NEED_LOGIN)
     if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
-    name = (x_user or "anonymous").strip()[:64] or "anonymous"
+    supplied_name = (x_user or "").strip()[:64]
+    name = supplied_name or "anonymous"
     # Weak reads do not reserve a roster row. Apply the stable reserved,
     # inactive, and agent walls before that early return.
-    _refuse_reserved(name)
+    if supplied_name:
+        _refuse_reserved(name)
     _refuse_inactive(name)
-    _refuse_ambiguous(name)
+    if supplied_name:
+        _refuse_ambiguous(name)
     if is_agent(name):
         raise HTTPException(
             status_code=403,
@@ -247,6 +250,12 @@ def _resolve(
         )
     if method in ("GET", "HEAD", "OPTIONS"):
         return name, False, []
+    if not supplied_name:
+        # Preserve the historic unnamed weak write identity. It is synthetic,
+        # cannot become strong, and never owns a private surface.
+        from ..services.users import ensure_user
+
+        return ensure_user("anonymous")["name"], False, []
     try:
         return ensure_human_identity(name)["name"], False, []
     except ValueError as exc:

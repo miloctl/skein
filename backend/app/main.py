@@ -286,10 +286,10 @@ async def lifespan(app: FastAPI):
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
     from .services.activity import SYSTEM_ACTORS
-    from .services.users import ensure_agent_identity
+    from .services.users import _reserve_core_agent_identity, ensure_agent_identity
 
     try:
-        ensure_agent_identity("agent")
+        _reserve_core_agent_identity("agent")
     except ValueError as exc:
         # a legacy human row named `Agent` was legal before the collision
         # guard; it must not brick a boot nobody can reach the rename route on

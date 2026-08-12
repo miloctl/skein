@@ -128,6 +128,7 @@ def _seed(fresh_db):
     users.ensure_user("tester")  # the sponsor must be an active human
     users.ensure_user("probe-agent", kind="agent")  # delegation target; the
     # calling identity is "agent" and self-delegation is refused pre-gate
+    users._reserve_core_agent_identity("agent")  # application startup owns this row
     engagements.create_engagement("probe engagement", actor="tester")
     work.create_milestone("probe milestone", actor="tester")
     work.create_task("probe task", actor="tester")

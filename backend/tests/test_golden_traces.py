@@ -98,9 +98,11 @@ def test_golden_trace(scenario, fresh_db, monkeypatch):
     from app import config
     from app.services import notifications
     from app.services.delegation import set_authority
+    from app.services.users import _reserve_core_agent_identity
 
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     monkeypatch.setattr(config, "AGENT_REVIEW", scenario["review"])
+    _reserve_core_agent_identity("agent")
     for agent, entity, level in scenario.get("authority", []):
         set_authority(agent, entity, level, actor="golden-human")
 
