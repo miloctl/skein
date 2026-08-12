@@ -807,6 +807,7 @@ def build_agent(
 
         slug = (specialist or "").strip().lstrip("@").lower().rstrip("._-,;:!?")
         bench = set(await run_in_threadpool(personas_svc.bench_slugs))
+        extension = None
         if extensions is not None:
             bench.update(item.name for item in extensions.specialists)
         if slug not in bench:
@@ -875,7 +876,11 @@ def build_agent(
             yield json.dumps({"error": str(exc)})
             return
         try:
-            await run_in_threadpool(ensure_agent_identity, slug)
+            await run_in_threadpool(
+                ensure_agent_identity,
+                slug,
+                owner=f"specialist:{slug}" if extension is not None else "generic-agent",
+            )
         except ValueError as exc:
             yield json.dumps({"error": str(exc)})
             return

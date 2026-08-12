@@ -1563,3 +1563,13 @@ exact commit.
 
 The complete backend suite passed 1,847 tests in 113.35 seconds. The complete
 static gate also passed.
+
+The next review rejected `9570b86`. Chief consultation treated a contributed
+specialist as a generic agent after startup gave it a specialist owner. The
+consult path now uses the contributed specialist owner. A real-lifespan test
+reaches specialist execution, and a second test refuses a wrong owner. Scores
+for `9570b86` are void.
+
+After this remediation, all 43 specialist-consult tests passed. The complete
+backend suite passed 1,849 tests in 113.48 seconds. The complete static gate
+also passed.
