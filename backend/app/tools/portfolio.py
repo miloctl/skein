@@ -249,7 +249,7 @@ def get_context_pack(engagement_id: int = 0) -> str:
         return json.dumps(
             context_pack.get_pack(
                 actor=agent_identity(),
-                project_filter=None if all_projects else policy.permits_project,
+                resource_filter=None if all_projects else policy.permits,
             )
         )
 
@@ -285,9 +285,15 @@ def my_agent_inbox() -> str:
             tool="my_agent_inbox",
         )
         with db.read_transaction():
-            if not policy.allows_all_projects():
-                return json.dumps({"error": "workplace policy denied this composite read"})
-            return json.dumps(delegation.agent_inbox(agent_identity(), service_viewer))
+            return json.dumps(
+                delegation.agent_inbox(
+                    agent_identity(),
+                    service_viewer,
+                    task_filter=lambda task_id, attributes: policy.permits(
+                        "task", task_id, attributes
+                    ),
+                )
+            )
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 

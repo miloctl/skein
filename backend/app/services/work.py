@@ -632,6 +632,14 @@ def task_collection_policy_contexts(
     return result
 
 
+def consistent_task_rows(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
+    """Remove visible legacy tasks whose project relationship is unsafe."""
+    contexts = task_collection_policy_contexts(tasks, viewer)
+    return [
+        task for task in tasks if not contexts.get(int(task["id"]), {}).get("relationship_conflict")
+    ]
+
+
 # portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
 WAITING_ON_TYPES = ("task", "blocker", "promise")

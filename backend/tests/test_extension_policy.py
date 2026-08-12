@@ -4213,13 +4213,13 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
         briefing_response = client.get("/api/briefing")
         pack_response = client.get("/api/context-pack")
         flow_response = client.get("/api/portfolio/flow")
+        inbox_response = client.get("/api/agents/agent/inbox")
         opaque_responses = [
             client.get("/api/attention"),
             client.get("/api/review"),
             client.get("/api/review/stats"),
             client.get("/api/notifications"),
             client.get("/api/pulse"),
-            client.get("/api/agents/agent/inbox"),
             client.get(f"/api/engagements/{regulated}/brief"),
             client.get(f"/api/provenance/engagement/{regulated}"),
             client.post("/api/context-pack/publish"),
@@ -4229,6 +4229,8 @@ def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
     assert "regulated task secret" not in search_response.text
     assert "regulated task secret" not in briefing_response.text
     assert "composite regulated secret" not in pack_response.json()["content"]
+    assert inbox_response.status_code == 200
+    assert "regulated task secret" not in inbox_response.text
     assert flow_response.status_code == 403
     assert {response.status_code for response in opaque_responses} == {403}
 
@@ -4270,6 +4272,124 @@ def test_opaque_composite_fails_closed_for_visible_legacy_child_with_hidden_pare
 
     assert response.status_code == 403
     assert "Visible legacy aggregate child" not in response.text
+
+
+def test_opaque_policy_considers_hidden_allocation_inputs(fresh_db):
+    from app.services import crews, engagements, intake, users
+
+    users.ensure_user("owner")
+    users.ensure_user("secret-staff")
+    crew_id = crews.create_crew("Hidden staffing", actor="owner")["id"]
+    hidden = engagements.create_engagement(
+        "Hidden regulated staffing",
+        project_class="regulated",
+        actor="owner",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    engagements.allocate("secret-staff", hidden, 80, actor="owner")
+
+    request_id = intake.submit_request("Standard staffing request", project_class="standard")["id"]
+    protected = {
+        "skein.rest.get.capacity",
+        "skein.rest.get.portfolio.conflicts",
+        "skein.rest.post.intake.what-if",
+    }
+
+    def deny_regulated(request: PolicyInput):
+        if request.action in protected and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated staffing is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.hidden-staffing", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "outsider"}) as client:
+        capacity = client.get("/api/capacity")
+        conflicts = client.get("/api/portfolio/conflicts")
+        what_if = client.post(
+            f"/api/intake/{request_id}/what-if",
+            json={"people": ["secret-staff"], "percent": 10},
+        )
+
+    assert capacity.status_code == conflicts.status_code == what_if.status_code == 403
+    assert "secret-staff" not in capacity.text + conflicts.text + what_if.text
+
+
+def test_crew_context_pack_filters_each_task_resource(fresh_db):
+    from app.extensions.policy import PolicyEngine, PolicySubject
+    from app.services import context_pack, crews, engagements, projection_policy, scope, users, work
+
+    users.ensure_user("mira")
+    crew_id = crews.create_crew("Filtered crew pack", actor="mira")["id"]
+    regulated = engagements.create_engagement(
+        "Regulated crew engagement",
+        project_class="regulated",
+        actor="mira",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    work.create_task(
+        "REGULATED CREW TASK CANARY",
+        engagement_id=regulated,
+        actor="mira",
+        visibility="crew",
+        crew_id=crew_id,
+    )
+
+    def deny_regulated_tasks(request: PolicyInput):
+        if request.resource.type == "task" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated tasks are closed.",))
+        return None
+
+    viewer = scope.Viewer("mira", True)
+    policy = projection_policy.ProjectionPolicy(
+        PolicyEngine((deny_regulated_tasks,)),
+        PolicySubject("mira", strong=True),
+        "skein.rest.get.context-pack",
+        "rest",
+        viewer,
+    )
+    pack = context_pack.get_pack(
+        actor="mira",
+        crew_id=crew_id,
+        viewer=viewer,
+        resource_filter=policy.permits,
+    )
+
+    assert "REGULATED CREW TASK CANARY" not in pack["content"]
+    assert pack["version"] == 0
+    assert context_pack.latest_pack(crew_id) is None
+
+
+def test_engagement_composites_drop_conflicting_legacy_tasks(fresh_db):
+    from app import db
+    from app.services import blockers, context_pack, engagement_brief, engagements, portfolio, work
+
+    standard = engagements.create_engagement("Composite standard", project_class="standard")["id"]
+    engagements.create_engagement("Composite regulated", project_class="regulated")
+    milestone = work.create_milestone("Regulated milestone", project="Composite regulated")["id"]
+    task = work.create_task("CONFLICTING TASK CANARY", engagement_id=standard)["id"]
+    blocker = blockers.raise_blocker("CONFLICTING BLOCKER CANARY", task_id=task)["id"]
+    work.update_task(task, status="in_progress")
+    db.execute(
+        "UPDATE tasks SET milestone_id = ?, updated_at = ? WHERE id = ?",
+        (milestone, "2000-01-01T00:00:00+00:00", task),
+    )
+
+    pack = context_pack.build_engagement_pack(standard)
+    brief = engagement_brief.brief(standard)
+    health = next(row for row in portfolio.engagement_health() if row["id"] == standard)
+
+    rendered = pack + json.dumps(brief) + json.dumps(health)
+    assert "CONFLICTING TASK CANARY" not in rendered
+    assert "CONFLICTING BLOCKER CANARY" not in rendered
+    assert blocker not in {row["id"] for row in brief["blockers"]}
 
 
 def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(fresh_db):
@@ -4459,7 +4579,7 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         set_policy_engine,
         set_policy_subject,
     )
-    from app.services import engagements, work
+    from app.services import crews, delegation, engagements, users, work
     from app.tools.platform import search_workspace as search_tool
     from app.tools.portfolio import (
         get_attention,
@@ -4477,6 +4597,24 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
     )["id"]
     work.create_task("Stock regulated task secret", engagement_id=regulated)
     work.create_task("Stock standard task", engagement_id=standard)
+    users.ensure_user("sponsor")
+    users.ensure_agent_identity("research-agent")
+    crew_id = crews.create_crew("Stock delegated policy", actor="sponsor")["id"]
+    crew_project = engagements.create_engagement(
+        "Stock delegated regulated",
+        project_class="regulated",
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    delegated = work.create_task(
+        "STOCK REGULATED DELEGATION CANARY",
+        engagement_id=crew_project,
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    delegation.delegate_task(delegated, "research-agent", "sponsor", actor="sponsor")
     protected = {
         "skein.tool.get_portfolio_health",
         "skein.tool.search_workspace",
@@ -4513,5 +4651,6 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
         json.loads(attention)["error"]
         == "this turn has no requester — ask the person what is on them"
     )
-    for result in (inbox, findings):
-        assert json.loads(result)["error"] == "workplace policy denied this composite read"
+    assert "regulated task secret" not in inbox
+    assert "STOCK REGULATED DELEGATION CANARY" not in inbox
+    assert json.loads(findings)["error"] == "workplace policy denied this composite read"

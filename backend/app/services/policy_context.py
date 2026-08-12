@@ -559,6 +559,21 @@ def resource_contexts(
         if entity_id > 0:
             grouped.setdefault(entity, set()).add(entity_id)
     for entity, ids in grouped.items():
+        if entity == "task":
+            from . import work
+
+            marks = ",".join("?" for _ in ids)
+            visible, params = scope.visible_filter(viewer, "tasks", "task")
+            rows = db.query(
+                f"SELECT task.* FROM tasks task WHERE task.id IN ({marks})"  # noqa: S608 -- controlled marks and scope
+                f" AND {visible}",
+                (*sorted(ids), *params),
+            )
+            contexts = work.task_collection_policy_contexts(rows, viewer)
+            for row in rows:
+                key = (entity, int(row["id"]))
+                result[key] = contexts[int(row["id"])]
+            continue
         if entity == "allocation":
             for entity_id in ids:
                 context = existing_scoped(entity, entity_id, viewer)
@@ -601,13 +616,17 @@ def resource_contexts(
     return result
 
 
-def visible_project_contexts(viewer: scope.Viewer) -> list[tuple[int, dict[str, str]]]:
-    """Return each visible project-class boundary used by opaque composites."""
-    visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+def opaque_project_contexts(_viewer: scope.Viewer) -> list[tuple[int, dict[str, str]]]:
+    """Return every project boundary that can affect an opaque aggregate.
+
+    Some staffing and portfolio reports intentionally count hidden tiers and
+    mask their names. Policy must therefore inspect those hidden inputs too.
+    The attributes stay inside the policy engine; the response never receives
+    a hidden identifier, name, or project class.
+    """
     rows = db.query(
-        f"SELECT engagement.id, engagement.project_class, engagement.visibility"  # noqa: S608 -- scope emits bound marks
-        f" FROM engagements engagement WHERE {visible}",
-        tuple(params),
+        "SELECT engagement.id, engagement.project_class, engagement.visibility"
+        " FROM engagements engagement",
     )
     result = [
         (
@@ -620,15 +639,12 @@ def visible_project_contexts(viewer: scope.Viewer) -> list[tuple[int, dict[str, 
         for row in rows
     ]
     # A standalone lesson or intake row can introduce a project class before
-    # an engagement exists. Opaque reports can include both, so include their
-    # visible classes as synthetic, negative resource identifiers.
+    # an engagement exists. Opaque reports can include both, so include all
+    # of their classes as synthetic, negative resource identifiers.
     offset = 1
     for table in ("lessons", "intake_requests"):
-        visible, params = scope.visible_filter(viewer, table, "value")
         for row in db.query(
-            f"SELECT DISTINCT value.project_class, value.visibility FROM {table} value"  # noqa: S608 -- closed table names and scope
-            f" WHERE {visible}",
-            tuple(params),
+            f"SELECT DISTINCT value.project_class, value.visibility FROM {table} value",  # noqa: S608 -- closed table names
         ):
             result.append(
                 (

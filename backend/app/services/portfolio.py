@@ -114,13 +114,19 @@ def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     # second of which writes its body to an artifact file on disk.
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
-    return db.query(
+    rows = db.query(
         f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" WHERE {bfrag}"
         " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND b.status != 'resolved'",
         (*tp, *bp, engagement_id, engagement_id),
     )
+    from . import blockers
+
+    contexts = blockers.blocker_collection_policy_contexts(rows, viewer)
+    return [
+        row for row in rows if not contexts.get(int(row["id"]), {}).get("relationship_conflict")
+    ]
 
 
 def engagement_health(
@@ -175,20 +181,26 @@ def engagement_health(
     blockers_by: dict[int, list[dict]] = {}
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
-    for b in db.query(
+    blocker_rows = db.query(
         "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
         " LEFT JOIN milestones m ON m.id = t.milestone_id"
         f" WHERE b.status != 'resolved' AND {bfrag} ORDER BY b.id",
         (*tp, *bp),
-    ):
+    )
+    from . import blockers
+
+    blocker_contexts = blockers.blocker_collection_policy_contexts(blocker_rows, viewer)
+    for b in blocker_rows:
+        if blocker_contexts.get(int(b["id"]), {}).get("relationship_conflict"):
+            continue
         for eng_id in {b.pop("t_eng"), b.pop("m_eng")} - {None}:
             blockers_by.setdefault(eng_id, []).append(b)
     stale_by: dict[int, list[dict]] = {}
     waits_by: dict[int, list[dict]] = {}
     last_by: dict[int, str] = {}
     open_by: dict[int, int] = {}
-    from .work import redact_task_relationships
+    from .work import consistent_task_rows, redact_task_relationships
 
     all_waits: list[dict] = []
     task_rows = db.query(
@@ -199,7 +211,7 @@ def engagement_health(
         f" WHERE {tfrag} ORDER BY t.id",
         tuple(tp),
     )
-    for t in redact_task_relationships(task_rows, viewer):
+    for t in redact_task_relationships(consistent_task_rows(task_rows, viewer), viewer):
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
             continue

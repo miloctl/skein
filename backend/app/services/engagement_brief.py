@@ -43,7 +43,7 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     from .intervention import interventions
     from .playbooks import close_out_diff
     from .portfolio import _linked_blockers, engagement_health, health_changes
-    from .work import redact_task_relationships
+    from .work import consistent_task_rows, redact_task_relationships
 
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
@@ -78,17 +78,20 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # one through its own engagement_id or through its milestone's, and
     # portfolio.engagement_health counts it the same way
     tasks = redact_task_relationships(
-        db.query(
-            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-            " AND (t.engagement_id = ? OR t.milestone_id IN"
-            "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done'"
-            " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-            " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"
-            # capped, and the page says so: an engagement with eighty open tasks
-            # buried the drift and the reports under a wall of list
-            f" LIMIT {TASK_CAP}",
-            (*tp, engagement_id, engagement_id),
+        consistent_task_rows(
+            db.query(
+                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+                " AND (t.engagement_id = ? OR t.milestone_id IN"
+                "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+                " AND t.status != 'done'"
+                " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+                " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"
+                # capped, and the page says so: an engagement with eighty open tasks
+                # buried the drift and the reports under a wall of list
+                f" LIMIT {TASK_CAP}",
+                (*tp, engagement_id, engagement_id),
+            ),
+            viewer,
         ),
         viewer,
     )
@@ -108,13 +111,16 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # engagement's size.
     delegated = _delegated(
         redact_task_relationships(
-            db.query(
-                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-                " AND (t.engagement_id = ? OR t.milestone_id IN"
-                "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-                " AND t.status != 'done' AND t.delegated_agent != ''"
-                " ORDER BY t.id",
-                (*tp, engagement_id, engagement_id),
+            consistent_task_rows(
+                db.query(
+                    f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+                    " AND (t.engagement_id = ? OR t.milestone_id IN"
+                    "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+                    " AND t.status != 'done' AND t.delegated_agent != ''"
+                    " ORDER BY t.id",
+                    (*tp, engagement_id, engagement_id),
+                ),
+                viewer,
             ),
             viewer,
         ),
@@ -128,12 +134,15 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # extra read costs one column.
     task_ids = {
         r["id"]
-        for r in db.query(
-            f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-            " AND (t.engagement_id = ? OR t.milestone_id IN"
-            "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-            " AND t.status != 'done'",
-            (*tp, engagement_id, engagement_id),
+        for r in consistent_task_rows(
+            db.query(
+                f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+                " AND (t.engagement_id = ? OR t.milestone_id IN"
+                "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+                " AND t.status != 'done'",
+                (*tp, engagement_id, engagement_id),
+            ),
+            viewer,
         )
     }
     blockers = _linked_blockers(engagement_id, viewer)

@@ -182,9 +182,14 @@ Collection and composite reads use the same policy engine. Row-shaped results
 apply policy to each visible domain resource in one database snapshot.
 
 Some aggregates cannot remove one denied resource without changing their
-meaning. These aggregates fail closed if policy denies one visible project
-domain. This rule covers planning, attention, review statistics, portfolio
-flow, agent inboxes, findings, and published context artifacts.
+meaning. Skein checks every project domain that can affect these aggregates.
+This check includes hidden inputs whose names are masked in the response.
+The aggregate fails closed if policy denies one of these project domains.
+
+Delegated agent inboxes and crew context packs can remove individual tasks.
+Skein applies policy to each task before it returns or stores the content.
+Scoped engagement packs, briefs, and health reports remove legacy tasks whose
+direct engagement and milestone parent disagree.
 
 Skein resolves linked project context before it applies policy. Hidden,
 missing, or conflicting legacy parents fail closed without exposing the

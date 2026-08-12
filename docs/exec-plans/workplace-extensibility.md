@@ -2079,3 +2079,39 @@ Verification before the next exact-commit review:
 | Frontend production build | Passed |
 | Base-to-feature schema and activity rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
 | Installed backend artifact and upgrade rehearsal | Passed; one unchanged Atlas wheel ran on distinct 0.2.0 and 0.2.1 core builds |
+
+### Remediation after the `0917c189` review
+
+The review rejected `0917c189`. It did not issue final scores.
+
+The review found four related projection defects:
+
+- Hidden project allocations affected opaque staffing reports without a policy check.
+- Delegated agent inboxes returned denied crew tasks.
+- Crew context packs returned denied task titles.
+- Engagement packs, briefs, and health reports included conflicting legacy tasks.
+
+Opaque projection policy now checks every project domain that can affect an
+aggregate. This check includes hidden inputs whose names remain masked.
+Capacity, allocation conflicts, and intake simulations fail closed when a
+denied hidden project affects the result.
+
+Agent inboxes now apply policy to each delegated task. The delegation itself
+remains the read door. Policy receives the authoritative task project without
+returning hidden parent data.
+
+Crew context packs apply policy to each task. A filtered first read returns an
+ephemeral pack and does not store an unfiltered version. Engagement packs,
+briefs, and health reports remove tasks with conflicting legacy parents.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| New hidden-input, inbox, context-pack, and legacy-conflict regressions | 8 passed |
+| Focused policy, composition, context, runner, and visibility suites | 258 passed |
+| Complete backend suite | 1,951 passed in 118.52 seconds |
+| Complete static gate | Passed |
+
+The scores remain provisional. A fresh independent review must accept one
+clean exact commit before Chrome validation can start.
