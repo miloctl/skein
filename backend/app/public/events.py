@@ -149,6 +149,13 @@ def dispatch_events(
             terminal = False
             try:
                 subject = context.subject_resolver(contribution.service_identity)
+                from ..services import policy_context
+
+                try:
+                    resource_id = int(event.resource.id)
+                except ValueError:
+                    resource_id = 0
+                domain = policy_context.existing(event.resource.type, resource_id)
                 decision = context.policy.decide(
                     PolicyInput(
                         subject,
@@ -156,8 +163,9 @@ def dispatch_events(
                         PolicyResource(
                             event.resource.type,
                             event.resource.id,
+                            project_type=str(domain.get("project_type") or ""),
                             classification=event.visibility,
-                            attributes={"event_type": event.event_type},
+                            attributes={"event_type": event.event_type, **domain},
                         ),
                         "event",
                         agent=subject.name,

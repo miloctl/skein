@@ -32,16 +32,25 @@ def raise_blocker(
         raise ValueError("blocker title is required")
     if impact not in IMPACTS:
         raise ValueError(f"impact must be one of {IMPACTS}")
-    tfrag, tp = scope.visible_filter(scope.Viewer.for_actor(actor), "tasks")
-    if task_id and not db.query_one(
-        f"SELECT id FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (task_id, *tp),
-    ):
-        raise ValueError(scope.missing_text("tasks", task_id))
     hours = escalate_after_hours or DEFAULT_ESCALATION_HOURS[impact]
     ts = db.now()
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+        if task_id:
+            tfrag, tp = scope.visible_filter(scope.Viewer.for_actor(actor), "tasks", "task")
+            task = db.query_one(
+                f"SELECT task.* FROM tasks task WHERE task.id = ? AND {tfrag}",  # noqa: S608 -- scope emits bound marks
+                (task_id, *tp),
+            )
+            if task is None:
+                raise ValueError(scope.missing_text("tasks", task_id))
+            scope.assert_relationship_contains(
+                task["visibility"],
+                task["crew_id"],
+                tier,
+                cid,
+                child_label="blocker",
+            )
         # author=actor: capture.py hardcodes owner=actor and post_standup
         # passes owner=author, so without the self-exemption every private
         # capture and standup that named a blocker was refused
@@ -180,9 +189,16 @@ def resolve_blocker(
         from .notifications import notify
 
         for t in waiting:
-            if t["assignee"] and t["assignee"] != actor:
+            assignee = str(t["assignee"] or "")
+            assignee_reads_blocker = scope.can_read(
+                row["visibility"],
+                row["crew_id"],
+                scope.Viewer.for_actor(assignee),
+                row["created_by"],
+            )
+            if assignee and assignee != actor and assignee_reads_blocker:
                 notify(
-                    t["assignee"],
+                    assignee,
                     f"Blocker #{blocker_id} resolved — task #{t['id']}"
                     f" “{t['title']}” can move again.",
                     tier="immediate",
@@ -212,21 +228,32 @@ def resolve_blocker(
 def list_blockers(
     status: str = "", owner: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
-    frag, vp = scope.visible_filter(viewer, "blockers")
-    sql, params = f"SELECT * FROM blockers WHERE {frag}", list(vp)  # noqa: S608 — scope.visible_filter emits only bound marks
+    frag, vp = scope.visible_filter(viewer, "blockers", "blocker")
+    task_visible, task_params = scope.visible_filter(viewer, "tasks", "task")
+    sql, params = (
+        f"SELECT blocker.*, task.id AS visible_task_id"  # noqa: S608 -- scope emits bound marks
+        " FROM blockers blocker LEFT JOIN tasks task ON task.id = blocker.task_id"
+        f" AND {task_visible} WHERE {frag}",
+        [*task_params, *vp],
+    )
     if status:
-        sql += " AND status = ?"
+        sql += " AND blocker.status = ?"
         params.append(status)
     else:
-        sql += " AND status != 'resolved'"
+        sql += " AND blocker.status != 'resolved'"
     if owner:
-        sql += " AND owner = ?"
+        sql += " AND blocker.owner = ?"
         params.append(owner)
     sql += (
-        " ORDER BY CASE impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, created_at LIMIT 200"
+        " ORDER BY CASE blocker.impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, blocker.created_at LIMIT 200"
     )
-    return db.query(sql, tuple(params))
+    rows = db.query(sql, tuple(params))
+    for row in rows:
+        visible_task = row.pop("visible_task_id", None)
+        if row.get("task_id") and visible_task is None:
+            row["task_id"] = None
+    return rows
 
 
 def sweep_escalations() -> list[dict]:

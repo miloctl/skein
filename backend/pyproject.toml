@@ -46,6 +46,7 @@ dev = [
 packages = { find = { include = ["app*"] } }
 
 [tool.setuptools.package-data]
+"app" = ["py.typed"]
 "app.core_migrations" = ["*.sql"]
 
 [tool.setuptools.data-files]

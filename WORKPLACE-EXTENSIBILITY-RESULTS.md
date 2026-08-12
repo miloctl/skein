@@ -1703,3 +1703,51 @@ Verification for this remediation:
 Scores for `622d5a7` are void. The report remains provisional until a fresh
 independent review accepts the next exact commit. Chrome validation remains
 blocked.
+
+### Remediation after the `0c32911` review
+
+The independent review scored `0c32911` at a conservative 8.0 for modularity,
+7.5 for workplace extensibility, and 7.5 for upgradeability. These scores do
+not pass the completion gate and are void after remediation.
+
+The current branch now has these additional controls:
+
+- One task policy resolver detects conflicting direct and milestone parents.
+  Legacy conflicts fail closed for REST, public commands, stock tools, MCP, and
+  review revalidation.
+- Milestone relink and engagement adoption preserve task relationships and
+  audience containment in one transaction.
+- Milestone and blocker reads remove hidden relationship identifiers.
+- Generic REST policy context is scoped to the authenticated viewer.
+- Event subscriber policy receives the current project type.
+- Workflow actions run only with an exact context issued by the composed
+  application. `app.public` no longer exports workflow execution authority.
+- Public task policy receives normalized requested fields. Initial non-`todo`
+  status also requires the update action before creation.
+- Read-only task policy checks use a deferred read snapshot.
+- The backend wheel includes `app/py.typed`. The artifact rehearsal runs strict
+  mypy against the installed public API.
+- The Atlas sync adapter avoids no-change writes and duplicate remote updates.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused workflow, public, policy, visibility, database, package, and Atlas tests | 311 passed |
+| Backend Ruff and mypy | Passed |
+| Base-to-feature upgrade and activity-chain rehearsal | Passed |
+| Installed backend extension rehearsal | Unchanged Atlas wheel passed distinct 0.2.0 and 0.2.1 cores; REST workflow review and installed strict type check passed |
+
+Additional pre-review results:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,908 passed in 109.11 seconds |
+| Complete static gate | Passed |
+| Frontend tests | 230 passed in 45 files |
+| Frontend production build | Passed |
+| Frontend artifact rehearsal | Unchanged Atlas package passed distinct compatible frontend hosts |
+| Deployment render | Not repeated because `kubectl` is unavailable |
+
+The report remains provisional. A fresh four-role review must approve one clean
+exact commit. Chrome validation remains blocked until that review passes.

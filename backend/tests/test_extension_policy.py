@@ -3332,3 +3332,93 @@ def test_mcp_name_collisions_are_omitted_from_agent_composition(monkeypatch):
     tools, clients = mcp_module._connect_servers()
     assert tools == []
     assert len(clients) == 2
+
+
+def test_legacy_conflicting_task_projects_fail_closed_in_shared_policy(fresh_db):
+    from app.agents.core_tools import _resource
+    from app.services import engagements, policy_context, work
+
+    standard = engagements.create_engagement("Legacy direct", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Legacy milestone", project_class="regulated")["id"]
+    milestone = work.create_milestone("Legacy gate", project="Legacy direct")["id"]
+    task = work.create_task(
+        "Legacy conflict",
+        engagement_id=standard,
+        milestone_id=milestone,
+    )["id"]
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (regulated, milestone),
+    )
+
+    attributes = policy_context.existing("task", task)
+    resource = _resource({"task_id": task})
+    decision = PolicyEngine().decide(
+        PolicyInput(PolicySubject("agent", kind="agent"), "task.read", resource, "agent")
+    )
+
+    assert attributes["relationship_conflict"] == "true"
+    assert attributes["project_type"] == ""
+    assert resource.attributes["relationship_conflict"] == "true"
+    assert decision.effect == PolicyEffect.DENY
+
+
+@pytest.mark.parametrize("project_type", ["regulated", "standard"])
+def test_generic_rest_policy_does_not_read_a_hidden_milestone_project(
+    fresh_db,
+    project_type,
+):
+    from app.services import crews, engagements, users, work
+
+    users.ensure_user("other-person")
+    users.ensure_user("noah")
+    crew_id = crews.create_crew("Hidden policy crew", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        "Hidden policy project",
+        project_class=project_type,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    milestone = work.create_milestone(
+        "Hidden policy milestone",
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (engagement, milestone),
+    )
+
+    def deny_regulated(request: PolicyInput):
+        if (
+            request.action == "skein.rest.patch.milestones"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated changes are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,))) as client:
+        hidden = client.patch(
+            f"/api/milestones/{milestone}",
+            headers={"X-User": "noah"},
+            json={"title": "Probe"},
+        )
+        fresh_db.execute("DELETE FROM milestones WHERE id = ?", (milestone,))
+        absent = client.patch(
+            f"/api/milestones/{milestone}",
+            headers={"X-User": "noah"},
+            json={"title": "Probe"},
+        )
+
+    assert hidden.status_code == absent.status_code == 404
+    assert hidden.json() == absent.json()

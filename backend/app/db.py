@@ -343,6 +343,36 @@ def transaction() -> Iterator[None]:
 
 
 @contextmanager
+def read_transaction() -> Iterator[None]:
+    """Keep one read snapshot without reserving SQLite's single writer."""
+    if _ambient.get() is not None:
+        yield
+        return
+    conn = connect()
+    conn.isolation_level = None
+    token = _ambient.set(conn)
+    callbacks: list[Callable[[], None]] = []
+    cb_token = _on_commit.set(callbacks)
+    try:
+        conn.execute("BEGIN")
+        yield
+        conn.execute("COMMIT")
+    except BaseException:
+        with contextlib.suppress(sqlite3.DatabaseError):
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        _on_commit.reset(cb_token)
+        _ambient.reset(token)
+        conn.close()
+    for cb in callbacks:
+        try:
+            cb()
+        except Exception:
+            log.exception("on_commit callback failed")
+
+
+@contextmanager
 def savepoint() -> Iterator[None]:
     """Roll back one nested unit while keeping its outer transaction alive."""
     connection = _ambient.get()

@@ -192,6 +192,20 @@ def test_configured_mcp_identity_collision_disables_only_mcp(fresh_db, caplog):
     }
 
 
+def test_service_identity_subject_must_be_canonical():
+    module = _module(
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.spaced-service",
+                " acme-sync ",
+            ),
+        ),
+    )
+
+    with pytest.raises(ExtensionValidationError, match="valid subject"):
+        ExtensionRegistry.build((module,))
+
+
 def test_existing_human_disables_api_mcp_but_keeps_rest_available(fresh_db, caplog):
     from app.services import users
 

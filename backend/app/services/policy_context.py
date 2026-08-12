@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .. import db
+from . import scope
 
 _TABLES = {
     "task": ("tasks", "engagement_id"),
@@ -51,17 +52,43 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
         return {}
     table, project_source = selected
     if entity == "task":
+        return _task_context(entity_id, {})
+    if entity == "milestone":
         row = db.query_one(
-            "SELECT task.visibility AS classification,"
-            " task.crew_id AS crew_id,"
-            " COALESCE(engagement.project_class, '') AS project_type"
-            " FROM tasks task"
-            " LEFT JOIN milestones milestone ON milestone.id = task.milestone_id"
-            " LEFT JOIN engagements engagement"
-            " ON engagement.id = COALESCE(task.engagement_id, milestone.engagement_id)"
-            " WHERE task.id = ?",
+            "SELECT milestone.visibility AS classification, milestone.crew_id,"
+            " engagement.project_class AS project_type,"
+            " engagement.visibility AS engagement_visibility,"
+            " engagement.crew_id AS engagement_crew_id"
+            " FROM milestones milestone LEFT JOIN engagements engagement"
+            " ON engagement.id = milestone.engagement_id WHERE milestone.id = ?",
             (entity_id,),
         )
+        result = {key: str(value or "") for key, value in (row or {}).items()}
+        if (
+            row
+            and row.get("engagement_visibility")
+            and not scope.relationship_contains(
+                str(row["engagement_visibility"]),
+                row["engagement_crew_id"],
+                str(row["classification"]),
+                row["crew_id"],
+            )
+        ):
+            result["relationship_conflict"] = "true"
+            result["project_type"] = ""
+        if db.query_one(
+            "SELECT 1 AS conflict FROM tasks task JOIN milestones milestone"
+            " ON milestone.id = task.milestone_id"
+            " WHERE milestone.id = ? AND task.engagement_id IS NOT NULL"
+            " AND milestone.engagement_id IS NOT NULL"
+            " AND task.engagement_id != milestone.engagement_id LIMIT 1",
+            (entity_id,),
+        ):
+            result["relationship_conflict"] = "true"
+            result["project_type"] = ""
+        result.pop("engagement_visibility", None)
+        result.pop("engagement_crew_id", None)
+        return result
     elif project_source == "project_class":
         row = db.query_one(
             f"SELECT visibility AS classification, crew_id,"  # noqa: S608 -- table comes from the closed map above
@@ -122,6 +149,42 @@ def _named_engagement(name: object) -> int:
     return _integer((row or {}).get("id"))
 
 
+def _task_context(entity_id: int, payload: dict) -> dict[str, str]:
+    row = db.query_one(
+        "SELECT task.visibility AS classification, task.crew_id,"
+        " task.engagement_id, task.milestone_id, milestone.engagement_id"
+        " AS milestone_engagement_id"
+        " FROM tasks task LEFT JOIN milestones milestone ON milestone.id = task.milestone_id"
+        " WHERE task.id = ?",
+        (entity_id,),
+    )
+    if row is None:
+        return {}
+    engagement_id = _integer(row.get("engagement_id"))
+    milestone_id = _integer(row.get("milestone_id"))
+    if "engagement_id" in payload:
+        requested = _integer(payload.get("engagement_id"))
+        if requested:
+            engagement_id = max(requested, 0)
+    if "milestone_id" in payload:
+        requested = _integer(payload.get("milestone_id"))
+        if requested:
+            milestone_id = max(requested, 0)
+    milestone_engagement_id = _milestone_engagement(milestone_id)
+    conflict = bool(
+        engagement_id and milestone_engagement_id and engagement_id != milestone_engagement_id
+    )
+    target = 0 if conflict else engagement_id or milestone_engagement_id
+    result = {
+        "classification": str(row.get("classification") or ""),
+        "crew_id": str(row.get("crew_id") or ""),
+        "project_type": _engagement_project_type(target),
+    }
+    if conflict:
+        result["relationship_conflict"] = "true"
+    return result
+
+
 def _target_engagement(entity: str, entity_id: int, payload: dict) -> int:
     """Resolve only relationship fields that the entity service persists."""
     existing_engagement = 0
@@ -168,6 +231,8 @@ def for_change(entity: str, entity_id: int, payload: dict) -> dict[str, str]:
     selected = _TABLES.get(entity)
     if selected is None:
         return {}
+    if entity == "task" and entity_id:
+        return _task_context(entity_id, payload)
     current = existing(entity, entity_id) if entity_id else {}
     classification = str(current.get("classification") or "")
     project_type = str(current.get("project_type") or "")
@@ -202,6 +267,120 @@ def for_route(resource_type: str, resource_id: str, payload: dict) -> dict[str, 
     except ValueError:
         entity_id = 0
     return for_change(entity, entity_id, payload)
+
+
+def _visible_engagement_project_type(engagement_id: int, viewer: scope.Viewer) -> str:
+    if engagement_id <= 0:
+        return ""
+    visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+    row = db.query_one(
+        f"SELECT engagement.project_class FROM engagements engagement"  # noqa: S608 -- scope emits bound marks
+        f" WHERE engagement.id = ? AND {visible}",
+        (engagement_id, *params),
+    )
+    return str((row or {}).get("project_class") or "")
+
+
+def existing_scoped(entity: str, entity_id: int, viewer: scope.Viewer) -> dict[str, str]:
+    """Load policy metadata only when the viewer can read the resource."""
+    selected = _TABLES.get(entity)
+    if selected is None or not entity_id:
+        return {}
+    table, project_source = selected
+    visible, params = scope.visible_filter(viewer, table, "value")
+    if project_source == "project_class":
+        row = db.query_one(
+            f"SELECT value.visibility AS classification, value.crew_id,"  # noqa: S608 -- closed table map and scope marks
+            " value.project_class AS project_type"
+            f" FROM {table} value WHERE value.id = ? AND {visible}",
+            (entity_id, *params),
+        )
+    elif project_source:
+        engagement_visible, engagement_params = scope.visible_filter(
+            viewer, "engagements", "engagement"
+        )
+        row = db.query_one(
+            f"SELECT value.visibility AS classification, value.crew_id,"  # noqa: S608 -- closed table map and scope marks
+            " COALESCE(engagement.project_class, '') AS project_type"
+            f" FROM {table} value LEFT JOIN engagements engagement"
+            f" ON engagement.id = value.{project_source} AND {engagement_visible}"
+            f" WHERE value.id = ? AND {visible}",
+            (*engagement_params, entity_id, *params),
+        )
+    else:
+        row = db.query_one(
+            f"SELECT value.visibility AS classification, value.crew_id,"  # noqa: S608 -- closed table map and scope marks
+            " '' AS project_type"
+            f" FROM {table} value WHERE value.id = ? AND {visible}",
+            (entity_id, *params),
+        )
+    return {key: str(value or "") for key, value in (row or {}).items()}
+
+
+def _target_engagement_scoped(
+    entity: str,
+    entity_id: int,
+    payload: dict,
+    viewer: scope.Viewer,
+) -> int:
+    selected = _TABLES.get(entity)
+    if selected is None or selected[1] != "engagement_id":
+        return 0
+    table = selected[0]
+    current = 0
+    if entity_id:
+        visible, params = scope.visible_filter(viewer, table, "value")
+        row = db.query_one(
+            f"SELECT value.engagement_id FROM {table} value"  # noqa: S608 -- closed table map and scope marks
+            f" WHERE value.id = ? AND {visible}",
+            (entity_id, *params),
+        )
+        current = _integer((row or {}).get("engagement_id"))
+    if "engagement_id" in payload:
+        requested = _integer(payload.get("engagement_id"))
+        if requested:
+            current = max(requested, 0)
+    if entity == "milestone" and not entity_id and not current:
+        name = str(payload.get("project") or "")
+        if name:
+            visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+            row = db.query_one(
+                f"SELECT engagement.id FROM engagements engagement"  # noqa: S608 -- scope emits bound marks
+                f" WHERE engagement.name = ? AND {visible}",
+                (name, *params),
+            )
+            current = _integer((row or {}).get("id"))
+    return current
+
+
+def for_route_scoped(
+    resource_type: str,
+    resource_id: str,
+    payload: dict,
+    viewer: scope.Viewer,
+) -> dict[str, str]:
+    """Return REST policy data without reading a hidden resource or parent."""
+    if resource_type == "playbooks":
+        return for_route(resource_type, resource_id, payload)
+    entity = _ROUTE_ENTITIES.get(resource_type)
+    if entity is None:
+        return {}
+    try:
+        entity_id = int(resource_id or 0)
+    except ValueError:
+        entity_id = 0
+    current = existing_scoped(entity, entity_id, viewer) if entity_id else {}
+    classification = str(current.get("classification") or "")
+    project_type = str(current.get("project_type") or "")
+    selected = _TABLES[entity]
+    if not entity_id:
+        classification = str(payload.get("visibility") or scope.WORKSPACE)
+    if not entity_id and selected[1] == "project_class":
+        project_type = str(payload.get("project_class") or "")
+    elif selected[1] == "engagement_id":
+        target = _target_engagement_scoped(entity, entity_id, payload, viewer)
+        project_type = _visible_engagement_project_type(target, viewer)
+    return {"classification": classification, "project_type": project_type}
 
 
 def playbook_context(slug: str, definition: dict | None = None) -> dict[str, str]:

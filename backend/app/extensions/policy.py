@@ -88,6 +88,11 @@ class CorePolicy:
     """Safe defaults after every workplace rule has had a chance to narrow."""
 
     def __call__(self, request: PolicyInput) -> PolicyDecision:
+        if request.resource.attributes.get("relationship_conflict"):
+            return PolicyDecision(
+                PolicyEffect.DENY,
+                ("The resource has conflicting project relationships.",),
+            )
         if request.tool and request.tool_effect == "unknown":
             return PolicyDecision(
                 PolicyEffect.DENY,

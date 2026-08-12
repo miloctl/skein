@@ -71,12 +71,44 @@ def create_engagement(
                 crew,
             ),
         )
-        # adopt milestones created under this name before the engagement existed —
-        # health/handoff/ship-it join on engagement_id, not the display name
-        db.execute(
-            "UPDATE milestones SET engagement_id = ? WHERE project = ? AND engagement_id IS NULL",
-            (eid, name),
-        )
+        # Adoption preserves every audience and direct task relationship. An
+        # incompatible orphan stays unlinked for an explicit repair.
+        viewer = scope.Viewer.for_actor(actor)
+        for milestone in db.query(
+            "SELECT * FROM milestones WHERE project = ? AND engagement_id IS NULL",
+            (name,),
+        ):
+            if not scope.can_read(
+                milestone["visibility"],
+                milestone["crew_id"],
+                viewer,
+                milestone["created_by"],
+            ) or not scope.relationship_contains(
+                tier,
+                crew,
+                milestone["visibility"],
+                milestone["crew_id"],
+            ):
+                continue
+            tasks = db.query(
+                "SELECT engagement_id, visibility, crew_id FROM tasks WHERE milestone_id = ?",
+                (milestone["id"],),
+            )
+            if any(
+                task["engagement_id"]
+                or not scope.relationship_contains(
+                    tier,
+                    crew,
+                    task["visibility"],
+                    task["crew_id"],
+                )
+                for task in tasks
+            ):
+                continue
+            db.execute(
+                "UPDATE milestones SET engagement_id = ? WHERE id = ? AND engagement_id IS NULL",
+                (eid, milestone["id"]),
+            )
         db.log_activity(
             actor, "create_engagement", scope.detail(tier, f"#{eid}", f"{name} [{project_class}]")
         )

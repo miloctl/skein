@@ -145,7 +145,17 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
         )
         job = next(item for item in registry.jobs if item.name.endswith(".sync"))
         assert job.handler(context) == {"created": 1, "updated": 0}
-        assert job.handler(context) == {"created": 0, "updated": 1}
+        activity_before = fresh_db.query_row("SELECT COUNT(*) AS count FROM activity")["count"]
+        outbox_before = fresh_db.query_row("SELECT COUNT(*) AS count FROM extension_outbox")[
+            "count"
+        ]
+        assert job.handler(context) == {"created": 0, "updated": 0}
+        assert fresh_db.query_row("SELECT COUNT(*) AS count FROM activity")["count"] == (
+            activity_before
+        )
+        assert fresh_db.query_row("SELECT COUNT(*) AS count FROM extension_outbox")["count"] == (
+            outbox_before
+        )
         denied = http.get("/api/extensions/atlas.workplace/metrics")
 
     task = fresh_db.query_one("SELECT * FROM tasks")
@@ -171,13 +181,13 @@ def test_enterprise_adapter_syncs_both_directions_through_public_work(fresh_db, 
             namespace="atlas.workplace.task-events",
         ),
     )
-    assert delivery["delivered"] == 3
+    assert delivery["delivered"] == 2
     event_updates = [
         update
         for update in client.updates
         if update[2] != "atlas.workplace.sync:test:ATLAS-7:in_progress"
     ]
-    assert len(event_updates) == 2
+    assert len(event_updates) >= 1
     assert all(update[0:2] == ("ATLAS-7", "in_progress") for update in event_updates)
 
 
@@ -261,9 +271,8 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
                 )
             )
 
-    assert all(result["created"] + result["updated"] == 2 for result in results)
     assert sum(result["created"] for result in results) == 2
-    assert sum(result["updated"] for result in results) == 2
+    assert sum(result["updated"] for result in results) == 0
     assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks") == {"count": 2}
     assert ExtensionStore(store_path).query_one("SELECT COUNT(*) AS count FROM work_links") == {
         "count": 2

@@ -672,6 +672,78 @@ def test_task_links_must_resolve_to_one_engagement(fresh_db):
     ) == {"engagement_id": direct, "milestone_id": None}
 
 
+def test_milestone_relationships_cannot_publish_narrow_engagement_ids(fresh_db):
+    from app.services import engagements
+
+    users.ensure_user("mira")
+    private_engagement = engagements.create_engagement(
+        "Private milestone parent",
+        actor="mira",
+        visibility=scope.PRIVATE,
+    )["id"]
+
+    with pytest.raises(ValueError, match="milestone cannot be visible to more people"):
+        work.create_milestone(
+            "Published milestone",
+            project="Private milestone parent",
+            actor="mira",
+        )
+
+    milestone = work.create_milestone("Unlinked milestone", actor="mira")["id"]
+    with pytest.raises(ValueError, match="milestone cannot be visible to more people"):
+        work.update_milestone(milestone, engagement_id=private_engagement, actor="mira")
+
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (private_engagement, milestone),
+    )
+    outsider = work.list_milestones()
+    owner = work.list_milestones(viewer=scope.Viewer("mira", True))
+    assert outsider[0]["engagement_id"] is None
+    assert owner[0]["engagement_id"] == private_engagement
+
+
+def test_milestone_relink_preserves_linked_task_project_coherence(fresh_db):
+    from app.services import engagements
+
+    first = engagements.create_engagement("First project")["id"]
+    second = engagements.create_engagement("Second project")["id"]
+    milestone = work.create_milestone("Shared gate", project="First project")["id"]
+    task = work.create_task(
+        "Dual-linked task",
+        engagement_id=first,
+        milestone_id=milestone,
+    )["id"]
+
+    with pytest.raises(ValueError, match="must belong to the same engagement"):
+        work.update_milestone(milestone, engagement_id=second)
+
+    assert fresh_db.query_one(
+        "SELECT engagement_id FROM milestones WHERE id = ?", (milestone,)
+    ) == {"engagement_id": first}
+    assert fresh_db.query_one(
+        "SELECT engagement_id, milestone_id FROM tasks WHERE id = ?", (task,)
+    ) == {"engagement_id": first, "milestone_id": milestone}
+
+
+def test_engagement_auto_adoption_skips_a_conflicting_orphan_milestone(fresh_db):
+    from app.services import engagements
+
+    direct = engagements.create_engagement("Existing direct project")["id"]
+    milestone = work.create_milestone("Future gate", project="Future project")["id"]
+    work.create_task(
+        "Existing direct link",
+        engagement_id=direct,
+        milestone_id=milestone,
+    )
+
+    engagements.create_engagement("Future project")
+
+    assert fresh_db.query_one(
+        "SELECT engagement_id FROM milestones WHERE id = ?", (milestone,)
+    ) == {"engagement_id": None}
+
+
 def test_waiting_relationships_cannot_publish_narrow_work_ids(fresh_db):
     from app.services import promises
 

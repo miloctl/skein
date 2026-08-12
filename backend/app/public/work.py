@@ -463,7 +463,7 @@ class WorkItems:
         # One snapshot binds relationship visibility, policy, and the view
         # returned to the extension. A concurrent relink cannot change the
         # project after policy evaluates it.
-        with db.transaction():
+        with db.read_transaction():
             _row, viewer, attributes = self._task_state(task_id, context)
             self._authorize(
                 context,
@@ -496,6 +496,12 @@ class WorkItems:
             child_visibility=command.visibility,
             child_crew_id=command.crew_id or None,
         )
+        requested_attributes = {
+            **command.model_dump(exclude={"idempotency_key"}, mode="json"),
+            **link_attributes,
+            "classification": command.visibility,
+            "crew_id": command.crew_id,
+        }
         self._authorize(
             context,
             "work.task.create",
@@ -503,9 +509,20 @@ class WorkItems:
                 "task",
                 project_type=link_attributes["project_type"],
                 classification=command.visibility,
-                attributes=link_attributes,
+                attributes=requested_attributes,
             ),
         )
+        if command.status != "todo":
+            self._authorize(
+                context,
+                "work.task.update",
+                PolicyResource(
+                    "task",
+                    project_type=link_attributes["project_type"],
+                    classification=command.visibility,
+                    attributes=requested_attributes,
+                ),
+            )
         try:
             with db.transaction():
                 prior = None
@@ -596,6 +613,7 @@ class WorkItems:
                     classification=str(current_row["visibility"] or ""),
                     crew_id=str(current_row["crew_id"] or ""),
                 )
+                requested_attributes = {**changes, **attributes}
                 self._authorize(
                     context,
                     "work.task.update",
@@ -604,7 +622,7 @@ class WorkItems:
                         str(command.task_id),
                         project_type=attributes["project_type"],
                         classification=attributes["classification"],
-                        attributes=attributes,
+                        attributes=requested_attributes,
                     ),
                 )
                 work.update_task(

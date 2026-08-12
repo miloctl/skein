@@ -4,6 +4,7 @@ The installed wheel resolves these files from ``skein_stock``. A Docker build
 cannot create that wheel if one source directory is missing from its context.
 """
 
+import tomllib
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent
@@ -27,3 +28,11 @@ def test_dockerfile_copies_every_content_dir():
         assert f"COPY {name} ./{name}" in body, (
             f"Dockerfile does not COPY {name}/ — the image ships without it"
         )
+
+
+def test_public_python_contract_is_marked_as_typed():
+    package_data = tomllib.loads((BACKEND / "pyproject.toml").read_text())["tool"]["setuptools"][
+        "package-data"
+    ]
+    assert (BACKEND / "app" / "py.typed").is_file()
+    assert "py.typed" in package_data["app"]

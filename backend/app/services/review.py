@@ -855,13 +855,14 @@ def _current_extension_review(
         raw_workflow = definition.get("workflow")
         if raw_workflow is None:
             raise ValueError("the reviewed playbook no longer has a workflow")
-        from ..public.workflow import WorkflowContext, WorkflowEngine
+        from ..public.workflow import WorkflowEngine, _issue_workflow_context
 
         engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
         steps = engine.prepare(raw_workflow)
-        context = WorkflowContext(
-            subject=current.subject,
-            origin=str(invocation.get("origin") or "human"),
+        context = _issue_workflow_context(
+            engine,
+            current.subject,
+            str(invocation.get("origin") or "human"),
             project_type=project_type,
             resource_id=str(invocation.get("resource_id") or ""),
             run_id=str(invocation.get("run_id") or ""),

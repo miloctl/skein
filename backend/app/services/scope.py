@@ -187,11 +187,13 @@ def assert_relationship_contains(
     parent_crew_id: int | None,
     child_tier: str,
     child_crew_id: int | None,
+    *,
+    child_label: str = "task",
 ) -> None:
     """Refuse a relationship that would disclose a narrower parent's id."""
     if not relationship_contains(parent_tier, parent_crew_id, child_tier, child_crew_id):
         raise ValueError(
-            "a task cannot be visible to more people than its linked work."
+            f"a {child_label} cannot be visible to more people than its linked work."
             " Use the same or a narrower visibility."
         )
 

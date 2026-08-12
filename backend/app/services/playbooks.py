@@ -332,13 +332,11 @@ def instantiate(
             if workflow_result.review_policy:
                 serialized["_review_policy"] = workflow_result.review_policy
             return {"workflow": serialized}
-        from dataclasses import replace
-
         if workflow_context is None:
             raise ValueError("this playbook workflow has no execution context")
-        authorized_context = replace(
+        authorized_context = workflow_engine._with_authorization_grants(
             workflow_context,
-            authorization_grants=workflow_result.authorization_grants,
+            workflow_result.authorization_grants,
         )
     with db.transaction():
         created = _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)

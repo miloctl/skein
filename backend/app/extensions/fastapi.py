@@ -268,7 +268,8 @@ async def enforce_mutation_policy(
             # applies to the route and current resource without trusting a
             # malformed body.
             pass
-    from ..services.policy_context import for_route
+    from ..services import scope
+    from ..services.policy_context import for_route_scoped
 
     # Task routes perform an actor-visible, transaction-bound relationship
     # decision in their handler. The generic early gate must not inspect a
@@ -280,7 +281,10 @@ async def enforce_mutation_policy(
     if (request.method, template) in _TASK_HANDLER_POLICY:
         domain = {}
     else:
-        domain = for_route(resource_type, resource_id, payload)
+        viewer = (
+            scope.Viewer(subject.name, subject.strong) if subject.kind == "human" else scope.NOBODY
+        )
+        domain = for_route_scoped(resource_type, resource_id, payload, viewer)
     if action == "playbook.create":
         request.state.skein_playbook_policy_context = dict(domain)
     policy_input = _policy_input(
@@ -290,6 +294,7 @@ async def enforce_mutation_policy(
         resource_id=resource_id,
         project_type=domain.get("project_type", ""),
         classification=domain.get("classification", ""),
+        attributes=domain,
     )
     decision = request.app.state.skein_registry.policy_engine.decide(policy_input)
     if action == "playbook.create" and decision.effect == PolicyEffect.REVIEW:

@@ -1819,3 +1819,65 @@ Verification for this remediation:
 
 The next step is a clean milestone commit and a new four-role review. Chrome
 validation remains blocked until that review accepts the exact commit.
+
+### Task coherence and issued-workflow remediation
+
+The independent review rejected `0c32911`. The conservative scores were 8.0
+for modularity, 7.5 for workplace extensibility, and 7.5 for upgradeability.
+The review found these valid defects:
+
+- A milestone relink could make a task's direct engagement and milestone
+  parent disagree. Some agent and MCP policy paths then used the weaker parent.
+- Wider milestones and blockers could publish identifiers for narrower work.
+- The generic REST policy resolver could inspect hidden project context before
+  the scoped service returned not found.
+- A private caller could construct the exported workflow engine and context,
+  then issue false execution authority.
+- Public task policy omitted normalized command fields and the initial-status
+  transition.
+- The wheel did not declare its annotated public API as a PEP 561 package.
+- Read-only task policy transactions used SQLite's immediate writer lock.
+
+The remediation uses one coherence-aware task policy context. Conflicting
+legacy rows fail closed. Supported milestone and blocker writes now preserve
+audience containment and linked-task coherence in one transaction. Legacy read
+projections remove hidden parent identifiers. Generic REST project context is
+viewer-scoped. Event subscriber policy receives current project context.
+
+Workflow execution is no longer a public construction API. The composed REST
+path issues and validates the exact workflow context. Public task policy now
+receives normalized requested fields. A non-`todo` create also passes the
+update policy action before any write. The wheel contains `app/py.typed`, and
+the installed extension rehearsal runs strict mypy against that wheel. Task
+reads use a deferred read snapshot instead of `BEGIN IMMEDIATE`.
+
+Atlas now compares mapped work before it writes. A no-change poll creates no
+new activity, outbox event, or remote status update. Service identity subjects
+must also use their exact normalized form.
+
+Verification completed so far:
+
+- Focused relationship, policy, workflow, reference, database, and package
+  tests: 311 passed.
+- Backend Ruff and mypy: passed.
+- Base-to-feature migration and activity-chain rehearsal: passed.
+- Installed backend extension rehearsal: passed with one unchanged Atlas wheel
+  on two distinct compatible cores. The real REST workflow and review path ran.
+  Strict installed-wheel type checking also passed.
+
+The complete backend suite exposed four stale compatibility expectations. The
+runtime checks were correct. The tests now describe the stronger hidden-ID and
+relationship rules.
+
+Final pre-review verification:
+
+- Complete backend suite: 1,908 passed in 109.11 seconds.
+- Complete static gate: passed.
+- Frontend tests: 230 passed in 45 files.
+- Frontend production build: passed after network access supplied the configured
+  Google Fonts.
+- Frontend artifact rehearsal: the unchanged Atlas package passed on two
+  distinct compatible frontend implementations.
+- Deployment rendering was not repeated because `kubectl` is unavailable.
+
+A fresh four-role review follows the milestone commit. Chrome remains blocked.
