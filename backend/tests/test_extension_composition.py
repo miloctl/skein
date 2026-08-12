@@ -477,8 +477,15 @@ def test_standalone_mcp_actor_cannot_claim_a_reserved_identity(fresh_db, monkeyp
     assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
 
 
-def test_machine_identity_reservation_serializes_a_concurrent_human_claim(fresh_db, monkeypatch):
-    """A human cannot land between the machine collision check and insert."""
+@pytest.mark.parametrize("human_name", ["race-owner", "RACE-OWNER"])
+def test_machine_identity_reservation_refuses_a_concurrent_human_request(
+    fresh_db, monkeypatch, human_name
+):
+    """A human request cannot cross an exact or folded machine reservation."""
+    from fastapi import HTTPException
+
+    from app import config
+    from app.routes.deps import _resolve
     from app.services import users
 
     machine_checked = Event()
@@ -486,7 +493,9 @@ def test_machine_identity_reservation_serializes_a_concurrent_human_claim(fresh_
     human_finished = Event()
     original_refuse_fold_collision = users.refuse_fold_collision
     results: dict[str, dict] = {}
-    errors: list[BaseException] = []
+    errors: dict[str, BaseException] = {}
+    monkeypatch.setattr(config, "AUTH_MODE", "trusted-header")
+    monkeypatch.setattr(config, "AUTH_ERROR", "")
 
     def pause_machine_after_collision_check(name: str, *, ignore: str = "") -> None:
         original_refuse_fold_collision(name, ignore=ignore)
@@ -504,15 +513,17 @@ def test_machine_identity_reservation_serializes_a_concurrent_human_claim(fresh_
         try:
             results["machine"] = users.ensure_agent_identity("race-owner")
         except BaseException as exc:  # pragma: no cover - reported by the assertions below
-            errors.append(exc)
+            errors["machine"] = exc
 
     def claim_human() -> None:
         try:
             assert machine_checked.wait(timeout=2)
             human_attempted.set()
-            results["human"] = users.ensure_user("race-owner")
+            _resolve(human_name, "", "POST")
+        except HTTPException as exc:
+            errors["human"] = exc
         except BaseException as exc:  # pragma: no cover - reported by the assertions below
-            errors.append(exc)
+            errors["unexpected"] = exc
         finally:
             human_finished.set()
 
@@ -524,12 +535,131 @@ def test_machine_identity_reservation_serializes_a_concurrent_human_claim(fresh_
     human.join(timeout=3)
 
     assert not machine.is_alive() and not human.is_alive()
-    assert errors == []
+    assert set(errors) == {"human"}
+    assert getattr(errors["human"], "status_code", None) == 403
     assert results["machine"]["kind"] == "agent"
-    assert results["human"]["kind"] == "agent"
-    assert fresh_db.query_row("SELECT kind FROM users WHERE name = ?", ("race-owner",)) == {
-        "kind": "agent"
+    rows = [
+        row
+        for row in fresh_db.query("SELECT name, kind FROM users")
+        if users.fold(row["name"]) == "race-owner"
+    ]
+    assert rows == [{"name": "race-owner", "kind": "agent"}]
+
+
+def test_human_identity_reservation_blocks_a_concurrent_folded_machine_claim(fresh_db, monkeypatch):
+    """The reverse winner order keeps one human row in the folded namespace."""
+    from app.services import users
+
+    human_checked = Event()
+    machine_attempted = Event()
+    machine_finished = Event()
+    original_refuse_fold_collision = users.refuse_fold_collision
+    results: dict[str, dict] = {}
+    errors: dict[str, BaseException] = {}
+
+    def pause_human_after_collision_check(name: str, *, ignore: str = "") -> None:
+        original_refuse_fold_collision(name, ignore=ignore)
+        if current_thread().name == "human-reservation":
+            human_checked.set()
+            assert machine_attempted.wait(timeout=2)
+            sleep(0.05)
+            assert not machine_finished.is_set()
+
+    monkeypatch.setattr(users, "refuse_fold_collision", pause_human_after_collision_check)
+
+    def reserve_human() -> None:
+        try:
+            results["human"] = users.ensure_human_identity("RACE-OWNER")
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["human"] = exc
+
+    def claim_machine() -> None:
+        try:
+            assert human_checked.wait(timeout=2)
+            machine_attempted.set()
+            users.ensure_agent_identity("race-owner")
+        except ValueError as exc:
+            errors["machine"] = exc
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["unexpected"] = exc
+        finally:
+            machine_finished.set()
+
+    human = Thread(target=reserve_human, name="human-reservation")
+    machine = Thread(target=claim_machine, name="machine-claim")
+    human.start()
+    machine.start()
+    human.join(timeout=3)
+    machine.join(timeout=3)
+
+    assert not human.is_alive() and not machine.is_alive()
+    assert set(errors) == {"machine"}
+    assert results["human"]["kind"] == "human"
+    rows = [
+        row
+        for row in fresh_db.query("SELECT name, kind FROM users")
+        if users.fold(row["name"]) == "race-owner"
+    ]
+    assert rows == [{"name": "RACE-OWNER", "kind": "human"}]
+
+
+def test_rename_rechecks_folded_ownership_inside_its_write_transaction(fresh_db, monkeypatch):
+    """A create after rename preflight cannot split the folded namespace."""
+    from app.services import users
+
+    users.ensure_human_identity("source-user")
+    rename_checked = Event()
+    machine_created = Event()
+    original_refuse_fold_collision = users.refuse_fold_collision
+    rename_checks = 0
+    errors: dict[str, BaseException] = {}
+
+    def pause_after_rename_preflight(name: str, *, ignore: str = "") -> None:
+        nonlocal rename_checks
+        original_refuse_fold_collision(name, ignore=ignore)
+        if current_thread().name == "rename-user" and name == "TARGET-USER":
+            rename_checks += 1
+            if rename_checks == 1:
+                rename_checked.set()
+                assert machine_created.wait(timeout=2)
+
+    monkeypatch.setattr(users, "refuse_fold_collision", pause_after_rename_preflight)
+
+    def rename_human() -> None:
+        try:
+            users.rename_user("source-user", "TARGET-USER", actor="source-user")
+        except ValueError as exc:
+            errors["rename"] = exc
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["unexpected"] = exc
+
+    def create_machine() -> None:
+        try:
+            assert rename_checked.wait(timeout=2)
+            users.ensure_agent_identity("target-user")
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["machine"] = exc
+        finally:
+            machine_created.set()
+
+    rename = Thread(target=rename_human, name="rename-user")
+    machine = Thread(target=create_machine, name="machine-create")
+    rename.start()
+    machine.start()
+    rename.join(timeout=3)
+    machine.join(timeout=3)
+
+    assert not rename.is_alive() and not machine.is_alive()
+    assert set(errors) == {"rename"}
+    assert fresh_db.query_row("SELECT kind FROM users WHERE name = ?", ("source-user",)) == {
+        "kind": "human"
     }
+    rows = [
+        row
+        for row in fresh_db.query("SELECT name, kind FROM users")
+        if users.fold(row["name"]) == "target-user"
+    ]
+    assert rows == [{"name": "target-user", "kind": "agent"}]
 
 
 def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names(

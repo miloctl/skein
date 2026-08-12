@@ -375,9 +375,9 @@ def my_inbox() -> str:
     record_use(ACTOR, "mcp")
     if refusal := _policy_refusal("skein.mcp.inbox.read", "inbox"):
         return refusal
-    from .services.users import ensure_user
+    from .services.users import ensure_agent_identity
 
-    ensure_user(ACTOR, kind="agent")
+    ensure_agent_identity(ACTOR)
     return json.dumps(delegation.agent_inbox(ACTOR))
 
 
