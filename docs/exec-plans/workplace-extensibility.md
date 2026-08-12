@@ -1408,6 +1408,13 @@ from the same incomplete repair. One shared core-machine constant now drives
 module composition, runtime checks, human refusal, health, and repair.
 `anonymous` remains the documented synthetic compatibility exception.
 
+The first exact-commit review rejected this remediation. OIDC and generic agent
+reservation could still claim `anonymous`, and generic reservation could mint
+other core actors. Strong credentials now refuse the full machine-name set.
+Only startup can create the built-in Chief row. Delegation and authority can
+reuse that reserved row but cannot mint a core actor. The absent weak fallback
+still uses the synthetic `anonymous` subject.
+
 Verification for this remediation:
 
 - Focused repair, reservation, and ownership tests: 52 passed.
@@ -1420,6 +1427,16 @@ Verification for this remediation:
 
 The exact commit and a fresh four-role review follow. Chrome remains blocked
 until that review accepts the architecture.
+
+Verification after the synthetic-identity correction:
+
+- Auth, authority, repair, gate, provenance, and golden-trace tests: 206
+  passed.
+- Reserved-name tests: 16 passed.
+- Full backend suite: 1,806 passed in 112.15 seconds.
+- Complete static gate: passed.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed
+  both installed core artifacts.
 
 ### Seventeenth review gate and remediation
 

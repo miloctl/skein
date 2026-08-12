@@ -1407,6 +1407,13 @@ marker from the same incomplete repair. One canonical machine-name set now
 drives composition, runtime reservation, human refusal, health, and repair.
 `anonymous` remains the documented synthetic compatibility subject.
 
+The first review of this remediation found that an OIDC principal and a
+caller-supplied agent could still claim `anonymous`. It also found that the
+generic agent reservation could mint other core actors. Strong credentials now
+refuse every synthetic or machine subject. The generic agent path can reuse the
+already-reserved built-in Chief, but only startup can create it. The weak absent
+identity remains compatible with old unnamed records.
+
 | Target-integrity remediation command | Result |
 |---|---|
 | Focused repair, reservation, and ownership tests | 52 passed |
@@ -1414,6 +1421,14 @@ drives composition, runtime reservation, human refusal, health, and repair.
 | `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,796 passed in 119.80 seconds |
 | `./scripts/lint.sh` | All gates passed |
 | `scripts/reference-extension-contract.sh` | Real repair CLI passed; unchanged Atlas wheel passed distinct 0.2.0 and 0.2.1 cores |
+
+| Synthetic-identity remediation command | Result |
+|---|---|
+| Auth, authority, repair, gate, provenance, and golden-trace tests | 206 passed |
+| Reserved-name tests | 16 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,806 passed in 112.15 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed both installed core artifacts |
 
 ## 15. Remaining limitations and deferred work
 

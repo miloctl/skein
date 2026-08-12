@@ -93,7 +93,7 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
     from app import config
     from app.services import users
 
-    users.ensure_agent_identity("agent")
+    users._reserve_core_agent_identity("agent")
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
 
     body = "text=todo%3A+exfiltrate+the+roster&user_name=agent"
