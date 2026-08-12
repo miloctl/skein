@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from strands.types.tools import AgentTool, ToolUse
 
+from .. import db
 from ..extensions.policy import (
     PolicyDecision,
     PolicyEffect,
@@ -17,7 +18,7 @@ from ..extensions.policy import (
     current_policy_subject,
     policy_subject_data,
 )
-from ..services import policy_context
+from ..services import policy_context, scope
 
 # These stock writers have specialized sponsor, receipt, or artifact rules.
 # The wrapper adds workplace policy without replacing those rules.
@@ -42,7 +43,11 @@ def _resource(arguments: dict[str, Any]) -> PolicyResource:
         entity = key.removesuffix("_id")
         if entity == "project":
             entity = "engagement"
-        attributes = policy_context.existing(entity, value)
+        attributes = (
+            policy_context.existing("task", value)
+            if entity == "task"
+            else policy_context.existing_scoped(entity, value, scope.NOBODY)
+        )
         return PolicyResource(
             entity,
             str(value),
@@ -102,6 +107,40 @@ class GovernedCoreTool(AgentTool):
             yield event
 
     async def _stream(
+        self,
+        tool_use: dict[str, Any],
+        invocation_state: dict[str, Any],
+        subject,
+        actor: str,
+        approved_fingerprint: str,
+        approved_decision: PolicyDecision | None = None,
+        **kwargs: Any,
+    ):
+        if self.effect == "write":
+            with db.transaction():
+                async for event in self._run(
+                    tool_use,
+                    invocation_state,
+                    subject,
+                    actor,
+                    approved_fingerprint,
+                    approved_decision,
+                    **kwargs,
+                ):
+                    yield event
+            return
+        async for event in self._run(
+            tool_use,
+            invocation_state,
+            subject,
+            actor,
+            approved_fingerprint,
+            approved_decision,
+            **kwargs,
+        ):
+            yield event
+
+    async def _run(
         self,
         tool_use: dict[str, Any],
         invocation_state: dict[str, Any],

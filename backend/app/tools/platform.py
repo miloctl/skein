@@ -14,7 +14,16 @@ from ..extensions.policy import (
     current_policy_engine,
     current_policy_subject,
 )
-from ..services import blockers, engagements, handoff, intake, playbooks, scope, search
+from ..services import (
+    blockers,
+    engagements,
+    handoff,
+    intake,
+    playbooks,
+    projection_policy,
+    scope,
+    search,
+)
 from ._gate import gated_write
 
 
@@ -209,7 +218,19 @@ def list_engagements(status: str = "") -> str:
 def team_capacity() -> str:
     """Show total allocation percent per person across active engagements
     (over 100 means overcommitted). Use before accepting new work."""
-    return json.dumps(engagements.capacity())
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.team_capacity",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="team_capacity",
+    )
+    with db.read_transaction():
+        if not policy.allows_all_projects():
+            return json.dumps({"error": "workplace policy denied this composite read"})
+        return json.dumps(engagements.capacity())
 
 
 @tool
@@ -323,7 +344,17 @@ def search_workspace(query: str) -> str:
     Args:
         query: What to look for.
     """
-    return json.dumps(search.search(query))
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.search_workspace",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="search_workspace",
+    )
+    with db.read_transaction():
+        return json.dumps(search.search(query, row_filter=policy.filter_resources))
 
 
 @tool

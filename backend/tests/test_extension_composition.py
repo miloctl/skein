@@ -1663,6 +1663,69 @@ def test_inbound_mcp_task_list_applies_project_policy_per_row(fresh_db, monkeypa
     assert denied not in {row["id"] for row in rows}
 
 
+def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.extensions.policy import (
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.services import engagements, work
+
+    standard = engagements.create_engagement("MCP composite standard", project_class="standard")[
+        "id"
+    ]
+    regulated = engagements.create_engagement(
+        "MCP composite regulated secret", project_class="regulated"
+    )["id"]
+    work.create_task("MCP regulated task secret", engagement_id=regulated, assignee="acme-mcp")
+    work.create_task("MCP standard task", engagement_id=standard, assignee="acme-mcp")
+
+    protected = {
+        "skein.mcp.briefing.read",
+        "skein.mcp.search.read",
+        "skein.mcp.context.read",
+        "skein.mcp.portfolio.read",
+    }
+
+    def deny_regulated(request):
+        if request.action in protected and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated MCP reads are closed.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.mcp-composites", deny_regulated),),
+            ),
+        )
+    )
+    monkeypatch.setattr(mcp_server, "ACTOR", "acme-mcp")
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("acme-mcp", kind="agent"))
+    try:
+        briefing_result = mcp_server.get_my_day()
+        search_result = mcp_server.search_workspace("MCP regulated")
+        scoped_pack = json.loads(mcp_server.get_context_pack(regulated))
+        team_pack = mcp_server.context_pack_resource()
+        health = json.loads(mcp_server.portfolio_health())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+
+    assert "regulated task secret" not in briefing_result
+    assert "regulated task secret" not in search_result
+    assert scoped_pack["policy_effect"] == "deny"
+    assert "composite regulated secret" not in team_pack
+    assert {row["id"] for row in health} == {standard}
+
+
 def test_inbound_mcp_delegation_uses_authoritative_crew_task_context(fresh_db, monkeypatch):
     from app import mcp_server
     from app.extensions.policy import (
@@ -1709,4 +1772,69 @@ def test_inbound_mcp_delegation_uses_authoritative_crew_task_context(fresh_db, m
     assert observed[0].classification == "crew"
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],)) == {
         "status": "todo"
+    }
+
+
+def test_inbound_mcp_policy_and_delegation_write_share_one_transaction(
+    fresh_db,
+    monkeypatch,
+):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app import mcp_server
+    from app.extensions.policy import (
+        PolicyEngine,
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.services import delegation, engagements, users, work
+
+    users.ensure_user("sponsor")
+    standard = engagements.create_engagement("MCP atomic standard", "standard")["id"]
+    regulated = engagements.create_engagement("MCP atomic regulated", "regulated")["id"]
+    task = work.create_task("MCP atomic task", engagement_id=standard)["id"]
+    delegation.delegate_task(task, "atomic-mcp", "sponsor", actor="sponsor")
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+
+    def policy_rule(request):
+        if request.action != "skein.mcp.delegation.claim":
+            return None
+        assert request.resource.project_type == "standard"
+        policy_entered.set()
+        assert writer_attempted.wait(5)
+        sleep(0.05)
+        assert not writer_done.is_set()
+        return None
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (regulated, task),
+        )
+        writer_done.set()
+
+    monkeypatch.setattr(mcp_server, "ACTOR", "atomic-mcp")
+    engine_token = set_policy_engine(PolicyEngine((policy_rule,)))
+    subject_token = set_policy_subject(PolicySubject("atomic-mcp", kind="agent"))
+    writer = Thread(target=relink)
+    writer.start()
+    try:
+        result = json.loads(mcp_server.claim_delegated_task(task))
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    writer.join(5)
+
+    assert result["status"] == "in_progress"
+    assert writer_done.is_set()
+    assert fresh_db.query_one("SELECT status, engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "status": "in_progress",
+        "engagement_id": regulated,
     }

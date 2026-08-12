@@ -4133,3 +4133,346 @@ def test_generic_rest_policy_does_not_read_a_hidden_milestone_project(
 
     assert hidden.status_code == absent.status_code == 404
     assert hidden.json() == absent.json()
+
+
+def test_portfolio_health_filters_each_project_on_rest(fresh_db):
+    from app.services import engagements
+
+    standard = engagements.create_engagement("Portfolio standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement(
+        "Portfolio regulated secret", project_class="regulated"
+    )["id"]
+
+    def deny_regulated(request: PolicyInput):
+        if (
+            request.action == "skein.rest.get.portfolio.health"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated health is hidden.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.portfolio-health", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.get("/api/portfolio/health")
+
+    assert response.status_code == 200
+    assert {row["id"] for row in response.json()} == {standard}
+    assert regulated not in {row["id"] for row in response.json()}
+
+
+def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
+    from app.services import engagements, work
+
+    standard = engagements.create_engagement("REST composite standard", project_class="standard")[
+        "id"
+    ]
+    regulated = engagements.create_engagement(
+        "REST composite regulated secret", project_class="regulated"
+    )["id"]
+    work.create_task("REST standard task", engagement_id=standard, assignee="mira")
+    work.create_task("REST regulated task secret", engagement_id=regulated, assignee="mira")
+    protected = {
+        "skein.rest.get.search",
+        "skein.rest.get.briefing",
+        "skein.rest.get.context-pack",
+        "skein.rest.get.portfolio.flow",
+        "skein.rest.get.attention",
+        "skein.rest.get.review",
+        "skein.rest.get.review.stats",
+        "skein.rest.get.notifications",
+        "skein.rest.get.pulse",
+        "skein.rest.get.agents.inbox",
+        "skein.rest.get.engagements.brief",
+        "skein.rest.get.provenance",
+        "skein.rest.post.context-pack.publish",
+        "skein.rest.post.portfolio.readout",
+    }
+
+    def deny_regulated(request: PolicyInput):
+        if request.action in protected and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated composites are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.rest-composites", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        search_response = client.get("/api/search", params={"q": "REST regulated"})
+        briefing_response = client.get("/api/briefing")
+        pack_response = client.get("/api/context-pack")
+        flow_response = client.get("/api/portfolio/flow")
+        opaque_responses = [
+            client.get("/api/attention"),
+            client.get("/api/review"),
+            client.get("/api/review/stats"),
+            client.get("/api/notifications"),
+            client.get("/api/pulse"),
+            client.get("/api/agents/agent/inbox"),
+            client.get(f"/api/engagements/{regulated}/brief"),
+            client.get(f"/api/provenance/engagement/{regulated}"),
+            client.post("/api/context-pack/publish"),
+            client.post("/api/portfolio/readout"),
+        ]
+
+    assert "regulated task secret" not in search_response.text
+    assert "regulated task secret" not in briefing_response.text
+    assert "composite regulated secret" not in pack_response.json()["content"]
+    assert flow_response.status_code == 403
+    assert {response.status_code for response in opaque_responses} == {403}
+
+
+def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(fresh_db):
+    from app.services import engagements, weekly, work
+
+    engagement = engagements.create_engagement(
+        "Regulated weekly work",
+        project_class="regulated",
+    )["id"]
+    task = work.create_task("Regulated weekly task", engagement_id=engagement)["id"]
+
+    def deny_domain_writes(request: PolicyInput):
+        if request.action == "skein.rest.post.capture" and request.resource.type == "task":
+            return PolicyDecision(PolicyEffect.DENY, ("Task capture is closed.",))
+        if (
+            request.action == "skein.rest.post.week.plan"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated planning is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.domain-writes", deny_domain_writes),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        capture_response = client.post("/api/capture", json={"text": "todo: denied task"})
+        week_response = client.post(
+            "/api/week/plan",
+            json={"week": weekly.current_week(), "task_ids": [task]},
+        )
+
+    assert capture_response.status_code == week_response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'denied task'") is None
+    assert fresh_db.query_one("SELECT committed_week FROM tasks WHERE id = ?", (task,)) == {
+        "committed_week": None
+    }
+
+
+def test_single_task_and_worklog_hide_a_legacy_invisible_parent(fresh_db):
+    from app.services import crews, engagements, users, work
+
+    users.ensure_user("owner")
+    users.ensure_user("outsider")
+    crew = crews.create_crew("Legacy task parent", actor="owner")["id"]
+    hidden = engagements.create_engagement(
+        "Hidden regulated parent",
+        project_class="regulated",
+        actor="owner",
+        visibility="crew",
+        crew_id=crew,
+    )["id"]
+    task = work.create_task("Visible legacy child", actor="owner")["id"]
+    fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (hidden, task))
+
+    with TestClient(create_app(), headers={"X-User": "outsider"}) as client:
+        item = client.get(f"/api/tasks/{task}")
+        worklog = client.get(f"/api/tasks/{task}/worklog")
+        fresh_db.execute("DELETE FROM tasks WHERE id = ?", (task,))
+        absent = client.get(f"/api/tasks/{task}")
+
+    assert item.status_code == worklog.status_code == absent.status_code == 404
+    assert item.json() == absent.json()
+
+
+def test_hidden_parent_on_visible_promise_fails_closed_before_edit(fresh_db):
+    from app.services import crews, engagements, promises, users
+
+    users.ensure_user("owner")
+    users.ensure_user("outsider")
+    crew = crews.create_crew("Legacy promise parent", actor="owner")["id"]
+    hidden = engagements.create_engagement(
+        "Hidden promise project",
+        project_class="regulated",
+        actor="owner",
+        visibility="crew",
+        crew_id=crew,
+    )["id"]
+    promise = promises.add_promise("Before", actor="outsider")["id"]
+    fresh_db.execute("UPDATE promises SET engagement_id = ? WHERE id = ?", (hidden, promise))
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "outsider"}) as client:
+        hidden = client.patch(f"/api/promises/{promise}", json={"promise": "After"})
+        unchanged = fresh_db.query_one("SELECT promise FROM promises WHERE id = ?", (promise,))
+        fresh_db.execute("DELETE FROM promises WHERE id = ?", (promise,))
+        absent = client.patch(f"/api/promises/{promise}", json={"promise": "After"})
+
+    assert hidden.status_code == absent.status_code == 404
+    assert hidden.json() == absent.json()
+    assert unchanged == {"promise": "Before"}
+
+
+def test_generic_rest_policy_and_project_write_share_one_transaction(fresh_db):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.services import engagements, promises
+
+    standard = engagements.create_engagement("Atomic standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Atomic regulated", project_class="regulated")["id"]
+    promise = promises.add_promise("Before", engagement_id=standard, actor="mira")["id"]
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    paused = {"value": False}
+
+    def policy_rule(request: PolicyInput):
+        if request.action != "skein.rest.patch.promises":
+            return None
+        if request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated promises are closed.",))
+        if not paused["value"]:
+            paused["value"] = True
+            policy_entered.set()
+            assert writer_attempted.wait(5)
+            sleep(0.05)
+            assert not writer_done.is_set()
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.atomic-rest", policy_rule),),
+    )
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE promises SET engagement_id = ? WHERE id = ?",
+            (regulated, promise),
+        )
+        writer_done.set()
+
+    writer = Thread(target=relink)
+    writer.start()
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.patch(f"/api/promises/{promise}", json={"promise": "After"})
+    writer.join(5)
+
+    assert response.status_code == 200
+    assert writer_done.is_set()
+    assert fresh_db.query_one(
+        "SELECT promise, engagement_id FROM promises WHERE id = ?", (promise,)
+    ) == {"promise": "After", "engagement_id": regulated}
+
+
+def test_delegation_and_lesson_resolve_their_project_context(fresh_db):
+    from app.services import engagements, policy_context, work
+
+    engagement = engagements.create_engagement(
+        "Regulated resource inventory", project_class="regulated"
+    )["id"]
+    task = work.create_task("Delegation target", engagement_id=engagement)["id"]
+
+    delegation_context = policy_context.for_change("delegation", 0, {"task_id": task}, actor="mira")
+    lesson_context = policy_context.for_change(
+        "lesson",
+        0,
+        {"engagement_id": engagement, "project_class": "caller-spoof"},
+        actor="mira",
+    )
+
+    assert delegation_context["project_type"] == "regulated"
+    assert lesson_context["project_type"] == "regulated"
+
+
+def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.extensions.policy import (
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
+    from app.services import engagements, work
+    from app.tools.platform import search_workspace as search_tool
+    from app.tools.portfolio import (
+        get_attention,
+        get_context_pack,
+        get_findings,
+        get_portfolio_health,
+        my_agent_inbox,
+    )
+
+    standard = engagements.create_engagement("Stock composite standard", project_class="standard")[
+        "id"
+    ]
+    regulated = engagements.create_engagement(
+        "Stock composite regulated secret", project_class="regulated"
+    )["id"]
+    work.create_task("Stock regulated task secret", engagement_id=regulated)
+    work.create_task("Stock standard task", engagement_id=standard)
+    protected = {
+        "skein.tool.get_portfolio_health",
+        "skein.tool.search_workspace",
+        "skein.tool.get_context_pack",
+        "skein.tool.get_attention",
+        "skein.tool.my_agent_inbox",
+        "skein.tool.get_findings",
+    }
+
+    def deny_regulated(request: PolicyInput):
+        if request.action in protected and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated tools are closed.",))
+        return None
+
+    engine_token = set_policy_engine(PolicyEngine((deny_regulated,)))
+    subject_token = set_policy_subject(PolicySubject("research-agent", kind="agent"))
+    agent_token = set_agent_identity("research-agent")
+    try:
+        health = get_portfolio_health()
+        search_result = search_tool("Stock regulated")
+        pack = get_context_pack()
+        attention = get_attention()
+        inbox = my_agent_inbox()
+        findings = get_findings()
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+
+    assert "regulated secret" not in health
+    assert "regulated task secret" not in search_result
+    assert "regulated secret" not in pack
+    assert (
+        json.loads(attention)["error"]
+        == "this turn has no requester — ask the person what is on them"
+    )
+    for result in (inbox, findings):
+        assert json.loads(result)["error"] == "workplace policy denied this composite read"

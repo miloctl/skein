@@ -4,7 +4,9 @@ unblock / commit / review / notice) and each carries a "why you're seeing
 this" reason. An LLM narrative can be layered on top later (see digest.py)."""
 
 import re
+from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 from .. import db
 from . import notifications, scope
@@ -256,7 +258,11 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
     )
 
 
-def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def my_day(
+    user: str,
+    viewer: scope.Viewer = scope.NOBODY,
+    row_filter: Callable[[str, list[dict]], list[dict]] | None = None,
+) -> dict:
     """`viewer`, not just `user`: these three lists are addressed to a person
     BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
     name alone, `X-User: ava` with no credential returned Ava's private task
@@ -341,7 +347,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'"
     )
     attention = _attention(user, needs_you, today, week)
-    return {
+    result: dict[str, Any] = {
         "user": user,
         "date": today,
         "needs_you": needs_you,
@@ -452,6 +458,34 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             "recent_activity": _human_digest(_scoped_recent(user, yesterday)),
         },
     }
+    if row_filter is not None:
+        needs = result["needs_you"]
+        needs["meetings_awaiting_outcome"] = row_filter("event", needs["meetings_awaiting_outcome"])
+        needs["your_blockers"] = row_filter("blocker", needs["your_blockers"])
+        needs["intake_to_triage"] = row_filter("intake", needs["intake_to_triage"])
+        # These summaries carry free-form text but no durable domain key. A
+        # project policy cannot classify them after projection, so omit them
+        # from a policy-filtered composite instead of guessing from prose.
+        needs["pending_reviews"] = []
+        needs["notifications"] = []
+        result["your_work"]["tasks"] = row_filter("task", result["your_work"]["tasks"])
+        result["your_work"]["due_soon"] = row_filter("task", result["your_work"]["due_soon"])
+        result["team"]["recently_shipped"] = row_filter(
+            "engagement", result["team"]["recently_shipped"]
+        )
+        result["team"]["escalated_blockers"] = row_filter(
+            "blocker", result["team"]["escalated_blockers"]
+        )
+        result["team"]["todays_events"] = row_filter("event", result["team"]["todays_events"])
+        result["team"]["recent_activity"] = []
+        filtered_attention = _attention(user, needs, today, week)
+        result["attention"] = filtered_attention
+        result["attention_total"] = sum(
+            1
+            for item in filtered_attention
+            if item["audience"] == "you" and item["group"] != "notice"
+        )
+    return result
 
 
 def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:

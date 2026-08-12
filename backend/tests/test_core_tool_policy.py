@@ -116,6 +116,72 @@ def test_stock_specialized_write_creates_a_resumable_review(fresh_db):
     assert row == {"entity": "extension_core_tool"}
 
 
+def test_stock_specialized_policy_and_delegate_share_one_transaction(fresh_db):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.services import engagements, work
+
+    standard = engagements.create_engagement("Stock atomic standard", "standard")["id"]
+    regulated = engagements.create_engagement("Stock atomic regulated", "regulated")["id"]
+    task = work.create_task("Stock atomic task", engagement_id=standard)["id"]
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+
+    def policy_rule(request):
+        if request.action != "skein.tool.report_progress":
+            return None
+        assert request.resource.project_type == "standard"
+        policy_entered.set()
+        assert writer_attempted.wait(5)
+        sleep(0.05)
+        assert not writer_done.is_set()
+        return None
+
+    wrapper = GovernedCoreTool(_Delegate("report_progress"), effect="write", risk="high")
+    token = set_policy_engine(PolicyEngine((policy_rule,)))
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (regulated, task),
+        )
+        writer_done.set()
+
+    writer = Thread(target=relink)
+    writer.start()
+
+    async def run():
+        return [
+            event
+            async for event in wrapper._stream(
+                {
+                    "toolUseId": "atomic-progress",
+                    "input": {"task_id": task, "note": "Atomic"},
+                },
+                {},
+                PolicySubject("mira"),
+                "delivery-agent",
+                "",
+            )
+        ]
+
+    try:
+        events = asyncio.run(run())
+    finally:
+        reset_policy_engine(token)
+    writer.join(5)
+
+    assert events[-1]["status"] == "success"
+    assert writer_done.is_set()
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "engagement_id": regulated
+    }
+
+
 def test_stock_tool_rejection_uses_the_current_project_context(fresh_db):
     from app.services import engagements, review, users, work
 

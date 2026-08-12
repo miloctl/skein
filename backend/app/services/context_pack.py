@@ -5,6 +5,7 @@ without asking anyone. Versions only bump when the content actually changes."""
 
 import hashlib
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 from .. import config, db
@@ -12,7 +13,10 @@ from . import scope, wording
 from .scope import WORKSPACE_ONLY
 
 
-def build_pack(crew_id: int = 0) -> str:
+def build_pack(
+    crew_id: int = 0,
+    project_filter: Callable[[str], bool] | None = None,
+) -> str:
     """Assemble the pack body. Pure read — same data in, same text out.
 
     The body is always the workspace tier, because a crew member reads the
@@ -37,7 +41,7 @@ def build_pack(crew_id: int = 0) -> str:
     ]
 
     lines.append("## Active engagements")
-    health = engagement_health()
+    health = engagement_health(project_filter=project_filter)
     for h in health:
         lines.append(
             f"- **{wording.flatten(h['name'])}** ({h['status']}, lead: {h['lead'] or 'unset'},"
@@ -73,6 +77,10 @@ def build_pack(crew_id: int = 0) -> str:
     lessons = db.query(
         f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
     )
+    if project_filter is not None:
+        lessons = [
+            lesson for lesson in lessons if project_filter(str(lesson.get("project_class") or ""))
+        ]
     lines += [
         f"- [{wording.flatten(les['project_class'])}] {wording.flatten(les['lesson'])}"
         + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
@@ -331,7 +339,11 @@ def publish_pack(
 
 
 def get_pack(
-    *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+    *,
+    actor: str = "system",
+    crew_id: int = 0,
+    viewer: scope.Viewer = scope.NOBODY,
+    project_filter: Callable[[str], bool] | None = None,
 ) -> dict:
     """Latest published pack, publishing v1 on first call.
 
@@ -360,10 +372,20 @@ def get_pack(
         last = latest_pack(crew_id)
         if last is None:
             raise ValueError("context pack publish produced no pack — retry")
+    content = last["content"]
+    digest = last["content_hash"]
+    if project_filter is not None:
+        body = build_pack(crew_id, project_filter)
+        digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+        content = body.replace(
+            "# Team context pack",
+            f"# Team context pack\n\n*v{last['version']} · policy-filtered · hash {digest}*",
+            1,
+        )
     return {
         "version": last["version"],
-        "hash": last["content_hash"],
+        "hash": digest,
         "created_at": last["created_at"],
-        "content": last["content"],
+        "content": content,
         "crew_id": last["crew_id"],
     }

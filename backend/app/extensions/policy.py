@@ -154,6 +154,42 @@ class PolicyEngine:
         )
 
 
+def permits_resource(
+    engine: PolicyEngine,
+    subject: PolicySubject,
+    action: str,
+    resource_type: str,
+    resource_id: int | str,
+    attributes: dict[str, str],
+    origin: str,
+    *,
+    agent: str = "",
+    tool: str = "",
+) -> bool:
+    """Apply one composed read decision to one authoritative resource row."""
+    return (
+        engine.decide(
+            PolicyInput(
+                subject,
+                action,
+                PolicyResource(
+                    resource_type,
+                    str(resource_id),
+                    str(attributes.get("project_type") or ""),
+                    str(attributes.get("classification") or ""),
+                    attributes,
+                ),
+                origin,
+                agent=agent,
+                tool=tool,
+                tool_effect="read" if tool else "none",
+                tool_risk="low" if tool else "none",
+            )
+        ).effect
+        == PolicyEffect.PERMIT
+    )
+
+
 def approval_fingerprint(
     request: PolicyInput,
     decision: PolicyDecision,

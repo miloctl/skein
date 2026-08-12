@@ -178,6 +178,23 @@ requests first pass signature checks. Skein then evaluates
 `skein.integration.slack` or `skein.integration.forge`. CI requests evaluate
 `skein.integration.ci`. A direct integration route cannot resume a review.
 
+Collection and composite reads use the same policy engine. Row-shaped results
+apply policy to each visible domain resource in one database snapshot.
+
+Some aggregates cannot remove one denied resource without changing their
+meaning. These aggregates fail closed if policy denies one visible project
+domain. This rule covers planning, attention, review statistics, portfolio
+flow, agent inboxes, findings, and published context artifacts.
+
+Skein resolves linked project context before it applies policy. Hidden,
+missing, or conflicting legacy parents fail closed without exposing the
+parent ID or project class.
+
+Local domain writes keep context resolution, policy, and mutation in one
+SQLite write transaction. This rule covers REST, stock tools, MCP, public
+commands, and verdict-time execution. External I/O uses its documented
+idempotency and completion contract instead of a database transaction.
+
 ## Map enterprise identity
 
 OIDC validation remains in the core. An identity contribution maps verified

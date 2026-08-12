@@ -543,45 +543,11 @@ def task_update_policy_context(
 
 
 def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]:
-    """Return policy metadata only from relationships visible in this snapshot."""
-    project_type = ""
-    engagement_id = int(task.get("engagement_id") or 0)
-    milestone_id = int(task.get("milestone_id") or 0)
-    direct_project_type = ""
-    milestone_project_type = ""
-    milestone_engagement_id = 0
-    if engagement_id:
-        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
-        engagement = db.query_one(
-            f"SELECT engagement.project_class FROM engagements engagement"  # noqa: S608 -- scope emits bound marks
-            f" WHERE engagement.id = ? AND {visible}",
-            (engagement_id, *params),
-        )
-        direct_project_type = str((engagement or {}).get("project_class") or "")
-    if milestone_id:
-        milestone_visible, milestone_params = scope.visible_filter(
-            viewer, "milestones", "milestone"
-        )
-        engagement_visible, engagement_params = scope.visible_filter(
-            viewer, "engagements", "engagement"
-        )
-        engagement = db.query_one(
-            f"SELECT milestone.engagement_id, engagement.project_class"  # noqa: S608 -- scope emits bound marks
-            " FROM milestones milestone"
-            " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
-            f" AND {engagement_visible}"
-            f" WHERE milestone.id = ? AND {milestone_visible}",
-            (*engagement_params, milestone_id, *milestone_params),
-        )
-        milestone_engagement_id = int((engagement or {}).get("engagement_id") or 0)
-        milestone_project_type = str((engagement or {}).get("project_class") or "")
-    if engagement_id and milestone_engagement_id and engagement_id != milestone_engagement_id:
-        raise scope.missing("tasks", int(task.get("id") or 0))
-    project_type = direct_project_type or milestone_project_type
-    return {
-        "classification": str(task.get("visibility") or ""),
-        "project_type": project_type,
-    }
+    """Return context from raw links while keeping hidden parent data concealed."""
+    task_id = int(task.get("id") or 0)
+    if not task_id:
+        return {"classification": str(task.get("visibility") or ""), "project_type": ""}
+    return task_collection_policy_contexts([task], viewer)[task_id]
 
 
 def task_collection_policy_contexts(

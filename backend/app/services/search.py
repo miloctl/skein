@@ -10,6 +10,7 @@ results; otherwise hybrid search degrades cleanly to FTS-only.
 import json
 import logging
 import re
+from collections.abc import Callable
 
 from .. import config, db
 from . import scope
@@ -253,7 +254,12 @@ _STOPWORDS = frozenset({
 # fmt: on
 
 
-def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
+def ask(
+    q: str,
+    limit: int = 5,
+    viewer: "scope.Viewer | None" = None,
+    row_filter: Callable[[list[dict]], list[dict]] | None = None,
+) -> dict:
     """Q&A with receipts: deterministic FTS answer where every snippet cites
     its row (entity #id), findings-style. Degrades honestly keyless — an LLM
     synthesis can be layered on top later, but the citations ARE the answer.
@@ -262,7 +268,7 @@ def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
     # viewer forwarded to BOTH searches: taking the parameter and dropping it
     # left /ask serving every crew and private row through the one surface
     # whose whole job is to quote them back
-    hits = search(q, limit, viewer=viewer)
+    hits = search(q, limit, viewer=viewer, row_filter=row_filter)
     note = ""
     if not hits:
         # natural phrasing rarely matches as a phrase — fall back to OR of
@@ -274,7 +280,13 @@ def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
         # question was already that one word: search() just ran it and missed,
         # so re-running it costs a second scan for the same nothing.
         if words and (len(words) > 1 or len(words) != len(tokens)):
-            hits = search(" OR ".join(_fts_quote(w) for w in words), limit, raw=True, viewer=viewer)
+            hits = search(
+                " OR ".join(_fts_quote(w) for w in words),
+                limit,
+                raw=True,
+                viewer=viewer,
+                row_filter=row_filter,
+            )
             if hits:
                 note = "no exact match — loosely related results (word overlap)"
     if not hits:
@@ -294,7 +306,11 @@ def ask(q: str, limit: int = 5, viewer: "scope.Viewer | None" = None) -> dict:
 
 
 def search(
-    q: str, limit: int = 20, raw: bool = False, viewer: "scope.Viewer | None" = None
+    q: str,
+    limit: int = 20,
+    raw: bool = False,
+    viewer: "scope.Viewer | None" = None,
+    row_filter: Callable[[list[dict]], list[dict]] | None = None,
 ) -> list[dict]:
     """raw=True passes q as a pre-built FTS expression (callers must quote
     each term themselves — ask()'s OR fallback does)."""
@@ -348,7 +364,7 @@ def search(
                         "rank": None,
                     }
                 )
-    return hits
+    return row_filter(hits) if row_filter is not None else hits
 
 
 # --- optional embedding layer (activates when configured) -------------------
