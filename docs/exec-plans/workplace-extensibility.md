@@ -1966,3 +1966,19 @@ Verification for this remediation:
 
 The scores remain provisional. A fresh independent review must accept one
 clean exact commit before Chrome validation can start.
+
+The first review of that checkpoint found two adjacent collection defects.
+The stock-agent task list did not keep its rows and per-row policy checks in
+one read snapshot. Blocker collections did not apply linked-project policy per
+row. Both REST and stock-agent task and blocker lists now bind the list,
+authoritative batch context, policy decision, and returned rows to one read
+snapshot. New coordinated and legacy-link tests cover these paths.
+
+Verification after this remediation:
+
+| Verification | Result |
+|---|---|
+| Focused policy, core-tool, API, visibility, public-command, and Atlas tests | 253 passed |
+| Complete backend suite | 1,924 passed in 116.53 seconds |
+| Complete static gate | Passed |
+| Installed backend extension rehearsal | The prior exact commit passed in independent review; the local retry stalled during isolated dependency installation and was stopped cleanly |
