@@ -228,7 +228,7 @@ def team_capacity() -> str:
         tool="team_capacity",
     )
     with db.read_transaction():
-        if not policy.allows_all_projects():
+        if not policy.allows_all_inputs():
             return json.dumps({"error": "workplace policy denied this composite read"})
         return json.dumps(engagements.capacity())
 

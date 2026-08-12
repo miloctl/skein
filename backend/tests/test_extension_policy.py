@@ -4527,6 +4527,75 @@ def test_interventions_filter_an_id_specific_denied_resource(fresh_db):
     assert blocker not in {row["entity_id"] for row in response.json()}
 
 
+def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
+    from app import mcp_server
+    from app.agents.identity import (
+        reset_agent_identity,
+        reset_requester_viewer,
+        set_agent_identity,
+        set_requester_viewer,
+    )
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import delegation, scope, users, work
+    from app.tools.portfolio import get_attention
+
+    users.ensure_user("sponsor")
+    work.create_task("Padding task for distinct project and task IDs")
+    task = work.create_task("ID DENIED NOTIFICATION CANARY", actor="sponsor")["id"]
+    delegation.delegate_task(task, "research-agent", "sponsor", actor="sponsor")
+
+    protected = {
+        "skein.rest.get.notifications",
+        "skein.rest.get.briefing",
+        "skein.tool.get_attention",
+        "skein.mcp.briefing.read",
+    }
+
+    def deny_exact_task(request: PolicyInput):
+        if (
+            request.action in protected
+            and request.resource.type == "task"
+            and request.resource.id == str(task)
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("This task is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.unkeyed-derivative", deny_exact_task),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "sponsor"}) as client:
+        notifications = client.get("/api/notifications")
+        briefing = client.get("/api/briefing")
+
+    engine_token = set_policy_engine(PolicyEngine((deny_exact_task,)))
+    subject_token = set_policy_subject(PolicySubject("sponsor", kind="human", strong=True))
+    agent_token = set_agent_identity("agent")
+    viewer_token = set_requester_viewer(scope.Viewer("sponsor", True))
+    original_actor = mcp_server.ACTOR
+    mcp_server.ACTOR = "sponsor"
+    try:
+        stock_attention = get_attention()
+        mcp_day = mcp_server.get_my_day()
+    finally:
+        mcp_server.ACTOR = original_actor
+        reset_requester_viewer(viewer_token)
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+
+    assert notifications.status_code == 403
+    assert "ID DENIED NOTIFICATION CANARY" not in notifications.text
+    assert briefing.status_code == 200
+    assert "ID DENIED NOTIFICATION CANARY" not in briefing.text
+    assert "ID DENIED NOTIFICATION CANARY" not in stock_attention
+    assert "ID DENIED NOTIFICATION CANARY" not in mcp_day
+
+
 def test_stock_and_mcp_engagement_composites_filter_nested_resources(fresh_db, monkeypatch):
     from app import mcp_server
     from app.agents.identity import reset_agent_identity, set_agent_identity

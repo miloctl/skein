@@ -596,3 +596,67 @@ def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
     assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task_id,)) == {
         "engagement_id": regulated
     }
+
+
+def test_runner_final_policy_check_and_daily_claim_share_one_transaction(fresh_db, monkeypatch):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.extensions import PolicyDecision, PolicyEffect, PolicyEngine
+    from app.services import engagements
+
+    standard = engagements.create_engagement("Run claim standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Run claim regulated", project_class="regulated")[
+        "id"
+    ]
+    task_id = _delegated("research-agent", "sponsor")
+    work.update_task(task_id, engagement_id=standard, actor="sponsor")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    build_called = Event()
+
+    def deny_regulated(request):
+        if request.action != "skein.job.agent-run":
+            return None
+        if request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated runner work is closed.",))
+        if request.resource.type == "task" and not policy_entered.is_set():
+            policy_entered.set()
+            assert writer_attempted.wait(5)
+            sleep(0.05)
+            assert not writer_done.is_set()
+        return None
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (regulated, task_id),
+        )
+        writer_done.set()
+
+    def build(_thread, **_options):
+        assert writer_done.wait(5)
+        build_called.set()
+        return lambda _message: "current inbox policy will filter the relinked task"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", build)
+    writer = Thread(target=relink)
+    writer.start()
+    result = agent_runner.run_one(
+        "research-agent",
+        policy=PolicyEngine((deny_regulated,)),
+    )
+    writer.join(5)
+
+    assert result["ran"] is True
+    assert build_called.is_set()
+    assert writer_done.is_set()
+    assert fresh_db.query_one(
+        "SELECT 1 AS claimed FROM job_runs WHERE job = ?",
+        ("agent-run:research-agent",),
+    ) == {"claimed": 1}

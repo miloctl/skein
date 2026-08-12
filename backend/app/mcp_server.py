@@ -175,7 +175,7 @@ def get_my_day() -> str:
                 ACTOR,
                 row_filter=policy.filter_rows,
                 mixed_filter=policy.filter_resources,
-                allow_unclassified=policy.allows_all_projects(),
+                allow_unclassified=policy.allows_all_inputs(),
             )
         )
 
