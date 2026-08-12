@@ -1363,8 +1363,21 @@ without creating a machine read identity.
 The focused public, REST, policy, tool, visibility, and legacy-data tests
 passed 203 tests. A second focused matrix passed 163 tests. The complete
 backend suite passed 1,883 tests in 114.96 seconds. The complete static gate
-passed. A fresh exact-commit review must pass before scores can change.
-Chrome remains blocked.
+passed.
+
+The review of `226cd5c` then found that a workflow action inherited the strong
+human requester's scoped read viewer. The write actor type was not a safe read
+grant. Scores for `226cd5c` are void.
+
+The core now binds read authority separately from subject and write
+attribution. Only the route contribution adapter can grant a strong human
+viewer. Job, event, workflow, service, MCP, and agent-tool adapters get the
+workspace viewer even when a strong human started the operation. The public
+contract tests include a workflow action with a strong human subject and a
+private task. The query fails with the stable not-found result. All 49 public
+contract tests and the complete static gate passed after this fix. A fresh
+exact-commit review must pass before scores can change. Chrome remains
+blocked.
 
 ### Durable identity ownership remediation
 
