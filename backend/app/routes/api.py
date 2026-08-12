@@ -1029,8 +1029,13 @@ def get_briefing(
         viewer,
     )
     with db.read_transaction():
-        row_filter = None if policy.allows_all_projects() else policy.filter_rows
-        return briefing.my_day(user, viewer, row_filter)
+        return briefing.my_day(
+            user,
+            viewer,
+            policy.filter_rows,
+            policy.filter_resources,
+            policy.allows_all_projects(),
+        )
 
 
 @router.get("/attention")
@@ -1170,18 +1175,17 @@ def get_portfolio_health(
     request: Request,
     subject: PolicySubjectDep,
 ):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.portfolio.health",
+        "rest",
+        viewer,
+    )
     with db.read_transaction():
-        rows = portfolio.engagement_health(viewer)
-        contexts = policy_context.resource_contexts(
-            [("engagement", int(row["id"])) for row in rows], viewer
-        )
-        return _permitted_collection(
-            request,
-            subject,
-            rows,
-            {row_id: context for (_entity, row_id), context in contexts.items()},
-            action="skein.rest.get.portfolio.health",
-            resource_type="engagement",
+        return policy.filter_rows(
+            "engagement",
+            portfolio.engagement_health(viewer, resource_filter=policy.permits),
         )
 
 
@@ -1798,14 +1802,17 @@ def get_context_pack(
                 raise db.NotFound(f"no engagement #{engagement}")
             return {
                 "engagement": engagement,
-                "content": context_pack.build_engagement_pack(engagement, viewer),
+                "content": context_pack.build_engagement_pack(
+                    engagement,
+                    viewer,
+                    policy.permits,
+                ),
             }
-        all_projects = policy.allows_all_projects()
         return context_pack.get_pack(
             actor=user,
             crew_id=crew,
             viewer=viewer,
-            resource_filter=None if all_projects else policy.permits,
+            resource_filter=policy.permits,
         )
 
 
@@ -3129,7 +3136,18 @@ def get_engagement_brief(
             "engagement",
             engagement_id,
         )
-        return engagement_brief.brief(engagement_id, viewer)
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.engagements.brief",
+            "rest",
+            viewer,
+        )
+        return engagement_brief.brief(
+            engagement_id,
+            viewer,
+            resource_filter=policy.permits,
+        )
 
 
 @router.get("/provenance/{entity}/{entity_id}")

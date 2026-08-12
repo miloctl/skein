@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import re
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -536,7 +537,11 @@ def _exists(table: str, row_id: int) -> bool:
     )
 
 
-def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def close_out_diff(
+    engagement_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict:
     """Planned versus what happened, for an engagement born from a playbook.
 
     Returns {} when there is no snapshot. A playbook that never learns is the
@@ -559,7 +564,7 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
     # section, the first is a 404 (scope.missing gives both the same sentence)
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
-        f"SELECT visibility FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT visibility, project_class FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if not eng:
@@ -573,8 +578,23 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
     tfrag, tp = scope.visible_filter(viewer, "tasks")
     efrag, ep = scope.visible_filter(viewer, "events")
 
+    from . import policy_context
+
+    parent_context = {
+        "classification": str(eng.get("visibility") or ""),
+        "project_type": str(eng.get("project_class") or ""),
+    }
+
+    def allowed(entity: str, entity_id: int) -> bool:
+        if resource_filter is None:
+            return True
+        attributes = policy_context.existing_scoped(entity, entity_id, viewer) or parent_context
+        return resource_filter(entity, entity_id, attributes)
+
     slipped = []
     for m in plan["milestones"]:
+        if not allowed("milestone", int(m["id"])):
+            return {}
         row = db.query_one(
             f"SELECT title, due_date, completed_at FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
             (m["id"], *mp),
@@ -627,6 +647,8 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
 
     unfinished, dropped_tasks = [], []
     for t in plan["tasks"]:
+        if not allowed("task", int(t["id"])):
+            return {}
         row = db.query_one(
             f"SELECT id, title, status FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
             (t["id"], *tp),
@@ -650,17 +672,17 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
     # and a title-keyed filter reports a RENAMED planned task as new work and
     # recommends adding it to the YAML it is already in
     planned_ids = {t["id"] for t in plan["tasks"]}
-    added = [
-        r["title"]
-        for r in db.query(
-            f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 — scope.visible_filter emits only bound marks
-            f" (SELECT id FROM milestones WHERE engagement_id = ?)) AND {tfrag} ORDER BY id",
-            (engagement_id, engagement_id, *tp),
-        )
-        if r["id"] not in planned_ids
-    ]
+    added_rows = db.query(
+        f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" (SELECT id FROM milestones WHERE engagement_id = ?)) AND {tfrag} ORDER BY id",
+        (engagement_id, engagement_id, *tp),
+    )
+    added_rows = policy_context.filter_resource_rows("task", added_rows, viewer, resource_filter)
+    added = [r["title"] for r in added_rows if r["id"] not in planned_ids]
     skipped_rituals = []
     for r in plan["rituals"]:
+        if not allowed("event", int(r["id"])):
+            return {}
         if db.query_one(
             f"SELECT id FROM events WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
             (r["id"], *ep),

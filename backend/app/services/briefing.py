@@ -262,6 +262,8 @@ def my_day(
     user: str,
     viewer: scope.Viewer = scope.NOBODY,
     row_filter: Callable[[str, list[dict]], list[dict]] | None = None,
+    mixed_filter: Callable[[list[dict]], list[dict]] | None = None,
+    allow_unclassified: bool = True,
 ) -> dict:
     """`viewer`, not just `user`: these three lists are addressed to a person
     BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
@@ -460,14 +462,20 @@ def my_day(
     }
     if row_filter is not None:
         needs = result["needs_you"]
+        needs["open_questions"] = row_filter("question", needs["open_questions"])
         needs["meetings_awaiting_outcome"] = row_filter("event", needs["meetings_awaiting_outcome"])
         needs["your_blockers"] = row_filter("blocker", needs["your_blockers"])
         needs["intake_to_triage"] = row_filter("intake", needs["intake_to_triage"])
-        # These summaries carry free-form text but no durable domain key. A
-        # project policy cannot classify them after projection, so omit them
-        # from a policy-filtered composite instead of guessing from prose.
-        needs["pending_reviews"] = []
-        needs["notifications"] = []
+        if allow_unclassified:
+            if mixed_filter is not None:
+                needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
+            needs["notifications"] = row_filter("notification", needs["notifications"])
+        else:
+            # These summaries can carry free-form domain content without a
+            # durable project key. If one project is denied, text is not a
+            # safe source from which to guess its policy context.
+            needs["pending_reviews"] = []
+            needs["notifications"] = []
         result["your_work"]["tasks"] = row_filter("task", result["your_work"]["tasks"])
         result["your_work"]["due_soon"] = row_filter("task", result["your_work"]["due_soon"])
         result["team"]["recently_shipped"] = row_filter(
@@ -477,7 +485,9 @@ def my_day(
             "blocker", result["team"]["escalated_blockers"]
         )
         result["team"]["todays_events"] = row_filter("event", result["team"]["todays_events"])
-        result["team"]["recent_activity"] = []
+        result["team"]["recent_activity"] = (
+            row_filter("activity", result["team"]["recent_activity"]) if allow_unclassified else []
+        )
         filtered_attention = _attention(user, needs, today, week)
         result["attention"] = filtered_attention
         result["attention_total"] = sum(

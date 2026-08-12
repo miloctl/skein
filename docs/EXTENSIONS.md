@@ -188,6 +188,20 @@ The aggregate fails closed if policy denies one of these project domains.
 
 Delegated agent inboxes and crew context packs can remove individual tasks.
 Skein applies policy to each task before it returns or stores the content.
+
+An engagement composite applies one action to the engagement and each nested
+resource. This rule covers milestones, tasks, blockers, promises, lessons,
+decisions, notes, questions, allocations, and artifacts. A permitted task
+cannot name a denied relationship. Skein removes each denied relationship ID
+and title before it returns the task.
+
+A filtered first context-pack read does not store content that policy removed.
+If policy permits all content, Skein stores the exact approved body. It does
+not rebuild the body between the policy decision and the database write.
+
+The unattended runner checks a delegated task and sends its quiet-work notice
+in one database transaction. A concurrent project change waits until the
+notice transaction is complete.
 Scoped engagement packs, briefs, and health reports remove legacy tasks whose
 direct engagement and milestone parent disagree.
 

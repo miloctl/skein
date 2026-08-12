@@ -134,6 +134,7 @@ def engagement_health(
     *,
     name_assignees: bool = True,
     project_filter: Callable[[str], bool] | None = None,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> list[dict]:
     """R/Y/G per non-closed engagement, each signal listed as a receipt.
 
@@ -172,10 +173,15 @@ def engagement_health(
     # not WORKSPACE_ONLY: a receipt quotes the row's own title, and the exec
     # readout reaches here with NOBODY, which is the workspace tier anyway
     mfrag, mp = scope.visible_filter(viewer, "milestones")
-    for m in db.query(
+    from . import policy_context
+
+    overdue_rows = db.query(
         f"SELECT id, title, due_date, engagement_id FROM milestones WHERE {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
         (*mp, today),
+    )
+    for m in policy_context.filter_resource_rows(
+        "milestone", overdue_rows, viewer, resource_filter
     ):
         overdue_by.setdefault(m["engagement_id"], []).append(m)
     blockers_by: dict[int, list[dict]] = {}
@@ -191,6 +197,9 @@ def engagement_health(
     from . import blockers
 
     blocker_contexts = blockers.blocker_collection_policy_contexts(blocker_rows, viewer)
+    blocker_rows = policy_context.filter_resource_rows(
+        "blocker", blocker_rows, viewer, resource_filter
+    )
     for b in blocker_rows:
         if blocker_contexts.get(int(b["id"]), {}).get("relationship_conflict"):
             continue
@@ -211,7 +220,9 @@ def engagement_health(
         f" WHERE {tfrag} ORDER BY t.id",
         tuple(tp),
     )
-    for t in redact_task_relationships(consistent_task_rows(task_rows, viewer), viewer):
+    task_rows = consistent_task_rows(task_rows, viewer)
+    task_rows = policy_context.filter_resource_rows("task", task_rows, viewer, resource_filter)
+    for t in redact_task_relationships(task_rows, viewer, resource_filter):
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
             continue

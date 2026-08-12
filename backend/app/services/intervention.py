@@ -18,6 +18,7 @@ row says what is true and what to do about it, and a manager who reads the
 receipt and skips the item has used this correctly.
 """
 
+from collections.abc import Callable
 from datetime import date, timedelta
 
 from .. import db
@@ -164,7 +165,11 @@ def _finding_receipt(finding: dict) -> str:
     return ", ".join(parts) if parts else finding["message"]
 
 
-def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[dict]:
+def interventions(
+    viewer: scope.Viewer = scope.NOBODY,
+    limit: int = 12,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> list[dict]:
     """The manager's queue, most consequential first.
 
     Viewer-scoped: this composes rows that carry tiers, and a queue assembled
@@ -183,7 +188,7 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
 
     # 1. Engagement health. The receipts are already written; this adds the
     #    ordering and the action.
-    for eng in engagement_health(viewer):
+    for eng in engagement_health(viewer, resource_filter=resource_filter):
         if eng["health"] == "green":
             continue
         red = eng["health"] == "red"
@@ -408,6 +413,23 @@ def interventions(viewer: scope.Viewer = scope.NOBODY, limit: int = 12) -> list[
                 "link": f"?task={t['id']}",
             }
         )
+
+    if resource_filter is not None:
+        from . import policy_context
+
+        contexts = policy_context.resource_contexts(
+            [(str(row["entity"]), int(row["entity_id"])) for row in out],
+            viewer,
+        )
+        out = [
+            row
+            for row in out
+            if resource_filter(
+                str(row["entity"]),
+                int(row["entity_id"]),
+                contexts.get((str(row["entity"]), int(row["entity_id"])), {}),
+            )
+        ]
 
     # band, then reach, then age, then a stable tie-break. `order` is internal
     # and never rendered: a number beside a row invites the reader to argue
