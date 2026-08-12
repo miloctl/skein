@@ -4759,7 +4759,7 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
         set_requester_viewer,
     )
     from app.extensions.policy import reset_policy_subject, set_policy_subject
-    from app.services import delegation, mentions, review, scope, users, work
+    from app.services import blockers, delegation, mentions, review, scope, users, work
     from app.tools.portfolio import get_attention, my_agent_inbox
 
     users.ensure_user("sponsor")
@@ -4769,6 +4769,22 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     mentions.scan("task", task, "@research-agent", actor="sponsor")
     users.ensure_agent_identity("mcp-reader", owner="mcp")
     mentions.scan("task", task, "@mcp-reader", actor="sponsor")
+    blocker = blockers.raise_blocker("Shared resolved dependency", actor="sponsor")["id"]
+    waiting_tasks = {
+        work.create_task(
+            "DENIED WAITING TASK NOTIFICATION",
+            assignee=assignee,
+            actor="sponsor",
+        )["id"]
+        for assignee in ("sponsor", "research-agent", "mcp-reader")
+    }
+    for waiting_task in waiting_tasks:
+        work.update_task(
+            waiting_task,
+            waiting_on=f"blocker:{blocker}",
+            actor="sponsor",
+        )
+    blockers.resolve_blocker(blocker, actor="sponsor")
     from app.services.notifications import notify
 
     notify("sponsor", "LEGACY UNCLASSIFIED NOTIFICATION")
@@ -4789,12 +4805,13 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
         "skein.tool.my_agent_inbox",
         "skein.mcp.inbox.read",
     }
+    denied_task_ids = {str(task), *(str(item) for item in waiting_tasks)}
 
     def deny_exact_task(request: PolicyInput):
         if (
             request.action in protected
             and request.resource.type == "task"
-            and request.resource.id == str(task)
+            and request.resource.id in denied_task_ids
         ):
             return PolicyDecision(PolicyEffect.DENY, ("This task is closed.",))
         return None
@@ -4832,13 +4849,17 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
 
     assert notifications.status_code == 200
     assert "ID DENIED NOTIFICATION CANARY" not in notifications.text
+    assert "DENIED WAITING TASK NOTIFICATION" not in notifications.text
     assert "LEGACY UNCLASSIFIED NOTIFICATION" not in notifications.text
     assert briefing.status_code == 200
     assert "ID DENIED NOTIFICATION CANARY" not in briefing.text
+    assert "DENIED WAITING TASK NOTIFICATION" not in briefing.text
     assert "UNCLASSIFIED CREATE REVIEW" not in briefing.text
     assert "ID DENIED NOTIFICATION CANARY" not in stock_attention
+    assert "DENIED WAITING TASK NOTIFICATION" not in stock_attention
     assert "UNCLASSIFIED CREATE REVIEW" not in stock_attention
     assert "ID DENIED NOTIFICATION CANARY" not in mcp_day
+    assert "DENIED WAITING TASK NOTIFICATION" not in mcp_day
     assert "UNCLASSIFIED CREATE REVIEW" not in mcp_day
     for body in (briefing.text, stock_attention, mcp_day, rest_inbox.text, stock_inbox, mcp_inbox):
         assert "policy_context" not in body
@@ -4846,6 +4867,7 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     for response_text in (rest_inbox.text, stock_inbox, mcp_inbox):
         assert f"task #{task}" not in response_text
         assert "ID DENIED NOTIFICATION CANARY" not in response_text
+        assert "DENIED WAITING TASK NOTIFICATION" not in response_text
 
 
 def test_extension_review_summary_checks_saved_target_current_state(fresh_db):
