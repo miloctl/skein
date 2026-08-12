@@ -96,7 +96,19 @@ def what_if_staffing(request_id: int, people: str, percent: int = 50) -> str:
     """
     names = [p.strip() for p in people.split(",") if p.strip()]
     try:
-        return json.dumps(portfolio.what_if(request_id, names, percent))
+        policy = projection_policy.ProjectionPolicy(
+            current_policy_engine(),
+            current_policy_subject(),
+            "skein.tool.what_if_staffing",
+            "agent_tool",
+            scope.NOBODY,
+            agent=agent_identity(),
+            tool="what_if_staffing",
+        )
+        with db.read_transaction():
+            if not policy.allows_all_projects():
+                return json.dumps({"error": "workplace policy denied this composite read"})
+            return json.dumps(portfolio.what_if(request_id, names, percent))
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 

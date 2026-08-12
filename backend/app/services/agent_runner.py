@@ -81,13 +81,31 @@ def _release(agent: str) -> None:
     )
 
 
-def _due(agent: str) -> list[dict]:
+def _due(agent: str, policy: PolicyEngine | None = None) -> list[dict]:
     """The agent's open delegated tasks. The inbox's own view, so the runner
     and the agent agree about what is outstanding."""
-    return delegation.agent_inbox(agent)["delegated_tasks"]
+    from ..extensions.policy import PolicySubject, current_policy_engine
+    from . import projection_policy, scope
+
+    task_policy = projection_policy.ProjectionPolicy(
+        policy or current_policy_engine(),
+        PolicySubject(agent, kind="agent", strong=True, source="agent-runner"),
+        "skein.job.agent-run",
+        "background",
+        scope.NOBODY,
+        agent=agent,
+        tool="skein.core.agent-run",
+    )
+    with db.read_transaction():
+        return delegation.agent_inbox(
+            agent,
+            task_filter=lambda task_id, attributes: task_policy.permits(
+                "task", task_id, attributes
+            ),
+        )["delegated_tasks"]
 
 
-def sweep() -> dict:
+def sweep(policy: PolicyEngine | None = None) -> dict:
     """Deterministic: tell each sponsor about delegated work that has gone
     QUIET — no worklog note for QUIET_DAYS.
 
@@ -109,7 +127,7 @@ def sweep() -> dict:
     cutoff = db.local_midnight_utc(db.today() - timedelta(days=QUIET_DAYS))
     touched = 0
     for agent in config.AGENT_RUNNER:
-        for task in _due(agent):
+        for task in _due(agent, policy):
             if not task["sponsor"]:
                 continue
             notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
@@ -192,7 +210,7 @@ def run_one(
         return _refused(agent, "no model provider — sweep only")
     if delegation.authority_level(agent, "task") == "forbidden":
         return _refused(agent, "forbidden on tasks")
-    if not _due(agent):
+    if not _due(agent, policy):
         return _refused(agent, "nothing delegated")
     try:
         usage.assert_within_budget(agent)
@@ -330,7 +348,7 @@ def run(
     """The scheduled entry point: the deterministic sweep, then one bounded
     turn per allowlisted agent. The sweep runs FIRST and unconditionally, so
     a sponsor still hears about quiet work on a day every run refuses."""
-    swept = sweep()
+    swept = sweep(policy)
     runs = [
         run_one(a, actor=actor, extensions=extensions, policy=policy) for a in config.AGENT_RUNNER
     ]
