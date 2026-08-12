@@ -83,6 +83,8 @@ class ProjectionPolicy:
 
     def allows_all_projects(self) -> bool:
         """Fail an opaque aggregate if it cannot remove a denied project safely."""
+        if policy_context.has_visible_relationship_conflict(self.viewer):
+            return False
         return all(
             self.permits(resource_type, resource_id, attributes)
             for resource_id, attributes in policy_context.visible_project_contexts(self.viewer)

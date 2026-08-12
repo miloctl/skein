@@ -643,6 +643,53 @@ def visible_project_contexts(viewer: scope.Viewer) -> list[tuple[int, dict[str, 
     return result
 
 
+def has_visible_relationship_conflict(viewer: scope.Viewer) -> bool:
+    """Detect visible legacy rows whose project boundary is not trustworthy.
+
+    Opaque reports cannot remove one unsafe row after they aggregate it. A
+    workspace child can survive from an older core with a hidden, missing, or
+    conflicting parent. Scan those already-visible children before an opaque
+    projection runs, and fail the whole projection closed.
+    """
+    from . import blockers, work
+
+    task_visible, task_params = scope.visible_filter(viewer, "tasks", "task")
+    task_rows = db.query(
+        f"SELECT task.* FROM tasks task WHERE {task_visible}",  # noqa: S608 -- scope emits bound marks
+        tuple(task_params),
+    )
+    if any(
+        context.get("relationship_conflict")
+        for context in work.task_collection_policy_contexts(task_rows, viewer).values()
+    ):
+        return True
+
+    blocker_visible, blocker_params = scope.visible_filter(viewer, "blockers", "blocker")
+    blocker_rows = db.query(
+        f"SELECT blocker.* FROM blockers blocker WHERE {blocker_visible}",  # noqa: S608 -- scope emits bound marks
+        tuple(blocker_params),
+    )
+    if any(
+        context.get("relationship_conflict")
+        for context in blockers.blocker_collection_policy_contexts(blocker_rows, viewer).values()
+    ):
+        return True
+
+    for entity in ("milestone", "event", "promise", "memory", "lesson", "artifact"):
+        table = _TABLES[entity][0]
+        visible, params = scope.visible_filter(viewer, table, "value")
+        rows = db.query(
+            f"SELECT value.* FROM {table} value WHERE {visible}",  # noqa: S608 -- closed table map and scope marks
+            tuple(params),
+        )
+        if any(
+            context.get("relationship_conflict")
+            for context in engagement_linked_collection_contexts(entity, rows, viewer).values()
+        ):
+            return True
+    return False
+
+
 def _target_engagement_scoped(
     entity: str,
     entity_id: int,
