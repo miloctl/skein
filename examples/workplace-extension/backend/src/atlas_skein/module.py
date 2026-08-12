@@ -141,11 +141,13 @@ def atlas_module(
                 "atlas.workplace.identity",
                 atlas_identity,
                 resolver=atlas_directory,
+                resolves_groups=True,
             ),
             IdentityContribution(
                 "atlas.workplace.profile",
                 lambda *_args: {},
                 resolver=atlas_profile,
+                resolves_groups=False,
             ),
         ),
         service_identities=(

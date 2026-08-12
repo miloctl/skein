@@ -28,7 +28,7 @@ def atlas_directory(name: str):
 
 
 def atlas_profile(_name: str):
-    """Return profile state through the legacy two-resolver API contract."""
+    """Return active profile state without owning directory groups."""
     return {"active": True}
 
 
