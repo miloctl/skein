@@ -9,8 +9,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
-from app.extensions import ExtensionStore
-from app.public import CommandContext, CreateTaskCommand, UpdateTaskCommand, WorkItems
+from app.extensions import EventExecutionContext, ExtensionStore
+from app.public import (
+    CommandContext,
+    CreateTaskCommand,
+    DomainEvent,
+    UpdateTaskCommand,
+    WorkItems,
+)
 
 
 @dataclass(frozen=True)
@@ -72,7 +78,12 @@ class AtlasHttpClient:
         self.token = token
         self.timeout_seconds = timeout_seconds
 
-    def _request(self, method: str, path: str, payload: dict | None = None):
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> object:
         body = None if payload is None else json.dumps(payload).encode()
         request = Request(  # noqa: S310 -- constructor receives the validated HTTP(S) endpoint
             f"{self.endpoint}{path}",
@@ -92,7 +103,8 @@ class AtlasHttpClient:
         if not raw:
             return None
         try:
-            return json.loads(raw)
+            parsed: object = json.loads(raw)
+            return parsed
         except (TypeError, ValueError) as exc:
             raise RuntimeError("The Atlas API returned invalid JSON.") from exc
 
@@ -136,6 +148,17 @@ class AtlasIntegration:
         self.store = store
 
     def sync(
+        self,
+        work: WorkItems,
+        context: CommandContext,
+    ) -> dict[str, int]:
+        # The route and scheduled job have separate core receipt namespaces.
+        # Serialize their shared business key in the extension-owned store so
+        # both entry points cannot create a different task for one Atlas item.
+        with self.store.transaction():
+            return self._sync_locked(work, context)
+
+    def _sync_locked(
         self,
         work: WorkItems,
         context: CommandContext,
@@ -200,8 +223,8 @@ class AtlasIntegration:
 
     def deliver_task_event(
         self,
-        event,
-        context,
+        event: DomainEvent,
+        context: EventExecutionContext,
     ) -> None:
         link = self.store.query_one(
             "SELECT external_id FROM work_links WHERE skein_task_id = ?",
@@ -216,4 +239,6 @@ class AtlasIntegration:
     def metrics(self) -> dict[str, int]:
         links = self.store.query_one("SELECT COUNT(*) AS count FROM work_links")
         runs = self.store.query_one("SELECT COUNT(*) AS count FROM sync_runs")
+        if links is None or runs is None:
+            raise RuntimeError("The Atlas extension store is not initialized.")
         return {"linked_items": int(links["count"]), "sync_runs": int(runs["count"])}

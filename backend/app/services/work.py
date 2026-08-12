@@ -542,6 +542,63 @@ def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]
     }
 
 
+def task_collection_policy_contexts(
+    tasks: list[dict], viewer: scope.Viewer
+) -> dict[int, dict[str, str]]:
+    """Resolve policy metadata for one visible task list with two batch reads."""
+    engagement_ids = sorted({int(task.get("engagement_id") or 0) for task in tasks} - {0})
+    milestone_ids = sorted({int(task.get("milestone_id") or 0) for task in tasks} - {0})
+    engagements: dict[int, str] = {}
+    if engagement_ids:
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        marks = ",".join("?" for _ in engagement_ids)
+        rows = db.query(
+            f"SELECT engagement.id, engagement.project_class FROM engagements engagement"  # noqa: S608 -- marks and scope are controlled
+            f" WHERE engagement.id IN ({marks}) AND {visible}",
+            (*engagement_ids, *params),
+        )
+        engagements = {int(row["id"]): str(row.get("project_class") or "") for row in rows}
+    milestones: dict[int, tuple[int, str]] = {}
+    if milestone_ids:
+        milestone_visible, milestone_params = scope.visible_filter(
+            viewer, "milestones", "milestone"
+        )
+        engagement_visible, engagement_params = scope.visible_filter(
+            viewer, "engagements", "engagement"
+        )
+        marks = ",".join("?" for _ in milestone_ids)
+        rows = db.query(
+            f"SELECT milestone.id, milestone.engagement_id,"  # noqa: S608 -- marks and scope are controlled
+            " engagement.project_class FROM milestones milestone"
+            " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
+            f" AND {engagement_visible} WHERE milestone.id IN ({marks})"
+            f" AND {milestone_visible}",
+            (*engagement_params, *milestone_ids, *milestone_params),
+        )
+        milestones = {
+            int(row["id"]): (
+                int(row.get("engagement_id") or 0),
+                str(row.get("project_class") or ""),
+            )
+            for row in rows
+        }
+    result: dict[int, dict[str, str]] = {}
+    for task in tasks:
+        task_id = int(task["id"])
+        engagement_id = int(task.get("engagement_id") or 0)
+        milestone_id = int(task.get("milestone_id") or 0)
+        milestone_engagement, milestone_project = milestones.get(milestone_id, (0, ""))
+        attributes = {
+            "classification": str(task.get("visibility") or ""),
+            "project_type": engagements.get(engagement_id, "") or milestone_project,
+        }
+        if engagement_id and milestone_engagement and engagement_id != milestone_engagement:
+            attributes["project_type"] = ""
+            attributes["relationship_conflict"] = "true"
+        result[task_id] = attributes
+    return result
+
+
 # portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
 WAITING_ON_TYPES = ("task", "blocker", "promise")

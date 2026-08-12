@@ -291,6 +291,80 @@ def test_concurrent_sync_uses_operation_scoped_idempotency_keys(fresh_db, tmp_pa
     ]
 
 
+def test_route_and_job_share_one_extension_owned_sync_claim(
+    fresh_db,
+    tmp_path,
+    monkeypatch,
+):
+    """Different contribution receipts cannot duplicate one Atlas business key."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app import oidc
+    from app.public.work import _bind_execution_context
+
+    monkeypatch.setattr(oidc, "validate", lambda token: {"token": token})
+    monkeypatch.setattr(
+        oidc,
+        "principal",
+        lambda _claims: ("mira", ["atlas-integrations"]),
+    )
+    atlas_client = MemoryAtlasClient((AtlasItem("ATLAS-RACE", "One task"),))
+    store_path = tmp_path / "atlas-extension.db"
+    module = atlas_module(AtlasSettings(store_path), atlas_client)
+    settings = replace(
+        AppSettings.from_config(),
+        scheduler_enabled=False,
+        auth_mode="oidc",
+        auth_error="",
+        api_token="",
+        docs_enabled=False,
+    )
+    app = create_app(settings, (module,))
+    with TestClient(
+        app,
+        headers={"Authorization": "Bearer integrator-token"},
+    ) as http:
+        registry = app.state.skein_registry
+        work_items = WorkItems(registry.policy_engine)
+        subject = registry.service_subject("atlas-sync")
+        raw_job_context = JobExecutionContext(
+            registry.policy_engine,
+            work_items,
+            subject,
+            "atlas.workplace.sync:route-job-race",
+            "atlas.workplace.sync",
+        )
+        job_context = _bind_execution_context(
+            work_items,
+            raw_job_context,
+            subject=subject,
+            namespace="atlas.workplace.sync",
+            receipt_namespace="job:atlas.workplace.sync",
+            correlation_id="atlas.workplace.sync:route-job-race",
+        )
+        job = next(item for item in registry.jobs if item.name == "atlas.workplace.sync")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            route_future = executor.submit(
+                http.post,
+                "/api/extensions/atlas.workplace/sync",
+                json={"full": False},
+            )
+            job_future = executor.submit(job.handler, job_context)
+            route_response = route_future.result(timeout=10)
+            job_result = job_future.result(timeout=10)
+
+    assert route_response.status_code == 200, route_response.text
+    results = (route_response.json(), job_result)
+    assert sum(int(result["created"]) for result in results) == 1
+    assert sum(int(result["updated"]) for result in results) == 0
+    assert fresh_db.query_one("SELECT COUNT(*) AS count FROM tasks WHERE title = 'One task'") == {
+        "count": 1
+    }
+    assert ExtensionStore(store_path).query_one(
+        "SELECT COUNT(*) AS count FROM work_links WHERE external_id = 'ATLAS-RACE'"
+    ) == {"count": 1}
+
+
 def test_http_adapter_uses_the_deployment_secret(monkeypatch):
     from atlas_skein import integration
 

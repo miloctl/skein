@@ -121,8 +121,31 @@ def get_milestones(user: CurrentUser, viewer: ViewerDep, project: str = "", stat
 
 
 @router.get("/tasks")
-def get_tasks(user: CurrentUser, viewer: ViewerDep):
-    return work.list_tasks_joined(viewer)
+def get_tasks(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    """Return only rows that the composed workplace policy permits."""
+    with db.read_transaction():
+        rows = work.list_tasks_joined(viewer)
+        contexts = work.task_collection_policy_contexts(rows, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.tasks",
+                "task",
+                resource_id=str(row["id"]),
+                project_type=contexts[int(row["id"])]["project_type"],
+                classification=contexts[int(row["id"])]["classification"],
+                attributes=contexts[int(row["id"])],
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/tasks/{task_id}")
@@ -1679,9 +1702,35 @@ class BlockerIn(BaseModel):
 
 
 @router.post("/blockers")
-def post_blocker(body: BlockerIn, user: CurrentUser):
+def post_blocker(
+    body: BlockerIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return blockers.raise_blocker(**body.model_dump(), actor=user)
+    try:
+        with db.transaction():
+            domain = blockers.create_policy_context(
+                body.task_id,
+                body.visibility,
+                body.crew_id,
+                actor=user,
+            )
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.post.blockers",
+                    "blocker",
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return blockers.raise_blocker(**body.model_dump(), actor=user)
+    except (db.NotFound, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 class ResolveIn(BaseModel):
@@ -1695,9 +1744,31 @@ class BlockerEditIn(BaseModel):
 
 
 @router.patch("/blockers/{blocker_id}")
-def patch_blocker(blocker_id: int, body: BlockerEditIn, user: CurrentUser):
+def patch_blocker(
+    blocker_id: int,
+    body: BlockerEditIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     try:
-        return blockers.edit_blocker(blocker_id, body.title, body.detail, body.owner, actor=user)
+        with db.transaction():
+            domain = blockers.existing_policy_context(blocker_id, actor=user)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.patch.blockers",
+                    "blocker",
+                    resource_id=str(blocker_id),
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return blockers.edit_blocker(
+                blocker_id, body.title, body.detail, body.owner, actor=user
+            )
     except db.NotFound:
         raise
     except ValueError as e:
@@ -1705,8 +1776,28 @@ def patch_blocker(blocker_id: int, body: BlockerEditIn, user: CurrentUser):
 
 
 @router.post("/blockers/{blocker_id}/resolve")
-def post_resolve_blocker(blocker_id: int, body: ResolveIn, user: CurrentUser):
-    return blockers.resolve_blocker(blocker_id, body.resolution, actor=user)
+def post_resolve_blocker(
+    blocker_id: int,
+    body: ResolveIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.transaction():
+        domain = blockers.existing_policy_context(blocker_id, actor=user)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.blockers.resolve",
+                "blocker",
+                resource_id=str(blocker_id),
+                project_type=domain["project_type"],
+                classification=domain["classification"],
+                attributes=domain,
+            )
+        )
+        return blockers.resolve_blocker(blocker_id, body.resolution, actor=user)
 
 
 class IntakeIn(BaseModel):

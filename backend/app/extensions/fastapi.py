@@ -25,13 +25,16 @@ if TYPE_CHECKING:
     from .contracts import RouteContribution
 
 
-_TASK_HANDLER_POLICY = frozenset(
+_HANDLER_POLICY = frozenset(
     {
         ("GET", "/api/tasks/{task_id}"),
         ("GET", "/api/tasks/{task_id}/worklog"),
         ("POST", "/api/tasks"),
         ("POST", "/api/tasks/{task_id}/delegate"),
         ("PATCH", "/api/tasks/{task_id}"),
+        ("POST", "/api/blockers"),
+        ("PATCH", "/api/blockers/{blocker_id}"),
+        ("POST", "/api/blockers/{blocker_id}/resolve"),
     }
 )
 
@@ -278,7 +281,7 @@ async def enforce_mutation_policy(
     # refusal.
     route = request.scope.get("route")
     template = str(getattr(route, "path", request.url.path))
-    if (request.method, template) in _TASK_HANDLER_POLICY:
+    if (request.method, template) in _HANDLER_POLICY:
         domain = {}
     else:
         viewer = (

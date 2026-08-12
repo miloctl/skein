@@ -442,7 +442,9 @@ PY
 "$python" -m mypy \
     --python-executable "$tmp/venv/bin/python" \
     --strict \
+    --follow-imports=silent \
     --no-incremental \
+    "$tmp/extension-source/backend/src/atlas_skein" \
     "$tmp/extension-source/backend/typecheck_contract.py"
 
 (

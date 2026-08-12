@@ -4,11 +4,62 @@ sweep flips open blockers past their escalate_after_hours to 'escalated'."""
 from datetime import UTC, datetime, timedelta
 
 from .. import db
-from . import scope
+from . import scope, work
 from .search import index_record
 
 IMPACTS = ("low", "medium", "high", "critical")
 DEFAULT_ESCALATION_HOURS = {"low": 72, "medium": 24, "high": 8, "critical": 2}
+
+
+def create_policy_context(
+    task_id: int,
+    visibility: str,
+    crew_id: int,
+    *,
+    actor: str,
+) -> dict[str, str]:
+    """Resolve one proposed blocker and its task in the writer's scope."""
+    tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+    result = {"classification": tier, "crew_id": str(cid or ""), "project_type": ""}
+    if not task_id:
+        return result
+    viewer = scope.Viewer.for_actor(actor)
+    task = work.get_task(task_id, viewer)
+    scope.assert_relationship_contains(
+        str(task["visibility"]),
+        task["crew_id"],
+        tier,
+        cid,
+        child_label="blocker",
+    )
+    result.update(work.task_read_policy_context(task, viewer))
+    result["classification"] = tier
+    result["crew_id"] = str(cid or "")
+    return result
+
+
+def existing_policy_context(blocker_id: int, *, actor: str) -> dict[str, str]:
+    """Resolve one editable blocker and its authoritative linked project."""
+    row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
+    if row is None:
+        raise scope.missing("blockers", blocker_id)
+    scope.assert_editable("blockers", row, actor, verb="update")
+    result = {
+        "classification": str(row["visibility"]),
+        "crew_id": str(row["crew_id"] or ""),
+        "project_type": "",
+    }
+    task_id = int(row["task_id"] or 0)
+    if task_id:
+        from . import policy_context
+
+        task_context = policy_context.existing("task", task_id)
+        if task_context.get("relationship_conflict"):
+            raise ValueError("the linked task has conflicting project relationships")
+        result.update(task_context)
+        result["classification"] = str(row["visibility"])
+        result["crew_id"] = str(row["crew_id"] or "")
+    return result
 
 
 def raise_blocker(

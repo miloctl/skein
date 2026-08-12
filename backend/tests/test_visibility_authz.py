@@ -603,6 +603,11 @@ _UNFILTERED_READS = {
         " task policy decision; conflicting relationships fail closed and no"
         " row data is returned to the caller"
     ),
+    "policy_context.py::_blocker_context": (
+        "resolves only a blocker's classification and linked task id for the"
+        " durable review revalidation path. Actor-facing REST and agent gates"
+        " perform their own visible or editable probe before policy"
+    ),
     "policy_context.py::_engagement_project_type": (
         "reads only the project class for one exact relationship target. The"
         " value goes only to policy evaluation and can only restrict the call"

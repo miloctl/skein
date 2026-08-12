@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any
+from typing import Annotated, Any
 from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -147,17 +147,17 @@ def _bind_execution_context[ExecutionContextT](
 class CreateTaskCommand(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    title: str = Field(max_length=work.TITLE_LEN)
-    description: str = Field("", max_length=work.DESCRIPTION_LEN)
+    title: Annotated[str, Field(max_length=work.TITLE_LEN)]
+    description: Annotated[str, Field(max_length=work.DESCRIPTION_LEN)] = ""
     milestone_id: int = 0
     engagement_id: int = 0
-    assignee: str = Field("", max_length=64)
-    priority: str = Field("medium", max_length=10)
-    due_date: str = Field("", max_length=10)
+    assignee: Annotated[str, Field(max_length=64)] = ""
+    priority: Annotated[str, Field(max_length=10)] = "medium"
+    due_date: Annotated[str, Field(max_length=10)] = ""
     visibility: str = scope.WORKSPACE
     crew_id: int = 0
     status: str = "todo"
-    idempotency_key: str = Field("", max_length=200)
+    idempotency_key: Annotated[str, Field(max_length=200)] = ""
 
 
 class UpdateTaskCommand(BaseModel):
@@ -168,8 +168,8 @@ class UpdateTaskCommand(BaseModel):
     assignee: str | None = None
     priority: str | None = None
     due_date: str | None = None
-    description: str | None = Field(None, max_length=work.DESCRIPTION_LEN)
-    title: str | None = Field(None, max_length=work.TITLE_LEN)
+    description: Annotated[str | None, Field(max_length=work.DESCRIPTION_LEN)] = None
+    title: Annotated[str | None, Field(max_length=work.TITLE_LEN)] = None
     committed_week: str | None = None
     waiting_on: str | None = None
     milestone_id: int | None = None

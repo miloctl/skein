@@ -1881,3 +1881,51 @@ Final pre-review verification:
 - Deployment rendering was not repeated because `kubectl` is unavailable.
 
 A fresh four-role review follows the milestone commit. Chrome remains blocked.
+
+### Remediation after the `dd4b6a0` review
+
+The fresh review rejected `dd4b6a0`. The conservative scores were 8.0 for
+modularity, 7.0 for workplace extensibility, and 7.4 for upgradeability. These
+scores are void after remediation.
+
+The review found five valid defects:
+
+- Extension API 1.0 removed two workflow imports that the prior compatible
+  release exported.
+- Concrete typed tool and workflow handlers failed strict consumer type checks.
+- Blocker policy did not resolve the project of its linked task.
+- Task collection reads applied policy once to the collection, not to each row.
+- The Atlas route and job could create two tasks for one external item.
+
+The branch now keeps the API 1.0 workflow imports. A caller-created workflow
+context still has no execution authority. Generic contribution types bind each
+handler to its input and output models. The real Atlas source passes strict
+mypy against the installed wheel. Pydantic command defaults also type-check
+without a plugin.
+
+Blocker create, edit, resolve, agent, and review paths now resolve the linked
+task project. REST and stock-agent task lists evaluate each visible task with
+one batched project-context lookup. Denied and review-required rows do not
+leave the backend.
+
+The extension store now supplies a cross-thread and cross-process SQLite
+transaction. Atlas uses it around one complete synchronization. The route and
+job therefore share one extension-owned business-key boundary without sharing
+unrelated core receipt namespaces.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,912 passed in 117.09 seconds |
+| Complete static gate | Passed |
+| Frontend tests | 230 passed in 45 files |
+| Frontend production build | Passed after the configured font download |
+| Installed backend extension rehearsal | Passed; unchanged Atlas wheel, distinct compatible cores, and strict type check of six Atlas source files |
+| Frontend artifact rehearsal | Passed; unchanged Atlas package and distinct compatible hosts |
+| Base-to-feature migration rehearsal | Passed; schemas matched and the activity chain was valid through sequence 7 |
+| Deployment render | Blocked because `kubectl` is unavailable |
+| Derivative image rehearsal | Blocked because Docker is unavailable in WSL |
+
+The next step is a clean commit and a new four-role review. Chrome validation
+remains blocked until that review accepts the exact commit.

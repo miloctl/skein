@@ -475,12 +475,12 @@ def test_workplace_policy_also_narrows_the_existing_agent_gate(fresh_db):
     assert "forbidden" in result["error"]
 
 
-def test_agent_policy_uses_persisted_classification_for_non_task_entities(fresh_db):
+def test_agent_policy_does_not_inspect_an_unreadable_private_entity(fresh_db):
     from app.services import blockers
 
     blocker = blockers.raise_blocker(
         "private blocker",
-        actor="mira",
+        actor="agent",
         visibility="private",
     )
 
@@ -512,7 +512,7 @@ def test_agent_policy_uses_persisted_classification_for_non_task_entities(fresh_
         )
     finally:
         reset_policy_engine(token)
-    assert "forbidden" in result["error"]
+    assert result["error"] == f"no blocker #{blocker['id']}"
 
 
 def test_capability_endpoint_uses_the_composed_identity_and_policy(fresh_db):
@@ -855,6 +855,7 @@ def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
         engagement_id=engagement["id"],
         actor="manager",
     )
+    standard = work.create_task("Standard task", actor="manager")
 
     def deny_regulated_read(request: PolicyInput):
         if (
@@ -879,6 +880,143 @@ def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
     assert response.status_code == 403
     assert response.json()["code"] == "POLICY_DENIED"
     assert listing.status_code == 200
+    assert [row["id"] for row in listing.json()] == [standard["id"]]
+
+
+def test_blocker_policy_uses_the_linked_task_project_for_rest_and_agent(fresh_db):
+    from app.services import blockers, engagements, work
+
+    engagement = engagements.create_engagement(
+        "Regulated blockers",
+        project_class="regulated",
+        actor="manager",
+    )
+    task = work.create_task(
+        "Regulated dependency",
+        engagement_id=engagement["id"],
+        actor="manager",
+    )
+
+    def deny_regulated_blocker(request: PolicyInput):
+        if request.resource.type in {"blocker", "blocker_edit", "blockers"} and (
+            request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("regulated blockers are paused",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.blockers", deny_regulated_blocker),),
+    )
+    app = create_app(modules=(module,))
+    with TestClient(app, headers={"X-User": "manager"}) as client:
+        response = client.post(
+            "/api/blockers",
+            json={"title": "must not land", "task_id": task["id"]},
+        )
+    assert response.status_code == 403
+    assert response.json()["code"] == "POLICY_DENIED"
+    assert fresh_db.query_one("SELECT id FROM blockers WHERE title = 'must not land'") is None
+
+    registry = ExtensionRegistry.build((module,))
+    token = set_policy_engine(registry.policy_engine)
+    try:
+        result = json.loads(
+            gated_write(
+                "blocker",
+                "create",
+                {"title": "agent blocker", "task_id": task["id"]},
+                lambda: pytest.fail("regulated blocker bypassed policy"),
+                actor="agent",
+            )
+        )
+    finally:
+        reset_policy_engine(token)
+    assert "forbidden" in result["error"]
+
+    existing = blockers.raise_blocker(
+        "existing regulated blocker",
+        task_id=task["id"],
+        actor="manager",
+    )
+    with TestClient(app, headers={"X-User": "manager"}) as client:
+        patched = client.patch(
+            f"/api/blockers/{existing['id']}",
+            json={"title": "must not change"},
+        )
+        resolved = client.post(
+            f"/api/blockers/{existing['id']}/resolve",
+            json={"resolution": "must not settle"},
+        )
+    assert patched.status_code == resolved.status_code == 403
+    stored = fresh_db.query_one(
+        "SELECT title, status FROM blockers WHERE id = ?", (existing["id"],)
+    )
+    assert stored == {"title": "existing regulated blocker", "status": "open"}
+
+    token = set_policy_engine(registry.policy_engine)
+    try:
+        agent_edit = json.loads(
+            gated_write(
+                "blocker_edit",
+                "update",
+                {"title": "agent must not change"},
+                lambda: pytest.fail("regulated blocker edit bypassed policy"),
+                entity_id=existing["id"],
+                actor="agent",
+            )
+        )
+    finally:
+        reset_policy_engine(token)
+    assert "forbidden" in agent_edit["error"]
+
+
+def test_stock_task_list_filters_each_row_through_workplace_policy(fresh_db):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import engagements, work
+    from app.tools.work import list_tasks as tool_list_tasks
+
+    engagement = engagements.create_engagement(
+        "Regulated agent reads",
+        project_class="regulated",
+        actor="manager",
+    )
+    hidden = work.create_task("Regulated", engagement_id=engagement["id"], actor="manager")
+    visible = work.create_task("Standard", actor="manager")
+
+    def deny_regulated(request: PolicyInput):
+        if (
+            request.action == "skein.tool.list_tasks"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("regulated task reads are paused",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="acme.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("acme.workplace.agent-read", deny_regulated),),
+            ),
+        )
+    )
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        rows = json.loads(tool_list_tasks())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert [row["id"] for row in rows] == [visible["id"]]
+    assert hidden["id"] not in {row["id"] for row in rows}
 
 
 @pytest.mark.parametrize("project_class", ["regulated", "standard"])
