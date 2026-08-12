@@ -167,7 +167,12 @@ def _gated_write_locked(
                     actor=actor,
                 )
         else:
-            attributes = domain_policy.for_change(entity, entity_id, payload)
+            attributes = domain_policy.for_change(
+                entity,
+                entity_id,
+                payload,
+                actor=actor,
+            )
     except (db.NotFound, PermissionError, ValueError) as exc:
         receipts.record("failed", entity, str(exc), actor=actor)
         return json.dumps({"error": str(exc)})

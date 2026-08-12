@@ -1885,3 +1885,51 @@ Verification after this remediation:
 | Complete backend suite | 1,928 passed in 114.58 seconds |
 | Complete static gate | Passed |
 | Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+
+### Review of `70de207` and current remediation
+
+The independent review rejected `70de207`. The lowest fresh reviewer scores
+were 8.0 for modularity, 7.0 for workplace extensibility, and 8.0 for
+upgradeability. These scores are void after remediation.
+
+The review found one systemic policy family. Project-aware rules did not cover
+all composite reads. Some legacy child rows also lost their hidden parent
+before policy evaluation. The resource inventory and transaction boundary
+were incomplete on some write paths.
+
+The current branch adds one projection policy service. The following surfaces
+now use the same resource-context contract:
+
+- Core REST collection and composite reads
+- Stock model-facing reads
+- Inbound MCP reads
+- Deterministic chat commands
+- Agent briefing and search context
+
+Row-shaped results use per-resource filtering. Opaque aggregates fail closed
+if a denied project can affect the result.
+
+The policy context map now includes delegation, lessons, allocations, and
+artifacts. Hidden, missing, and conflicting legacy parents give one fail-closed
+result. This result does not expose the parent ID or project class.
+
+REST policy and local mutation now share one SQLite write transaction for the
+generic domain routes. Specialized stock-tool and MCP writes use the same
+transaction rule. Coordinated tests prove that a concurrent relink waits until
+the authorized write commits.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused policy, composition, core-tool, and public-contract matrix | 250 passed |
+| Broader cross-surface regression matrix | 348 passed |
+| Complete backend suite | 1,947 passed in 112.64 seconds |
+| Complete static gate | Passed |
+| Frontend tests | 230 passed in 45 files |
+| Frontend production build | Passed |
+| Base-to-feature schema and activity rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+| Installed backend artifact and upgrade rehearsal | Passed; one unchanged Atlas wheel ran on distinct 0.2.0 and 0.2.1 core builds |
+
+These results do not change the final score. A fresh independent review must
+approve one clean exact commit. Chrome validation starts after that gate.

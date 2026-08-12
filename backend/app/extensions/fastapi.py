@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import Depends, Header, Request
 from fastapi.routing import APIRoute
 
+from .. import db
 from ..public.errors import PublicError
 from ..routes.deps import CurrentUser
 from .policy import (
@@ -35,6 +36,35 @@ _HANDLER_POLICY = frozenset(
         ("POST", "/api/blockers"),
         ("PATCH", "/api/blockers/{blocker_id}"),
         ("POST", "/api/blockers/{blocker_id}/resolve"),
+    }
+)
+
+# These local domain mutations resolve policy from a row or parent that the
+# handler can change. Keep the decision and the write under one SQLite writer
+# lock. Chat, workflow, and integration routes are intentionally absent: they
+# have their own governed boundary and can perform external I/O.
+_ATOMIC_POLICY = frozenset(
+    {
+        ("DELETE", "/api/events/{event_id}"),
+        ("DELETE", "/api/allocations/{allocation_id}"),
+        ("DELETE", "/api/memories/{memory_id}"),
+        ("POST", "/api/promises"),
+        ("PATCH", "/api/promises/{promise_id}"),
+        ("POST", "/api/promises/{promise_id}/status"),
+        ("POST", "/api/milestones"),
+        ("PATCH", "/api/milestones/{milestone_id}"),
+        ("POST", "/api/events/{event_id}/outcome"),
+        ("POST", "/api/events"),
+        ("POST", "/api/intake"),
+        ("PATCH", "/api/intake/{request_id}"),
+        ("POST", "/api/intake/{request_id}/score"),
+        ("POST", "/api/intake/{request_id}/disposition"),
+        ("POST", "/api/engagements"),
+        ("PATCH", "/api/engagements/{engagement_id}"),
+        ("POST", "/api/engagements/{engagement_id}/allocate"),
+        ("POST", "/api/lessons"),
+        ("POST", "/api/engagements/{engagement_id}/handoff"),
+        ("POST", "/api/engagements/{engagement_id}/memory"),
     }
 )
 
@@ -288,6 +318,17 @@ async def enforce_mutation_policy(
             scope.Viewer(subject.name, subject.strong) if subject.kind == "human" else scope.NOBODY
         )
         domain = for_route_scoped(resource_type, resource_id, payload, viewer)
+        if domain.get("current_relationship_conflict"):
+            try:
+                missing_id = int(resource_id or 0)
+            except ValueError:
+                missing_id = 0
+            raise scope.missing(resource_type, missing_id)
+        if domain.get("relationship_conflict"):
+            # The target is absent or outside this viewer. The domain service
+            # owns the stable validation response and will refuse the write.
+            # Do not expose target policy attributes before that refusal.
+            return
     if action == "playbook.create":
         request.state.skein_playbook_policy_context = dict(domain)
     policy_input = _policy_input(
@@ -343,3 +384,16 @@ class PolicyAPIRoute(APIRoute):
             dependencies.insert(0, Depends(enforce_mutation_policy))
             kwargs["dependencies"] = dependencies
         super().__init__(*args, **kwargs)
+
+    def get_route_handler(self):
+        original = super().get_route_handler()
+        methods = {str(value).upper() for value in self.methods or ()}
+        atomic = any((method, self.path) in _ATOMIC_POLICY for method in methods)
+        if not atomic:
+            return original
+
+        async def atomic_handler(request: Request):
+            with db.transaction():
+                return await original(request)
+
+        return atomic_handler

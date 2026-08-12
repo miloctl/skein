@@ -15,6 +15,7 @@ from ..extensions.policy import (
     PolicyResource,
     current_policy_engine,
     current_policy_subject,
+    permits_resource,
 )
 from ..services import (
     absences,
@@ -25,6 +26,7 @@ from ..services import (
     insights,
     policy_context,
     portfolio,
+    projection_policy,
     promises,
     scope,
 )
@@ -35,7 +37,28 @@ from ._gate import gated_write
 def get_portfolio_health() -> str:
     """Engagement health (red/yellow/green) with the receipts behind each
     verdict: overdue milestones, open/escalated blockers, stale work."""
-    return json.dumps(portfolio.engagement_health())
+    with db.read_transaction():
+        rows = portfolio.engagement_health()
+        contexts = policy_context.resource_contexts(
+            [("engagement", int(row["id"])) for row in rows], scope.NOBODY
+        )
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if permits_resource(
+                    current_policy_engine(),
+                    current_policy_subject(),
+                    "skein.tool.get_portfolio_health",
+                    "engagement",
+                    int(row["id"]),
+                    contexts.get(("engagement", int(row["id"])), {}),
+                    "agent_tool",
+                    agent=agent_identity(),
+                    tool="get_portfolio_health",
+                )
+            ]
+        )
 
 
 @tool
@@ -47,7 +70,19 @@ def get_flow_metrics() -> str:
     # and this read judges the PAST — which the anti-surveillance rule allows
     # only as a team aggregate (docs/FEATURES.md). The names stay on
     # /portfolio, which is a planning surface with a viewer and an audience.
-    return json.dumps(portfolio.flow_metrics(name_people=False))
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.get_flow_metrics",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="get_flow_metrics",
+    )
+    with db.read_transaction():
+        if not policy.allows_all_projects():
+            return json.dumps({"error": "workplace policy denied this composite read"})
+        return json.dumps(portfolio.flow_metrics(name_people=False))
 
 
 @tool
@@ -190,14 +225,33 @@ def get_context_pack(engagement_id: int = 0) -> str:
             lessons) — cheaper and more focused for delegated work. 0 = the
             full team pack.
     """
-    if engagement_id:
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.get_context_pack",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="get_context_pack",
+    )
+    with db.read_transaction():
+        if engagement_id:
+            attributes = policy_context.existing_scoped("engagement", engagement_id, scope.NOBODY)
+            if not attributes or not policy.permits("engagement", engagement_id, attributes):
+                return json.dumps({"error": f"no engagement #{engagement_id}"})
+            return json.dumps(
+                {
+                    "engagement": engagement_id,
+                    "content": context_pack.build_engagement_pack(engagement_id),
+                }
+            )
+        all_projects = policy.allows_all_projects()
         return json.dumps(
-            {
-                "engagement": engagement_id,
-                "content": context_pack.build_engagement_pack(engagement_id),
-            }
+            context_pack.get_pack(
+                actor=agent_identity(),
+                project_filter=None if all_projects else policy.permits_project,
+            )
         )
-    return json.dumps(context_pack.get_pack(actor=agent_identity()))
 
 
 @tool
@@ -219,9 +273,21 @@ def my_agent_inbox() -> str:
         # REST twin refuses the same read. Unset outside a chat turn, so the
         # autonomous path is unchanged.
         rv = requester_viewer()
-        return json.dumps(
-            delegation.agent_inbox(agent_identity(), rv if isinstance(rv, scope.Viewer) else None)
+        viewer = rv if isinstance(rv, scope.Viewer) else scope.NOBODY
+        service_viewer = rv if isinstance(rv, scope.Viewer) else None
+        policy = projection_policy.ProjectionPolicy(
+            current_policy_engine(),
+            current_policy_subject(),
+            "skein.tool.my_agent_inbox",
+            "agent_tool",
+            viewer,
+            agent=agent_identity(),
+            tool="my_agent_inbox",
         )
+        with db.read_transaction():
+            if not policy.allows_all_projects():
+                return json.dumps({"error": "workplace policy denied this composite read"})
+            return json.dumps(delegation.agent_inbox(agent_identity(), service_viewer))
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 
@@ -436,7 +502,19 @@ def get_findings(weeks: int = 2, limit: int = 10) -> str:
     # the anti-surveillance rule requires of anything judging the PAST.
     weeks = max(1, min(int(weeks), 52))
     limit = max(1, min(int(limit), 50))
-    return json.dumps(insights.list_findings(weeks=weeks, limit=limit))
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.get_findings",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="get_findings",
+    )
+    with db.read_transaction():
+        if not policy.allows_all_projects():
+            return json.dumps({"error": "workplace policy denied this composite read"})
+        return json.dumps(insights.list_findings(weeks=weeks, limit=limit))
 
 
 @tool
@@ -459,4 +537,15 @@ def get_attention() -> str:
     # my_agent_inbox makes, a few tools up).
     if not isinstance(rv, scope.Viewer) or not rv.name:
         return json.dumps({"error": "this turn has no requester — ask the person what is on them"})
-    return json.dumps(briefing.my_day(rv.name, rv)["attention"])
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.get_attention",
+        "agent_tool",
+        rv,
+        agent=agent_identity(),
+        tool="get_attention",
+    )
+    with db.read_transaction():
+        row_filter = None if policy.allows_all_projects() else policy.filter_rows
+        return json.dumps(briefing.my_day(rv.name, rv, row_filter)["attention"])

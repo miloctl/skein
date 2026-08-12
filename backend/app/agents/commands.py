@@ -29,6 +29,7 @@ from ..services import (
     personas,
     playbooks,
     policy_context,
+    projection_policy,
     scope,
     search,
 )
@@ -99,7 +100,24 @@ async def _delta(
     it has nothing to show. `GET /api/delta?mark=true` is the one that marks.
     """
     yield _tool_event("delta")
-    out = await run_in_threadpool(delta.brief, user, viewer)
+    if access is not None:
+        policy = projection_policy.ProjectionPolicy(
+            access.policy,
+            access.subject,
+            "skein.chat.delta.read",
+            access.origin,
+            viewer,
+            tool="delta",
+        )
+        if not await run_in_threadpool(policy.allows_all_projects):
+            yield {"data": "Workplace policy denied this composite read."}
+            return
+
+    def read_delta():
+        with db.read_transaction():
+            return delta.brief(user, viewer)
+
+    out = await run_in_threadpool(read_delta)
     if out["quiet"]:
         yield {
             "data": (
@@ -122,7 +140,31 @@ async def _briefing(
     args: str, user: str, viewer: scope.Viewer, access: CommandAccess | None
 ) -> AsyncIterator[Event]:
     yield _tool_event("my_day")
-    b = await run_in_threadpool(briefing.my_day, user, viewer)
+    policy = (
+        projection_policy.ProjectionPolicy(
+            access.policy,
+            access.subject,
+            "skein.chat.briefing.read",
+            access.origin,
+            viewer,
+            tool="briefing",
+        )
+        if access is not None
+        else None
+    )
+
+    def read_briefing():
+        with db.read_transaction():
+            row_filter = (
+                None if policy is None or policy.allows_all_projects() else policy.filter_rows
+            )
+            return briefing.my_day(
+                user,
+                viewer,
+                row_filter,
+            )
+
+    b = await run_in_threadpool(read_briefing)
     n = b["needs_you"]
     lines = [f"**My Day — {b['user']}, {b['date']}**", ""]
     lines.append(f"- Open questions for you: {len(n['open_questions'])}")
@@ -146,7 +188,28 @@ async def _search(
         yield {"data": "Usage: `/search <query>`"}
         return
     yield _tool_event("search_workspace")
-    hits = await run_in_threadpool(search.search, args, viewer=viewer)
+    policy = (
+        projection_policy.ProjectionPolicy(
+            access.policy,
+            access.subject,
+            "skein.chat.search.read",
+            access.origin,
+            viewer,
+            tool="search_workspace",
+        )
+        if access is not None
+        else None
+    )
+
+    def read_search():
+        with db.read_transaction():
+            return search.search(
+                args,
+                viewer=viewer,
+                row_filter=policy.filter_resources if policy is not None else None,
+            )
+
+    hits = await run_in_threadpool(read_search)
     if not hits:
         yield {"data": f"No matches for “{args}”."}
     else:

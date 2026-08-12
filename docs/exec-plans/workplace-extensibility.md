@@ -2031,3 +2031,47 @@ Verification after this remediation:
 | Complete backend suite | 1,928 passed in 114.58 seconds |
 | Complete static gate | Passed |
 | Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+
+### Remediation after the `70de207` review
+
+The review rejected `70de207`. The lowest fresh scores were 8.0 for
+modularity, 7.0 for workplace extensibility, and 8.0 for upgradeability.
+
+The review found four related policy defects:
+
+- Composite reads did not apply project policy to each returned resource.
+- A visible legacy child could lose a hidden parent before policy evaluation.
+- Delegation, lessons, allocations, and artifacts had incomplete resource context.
+- Some policy decisions did not share a transaction with the following write.
+
+This remediation adds one reusable projection policy service. REST, stock
+tools, deterministic chat, MCP, and agent context now use this service.
+
+The service resolves each visible resource before it applies policy. A hidden,
+missing, or conflicting parent sets a fail-closed relationship result.
+
+Opaque aggregates cannot remove unsafe rows reliably. These aggregates fail
+closed if policy denies one visible project domain.
+
+The resource map now includes delegation, lessons, allocations, and artifacts.
+Task, blocker, event, promise, and memory context use actor-scoped parent data.
+
+Generic REST domain writes now hold one SQLite write transaction. The policy
+dependency and the service mutation use the same transaction. Specialized
+stock and MCP writes use the same rule.
+
+New concurrent tests pause policy evaluation. A second writer cannot relink
+the resource until the authorized write commits.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused policy, composition, core-tool, and public-contract matrix | 250 passed |
+| Broader cross-surface regression matrix | 348 passed |
+| Complete backend suite | 1,947 passed in 112.64 seconds |
+| Complete static gate | Passed |
+| Frontend tests | 230 passed in 45 files |
+| Frontend production build | Passed |
+| Base-to-feature schema and activity rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+| Installed backend artifact and upgrade rehearsal | Passed; one unchanged Atlas wheel ran on distinct 0.2.0 and 0.2.1 core builds |

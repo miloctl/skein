@@ -2,6 +2,7 @@
 slip forecasting, what-if intake, and the exec readout. All deterministic SQL
 over data the team already records — receipts shown for every verdict."""
 
+from collections.abc import Callable
 from datetime import date, timedelta
 
 from .. import db
@@ -123,7 +124,10 @@ def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) ->
 
 
 def engagement_health(
-    viewer: scope.Viewer = scope.NOBODY, *, name_assignees: bool = True
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    name_assignees: bool = True,
+    project_filter: Callable[[str], bool] | None = None,
 ) -> list[dict]:
     """R/Y/G per non-closed engagement, each signal listed as a receipt.
 
@@ -145,6 +149,12 @@ def engagement_health(
         f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks
         tuple(vp),
     )
+    if project_filter is not None:
+        engagements = [
+            engagement
+            for engagement in engagements
+            if project_filter(str(engagement.get("project_class") or ""))
+        ]
     # Four batched scans grouped in Python, not per-engagement queries: at
     # ~6 queries per engagement plus one per waiting task, a growing
     # portfolio multiplies /portfolio and exec-readout latency.
