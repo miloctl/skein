@@ -1386,6 +1386,16 @@ The scoring for `66b6c0a` is void. A new exact commit and review will follow.
 The complete backend suite passed 1,847 tests in 113.35 seconds. The complete
 static gate also passed.
 
+The next review rejected `9570b86`. Startup stored a contributed specialist as
+`specialist:<name>`, but Chief consultation checked it as a generic agent.
+Chief consultation now supplies the contributed owner. Stock personas retain
+the `content` owner. Tests cover a permitted real-lifespan consultation and a
+wrong-owner refusal. The `9570b86` scores are void.
+
+All 43 specialist-consult tests passed after the fix. The complete backend
+suite passed 1,849 tests in 113.48 seconds. The complete static gate also
+passed. The next step is an independent review of one clean commit.
+
 ### Twenty-first review gate and remediation
 
 The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and
