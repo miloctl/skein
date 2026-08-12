@@ -126,13 +126,35 @@ def refuse_ambiguous_identity(name: str) -> None:
     try:
         refuse_fold_collision(name)
     except ValueError as exc:
-        raise ValueError(IDENTITY_COLLISION) from exc
+        # An exact row plus a folded peer is inherited ambiguous ownership.
+        # A caller-supplied variant with no exact row is an ordinary name
+        # collision and keeps the established, more useful error contract.
+        if db.query_one("SELECT 1 FROM users WHERE name = ?", (name,)):
+            raise ValueError(IDENTITY_COLLISION) from exc
+        raise
+
+
+def _content_machine_claims() -> dict[str, str]:
+    """Deployment content names that belong to machine identities."""
+    from . import flocks, personas
+
+    claims = {fold(slug): slug for slug in personas.bench_slugs()}
+    claims.update({fold(item["slug"]): item["slug"] for item in flocks.list_flocks()})
+    return claims
+
+
+def refuse_human_machine_claim(name: str) -> None:
+    """Refuse a human name owned by content, including inherited rows."""
+    refuse_reserved_name(name)
+    refuse_ambiguous_identity(name)
+    if fold(name) in _content_machine_claims():
+        raise ValueError(IDENTITY_COLLISION)
 
 
 def identity_collision_refusal(name: str) -> str:
-    """Generic perimeter refusal for a legacy folded roster collision."""
+    """Generic perimeter refusal for ambiguous human identity ownership."""
     try:
-        refuse_ambiguous_identity(name)
+        refuse_human_machine_claim(name)
     except ValueError as exc:
         return str(exc)
     return ""
@@ -146,9 +168,45 @@ def folded_identity_collisions() -> list[list[dict]]:
     return [rows for rows in groups.values() if len(rows) > 1]
 
 
+def identity_ownership_conflicts() -> list[dict]:
+    """Legacy roster conflicts that need an explicit operator repair."""
+    conflicts = [
+        {"kind": "folded-roster", "names": tuple(row["name"] for row in rows)}
+        for rows in folded_identity_collisions()
+    ]
+    content = _content_machine_claims()
+    from .activity import SYSTEM_ACTORS
+
+    reserved = {fold(name): name for name in SYSTEM_ACTORS}
+    duplicate_names = {name for item in conflicts for name in item["names"]}
+    for row in db.query("SELECT name, kind FROM users ORDER BY name"):
+        if row["name"] in duplicate_names:
+            continue
+        folded = fold(row["name"])
+        if claim := reserved.get(folded):
+            conflicts.append(
+                {
+                    "kind": "core-owner",
+                    "names": (row["name"],),
+                    "claim": claim,
+                }
+            )
+            continue
+        claim = content.get(folded)
+        if claim and (row["kind"] != "agent" or row["name"] != claim):
+            conflicts.append(
+                {
+                    "kind": "content-owner",
+                    "names": (row["name"],),
+                    "claim": claim,
+                }
+            )
+    return conflicts
+
+
 def identity_ownership_error() -> str:
     """Safe health text: report the fault without exposing roster names."""
-    count = len(folded_identity_collisions())
+    count = len(identity_ownership_conflicts())
     if not count:
         return ""
     noun = "group" if count == 1 else "groups"
@@ -167,7 +225,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
         # vice versa)
         existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
         refuse_fold_collision(name)
-        if existing is None and kind == "human" and _is_bench_slug(name):
+        if kind == "human" and _is_bench_slug(name):
             raise ValueError("that name is reserved for a bench persona — pick another name")
         if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
             raise ValueError(
@@ -191,7 +249,7 @@ def ensure_human_identity(name: str) -> dict:
     # OIDC path, so authenticated reads retain WAL's reader/writer concurrency.
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
     if existing is not None:
-        refuse_ambiguous_identity(normalized)
+        refuse_human_machine_claim(normalized)
         if existing["kind"] != "human":
             raise ValueError(f"'{normalized}' is already owned by an agent identity")
         return existing
@@ -425,7 +483,13 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
 }
 
 
-def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
+def rename_user(
+    old: str,
+    new: str,
+    *,
+    actor: str = "system",
+    _identity_repair: bool = False,
+) -> dict:
     """Rename (or merge, when `new` already exists) a roster entry across
     every attribution column — the fix for 'Mira' vs 'mira'. History moves;
     the old row is deleted (merge) or renamed in place. Strong identity
@@ -474,6 +538,8 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
         # even agent→agent would fold foreign history into the persona
         raise ValueError("the new name is reserved for a bench persona")
     target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+    if target and _identity_repair:
+        raise ValueError("identity ownership repair cannot merge roster rows")
     if target and target["kind"] != row["kind"]:
         raise ValueError(
             f"'{old}' is a {row['kind']} and '{new}' is a {target['kind']} —"
@@ -493,6 +559,8 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
         if _is_bench_slug(new):
             raise ValueError("the new name is reserved for a bench persona")
         target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+        if target and _identity_repair:
+            raise ValueError("identity ownership repair cannot merge roster rows")
         if target and target["kind"] != current["kind"]:
             raise ValueError(
                 f"'{old}' is a {current['kind']} and '{new}' is a {target['kind']} —"
@@ -609,11 +677,11 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
     private_moved = actor == old
     if private_moved:
         private_notes.rename_author(old, new)
-    db.log_activity(
-        actor,
-        "rename_user",
-        f"{old} -> {new} ({'merged' if target else 'renamed'}, {sum(moved.values())} rows)",
-    )
+    detail = f"{old} -> {new} ({'merged' if target else 'renamed'}, {sum(moved.values())} rows)"
+    if _identity_repair:
+        db.log_activity(actor, "repair_identity_ownership", detail)
+    else:
+        db.log_activity(actor, "rename_user", detail)
     return {
         "old": old,
         "new": new,
@@ -623,6 +691,35 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
         # not follow, and that only the author can complete that half
         "private_notes_moved": private_moved,
     }
+
+
+def repair_identity_ownership(old: str, new: str) -> dict:
+    """Repair one quarantined identity without impersonating its owner.
+
+    Private ownership moves first and writes a private administrative audit.
+    The core rename follows with the reserved ``system`` actor. The two SQLite
+    stores cannot share a transaction. If the core step fails, fix its stated
+    cause and repeat the same command; the private move is idempotent.
+    """
+    old, new = old.strip(), new.strip()[:64]
+    from . import private_notes
+
+    with db.transaction():
+        conflicted = {
+            name for conflict in identity_ownership_conflicts() for name in conflict["names"]
+        }
+        if old not in conflicted:
+            raise ValueError(f"'{old}' is not in a current identity ownership conflict")
+        if db.query_one("SELECT 1 FROM users WHERE name = ?", (new,)):
+            raise ValueError("identity ownership repair requires a new, unused name")
+        private_notes.recover_identity_ownership(old, new)
+        result = rename_user(
+            old,
+            new,
+            actor="system",
+            _identity_repair=True,
+        )
+    return {**result, "private_notes_moved": True, "repair_origin": "identity-audit"}
 
 
 def set_active(name: str, active: bool, *, actor: str = "system") -> dict:

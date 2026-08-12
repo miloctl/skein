@@ -671,7 +671,7 @@ def test_legacy_folded_identity_duplicates_fail_closed_and_have_a_repair_path(
     from fastapi.testclient import TestClient
 
     from app import db, identity_audit, mcp_server
-    from app.services import users
+    from app.services import private_notes, users
     from app.services.api_keys import create_key
 
     for name, kind in (("RACE-OWNER", "human"), ("race-owner", "agent")):
@@ -679,6 +679,7 @@ def test_legacy_folded_identity_duplicates_fail_closed_and_have_a_repair_path(
             "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
             (name, kind, db.now()),
         )
+    private_notes.add_note("RACE-OWNER", "manager", "private recovery marker")
 
     assert users.identity_ownership_error().startswith("1 conflicting identity group")
     with pytest.raises(ValueError, match="conflicting roster ownership"):
@@ -707,6 +708,34 @@ def test_legacy_folded_identity_duplicates_fail_closed_and_have_a_repair_path(
     assert users.folded_identity_collisions() == []
     assert users.ensure_human_identity("person-owner")["kind"] == "human"
     assert users.ensure_agent_identity("race-owner")["kind"] == "agent"
+    assert [note["body"] for note in private_notes.list_notes("person-owner", "manager")] == [
+        "private recovery marker"
+    ]
+    assert any(
+        row["action"] == "system_identity_repair:RACE-OWNER->person-owner"
+        for row in private_notes.list_audit("person-owner")
+    )
+    activity = fresh_db.query_one(
+        "SELECT actor, action FROM activity WHERE action = 'repair_identity_ownership'"
+    )
+    assert activity == {"actor": "system", "action": "repair_identity_ownership"}
+
+    users.ensure_user("ordinary-person")
+    private_notes.add_note("ordinary-person", "manager", "must not move")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["identity_audit", "rename", "ordinary-person", "ordinary-person-2"],
+    )
+    with pytest.raises(SystemExit) as refused:
+        identity_audit.main()
+    assert refused.value.code == 1
+    assert "not in a current identity ownership conflict" in capsys.readouterr().err
+    assert users.ensure_human_identity("ordinary-person")["kind"] == "human"
+    assert [note["body"] for note in private_notes.list_notes("ordinary-person", "manager")] == [
+        "must not move"
+    ]
+    assert private_notes.list_notes("ordinary-person-2", "manager") == []
 
 
 def test_legacy_same_kind_folded_duplicates_are_also_quarantined(fresh_db):
@@ -725,10 +754,79 @@ def test_legacy_same_kind_folded_duplicates_are_also_quarantined(fresh_db):
     with pytest.raises(ValueError, match="conflicting roster ownership"):
         users.ensure_human_identity("CASEY")
 
-    users.rename_user("CASEY", "casey-alternate", actor="CASEY")
+    users.repair_identity_ownership("CASEY", "casey-alternate")
     assert users.folded_identity_collisions() == []
     assert users.ensure_human_identity("Casey")["kind"] == "human"
     assert users.ensure_human_identity("casey-alternate")["kind"] == "human"
+
+
+def test_legacy_human_content_identity_is_quarantined_and_repairable(fresh_db):
+    from app import db
+    from app.services import users
+
+    slug = "backend-architect"
+    db.execute(
+        "INSERT INTO users (name, kind, created_at) VALUES (?, 'human', ?)",
+        (slug, db.now()),
+    )
+
+    assert users.identity_ownership_error().startswith("1 conflicting identity group")
+    with pytest.raises(ValueError, match="conflicting roster ownership"):
+        users.ensure_human_identity(slug)
+    with pytest.raises(ValueError):
+        users.ensure_agent_identity(slug)
+
+    users.repair_identity_ownership(slug, "former-backend-architect")
+    assert users.identity_ownership_error() == ""
+    assert users.ensure_human_identity("former-backend-architect")["kind"] == "human"
+    assert users.ensure_agent_identity(slug)["kind"] == "agent"
+
+
+def test_legacy_core_actor_row_uses_the_same_identity_repair(fresh_db):
+    from app import db
+    from app.services import users
+
+    db.execute(
+        "INSERT INTO users (name, kind, created_at) VALUES ('SYSTEM', 'human', ?)",
+        (db.now(),),
+    )
+    assert users.identity_ownership_error().startswith("1 conflicting identity group")
+    with pytest.raises(ValueError, match="reserved for the system"):
+        users.ensure_human_identity("SYSTEM")
+
+    users.repair_identity_ownership("SYSTEM", "former-system")
+    assert users.identity_ownership_error() == ""
+    assert users.ensure_human_identity("former-system")["kind"] == "human"
+
+
+def test_identity_repair_can_be_repeated_after_core_step_failure(fresh_db, monkeypatch):
+    from app import db
+    from app.services import private_notes, users
+
+    for name, kind in (("LEGACY", "human"), ("legacy", "agent")):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+    private_notes.add_note("LEGACY", "manager", "recover me")
+    real_rename = users.rename_user
+    monkeypatch.setattr(
+        users,
+        "rename_user",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("core step failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="core step failed"):
+        users.repair_identity_ownership("LEGACY", "person-legacy")
+    assert db.query_one("SELECT kind FROM users WHERE name = 'LEGACY'") == {"kind": "human"}
+    assert [note["body"] for note in private_notes.list_notes("person-legacy", "manager")] == [
+        "recover me"
+    ]
+
+    monkeypatch.setattr(users, "rename_user", real_rename)
+    result = users.repair_identity_ownership("LEGACY", "person-legacy")
+    assert result["repair_origin"] == "identity-audit"
+    assert db.query_one("SELECT kind FROM users WHERE name = 'person-legacy'") == {"kind": "human"}
 
 
 def test_legacy_folded_duplicate_blocks_contributed_machine_startup(fresh_db):
@@ -749,6 +847,32 @@ def test_legacy_folded_duplicate_blocks_contributed_machine_startup(fresh_db):
     with (
         pytest.raises(RuntimeError, match=r"service identity.*already owned"),
         TestClient(create_app(modules=(module,))),
+    ):
+        pass
+
+    for name, kind in (
+        ("ACME.WORKPLACE.SPECIALIST", "human"),
+        ("acme.workplace.specialist", "agent"),
+    ):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+    specialist = _module(
+        routes=(),
+        specialists=(
+            SpecialistContribution(
+                name="acme.workplace.specialist",
+                version="1.0.0",
+                display_name="Atlas sync",
+                description="Collision regression specialist.",
+                system_prompt="Do not start with ambiguous ownership.",
+            ),
+        ),
+    )
+    with (
+        pytest.raises(RuntimeError, match=r"specialist identity.*already owned"),
+        TestClient(create_app(modules=(specialist,))),
     ):
         pass
 

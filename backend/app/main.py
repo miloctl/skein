@@ -241,13 +241,14 @@ async def lifespan(app: FastAPI):
     registry: ExtensionRegistry = app.state.skein_registry
     specs = _job_specs(registry, settings)
     db.init_db()  # a failed migration MUST abort startup — everything else must not
-    from .services.users import folded_identity_collisions
+    from .services.users import identity_ownership_conflicts
 
-    for collision in folded_identity_collisions():
+    for conflict in identity_ownership_conflicts():
         log.error(
-            "conflicting folded roster ownership: %s. Run python -m app.identity_audit"
+            "conflicting identity ownership (%s): %s. Run python -m app.identity_audit"
             " before these identities authenticate or run as machines.",
-            ", ".join(f"{row['name']} ({row['kind']})" for row in collision),
+            conflict["kind"],
+            ", ".join(conflict["names"]),
         )
     for contribution in registry.migrations:
         contribution.store.migrate(contribution.migrations)

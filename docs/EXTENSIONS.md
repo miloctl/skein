@@ -247,9 +247,20 @@ The command lists each conflicting group. Rename one row at a time:
 python -m app.identity_audit rename RACE-OWNER person-owner
 ```
 
+The command acts only on a current identity conflict. It refuses an ordinary
+account and a target name that already exists. It records `system` as the core
+activity actor. It also writes a private administrative audit before it moves
+private ownership. The audit contains no note content.
+
+The core and private databases cannot share one transaction. The private move
+commits first. If the core rename fails, correct the reported cause and repeat
+the same command. The private operation is idempotent.
+
 Skein does not merge conflicting rows automatically. An automatic merge could
-combine human and agent authority, provenance, or private ownership. The
-installed-artifact upgrade rehearsal includes this legacy-state check.
+combine human and agent authority, provenance, or private ownership. The same
+audit also detects an old human row that now conflicts with a persona, flock,
+or reserved core actor. The installed-artifact upgrade rehearsal includes the
+legacy folded-roster check.
 
 ## Use public work commands
 
