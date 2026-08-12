@@ -44,7 +44,7 @@ from .extensions.registry import ExtensionRegistry
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
-from .services import collab, context_pack, delegation, memory, portfolio, search, work
+from .services import collab, context_pack, delegation, memory, portfolio, scope, search, work
 from .services import policy_context as domain_policy_context
 from .services.adoption import record_use
 from .tools._gate import gated_write
@@ -100,6 +100,33 @@ def _policy_refusal(
             "policy_effect": decision.effect.value,
         }
     )
+
+
+def _policy_permits(
+    action: str,
+    resource_type: str,
+    resource_id: int,
+    attributes: dict[str, str],
+) -> bool:
+    decision = current_policy_engine().decide(
+        PolicyInput(
+            current_policy_subject(),
+            action,
+            PolicyResource(
+                resource_type,
+                str(resource_id),
+                str(attributes.get("project_type") or ""),
+                str(attributes.get("classification") or ""),
+                attributes,
+            ),
+            "mcp",
+            agent=ACTOR,
+            tool=action,
+            tool_effect="read",
+            tool_risk="low",
+        )
+    )
+    return decision.effect == PolicyEffect.PERMIT
 
 
 @mcp.tool()
@@ -270,7 +297,21 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
     record_use(ACTOR, "mcp")
     if refusal := _policy_refusal("skein.mcp.tasks.read", "task"):
         return refusal
-    return json.dumps(work.list_tasks(status=status, assignee=assignee))
+    with db.read_transaction():
+        rows = work.list_tasks(status=status, assignee=assignee)
+        contexts = work.task_collection_policy_contexts(rows, scope.NOBODY)
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if _policy_permits(
+                    "skein.mcp.tasks.read",
+                    "task",
+                    int(row["id"]),
+                    contexts[int(row["id"])],
+                )
+            ]
+        )
 
 
 @mcp.tool()

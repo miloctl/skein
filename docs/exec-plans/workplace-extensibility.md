@@ -1919,6 +1919,19 @@ Verification before the next exact-commit review:
 |---|---|
 | Complete backend suite | 1,912 passed in 117.09 seconds |
 | Complete static gate | Passed |
+
+The next review found that inbound MCP task listing still used only one
+collection-level decision. MCP now preserves that broad denial for backward
+compatibility, then evaluates each visible task with the same snapshot-bound
+task context used by REST and stock tools. Project-specific denial and hidden
+legacy relationship handling therefore apply to the MCP result too.
+
+Verification after the MCP remediation:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,936 passed in 120.38 seconds |
+| Complete static gate | Passed |
 | Frontend tests | 230 passed in 45 files |
 | Frontend production build | Passed after the configured font download |
 | Installed backend extension rehearsal | Passed; unchanged Atlas wheel, distinct compatible cores, and strict type check of six Atlas source files |
