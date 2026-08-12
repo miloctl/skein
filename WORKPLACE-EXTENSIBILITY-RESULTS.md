@@ -1435,6 +1435,19 @@ core-machine slug such as `agent`. Startup now compares every content owner
 with the canonical core set before any machine row is reserved. Deployment
 content cannot replace a core prompt or merge its provenance with a core actor.
 
+The next review found that mounted content directories are live after startup.
+Persona and flock discovery now reject core-machine slugs on every scan, not
+only during application composition. Tests add reserved files after an initial
+clean scan and prove that neither roster can resolve them. The deployment
+content validator reports the same conflict before startup.
+
+Verification for this remediation:
+
+- Live overlay and content CLI tests: 32 passed.
+- Full backend suite: 1,835 passed in 110.27 seconds.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+
 | Target-integrity remediation command | Result |
 |---|---|
 | Focused repair, reservation, and ownership tests | 52 passed |

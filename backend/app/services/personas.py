@@ -28,6 +28,7 @@ import re
 from pathlib import Path
 
 from .. import config
+from ..identity_names import CORE_MACHINE_SUBJECTS
 
 PERSONAS_DIR = config.STOCK_DIR / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
@@ -52,9 +53,19 @@ def _persona_files() -> dict[str, Path]:
     files: dict[str, Path] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
-            if _SLUG.match(path.stem):
+            if _SLUG.match(path.stem) and path.stem not in CORE_MACHINE_SUBJECTS:
                 files[path.stem] = path
     return files
+
+
+def configured_slugs() -> set[str]:
+    """All configured valid-character slugs, including refused core claims."""
+    return {
+        path.stem
+        for directory in _persona_dirs()
+        for path in directory.glob("*.md")
+        if _SLUG.match(path.stem)
+    }
 
 
 def bench_slugs() -> set[str]:
@@ -98,7 +109,7 @@ SCHEMA_VERSION = 1
 
 def _parse(path: Path) -> dict | None:
     slug = path.stem
-    if not _SLUG.match(slug):
+    if not _SLUG.match(slug) or slug in CORE_MACHINE_SUBJECTS:
         return None
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -284,6 +295,9 @@ def validate_all() -> list[str]:
             label = path.name if d == PERSONAS_DIR else f"{path.name} (overlay)"
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
+                continue
+            if path.stem in CORE_MACHINE_SUBJECTS:
+                errors.append(f"{label}: slug is reserved for a core machine identity")
                 continue
             text = path.read_text(encoding="utf-8")
             try:

@@ -351,8 +351,8 @@ def validate_machine_identity_ownership(
     from ..services.users import fold
 
     content_owners = {
-        **{fold(slug): f"persona {slug!r}" for slug in personas.bench_slugs()},
-        **{fold(item["slug"]): f"flock {item['slug']!r}" for item in flocks.list_flocks()},
+        **{fold(slug): f"persona {slug!r}" for slug in personas.configured_slugs()},
+        **{fold(slug): f"flock {slug!r}" for slug in flocks.configured_slugs()},
     }
     claims = [
         *(("service", identity.subject) for identity in registry.service_identities),

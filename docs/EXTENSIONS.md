@@ -275,8 +275,9 @@ successful sign-in. Only an absent weak identity and old unnamed records use
 it.
 
 Persona and flock overlays cannot use a core-machine slug. Startup rejects the
-deployment before it reserves an actor, so an overlay cannot replace the Chief
-prompt or merge its provenance with a system identity.
+deployment before it reserves an actor. Live content discovery applies the same
+rule on every scan, so a file added to a mounted overlay after startup also
+cannot replace the Chief prompt or merge provenance with a system identity.
 
 ## Use public work commands
 
