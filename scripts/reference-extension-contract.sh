@@ -127,7 +127,7 @@ assert version("skein") == "0.2.0"
 assert SKEIN_CORE_VERSION == "0.2.0"
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 def review_playbook(request):
-    if request.action == "playbook.create":
+    if request.action == "playbook.create" and request.resource.project_type == "prototype":
         return PolicyDecision(
             PolicyEffect.REVIEW,
             approver_capabilities=("upgrade.approve",),
@@ -261,13 +261,13 @@ from app import db, identity_audit
 from app.main import _job_specs, create_app
 from app.public import CreateTaskCommand, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
-from app.public.workflow import WorkflowContext, WorkflowEngine
 from app.services import users
 from app.extensions import EventExecutionContext
 from atlas_skein import AtlasSettings, atlas_module
 
 assert version("skein") == "0.2.1"
 assert SKEIN_CORE_VERSION == "0.2.1"
+assert (Path(db.__file__).resolve().parent / "py.typed").is_file()
 assert (db.MIGRATIONS_DIR / "018_identity_ownership.sql").is_file()
 # An upgrade applies core migrations before it uses the new public contracts.
 # Application startup does this automatically. The artifact rehearsal uses
@@ -312,7 +312,7 @@ assert any(
 )
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 def review_playbook(request):
-    if request.action == "playbook.create":
+    if request.action == "playbook.create" and request.resource.project_type == "prototype":
         return PolicyDecision(
             PolicyEffect.REVIEW,
             approver_capabilities=("upgrade.approve",),
@@ -359,8 +359,32 @@ with TestClient(app) as client:
             headers={"X-User": "mira"},
             json={"full": False},
         ).status_code == 200
+        deps._resolve = lambda *_args, **_kwargs: ("ava", True, ())
+        workflow_started = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "ava"},
+            json={
+                "playbook": "atlas_delivery",
+                "engagement_name": "Atlas workflow upgrade",
+            },
+        )
+        assert workflow_started.status_code == 200, workflow_started.text
+        workflow_review_id = workflow_started.json()["workflow"]["review_id"]
     finally:
         deps._resolve = original_resolve
+    deps._resolve = lambda *_args, **_kwargs: (
+        "manager", True, ("atlas-delivery-managers", "atlas-integrations")
+    )
+    try:
+        workflow_approved = client.post(
+            f"/api/review/{workflow_review_id}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Approve the installed workflow action."},
+        )
+    finally:
+        deps._resolve = original_resolve
+    assert workflow_approved.status_code == 200, workflow_approved.text
+    assert workflow_approved.json()["result"]["workflow"]["status"] == "completed"
     review_id = int(Path("../pending-review-id").read_text())
     approved = client.post(
         f"/api/review/{review_id}/approve",
@@ -401,19 +425,6 @@ tool_result = asyncio.run(
 )
 assert tool_result.status == "completed"
 
-workflow = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
-workflow_result = workflow.run(
-    workflow.prepare(
-        [{
-            "type": "action",
-            "name": "atlas.workplace.notify-manager",
-            "input": {"channel": "delivery", "message": "upgrade passed"},
-        }]
-    ),
-    WorkflowContext(subject, "workflow"),
-)
-assert workflow_result.status == "completed"
-
 specs = _job_specs(registry, settings)
 job = next(item for item in specs if item.name == "atlas.workplace.sync")
 assert "error_code" not in job.fn()
@@ -427,6 +438,12 @@ assert module.migrations[0].store.query_one(
 ) == {"external_id": "ATLAS-CORE-UPGRADE"}
 PY
 )
+
+"$python" -m mypy \
+    --python-executable "$tmp/venv/bin/python" \
+    --strict \
+    --no-incremental \
+    "$tmp/extension-source/backend/typecheck_contract.py"
 
 (
     cd "$tmp/run"

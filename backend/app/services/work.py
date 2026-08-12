@@ -83,14 +83,27 @@ def create_milestone(
     _bounded("milestone", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
-    # resolve the engagement link at write time — the name join is display
-    # only, the id is what health/forecast/handoff trust
-    eng = db.query_one("SELECT id FROM engagements WHERE name = ?", (project,))
     # the membership check belongs INSIDE the insert's transaction — bare, it
     # opens its own connection, so a person removed from the crew between the
     # check and the write still scopes the row (services/scope.py::resolve_write)
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        visible, params = scope.visible_filter(
+            scope.Viewer.for_actor(actor), "engagements", "engagement"
+        )
+        eng = db.query_one(
+            f"SELECT engagement.* FROM engagements engagement"  # noqa: S608 -- scope emits bound marks
+            f" WHERE engagement.name = ? AND {visible}",
+            (project, *params),
+        )
+        if eng is not None:
+            scope.assert_relationship_contains(
+                eng["visibility"],
+                eng["crew_id"],
+                tier,
+                crew,
+                child_label="milestone",
+            )
         mid = db.execute(
             "INSERT INTO milestones (project, engagement_id, title, description, owner,"
             " due_date, origin, created_by, created_at, updated_at, visibility, crew_id)"
@@ -144,75 +157,111 @@ def update_milestone(
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
     _bounded("milestone", title, description)
     db.validate_date("due_date", due_date)
-    current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
-    if not current:
-        # scope.missing, not missing_text: this is the row in the PATH, so it
-        # is a 404. The link probes below name a row in the BODY and stay 400.
-        raise scope.missing("milestones", milestone_id)
-    scope.assert_editable("milestones", current, actor, verb="update")
-    fields: dict[str, str | None] = {
-        k: v
-        for k, v in [
-            ("status", status),
-            ("title", title),
-            ("description", description),
-            ("owner", owner),
-            ("due_date", due_date),
-        ]
-        if v
-    }
-    if engagement_id:
-        # mislinked work silently drops out of health/forecast/handoff —
-        # the link must be repairable, not set-once (-1 unlinks)
-        efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
-        if engagement_id > 0 and not db.query_one(
-            f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-            (engagement_id, *ep),
-        ):
-            raise ValueError(scope.missing_text("engagements", engagement_id))
-        fields["engagement_id"] = None if engagement_id < 0 else engagement_id  # type: ignore[assignment]
-    if not fields:
-        raise ValueError("nothing to update")
-    for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
-        if fields.get(clearable) == "-":
-            fields[clearable] = empty
-    current = db.query_one("SELECT status FROM milestones WHERE id = ?", (milestone_id,))
-    if status == "done" and current and current["status"] != "done":
-        fields["completed_at"] = db.now()  # slip forecast reads this, not updated_at
-    elif status and status != "done" and current and current["status"] == "done":
-        fields["completed_at"] = None
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(
-        f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
-        (*fields.values(), db.now(), milestone_id),
-    )
-    db.log_activity(actor, "update_milestone", f"#{milestone_id} {status or 'edited'}")
-    row = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
-    if row:
-        index_record(
-            "milestone",
-            milestone_id,
-            row["title"],
-            f"{row['description']} {row['project']} {row['owner']}",
+    with db.transaction():
+        current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
+        if not current:
+            raise scope.missing("milestones", milestone_id)
+        scope.assert_editable("milestones", current, actor, verb="update")
+        fields: dict[str, str | int | None] = {
+            k: v
+            for k, v in [
+                ("status", status),
+                ("title", title),
+                ("description", description),
+                ("owner", owner),
+                ("due_date", due_date),
+            ]
+            if v
+        }
+        target_id = max(engagement_id, 0) if engagement_id else int(current["engagement_id"] or 0)
+        if target_id:
+            try:
+                target = _visible_link("engagements", target_id, actor)
+            except ValueError as exc:
+                # This is a relationship id from the body or current row, not
+                # the path milestone. Keep the established 400 contract while
+                # giving hidden and absent targets the same refusal.
+                raise ValueError(scope.missing_text("engagements", target_id)) from exc
+            scope.assert_relationship_contains(
+                target["visibility"],
+                target["crew_id"],
+                current["visibility"],
+                current["crew_id"],
+                child_label="milestone",
+            )
+            linked_tasks = db.query(
+                "SELECT engagement_id, visibility, crew_id FROM tasks WHERE milestone_id = ?",
+                (milestone_id,),
+            )
+            for task in linked_tasks:
+                direct = int(task["engagement_id"] or 0)
+                if direct and direct != target_id:
+                    raise ValueError(
+                        "a task's milestone and engagement must belong to the same engagement"
+                    )
+                scope.assert_relationship_contains(
+                    target["visibility"],
+                    target["crew_id"],
+                    task["visibility"],
+                    task["crew_id"],
+                )
+        if engagement_id:
+            fields["engagement_id"] = None if engagement_id < 0 else engagement_id
+        if not fields:
+            raise ValueError("nothing to update")
+        for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
+            if fields.get(clearable) == "-":
+                fields[clearable] = empty
+        if status == "done" and current["status"] != "done":
+            fields["completed_at"] = db.now()
+        elif status and status != "done" and current["status"] == "done":
+            fields["completed_at"] = None
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(
+            f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 -- keys are fixed above
+            (*fields.values(), db.now(), milestone_id),
         )
+        db.log_activity(actor, "update_milestone", f"#{milestone_id} {status or 'edited'}")
+        row = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
+        if row:
+            index_record(
+                "milestone",
+                milestone_id,
+                row["title"],
+                f"{row['description']} {row['project']} {row['owner']}",
+            )
     return {"id": milestone_id, "updated": list(fields)}
 
 
 def list_milestones(
     project: str = "", status: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
-    frag, vp = scope.visible_filter(viewer, "milestones")
+    frag, vp = scope.visible_filter(viewer, "milestones", "milestone")
+    engagement_visible, engagement_params = scope.visible_filter(
+        viewer, "engagements", "engagement"
+    )
     sql, params = (
-        f"SELECT * FROM milestones WHERE {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        list(vp),
+        f"SELECT milestone.*, engagement.id AS visible_engagement_id"  # noqa: S608 -- scope emits bound marks
+        " FROM milestones milestone LEFT JOIN engagements engagement"
+        " ON engagement.id = milestone.engagement_id"
+        f" AND {engagement_visible} WHERE {frag}",
+        [*engagement_params, *vp],
     )
     if project:
-        sql += " AND project = ?"
+        sql += " AND milestone.project = ?"
         params.append(project)
     if status:
-        sql += " AND status = ?"
+        sql += " AND milestone.status = ?"
         params.append(status)
-    return db.query(sql + " ORDER BY due_date IS NULL, due_date, id LIMIT 500", tuple(params))
+    rows = db.query(
+        sql + " ORDER BY milestone.due_date IS NULL, milestone.due_date, milestone.id LIMIT 500",
+        tuple(params),
+    )
+    for row in rows:
+        visible_engagement = row.pop("visible_engagement_id", None)
+        if row.get("engagement_id") and visible_engagement is None:
+            row["engagement_id"] = None
+    return rows
 
 
 def create_task(

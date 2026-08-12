@@ -478,7 +478,11 @@ def _validate_module(module: SkeinModule) -> None:
         _validate_contribution_name(module, identity_contribution.name)
     for service_identity in module.service_identities:
         _validate_contribution_name(module, service_identity.name)
-        if not service_identity.subject or len(service_identity.subject) > 64:
+        if (
+            not service_identity.subject
+            or service_identity.subject != service_identity.subject.strip()
+            or len(service_identity.subject) > 64
+        ):
             raise ExtensionValidationError(
                 f"service identity {service_identity.name!r} needs a valid subject"
             )

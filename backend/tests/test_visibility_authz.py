@@ -463,6 +463,10 @@ _EXEMPT_FUNCTIONS = {
     ),
     "collab.py::sweep_stale_decisions": "a job over every active decision",
     "engagements.py::_ship_it": "keyed on the engagement update_engagement just closed",
+    "engagements.py::create_engagement": (
+        "adopts milestones that match the new engagement name; each updated id"
+        " comes from the actor-visible candidate query in the same transaction"
+    ),
     "engagements.py::_experiment_lesson": "same",
     "intake.py::_disposition": "the public disposition_request guards, then calls this",
     "private_notes.py::delete_note": "the author-private journal in its own private.db file",
@@ -594,6 +598,11 @@ _UNFILTERED_READS = {
         " returns them to the caller. Applying the caller visibility filter here"
         " would remove the data that a stronger workplace policy must inspect"
     ),
+    "policy_context.py::_task_context": (
+        "resolves only classification and coherent project context for one"
+        " task policy decision; conflicting relationships fail closed and no"
+        " row data is returned to the caller"
+    ),
     "policy_context.py::_engagement_project_type": (
         "reads only the project class for one exact relationship target. The"
         " value goes only to policy evaluation and can only restrict the call"
@@ -708,10 +717,6 @@ _UNFILTERED_READS = {
     "search.py::_tier_of": "reads the tier itself — the thing every filter asks for",
     "search.py::_is_private": "same, and it is the guard that keeps a private row unindexed",
     # --- write paths: the SELECT feeds the guard, not a response ---
-    "work.py::create_milestone": (
-        "resolves the engagement by NAME, not by id — there is no id to"
-        " enumerate, and a name the caller already knows is not a disclosure"
-    ),
     "engagements.py::create_engagement": "reads its own name, NOCASE, to refuse a duplicate",
     "engagements.py::update_engagement": "same duplicate-name check, excluding itself",
     "context_pack.py::_crew_section": "filters on `visibility = 'crew' AND crew_id = ?` itself",

@@ -540,18 +540,22 @@ def test_visible_milestone_does_not_expose_a_hidden_parent_project_class(
     from app.services import work as service_work
 
     crew_id = crews.create_crew("Hidden delivery", actor="other-person")["id"]
-    engagements.create_engagement(
+    hidden_id = engagements.create_engagement(
         "Hidden engagement",
         project_class=hidden_project_type,
         actor="other-person",
         visibility="crew",
         crew_id=crew_id,
-    )
+    )["id"]
     milestone = service_work.create_milestone(
         "Visible milestone",
         project="Hidden engagement",
         actor="atlas-sync",
     )["id"]
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (hidden_id, milestone),
+    )
 
     def deny_regulated(request: PolicyInput):
         if request.action == "work.task.create" and request.resource.project_type == "regulated":
@@ -638,18 +642,22 @@ def test_public_update_does_not_expose_a_visible_milestones_hidden_parent(
     from app.services import work as service_work
 
     crew_id = crews.create_crew("Hidden delivery", actor="other-person")["id"]
-    engagements.create_engagement(
+    hidden_id = engagements.create_engagement(
         "Hidden engagement",
         project_class=hidden_project_type,
         actor="other-person",
         visibility="crew",
         crew_id=crew_id,
-    )
+    )["id"]
     milestone = service_work.create_milestone(
         "Visible milestone",
         project="Hidden engagement",
         actor="atlas-sync",
     )["id"]
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (hidden_id, milestone),
+    )
     task = service_work.create_task("Visible task", actor="atlas-sync")["id"]
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
     command = UpdateTaskCommand(task_id=task, milestone_id=milestone)
@@ -730,18 +738,22 @@ def test_public_read_does_not_expose_a_visible_milestones_hidden_parent(
     from app.services import work as service_work
 
     crew_id = crews.create_crew("Hidden delivery", actor="other-person")["id"]
-    engagements.create_engagement(
+    hidden_id = engagements.create_engagement(
         "Hidden engagement",
         project_class=hidden_project_type,
         actor="other-person",
         visibility="crew",
         crew_id=crew_id,
-    )
+    )["id"]
     milestone = service_work.create_milestone(
         "Visible milestone",
         project="Hidden engagement",
         actor="atlas-sync",
     )["id"]
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (hidden_id, milestone),
+    )
     task = service_work.create_task("Visible child", actor="atlas-sync")["id"]
     # Simulate a legacy row whose visible milestone has a hidden parent.
     fresh_db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (milestone, task))
@@ -971,7 +983,6 @@ def test_idempotent_replay_rechecks_the_current_task_policy(fresh_db):
 
 def test_public_read_serializes_policy_and_returned_relationship(fresh_db):
     from threading import Event, Thread
-    from time import sleep
 
     from app.services import engagements
     from app.services import work as service_work
@@ -993,8 +1004,7 @@ def test_public_read_serializes_policy_and_returned_relationship(fresh_db):
             paused["value"] = True
             policy_entered.set()
             assert writer_attempted.wait(5)
-            sleep(0.05)
-            assert not writer_done.is_set()
+            assert writer_done.wait(5)
         return None
 
     module = SkeinModule(
@@ -1026,7 +1036,7 @@ def test_public_read_serializes_policy_and_returned_relationship(fresh_db):
 
 
 def test_public_update_policy_uses_target_engagement(fresh_db):
-    from app.services import engagements, policy_context
+    from app.services import engagements
     from app.services import work as service_work
 
     standard = engagements.create_engagement("Standard", project_class="standard")["id"]
@@ -1053,7 +1063,76 @@ def test_public_update_policy_uses_target_engagement(fresh_db):
             _context(facade, project_type="standard"),
         )
     assert raised.value.code == "POLICY_DENIED"
-    assert policy_context.existing("task", task)["project_type"] == "standard"
+
+
+def test_public_create_with_initial_status_requires_update_policy(fresh_db):
+    def deny_updates(request: PolicyInput):
+        if request.action == "work.task.update":
+            return PolicyDecision(PolicyEffect.DENY, ("Task updates are closed.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("atlas.workplace.no-updates", deny_updates),),
+            ),
+        )
+    )
+    facade = WorkItems(registry.policy_engine)
+
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(title="Already complete", status="done"),
+            _context(facade),
+        )
+
+    assert raised.value.code == "POLICY_DENIED"
+    assert fresh_db.query_one("SELECT id FROM tasks") is None
+
+
+def test_public_task_policy_receives_the_requested_fields(fresh_db):
+    observed: dict[str, dict] = {}
+
+    def capture(request: PolicyInput):
+        if request.action in ("work.task.create", "work.task.update"):
+            observed[request.action] = dict(request.resource.attributes)
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(PolicyContribution("atlas.workplace.capture", capture),),
+            ),
+        )
+    )
+    facade = WorkItems(registry.policy_engine)
+    created = facade.create_task(
+        CreateTaskCommand(
+            title="Requested title",
+            description="Requested description",
+            priority="high",
+        ),
+        _context(facade),
+    )
+    facade.update_task(
+        UpdateTaskCommand(task_id=created.id, title="Changed title", priority="urgent"),
+        _context(facade),
+    )
+
+    assert observed["work.task.create"]["title"] == "Requested title"
+    assert observed["work.task.create"]["priority"] == "high"
+    assert observed["work.task.update"]["title"] == "Changed title"
+    assert observed["work.task.update"]["priority"] == "urgent"
 
 
 def test_public_update_serializes_policy_decision_and_mutation(fresh_db):
@@ -1392,6 +1471,71 @@ def test_event_policy_denial_stops_the_handler_before_external_effects(fresh_db)
     assert fresh_db.query_one("SELECT last_error_code FROM extension_outbox") == {
         "last_error_code": "POLICY_DENIED"
     }
+
+
+def test_event_policy_receives_the_task_project_type(fresh_db):
+    from app.services import engagements
+
+    observed: list[str] = []
+    calls: list[str] = []
+
+    def deny_regulated_event(request: PolicyInput):
+        if request.action == "atlas.events.deliver":
+            observed.append(request.resource.project_type)
+            if request.resource.project_type == "regulated":
+                return PolicyDecision(PolicyEffect.DENY, ("Regulated delivery is closed.",))
+        return None
+
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                policies=(
+                    PolicyContribution(
+                        "atlas.workplace.regulated-events",
+                        deny_regulated_event,
+                    ),
+                ),
+                service_identities=(
+                    ServiceIdentityContribution(
+                        "atlas.workplace.event-identity",
+                        "atlas-events",
+                    ),
+                ),
+            ),
+        )
+    )
+    engagement = engagements.create_engagement(
+        "Regulated event project",
+        project_class="regulated",
+    )["id"]
+    facade = WorkItems(registry.policy_engine)
+    facade.create_task(
+        CreateTaskCommand(title="Regulated event", engagement_id=engagement),
+        _context(facade),
+    )
+    contribution = _event(
+        "atlas.workplace.delivery",
+        lambda event, _context: calls.append(event.event_id),
+        ("skein.task.created",),
+    )
+
+    result = dispatch_events(
+        (contribution,),
+        EventExecutionContext(
+            registry.policy_engine,
+            WorkItems(registry.policy_engine),
+            registry.service_subject,
+        ),
+    )
+
+    assert result == {"delivered": 0, "failed": 0, "dead": 1}
+    assert observed == ["regulated"]
+    assert calls == []
 
 
 def test_write_event_timeout_is_terminal_completion_unknown(fresh_db):

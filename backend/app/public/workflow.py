@@ -8,10 +8,12 @@ import json
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 from uuid import uuid4
+from weakref import ReferenceType, ref
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
@@ -107,22 +109,36 @@ class WorkflowContext:
     def __post_init__(self) -> None:
         if not self.run_id.strip():
             object.__setattr__(self, "run_id", uuid4().hex)
-        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+        object.__setattr__(self, "values", MappingProxyType(deepcopy(dict(self.values))))
         object.__setattr__(
             self,
             "approval_grants",
-            MappingProxyType(dict(self.approval_grants)),
+            MappingProxyType(deepcopy(dict(self.approval_grants))),
         )
         object.__setattr__(
             self,
             "approval_decisions",
-            MappingProxyType(dict(self.approval_decisions)),
+            MappingProxyType(deepcopy(dict(self.approval_decisions))),
         )
         object.__setattr__(
             self,
             "authorization_grants",
-            MappingProxyType(dict(self.authorization_grants)),
+            MappingProxyType(deepcopy(dict(self.authorization_grants))),
         )
+
+
+def _workflow_context_signature(context: WorkflowContext) -> tuple[Any, ...]:
+    return (
+        context.subject,
+        context.origin,
+        context.project_type,
+        context.resource_id,
+        context.run_id,
+        deepcopy(dict(context.values)),
+        deepcopy(dict(context.approval_grants)),
+        deepcopy(dict(context.authorization_grants)),
+        deepcopy(dict(context.approval_decisions)),
+    )
 
 
 class WorkflowResult(BaseModel):
@@ -165,6 +181,75 @@ class WorkflowEngine:
         self._actions = {action.name: action for action in actions}
         self._policy = policy
         self._authorization_key = secrets.token_bytes(32)
+        self._issued_contexts: dict[
+            int, tuple[ReferenceType[WorkflowContext], tuple[Any, ...]]
+        ] = {}
+
+    def _issue_context(
+        self,
+        *,
+        subject: PolicySubject,
+        origin: str,
+        project_type: str = "",
+        resource_id: str = "",
+        run_id: str = "",
+        values: dict[str, Any] | None = None,
+        approval_grants: dict[str, str] | None = None,
+        authorization_grants: dict[str, str] | None = None,
+        approval_decisions: dict[str, PolicyDecision] | None = None,
+    ) -> WorkflowContext:
+        context = WorkflowContext(
+            subject=subject,
+            origin=origin,
+            project_type=project_type,
+            resource_id=resource_id,
+            run_id=run_id,
+            values=values or {},
+            approval_grants=approval_grants or {},
+            authorization_grants=authorization_grants or {},
+            approval_decisions=approval_decisions or {},
+        )
+        identity = id(context)
+
+        def forget(reference: ReferenceType[WorkflowContext]) -> None:
+            current = self._issued_contexts.get(identity)
+            if current is not None and current[0] is reference:
+                self._issued_contexts.pop(identity, None)
+
+        reference = ref(context, forget)
+        self._issued_contexts[identity] = (reference, _workflow_context_signature(context))
+        return context
+
+    def _require_issued_context(self, context: WorkflowContext) -> None:
+        current = self._issued_contexts.get(id(context))
+        if (
+            current is None
+            or current[0]() is not context
+            or current[1] != _workflow_context_signature(context)
+        ):
+            raise PublicError(
+                "WORKFLOW_CONTEXT_REQUIRED",
+                "Use the workflow context from the composed application boundary.",
+                status_code=403,
+            )
+
+    def _with_authorization_grants(
+        self,
+        context: WorkflowContext,
+        grants: dict[str, str],
+    ) -> WorkflowContext:
+        self._require_issued_context(context)
+        return self._issue_context(
+            subject=context.subject,
+            origin=context.origin,
+            project_type=context.project_type,
+            resource_id=context.resource_id,
+            run_id=context.run_id,
+            values=dict(context.values),
+            approval_grants=dict(context.approval_grants),
+            authorization_grants=grants,
+            approval_decisions=dict(context.approval_decisions),
+        )
 
     def prepare(self, raw: object) -> tuple[WorkflowStep, ...]:
         try:
@@ -187,6 +272,7 @@ class WorkflowEngine:
                     self._prepare_nested(nested)
 
     def run(self, steps: tuple[WorkflowStep, ...], context: WorkflowContext) -> WorkflowResult:
+        self._require_issued_context(context)
         state = _WorkflowState()
         stopped = self._run_steps(steps, context, state, "root", _workflow_digest(steps))
         if stopped is not None:
@@ -201,6 +287,7 @@ class WorkflowEngine:
         self, steps: tuple[WorkflowStep, ...], context: WorkflowContext
     ) -> WorkflowResult:
         """Check every selected step before a playbook creates core work."""
+        self._require_issued_context(context)
         grants: dict[str, str] = {}
         stopped = self._authorize_steps(
             steps,
@@ -218,6 +305,7 @@ class WorkflowEngine:
         review_key: str,
     ) -> tuple[PolicyInput, PolicyDecision, str]:
         """Return one current decision for the exact pending step path."""
+        self._require_issued_context(context)
         found = self._current_review_step(
             steps,
             context,
@@ -712,6 +800,33 @@ class WorkflowEngine:
             error_code=code,
             outputs=state.outputs,
         )
+
+
+def _issue_workflow_context(
+    engine: WorkflowEngine,
+    subject: PolicySubject,
+    origin: str,
+    *,
+    project_type: str = "",
+    resource_id: str = "",
+    run_id: str = "",
+    values: dict[str, Any] | None = None,
+    approval_grants: dict[str, str] | None = None,
+    authorization_grants: dict[str, str] | None = None,
+    approval_decisions: dict[str, PolicyDecision] | None = None,
+) -> WorkflowContext:
+    """Issue one workflow identity from a trusted core composition boundary."""
+    return engine._issue_context(
+        subject=subject,
+        origin=origin,
+        project_type=project_type,
+        resource_id=resource_id,
+        run_id=run_id,
+        values=values,
+        approval_grants=approval_grants,
+        authorization_grants=authorization_grants,
+        approval_decisions=approval_decisions,
+    )
 
 
 @dataclass

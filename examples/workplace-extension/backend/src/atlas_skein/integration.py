@@ -142,20 +142,24 @@ class AtlasIntegration:
     ) -> dict[str, int]:
         created = updated = 0
         for item in self.client.list_items():
+            changed = False
             link = self.store.query_one(
                 "SELECT skein_task_id FROM work_links WHERE external_id = ?",
                 (item.external_id,),
             )
             if link:
-                task = work.update_task(
-                    UpdateTaskCommand(
-                        task_id=int(link["skein_task_id"]),
-                        title=item.title,
-                        status=item.status,
-                    ),
-                    context,
-                )
-                updated += 1
+                task = work.get_task(int(link["skein_task_id"]), context)
+                if task.title != item.title or task.status != item.status:
+                    task = work.update_task(
+                        UpdateTaskCommand(
+                            task_id=task.id,
+                            title=item.title,
+                            status=item.status,
+                        ),
+                        context,
+                    )
+                    updated += 1
+                    changed = True
             else:
                 task = work.create_task(
                     CreateTaskCommand(
@@ -165,6 +169,7 @@ class AtlasIntegration:
                     ),
                     context,
                 )
+                changed = True
                 inserted = self.store.execute(
                     "INSERT OR IGNORE INTO work_links"
                     " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
@@ -179,12 +184,13 @@ class AtlasIntegration:
                 if inserted:
                     created += 1
                 else:
-                    updated += 1
-            self.client.update_status(
-                item.external_id,
-                task.status,
-                f"{context.correlation_id or 'atlas-sync'}:{item.external_id}:{task.status}",
-            )
+                    changed = False
+            if changed:
+                self.client.update_status(
+                    item.external_id,
+                    task.status,
+                    f"{context.correlation_id or 'atlas-sync'}:{item.external_id}:{task.status}",
+                )
         self.store.execute(
             "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
             " VALUES (?, ?, datetime('now'))",

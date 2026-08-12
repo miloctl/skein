@@ -19,7 +19,8 @@ from app.extensions import (
 )
 from app.extensions.policy import PolicyInput, PolicySubject
 from app.main import create_app
-from app.public import PublicError, WorkflowContext, WorkflowEngine
+from app.public import PublicError
+from app.public.workflow import WorkflowEngine, _issue_workflow_context
 
 
 class SendIn(BaseModel):
@@ -78,6 +79,10 @@ def _engine(calls: list[str], *, policy=True) -> WorkflowEngine:
     return WorkflowEngine(registry.workflow_actions, registry.policy_engine)
 
 
+def _context(engine: WorkflowEngine, subject: PolicySubject, origin: str, **values):
+    return _issue_workflow_context(engine, subject, origin, **values)
+
+
 def test_async_workflow_actions_are_rejected_during_composition():
     async def send(_context, _request):
         return {"sent": True}
@@ -126,7 +131,8 @@ def test_a_condition_and_policy_review_stop_external_actions(fresh_db):
     engine = _engine(calls)
     result = engine.run(
         engine.prepare(_steps()),
-        WorkflowContext(
+        _context(
+            engine,
             PolicySubject("atlas-sync", kind="service"),
             "workflow",
             project_type="regulated",
@@ -137,6 +143,24 @@ def test_a_condition_and_policy_review_stop_external_actions(fresh_db):
     assert result.checkpoint == "manager-approval"
     assert result.completed == ("work-created",)
     assert result.obligations == ("approver-group:delivery-managers",)
+    assert calls == []
+    assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
+
+
+def test_a_caller_created_workflow_context_has_no_execution_authority(fresh_db):
+    import app.public as public_contracts
+    from app.public.workflow import WorkflowContext
+
+    calls: list[str] = []
+    engine = _engine(calls, policy=False)
+    fabricated = WorkflowContext(PolicySubject("victim"), "workflow")
+
+    with pytest.raises(PublicError) as raised:
+        engine.run(engine.prepare(_steps()), fabricated)
+
+    assert raised.value.code == "WORKFLOW_CONTEXT_REQUIRED"
+    assert not hasattr(public_contracts, "WorkflowContext")
+    assert not hasattr(public_contracts, "WorkflowEngine")
     assert calls == []
     assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
 
@@ -178,13 +202,14 @@ def test_one_grant_cannot_approve_two_occurrences_of_the_same_action(fresh_db):
         ]
     )
     subject = PolicySubject("atlas-sync", kind="service")
-    first = engine.run(steps, WorkflowContext(subject, "workflow"))
+    first = engine.run(steps, _context(engine, subject, "workflow"))
     assert first.status == "review_required"
     assert first.review_key == "root.0"
 
     second = engine.run(
         steps,
-        WorkflowContext(
+        _context(
+            engine,
             subject,
             "workflow",
             approval_grants={first.review_key: first.review_fingerprint},
@@ -228,11 +253,12 @@ def test_workflow_grant_fails_closed_when_policy_obligations_change(fresh_db):
         ]
     )
     subject = PolicySubject("atlas-sync", kind="service")
-    before = engine.run(steps, WorkflowContext(subject, "workflow"))
+    before = engine.run(steps, _context(engine, subject, "workflow"))
     requirement["group"] = "security-managers"
     after = engine.run(
         steps,
-        WorkflowContext(
+        _context(
+            engine,
             subject,
             "workflow",
             approval_grants={before.review_key: before.review_fingerprint},
@@ -248,7 +274,8 @@ def test_the_nonregulated_branch_runs_the_action_and_checkpoints(fresh_db):
     engine = _engine(calls)
     result = engine.run(
         engine.prepare(_steps()),
-        WorkflowContext(
+        _context(
+            engine,
             PolicySubject("atlas-sync", kind="service"),
             "workflow",
             project_type="standard",
@@ -319,7 +346,7 @@ def test_workflow_write_timeout_reports_unknown_completion(fresh_db):
                 }
             ]
         ),
-        WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow"),
+        _context(engine, PolicySubject("atlas-sync", kind="service"), "workflow"),
     )
     assert result.status == "completion_unknown"
     assert result.error_code == "DEADLINE_EXCEEDED"
@@ -362,7 +389,7 @@ def test_workflow_write_exception_after_side_effect_reports_unknown_completion(f
                 }
             ]
         ),
-        WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow"),
+        _context(engine, PolicySubject("atlas-sync", kind="service"), "workflow"),
     )
     assert calls == ["delivery"]
     assert result.status == "completion_unknown"
@@ -399,8 +426,8 @@ def test_workflow_run_id_is_unique_between_runs_and_stable_for_a_retry(fresh_db)
             }
         ]
     )
-    first = WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow")
-    second = WorkflowContext(PolicySubject("atlas-sync", kind="service"), "workflow")
+    first = _context(engine, PolicySubject("atlas-sync", kind="service"), "workflow")
+    second = _context(engine, PolicySubject("atlas-sync", kind="service"), "workflow")
 
     assert engine.run(steps, first).status == "completed"
     assert engine.run(steps, second).status == "completed"
@@ -523,7 +550,9 @@ workflow:
         policies=(PolicyContribution("atlas.workplace.changing", changing_policy),),
     )
     registry = ExtensionRegistry.build((module,))
-    context = WorkflowContext(
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    context = _context(
+        engine,
         PolicySubject("mira"),
         "human",
         project_type="standard",
@@ -532,7 +561,7 @@ workflow:
         "race",
         "Race engagement",
         actor="mira",
-        workflow_engine=WorkflowEngine(registry.workflow_actions, registry.policy_engine),
+        workflow_engine=engine,
         workflow_context=context,
     )
     assert result["workflow"]["status"] == "completed"

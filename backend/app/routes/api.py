@@ -141,7 +141,7 @@ def get_task(
         # Bind the viewer-scoped row, domain policy, and returned projection to
         # one snapshot. The generic route gate skips this exact operation so
         # an unscoped project lookup cannot reveal a hidden task first.
-        with db.transaction():
+        with db.read_transaction():
             task = work.get_task(task_id, viewer)
             domain = work.task_read_policy_context(task, viewer)
             enforce_decision(
@@ -170,7 +170,7 @@ def get_task_worklog(
     subject: PolicySubjectDep,
 ):
     try:
-        with db.transaction():
+        with db.read_transaction():
             task = work.get_task(task_id, viewer)
             domain = work.task_read_policy_context(task, viewer)
             enforce_decision(
@@ -1820,7 +1820,7 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         from ..extensions.policy import (
             policy_subject_from_data,
         )
-        from ..public.workflow import WorkflowContext, WorkflowEngine
+        from ..public.workflow import WorkflowEngine, _issue_workflow_context
 
         saved_subject = invocation.get("subject")
         if not isinstance(saved_subject, dict):
@@ -1833,6 +1833,18 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         # policy, and checked the reviewer immediately before this executor.
         # A second decision here could name different approvers without the
         # review service checking them. Execute the one qualified verdict.
+        workflow_engine = WorkflowEngine(
+            registry.workflow_actions,
+            registry.policy_engine,
+        )
+        workflow_context = _issue_workflow_context(
+            workflow_engine,
+            subject,
+            "human",
+            project_type=project_type,
+            run_id=str(invocation.get("run_id") or uuid4().hex),
+            values={"project_type": project_type},
+        )
         workflow_result = playbooks.instantiate(
             slug,
             str(invocation.get("engagement_name") or ""),
@@ -1840,17 +1852,8 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             str(invocation.get("start_date") or ""),
             actor=str(invocation.get("actor") or subject.name),
             origin="human",
-            workflow_engine=WorkflowEngine(
-                registry.workflow_actions,
-                registry.policy_engine,
-            ),
-            workflow_context=WorkflowContext(
-                subject=subject,
-                origin="human",
-                project_type=project_type,
-                run_id=str(invocation.get("run_id") or uuid4().hex),
-                values={"project_type": project_type},
-            ),
+            workflow_engine=workflow_engine,
+            workflow_context=workflow_context,
             expected_definition_digest=str(invocation.get("definition_digest") or ""),
         )
         if workflow_result.get("workflow", {}).get("status") == "review_required":
@@ -1868,7 +1871,7 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             policy_decision_from_data,
             policy_subject_from_data,
         )
-        from ..public.workflow import WorkflowContext, WorkflowEngine
+        from ..public.workflow import WorkflowEngine, _issue_workflow_context
 
         subject_data = invocation.get("subject") or {}
         saved_subject = policy_subject_from_data(subject_data)
@@ -1889,6 +1892,24 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             raise ValueError("the reviewed workflow decision is incomplete")
         approved_decision = policy_decision_from_data(decision_data)
         approval_grants[reviewed_key] = reviewed_fingerprint
+        workflow_engine = WorkflowEngine(
+            registry.workflow_actions,
+            registry.policy_engine,
+        )
+        workflow_context = _issue_workflow_context(
+            workflow_engine,
+            subject,
+            "human",
+            project_type=current_project_type,
+            resource_id=str(invocation.get("resource_id") or ""),
+            run_id=str(invocation.get("run_id") or uuid4().hex),
+            values={
+                **dict(invocation.get("values") or {}),
+                "project_type": current_project_type,
+            },
+            approval_grants=approval_grants,
+            approval_decisions={reviewed_key: approved_decision},
+        )
         workflow_result = playbooks.instantiate(
             str(invocation.get("playbook") or ""),
             str(invocation.get("engagement_name") or ""),
@@ -1896,23 +1917,8 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
             str(invocation.get("start_date") or ""),
             actor=str(invocation.get("actor") or subject.name),
             origin="human",
-            workflow_engine=WorkflowEngine(
-                registry.workflow_actions,
-                registry.policy_engine,
-            ),
-            workflow_context=WorkflowContext(
-                subject=subject,
-                origin="human",
-                project_type=current_project_type,
-                resource_id=str(invocation.get("resource_id") or ""),
-                run_id=str(invocation.get("run_id") or uuid4().hex),
-                values={
-                    **dict(invocation.get("values") or {}),
-                    "project_type": current_project_type,
-                },
-                approval_grants=approval_grants,
-                approval_decisions={reviewed_key: approved_decision},
-            ),
+            workflow_engine=workflow_engine,
+            workflow_context=workflow_context,
             expected_definition_digest=str(invocation.get("definition_digest") or ""),
         )
         workflow = workflow_result.get("workflow", {})
@@ -2286,7 +2292,7 @@ def post_instantiate(
     subject: PolicySubjectDep,
 ):
     from ..extensions.policy import policy_subject_data
-    from ..public.workflow import WorkflowContext, WorkflowEngine
+    from ..public.workflow import WorkflowEngine, _issue_workflow_context
 
     registry = request.app.state.skein_registry
     playbook = playbooks.get_playbook(body.playbook)
@@ -2310,9 +2316,11 @@ def post_instantiate(
             policy_input=request.state.skein_playbook_policy_input,
             decision=request.state.skein_playbook_policy_decision,
         )
-    workflow_context = WorkflowContext(
-        subject=subject,
-        origin="human",
+    workflow_engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    workflow_context = _issue_workflow_context(
+        workflow_engine,
+        subject,
+        "human",
         values={"project_type": project_type},
         project_type=project_type,
     )
@@ -2322,7 +2330,7 @@ def post_instantiate(
         body.lead or user,
         body.start_date,
         actor=user,
-        workflow_engine=WorkflowEngine(registry.workflow_actions, registry.policy_engine),
+        workflow_engine=workflow_engine,
         workflow_context=workflow_context,
         expected_definition_digest=definition_digest,
     )

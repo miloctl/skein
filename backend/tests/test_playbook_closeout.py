@@ -284,12 +284,15 @@ def test_a_scoped_engagement_drafts_no_lesson_and_says_so(client):
     panel has to know, or it promises a lesson nobody gets."""
     made = _born()
     eid = made["engagement"]["id"]
-    db.execute("UPDATE engagements SET visibility = 'private' WHERE id = ?", (eid,))
     work.update_milestone(
         made["milestones"][0]["id"],
         due_date=(db.today() + timedelta(days=90)).isoformat(),
         actor="ava",
     )
+    # Direct SQL creates the legacy invalid audience relationship that the
+    # close-out reader must still handle. The supported milestone writer now
+    # refuses this state.
+    db.execute("UPDATE engagements SET visibility = 'private' WHERE id = ?", (eid,))
     assert playbooks.close_out_diff(eid, scope.Viewer("ava", True))["drafts_lesson"] is False
     engagements.update_engagement(eid, status="closed", conclusion="partial", actor="ava")
     assert not [p for p in review.list_changes("pending") if p["entity"] == "lesson"]

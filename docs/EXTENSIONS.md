@@ -510,6 +510,13 @@ Version 1 playbooks support four workflow step types:
 Workflow actions declare schemas, effect, risk, policy action, timeout, and
 safe error codes. A playbook cannot call arbitrary Python or an arbitrary URL.
 
+Do not import or construct `WorkflowEngine` or `WorkflowContext` in a private
+package. These are internal execution types. The composed application issues
+the workflow authority. A caller-created context cannot run an action. Start a
+workflow-backed playbook through the REST endpoint and resume it through the
+review endpoint. This rule binds the requester, policy, run ID, and action
+registry to one trusted application boundary.
+
 The REST, deterministic chat, and agent-tool paths use `playbook.create`.
 They use one resolver to load the project class from the selected playbook.
 The REST path
@@ -633,6 +640,11 @@ package that imports `frontend/components` or `frontend/lib` uses an internal
 contract and can break on any release.
 
 ## Package and deploy
+
+The Skein wheel is a PEP 561 typed package. It includes `app/py.typed`.
+Type-check the private backend against the installed Skein wheel, not against a
+core source checkout. This check detects removed names and incompatible type
+changes at the same boundary that deployment uses.
 
 Use separate versioned artifacts:
 

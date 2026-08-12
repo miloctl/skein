@@ -34,10 +34,19 @@ git worktree add --detach "$tmp/base" "$baseline" >/dev/null
 #    CI databases are otherwise always empty, which is the blind spot
 SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="$tmp/base/backend" "$python" - <<'PY'
 from app import db
+from app.services import engagements, work
 
 db.init_db()
 for i in range(3):
     db.log_activity("ci", "upgrade_probe", f"row {i}")
+direct = engagements.create_engagement("Upgrade direct", project_class="standard")["id"]
+engagements.create_engagement("Upgrade milestone", project_class="regulated")
+milestone = work.create_milestone("Upgrade gate", project="Upgrade milestone")["id"]
+work.create_task(
+    "Upgrade relationship conflict",
+    engagement_id=direct,
+    milestone_id=milestone,
+)
 PY
 
 # 2. HEAD boots it — the upgrade a deployment performs
@@ -77,10 +86,28 @@ PY
 
 # 5. the hash chain written at the baseline must verify after the upgrade
 SKEIN_DATA_DIR="$tmp/upgraded" PYTHONPATH="backend" "$python" - <<'PY'
+from app import db
 from app.services import activity
+from app.agents.core_tools import _resource
+from app.extensions.policy import PolicyEffect, PolicyEngine, PolicyInput, PolicySubject
+from app.services import policy_context
 
 out = activity.verify_chain()
 assert out["ok"], out
+task = db.query_one(
+    "SELECT id FROM tasks WHERE title = 'Upgrade relationship conflict'"
+)
+attributes = policy_context.existing("task", int(task["id"]))
+assert attributes["relationship_conflict"] == "true", attributes
+decision = PolicyEngine().decide(
+    PolicyInput(
+        PolicySubject("agent", kind="agent"),
+        "task.read",
+        _resource({"task_id": int(task["id"])}),
+        "agent",
+    )
+)
+assert decision.effect == PolicyEffect.DENY, decision
 print(f"upgrade-path: chain ok through seq {out['chained_through']}")
 PY
 
