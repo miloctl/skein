@@ -174,10 +174,6 @@ class PolicyContribution:
     name: str
     rule: PolicyRule
     priority: int = 100
-    actions: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "actions", tuple(self.actions))
 
 
 @dataclass(frozen=True)

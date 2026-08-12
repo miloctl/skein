@@ -91,7 +91,10 @@ def test_notification_source_migration_preserves_legacy_rows(fresh_db, tmp_path,
     staged = _staged(tmp_path, monkeypatch)
     migration = staged / "019_notification_sources.sql"
     migration_sql = migration.read_text()
+    policy_migration = staged / "020_policy_projection_indexes.sql"
+    policy_migration_sql = policy_migration.read_text()
     migration.unlink()
+    policy_migration.unlink()
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-018.db")
     db.init_db()
     notification_id = db.execute(
@@ -100,12 +103,19 @@ def test_notification_source_migration_preserves_legacy_rows(fresh_db, tmp_path,
     )
 
     migration.write_text(migration_sql)
+    policy_migration.write_text(policy_migration_sql)
     db.init_db()
 
     assert db.query_one(
-        "SELECT message, source_entity, source_id FROM notifications WHERE id = ?",
+        "SELECT message, source_entity, source_id, source_policy_context"
+        " FROM notifications WHERE id = ?",
         (notification_id,),
-    ) == {"message": "legacy", "source_entity": "", "source_id": None}
+    ) == {
+        "message": "legacy",
+        "source_entity": "",
+        "source_id": None,
+        "source_policy_context": "{}",
+    }
 
 
 # the activity chain is born in the baseline, so NO migration may ever

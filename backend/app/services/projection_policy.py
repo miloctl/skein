@@ -66,13 +66,14 @@ class ProjectionPolicy:
         ]
 
     def filter_resources(self, rows: list[dict]) -> list[dict]:
-        resources = [(str(row.get("entity") or ""), int(row.get("entity_id") or 0)) for row in rows]
-        contexts = policy_context.resource_contexts(resources, self.viewer)
-        return [
-            row
-            for row, (entity, entity_id) in zip(rows, resources, strict=True)
-            if self.permits(entity, entity_id, contexts.get((entity, entity_id), {}))
-        ]
+        from .review import filter_policy_resources
+
+        return filter_policy_resources(
+            rows,
+            self.permits,
+            allow_unclassified=self.allows_unclassified(),
+            viewer=self.viewer,
+        )
 
     def allows_unclassified(self) -> bool:
         """Free-form legacy text is safe only when no workplace rule exists."""

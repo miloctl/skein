@@ -1119,6 +1119,11 @@ def redact_task_relationships(
                 for row in tasks
                 if row.get("waiting_on_type") in _WAITING_TABLES and row.get("waiting_on_id")
             ),
+            *(
+                ("finding", int(row["source_finding_id"]))
+                for row in tasks
+                if row.get("source_finding_id")
+            ),
         }
         policy_contexts = policy_context.resource_contexts(list(resources), viewer)
 
@@ -1156,6 +1161,9 @@ def redact_task_relationships(
         ):
             task["waiting_on_type"] = None
             task["waiting_on_id"] = None
+        finding_id = int(task.get("source_finding_id") or 0)
+        if finding_id and not policy_permits("finding", finding_id):
+            task["source_finding_id"] = None
     return tasks
 
 

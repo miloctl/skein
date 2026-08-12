@@ -51,11 +51,12 @@ _ROUTE_ENTITIES = {
 _ENGAGEMENT_LINKED = frozenset(
     name for name, (_table, source) in _TABLES.items() if source == "engagement_id"
 )
+_UNSCOPED_RESOURCES = {"finding": "findings"}
 
 
 def supports_resource(entity: str) -> bool:
     """Return true when the central resolver knows this domain resource."""
-    return entity in _TABLES
+    return entity in _TABLES or entity in _UNSCOPED_RESOURCES
 
 
 def engagement_linked_collection_contexts(
@@ -112,6 +113,12 @@ def engagement_linked_collection_contexts(
 
 def existing(entity: str, entity_id: int) -> dict[str, str]:
     """Load classification and project type for an existing policy resource."""
+    if entity in _UNSCOPED_RESOURCES and entity_id:
+        row = db.query_one(
+            f"SELECT id FROM {_UNSCOPED_RESOURCES[entity]} WHERE id = ?",  # noqa: S608 -- closed table map
+            (entity_id,),
+        )
+        return {"classification": "workspace", "project_type": ""} if row else {}
     selected = _TABLES.get(entity)
     if selected is None or not entity_id:
         return {}
@@ -483,6 +490,8 @@ def _visible_engagement_project_type(engagement_id: int, viewer: scope.Viewer) -
 
 def existing_scoped(entity: str, entity_id: int, viewer: scope.Viewer) -> dict[str, str]:
     """Load policy metadata only when the viewer can read the resource."""
+    if entity in _UNSCOPED_RESOURCES:
+        return existing(entity, entity_id)
     if entity == "task":
         from . import work
 
@@ -683,47 +692,72 @@ def opaque_project_contexts(_viewer: scope.Viewer) -> list[tuple[int, dict[str, 
 
 
 def has_visible_relationship_conflict(viewer: scope.Viewer) -> bool:
-    """Detect visible legacy rows whose project boundary is not trustworthy.
+    """Detect a visible legacy relationship with indexed existence probes."""
 
-    Opaque reports cannot remove one unsafe row after they aggregate it. A
-    workspace child can survive from an older core with a hidden, missing, or
-    conflicting parent. Scan those already-visible children before an opaque
-    projection runs, and fail the whole projection closed.
-    """
-    from . import blockers, work
+    def exists(sql: str, params: tuple[object, ...]) -> bool:
+        return db.query_one(sql, params) is not None
 
     task_visible, task_params = scope.visible_filter(viewer, "tasks", "task")
-    task_rows = db.query(
-        f"SELECT task.* FROM tasks task WHERE {task_visible}",  # noqa: S608 -- scope emits bound marks
-        tuple(task_params),
+    engagement_visible, engagement_params = scope.visible_filter(
+        viewer, "engagements", "engagement"
     )
-    if any(
-        context.get("relationship_conflict")
-        for context in work.task_collection_policy_contexts(task_rows, viewer).values()
+    milestone_visible, milestone_params = scope.visible_filter(viewer, "milestones", "milestone")
+
+    # Direct parent missing or hidden.
+    if exists(
+        "SELECT 1 AS conflict FROM tasks task LEFT JOIN engagements engagement"  # noqa: S608 -- scope emits only bound marks
+        f" ON engagement.id = task.engagement_id AND {engagement_visible}"
+        " WHERE task.engagement_id IS NOT NULL AND engagement.id IS NULL"
+        f" AND {task_visible} LIMIT 1",
+        (*engagement_params, *task_params),
+    ):
+        return True
+
+    # Milestone missing or hidden.
+    if exists(
+        "SELECT 1 AS conflict FROM tasks task LEFT JOIN milestones milestone"  # noqa: S608 -- scope emits only bound marks
+        f" ON milestone.id = task.milestone_id AND {milestone_visible}"
+        " WHERE task.milestone_id IS NOT NULL AND milestone.id IS NULL"
+        f" AND {task_visible} LIMIT 1",
+        (*milestone_params, *task_params),
+    ):
+        return True
+
+    # Milestone parent missing or hidden, and direct/milestone parents disagree.
+    if exists(
+        "SELECT 1 AS conflict FROM tasks task JOIN milestones milestone"  # noqa: S608 -- scope emits only bound marks
+        f" ON milestone.id = task.milestone_id AND {milestone_visible}"
+        " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
+        f" AND {engagement_visible} WHERE task.milestone_id IS NOT NULL"
+        " AND ((milestone.engagement_id IS NOT NULL AND engagement.id IS NULL)"
+        " OR (task.engagement_id IS NOT NULL AND milestone.engagement_id IS NOT NULL"
+        " AND task.engagement_id != milestone.engagement_id))"
+        f" AND {task_visible} LIMIT 1",
+        (*milestone_params, *engagement_params, *task_params),
     ):
         return True
 
     blocker_visible, blocker_params = scope.visible_filter(viewer, "blockers", "blocker")
-    blocker_rows = db.query(
-        f"SELECT blocker.* FROM blockers blocker WHERE {blocker_visible}",  # noqa: S608 -- scope emits bound marks
-        tuple(blocker_params),
-    )
-    if any(
-        context.get("relationship_conflict")
-        for context in blockers.blocker_collection_policy_contexts(blocker_rows, viewer).values()
+    linked_task_visible, linked_task_params = scope.visible_filter(viewer, "tasks", "linked_task")
+    if exists(
+        "SELECT 1 AS conflict FROM blockers blocker LEFT JOIN tasks linked_task"  # noqa: S608 -- scope emits only bound marks
+        f" ON linked_task.id = blocker.task_id AND {linked_task_visible}"
+        " WHERE blocker.task_id IS NOT NULL AND linked_task.id IS NULL"
+        f" AND {blocker_visible} LIMIT 1",
+        (*linked_task_params, *blocker_params),
     ):
         return True
 
     for entity in ("milestone", "event", "promise", "memory", "lesson", "artifact"):
         table = _TABLES[entity][0]
-        visible, params = scope.visible_filter(viewer, table, "value")
-        rows = db.query(
-            f"SELECT value.* FROM {table} value WHERE {visible}",  # noqa: S608 -- closed table map and scope marks
-            tuple(params),
-        )
-        if any(
-            context.get("relationship_conflict")
-            for context in engagement_linked_collection_contexts(entity, rows, viewer).values()
+        value_visible, value_params = scope.visible_filter(viewer, table, "value")
+        parent_visible, parent_params = scope.visible_filter(viewer, "engagements", "engagement")
+        if exists(
+            f"SELECT 1 AS conflict FROM {table} value LEFT JOIN engagements engagement"  # noqa: S608 -- closed table map
+            f" ON engagement.id = value.engagement_id AND {parent_visible}"
+            " WHERE value.engagement_id IS NOT NULL AND engagement.id IS NULL"
+            f" AND {value_visible} LIMIT 1",
+            (*parent_params, *value_params),
         ):
             return True
     return False

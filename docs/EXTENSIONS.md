@@ -173,11 +173,35 @@ The existing strong-identity, administrator, visibility, authority, and review
 checks still run. A workplace permit cannot remove a core denial. Deny is
 stronger than review, and review is stronger than permit.
 
-Declare the stable actions that a policy contribution can inspect. New
-packages set `PolicyContribution(actions=(...))`. An empty action list keeps
-the extension API 1.0 legacy behavior and can inspect every action. Skein
-treats unclassified free-form text as unsafe when an applicable workplace
-rule exists. A scoped rule does not disable unrelated core readouts.
+Declare the stable actions that a policy rule can inspect. Put an `actions`
+tuple on the callable rule object. Keep the `PolicyContribution(name, rule)`
+constructor compatible with extension API 1.0 cores. The reference Atlas
+package uses this form:
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class AtlasPolicy:
+    actions: tuple[str, ...] = (
+        "atlas.dashboard.view",
+        "atlas.integration.sync",
+    )
+
+    def __call__(self, request: PolicyInput) -> PolicyDecision | None:
+        if request.action not in self.actions:
+            return None
+        return decide_atlas(request)
+
+
+PolicyContribution("atlas.workplace.policy", AtlasPolicy())
+```
+
+A callable with no `actions` tuple keeps the extension API 1.0 behavior. It
+can inspect every action. Skein treats unclassified free-form text as unsafe
+when an applicable workplace rule exists. A scoped rule does not disable
+unrelated core readouts.
 
 Auth bootstrap endpoints keep their specialized gates. Signed Slack and forge
 requests first pass signature checks. Skein then evaluates
@@ -193,9 +217,11 @@ This check includes hidden inputs whose names are masked in the response.
 The aggregate fails closed if policy denies one of these project domains.
 
 Migration 019 gives each new notification a source entity and source ID.
-Policy-aware readers check that source before they return the body. They omit
-an old notification that has no source when workplace rules are active.
-Saved reviews retain their target entity and ID and use the same rule.
+Migration 020 also saves its creation-time policy context. Policy-aware
+readers check both the saved context and the current source before they return
+the static body. They omit an old notification that has no safe context when
+workplace rules are active. Saved reviews use their stored policy input and
+their current target in the same way.
 
 Some older free-form derivatives have no reliable source. Activity summaries
 and findings are examples. Skein omits or refuses unclassified text when
@@ -786,7 +812,7 @@ scripts/reference-images-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
-pair uses different backend source trees. It applies migrations 018 and 019.
+pair uses different backend source trees. It applies migrations 018 through 020.
 It also runs the documented legacy identity-owner claims before startup.
 `scripts/upgrade-path.sh` separately verifies all additive core migrations
 from the historical base, schema equality, and activity-chain integrity. The

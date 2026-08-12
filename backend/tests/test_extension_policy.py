@@ -3,7 +3,7 @@
 import asyncio
 import json
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 import pytest
@@ -147,6 +147,13 @@ def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
         called.append(request.action)
         return PolicyDecision(PolicyEffect.DENY, ("Scoped rule ran.",))
 
+    @dataclass(frozen=True)
+    class ScopedRule:
+        actions: tuple[str, ...] = ("acme.release.approve",)
+
+        def __call__(self, request: PolicyInput):
+            return rule(request)
+
     module = SkeinModule(
         module_id="acme.workplace",
         version="1.0.0",
@@ -156,8 +163,7 @@ def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
         policies=(
             PolicyContribution(
                 "acme.workplace.scoped-policy",
-                rule,
-                actions=("acme.release.approve",),
+                ScopedRule(),
             ),
         ),
     )
@@ -180,6 +186,13 @@ def test_policy_contribution_can_declare_its_stable_actions(fresh_db):
 
 @pytest.mark.parametrize("actions", [("",), ("x" * 161,), ("acme.read", "acme.read")])
 def test_policy_contribution_rejects_invalid_action_metadata(fresh_db, actions):
+    @dataclass(frozen=True)
+    class InvalidRule:
+        actions: tuple[str, ...]
+
+        def __call__(self, _request: PolicyInput):
+            return None
+
     module = SkeinModule(
         module_id="acme.workplace",
         version="1.0.0",
@@ -189,8 +202,7 @@ def test_policy_contribution_rejects_invalid_action_metadata(fresh_db, actions):
         policies=(
             PolicyContribution(
                 "acme.workplace.invalid-policy",
-                lambda _request: None,
-                actions=actions,
+                InvalidRule(actions),
             ),
         ),
     )
@@ -200,10 +212,18 @@ def test_policy_contribution_rejects_invalid_action_metadata(fresh_db, actions):
 
 
 def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, monkeypatch):
+    from app import db
     from app.services import policy_context, projection_policy, scope, work
 
     for index in range(500):
         work.create_task(f"Historical row {index}")
+
+    @dataclass(frozen=True)
+    class UnrelatedPolicy:
+        actions: tuple[str, ...] = ("acme.release.approve",)
+
+        def __call__(self, _request: PolicyInput):
+            return None
 
     module = SkeinModule(
         module_id="acme.workplace",
@@ -214,8 +234,7 @@ def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, m
         policies=(
             PolicyContribution(
                 "acme.workplace.unrelated-policy",
-                lambda _request: None,
-                actions=("acme.release.approve",),
+                UnrelatedPolicy(),
             ),
         ),
     )
@@ -225,6 +244,21 @@ def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, m
         "for_change",
         lambda *_args, **_kwargs: pytest.fail("opaque reads must not resolve every exact row"),
     )
+    queries = []
+    one_queries = []
+    original_query = db.query
+    original_query_one = db.query_one
+
+    def record_query(sql, params=()):
+        queries.append(sql)
+        return original_query(sql, params)
+
+    def record_query_one(sql, params=()):
+        one_queries.append(sql)
+        return original_query_one(sql, params)
+
+    monkeypatch.setattr(db, "query", record_query)
+    monkeypatch.setattr(db, "query_one", record_query_one)
     policy = projection_policy.ProjectionPolicy(
         engine,
         PolicySubject("mira"),
@@ -235,6 +269,12 @@ def test_opaque_project_policy_does_not_resolve_every_historical_row(fresh_db, m
 
     assert policy.allows_all_projects()
     assert policy.allows_unclassified()
+    task_queries = [sql for sql in queries if "FROM tasks" in sql]
+    assert task_queries
+    assert all("LIMIT 1" in sql and "task.*" not in sql for sql in task_queries)
+    conflict_queries = [sql for sql in one_queries if "AS conflict" in sql]
+    assert conflict_queries
+    assert all("LIMIT 1" in sql for sql in conflict_queries)
 
 
 def test_policy_can_use_subject_project_origin_and_tool_risk(fresh_db):
@@ -1170,6 +1210,55 @@ def test_task_collections_fail_closed_for_hidden_legacy_parent(
         reset_policy_subject(subject_token)
         reset_policy_engine(engine_token)
     assert task not in {row["id"] for row in tool_rows}
+
+
+@pytest.mark.parametrize("project_class", ["regulated", "standard"])
+def test_rest_agent_inbox_conceals_a_delegated_task_with_hidden_legacy_parent(
+    fresh_db,
+    project_class,
+):
+    from app.services import crews, delegation, engagements, users, work
+
+    users.ensure_user("manager")
+    users.ensure_agent_identity("research-agent")
+    crew_id = crews.create_crew("Hidden inbox parent", actor="other-person")["id"]
+    hidden = engagements.create_engagement(
+        f"Hidden {project_class} inbox parent",
+        project_class=project_class,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task("Legacy visible delegated child", actor="manager")["id"]
+    delegation.delegate_task(task, "research-agent", "manager", actor="manager")
+    fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (hidden, task))
+    observed = []
+
+    def inspect_context(request: PolicyInput):
+        if request.action == "skein.rest.get.agents.inbox" and request.resource.type == "task":
+            observed.append(dict(request.resource.attributes))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.inbox-context", inspect_context),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.get("/api/agents/research-agent/inbox")
+
+    assert response.status_code == 200
+    assert task not in {row["id"] for row in response.json()["delegated_tasks"]}
+    assert observed == [
+        {
+            "classification": "workspace",
+            "project_type": "",
+            "relationship_conflict": "true",
+        }
+    ]
 
 
 def test_stock_task_list_binds_rows_and_policy_to_one_snapshot(fresh_db, monkeypatch):
@@ -4636,7 +4725,7 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
         set_requester_viewer,
     )
     from app.extensions.policy import reset_policy_subject, set_policy_subject
-    from app.services import delegation, mentions, scope, users, work
+    from app.services import delegation, mentions, review, scope, users, work
     from app.tools.portfolio import get_attention, my_agent_inbox
 
     users.ensure_user("sponsor")
@@ -4649,6 +4738,13 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     from app.services.notifications import notify
 
     notify("sponsor", "LEGACY UNCLASSIFIED NOTIFICATION")
+    review.propose_change(
+        "task",
+        "create",
+        {"title": "Unclassified create review target"},
+        summary="UNCLASSIFIED CREATE REVIEW",
+        actor="research-agent",
+    )
 
     protected = {
         "skein.rest.get.notifications",
@@ -4705,8 +4801,11 @@ def test_unkeyed_derivatives_fail_closed_for_an_exact_denied_task(fresh_db):
     assert "LEGACY UNCLASSIFIED NOTIFICATION" not in notifications.text
     assert briefing.status_code == 200
     assert "ID DENIED NOTIFICATION CANARY" not in briefing.text
+    assert "UNCLASSIFIED CREATE REVIEW" not in briefing.text
     assert "ID DENIED NOTIFICATION CANARY" not in stock_attention
+    assert "UNCLASSIFIED CREATE REVIEW" not in stock_attention
     assert "ID DENIED NOTIFICATION CANARY" not in mcp_day
+    assert "UNCLASSIFIED CREATE REVIEW" not in mcp_day
     for response_text in (rest_inbox.text, stock_inbox, mcp_inbox):
         assert f"task #{task}" not in response_text
         assert "ID DENIED NOTIFICATION CANARY" not in response_text
@@ -4782,6 +4881,7 @@ def test_task_reads_redact_each_denied_nested_resource(fresh_db):
     assert listed.status_code == 200
     listed_outer = next(row for row in listed.json() if row["id"] == task)
     assert listed_outer["milestone_id"] is None
+    assert listed_outer["source_finding_id"] is None
     assert "DENIED MILESTONE TITLE" not in listed.text
     assert single.status_code == 200
     assert single.json()["milestone_id"] is None
@@ -4794,6 +4894,8 @@ def test_task_reads_redact_each_denied_nested_resource(fresh_db):
     mcp_outer = next(row for row in json.loads(mcp) if row["id"] == task)
     assert stock_outer["milestone_id"] is None, stock
     assert mcp_outer["milestone_id"] is None, mcp
+    assert stock_outer["source_finding_id"] is None, stock
+    assert mcp_outer["source_finding_id"] is None, mcp
     assert "DENIED MILESTONE TITLE" not in stock
     assert "DENIED MILESTONE TITLE" not in mcp
 

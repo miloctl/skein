@@ -2254,3 +2254,49 @@ Verification before the next exact-commit review:
 | Complete backend suite | 1,964 passed in 121.87 seconds |
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+
+### Remediation after the `ee5d8487` review
+
+The first independent review rejected `ee5d8487`. It did not issue final
+scores.
+
+The review found eight related compatibility and policy-projection defects:
+
+- Atlas used a new `PolicyContribution` keyword on an older compatible core.
+- Opaque policy checks still materialized historical relationship rows.
+- Notifications checked only the mutable current project context.
+- Unsupported notification sources disappeared without a relevant rule.
+- Public task updates and task collections returned denied linked IDs.
+- The REST agent inbox used an unscoped task context.
+- Briefings kept unclassified create-proposal summaries.
+
+Policy action scope now lives on the callable policy object. The
+`PolicyContribution(name, rule, priority)` constructor stays compatible with
+extension API 1.0. The unchanged Atlas package can run on both compatible core
+artifacts.
+
+Migration 020 stores a notification's creation-time policy context. Readers
+require both the saved context and the current resource to pass. Legacy and
+unsupported sources are unclassified. Skein omits them only when a relevant
+workplace rule exists.
+
+Review summaries use their saved policy input and current target. A create
+proposal with no saved input is unclassified and does not leave a policy-aware
+briefing.
+
+Public task updates now use the same relationship projection as public task
+reads. REST, stock, and MCP task collections also clear a denied source finding
+ID. The REST agent inbox resolves each task through the caller's scoped viewer.
+
+Opaque integrity checks now use indexed `LIMIT 1` existence probes. They do
+not materialize task or blocker history. A local probe with 50,000 unlinked
+tasks completed in 0.010 seconds. The same probe with 50,000 valid linked tasks
+completed in 0.022 seconds.
+
+Verification before the replacement exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused policy, public, notification, migration, and Atlas tests | 215 passed |
+| Complete backend suite | 1,971 passed in 157.60 seconds |
+| Complete static gate | Passed |

@@ -43,6 +43,22 @@ def _string_tuple(value: object, label: str) -> tuple[str, ...]:
     return tuple(str(item) for item in value)
 
 
+def _policy_actions(contribution: PolicyContribution) -> tuple[str, ...]:
+    """Read action scope carried by an API-1.0-compatible policy callable."""
+    declared = tuple(getattr(contribution, "actions", ()))
+    rule_value = getattr(contribution.rule, "actions", ())
+    if not isinstance(rule_value, (list, tuple, set)):
+        raise ExtensionValidationError(
+            f"policy {contribution.name!r} callable actions must be a list or tuple"
+        )
+    carried = tuple(str(action) for action in rule_value)
+    if declared and carried and declared != carried:
+        raise ExtensionValidationError(
+            f"policy {contribution.name!r} declares conflicting action scopes"
+        )
+    return declared or carried
+
+
 def _version(value: str, label: str) -> tuple[int, int, int]:
     parts = value.split(".")
     if len(parts) != 3 or any(not part.isdigit() for part in parts):
@@ -75,7 +91,7 @@ class ExtensionRegistry:
         ordered = sorted(self.policies, key=lambda contribution: contribution.priority)
         return PolicyEngine(
             tuple(
-                ScopedPolicyRule(contribution.rule, contribution.actions)
+                ScopedPolicyRule(contribution.rule, _policy_actions(contribution))
                 for contribution in ordered
             )
         )
@@ -481,11 +497,12 @@ def _validate_module(module: SkeinModule) -> None:
             )
     for policy_contribution in module.policies:
         _validate_contribution_name(module, policy_contribution.name)
-        if any(not action.strip() or len(action) > 160 for action in policy_contribution.actions):
+        actions = _policy_actions(policy_contribution)
+        if any(not action.strip() or len(action) > 160 for action in actions):
             raise ExtensionValidationError(
                 f"policy {policy_contribution.name!r} has an invalid action"
             )
-        if len(set(policy_contribution.actions)) != len(policy_contribution.actions):
+        if len(set(actions)) != len(actions):
             raise ExtensionValidationError(
                 f"policy {policy_contribution.name!r} has duplicate actions"
             )

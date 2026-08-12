@@ -503,19 +503,7 @@ class WorkItems:
                     attributes=attributes,
                 ),
             )
-            task = work.get_task(task_id, viewer)
-            task = work.redact_task_relationships(
-                [task],
-                viewer,
-                lambda entity, entity_id, linked_attributes: self._permits(
-                    context,
-                    "work.task.read",
-                    entity,
-                    entity_id,
-                    linked_attributes,
-                ),
-            )[0]
-            return TaskView.model_validate(task)
+            return self._task_view(task_id, context, viewer=viewer)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # Keep linked-project resolution, policy, idempotency, and creation in
@@ -673,7 +661,7 @@ class WorkItems:
                     correlation_id=context.correlation_id,
                     event_actor_kind=context.execution_actor_kind,
                 )
-                result = self._task_view(command.task_id, viewer=viewer)
+                result = self._task_view(command.task_id, context, viewer=viewer)
         except PublicError:
             raise
         except db.NotFound as exc:
@@ -684,10 +672,27 @@ class WorkItems:
             raise PublicError("TASK_UPDATE_REJECTED", str(exc)) from exc
         return result
 
-    @staticmethod
-    def _task_view(task_id: int, *, viewer: scope.Viewer = scope.NOBODY) -> TaskView:
+    def _task_view(
+        self,
+        task_id: int,
+        context: CommandContext,
+        *,
+        viewer: scope.Viewer = scope.NOBODY,
+    ) -> TaskView:
         try:
-            return TaskView.model_validate(work.get_task(task_id, viewer))
+            task = work.get_task(task_id, viewer)
+            task = work.redact_task_relationships(
+                [task],
+                viewer,
+                lambda entity, entity_id, linked_attributes: self._permits(
+                    context,
+                    "work.task.read",
+                    entity,
+                    entity_id,
+                    linked_attributes,
+                ),
+            )[0]
+            return TaskView.model_validate(task)
         except db.NotFound as exc:
             raise PublicError("TASK_NOT_FOUND", str(exc), status_code=404) from exc
 

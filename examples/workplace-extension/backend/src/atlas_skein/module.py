@@ -140,11 +140,6 @@ def atlas_module(
             PolicyContribution(
                 "atlas.workplace.policy",
                 atlas_policy,
-                actions=(
-                    "atlas.dashboard.view",
-                    "atlas.integration.sync",
-                    "atlas.release.approve",
-                ),
             ),
         ),
         identities=(

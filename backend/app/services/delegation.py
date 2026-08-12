@@ -862,7 +862,9 @@ def agent_inbox(
             for task in tasks
             if task_filter(
                 int(task["id"]),
-                policy_context.existing("task", int(task["id"])),
+                policy_context.existing("task", int(task["id"]))
+                if viewer is None
+                else policy_context.existing_scoped("task", int(task["id"]), viewer),
             )
         ]
     elif resource_filter is not None:
@@ -907,35 +909,27 @@ def agent_inbox(
 
     rejected = db.query(
         "SELECT id, entity, entity_id, summary, review_note, reviewed_by,"
-        " review_visibility, review_crew_id, review_owner FROM pending_changes"
+        " review_visibility, review_crew_id, review_owner, policy_context"
+        " FROM pending_changes"
         " WHERE proposed_by = ? AND status = 'rejected' ORDER BY id DESC LIMIT 10",
         (agent,),
     )
     if viewer is not None:
         rejected = _readable(rejected, viewer)
     if resource_filter is not None:
-        from . import policy_context
+        from .review import filter_policy_resources
 
-        filtered_rejected = []
-        for proposal in rejected:
-            entity = str(proposal.get("entity") or "")
-            entity_id = int(proposal.get("entity_id") or 0)
-            if not policy_context.supports_resource(entity) or entity_id <= 0:
-                if allow_unclassified:
-                    filtered_rejected.append(proposal)
-                continue
-            attributes = (
-                policy_context.existing(entity, entity_id)
-                if viewer is None
-                else policy_context.existing_scoped(entity, entity_id, viewer)
-            )
-            if attributes and resource_filter(entity, entity_id, attributes):
-                filtered_rejected.append(proposal)
-        rejected = filtered_rejected
+        rejected = filter_policy_resources(
+            rejected,
+            resource_filter,
+            allow_unclassified=allow_unclassified,
+            viewer=viewer,
+        )
     # `notifications` carries no tier (scope.UNSCOPED) and its bodies quote
     # scoped rows, so the REST door gets counts and the agent gets the text.
     notifications = db.query(
-        "SELECT id, message, link, created_at, source_entity, source_id FROM notifications"
+        "SELECT id, message, link, created_at, source_entity, source_id,"
+        " source_policy_context FROM notifications"
         " WHERE user = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20",
         (agent,),
     )
