@@ -2300,3 +2300,5 @@ Verification before the replacement exact-commit review:
 | Focused policy, public, notification, migration, and Atlas tests | 215 passed |
 | Complete backend suite | 1,971 passed in 157.60 seconds |
 | Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
