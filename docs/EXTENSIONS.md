@@ -703,10 +703,11 @@ scripts/reference-images-contract.sh
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
-pair uses different backend source trees. It does not cross a new core
-migration. `scripts/upgrade-path.sh` separately verifies the additive core
-migrations from the historical base, schema equality, and activity-chain
-integrity. The frontend script creates two host artifacts from distinct source
+pair uses different backend source trees. It applies migration 018 and runs
+the documented legacy identity-owner claims before startup.
+`scripts/upgrade-path.sh` separately verifies all additive core migrations
+from the historical base, schema equality, and activity-chain integrity. The
+frontend script creates two host artifacts from distinct source
 trees. It installs the same packed private package into both hosts. Then it
 runs a production build in each host. A runtime test renders the packed Atlas
 card through the generated registry.

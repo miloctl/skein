@@ -1409,6 +1409,20 @@ same refusal. The focused policy and visibility suites passed 183 tests. The
 complete backend suite passed 1,854 tests in 112.48 seconds, and the backend
 static gate passed. A fresh review follows a clean remediation commit.
 
+The next review rejected `c85e570`. Its milestone query applied the actor's
+visibility filter to the milestone but not to its joined parent engagement.
+A visible milestone could expose a hidden parent's project class through the
+policy outcome. Scores for `c85e570` are void.
+
+The link resolver now requires actor-visible access to both the milestone and
+any parent engagement. Hidden and absent links fail before policy with the
+same stable public error. Tests cover both regulated and standard hidden
+parents. The focused public-policy, visibility, and scope suites passed 207
+tests. The backend static gate passed. A fresh exact-commit review follows.
+
+The complete backend suite then passed 1,856 tests in 112.55 seconds. The
+complete cross-language static gate also passed.
+
 ### Twenty-first review gate and remediation
 
 The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and

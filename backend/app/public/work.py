@@ -305,19 +305,35 @@ class WorkItems:
                 f" WHERE engagement.id = ? AND {visible}",
                 (command.engagement_id, *params),
             )
-            if row:
-                project_type = str(row["project_class"] or "")
-                link_attributes["engagement_id"] = command.engagement_id
+            if not row:
+                raise PublicError(
+                    "TASK_CREATE_REJECTED",
+                    scope.missing_text("engagements", command.engagement_id),
+                )
+            project_type = str(row["project_class"] or "")
+            link_attributes["engagement_id"] = command.engagement_id
         elif command.milestone_id:
-            visible, params = scope.visible_filter(viewer, "milestones", "milestone")
+            milestone_visible, milestone_params = scope.visible_filter(
+                viewer, "milestones", "milestone"
+            )
+            engagement_visible, engagement_params = scope.visible_filter(
+                viewer, "engagements", "engagement"
+            )
             row = db.query_one(
-                f"SELECT engagement.project_class, milestone.engagement_id"  # noqa: S608 -- scope emits only bound marks
+                f"SELECT engagement.project_class, milestone.engagement_id,"  # noqa: S608 -- scope emits only bound marks
+                " engagement.id AS visible_engagement_id"
                 " FROM milestones milestone LEFT JOIN engagements engagement"
                 " ON engagement.id = milestone.engagement_id"
-                f" WHERE milestone.id = ? AND {visible}",
-                (command.milestone_id, *params),
+                f" AND {engagement_visible}"
+                f" WHERE milestone.id = ? AND {milestone_visible}",
+                (*engagement_params, command.milestone_id, *milestone_params),
             )
-            if row and row["project_class"]:
+            if not row or (row["engagement_id"] and not row["visible_engagement_id"]):
+                raise PublicError(
+                    "TASK_CREATE_REJECTED",
+                    scope.missing_text("milestones", command.milestone_id),
+                )
+            if row["project_class"]:
                 project_type = str(row["project_class"])
                 link_attributes["engagement_id"] = int(row["engagement_id"])
         self._authorize(
