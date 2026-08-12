@@ -377,7 +377,7 @@ def my_inbox() -> str:
         return refusal
     from .services.users import ensure_agent_identity
 
-    ensure_agent_identity(ACTOR)
+    ensure_agent_identity(ACTOR, owner="mcp")
     return json.dumps(delegation.agent_inbox(ACTOR))
 
 
@@ -427,7 +427,7 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
     from .services.users import ensure_agent_identity
 
     try:
-        ensure_agent_identity(ACTOR)
+        ensure_agent_identity(ACTOR, owner="mcp")
     except ValueError as exc:
         import sys
 

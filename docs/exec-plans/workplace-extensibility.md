@@ -1339,6 +1339,38 @@ Verification for this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Durable identity ownership remediation
+
+The architecture review rejected commit `d83ce94`. A generic delegated agent
+or human could exist before a matching private persona file. A restart then
+activated the persona with the old row, authority, and provenance.
+
+Migration 018 adds a durable owner to each roster row. The owner separates
+humans, generic agents, content, services, specialists, MCP, and the core
+Chief. Startup activates content only when the stored owner is `content`.
+Delegation cannot reuse a service, specialist, or MCP row.
+
+The migration assigns stock content and the core Chief. It cannot infer old
+private ownership. The shell-only identity audit now supports explicit
+`claim-content` and `claim-machine` operations. These operations accept only
+an existing generic agent row and record the operator decision as `system`.
+
+The installed upgrade rehearsal applies migration 018 before it uses the new
+contracts. It claims old Atlas and MCP identities through the real audit CLI.
+It does not change the Atlas wheel or patch core source.
+
+Verification before the next review:
+
+- The focused identity, migration, authority, specialist, and composition
+  suite passed 180 tests.
+- The complete backend suite passed 1,845 tests in 112.53 seconds.
+- The complete static gate passed.
+- The installed upgrade rehearsal passed once. A final rerun will include the
+  explicit MCP claim for the separate legacy-content database.
+
+The next exact commit and fresh independent review follow. Chrome remains
+blocked until all reviewers approve.
+
 ### Twenty-first review gate and remediation
 
 The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and

@@ -35,6 +35,56 @@ def test_migrations_idempotent_and_atomic(fresh_db):
     assert len(versions) == len(set(versions)) >= 1
 
 
+def test_identity_owner_migration_classifies_legacy_rows(fresh_db, tmp_path, monkeypatch):
+    from app import db
+
+    staged = _staged(tmp_path, monkeypatch)
+    migration = staged / "018_identity_ownership.sql"
+    migration_sql = migration.read_text()
+    migration.unlink()
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-017.db")
+    db.init_db()
+    for name, kind in (
+        ("legacy-human", "human"),
+        ("legacy-agent", "agent"),
+        ("code-reviewer", "agent"),
+        ("delivery", "agent"),
+    ):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+
+    migration.write_text(migration_sql)
+    db.init_db()
+
+    columns = {row["name"] for row in db.query("PRAGMA table_info(users)")}
+    assert "identity_owner" in columns
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'legacy-human'") == {
+        "identity_owner": "human"
+    }
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'legacy-agent'") == {
+        "identity_owner": "generic-agent"
+    }
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'code-reviewer'") == {
+        "identity_owner": "content"
+    }
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'delivery'") == {
+        "identity_owner": "content"
+    }
+
+
+def test_identity_owner_migration_lists_all_stock_content():
+    from app import config, db
+
+    migration = (db.MIGRATIONS_DIR / "018_identity_ownership.sql").read_text()
+    stock_slugs = {path.stem for path in (config.STOCK_DIR / "personas").glob("*.md")} | {
+        path.stem for path in (config.STOCK_DIR / "flocks").glob("*.yaml")
+    }
+    assert stock_slugs
+    assert not {slug for slug in stock_slugs if f"'{slug}'" not in migration}
+
+
 # the activity chain is born in the baseline, so NO migration may ever
 # rewrite a chained row — verification breaks permanently at the earliest
 # touched row (CLAUDE.md). Before the 2026-08-04 squash this rule was

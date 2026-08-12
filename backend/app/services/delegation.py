@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
-from .users import ensure_agent_identity
+from .users import ensure_agent_identity, refuse_ambiguous_identity
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
 
@@ -466,7 +466,15 @@ def set_authority(
     # wrongly.
     if entity in ALWAYS_REVIEW and level in ("autonomous", "notify"):
         raise ValueError(f"'{entity}' always waits for a human — set it to 'review' or 'forbidden'")
-    ensure_agent_identity(agent)
+    # Authority can govern an existing specialist, service, or MCP agent.
+    # It must not change that agent's durable identity owner. A new name is a
+    # generic delegated agent and uses the strict reservation path.
+    refuse_ambiguous_identity(agent)
+    existing_agent = db.query_one("SELECT kind FROM users WHERE name = ?", (agent,))
+    if existing_agent is None:
+        ensure_agent_identity(agent)
+    elif existing_agent["kind"] != "agent":
+        raise ValueError(f"'{agent}' is already owned by a human identity")
     # authority half-life: elevated grants carry a review-by date (90d
     # default) — "nothing in Skein is trusted forever, not decisions, not
     # agents." The authority_stale findings rule nags past it; reconfirm by

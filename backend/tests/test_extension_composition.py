@@ -1223,6 +1223,115 @@ def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
     assert personas.get_persona("future-agent")["name"] == "future-agent"
 
 
+def test_restart_does_not_activate_content_over_existing_human_or_generic_agent(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import flocks, personas, users
+
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    persona_dir.mkdir()
+    flock_dir.mkdir()
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+
+    first = create_app()
+    with TestClient(first):
+        users.ensure_human_identity("future-human")
+        users.ensure_agent_identity("future-agent")
+        (persona_dir / "future-human.md").write_text(
+            "---\nname: Future human\ndescription: Ownership conflict\n---\nDo not load.\n"
+        )
+        members = sorted(personas.bench_slugs())[:2]
+        (flock_dir / "future-agent.yaml").write_text(
+            "schema_version: 1\nname: Future agent\ndescription: Ownership conflict\n"
+            f"members:\n  - {members[0]}\n  - {members[1]}\nsynthesis: true\n"
+        )
+        assert "future-human" not in personas.bench_slugs()
+        assert "future-agent" not in {item["slug"] for item in flocks.list_flocks()}
+
+    restarted = create_app()
+    with TestClient(restarted) as client:
+        with pytest.raises(ValueError, match="no persona"):
+            personas.get_persona("future-human")
+        with pytest.raises(ValueError, match="no flock"):
+            flocks.get_flock("future-agent")
+        assert (
+            client.get("/health")
+            .json()["identity_ownership_error"]
+            .startswith("2 conflicting identity groups")
+        )
+        assert fresh_db.query_row(
+            "SELECT kind, identity_owner FROM users WHERE name = 'future-human'"
+        ) == {"kind": "human", "identity_owner": "human"}
+        assert fresh_db.query_row(
+            "SELECT kind, identity_owner FROM users WHERE name = 'future-agent'"
+        ) == {"kind": "agent", "identity_owner": "generic-agent"}
+
+
+def test_legacy_overlay_agent_requires_explicit_content_claim(fresh_db, tmp_path, monkeypatch):
+    import sys
+
+    from app import config, identity_audit
+    from app.services import personas
+
+    overlay = tmp_path / "personas"
+    overlay.mkdir()
+    (overlay / "legacy-reviewer.md").write_text(
+        "---\nname: Legacy reviewer\ndescription: Existing overlay\n---\nReview work.\n"
+    )
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    fresh_db.execute(
+        "INSERT INTO users (name, kind, identity_owner, created_at)"
+        " VALUES ('legacy-reviewer', 'agent', 'generic-agent', ?)",
+        (fresh_db.now(),),
+    )
+
+    with TestClient(create_app()) as client:
+        with pytest.raises(ValueError, match="no persona"):
+            personas.get_persona("legacy-reviewer")
+        assert (
+            client.get("/health")
+            .json()["identity_ownership_error"]
+            .startswith("1 conflicting identity group")
+        )
+
+    monkeypatch.setattr(sys, "argv", ["identity_audit", "claim-content", "legacy-reviewer"])
+    identity_audit.main()
+
+    with TestClient(create_app()):
+        assert personas.get_persona("legacy-reviewer")["name"] == "Legacy reviewer"
+        assert fresh_db.query_one(
+            "SELECT identity_owner FROM users WHERE name = 'legacy-reviewer'"
+        ) == {"identity_owner": "content"}
+        assert fresh_db.query_one(
+            "SELECT actor, action FROM activity WHERE action = 'claim_content_identity'"
+        ) == {"actor": "system", "action": "claim_content_identity"}
+
+
+def test_legacy_private_machine_requires_an_explicit_owner_claim(fresh_db):
+    from app.services import users
+
+    users.ensure_agent_identity("acme-sync")
+    with pytest.raises(ValueError, match="another machine identity"):
+        users.ensure_agent_identity("acme-sync", owner="service:acme.workplace.sync")
+
+    claimed = users.claim_machine_identity("acme-sync", "service:acme.workplace.sync")
+    assert claimed["identity_owner"] == "service:acme.workplace.sync"
+    assert (
+        users.ensure_agent_identity("acme-sync", owner="service:acme.workplace.sync")[
+            "identity_owner"
+        ]
+        == "service:acme.workplace.sync"
+    )
+    with pytest.raises(ValueError, match="another machine concern"):
+        users.claim_machine_identity("acme-sync", "service:acme.workplace.other")
+    assert fresh_db.query_one(
+        "SELECT actor, action FROM activity WHERE action = 'claim_machine_identity'"
+    ) == {"actor": "system", "action": "claim_machine_identity"}
+
+
 def test_dependencies_are_ordered_independently_of_input_order():
     base = _module(module_id="acme.base", routes=())
     child = _module(module_id="acme.child", requires=("acme.base",), routes=())

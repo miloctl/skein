@@ -257,7 +257,7 @@ from app.extensions import (
     SkeinModule,
 )
 from app.extensions.tools import ToolCallContext, execute_tool
-from app import identity_audit
+from app import db, identity_audit
 from app.main import _job_specs, create_app
 from app.public import CreateTaskCommand, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
@@ -268,6 +268,21 @@ from atlas_skein import AtlasSettings, atlas_module
 
 assert version("skein") == "0.2.1"
 assert SKEIN_CORE_VERSION == "0.2.1"
+assert (db.MIGRATIONS_DIR / "018_identity_ownership.sql").is_file()
+# An upgrade applies core migrations before it uses the new public contracts.
+# Application startup does this automatically. The artifact rehearsal uses
+# identity helpers before startup, so it applies the same step explicitly.
+db.init_db()
+# Migration 018 cannot infer private ownership from the old generic agent
+# rows. The deployment makes this one-time decision before application start.
+for legacy_name, owner in (
+    ("atlas.workplace.delivery-specialist", "specialist:atlas.workplace.delivery-specialist"),
+    ("atlas-sync", "service:atlas.workplace.sync-identity"),
+    ("atlas-events", "service:atlas.workplace.event-identity"),
+    ("mcp-agent", "mcp"),
+):
+    sys.argv = ["identity_audit", "claim-machine", legacy_name, owner]
+    identity_audit.main()
 collisions = users.folded_identity_collisions()
 assert [[row["name"] for row in group] for group in collisions] == [
     ["RACE-OWNER", "race-owner"]
@@ -404,9 +419,9 @@ job = next(item for item in specs if item.name == "atlas.workplace.sync")
 assert "error_code" not in job.fn()
 event_job = next(item for item in specs if item.name == "extension-events")
 assert event_job.fn()["delivered"] >= 1
-from app import db
 columns = {row["name"] for row in db.query("PRAGMA table_info(pending_changes)")}
 assert "review_contract_version" in columns
+assert "identity_owner" in {row["name"] for row in db.query("PRAGMA table_info(users)")}
 assert module.migrations[0].store.query_one(
     "SELECT external_id FROM work_links WHERE skein_task_id = ?", (42,)
 ) == {"external_id": "ATLAS-CORE-UPGRADE"}
@@ -421,12 +436,16 @@ PY
     SKEIN_FLOCKS_DIR="$tmp/legacy-flocks" \
     "$tmp/venv/bin/python" - <<'PY'
 from dataclasses import replace
+import sys
 
 from fastapi.testclient import TestClient
 
+from app import identity_audit
 from app.extensions import AppSettings
 from app.main import create_app
 
+sys.argv = ["identity_audit", "claim-machine", "mcp-agent", "mcp"]
+identity_audit.main()
 with TestClient(
     create_app(replace(AppSettings.from_config(), scheduler_enabled=False)),
     headers={"X-User": "upgrade-user"},
