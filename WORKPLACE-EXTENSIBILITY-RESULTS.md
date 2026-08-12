@@ -1586,3 +1586,17 @@ contexts. A separate test proves that an invisible link and an absent link
 have the same public refusal. The focused policy and visibility suites passed
 183 tests. The complete backend suite passed 1,854 tests in 112.48 seconds,
 and the backend static gate passed.
+
+The next review rejected `c85e570`. The milestone query scoped the milestone,
+but its joined parent engagement was not scoped. A visible milestone could
+therefore expose a hidden parent's project class through a policy result.
+Scores for `c85e570` are void.
+
+The query now requires actor-visible access to both a milestone and any parent
+engagement. Missing and hidden links fail before policy with the same stable
+public error. Tests cover regulated and standard hidden parents and prove that
+neither class changes the refusal. The focused public-policy, visibility, and
+scope suites passed 207 tests. The backend static gate passed.
+
+The complete backend suite then passed 1,856 tests in 112.55 seconds. The
+complete cross-language static gate also passed.

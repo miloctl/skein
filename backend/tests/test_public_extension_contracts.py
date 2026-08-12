@@ -496,6 +496,54 @@ def test_invisible_link_and_absent_link_have_the_same_public_refusal(fresh_db):
     assert fresh_db.query_one("SELECT title FROM tasks") is None
 
 
+@pytest.mark.parametrize("hidden_project_type", ["regulated", "standard"])
+def test_visible_milestone_does_not_expose_a_hidden_parent_project_class(
+    fresh_db, hidden_project_type
+):
+    from app.services import crews, engagements, scope
+    from app.services import work as service_work
+
+    crew_id = crews.create_crew("Hidden delivery", actor="other-person")["id"]
+    engagements.create_engagement(
+        "Hidden engagement",
+        project_class=hidden_project_type,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )
+    milestone = service_work.create_milestone(
+        "Visible milestone",
+        project="Hidden engagement",
+        actor="atlas-sync",
+    )["id"]
+
+    def deny_regulated(request: PolicyInput):
+        if request.action == "work.task.create" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated work is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.regulated", deny_regulated),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(title="Hidden-parent work", milestone_id=milestone),
+            _context(facade, project_type="standard"),
+        )
+
+    assert (raised.value.code, raised.value.detail) == (
+        "TASK_CREATE_REJECTED",
+        scope.missing_text("milestones", milestone),
+    )
+    assert fresh_db.query_one("SELECT title FROM tasks") is None
+
+
 def test_public_update_policy_uses_target_engagement(fresh_db):
     from app.services import engagements
     from app.services import work as service_work
