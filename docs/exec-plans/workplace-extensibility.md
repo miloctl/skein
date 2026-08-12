@@ -1982,3 +1982,24 @@ Verification after this remediation:
 | Complete backend suite | 1,924 passed in 116.53 seconds |
 | Complete static gate | Passed |
 | Installed backend extension rehearsal | The prior exact commit passed in independent review; the local retry stalled during isolated dependency installation and was stopped cleanly |
+
+The next review found that engagement, milestone, and intake collections had
+the same missing row-policy boundary. These REST and stock-agent lists now
+evaluate each visible row in one read snapshot. Milestones use a batched,
+viewer-scoped parent resolver. Hidden or conflicting legacy parents fail
+closed.
+
+The review also reproduced a dual-store Atlas failure. A remote error could
+roll back the private mapping after the core task committed. Atlas now commits
+the mapping and an extension-owned outbound status intent before network I/O.
+A retry uses that mapping and a stable remote idempotency key. This is an
+extension-specific recovery contract, not a distributed transaction in core.
+
+Verification after this remediation:
+
+| Verification | Result |
+|---|---|
+| Complete extension policy and Atlas reference suites | 109 passed |
+| Complete backend suite | 1,928 passed in 114.58 seconds |
+| Complete static gate | Passed |
+| Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |

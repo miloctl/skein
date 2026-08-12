@@ -138,7 +138,34 @@ def list_intake_requests(status: str = "") -> str:
     Args:
         status: submitted, scored, accepted, deferred, declined, or empty for all.
     """
-    return json.dumps(intake.list_requests(status))
+    with db.read_transaction():
+        rows = intake.list_requests(status)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.list_intake_requests",
+                        PolicyResource(
+                            "intake",
+                            str(row["id"]),
+                            str(row.get("project_class") or ""),
+                            str(row.get("visibility") or ""),
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="list_intake_requests",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool
@@ -148,7 +175,34 @@ def list_engagements(status: str = "") -> str:
     Args:
         status: proposed, active, closing, closed, or empty for all.
     """
-    return json.dumps(engagements.list_engagements(status))
+    with db.read_transaction():
+        rows = engagements.list_engagements(status)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.list_engagements",
+                        PolicyResource(
+                            "engagement",
+                            str(row["id"]),
+                            str(row.get("project_class") or ""),
+                            str(row.get("visibility") or ""),
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="list_engagements",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool

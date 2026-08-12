@@ -1226,6 +1226,111 @@ def test_blocker_collections_apply_linked_project_policy_per_row(fresh_db):
     assert denied["id"] not in {row["id"] for row in tool_rows}
 
 
+def test_all_project_aware_collections_apply_policy_per_row(fresh_db):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import engagements, intake, work
+    from app.tools.platform import (
+        list_engagements as tool_list_engagements,
+    )
+    from app.tools.platform import (
+        list_intake_requests as tool_list_intake,
+    )
+    from app.tools.work import list_milestones as tool_list_milestones
+
+    standard = engagements.create_engagement("Collection standard", project_class="standard")
+    regulated = engagements.create_engagement("Collection regulated", project_class="regulated")
+    standard_milestone = work.create_milestone("Allowed milestone", project="Collection standard")
+    regulated_milestone = work.create_milestone("Denied milestone", project="Collection regulated")
+    standard_intake = intake.submit_request("Allowed intake", project_class="standard")
+    regulated_intake = intake.submit_request("Denied intake", project_class="regulated")
+
+    actions = {
+        "skein.rest.get.engagements",
+        "skein.rest.get.milestones",
+        "skein.rest.get.intake",
+        "skein.tool.list_engagements",
+        "skein.tool.list_milestones",
+        "skein.tool.list_intake_requests",
+    }
+
+    def deny_regulated(request: PolicyInput):
+        if request.action in actions and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated collection rows are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.collection-policy", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        rest_engagements = client.get("/api/engagements")
+        rest_milestones = client.get("/api/milestones")
+        rest_intake = client.get("/api/intake")
+    assert rest_engagements.status_code == 200
+    assert {row["id"] for row in rest_engagements.json()} >= {standard["id"]}
+    assert regulated["id"] not in {row["id"] for row in rest_engagements.json()}
+    assert {row["id"] for row in rest_milestones.json()} >= {standard_milestone["id"]}
+    assert regulated_milestone["id"] not in {row["id"] for row in rest_milestones.json()}
+    assert {row["id"] for row in rest_intake.json()} >= {standard_intake["id"]}
+    assert regulated_intake["id"] not in {row["id"] for row in rest_intake.json()}
+
+    registry = ExtensionRegistry.build((module,))
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_engagements = json.loads(tool_list_engagements())
+        tool_milestones = json.loads(tool_list_milestones())
+        tool_intake = json.loads(tool_list_intake())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert {row["id"] for row in tool_engagements} >= {standard["id"]}
+    assert regulated["id"] not in {row["id"] for row in tool_engagements}
+    assert {row["id"] for row in tool_milestones} >= {standard_milestone["id"]}
+    assert regulated_milestone["id"] not in {row["id"] for row in tool_milestones}
+    assert {row["id"] for row in tool_intake} >= {standard_intake["id"]}
+    assert regulated_intake["id"] not in {row["id"] for row in tool_intake}
+
+
+@pytest.mark.parametrize("project_class", ["regulated", "standard"])
+def test_milestone_collections_fail_closed_for_hidden_legacy_parent(fresh_db, project_class):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import crews, engagements, work
+    from app.tools.work import list_milestones as tool_list_milestones
+
+    crew_id = crews.create_crew("Hidden milestone collection", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        f"Hidden milestone {project_class}",
+        project_class=project_class,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    milestone = work.create_milestone("Visible legacy milestone", actor="manager")["id"]
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?", (engagement, milestone)
+    )
+
+    with TestClient(create_app(), headers={"X-User": "manager"}) as client:
+        listed = client.get("/api/milestones")
+    assert listed.status_code == 200
+    assert milestone not in {row["id"] for row in listed.json()}
+
+    registry = ExtensionRegistry.build(())
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_rows = json.loads(tool_list_milestones())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert milestone not in {row["id"] for row in tool_rows}
+
+
 @pytest.mark.parametrize("project_class", ["regulated", "standard", "absent"])
 def test_blocker_routes_conceal_a_hidden_legacy_task_project(fresh_db, project_class):
     from app.services import blockers, crews, engagements, work

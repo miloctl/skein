@@ -248,6 +248,15 @@ def atlas_module(
                             " updated_count INTEGER NOT NULL, finished_at TEXT NOT NULL)",
                         ),
                     ),
+                    ExtensionMigration(
+                        3,
+                        "create-status-outbox",
+                        (
+                            "CREATE TABLE status_outbox"
+                            " (event_id TEXT PRIMARY KEY, external_id TEXT NOT NULL,"
+                            " status TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0)",
+                        ),
+                    ),
                 ),
             ),
         ),

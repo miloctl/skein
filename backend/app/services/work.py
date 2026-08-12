@@ -264,6 +264,48 @@ def list_milestones(
     return rows
 
 
+def milestone_collection_policy_contexts(
+    rows: list[dict], viewer: scope.Viewer
+) -> dict[int, dict[str, str]]:
+    """Resolve project policy for milestones that already passed row visibility."""
+    milestone_ids = sorted({int(row["id"]) for row in rows})
+    if not milestone_ids:
+        return {}
+    marks = ",".join("?" for _ in milestone_ids)
+    raw_links = {
+        int(row["id"]): int(row.get("engagement_id") or 0)
+        for row in db.query(
+            f"SELECT id, engagement_id FROM milestones WHERE id IN ({marks})",  # noqa: S608 -- marks are controlled
+            tuple(milestone_ids),
+        )
+    }
+    engagement_ids = sorted(set(raw_links.values()) - {0})
+    projects: dict[int, str] = {}
+    if engagement_ids:
+        engagement_marks = ",".join("?" for _ in engagement_ids)
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        projects = {
+            int(row["id"]): str(row.get("project_class") or "")
+            for row in db.query(
+                f"SELECT engagement.id, engagement.project_class FROM engagements engagement"  # noqa: S608 -- marks and scope are controlled
+                f" WHERE engagement.id IN ({engagement_marks}) AND {visible}",
+                (*engagement_ids, *params),
+            )
+        }
+    result: dict[int, dict[str, str]] = {}
+    for row in rows:
+        milestone_id = int(row["id"])
+        engagement_id = raw_links.get(milestone_id, 0)
+        attributes = {
+            "classification": str(row.get("visibility") or ""),
+            "project_type": projects.get(engagement_id, ""),
+        }
+        if engagement_id and engagement_id not in projects:
+            attributes["relationship_conflict"] = "true"
+        result[milestone_id] = attributes
+    return result
+
+
 def create_task(
     title: str,
     description: str = "",
