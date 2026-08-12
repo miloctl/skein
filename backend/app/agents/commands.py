@@ -109,7 +109,7 @@ async def _delta(
             viewer,
             tool="delta",
         )
-        if not await run_in_threadpool(policy.allows_all_projects):
+        if not await run_in_threadpool(policy.allows_all_inputs):
             yield {"data": "Workplace policy denied this composite read."}
             return
 
@@ -161,7 +161,7 @@ async def _briefing(
                 viewer,
                 row_filter,
                 None if policy is None else policy.filter_resources,
-                True if policy is None else policy.allows_all_projects(),
+                True if policy is None else policy.allows_all_inputs(),
             )
 
     b = await run_in_threadpool(read_briefing)

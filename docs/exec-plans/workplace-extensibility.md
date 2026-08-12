@@ -1932,6 +1932,7 @@ Verification after the MCP remediation:
 |---|---|
 | Complete backend suite | 1,936 passed in 120.38 seconds |
 | Complete static gate | Passed |
+
 | Frontend tests | 230 passed in 45 files |
 | Frontend production build | Passed after the configured font download |
 | Installed backend extension rehearsal | Passed; unchanged Atlas wheel, distinct compatible cores, and strict type check of six Atlas source files |
@@ -2185,4 +2186,35 @@ Verification before the next exact-commit review:
 |---|---|
 | Intervention, nested composite, plan-diff, and engagement-brief tests | 13 passed |
 | Complete backend suite | 1,956 passed in 114.27 seconds |
+| Complete static gate | Passed |
+
+### Remediation after the `f935570e` review
+
+The review rejected `f935570e`. It did not issue final scores.
+
+The review found two policy races:
+
+- An exact task denial did not block a notification that quoted the task title.
+- The unattended runner checked due work before its final daily-run claim.
+
+Opaque policy now checks every exact domain resource and every project domain.
+This inventory stays inside the policy engine. It does not return hidden row
+data to the caller. REST notifications, REST briefing, the stock attention
+tool, and MCP My Day use this rule for free-form content.
+
+The runner now checks current due tasks and creates the daily claim in one
+write transaction. A concurrent project change cannot cross this boundary.
+Budget and provider checks occur before this transaction. Model work starts
+only after the current-state claim succeeds.
+
+New tests cover an ID-specific denied task on all four read surfaces. A
+coordinated runner test pauses policy and proves that a project change waits
+until the daily claim commits.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Exact-resource, runner, visibility, briefing, policy, and Atlas tests | 313 passed |
+| Complete backend suite | 1,958 passed in 114.75 seconds |
 | Complete static gate | Passed |

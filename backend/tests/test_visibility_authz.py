@@ -590,6 +590,12 @@ _UNFILTERED_READS = {
         " only to the composed policy engine, which can fail the aggregate"
         " closed"
     ),
+    "policy_context.py::opaque_resource_contexts": (
+        "policy-only exact-id inventory for free-form derivatives that have"
+        " no durable source key. It returns no row to a caller; authoritative"
+        " attributes go only to the composed policy engine, which fails the"
+        " derivative closed"
+    ),
     "work.py::_visible_link": (
         "reads only tier metadata after the actor-visible id probe succeeds,"
         " inside the task write transaction; no row data is returned to the caller"

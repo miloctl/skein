@@ -74,8 +74,17 @@ class ProjectionPolicy:
             if self.permits(entity, entity_id, contexts.get((entity, entity_id), {}))
         ]
 
+    def allows_all_inputs(self) -> bool:
+        """Fail an opaque derivative if any contributing boundary is denied."""
+        if not self.allows_all_projects():
+            return False
+        return all(
+            self.permits(resource_type, resource_id, attributes)
+            for resource_type, resource_id, attributes in policy_context.opaque_resource_contexts()
+        )
+
     def allows_all_projects(self) -> bool:
-        """Fail an opaque aggregate if it cannot remove a denied project safely."""
+        """Fail an aggregate if one project domain or legacy link is unsafe."""
         if policy_context.has_visible_relationship_conflict(self.viewer):
             return False
         return all(

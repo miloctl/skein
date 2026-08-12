@@ -101,8 +101,10 @@ def _require_opaque_project_policy(
     subject: Any,
     viewer: scope.Viewer,
     action: str,
+    *,
+    exact_resources: bool = True,
 ) -> projection_policy.ProjectionPolicy:
-    """Refuse an opaque aggregate when it cannot remove a denied project row."""
+    """Refuse an opaque derivative when it cannot remove a denied input."""
     policy = projection_policy.ProjectionPolicy(
         request.app.state.skein_registry.policy_engine,
         subject,
@@ -110,11 +112,12 @@ def _require_opaque_project_policy(
         "rest",
         viewer,
     )
-    if not policy.allows_all_projects():
+    allowed = policy.allows_all_inputs() if exact_resources else policy.allows_all_projects()
+    if not allowed:
         enforce_decision(
             PolicyDecision(
                 PolicyEffect.DENY,
-                ("The composite contains a project that policy does not permit.",),
+                ("The composite contains a resource that policy does not permit.",),
             )
         )
     return policy
@@ -1034,7 +1037,7 @@ def get_briefing(
             viewer,
             policy.filter_rows,
             policy.filter_resources,
-            policy.allows_all_projects(),
+            policy.allows_all_inputs(),
         )
 
 
@@ -3136,6 +3139,7 @@ def get_interventions(
             subject,
             viewer,
             "skein.rest.get.interventions",
+            exact_resources=False,
         )
         return intervention.interventions(viewer, limit, resource_filter=policy.permits)
 

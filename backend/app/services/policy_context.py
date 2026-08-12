@@ -51,6 +51,27 @@ _ROUTE_ENTITIES = {
 _ENGAGEMENT_LINKED = frozenset(
     name for name, (_table, source) in _TABLES.items() if source == "engagement_id"
 )
+_OPAQUE_RESOURCE_ENTITIES = (
+    "engagement",
+    "milestone",
+    "task",
+    "blocker",
+    "event",
+    "promise",
+    "memory",
+    "lesson",
+    "intake",
+    "allocation",
+    "artifact",
+    "question",
+    "decision",
+    "note",
+)
+_OPAQUE_DERIVATIVE_TABLES = {
+    "notification": "notifications",
+    "activity": "activity",
+    "finding": "findings",
+}
 
 
 def supports_resource(entity: str) -> bool:
@@ -679,6 +700,29 @@ def opaque_project_contexts(_viewer: scope.Viewer) -> list[tuple[int, dict[str, 
                 )
             )
             offset += 1
+    return result
+
+
+def opaque_resource_contexts() -> list[tuple[str, int, dict[str, str]]]:
+    """Return every exact resource boundary that free-form derivatives can quote.
+
+    Notifications, findings, activity text, and saved summaries do not carry a
+    reliable source key. A project-only scan cannot detect an ID-specific
+    workplace rule before these derivatives leave the service. This inventory
+    stays inside policy. It never returns a hidden row or its attributes to the
+    caller.
+    """
+    result: list[tuple[str, int, dict[str, str]]] = []
+    for entity in _OPAQUE_RESOURCE_ENTITIES:
+        table = _TABLES[entity][0]
+        for row in db.query(f"SELECT id FROM {table} ORDER BY id"):  # noqa: S608 -- closed table map
+            entity_id = int(row["id"])
+            result.append((entity, entity_id, for_change(entity, entity_id, {})))
+    for entity, table in _OPAQUE_DERIVATIVE_TABLES.items():
+        result.extend(
+            (entity, int(row["id"]), {"classification": "workspace", "project_type": ""})
+            for row in db.query(f"SELECT id FROM {table} ORDER BY id")  # noqa: S608 -- closed table map
+        )
     return result
 
 

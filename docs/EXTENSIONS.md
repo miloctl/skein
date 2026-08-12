@@ -186,6 +186,12 @@ meaning. Skein checks every project domain that can affect these aggregates.
 This check includes hidden inputs whose names are masked in the response.
 The aggregate fails closed if policy denies one of these project domains.
 
+Free-form derivatives do not always retain a source key. Notifications,
+activity summaries, findings, and saved review text are examples. Before
+Skein returns these derivatives, policy checks every exact domain resource
+and every project domain that can contribute. An ID-specific denial therefore
+fails the derivative closed. Hidden attributes stay inside the policy engine.
+
 Delegated agent inboxes and crew context packs can remove individual tasks.
 Skein applies policy to each task before it returns or stores the content.
 
@@ -202,6 +208,10 @@ not rebuild the body between the policy decision and the database write.
 The unattended runner checks a delegated task and sends its quiet-work notice
 in one database transaction. A concurrent project change waits until the
 notice transaction is complete.
+
+The runner also checks the current due tasks and claims the daily model turn
+in one transaction. A project change that finishes before this claim changes
+the policy result. A concurrent change waits until the claim is complete.
 Scoped engagement packs, briefs, and health reports remove legacy tasks whose
 direct engagement and milestone parent disagree.
 

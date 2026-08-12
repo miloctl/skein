@@ -216,17 +216,22 @@ def run_one(
         return _refused(agent, "no model provider — sweep only")
     if delegation.authority_level(agent, "task") == "forbidden":
         return _refused(agent, "forbidden on tasks")
-    if not _due(agent, policy):
-        return _refused(agent, "nothing delegated")
     try:
         usage.assert_within_budget(agent)
     except usage.BudgetSpent as exc:
         # a spent budget is a CEILING working, not a fault — the operator set it
         return _refused(agent, str(exc))
 
-    # once per (agent, team day): a restart must not re-spend the allowance
-    if not db.claim_job(f"agent-run:{agent}", db.today().isoformat()):
-        return _refused(agent, "already ran today")
+    # Evaluate the current delegated work and claim this run in one write
+    # transaction. A concurrent relink can finish before this transaction and
+    # become part of policy, or wait until the claim commits. It cannot change
+    # the project between the final policy decision and the daily claim.
+    with db.transaction():
+        if not _due(agent, policy):
+            return _refused(agent, "nothing delegated")
+        # once per (agent, team day): a restart must not re-spend the allowance
+        if not db.claim_job(f"agent-run:{agent}", db.today().isoformat()):
+            return _refused(agent, "already ran today")
 
     from ..agents.identity import reset_agent_identity, set_agent_identity
     from ..agents.team_agent import build_agent

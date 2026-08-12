@@ -478,6 +478,8 @@ def my_day(
             needs["notifications"] = []
         result["your_work"]["tasks"] = row_filter("task", result["your_work"]["tasks"])
         result["your_work"]["due_soon"] = row_filter("task", result["your_work"]["due_soon"])
+        if not allow_unclassified:
+            result["your_work"]["standup_suggestion"] = ""
         result["team"]["recently_shipped"] = row_filter(
             "engagement", result["team"]["recently_shipped"]
         )
