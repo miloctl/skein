@@ -17,16 +17,15 @@ IDENTITY_COLLISION = (
 
 
 def _is_bench_slug(name: str) -> bool:
-    """Names the agent layer owns: a persona slug, and a FLOCK slug.
+    """Names configured for the agent layer, including pending restart.
 
     A flock never writes as itself, but the merge step logs its spend under
     the flock slug (routes/chat.py::_log_usage), so a human holding that name
-    collects a bill for model calls they did not make. Both sets are computed
-    live from the files, so a slug added to an overlay is reserved with it.
+    collects a bill for model calls they did not make. Configured filenames
+    reserve identity immediately, even though a new runtime slug stays hidden
+    until restart.
     """
-    from . import flocks, personas
-
-    return name in personas.bench_slugs() or name in {f["slug"] for f in flocks.list_flocks()}
+    return fold(name) in _content_machine_claims()
 
 
 def fold(name: str) -> str:
@@ -152,11 +151,20 @@ def refuse_ambiguous_identity(name: str) -> None:
 
 
 def _content_machine_claims() -> dict[str, str]:
-    """Deployment content names that belong to machine identities."""
+    """All configured content names, including pending and malformed files."""
     from . import flocks, personas
 
-    claims = {fold(slug): slug for slug in personas.bench_slugs()}
-    claims.update({fold(item["slug"]): item["slug"] for item in flocks.list_flocks()})
+    claims = {fold(slug): slug for slug in personas.configured_slugs()}
+    claims.update({fold(slug): slug for slug in flocks.configured_slugs()})
+    return claims
+
+
+def _accepted_content_machine_claims() -> set[str]:
+    """Content identities executable in the current application lifespan."""
+    from . import flocks, personas
+
+    claims = {fold(slug) for slug in personas.bench_slugs()}
+    claims.update(fold(item["slug"]) for item in flocks.list_flocks())
     return claims
 
 
@@ -243,6 +251,14 @@ def ensure_user(name: str, kind: str = "human") -> dict:
     with db.transaction():
         if effective_kind == "agent":
             refuse_authenticated_name(name)
+            folded = fold(name)
+            if (
+                folded in _content_machine_claims()
+                and folded not in _accepted_content_machine_claims()
+            ):
+                raise ValueError(
+                    "that name belongs to configured content that needs an application restart"
+                )
         else:
             refuse_reserved_name(name)
         # bench persona slugs are reserved identities: a human picking one
@@ -299,10 +315,15 @@ def ensure_agent_identity(name: str) -> dict:
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
     with db.transaction():
         refuse_ambiguous_identity(normalized)
+        folded = fold(normalized)
+        if folded in _content_machine_claims() and folded not in _accepted_content_machine_claims():
+            raise ValueError(
+                "that name belongs to configured content that needs an application restart"
+            )
         existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{normalized}' is already owned by a human identity")
-        if fold(normalized) in {fold(item) for item in CORE_MACHINE_SUBJECTS}:
+        if folded in {fold(item) for item in CORE_MACHINE_SUBJECTS}:
             # A caller can use a core agent that startup already reserved, but
             # it cannot create a system actor from user-supplied text.
             if existing is not None and normalized in ROSTER_CORE_AGENT_SUBJECTS:

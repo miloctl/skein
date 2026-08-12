@@ -279,8 +279,9 @@ includes core actors, private services, specialists, and the configured MCP
 actor. Startup rejects a conflict before it reserves an actor. The set of
 persona and flock slugs is fixed for one application lifetime. You can edit an
 existing file live. Restart Skein after you add or rename an identity-bearing
-file. A new file stays unavailable until restart, so it cannot race a human or
-machine identity claim.
+file. A new file stays unavailable until restart. Its valid slug is reserved
+immediately, so a human, delegated agent, service, or tool cannot claim it
+during the restart window.
 
 ## Use public work commands
 

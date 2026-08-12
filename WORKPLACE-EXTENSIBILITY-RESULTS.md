@@ -1442,6 +1442,9 @@ application lifetime. Existing files can change live, but a new slug requires
 a restart. This prevents a late file from taking a core, service, specialist,
 MCP, human, or agent identity. The deployment validator reports core conflicts
 before startup. Composition reports private and MCP conflicts at startup.
+Pending valid filenames reserve their slug immediately. They remain
+non-executable until restart, but no human or delegated agent can claim the
+name during that window.
 
 The same review found two authentication-door inconsistencies. Signed Slack
 requests now reject an inactive user before telemetry, policy, or work. OIDC
@@ -1452,7 +1455,9 @@ Verification for this remediation:
 
 - Focused composition, content, Slack, OIDC, persona, and specialist tests:
   233 passed.
-- Full backend suite: 1,838 passed in 108.46 seconds.
+- Pending-content REST, OIDC, Slack, rename, delegation, authority, and folded
+  identity tests: 177 passed.
+- Full backend suite: 1,840 passed in 111.17 seconds.
 - Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
   and frontend dead-code gate: passed.
 

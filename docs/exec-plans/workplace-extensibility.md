@@ -1439,10 +1439,13 @@ composed private identities after the startup check. The application now binds
 the complete machine-owner set and the accepted content roster to its lifespan.
 Existing persona and flock files can change live. New identity-bearing slugs
 require restart. Hot-add tests cover core, service, MCP, human, and agent names.
+Pending valid filenames reserve their identity immediately, so the restart
+window cannot create the collision it is designed to prevent.
 Signed Slack and OIDC token exchange now refuse inactive people at their first
 door. The focused composition, content, Slack, OIDC, persona, and specialist
-suite passed 233 tests. The full backend suite passed 1,838 tests in 108.46
-seconds, and all static gates passed.
+suite passed 233 tests. The expanded identity-ingress suite passed 177 tests.
+The full backend suite passed 1,840 tests in 111.17 seconds. All static gates
+passed.
 
 Verification for this remediation:
 
