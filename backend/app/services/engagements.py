@@ -311,53 +311,61 @@ def _playbook_lesson(engagement_id: int, *, actor: str) -> int:
     playbook engagement, a scoped one, or a plan that held. Never raises: a
     close must not fail because the lesson could not be drafted.
     """
-    from . import playbooks, review
-
     try:
-        eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
-        if not eng or eng["visibility"] != scope.WORKSPACE:
-            return 0
-        diff = playbooks.close_out_diff(engagement_id)
-        if not diff:
-            return 0
-        lesson, recommendation = playbooks._variance_lesson(diff, eng["name"])
-        if not lesson:
-            return 0
-        # Reopening and re-closing must not file a second identical draft.
-        # `freshly_closed` already makes a repeated PATCH a no-op, but a
-        # reopen resets it, and two approvable copies of one lesson is two
-        # verdicts and two rows in the next kickoff note.
-        if db.query_one(
-            "SELECT id FROM pending_changes WHERE entity = 'lesson' AND status = 'pending'"
-            " AND payload LIKE ?",
-            (f'%"engagement_id": {engagement_id},%',),
-        ):
-            return 0
-        prop = review.propose_change(
-            "lesson",
-            "create",
-            {
-                "lesson": lesson,
-                "recommendation": recommendation,
-                "engagement_id": engagement_id,
-                "project_class": eng["project_class"],
-                "visibility": eng["visibility"],
-                "crew_id": eng["crew_id"] or 0,
-            },
-            summary=f"Close-out lesson from the {diff['playbook']} playbook",
-            actor="system",
-            origin="agent",
-            requested_by=actor,
-        )
-        # the closer, not "system": this is what the field guide's
-        # `playbook_closeout` card reads to know the person has tied it
-        db.log_activity(actor, "playbook_closeout", f"#{engagement_id} -> proposal #{prop['id']}")
-        return int(prop["id"])
+        # The lesson is optional, but its proposal, notice, ledger entry, and
+        # deferred effects are one unit. A caught failure must remove the
+        # whole unit before the engagement close commits.
+        with db.savepoint():
+            return _playbook_lesson_locked(engagement_id, actor=actor)
     except Exception:
         logging.getLogger("skein").warning(
             "close-out lesson could not be drafted for engagement #%s", engagement_id, exc_info=True
         )
         return 0
+
+
+def _playbook_lesson_locked(engagement_id: int, *, actor: str) -> int:
+    from . import playbooks, review
+
+    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    if not eng or eng["visibility"] != scope.WORKSPACE:
+        return 0
+    diff = playbooks.close_out_diff(engagement_id)
+    if not diff:
+        return 0
+    lesson, recommendation = playbooks._variance_lesson(diff, eng["name"])
+    if not lesson:
+        return 0
+    # Reopening and re-closing must not file a second identical draft.
+    # `freshly_closed` already makes a repeated PATCH a no-op, but a
+    # reopen resets it, and two approvable copies of one lesson is two
+    # verdicts and two rows in the next kickoff note.
+    if db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'lesson' AND status = 'pending'"
+        " AND payload LIKE ?",
+        (f'%"engagement_id": {engagement_id},%',),
+    ):
+        return 0
+    prop = review.propose_change(
+        "lesson",
+        "create",
+        {
+            "lesson": lesson,
+            "recommendation": recommendation,
+            "engagement_id": engagement_id,
+            "project_class": eng["project_class"],
+            "visibility": eng["visibility"],
+            "crew_id": eng["crew_id"] or 0,
+        },
+        summary=f"Close-out lesson from the {diff['playbook']} playbook",
+        actor="system",
+        origin="agent",
+        requested_by=actor,
+    )
+    # the closer, not "system": this is what the field guide's
+    # `playbook_closeout` card reads to know the person has tied it
+    db.log_activity(actor, "playbook_closeout", f"#{engagement_id} -> proposal #{prop['id']}")
+    return int(prop["id"])
 
 
 def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:

@@ -2439,3 +2439,27 @@ Verification before the next exact-commit review:
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+
+### Remediation after the `63ca095` review
+
+The independent review rejected `63ca095` before it issued final scores.
+
+The optional playbook lesson caught an internal error without a nested rollback
+boundary. A forced later failure left a partial proposal and notification in
+the outer engagement transaction.
+
+The complete optional lesson unit now runs in a database savepoint. The unit
+includes the proposal, notification, activity entry, and deferred effects.
+
+A forced failure after proposal creation now rolls back the complete optional
+unit. The engagement close still commits and reports no lesson proposal.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused close-out, transaction, and review tests | 66 passed |
+| Complete backend suite | 1,983 passed in 131.17 seconds |
+| Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
