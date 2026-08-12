@@ -461,7 +461,11 @@ def test_api_mcp_collision_disables_only_mcp(fresh_db, caplog, subject):
     with TestClient(create_app(settings=settings)) as client:
         assert client.get("/health").status_code == 200
     assert "The REST API is unaffected" in caplog.text
-    if subject != "agent":
+    if subject == "code-reviewer":
+        assert fresh_db.query_one(
+            "SELECT kind, identity_owner FROM users WHERE name = ?", (subject,)
+        ) == {"kind": "agent", "identity_owner": "content"}
+    elif subject != "agent":
         assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
 
 
@@ -1072,7 +1076,9 @@ def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names
         with pytest.raises(SystemExit) as raised:
             mcp_server.main()
         assert raised.value.code == 1
-        assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
+        assert fresh_db.query_one(
+            "SELECT kind, identity_owner FROM users WHERE name = ?", (subject,)
+        ) == {"kind": "agent", "identity_owner": "content"}
 
 
 @pytest.mark.parametrize(
@@ -1268,6 +1274,60 @@ def test_restart_does_not_activate_content_over_existing_human_or_generic_agent(
         assert fresh_db.query_row(
             "SELECT kind, identity_owner FROM users WHERE name = 'future-agent'"
         ) == {"kind": "agent", "identity_owner": "generic-agent"}
+
+
+def test_startup_persists_content_ownership_across_live_delete_and_restore(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import flocks, personas, users
+
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    persona_dir.mkdir()
+    flock_dir.mkdir()
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+    persona_file = persona_dir / "race-persona.md"
+    persona_file.write_text(
+        "---\nname: Race persona\ndescription: Durable content owner\n---\nReview work.\n"
+    )
+    members = sorted(personas.bench_slugs())[:2]
+    flock_file = flock_dir / "race-flock.yaml"
+    flock_file.write_text(
+        "schema_version: 1\nname: Race flock\ndescription: Durable content owner\n"
+        f"members:\n  - {members[0]}\n  - {members[1]}\nsynthesis: true\n"
+    )
+
+    with TestClient(create_app()):
+        assert personas.get_persona("race-persona")["name"] == "Race persona"
+        assert flocks.get_flock("race-flock")["name"] == "Race flock"
+        for slug in ("race-persona", "race-flock"):
+            assert fresh_db.query_one(
+                "SELECT kind, identity_owner FROM users WHERE name = ?", (slug,)
+            ) == {"kind": "agent", "identity_owner": "content"}
+
+        persona_file.unlink()
+        flock_file.unlink()
+        with pytest.raises(ValueError, match="owned by an agent"):
+            users.ensure_human_identity("race-persona")
+        with pytest.raises(ValueError, match=r"owned by an agent|differs only by case"):
+            users.ensure_human_identity("RACE-PERSONA")
+        with pytest.raises(ValueError, match="another machine identity"):
+            users.ensure_agent_identity("race-flock")
+        with pytest.raises(ValueError, match="differs only by case"):
+            users.ensure_agent_identity("RACE-FLOCK")
+
+        persona_file.write_text(
+            "---\nname: Race persona\ndescription: Durable content owner\n---\nReview work.\n"
+        )
+        flock_file.write_text(
+            "schema_version: 1\nname: Race flock\ndescription: Durable content owner\n"
+            f"members:\n  - {members[0]}\n  - {members[1]}\nsynthesis: true\n"
+        )
+        assert personas.get_persona("race-persona")["name"] == "Race persona"
+        assert flocks.get_flock("race-flock")["name"] == "Race flock"
+        assert users.identity_ownership_error() == ""
 
 
 def test_legacy_overlay_agent_requires_explicit_content_claim(fresh_db, tmp_path, monkeypatch):

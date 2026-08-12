@@ -1549,3 +1549,17 @@ core source.
 
 This report retains the prior scores until the fresh independent review is
 complete. Chrome validation remains blocked.
+
+The first review of `66b6c0a` found a mounted-content race. An accepted slug
+had no durable row until it performed work. A file removal could let a human
+claim the name. A file restore could re-enable the content in the same
+lifespan.
+
+Startup now persists each accepted persona and flock slug as an agent with
+the `content` owner. A temporary file removal does not release that identity.
+The regression covers exact and folded human or generic-agent claims for both
+content types. The `66b6c0a` scores are void. A fresh review follows the next
+exact commit.
+
+The complete backend suite passed 1,847 tests in 113.35 seconds. The complete
+static gate also passed.

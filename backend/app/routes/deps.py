@@ -8,7 +8,7 @@ from .. import config
 from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_human_identity, is_agent
+from ..services.users import ensure_human_identity, is_agent, is_content_identity
 
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
@@ -47,6 +47,13 @@ def agent_on_rest(owner: str) -> str:
 
 def agent_on_signin(name: str) -> str:
     return f"'{name}' is an agent identity — agents authenticate with their API key, not a sign-in"
+
+
+def content_on_signin() -> str:
+    return (
+        "This name is reserved for agent content. Set SKEIN_OIDC_USERNAME_CLAIM"
+        " to a claim that gives each person one name."
+    )
 
 
 def _refuse_reserved(name: str) -> None:
@@ -199,6 +206,11 @@ def _resolve(
             except oidc.OIDCError as exc:
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             if is_agent(name):
+                if is_content_identity(name):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=content_on_signin(),
+                    )
                 raise HTTPException(status_code=403, detail=agent_on_signin(name))
             # Apply the same walls for direct dependency calls that do not pass
             # through the perimeter middleware.
