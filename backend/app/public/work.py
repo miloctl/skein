@@ -286,6 +286,33 @@ class WorkItems:
                 obligations=obligations,
             )
 
+    def _permits(
+        self,
+        context: CommandContext,
+        action: str,
+        resource_type: str,
+        resource_id: int,
+        attributes: dict[str, str],
+    ) -> bool:
+        return (
+            self._policy.decide(
+                PolicyInput(
+                    subject=context.subject,
+                    action=action,
+                    resource=PolicyResource(
+                        resource_type,
+                        str(resource_id),
+                        project_type=str(attributes.get("project_type") or ""),
+                        classification=str(attributes.get("classification") or ""),
+                        attributes=attributes,
+                    ),
+                    origin=context.origin,
+                    context=context.attributes,
+                )
+            ).effect
+            == PolicyEffect.PERMIT
+        )
+
     def _viewer(self, context: CommandContext) -> scope.Viewer:
         """Return only the read authority granted by the composition boundary."""
         issued = _identity_payload(_ISSUED_COMMANDS.get(self, {}), context)
@@ -476,7 +503,19 @@ class WorkItems:
                     attributes=attributes,
                 ),
             )
-            return self._task_view(task_id, viewer=viewer)
+            task = work.get_task(task_id, viewer)
+            task = work.redact_task_relationships(
+                [task],
+                viewer,
+                lambda entity, entity_id, linked_attributes: self._permits(
+                    context,
+                    "work.task.read",
+                    entity,
+                    entity_id,
+                    linked_attributes,
+                ),
+            )[0]
+            return TaskView.model_validate(task)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # Keep linked-project resolution, policy, idempotency, and creation in

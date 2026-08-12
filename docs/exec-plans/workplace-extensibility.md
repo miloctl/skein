@@ -2197,10 +2197,9 @@ The review found two policy races:
 - An exact task denial did not block a notification that quoted the task title.
 - The unattended runner checked due work before its final daily-run claim.
 
-Opaque policy now checks every exact domain resource and every project domain.
-This inventory stays inside the policy engine. It does not return hidden row
-data to the caller. REST notifications, REST briefing, the stock attention
-tool, and MCP My Day use this rule for free-form content.
+This checkpoint added a whole-database exact-resource scan. The next review
+found that this scan was unbounded. The later remediation replaces it with
+typed notification sources and row-local resource checks.
 
 The runner now checks current due tasks and creates the daily claim in one
 write transaction. A concurrent project change cannot cross this boundary.
@@ -2218,3 +2217,40 @@ Verification before the next exact-commit review:
 | Exact-resource, runner, visibility, briefing, policy, and Atlas tests | 313 passed |
 | Complete backend suite | 1,958 passed in 114.75 seconds |
 | Complete static gate | Passed |
+
+### Remediation after the `bac14886` review
+
+The review rejected `bac14886`. It did not issue final scores.
+
+The review found three defects:
+
+- Agent inbox notifications could quote a task that the same action denied.
+- Exact-resource checks scanned all historical rows on hot read paths.
+- Primary task reads returned denied relationship IDs and nested rows.
+
+Migration 019 adds a typed source entity and source ID to notifications.
+Policy-aware readers evaluate this source before they return a body. If an old
+notification has no source, Skein omits it when workplace rules are active.
+This rule covers REST notifications, briefings, agent inboxes, stock tools,
+and MCP reads.
+
+Opaque aggregates now inspect project domains only. They do not scan every
+historical task, activity row, finding, or notification. Exact policy checks
+run beside the rows that contribute to a response.
+
+Task lists apply the action to each task and each linked engagement,
+milestone, or waiting target. Single-task reads also filter blockers,
+downstream tasks, and source findings. REST, stock tools, MCP, and the public
+`WorkItems` facade use the same rule.
+
+New tests cover typed and legacy notification text, exact relationship
+denials, nested task rows, the public facade, and the runner claim boundary.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused policy, public, notification, runner, migration, and Atlas tests | 372 passed |
+| Complete backend suite | 1,964 passed in 121.87 seconds |
+| Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |

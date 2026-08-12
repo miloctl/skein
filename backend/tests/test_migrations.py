@@ -85,6 +85,29 @@ def test_identity_owner_migration_lists_all_stock_content():
     assert not {slug for slug in stock_slugs if f"'{slug}'" not in migration}
 
 
+def test_notification_source_migration_preserves_legacy_rows(fresh_db, tmp_path, monkeypatch):
+    from app import db
+
+    staged = _staged(tmp_path, monkeypatch)
+    migration = staged / "019_notification_sources.sql"
+    migration_sql = migration.read_text()
+    migration.unlink()
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-018.db")
+    db.init_db()
+    notification_id = db.execute(
+        "INSERT INTO notifications (user, message, created_at) VALUES ('mira', 'legacy', ?)",
+        (db.now(),),
+    )
+
+    migration.write_text(migration_sql)
+    db.init_db()
+
+    assert db.query_one(
+        "SELECT message, source_entity, source_id FROM notifications WHERE id = ?",
+        (notification_id,),
+    ) == {"message": "legacy", "source_entity": "", "source_id": None}
+
+
 # the activity chain is born in the baseline, so NO migration may ever
 # rewrite a chained row — verification breaks permanently at the earliest
 # touched row (CLAUDE.md). Before the 2026-08-04 squash this rule was

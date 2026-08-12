@@ -254,6 +254,8 @@ def resolve_blocker(
                     f" “{t['title']}” can move again.",
                     tier="immediate",
                     link="/dashboard",
+                    source_entity="blocker",
+                    source_id=blocker_id,
                 )
 
     created = datetime.fromisoformat(row["created_at"])
@@ -272,6 +274,8 @@ def resolve_blocker(
             f" It fought hard. It lost. {days} days.",
             tier="digest",
             link="/dashboard",
+            source_entity="blocker",
+            source_id=blocker_id,
         )
     return {"id": blocker_id, "status": "resolved"}
 
@@ -392,6 +396,8 @@ def sweep_escalations() -> list[dict]:
                     f"Blocker #{b['id']} escalated: {b['title']}",
                     tier="immediate",
                     link="/",
+                    source_entity="blocker",
+                    source_id=int(b["id"]),
                 )
             db.log_activity(
                 "scheduler",

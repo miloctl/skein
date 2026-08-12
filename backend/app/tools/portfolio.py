@@ -69,7 +69,7 @@ def get_flow_metrics() -> str:
         tool="get_flow_metrics",
     )
     with db.read_transaction():
-        if not policy.allows_all_inputs():
+        if not policy.allows_all_projects() or not policy.allows_unclassified():
             return json.dumps({"error": "workplace policy denied this composite read"})
         return json.dumps(portfolio.flow_metrics(name_people=False))
 
@@ -95,7 +95,7 @@ def what_if_staffing(request_id: int, people: str, percent: int = 50) -> str:
             tool="what_if_staffing",
         )
         with db.read_transaction():
-            if not policy.allows_all_inputs():
+            if not policy.allows_all_projects() or not policy.allows_unclassified():
                 return json.dumps({"error": "workplace policy denied this composite read"})
             return json.dumps(portfolio.what_if(request_id, names, percent))
     except ValueError as exc:
@@ -295,6 +295,8 @@ def my_agent_inbox() -> str:
                     task_filter=lambda task_id, attributes: policy.permits(
                         "task", task_id, attributes
                     ),
+                    resource_filter=policy.permits,
+                    allow_unclassified=policy.allows_unclassified(),
                 )
             )
     except ValueError as exc:
@@ -521,7 +523,7 @@ def get_findings(weeks: int = 2, limit: int = 10) -> str:
         tool="get_findings",
     )
     with db.read_transaction():
-        if not policy.allows_all_inputs():
+        if not policy.allows_all_projects() or not policy.allows_unclassified():
             return json.dumps({"error": "workplace policy denied this composite read"})
         return json.dumps(insights.list_findings(weeks=weeks, limit=limit))
 
@@ -562,6 +564,7 @@ def get_attention() -> str:
                 rv,
                 policy.filter_rows,
                 policy.filter_resources,
-                policy.allows_all_inputs(),
+                policy.allows_unclassified(),
+                policy.permits,
             )["attention"]
         )

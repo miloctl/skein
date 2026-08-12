@@ -1035,6 +1035,41 @@ def test_public_read_serializes_policy_and_returned_relationship(fresh_db):
     }
 
 
+def test_public_read_redacts_a_policy_denied_relationship(fresh_db):
+    from app.services import engagements
+    from app.services import work as service_work
+
+    engagements.create_engagement("Public linked project")
+    milestone = service_work.create_milestone(
+        "Public denied milestone", project="Public linked project"
+    )["id"]
+    task = service_work.create_task("Public outer task", milestone_id=milestone)["id"]
+
+    def deny_milestone(request: PolicyInput):
+        if (
+            request.action == "work.task.read"
+            and request.resource.type == "milestone"
+            and request.resource.id == str(milestone)
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("This milestone is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.link-policy", deny_milestone),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+
+    viewed = facade.get_task(task, _context(facade, project_type="standard"))
+
+    assert viewed.id == task
+    assert viewed.milestone_id is None
+
+
 def test_public_update_policy_uses_target_engagement(fresh_db):
     from app.services import engagements
     from app.services import work as service_work

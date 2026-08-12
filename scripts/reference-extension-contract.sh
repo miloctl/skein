@@ -295,6 +295,7 @@ assert version("skein") == "0.2.1"
 assert SKEIN_CORE_VERSION == "0.2.1"
 assert (Path(db.__file__).resolve().parent / "py.typed").is_file()
 assert (db.MIGRATIONS_DIR / "018_identity_ownership.sql").is_file()
+assert (db.MIGRATIONS_DIR / "019_notification_sources.sql").is_file()
 # An upgrade applies core migrations before it uses the new public contracts.
 # Application startup does this automatically. The artifact rehearsal uses
 # identity helpers before startup, so it applies the same step explicitly.

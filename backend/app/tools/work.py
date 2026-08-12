@@ -19,7 +19,7 @@ from ..extensions.policy import (
     current_policy_engine,
     current_policy_subject,
 )
-from ..services import scope, work
+from ..services import projection_policy, scope, work
 from ._gate import gated_write
 
 
@@ -244,4 +244,13 @@ def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> s
             )
             if decision.effect == PolicyEffect.PERMIT:
                 permitted.append(row)
-        return json.dumps(permitted)
+        policy = projection_policy.ProjectionPolicy(
+            engine,
+            subject,
+            "skein.tool.list_tasks",
+            "agent_tool",
+            scope.NOBODY,
+            agent=agent_identity(),
+            tool="list_tasks",
+        )
+        return json.dumps(work.redact_task_relationships(permitted, scope.NOBODY, policy.permits))

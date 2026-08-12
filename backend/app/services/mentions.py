@@ -162,6 +162,8 @@ def scan(
                 f"{actor or 'system'} mentioned you on {entity} #{entity_id}",
                 tier="immediate",
                 link=link,
+                source_entity=entity,
+                source_id=entity_id,
             )
             notified.append(name)
     return notified
