@@ -54,9 +54,18 @@ class _ExecutionGrant:
     correlation_id: str
     actor: str
     actor_kind: str
+    read_name: str
+    read_strong: bool
 
 
-_RegistryPayload = _ExecutionGrant | tuple[Any, ...]
+@dataclass(frozen=True)
+class _IssuedCommand:
+    signature: tuple[Any, ...]
+    read_name: str
+    read_strong: bool
+
+
+_RegistryPayload = _ExecutionGrant | _IssuedCommand | tuple[Any, ...]
 _IdentityRegistry = dict[int, tuple[ReferenceType[Any], _RegistryPayload]]
 _BOUND_EXECUTIONS: WeakKeyDictionary[object, _IdentityRegistry] = WeakKeyDictionary()
 _ISSUED_COMMANDS: WeakKeyDictionary[object, _IdentityRegistry] = WeakKeyDictionary()
@@ -108,6 +117,8 @@ def _bind_execution_context[ExecutionContextT](
     correlation_id: str,
     actor: str = "",
     actor_kind: str = "",
+    read_name: str = "",
+    read_strong: bool = False,
 ) -> ExecutionContextT:
     """Bind a core-created adapter object to one immutable provenance grant.
 
@@ -125,6 +136,8 @@ def _bind_execution_context[ExecutionContextT](
         correlation_id,
         actor or subject.name,
         actor_kind or subject.kind,
+        read_name,
+        read_strong,
     )
     registry = _BOUND_EXECUTIONS.setdefault(work_items, {})
     _remember_identity(registry, context, grant)
@@ -217,12 +230,18 @@ class WorkItems:
             actor_kind=grant.actor_kind,
         )
         issued = _ISSUED_COMMANDS.setdefault(self, {})
-        _remember_identity(issued, context, _command_signature(context))
+        _remember_identity(
+            issued,
+            context,
+            _IssuedCommand(_command_signature(context), grant.read_name, grant.read_strong),
+        )
         return context
 
     def _require_issued_context(self, context: CommandContext) -> None:
         signature = _identity_payload(_ISSUED_COMMANDS.get(self, {}), context)
-        if signature is None or signature != _command_signature(context):
+        if not isinstance(signature, _IssuedCommand) or signature.signature != _command_signature(
+            context
+        ):
             raise PublicError(
                 "COMMAND_CONTEXT_REQUIRED",
                 "Use the command context from the composed execution boundary.",
@@ -267,12 +286,12 @@ class WorkItems:
                 obligations=obligations,
             )
 
-    @staticmethod
-    def _viewer(context: CommandContext) -> scope.Viewer:
-        """Return a read viewer without turning a machine actor into a person."""
-        if context.execution_actor_kind == "human":
-            return scope.Viewer(context.execution_actor, context.subject.strong)
-        return scope.NOBODY
+    def _viewer(self, context: CommandContext) -> scope.Viewer:
+        """Return only the read authority granted by the composition boundary."""
+        issued = _identity_payload(_ISSUED_COMMANDS.get(self, {}), context)
+        if not isinstance(issued, _IssuedCommand):
+            return scope.NOBODY
+        return scope.Viewer(issued.read_name, issued.read_strong)
 
     @staticmethod
     def _visible_engagement(engagement_id: int, viewer: scope.Viewer) -> dict | None:

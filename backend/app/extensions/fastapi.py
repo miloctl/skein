@@ -92,6 +92,8 @@ def extension_route_services(request: Request, subject: PolicySubjectDep) -> Ext
         namespace=namespace,
         receipt_namespace=f"route:{namespace}",
         correlation_id=correlation_id,
+        read_name=subject.name if subject.kind == "human" else "",
+        read_strong=subject.strong if subject.kind == "human" else False,
     )
 
 

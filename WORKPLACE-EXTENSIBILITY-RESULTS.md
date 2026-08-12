@@ -1648,5 +1648,17 @@ Verification for this remediation:
 - Complete lint, format, type, content, dead-code, license, theme,
   TypeScript, ESLint, and frontend dead-code gate: passed.
 
+The review of `226cd5c` found a separate read-scope defect. A workflow action
+inherited the strong human requester's crew and private viewer. This behavior
+violated the documented workspace-only workflow rule. Scores for `226cd5c`
+are void.
+
+Read authority is now a separate core-issued grant. The route adapter can
+bind the strongly authenticated human viewer. All machine execution adapters
+bind no scoped reader, even when a human starts the workflow or tool call.
+The workflow regression proves that a strong human subject does not give its
+private task to a workflow action. All 49 public contract tests and the
+complete static gate passed after this change.
+
 The prior scores remain unchanged until a fresh independent review passes.
 Chrome validation remains blocked.

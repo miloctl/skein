@@ -42,6 +42,7 @@ def _context(work_items: WorkItems, **changes) -> CommandContext:
         "namespace": "atlas.workplace.sync",
         "correlation_id": "sync-42",
         "project_type": "regulated",
+        "read_as_human": False,
     }
     values.update(changes)
     execution_context = JobExecutionContext(
@@ -58,6 +59,8 @@ def _context(work_items: WorkItems, **changes) -> CommandContext:
         namespace=values["namespace"],
         receipt_namespace=f"job:{values['namespace']}",
         correlation_id=values["correlation_id"],
+        read_name=values["subject"].name if values["read_as_human"] else "",
+        read_strong=values["subject"].strong if values["read_as_human"] else False,
     )
     return execution.command_context(project_type=values["project_type"])
 
@@ -418,6 +421,7 @@ def test_crew_engagement_context_overrides_caller_policy_context(fresh_db, calle
                 facade,
                 project_type=caller_project_type,
                 subject=PolicySubject("atlas-sync", strong=True),
+                read_as_human=True,
             ),
         )
     assert raised.value.code == "REVIEW_REQUIRED"
@@ -471,6 +475,7 @@ def test_crew_milestone_context_overrides_caller_policy_context(fresh_db, caller
                 facade,
                 project_type=caller_project_type,
                 subject=PolicySubject("atlas-sync", strong=True),
+                read_as_human=True,
             ),
         )
     assert raised.value.code == "REVIEW_REQUIRED"
@@ -784,6 +789,7 @@ def test_public_create_and_update_refuse_a_child_broader_than_its_parent(fresh_d
         facade,
         subject=PolicySubject("mira", strong=True),
         namespace="atlas.workplace.human-write",
+        read_as_human=True,
     )
 
     with pytest.raises(PublicError) as create_refusal:
@@ -840,6 +846,35 @@ def test_public_machine_cannot_use_its_actor_name_as_a_private_viewer(fresh_db):
     assert raised.value.code == "TASK_NOT_FOUND"
 
 
+def test_workflow_does_not_inherit_the_requesters_private_read_scope(fresh_db):
+    from app.services import work as service_work
+
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    execution = WorkflowActionContext(
+        subject=PolicySubject("mira", strong=True),
+        policy=facade._policy,
+        work_items=facade,
+        namespace="atlas.workplace.workflow-read",
+        correlation_id="workflow-read",
+    )
+    _bind_execution_context(
+        facade,
+        execution,
+        subject=execution.subject,
+        namespace=execution.namespace,
+        receipt_namespace="workflow:atlas.workplace.workflow-read",
+        correlation_id=execution.correlation_id,
+    )
+    private_task = service_work.create_task("Requester secret", actor="mira", visibility="private")[
+        "id"
+    ]
+
+    with pytest.raises(PublicError) as raised:
+        facade.get_task(private_task, execution.command_context())
+
+    assert raised.value.code == "TASK_NOT_FOUND"
+
+
 def test_public_read_uses_proved_human_visibility(fresh_db):
     from app.services import crews, engagements
     from app.services import work as service_work
@@ -868,6 +903,7 @@ def test_public_read_uses_proved_human_visibility(fresh_db):
         facade,
         subject=PolicySubject("mira", strong=True),
         namespace="atlas.workplace.human-read",
+        read_as_human=True,
     )
 
     assert facade.get_task(crew_task, strong).engagement_id == engagement
