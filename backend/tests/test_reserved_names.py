@@ -23,8 +23,9 @@ def test_minting_an_agent_cannot_plant_a_system_name(fresh_db):
 
     # delegate_task and set_authority both mint an agent from a caller-supplied
     # string, so a human-only check is a hole rather than a wall
-    with pytest.raises(ValueError, match="reserved for the system"):
-        users.ensure_user("team", kind="agent")
+    for name in ("team", "agent", "ci", "mcp"):
+        with pytest.raises(ValueError, match="reserved for the system"):
+            users.ensure_user(name, kind="agent")
 
 
 def test_rename_cannot_reach_a_system_name(fresh_db):

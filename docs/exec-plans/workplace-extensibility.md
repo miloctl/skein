@@ -1397,6 +1397,30 @@ Final remediation verification:
 - Installed backend extension rehearsal: the real CLI repaired private and
   core ownership. The unchanged Atlas wheel then passed both core artifacts.
 
+The review of `2bcf22a` found two more target-integrity defects. A reserved
+target was rejected after private ownership moved. A target with unrelated
+orphaned private ownership could merge private authors. The ownership audit
+also used a smaller reserved set than extension composition.
+
+The repair now validates every core target rule before the private commit. The
+private store refuses unrelated ownership and recognizes only an audit marker
+from the same incomplete repair. One shared core-machine constant now drives
+module composition, runtime checks, human refusal, health, and repair.
+`anonymous` remains the documented synthetic compatibility exception.
+
+Verification for this remediation:
+
+- Focused repair, reservation, and ownership tests: 52 passed.
+- Identity, authentication, privacy, provenance, policy, and extension suite:
+  365 passed.
+- Full backend suite: 1,796 passed in 119.80 seconds.
+- Complete static gate: passed.
+- Installed backend extension rehearsal: the real repair CLI passed. The
+  unchanged Atlas wheel passed distinct 0.2.0 and 0.2.1 core artifacts.
+
+The exact commit and a fresh four-role review follow. Chrome remains blocked
+until that review accepts the architecture.
+
 ### Seventeenth review gate and remediation
 
 The score auditor approved commit `3b2dbd7` at 8.3 for all three measures.

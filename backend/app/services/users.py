@@ -3,6 +3,7 @@
 import re
 
 from .. import db
+from ..identity_names import HUMAN_RESERVED_SUBJECTS
 
 IDENTITY_COLLISION = (
     "This identity has conflicting roster ownership. Ask whoever runs the server to"
@@ -67,9 +68,7 @@ def refuse_reserved_name(name: str) -> None:
     a caller-supplied string, so a human-only check is a hole, not a wall.
     It normalizes its own input, because two of its four callers hand it a
     header value that nothing else has touched."""
-    from .activity import SYSTEM_ACTORS
-
-    if fold(name) in {fold(a) for a in SYSTEM_ACTORS}:
+    if fold(name) in {fold(a) for a in HUMAN_RESERVED_SUBJECTS}:
         raise ValueError("that name is reserved for the system — pick another name")
 
 
@@ -87,9 +86,7 @@ def reserved_name_rows() -> list[str]:
     """Roster rows whose name the wall now refuses. Named at boot so whoever
     runs the server can move them with rename_user, the one code path that
     knows every attribution column and the private notes DB."""
-    from .activity import SYSTEM_ACTORS
-
-    reserved = {fold(a) for a in SYSTEM_ACTORS}
+    reserved = {fold(a) for a in HUMAN_RESERVED_SUBJECTS}
     return [r["name"] for r in db.query("SELECT name FROM users") if fold(r["name"]) in reserved]
 
 
@@ -175,22 +172,21 @@ def identity_ownership_conflicts() -> list[dict]:
         for rows in folded_identity_collisions()
     ]
     content = _content_machine_claims()
-    from .activity import SYSTEM_ACTORS
-
-    reserved = {fold(name): name for name in SYSTEM_ACTORS}
+    reserved = {fold(name): name for name in HUMAN_RESERVED_SUBJECTS}
     duplicate_names = {name for item in conflicts for name in item["names"]}
     for row in db.query("SELECT name, kind FROM users ORDER BY name"):
         if row["name"] in duplicate_names:
             continue
         folded = fold(row["name"])
         if claim := reserved.get(folded):
-            conflicts.append(
-                {
-                    "kind": "core-owner",
-                    "names": (row["name"],),
-                    "claim": claim,
-                }
-            )
+            if row["kind"] != "agent" or row["name"] != claim:
+                conflicts.append(
+                    {
+                        "kind": "core-owner",
+                        "names": (row["name"],),
+                        "claim": claim,
+                    }
+                )
             continue
         claim = content.get(folded)
         if claim and (row["kind"] != "agent" or row["name"] != claim):
@@ -213,13 +209,14 @@ def identity_ownership_error() -> str:
     return f"{count} conflicting identity {noun}. Run 'python -m app.identity_audit' on the server."
 
 
-def ensure_user(name: str, kind: str = "human") -> dict:
+def ensure_user(name: str, kind: str = "human", *, _machine_reservation: bool = False) -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     # The folded-name check and insert are one write transaction. SQLite has
     # no Unicode case-fold collation for a unique index, so serialization is
     # what prevents concurrent `Mira` and `MIRA` rows.
     with db.transaction():
-        refuse_reserved_name(name)
+        if not _machine_reservation:
+            refuse_reserved_name(name)
         # bench persona slugs are reserved identities: a human picking one
         # would silently absorb the persona's trust/authority history (and
         # vice versa)
@@ -276,7 +273,7 @@ def ensure_agent_identity(name: str) -> dict:
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{normalized}' is already owned by a human identity")
-        row = ensure_user(normalized, kind="agent")
+        row = ensure_user(normalized, kind="agent", _machine_reservation=True)
         if row["kind"] != "agent":
             # This is also a postcondition for callers that are already in an
             # outer transaction. A successful machine reservation must never
@@ -483,6 +480,38 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
 }
 
 
+def _validate_rename_target(old: str, new: str, row: dict, *, identity_repair: bool) -> dict | None:
+    """Validate every target rule before a core or private identity moves."""
+    refuse_reserved_name(new)
+    refuse_fold_collision(new, ignore=old)
+    if _is_bench_slug(new):
+        raise ValueError("the new name is reserved for a bench persona")
+    target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+    if target and identity_repair:
+        raise ValueError("identity ownership repair cannot merge roster rows")
+    if target and target["kind"] != row["kind"]:
+        raise ValueError(
+            f"'{old}' is a {row['kind']} and '{new}' is a {target['kind']} —"
+            " merging across the human/agent boundary would fold trust and"
+            " authority history that must stay separate"
+        )
+    return target
+
+
+def _rename_names(old: str, new: str) -> tuple[str, str]:
+    old, new = old.strip(), new.strip()[:64]
+    if not old or not new:
+        raise ValueError("both names are required")
+    if old == new:
+        raise ValueError("that is already their name")
+    if old == "anonymous" or new == "anonymous":
+        raise ValueError(
+            "anonymous cannot be renamed, and no account can be renamed to"
+            " anonymous — pick a real name first"
+        )
+    return old, new
+
+
 def rename_user(
     old: str,
     new: str,
@@ -495,16 +524,7 @@ def rename_user(
     the old row is deleted (merge) or renamed in place. Strong identity
     required at the route; team-visible tables only (private.db is scoped
     by author name, so the author keeps access by renaming there too)."""
-    old, new = old.strip(), new.strip()[:64]
-    if not old or not new:
-        raise ValueError("both names are required")
-    if old == new:
-        raise ValueError("that is already their name")
-    if old == "anonymous" or new == "anonymous":
-        raise ValueError(
-            "anonymous cannot be renamed, and no account can be renamed to"
-            " anonymous — pick a real name first"
-        )
+    old, new = _rename_names(old, new)
     # rename must honor the same identity walls ensure_user enforces —
     # otherwise it's the back door around the bench reservation and the
     # human/agent boundary that trust scores and authority assume
@@ -528,24 +548,7 @@ def rename_user(
     # rename is the back door around ensure_user's walls, so it honors the
     # same ones. Without this a teammate is renameable to a system actor, and
     # their surviving API key then writes rows every viewer can read.
-    refuse_reserved_name(new)
-    # the same wall ensure_user applies. Without it a rename onto an agent's
-    # name (in any capitalization) locks the person out of every door,
-    # including this route, with no self-service recovery.
-    refuse_fold_collision(new, ignore=old)
-    if _is_bench_slug(new):
-        # unconditional: persona names come from files, never from rename —
-        # even agent→agent would fold foreign history into the persona
-        raise ValueError("the new name is reserved for a bench persona")
-    target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
-    if target and _identity_repair:
-        raise ValueError("identity ownership repair cannot merge roster rows")
-    if target and target["kind"] != row["kind"]:
-        raise ValueError(
-            f"'{old}' is a {row['kind']} and '{new}' is a {target['kind']} —"
-            " merging across the human/agent boundary would fold trust and"
-            " authority history that must stay separate"
-        )
+    target = _validate_rename_target(old, new, row, identity_repair=_identity_repair)
     moved: dict[str, int] = {}
     with db.transaction():
         # Repeat every ownership check after the immediate transaction starts.
@@ -554,19 +557,7 @@ def rename_user(
         current = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
         if not current:
             raise db.NotFound(f"no user named '{old}'")
-        refuse_reserved_name(new)
-        refuse_fold_collision(new, ignore=old)
-        if _is_bench_slug(new):
-            raise ValueError("the new name is reserved for a bench persona")
-        target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
-        if target and _identity_repair:
-            raise ValueError("identity ownership repair cannot merge roster rows")
-        if target and target["kind"] != current["kind"]:
-            raise ValueError(
-                f"'{old}' is a {current['kind']} and '{new}' is a {target['kind']} —"
-                " merging across the human/agent boundary would fold trust and"
-                " authority history that must stay separate"
-            )
+        target = _validate_rename_target(old, new, current, identity_repair=_identity_repair)
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows
         db.execute(
@@ -701,7 +692,7 @@ def repair_identity_ownership(old: str, new: str) -> dict:
     stores cannot share a transaction. If the core step fails, fix its stated
     cause and repeat the same command; the private move is idempotent.
     """
-    old, new = old.strip(), new.strip()[:64]
+    old, new = _rename_names(old, new)
     from . import private_notes
 
     with db.transaction():
@@ -710,8 +701,8 @@ def repair_identity_ownership(old: str, new: str) -> dict:
         }
         if old not in conflicted:
             raise ValueError(f"'{old}' is not in a current identity ownership conflict")
-        if db.query_one("SELECT 1 FROM users WHERE name = ?", (new,)):
-            raise ValueError("identity ownership repair requires a new, unused name")
+        row = db.query_row("SELECT * FROM users WHERE name = ?", (old,))
+        _validate_rename_target(old, new, row, identity_repair=True)
         private_notes.recover_identity_ownership(old, new)
         result = rename_user(
             old,

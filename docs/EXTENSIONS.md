@@ -248,9 +248,11 @@ python -m app.identity_audit rename RACE-OWNER person-owner
 ```
 
 The command acts only on a current identity conflict. It refuses an ordinary
-account and a target name that already exists. It records `system` as the core
-activity actor. It also writes a private administrative audit before it moves
-private ownership. The audit contains no note content.
+account, an invalid or reserved target, a target name that already exists, and
+a target with unrelated private ownership. It validates every target rule
+before private data moves. It records `system` as the core activity actor. It
+also writes a private administrative audit before it moves private ownership.
+The audit contains no note content.
 
 The core and private databases cannot share one transaction. The private move
 commits first. If the core rename fails, correct the reported cause and repeat
@@ -261,6 +263,11 @@ combine human and agent authority, provenance, or private ownership. The same
 audit also detects an old human row that now conflicts with a persona, flock,
 or reserved core actor. The installed-artifact upgrade rehearsal includes the
 legacy folded-roster check.
+
+One canonical core-machine set protects module registration, runtime
+composition, human authentication, health checks, and repair. `anonymous` is
+the one documented compatibility exception. It is a synthetic unnamed subject,
+not an authenticated person or an extension-owned machine identity.
 
 ## Use public work commands
 

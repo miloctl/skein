@@ -28,6 +28,7 @@ separate promise, and a forgotten one is a body somewhere permanent.
 """
 
 from .. import db
+from ..identity_names import CORE_MACHINE_SUBJECTS
 from . import crews
 
 # The three tiers. `workspace` is the migration default, so a deployment that
@@ -48,7 +49,7 @@ _NOT_A_VIEWER = frozenset({"", "anonymous", "agent"})
 # Actors with no person behind them. `activity.SYSTEM_ACTORS` is the display
 # side of the same idea; this one is the authorization side and adds the
 # never-a-viewer names, so the two are not merged.
-_SYSTEM_ACTORS = frozenset({"system", "scheduler", "forge", "ci", "mcp"}) | _NOT_A_VIEWER
+_SYSTEM_ACTORS = CORE_MACHINE_SUBJECTS | _NOT_A_VIEWER
 
 
 class Viewer:
