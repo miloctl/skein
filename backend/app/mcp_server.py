@@ -170,8 +170,14 @@ def get_my_day() -> str:
         tool="skein.mcp.briefing.read",
     )
     with db.read_transaction():
-        row_filter = None if policy.allows_all_projects() else policy.filter_rows
-        return json.dumps(briefing_svc.my_day(ACTOR, row_filter=row_filter))
+        return json.dumps(
+            briefing_svc.my_day(
+                ACTOR,
+                row_filter=policy.filter_rows,
+                mixed_filter=policy.filter_resources,
+                allow_unclassified=policy.allows_all_projects(),
+            )
+        )
 
 
 @mcp.tool()
@@ -461,14 +467,16 @@ def get_context_pack(engagement_id: int = 0) -> str:
             return json.dumps(
                 {
                     "engagement": engagement_id,
-                    "content": context_pack.build_engagement_pack(engagement_id),
+                    "content": context_pack.build_engagement_pack(
+                        engagement_id,
+                        resource_filter=policy.permits,
+                    ),
                 }
             )
-        all_projects = policy.allows_all_projects()
         return json.dumps(
             context_pack.get_pack(
                 actor=ACTOR,
-                resource_filter=None if all_projects else policy.permits,
+                resource_filter=policy.permits,
             )
         )
 
@@ -507,23 +515,18 @@ def portfolio_health() -> str:
     record_use(ACTOR, "mcp")
     if refusal := _policy_refusal("skein.mcp.portfolio.read", "portfolio"):
         return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.portfolio.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.portfolio.read",
+    )
     with db.read_transaction():
-        rows = portfolio.engagement_health()
-        contexts = domain_policy_context.resource_contexts(
-            [("engagement", int(row["id"])) for row in rows], scope.NOBODY
-        )
-        return json.dumps(
-            [
-                row
-                for row in rows
-                if _policy_permits(
-                    "skein.mcp.portfolio.read",
-                    "engagement",
-                    int(row["id"]),
-                    contexts.get(("engagement", int(row["id"])), {}),
-                )
-            ]
-        )
+        rows = portfolio.engagement_health(resource_filter=policy.permits)
+        return json.dumps(policy.filter_rows("engagement", rows))
 
 
 @mcp.resource("skein://context-pack")
@@ -541,10 +544,9 @@ def context_pack_resource() -> str:
         tool="skein.mcp.context.read",
     )
     with db.read_transaction():
-        all_projects = policy.allows_all_projects()
         return context_pack.get_pack(
             actor=ACTOR,
-            resource_filter=None if all_projects else policy.permits,
+            resource_filter=policy.permits,
         )["content"]
 
 

@@ -4392,6 +4392,156 @@ def test_engagement_composites_drop_conflicting_legacy_tasks(fresh_db):
     assert blocker not in {row["id"] for row in brief["blockers"]}
 
 
+def test_explicit_engagement_composites_filter_each_nested_resource(fresh_db):
+    from app.services import blockers, engagements, handoff, promises, work
+
+    engagement = engagements.create_engagement(
+        "Nested policy engagement",
+        project_class="standard",
+    )["id"]
+    milestone = work.create_milestone(
+        "DENIED NESTED MILESTONE",
+        project="Nested policy engagement",
+        due_date="2020-01-01",
+    )["id"]
+    task = work.create_task(
+        "DENIED NESTED TASK",
+        engagement_id=engagement,
+        assignee="mira",
+    )["id"]
+    blockers.raise_blocker("DENIED NESTED BLOCKER", task_id=task)
+    promise = promises.add_promise(
+        "DENIED WAITING TARGET",
+        to_whom="mira",
+        engagement_id=engagement,
+    )["id"]
+    relation_task = work.create_task(
+        "ALLOWED TASK WITH DENIED LINKS",
+        engagement_id=engagement,
+        milestone_id=milestone,
+        assignee="mira",
+    )["id"]
+    work.update_task(relation_task, waiting_on=f"promise:{promise}")
+    engagements.record_lesson("DENIED NESTED LESSON", engagement_id=engagement)
+    artifact = handoff.generate_handoff(engagement)["artifact_id"]
+    protected = {
+        "skein.rest.get.context-pack",
+        "skein.rest.get.engagements.brief",
+        "skein.rest.get.portfolio.health",
+        "skein.rest.get.briefing",
+    }
+    nested = {"milestone", "task", "blocker", "promise", "lesson", "artifact"}
+
+    def deny_nested(request: PolicyInput):
+        if (
+            request.action in protected
+            and request.resource.type in nested
+            and not (request.resource.type == "task" and request.resource.id == str(relation_task))
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("Nested work is closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.nested-projection", deny_nested),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        pack = client.get("/api/context-pack", params={"engagement": engagement})
+        team_pack = client.get("/api/context-pack")
+        brief = client.get(f"/api/engagements/{engagement}/brief")
+        briefing = client.get("/api/briefing")
+        health = client.get("/api/portfolio/health")
+
+    assert {pack.status_code, team_pack.status_code, brief.status_code, briefing.status_code} == {
+        200
+    }
+    assert health.status_code == 200
+    rendered = pack.text + team_pack.text + brief.text + briefing.text + health.text
+    for canary in (
+        "DENIED NESTED MILESTONE",
+        "DENIED NESTED TASK",
+        "DENIED NESTED BLOCKER",
+        "DENIED NESTED LESSON",
+        "DENIED WAITING TARGET",
+    ):
+        assert canary not in rendered
+    assert artifact not in {row["id"] for row in brief.json()["artifacts"]}
+    relation_view = next(row for row in brief.json()["tasks"] if row["id"] == relation_task)
+    assert relation_view["milestone_id"] is None
+    assert relation_view["waiting_on_type"] is None
+    assert relation_view["waiting_on_id"] is None
+
+
+def test_stock_and_mcp_engagement_composites_filter_nested_resources(fresh_db, monkeypatch):
+    from app import mcp_server
+    from app.agents.identity import reset_agent_identity, set_agent_identity
+    from app.extensions.policy import (
+        reset_policy_subject,
+        set_policy_subject,
+    )
+    from app.services import blockers, engagements, users, work
+    from app.tools.portfolio import (
+        get_context_pack as stock_context_pack,
+    )
+    from app.tools.portfolio import (
+        get_portfolio_health as stock_portfolio_health,
+    )
+
+    engagement = engagements.create_engagement(
+        "Machine nested engagement",
+        project_class="standard",
+    )["id"]
+    work.create_milestone(
+        "MACHINE DENIED MILESTONE",
+        project="Machine nested engagement",
+        due_date="2020-01-01",
+    )
+    task = work.create_task("MACHINE DENIED TASK", engagement_id=engagement)["id"]
+    blockers.raise_blocker("MACHINE DENIED BLOCKER", task_id=task)
+    users.ensure_agent_identity("mcp-agent", owner="mcp")
+    monkeypatch.setattr(mcp_server, "ACTOR", "mcp-agent")
+    protected = {
+        "skein.tool.get_context_pack",
+        "skein.tool.get_portfolio_health",
+        "skein.mcp.context.read",
+        "skein.mcp.portfolio.read",
+    }
+
+    def deny_nested(request: PolicyInput):
+        if request.action in protected and request.resource.type in {
+            "milestone",
+            "task",
+            "blocker",
+        }:
+            return PolicyDecision(PolicyEffect.DENY, ("Nested work is closed.",))
+        return None
+
+    engine_token = set_policy_engine(PolicyEngine((deny_nested,)))
+    subject_token = set_policy_subject(PolicySubject("mcp-agent", kind="agent"))
+    agent_token = set_agent_identity("mcp-agent")
+    try:
+        rendered = "".join(
+            (
+                stock_context_pack(engagement),
+                stock_portfolio_health(),
+                mcp_server.get_context_pack(engagement),
+                mcp_server.portfolio_health(),
+            )
+        )
+    finally:
+        reset_agent_identity(agent_token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+
+    assert "MACHINE DENIED MILESTONE" not in rendered
+    assert "MACHINE DENIED TASK" not in rendered
+    assert "MACHINE DENIED BLOCKER" not in rendered
+
+
 def test_capture_and_week_plan_apply_domain_policy_inside_the_write_transaction(fresh_db):
     from app.services import engagements, weekly, work
 

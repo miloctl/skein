@@ -15,7 +15,6 @@ from ..extensions.policy import (
     PolicyResource,
     current_policy_engine,
     current_policy_subject,
-    permits_resource,
 )
 from ..services import (
     absences,
@@ -37,28 +36,18 @@ from ._gate import gated_write
 def get_portfolio_health() -> str:
     """Engagement health (red/yellow/green) with the receipts behind each
     verdict: overdue milestones, open/escalated blockers, stale work."""
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.get_portfolio_health",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="get_portfolio_health",
+    )
     with db.read_transaction():
-        rows = portfolio.engagement_health()
-        contexts = policy_context.resource_contexts(
-            [("engagement", int(row["id"])) for row in rows], scope.NOBODY
-        )
-        return json.dumps(
-            [
-                row
-                for row in rows
-                if permits_resource(
-                    current_policy_engine(),
-                    current_policy_subject(),
-                    "skein.tool.get_portfolio_health",
-                    "engagement",
-                    int(row["id"]),
-                    contexts.get(("engagement", int(row["id"])), {}),
-                    "agent_tool",
-                    agent=agent_identity(),
-                    tool="get_portfolio_health",
-                )
-            ]
-        )
+        rows = portfolio.engagement_health(resource_filter=policy.permits)
+        return json.dumps(policy.filter_rows("engagement", rows))
 
 
 @tool
@@ -254,14 +243,16 @@ def get_context_pack(engagement_id: int = 0) -> str:
             return json.dumps(
                 {
                     "engagement": engagement_id,
-                    "content": context_pack.build_engagement_pack(engagement_id),
+                    "content": context_pack.build_engagement_pack(
+                        engagement_id,
+                        resource_filter=policy.permits,
+                    ),
                 }
             )
-        all_projects = policy.allows_all_projects()
         return json.dumps(
             context_pack.get_pack(
                 actor=agent_identity(),
-                resource_filter=None if all_projects else policy.permits,
+                resource_filter=policy.permits,
             )
         )
 
@@ -565,5 +556,12 @@ def get_attention() -> str:
         tool="get_attention",
     )
     with db.read_transaction():
-        row_filter = None if policy.allows_all_projects() else policy.filter_rows
-        return json.dumps(briefing.my_day(rv.name, rv, row_filter)["attention"])
+        return json.dumps(
+            briefing.my_day(
+                rv.name,
+                rv,
+                policy.filter_rows,
+                policy.filter_resources,
+                policy.allows_all_projects(),
+            )["attention"]
+        )

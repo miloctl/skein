@@ -538,3 +538,61 @@ def test_unattended_runner_does_not_wake_for_a_denied_delegated_project(
         db.query_one("SELECT COUNT(*) AS n FROM notifications WHERE user = 'sponsor'")["n"]
         == notifications_before
     )
+
+
+def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.extensions import PolicyDecision, PolicyEffect, PolicyEngine
+    from app.services import engagements, notifications
+
+    standard = engagements.create_engagement("Runner standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Runner regulated", project_class="regulated")["id"]
+    task_id = _delegated("research-agent", "sponsor")
+    work.update_task(task_id, engagement_id=standard, actor="sponsor")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    paused = {"value": False}
+
+    def deny_regulated(request):
+        if request.action != "skein.job.agent-run":
+            return None
+        if request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated runner work is closed.",))
+        if request.resource.type == "task" and not paused["value"]:
+            paused["value"] = True
+            policy_entered.set()
+            assert writer_attempted.wait(5)
+            sleep(0.05)
+            assert not writer_done.is_set()
+        return None
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (regulated, task_id),
+        )
+        writer_done.set()
+
+    original_notify = notifications.notify
+
+    def observed_notify(*args, **kwargs):
+        assert not writer_done.is_set()
+        return original_notify(*args, **kwargs)
+
+    monkeypatch.setattr(notifications, "notify", observed_notify)
+    writer = Thread(target=relink)
+    writer.start()
+    result = agent_runner.sweep(PolicyEngine((deny_regulated,)))
+    writer.join(5)
+
+    assert result["swept"] == 1
+    assert writer_done.is_set()
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task_id,)) == {
+        "engagement_id": regulated
+    }

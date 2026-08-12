@@ -1,6 +1,7 @@
 """Milestone and task services — the single write path for both REST and tools."""
 
 import re
+from collections.abc import Callable
 
 from .. import db
 from . import scope
@@ -1061,8 +1062,12 @@ def _redact_hidden_task_links(row: dict) -> dict:
     return task
 
 
-def redact_task_relationships(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
-    """Redact every task relationship in an arbitrary user-facing projection."""
+def redact_task_relationships(
+    rows: list[dict],
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> list[dict]:
+    """Redact task links that visibility or composed policy does not permit."""
     tasks = [dict(row) for row in rows]
 
     def visible_ids(table: str, ids: set[int]) -> set[int]:
@@ -1096,14 +1101,57 @@ def redact_task_relationships(rows: list[dict], viewer: scope.Viewer) -> list[di
         )
         for kind, table in _WAITING_TABLES.items()
     }
+    policy_contexts: dict[tuple[str, int], dict[str, str]] = {}
+    if resource_filter is not None:
+        from . import policy_context
+
+        resources = {
+            *(("milestone", int(row["milestone_id"])) for row in tasks if row.get("milestone_id")),
+            *(
+                ("engagement", int(row["engagement_id"]))
+                for row in tasks
+                if row.get("engagement_id")
+            ),
+            *(
+                (str(row["waiting_on_type"]), int(row["waiting_on_id"]))
+                for row in tasks
+                if row.get("waiting_on_type") in _WAITING_TABLES and row.get("waiting_on_id")
+            ),
+        }
+        policy_contexts = policy_context.resource_contexts(list(resources), viewer)
+
+    def policy_permits(entity: str, entity_id: int) -> bool:
+        if resource_filter is None:
+            return True
+        context = policy_contexts.get(
+            (entity, entity_id),
+            {"relationship_conflict": "true"},
+        )
+        return resource_filter(entity, entity_id, context)
+
     for task in tasks:
-        if task.get("milestone_id") and int(task["milestone_id"]) not in milestones:
+        milestone_id = int(task.get("milestone_id") or 0)
+        if milestone_id and (
+            milestone_id not in milestones or not policy_permits("milestone", milestone_id)
+        ):
             task["milestone_id"] = None
-        if task.get("engagement_id") and int(task["engagement_id"]) not in engagements:
+            task.pop("milestone_title", None)
+        engagement_id = int(task.get("engagement_id") or 0)
+        if engagement_id and (
+            engagement_id not in engagements or not policy_permits("engagement", engagement_id)
+        ):
             task["engagement_id"] = None
+            task.pop("engagement_name", None)
         kind = task.get("waiting_on_type")
         waiting_id = int(task.get("waiting_on_id") or 0)
-        if kind and waiting_id and waiting_id not in waiting_visible.get(str(kind), set()):
+        if (
+            kind
+            and waiting_id
+            and (
+                waiting_id not in waiting_visible.get(str(kind), set())
+                or not policy_permits(str(kind), waiting_id)
+            )
+        ):
             task["waiting_on_type"] = None
             task["waiting_on_id"] = None
     return tasks

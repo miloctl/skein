@@ -127,43 +127,49 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
     cutoff = db.local_midnight_utc(db.today() - timedelta(days=QUIET_DAYS))
     touched = 0
     for agent in config.AGENT_RUNNER:
-        for task in _due(agent, policy):
-            if not task["sponsor"]:
-                continue
-            notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
-            last = notes[0] if notes else None
-            # a note INSIDE the window means the work is not quiet. No note at
-            # all is the loudest case, not the quietest — the agent has held
-            # the task since it was delegated and recorded nothing.
-            if last and last["created_at"] >= cutoff:
-                continue
-            note = str(last["note"]) if last else ""
-            # truncation carries its marker: a cut note read as a whole one
-            said = (
-                (f" Last note: {note[:120]}\u2026" if len(note) > 120 else f" Last note: {note}")
-                if note
-                else " No progress note yet."
-            )
-            # Once per (task, ISO week), the bound services/portfolio.py::
-            # nudge_stale_wip already uses for the same shape of nudge. The
-            # QUIET_DAYS threshold alone only decides WHETHER a task is quiet;
-            # without this the sweep runs daily and a task quiet for a month
-            # sends the same sponsor the same sentence twenty-eight times,
-            # which is how a team learns to filter the channel. The claim is
-            # taken only when there is something to send, so a quiet week does
-            # not burn it.
-            iso = db.today().isocalendar()
-            if not db.claim_job(f"sweep-quiet:{task['id']}", f"{iso.year}-W{iso.week:02d}"):
-                continue
-            notify(
-                task["sponsor"],
-                f"{agent} holds task #{task['id']} '{task['title']}'"
-                f" with no progress note for {QUIET_DAYS}"
-                f" day{'' if QUIET_DAYS == 1 else 's'}.{said}",
-                tier="digest",
-                link="/agents",
-            )
-            touched += 1
+        with db.transaction():
+            due = _due(agent, policy)
+            for task in due:
+                if not task["sponsor"]:
+                    continue
+                notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
+                last = notes[0] if notes else None
+                # a note INSIDE the window means the work is not quiet. No note at
+                # all is the loudest case, not the quietest — the agent has held
+                # the task since it was delegated and recorded nothing.
+                if last and last["created_at"] >= cutoff:
+                    continue
+                note = str(last["note"]) if last else ""
+                # truncation carries its marker: a cut note read as a whole one
+                said = (
+                    (
+                        f" Last note: {note[:120]}\u2026"
+                        if len(note) > 120
+                        else f" Last note: {note}"
+                    )
+                    if note
+                    else " No progress note yet."
+                )
+                # Once per (task, ISO week), the bound services/portfolio.py::
+                # nudge_stale_wip already uses for the same shape of nudge. The
+                # QUIET_DAYS threshold alone only decides WHETHER a task is quiet;
+                # without this the sweep runs daily and a task quiet for a month
+                # sends the same sponsor the same sentence twenty-eight times,
+                # which is how a team learns to filter the channel. The claim is
+                # taken only when there is something to send, so a quiet week does
+                # not burn it.
+                iso = db.today().isocalendar()
+                if not db.claim_job(f"sweep-quiet:{task['id']}", f"{iso.year}-W{iso.week:02d}"):
+                    continue
+                notify(
+                    task["sponsor"],
+                    f"{agent} holds task #{task['id']} '{task['title']}'"
+                    f" with no progress note for {QUIET_DAYS}"
+                    f" day{'' if QUIET_DAYS == 1 else 's'}.{said}",
+                    tier="digest",
+                    link="/agents",
+                )
+                touched += 1
     return {"swept": touched, "agents": len(config.AGENT_RUNNER)}
 
 

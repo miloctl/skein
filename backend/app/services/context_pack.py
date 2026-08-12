@@ -44,7 +44,7 @@ def build_pack(
     lines.append("## Active engagements")
     from . import policy_context
 
-    health = engagement_health()
+    health = engagement_health(resource_filter=resource_filter)
     if resource_filter is not None:
         contexts = policy_context.resource_contexts(
             [("engagement", int(row["id"])) for row in health], scope.NOBODY
@@ -72,6 +72,9 @@ def build_pack(
         f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 25"
     )
+    decisions = policy_context.filter_resource_rows(
+        "decision", decisions, scope.NOBODY, resource_filter
+    )
     for d in decisions:
         line = f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}"
         if d["review_by"]:
@@ -83,6 +86,7 @@ def build_pack(
         f"SELECT * FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 5"
     )
+    stale = policy_context.filter_resource_rows("decision", stale, scope.NOBODY, resource_filter)
     if stale:
         lines.append("")
         lines.append("Stale (past review-by — confirm before relying on):")
@@ -118,6 +122,9 @@ def build_pack(
         f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 15"
     )
+    conventions = policy_context.filter_resource_rows(
+        "note", conventions, scope.NOBODY, resource_filter
+    )
     lines += [
         f"- {wording.flatten(n['topic'])}: {wording.flatten(n['content'])}" for n in conventions
     ] or ["- none recorded (save notes with topic 'convention: ...' to add)"]
@@ -127,6 +134,9 @@ def build_pack(
     questions = db.query(
         f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
+    )
+    questions = policy_context.filter_resource_rows(
+        "question", questions, scope.NOBODY, resource_filter
     )
     lines += [
         f"- #{q['id']} {wording.flatten(q['question'])} (asked by {wording.flatten(q['asked_by'])})"
@@ -145,7 +155,11 @@ def build_pack(
     return "\n".join(lines)
 
 
-def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> str:
+def build_engagement_pack(
+    engagement_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> str:
     """Scoped pack for ONE engagement — what a delegated agent needs and
     nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
     on demand (unversioned; versioning is for the org-brain)."""
@@ -188,6 +202,11 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         " ORDER BY due_date IS NULL, due_date",
         (engagement_id, *mp),
     )
+    from . import policy_context
+
+    milestones = policy_context.filter_resource_rows(
+        "milestone", milestones, viewer, resource_filter
+    )
     lines += [
         f"- [{m['status']}] #{m['id']} {wording.flatten(m['title'])}"
         + (f" — due {m['due_date']}" if m["due_date"] else "")
@@ -197,20 +216,19 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     lines.append("## Open tasks")
     from . import work
 
-    tasks = work.redact_task_relationships(
-        work.consistent_task_rows(
-            db.query(
-                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-                " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-                " AND t.status != 'done'"
-                " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-                " WHEN 'medium' THEN 2 ELSE 3 END",
-                (*tp, engagement_id, engagement_id),
-            ),
-            viewer,
+    tasks = work.consistent_task_rows(
+        db.query(
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done'"
+            " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+            " WHEN 'medium' THEN 2 ELSE 3 END",
+            (*tp, engagement_id, engagement_id),
         ),
         viewer,
     )
+    tasks = policy_context.filter_resource_rows("task", tasks, viewer, resource_filter)
+    tasks = work.redact_task_relationships(tasks, viewer, resource_filter)
     for t in tasks:
         line = f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.flatten(t['title'])}"
         if t["assignee"]:
@@ -224,6 +242,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     from .portfolio import _linked_blockers
 
     blockers = _linked_blockers(engagement_id, viewer)
+    blockers = policy_context.filter_resource_rows("blocker", blockers, viewer, resource_filter)
     lines.append("## Unresolved blockers")
     lines += [
         f"- [{b['status']}/{b['impact']}] #{b['id']} {wording.flatten(b['title'])}"
@@ -236,6 +255,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
         (*lp, engagement_id, eng["project_class"]),
     )
+    lessons = policy_context.filter_resource_rows("lesson", lessons, viewer, resource_filter)
     lines += [
         f"- {wording.flatten(les['lesson'])}"
         + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
@@ -247,6 +267,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
+    decisions = policy_context.filter_resource_rows("decision", decisions, viewer, resource_filter)
     lines += [
         f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}" for d in decisions
     ] or ["- none recorded"]
@@ -271,19 +292,24 @@ def _crew_section(
     lines = ["", f"## {wording.flatten(crew['name'])} only", ""]
     if crew["summary"]:
         lines += [crew["summary"], ""]
-    for heading, sql, fmt in (
+    from . import policy_context
+
+    for heading, entity, sql, fmt in (
         (
             "Decisions",
+            "decision",
             f"SELECT * FROM decisions WHERE status = 'active' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: f"- **{wording.flatten(r['title'])}** — {wording.flatten(r['decision'])}",
         ),
         (
             "Conventions",
+            "note",
             f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: f"- {wording.flatten(r['topic'])}: {wording.flatten(r['content'])}",
         ),
         (
             "Open questions",
+            "question",
             f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- #{r['id']} {wording.flatten(r['question'])} (asked by {wording.flatten(r['asked_by'])})"
@@ -291,6 +317,7 @@ def _crew_section(
         ),
         (
             "Open work",
+            "task",
             f"SELECT * FROM tasks WHERE status != 'done' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- [{r['status']}] #{r['id']} {wording.flatten(r['title'])} (@{r['assignee'] or 'unassigned'})"
@@ -298,23 +325,11 @@ def _crew_section(
         ),
     ):
         rows = db.query(sql, (crew_id,))
-        if heading == "Open work":
-            from . import policy_context, work
+        if entity == "task":
+            from . import work
 
             rows = work.consistent_task_rows(rows, viewer)
-            if resource_filter is not None:
-                contexts = policy_context.resource_contexts(
-                    [("task", int(row["id"])) for row in rows], viewer
-                )
-                rows = [
-                    row
-                    for row in rows
-                    if resource_filter(
-                        "task",
-                        int(row["id"]),
-                        contexts.get(("task", int(row["id"])), {}),
-                    )
-                ]
+        rows = policy_context.filter_resource_rows(entity, rows, viewer, resource_filter)
         lines += [f"### {heading}"] + ([fmt(r) for r in rows] or ["- none recorded"]) + [""]
     return lines
 
@@ -329,30 +344,19 @@ def latest_pack(crew_id: int = 0) -> dict | None:
     )
 
 
-def publish_pack(
-    *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
-) -> dict:
-    """Version the pack; no-op if nothing changed since the last version.
+def _assert_publishable(actor: str, crew_id: int, viewer: scope.Viewer) -> None:
+    """Check the scoped write boundary before a pack becomes durable."""
+    if not crew_id:
+        return
+    from . import crews
 
-    Each crew versions independently — v3 of the Platform pack has nothing to
-    do with v3 of the team pack, and a shared counter would bump every crew's
-    version whenever any one of them published.
+    if crew_id not in viewer.crew_ids:
+        raise db.NotFound(f"no context pack for crew #{crew_id}")
+    crews.assert_writable(crew_id, actor)
 
-    Gated on the VIEWER for a crew pack, matching get_pack. Publishing takes
-    the crew id off a query string and writes that crew's decisions,
-    conventions, questions and open work to an artifact file, then bumps the
-    version every member cites — so gating the read at strong identity and the
-    write at a self-asserted name made publish the weaker door to the same
-    rows. assert_writable stays as well: it is the one that refuses a
-    DEACTIVATED crew, which get_pack deliberately allows for reading.
-    """
-    if crew_id:
-        from . import crews
 
-        if crew_id not in viewer.crew_ids:
-            raise db.NotFound(f"no context pack for crew #{crew_id}")
-        crews.assert_writable(crew_id, actor)
-    body = build_pack(crew_id, viewer=viewer)
+def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
+    """Persist the exact pack body that the caller approved."""
     digest = hashlib.sha256(body.encode()).hexdigest()[:16]
     last = latest_pack(crew_id)
     if last and last["content_hash"] == digest:
@@ -387,6 +391,28 @@ def publish_pack(
     return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 
 
+def publish_pack(
+    *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+) -> dict:
+    """Version the pack; no-op if nothing changed since the last version.
+
+    Each crew versions independently — v3 of the Platform pack has nothing to
+    do with v3 of the team pack, and a shared counter would bump every crew's
+    version whenever any one of them published.
+
+    Gated on the VIEWER for a crew pack, matching get_pack. Publishing takes
+    the crew id off a query string and writes that crew's decisions,
+    conventions, questions and open work to an artifact file, then bumps the
+    version every member cites — so gating the read at strong identity and the
+    write at a self-asserted name made publish the weaker door to the same
+    rows. assert_writable stays as well: it is the one that refuses a
+    DEACTIVATED crew, which get_pack deliberately allows for reading.
+    """
+    _assert_publishable(actor, crew_id, viewer)
+    body = build_pack(crew_id, viewer=viewer)
+    return _store_pack(body, actor=actor, crew_id=crew_id)
+
+
 def get_pack(
     *,
     actor: str = "system",
@@ -415,18 +441,22 @@ def get_pack(
     last = latest_pack(crew_id)
     if not last and resource_filter is not None:
         body = build_pack(crew_id, resource_filter, viewer)
-        digest = hashlib.sha256(body.encode()).hexdigest()[:16]
-        return {
-            "version": 0,
-            "hash": digest,
-            "created_at": db.now(),
-            "content": body.replace(
-                "# Team context pack",
-                f"# Team context pack\n\n*policy-filtered · hash {digest}*",
-                1,
-            ),
-            "crew_id": crew_id or None,
-        }
+        if body != build_pack(crew_id, viewer=viewer):
+            digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+            return {
+                "version": 0,
+                "hash": digest,
+                "created_at": db.now(),
+                "content": body.replace(
+                    "# Team context pack",
+                    f"# Team context pack\n\n*policy-filtered · hash {digest}*",
+                    1,
+                ),
+                "crew_id": crew_id or None,
+            }
+        _assert_publishable(actor, crew_id, viewer)
+        _store_pack(body, actor=actor, crew_id=crew_id)
+        last = latest_pack(crew_id)
     if not last:
         # the same viewer: this call publishes, and publish_pack now gates on
         # it. Passing NOBODY here would refuse the member who just passed the

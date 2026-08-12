@@ -2121,3 +2121,45 @@ Verification before the next exact-commit review:
 
 The scores remain provisional. A fresh independent review must accept one
 clean exact commit before Chrome validation can start.
+
+### Remediation after the `16e14223` review
+
+The review rejected `16e14223`. It did not issue final scores.
+
+The review found three policy defects:
+
+- Explicit engagement composites checked the engagement but not each nested resource.
+- Portfolio health receipts named denied milestones and blockers.
+- The unattended runner released its policy snapshot before it sent a quiet-work notice.
+
+Engagement packs, briefs, health reports, and intervention lists now apply the
+same action to each nested resource. The rule covers milestones, tasks,
+blockers, promises, lessons, decisions, notes, questions, allocations, and
+artifacts.
+
+Task projections now remove each denied relationship. This rule covers the
+engagement, milestone, and waiting target. The response does not contain the
+denied relationship ID or title.
+
+Context-pack filtering now applies to the base pack and each crew section. A
+filtered first read remains ephemeral. If policy permits the complete body,
+Skein stores the exact approved body without a second build.
+
+The unattended runner now checks each due task and sends the notice in one
+database transaction. A concurrent project change waits until this transaction
+is complete.
+
+Briefing composites now use exact policy context for each keyed row. If a
+free-form summary has no domain key, Skein omits it when one project domain is
+denied.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused policy, runner, visibility, workflow, public-command, and Atlas tests | 252 passed |
+| Complete backend suite | 1,955 passed in 117.96 seconds |
+| Complete static gate | Passed |
+
+The scores remain provisional. A fresh independent review must accept one
+clean exact commit before Chrome validation can start.

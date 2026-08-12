@@ -155,13 +155,13 @@ async def _briefing(
 
     def read_briefing():
         with db.read_transaction():
-            row_filter = (
-                None if policy is None or policy.allows_all_projects() else policy.filter_rows
-            )
+            row_filter = None if policy is None else policy.filter_rows
             return briefing.my_day(
                 user,
                 viewer,
                 row_filter,
+                None if policy is None else policy.filter_resources,
+                True if policy is None else policy.allows_all_projects(),
             )
 
     b = await run_in_threadpool(read_briefing)

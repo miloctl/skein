@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from .. import db
 from . import scope
 
@@ -614,6 +616,27 @@ def resource_contexts(
             if context:
                 result[(entity, entity_id)] = context
     return result
+
+
+def filter_resource_rows(
+    entity: str,
+    rows: list[dict],
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+) -> list[dict]:
+    """Apply one projection policy callback to already-visible domain rows."""
+    if resource_filter is None or not rows:
+        return rows
+    contexts = resource_contexts([(entity, int(row["id"])) for row in rows], viewer)
+    return [
+        row
+        for row in rows
+        if resource_filter(
+            entity,
+            int(row["id"]),
+            contexts.get((entity, int(row["id"])), {}),
+        )
+    ]
 
 
 def opaque_project_contexts(_viewer: scope.Viewer) -> list[tuple[int, dict[str, str]]]:
