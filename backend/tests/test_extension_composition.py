@@ -662,6 +662,97 @@ def test_rename_rechecks_folded_ownership_inside_its_write_transaction(fresh_db,
     assert rows == [{"name": "target-user", "kind": "agent"}]
 
 
+def test_legacy_folded_identity_duplicates_fail_closed_and_have_a_repair_path(
+    fresh_db, monkeypatch, capsys
+):
+    """An upgraded ambiguous roster is diagnosed, quarantined, and repairable."""
+    import sys
+
+    from fastapi.testclient import TestClient
+
+    from app import db, identity_audit, mcp_server
+    from app.services import users
+    from app.services.api_keys import create_key
+
+    for name, kind in (("RACE-OWNER", "human"), ("race-owner", "agent")):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+
+    assert users.identity_ownership_error().startswith("1 conflicting identity group")
+    with pytest.raises(ValueError, match="conflicting roster ownership"):
+        users.ensure_human_identity("RACE-OWNER")
+    with pytest.raises(ValueError, match="conflicting roster ownership"):
+        users.ensure_agent_identity("race-owner")
+
+    with TestClient(create_app()) as client:
+        health = client.get("/health").json()
+        assert health["identity_ownership_error"].startswith("1 conflicting identity group")
+        assert client.get("/api/tasks", headers={"X-User": "RACE-OWNER"}).status_code == 403
+        key = create_key("RACE-OWNER", "legacy collision")["key"]
+        assert (
+            client.get("/api/tasks", headers={"Authorization": f"Bearer {key}"}).status_code == 403
+        )
+
+    monkeypatch.setattr(mcp_server, "ACTOR", "race-owner")
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: pytest.fail("ambiguous MCP actor ran"))
+    with pytest.raises(SystemExit) as stopped:
+        mcp_server.main()
+    assert stopped.value.code == 1
+
+    monkeypatch.setattr(sys, "argv", ["identity_audit", "rename", "RACE-OWNER", "person-owner"])
+    identity_audit.main()
+    assert "Renamed RACE-OWNER to person-owner." in capsys.readouterr().out
+    assert users.folded_identity_collisions() == []
+    assert users.ensure_human_identity("person-owner")["kind"] == "human"
+    assert users.ensure_agent_identity("race-owner")["kind"] == "agent"
+
+
+def test_legacy_same_kind_folded_duplicates_are_also_quarantined(fresh_db):
+    from app import db
+    from app.services import users
+
+    for name in ("Casey", "CASEY"):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, 'human', ?)",
+            (name, db.now()),
+        )
+
+    assert len(users.folded_identity_collisions()) == 1
+    with pytest.raises(ValueError, match="conflicting roster ownership"):
+        users.ensure_human_identity("Casey")
+    with pytest.raises(ValueError, match="conflicting roster ownership"):
+        users.ensure_human_identity("CASEY")
+
+    users.rename_user("CASEY", "casey-alternate", actor="CASEY")
+    assert users.folded_identity_collisions() == []
+    assert users.ensure_human_identity("Casey")["kind"] == "human"
+    assert users.ensure_human_identity("casey-alternate")["kind"] == "human"
+
+
+def test_legacy_folded_duplicate_blocks_contributed_machine_startup(fresh_db):
+    from app import db
+
+    for name, kind in (("ATLAS-SYNC", "human"), ("atlas-sync", "agent")):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+    module = _module(
+        routes=(),
+        service_identities=(
+            ServiceIdentityContribution("acme.workplace.legacy-service", "atlas-sync"),
+        ),
+    )
+
+    with (
+        pytest.raises(RuntimeError, match=r"service identity.*already owned"),
+        TestClient(create_app(modules=(module,))),
+    ):
+        pass
+
+
 def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names(
     fresh_db, tmp_path, monkeypatch
 ):

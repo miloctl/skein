@@ -189,6 +189,14 @@ store.execute(
     "INSERT INTO work_links (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
     ("ATLAS-CORE-UPGRADE", 42, "internal"),
 )
+# This pair reproduces a roster state that the historical core could create
+# during concurrent case-variant claims. The compatible next artifact must
+# quarantine it without merging either identity or its provenance.
+for name, kind in (("RACE-OWNER", "human"), ("race-owner", "agent")):
+    db.execute(
+        "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+        (name, kind, db.now()),
+    )
 assert db.pending_migrations() == []
 PY
 )
@@ -251,11 +259,30 @@ from app.main import _job_specs, create_app
 from app.public import CreateTaskCommand, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
 from app.public.workflow import WorkflowContext, WorkflowEngine
+from app.services import users
 from app.extensions import EventExecutionContext
 from atlas_skein import AtlasSettings, atlas_module
 
 assert version("skein") == "0.2.1"
 assert SKEIN_CORE_VERSION == "0.2.1"
+collisions = users.folded_identity_collisions()
+assert [[row["name"] for row in group] for group in collisions] == [
+    ["RACE-OWNER", "race-owner"]
+]
+for helper, name in (
+    (users.ensure_human_identity, "RACE-OWNER"),
+    (users.ensure_agent_identity, "race-owner"),
+):
+    try:
+        helper(name)
+    except ValueError as exc:
+        assert "conflicting roster ownership" in str(exc)
+    else:
+        raise AssertionError("an ambiguous upgraded identity was not quarantined")
+users.rename_user("RACE-OWNER", "person-owner", actor="RACE-OWNER")
+assert users.folded_identity_collisions() == []
+assert users.ensure_human_identity("person-owner")["kind"] == "human"
+assert users.ensure_agent_identity("race-owner")["kind"] == "agent"
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 def review_playbook(request):
     if request.action == "playbook.create":

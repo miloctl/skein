@@ -1339,6 +1339,40 @@ Verification for this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Twenty-first review gate and remediation
+
+The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and
+8.6. The score auditor rejected it at 8.2, 7.7, and 7.8. A database created by
+an older core could contain two roster rows with the same Unicode-folded name.
+The current exact-name fast paths accepted both rows after upgrade.
+
+Skein now audits the complete roster by its runtime fold rule. Human and
+machine entry points refuse every member of a conflicting group. The health
+response reports a safe operator error without roster names. Startup logs the
+exact rows for the operator. The standalone MCP process stops before it uses
+an ambiguous actor.
+
+`python -m app.identity_audit` lists conflicting rows. Its explicit `rename`
+operation uses the existing provenance-aware rename service. Skein does not
+merge human and agent rows automatically.
+
+The tests cover cross-kind and same-kind conflicts, trusted-header and API-key
+authentication, contributed service startup, standalone MCP, health reporting,
+and repair. The installed-wheel rehearsal creates the invalid state under the
+previous compatible core. The new core quarantines and repairs it before the
+unchanged Atlas package continues.
+
+Verification for this remediation:
+
+- New focused legacy-state and OIDC availability tests: 5 passed.
+- Identity, authentication, policy, MCP, and extension tests: 243 passed.
+- Full backend suite: 1,787 passed in 110.61 seconds.
+- Complete static gate: passed.
+- Installed backend extension rehearsal: passed with two different compatible
+  core implementations and one unchanged Atlas wheel.
+
+The exact commit and fresh four-role review follow. Chrome remains blocked.
+
 ### Seventeenth review gate and remediation
 
 The score auditor approved commit `3b2dbd7` at 8.3 for all three measures.

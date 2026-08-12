@@ -75,6 +75,13 @@ def _refuse_inactive(name: str) -> None:
         raise HTTPException(status_code=403, detail=INACTIVE)
 
 
+def _refuse_ambiguous(name: str) -> None:
+    from ..services.users import identity_collision_refusal
+
+    if refusal := identity_collision_refusal(name):
+        raise HTTPException(status_code=403, detail=refusal)
+
+
 def _app_setting(request: Request | None, name: str, fallback):
     settings = getattr(getattr(request, "app", None), "state", None)
     if not getattr(settings, "skein_explicit_settings", False):
@@ -166,6 +173,7 @@ def _resolve(
             # ungated human surface with origin=human — refuse the door entirely
             if is_agent(owner):
                 raise HTTPException(status_code=403, detail=agent_on_rest(owner))
+            _refuse_ambiguous(owner)
             # the key door never calls ensure_user, so a row that predates the
             # reserved-name wall (or was renamed into one) would keep writing as
             # a system actor and leak every row to every viewer. Refuse the
@@ -230,6 +238,7 @@ def _resolve(
     # inactive, and agent walls before that early return.
     _refuse_reserved(name)
     _refuse_inactive(name)
+    _refuse_ambiguous(name)
     if is_agent(name):
         raise HTTPException(
             status_code=403,

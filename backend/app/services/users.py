@@ -4,6 +4,11 @@ import re
 
 from .. import db
 
+IDENTITY_COLLISION = (
+    "This identity has conflicting roster ownership. Ask whoever runs the server to"
+    " run 'python -m app.identity_audit'."
+)
+
 
 def _is_bench_slug(name: str) -> bool:
     """Names the agent layer owns: a persona slug, and a FLOCK slug.
@@ -116,6 +121,40 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
             )
 
 
+def refuse_ambiguous_identity(name: str) -> None:
+    """Fail closed when an upgraded roster already has a folded duplicate."""
+    try:
+        refuse_fold_collision(name)
+    except ValueError as exc:
+        raise ValueError(IDENTITY_COLLISION) from exc
+
+
+def identity_collision_refusal(name: str) -> str:
+    """Generic perimeter refusal for a legacy folded roster collision."""
+    try:
+        refuse_ambiguous_identity(name)
+    except ValueError as exc:
+        return str(exc)
+    return ""
+
+
+def folded_identity_collisions() -> list[list[dict]]:
+    """All legacy roster groups that violate one-folded-name/one-owner."""
+    groups: dict[str, list[dict]] = {}
+    for row in db.query("SELECT name, kind FROM users ORDER BY name"):
+        groups.setdefault(fold(row["name"]), []).append(row)
+    return [rows for rows in groups.values() if len(rows) > 1]
+
+
+def identity_ownership_error() -> str:
+    """Safe health text: report the fault without exposing roster names."""
+    count = len(folded_identity_collisions())
+    if not count:
+        return ""
+    noun = "group" if count == 1 else "groups"
+    return f"{count} conflicting identity {noun}. Run 'python -m app.identity_audit' on the server."
+
+
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
     # The folded-name check and insert are one write transaction. SQLite has
@@ -127,8 +166,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
         # would silently absorb the persona's trust/authority history (and
         # vice versa)
         existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
-        if existing is None:
-            refuse_fold_collision(name)
+        refuse_fold_collision(name)
         if existing is None and kind == "human" and _is_bench_slug(name):
             raise ValueError("that name is reserved for a bench persona — pick another name")
         if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
@@ -153,6 +191,7 @@ def ensure_human_identity(name: str) -> dict:
     # OIDC path, so authenticated reads retain WAL's reader/writer concurrency.
     existing = db.query_one("SELECT * FROM users WHERE name = ?", (normalized,))
     if existing is not None:
+        refuse_ambiguous_identity(normalized)
         if existing["kind"] != "human":
             raise ValueError(f"'{normalized}' is already owned by an agent identity")
         return existing
@@ -175,6 +214,7 @@ def ensure_agent_identity(name: str) -> dict:
     """
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
     with db.transaction():
+        refuse_ambiguous_identity(normalized)
         existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{normalized}' is already owned by a human identity")

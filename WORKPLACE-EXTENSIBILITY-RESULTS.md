@@ -1341,6 +1341,37 @@ Verification after this remediation:
 The exact commit and repeated independent review follow. Chrome remains
 blocked.
 
+### Twenty-first review gate and remediation
+
+The extension-author reviewer approved commit `89ed65d` at 8.5, 8.6, and
+8.6. The score auditor rejected it at 8.2, 7.7, and 7.8. The rejected commit
+assumed that every upgraded roster already had one owner for each folded name.
+The historical core could violate that assumption during concurrent claims.
+
+The remediation audits the complete roster with the same Unicode fold used at
+runtime. Conflicting human and machine identities cannot authenticate, start
+as contributed services, or run standalone MCP. `/health` gives operators a
+safe diagnosis. Startup logs the exact rows.
+
+The new `python -m app.identity_audit` command lists conflicts. Its explicit
+rename operation preserves separate human and agent ownership. Skein never
+merges those histories automatically.
+
+The installed-wheel rehearsal now creates the legacy conflict under the
+previous compatible core. It then installs the next core without changing the
+Atlas wheel. The next core quarantines both rows, performs an explicit repair,
+and completes the extension checks.
+
+| Command | Result |
+|---|---|
+| New legacy identity and OIDC availability tests | 5 passed |
+| Identity, authentication, policy, MCP, and extension suite | 243 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,787 passed in 110.61 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Legacy collision quarantined and repaired; unchanged Atlas wheel passed two different cores |
+
+The exact commit and fresh independent review follow. Chrome remains blocked.
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.

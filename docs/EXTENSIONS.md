@@ -233,6 +233,24 @@ that lock is busy.
 Restart Skein after you change persona or flock overlays so startup can
 validate the complete identity roster.
 
+An older database can contain two names that differ only by case or Unicode
+form. Skein reports this conflict on `/health`. It refuses both identities
+until an operator repairs the roster. Run this command on the server:
+
+```sh
+python -m app.identity_audit
+```
+
+The command lists each conflicting group. Rename one row at a time:
+
+```sh
+python -m app.identity_audit rename RACE-OWNER person-owner
+```
+
+Skein does not merge conflicting rows automatically. An automatic merge could
+combine human and agent authority, provenance, or private ownership. The
+installed-artifact upgrade rehearsal includes this legacy-state check.
+
 ## Use public work commands
 
 `WorkItems` is the first public command and query facade. It validates policy
