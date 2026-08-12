@@ -82,7 +82,9 @@ def test_live_persona_scan_never_exposes_a_core_machine_subject(bench, slug):
     assert slug not in personas.bench_slugs()
     with pytest.raises(ValueError, match="no persona"):
         personas.get_persona(slug)
-    assert any("reserved for a core machine identity" in item for item in personas.validate_all())
+    assert any(
+        "reserved for a composed machine identity" in item for item in personas.validate_all()
+    )
 
 
 def test_known_tool_names_come_from_the_registry():

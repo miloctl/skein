@@ -161,6 +161,23 @@ def test_token_exchange_refuses_synthetic_and_core_identities(client, monkeypatc
         assert row is None
 
 
+def test_token_exchange_refuses_an_inactive_principal(client, monkeypatch, fresh_db):
+    from app.routes.deps import INACTIVE
+    from app.services import users
+
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    users.ensure_human_identity("departed")
+    users.set_active("departed", False, actor="ops")
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "inactive"})
+    monkeypatch.setattr(oidc, "validate", lambda token: {"preferred_username": "departed"})
+
+    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == INACTIVE
+
+
 def test_token_refuses_a_token_it_cannot_validate(client, monkeypatch, fresh_db):
     """Answering 200 here would leave the browser holding a token that every
     later request rejects — a signed-in UI that 401s on everything."""

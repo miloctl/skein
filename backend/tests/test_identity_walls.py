@@ -142,6 +142,47 @@ def test_slack_cannot_claim_the_synthetic_anonymous_subject(client, fresh_db, mo
     assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'anonymous'") is None
 
 
+def test_signed_slack_refuses_an_inactive_person_without_side_effects(
+    client, fresh_db, monkeypatch
+):
+    import hashlib
+    import hmac
+    import time
+
+    from app import config
+    from app.services import adoption, users
+
+    users.ensure_human_identity("departed")
+    users.set_active("departed", False, actor="ops")
+    baseline = {
+        "tasks": fresh_db.query_row("SELECT COUNT(*) AS n FROM tasks")["n"],
+        "activity": fresh_db.query_row("SELECT COUNT(*) AS n FROM activity")["n"],
+        "adoption": fresh_db.query_row("SELECT COUNT(*) AS n FROM tool_usage")["n"],
+    }
+    adoption.reset()
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = "text=todo%3A+must+not+land&user_name=departed"
+    ts = str(int(time.time()))
+    signature = "v0=" + hmac.new(b"shhh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/api/slack/command",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": signature,
+        },
+    )
+    adoption.flush()
+
+    assert response.status_code == 200
+    assert "not active" in response.json()["text"]
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM tasks")["n"] == baseline["tasks"]
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM activity")["n"] == baseline["activity"]
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM tool_usage")["n"] == baseline["adoption"]
+
+
 @pytest.mark.parametrize("name", ["dana", "slack-user"])
 def test_slack_still_writes_for_ordinary_people(client, fresh_db, monkeypatch, name):
     import hashlib

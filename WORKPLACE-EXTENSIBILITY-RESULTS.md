@@ -1435,16 +1435,24 @@ core-machine slug such as `agent`. Startup now compares every content owner
 with the canonical core set before any machine row is reserved. Deployment
 content cannot replace a core prompt or merge its provenance with a core actor.
 
-The next review found that mounted content directories are live after startup.
-Persona and flock discovery now reject core-machine slugs on every scan, not
-only during application composition. Tests add reserved files after an initial
-clean scan and prove that neither roster can resolve them. The deployment
-content validator reports the same conflict before startup.
+The next reviews found that mounted content directories could add a conflicting
+identity after startup. Persona and flock discovery now uses the complete
+composed machine-owner set. The identity-bearing roster is fixed for one
+application lifetime. Existing files can change live, but a new slug requires
+a restart. This prevents a late file from taking a core, service, specialist,
+MCP, human, or agent identity. The deployment validator reports core conflicts
+before startup. Composition reports private and MCP conflicts at startup.
+
+The same review found two authentication-door inconsistencies. Signed Slack
+requests now reject an inactive user before telemetry, policy, or work. OIDC
+token exchange rejects an inactive principal before the browser reports a
+successful sign-in.
 
 Verification for this remediation:
 
-- Live overlay and content CLI tests: 32 passed.
-- Full backend suite: 1,835 passed in 110.27 seconds.
+- Focused composition, content, Slack, OIDC, persona, and specialist tests:
+  233 passed.
+- Full backend suite: 1,838 passed in 108.46 seconds.
 - Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
   and frontend dead-code gate: passed.
 

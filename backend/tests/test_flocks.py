@@ -138,4 +138,4 @@ def test_live_flock_scan_never_exposes_a_core_machine_subject(overlay, slug):
     assert slug not in {item["slug"] for item in flocks.list_flocks()}
     with pytest.raises(ValueError, match="no flock"):
         flocks.get_flock(slug)
-    assert any("reserved for a core machine identity" in item for item in flocks.validate_all())
+    assert any("reserved for a composed machine identity" in item for item in flocks.validate_all())

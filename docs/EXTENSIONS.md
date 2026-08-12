@@ -274,10 +274,13 @@ either. Browser OIDC token exchange refuses it before the UI reports a
 successful sign-in. Only an absent weak identity and old unnamed records use
 it.
 
-Persona and flock overlays cannot use a core-machine slug. Startup rejects the
-deployment before it reserves an actor. Live content discovery applies the same
-rule on every scan, so a file added to a mounted overlay after startup also
-cannot replace the Chief prompt or merge provenance with a system identity.
+Persona and flock overlays cannot use any composed machine identity. This
+includes core actors, private services, specialists, and the configured MCP
+actor. Startup rejects a conflict before it reserves an actor. The set of
+persona and flock slugs is fixed for one application lifetime. You can edit an
+existing file live. Restart Skein after you add or rename an identity-bearing
+file. A new file stays unavailable until restart, so it cannot race a human or
+machine identity claim.
 
 ## Use public work commands
 
