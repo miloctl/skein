@@ -2036,19 +2036,23 @@ public modules.
 The runtime now recognizes the original API 1.0 `PublicError` from
 `app.public`. A tool result keeps only a code declared by its contribution.
 
-Atlas translates synchronization and notification adapter failures to its
-declared codes. Stable results contain safe detail and no private transport
-text. The installed strict-type fixture uses the same public error type.
+The Atlas workflow action translates notification failures on every compatible
+core. Atlas keeps its `0.2.0` floor and does not depend on the newer
+contributed-tool behavior.
+
+An installed `0.2.1` fixture verifies the declared contributed-tool result.
+Core `0.2.0` rejects that fixture from its minimum-core metadata. The installed
+strict-type fixture uses the same public error type.
 
 Current verification:
 
 | Verification | Result |
 |---|---|
-| Focused policy, reference, workflow, release, and packaging tests | 170 passed in 20.05 seconds |
-| Complete backend suite | 1,987 passed in 130.32 seconds |
+| Focused policy, reference, workflow, release, and packaging tests | 169 passed in 18.61 seconds |
+| Complete backend suite | 1,986 passed in 120.95 seconds |
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
-| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+| Installed unchanged-Atlas artifact rehearsal | Passed in 25.87 seconds on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy and the 0.2.1 declared-error fixture passed |
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit before Chrome validation starts.

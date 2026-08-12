@@ -458,6 +458,10 @@ Raise `PublicError` from `app.public` when a tool returns a safe failure. Skein
 preserves the code only when the contribution declares it in `error_codes`.
 Skein returns `tool_error` for an undeclared code. Keep `detail` safe for the
 requester because it is part of the tool result.
+This tool behavior requires core `0.2.1` or later. Set `minimum_core` to
+`0.2.1` when a package depends on a declared tool error. A package that keeps a
+`0.2.0` floor receives the older generic tool error on that core. Workflow
+actions already support public declared errors on core `0.2.0`.
 
 Unknown effects fail closed. A review decision creates a durable proposal.
 Skein stores the executable arguments outside the review queue. A qualified
