@@ -238,11 +238,15 @@ def identity_ownership_error() -> str:
 
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
+    effective_kind = kind if kind in ("human", "agent") else "human"
     # The folded-name check and insert are one write transaction. SQLite has
     # no Unicode case-fold collation for a unique index, so serialization is
     # what prevents concurrent `Mira` and `MIRA` rows.
     with db.transaction():
-        refuse_reserved_name(name)
+        if effective_kind == "agent":
+            refuse_authenticated_name(name)
+        else:
+            refuse_reserved_name(name)
         # bench persona slugs are reserved identities: a human picking one
         # would silently absorb the persona's trust/authority history (and
         # vice versa)
@@ -260,7 +264,7 @@ def ensure_user(name: str, kind: str = "human") -> dict:
         # the returned kind below this compatibility layer.
         db.execute(
             "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
-            (name, kind if kind in ("human", "agent") else "human", db.now()),
+            (name, effective_kind, db.now()),
         )
         return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
 

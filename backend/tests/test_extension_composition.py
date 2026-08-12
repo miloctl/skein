@@ -827,6 +827,8 @@ def test_anonymous_remains_an_explicit_synthetic_compatibility_subject(fresh_db)
 
     assert users.ensure_user("anonymous")["kind"] == "human"
     with pytest.raises(ValueError, match="reserved for the system"):
+        users.ensure_user("anonymous", kind="agent")
+    with pytest.raises(ValueError, match="reserved for the system"):
         users.ensure_human_identity("anonymous")
     with pytest.raises(ValueError, match=r"reserved for the system|owned by a human"):
         users.ensure_agent_identity("anonymous")

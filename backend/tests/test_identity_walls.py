@@ -117,6 +117,31 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
     assert [t for t in work.list_tasks() if t["created_by"] == "agent"] == []
 
 
+def test_slack_cannot_claim_the_synthetic_anonymous_subject(client, fresh_db, monkeypatch):
+    import hashlib
+    import hmac
+    import time
+
+    from app import config
+
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = "text=todo%3A+synthetic+identity&user_name=anonymous"
+    ts = str(int(time.time()))
+    sig = "v0=" + hmac.new(b"shhh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    response = client.post(
+        "/api/slack/command",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": sig,
+        },
+    )
+    assert response.status_code == 200
+    assert "reserved for the system" in response.json()["text"]
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'anonymous'") is None
+
+
 @pytest.mark.parametrize("name", ["dana", "slack-user"])
 def test_slack_still_writes_for_ordinary_people(client, fresh_db, monkeypatch, name):
     import hashlib

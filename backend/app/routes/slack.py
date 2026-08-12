@@ -53,7 +53,7 @@ async def slack_command(request: Request):
 
     from ..services import users as users_svc
     from ..services.adoption import record_use
-    from ..services.users import ensure_user
+    from ..services.users import ensure_human_identity
 
     # threadpooled, all three: this is an async route on the loop that
     # carries every open chat stream, and each of these opens a SQLite
@@ -69,7 +69,7 @@ async def slack_command(request: Request):
     # Slack had no equivalent, so a workspace member whose user_name matched an
     # agent wrote as that agent with origin=human.
     try:
-        await run_in_threadpool(ensure_user, user)
+        await run_in_threadpool(ensure_human_identity, user)
     except ValueError as exc:
         return {"response_type": "ephemeral", "text": str(exc)}
     if await run_in_threadpool(users_svc.is_agent, user):

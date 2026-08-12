@@ -1414,6 +1414,12 @@ refuse every synthetic or machine subject. The generic agent path can reuse the
 already-reserved built-in Chief, but only startup can create it. The weak absent
 identity remains compatible with old unnamed records.
 
+A second review found that the legacy `ensure_user` compatibility function
+still accepted `anonymous` when its caller requested agent kind. It now permits
+that name only for a human-shaped legacy record. Signed Slack also uses the
+strict human reservation, so its verified username cannot claim a synthetic or
+machine subject.
+
 | Target-integrity remediation command | Result |
 |---|---|
 | Focused repair, reservation, and ownership tests | 52 passed |
@@ -1424,9 +1430,9 @@ identity remains compatible with old unnamed records.
 
 | Synthetic-identity remediation command | Result |
 |---|---|
-| Auth, authority, repair, gate, provenance, and golden-trace tests | 206 passed |
+| Auth, authority, integration, repair, gate, provenance, and golden-trace tests | 230 passed |
 | Reserved-name tests | 16 passed |
-| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,806 passed in 112.15 seconds |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,807 passed in 110.44 seconds |
 | `./scripts/lint.sh` | All gates passed |
 | `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed both installed core artifacts |
 

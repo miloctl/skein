@@ -1415,6 +1415,12 @@ Only startup can create the built-in Chief row. Delegation and authority can
 reuse that reserved row but cannot mint a core actor. The absent weak fallback
 still uses the synthetic `anonymous` subject.
 
+A second exact-commit review found one remaining generic-service bypass:
+`ensure_user("anonymous", kind="agent")`. The compatibility helper now permits
+`anonymous` only as a human-shaped legacy row. Signed Slack now uses the strict
+human reservation, so its verified username cannot claim a synthetic or core
+machine subject.
+
 Verification for this remediation:
 
 - Focused repair, reservation, and ownership tests: 52 passed.
@@ -1430,10 +1436,11 @@ until that review accepts the architecture.
 
 Verification after the synthetic-identity correction:
 
-- Auth, authority, repair, gate, provenance, and golden-trace tests: 206
+- Auth, authority, integration, repair, gate, provenance, and golden-trace
+  tests: 230
   passed.
 - Reserved-name tests: 16 passed.
-- Full backend suite: 1,806 passed in 112.15 seconds.
+- Full backend suite: 1,807 passed in 110.44 seconds.
 - Complete static gate: passed.
 - Installed backend extension rehearsal: the unchanged Atlas wheel passed
   both installed core artifacts.
