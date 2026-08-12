@@ -1366,6 +1366,38 @@ Verification for this remediation:
 The exact commit and repeated review follow. Chrome remains blocked until all
 four reviewers approve.
 
+### Eighteenth review gate and remediation
+
+The architecture reviewer approved commit `c27adc9` at 8.3, 8.2, and 8.3.
+The extension-author and score reviewers rejected it. Their workplace scores
+were 7.9 and 7.8.
+
+The reviewers found two related concurrency gaps. A human could claim a
+case-folded variant while a machine reserved its name. An in-flight human
+write could also receive the new agent row after its first identity check.
+
+All user creation now holds one immediate transaction across the folded-name
+check and insert. Human and agent entry points also check the final row kind.
+REST and OIDC writes use the strict human entry point. Agent-minting paths use
+the strict agent entry point. Rename repeats its ownership checks inside its
+write transaction.
+
+Deterministic tests cover both winner orders, exact names, case variants, the
+REST resolver, and a create-versus-rename race.
+
+Verification for this remediation:
+
+- Identity, authorization, MCP, workflow, public-contract, and Atlas tests:
+  394 passed.
+- Full backend suite: 1,779 passed in 115.38 seconds.
+- Complete lint, type, content, dead-code, license, theme, TypeScript, ESLint,
+  and frontend dead-code gate: passed.
+- Installed backend extension rehearsal: the unchanged Atlas wheel passed on
+  two different compatible core implementations.
+
+The exact commit and fresh four-role review will follow. Chrome remains
+blocked.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The

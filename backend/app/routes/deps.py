@@ -7,7 +7,7 @@ from .. import config
 from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_user, is_agent, refuse_fold_collision
+from ..services.users import ensure_human_identity, is_agent, refuse_fold_collision
 
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
@@ -205,7 +205,7 @@ def _resolve(
                     # _is_admin below reads the name this returns.
                     refuse_fold_collision(name)
                     return name, True, groups
-                return ensure_user(name)["name"], True, groups
+                return ensure_human_identity(name)["name"], True, groups
             except ValueError as exc:
                 # a reserved name (bench-persona slug) or a fold collision
                 # would otherwise refuse EVERY request, and an OIDC caller
@@ -232,7 +232,10 @@ def _resolve(
         )
     if method in ("GET", "HEAD", "OPTIONS"):
         return name, False, []
-    return ensure_user(name)["name"], False, []
+    try:
+        return ensure_human_identity(name)["name"], False, []
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 def forge_webhook_off() -> HTTPException:

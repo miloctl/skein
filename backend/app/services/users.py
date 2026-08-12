@@ -118,29 +118,45 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
 
 def ensure_user(name: str, kind: str = "human") -> dict:
     name = (name or "anonymous").strip()[:64] or "anonymous"
-    refuse_reserved_name(name)
-    # bench persona slugs are reserved identities: a human picking one would
-    # silently absorb the persona's trust/authority history (and vice versa)
-    existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
-    if existing is None:
-        refuse_fold_collision(name)
-    if existing is None and kind == "human" and _is_bench_slug(name):
-        raise ValueError("that name is reserved for a bench persona — pick another name")
-    if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
-        raise ValueError(
-            f"'{name}' already exists as a {existing['kind']} — bench persona"
-            " slugs cannot be shared across kinds"
+    # The folded-name check and insert are one write transaction. SQLite has
+    # no Unicode case-fold collation for a unique index, so serialization is
+    # what prevents concurrent `Mira` and `MIRA` rows.
+    with db.transaction():
+        refuse_reserved_name(name)
+        # bench persona slugs are reserved identities: a human picking one
+        # would silently absorb the persona's trust/authority history (and
+        # vice versa)
+        existing = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
+        if existing is None:
+            refuse_fold_collision(name)
+        if existing is None and kind == "human" and _is_bench_slug(name):
+            raise ValueError("that name is reserved for a bench persona — pick another name")
+        if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
+            raise ValueError(
+                f"'{name}' already exists as a {existing['kind']} — bench persona"
+                " slugs cannot be shared across kinds"
+            )
+        # INSERT OR IGNORE preserves the established idempotent contract for
+        # an exact existing name. Strict human and agent entry points validate
+        # the returned kind below this compatibility layer.
+        db.execute(
+            "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind if kind in ("human", "agent") else "human", db.now()),
         )
-    # INSERT OR IGNORE + SELECT: safe under concurrent first requests for the
-    # SAME name. Two concurrent first requests for fold-variant names can both
-    # pass the guard above — folding lives in Python (sqlite lower() is
-    # ASCII-only), so no unique index can back it, and rename_user's merge is
-    # the repair when that race ever lands.
-    db.execute(
-        "INSERT OR IGNORE INTO users (name, kind, created_at) VALUES (?, ?, ?)",
-        (name, kind if kind in ("human", "agent") else "human", db.now()),
-    )
-    return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
+        return db.query_row("SELECT * FROM users WHERE name = ?", (name,))
+
+
+def ensure_human_identity(name: str) -> dict:
+    """Reserve a human name and refuse any exact or folded machine owner."""
+    normalized = (name or "anonymous").strip()[:64] or "anonymous"
+    with db.transaction():
+        existing = db.query_one("SELECT kind FROM users WHERE name = ?", (normalized,))
+        if existing is not None and existing["kind"] != "human":
+            raise ValueError(f"'{normalized}' is already owned by an agent identity")
+        row = ensure_user(normalized, kind="human")
+        if row["kind"] != "human":
+            raise ValueError(f"'{normalized}' is already owned by an agent identity")
+        return row
 
 
 def ensure_agent_identity(name: str) -> dict:
@@ -419,6 +435,23 @@ def rename_user(old: str, new: str, *, actor: str = "system") -> dict:
         )
     moved: dict[str, int] = {}
     with db.transaction():
+        # Repeat every ownership check after the immediate transaction starts.
+        # A concurrent create or rename can land after the compatibility checks
+        # above but before this write transaction.
+        current = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
+        if not current:
+            raise db.NotFound(f"no user named '{old}'")
+        refuse_reserved_name(new)
+        refuse_fold_collision(new, ignore=old)
+        if _is_bench_slug(new):
+            raise ValueError("the new name is reserved for a bench persona")
+        target = db.query_one("SELECT * FROM users WHERE name = ?", (new,))
+        if target and target["kind"] != current["kind"]:
+            raise ValueError(
+                f"'{old}' is a {current['kind']} and '{new}' is a {target['kind']} —"
+                " merging across the human/agent boundary would fold trust and"
+                " authority history that must stay separate"
+            )
         # unique-keyed tables first: fold rather than collide
         # tool_usage (day, user, surface): sum counts into the target's rows
         db.execute(

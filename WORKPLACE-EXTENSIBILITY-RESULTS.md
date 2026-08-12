@@ -1188,6 +1188,37 @@ Verification after this remediation:
 The repeated independent review follows. Chrome remains blocked until all four
 reviewers approve the exact remediation commit.
 
+### Eighteenth review gate and remediation
+
+The architecture reviewer approved commit `c27adc9` at 8.3, 8.2, and 8.3.
+The extension-author reviewer scored it 8.2, 7.9, and 8.4. The score auditor
+scored it 8.1, 7.8, and 8.2. Both reviewers rejected the commit.
+
+A human could create a case-folded variant during a machine reservation. For
+example, the database could contain agent `race-owner` and human `RACE-OWNER`.
+An in-flight human REST request could also receive the exact new agent row and
+continue under the machine name.
+
+All identity creation now serializes the folded-name check and insert. Strict
+human and agent entry points validate the final row kind. REST and OIDC writes
+use the human entry point. Agent-minting paths use the agent entry point.
+Rename repeats exact and folded ownership checks inside its write transaction.
+
+Deterministic tests cover machine-first and human-first reservations. They
+also cover exact names, case variants, the REST resolver, and a concurrent
+create-versus-rename operation.
+
+Verification after this remediation:
+
+| Command | Result |
+|---|---|
+| Identity, authorization, MCP, workflow, public-contract, and Atlas suite | 394 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,779 passed in 115.38 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed on two different core implementations |
+
+The exact commit and repeated review follow. Chrome remains blocked.
+
 ### Sixteenth review gate and remediation
 
 The score auditor approved commit `dab8630` at 8.3 for all three measures. The

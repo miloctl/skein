@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
-from .users import ensure_user
+from .users import ensure_agent_identity
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
 
@@ -59,7 +59,7 @@ def delegate_task(
         label="sponsor",
         author=task["created_by"],
     )
-    ensure_user(agent, kind="agent")
+    ensure_agent_identity(agent)
     with db.transaction():
         db.execute(
             "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
@@ -466,7 +466,7 @@ def set_authority(
     # wrongly.
     if entity in ALWAYS_REVIEW and level in ("autonomous", "notify"):
         raise ValueError(f"'{entity}' always waits for a human — set it to 'review' or 'forbidden'")
-    ensure_user(agent, kind="agent")
+    ensure_agent_identity(agent)
     # authority half-life: elevated grants carry a review-by date (90d
     # default) — "nothing in Skein is trusted forever, not decisions, not
     # agents." The authority_stale findings rule nags past it; reconfirm by
