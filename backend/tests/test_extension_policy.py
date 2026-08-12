@@ -1331,6 +1331,131 @@ def test_milestone_collections_fail_closed_for_hidden_legacy_parent(fresh_db, pr
     assert milestone not in {row["id"] for row in tool_rows}
 
 
+def test_remaining_engagement_linked_collections_apply_policy_per_row(fresh_db):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import engagements, memory, promises, schedule
+    from app.tools.memory import recall_memories as tool_recall_memories
+    from app.tools.portfolio import list_promises as tool_list_promises
+    from app.tools.schedule import list_events as tool_list_events
+
+    standard = engagements.create_engagement("Linked standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Linked regulated", project_class="regulated")["id"]
+    standard_event = schedule.schedule_event(
+        "Allowed event", "2026-08-20T10:00:00", engagement_id=standard
+    )["id"]
+    regulated_event = schedule.schedule_event(
+        "Denied event", "2026-08-21T10:00:00", engagement_id=regulated
+    )["id"]
+    standard_promise = promises.add_promise("Allowed promise", engagement_id=standard)["id"]
+    regulated_promise = promises.add_promise("Denied promise", engagement_id=regulated)["id"]
+    standard_memory = memory.remember("Allowed memory", engagement_id=standard)["id"]
+    regulated_memory = memory.remember("Denied memory", engagement_id=regulated)["id"]
+    actions = {
+        "skein.rest.get.events",
+        "skein.rest.get.promises",
+        "skein.rest.get.memories",
+        "skein.tool.list_events",
+        "skein.tool.list_promises",
+        "skein.tool.recall_memories",
+    }
+
+    def deny_regulated(request: PolicyInput):
+        if request.action in actions and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated linked rows are closed.",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.linked-collections", deny_regulated),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        rest_rows = {
+            "event": client.get("/api/events"),
+            "promise": client.get("/api/promises"),
+            "memory": client.get("/api/memories"),
+        }
+    pairs = {
+        "event": (standard_event, regulated_event),
+        "promise": (standard_promise, regulated_promise),
+        "memory": (standard_memory, regulated_memory),
+    }
+    for entity, response in rest_rows.items():
+        assert response.status_code == 200
+        ids = {row["id"] for row in response.json()}
+        assert pairs[entity][0] in ids
+        assert pairs[entity][1] not in ids
+
+    registry = ExtensionRegistry.build((module,))
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_rows = {
+            "event": json.loads(tool_list_events()),
+            "promise": json.loads(tool_list_promises()),
+            "memory": json.loads(tool_recall_memories()),
+        }
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    for entity, rows in tool_rows.items():
+        ids = {row["id"] for row in rows}
+        assert pairs[entity][0] in ids
+        assert pairs[entity][1] not in ids
+
+
+@pytest.mark.parametrize("entity", ["event", "promise", "memory"])
+@pytest.mark.parametrize("project_class", ["regulated", "standard"])
+def test_engagement_linked_collections_fail_closed_for_hidden_legacy_parent(
+    fresh_db, entity, project_class
+):
+    from app.extensions.policy import reset_policy_subject, set_policy_subject
+    from app.services import crews, engagements, memory, promises, schedule
+    from app.tools.memory import recall_memories as tool_recall_memories
+    from app.tools.portfolio import list_promises as tool_list_promises
+    from app.tools.schedule import list_events as tool_list_events
+
+    crew_id = crews.create_crew("Hidden linked collection", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        f"Hidden linked {project_class}",
+        project_class=project_class,
+        actor="other-person",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    if entity == "event":
+        row_id = schedule.schedule_event("Visible event", "2026-08-22T10:00:00")["id"]
+        table, route, tool = "events", "/api/events", tool_list_events
+    elif entity == "promise":
+        row_id = promises.add_promise("Visible promise")["id"]
+        table, route, tool = "promises", "/api/promises", tool_list_promises
+    else:
+        row_id = memory.remember("Visible memory")["id"]
+        table, route, tool = "memories", "/api/memories", tool_recall_memories
+    fresh_db.execute(
+        f"UPDATE {table} SET engagement_id = ? WHERE id = ?",  # noqa: S608 -- table is a closed test tuple
+        (engagement, row_id),
+    )
+
+    with TestClient(create_app(), headers={"X-User": "manager"}) as client:
+        listed = client.get(route)
+    assert listed.status_code == 200
+    assert row_id not in {row["id"] for row in listed.json()}
+
+    registry = ExtensionRegistry.build(())
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(PolicySubject("agent", kind="agent"))
+    try:
+        tool_rows = json.loads(tool())
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
+    assert row_id not in {row["id"] for row in tool_rows}
+
+
 @pytest.mark.parametrize("project_class", ["regulated", "standard", "absent"])
 def test_blocker_routes_conceal_a_hidden_legacy_task_project(fresh_db, project_class):
     from app.services import blockers, crews, engagements, work

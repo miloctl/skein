@@ -45,6 +45,54 @@ _ENGAGEMENT_LINKED = frozenset(
 )
 
 
+def engagement_linked_collection_contexts(
+    entity: str,
+    rows: list[dict],
+    viewer: scope.Viewer,
+) -> dict[int, dict[str, str]]:
+    """Resolve one visible collection's project links without hidden-row oracles."""
+    selected = _TABLES.get(entity)
+    if selected is None or selected[1] != "engagement_id":
+        raise ValueError(f"{entity} does not have an engagement-linked policy context")
+    row_ids = sorted({int(row["id"]) for row in rows})
+    if not row_ids:
+        return {}
+    table = selected[0]
+    marks = ",".join("?" for _ in row_ids)
+    raw_links = {
+        int(row["id"]): int(row.get("engagement_id") or 0)
+        for row in db.query(
+            f"SELECT id, engagement_id FROM {table} WHERE id IN ({marks})",  # noqa: S608 -- closed table map and controlled marks
+            tuple(row_ids),
+        )
+    }
+    engagement_ids = sorted(set(raw_links.values()) - {0})
+    projects: dict[int, str] = {}
+    if engagement_ids:
+        engagement_marks = ",".join("?" for _ in engagement_ids)
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        projects = {
+            int(row["id"]): str(row.get("project_class") or "")
+            for row in db.query(
+                f"SELECT engagement.id, engagement.project_class FROM engagements engagement"  # noqa: S608 -- controlled marks and scope
+                f" WHERE engagement.id IN ({engagement_marks}) AND {visible}",
+                (*engagement_ids, *params),
+            )
+        }
+    result: dict[int, dict[str, str]] = {}
+    for row in rows:
+        row_id = int(row["id"])
+        engagement_id = raw_links.get(row_id, 0)
+        attributes = {
+            "classification": str(row.get("visibility") or ""),
+            "project_type": projects.get(engagement_id, ""),
+        }
+        if engagement_id and engagement_id not in projects:
+            attributes["relationship_conflict"] = "true"
+        result[row_id] = attributes
+    return result
+
+
 def existing(entity: str, entity_id: int) -> dict[str, str]:
     """Load classification and project type for an existing policy resource."""
     selected = _TABLES.get(entity)
