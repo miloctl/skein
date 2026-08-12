@@ -250,7 +250,7 @@ def resolve_blocker(
                 if assignee and assignee != actor and assignee_reads_blocker:
                     notify(
                         assignee,
-                        f"Task #{t['id']} “{t['title']}” can move again.",
+                        lambda source: f"Task #{source['id']} “{source['title']}” can move again.",
                         tier="immediate",
                         link="/dashboard",
                         source_entity="task",
@@ -269,8 +269,10 @@ def resolve_blocker(
             days = age.days
             notify(
                 "team",
-                f"🪦 Here lies blocker #{blocker_id} “{row['title']}”."
-                f" It fought hard. It lost. {days} days.",
+                lambda source: (
+                    f"🪦 Here lies blocker #{source['id']} “{source['title']}”."
+                    f" It fought hard. It lost. {days} days."
+                ),
                 tier="digest",
                 link="/dashboard",
                 source_entity="blocker",
@@ -355,6 +357,12 @@ def blocker_collection_policy_contexts(
 
 
 def sweep_escalations() -> list[dict]:
+    """Escalate due blockers and create their notices in one transaction."""
+    with db.transaction():
+        return _sweep_escalations_locked()
+
+
+def _sweep_escalations_locked() -> list[dict]:
     """Flip aged open blockers to escalated; called by the scheduler and tests."""
     escalated = []
     now_dt = datetime.now(UTC)
@@ -392,7 +400,11 @@ def sweep_escalations() -> list[dict]:
             if owner_reads or b["visibility"] == scope.WORKSPACE:
                 notify(
                     b["owner"] or "team",
-                    f"Blocker #{b['id']} escalated: {b['title']}",
+                    lambda source: (
+                        f"Blocker #{source['id']} escalated: {source['title']}"
+                        if source["status"] == "escalated"
+                        else None
+                    ),
                     tier="immediate",
                     link="/",
                     source_entity="blocker",

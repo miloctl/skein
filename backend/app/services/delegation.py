@@ -84,7 +84,9 @@ def delegate_task(
 
         notify(
             sponsor,
-            f"You sponsor task #{task_id} '{task['title']}' delegated to {agent}.",
+            lambda source: (
+                f"You sponsor task #{source['id']} '{source['title']}' delegated to {agent}."
+            ),
             tier="digest",
             link="/agents",
             source_entity="task",
@@ -160,7 +162,7 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
 
             notify(
                 task["sponsor"],
-                f"{actor} started on task #{task_id} '{task['title']}'.",
+                lambda source: f"{actor} started on task #{source['id']} '{source['title']}'.",
                 tier="digest",
                 link="/agents",
                 source_entity="task",
@@ -419,8 +421,10 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
 
             notify(
                 task["sponsor"],
-                f"{actor} submitted task #{task_id} '{task['title']}' for your"
-                f" acceptance (proposal #{p['id']}).",
+                lambda source: (
+                    f"{actor} submitted task #{source['id']} '{source['title']}' for your"
+                    f" acceptance (proposal #{p['id']})."
+                ),
                 tier="immediate",
                 link="/review",
                 source_entity="task",

@@ -59,6 +59,20 @@ def supports_resource(entity: str) -> bool:
     return entity in _TABLES or entity in _UNSCOPED_RESOURCES
 
 
+def resource_row(entity: str, entity_id: int) -> dict | None:
+    """Load one row through the closed policy resource table map."""
+    if entity_id <= 0:
+        return None
+    selected = _TABLES.get(entity)
+    table = selected[0] if selected is not None else _UNSCOPED_RESOURCES.get(entity)
+    if table is None:
+        return None
+    return db.query_one(
+        f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 -- closed table map
+        (entity_id,),
+    )
+
+
 def engagement_linked_collection_contexts(
     entity: str,
     rows: list[dict],
@@ -119,6 +133,8 @@ def existing(entity: str, entity_id: int) -> dict[str, str]:
             (entity_id,),
         )
         return {"classification": "workspace", "project_type": ""} if row else {}
+    if entity == "blocker" and entity_id:
+        return _blocker_context(entity_id, {})
     selected = _TABLES.get(entity)
     if selected is None or not entity_id:
         return {}

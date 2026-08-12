@@ -132,8 +132,11 @@ def create_milestone(
 
             notify(
                 "team",
-                f"Milestone #{mid} '{title}' names project '{project}' but no engagement"
-                " matches — it will not count in health/forecast until you relink it.",
+                lambda source: (
+                    f"Milestone #{source['id']} '{source['title']}' names project"
+                    f" '{source['project']}' but no engagement matches — it will not"
+                    " count in health/forecast until you relink it."
+                ),
                 tier="digest",
                 link="/dashboard",
                 source_entity="milestone",

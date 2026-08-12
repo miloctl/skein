@@ -31,7 +31,7 @@ def test_notification_records_its_policy_source(fresh_db):
     task = work.create_task("Typed notification source")["id"]
     row = notifications.notify(
         "mira",
-        "The task changed.",
+        lambda source: f"Task #{source['id']} changed.",
         source_entity="task",
         source_id=task,
     )
@@ -44,6 +44,19 @@ def test_notification_records_its_policy_source(fresh_db):
         "source_id": task,
         "source_policy_context": '{"classification":"workspace","crew_id":"","project_type":""}',
     }
+
+
+def test_typed_notification_requires_a_source_row_builder(fresh_db):
+    from app.services import notifications, work
+
+    task = work.create_task("Typed notification builder")
+    with pytest.raises(ValueError, match="source-row message builder"):
+        notifications.notify(
+            "mira",
+            "Text composed before the source snapshot",
+            source_entity="task",
+            source_id=task["id"],
+        )
 
 
 def test_unsupported_notification_source_is_unclassified(fresh_db):
@@ -89,7 +102,7 @@ def test_notification_keeps_its_creation_policy_context_after_relink(fresh_db):
     task = work.create_task("Restricted historical notification", engagement_id=regulated)["id"]
     notice = notifications.notify(
         "mira",
-        "Restricted historical notification",
+        lambda _source: "Restricted historical notification",
         source_entity="task",
         source_id=task,
     )
@@ -124,7 +137,7 @@ def test_notification_checks_scoped_current_context_before_saved_context(fresh_d
     fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (regulated, task))
     notice = notifications.notify(
         "outsider",
-        "A hidden-parent task changed.",
+        lambda _source: "A hidden-parent task changed.",
         source_entity="task",
         source_id=task,
     )
@@ -154,7 +167,7 @@ def test_task_notification_text_and_policy_snapshot_share_one_write(
     from threading import Event, Thread
     from time import sleep
 
-    from app.services import delegation, engagements, notifications, users, work
+    from app.services import delegation, engagements, notifications, policy_context, users, work
 
     users.ensure_user("sponsor")
     standard = engagements.create_engagement(
@@ -175,16 +188,16 @@ def test_task_notification_text_and_policy_snapshot_share_one_write(
     entered = Event()
     writer_attempted = Event()
     writer_done = Event()
-    original_context = notifications._source_policy_context
+    original_row = policy_context.resource_row
 
-    def coordinated_context(entity, entity_id):
+    def coordinated_row(entity, entity_id):
         entered.set()
         assert writer_attempted.wait(5)
         sleep(0.05)
         assert not writer_done.is_set()
-        return original_context(entity, entity_id)
+        return original_row(entity, entity_id)
 
-    monkeypatch.setattr(notifications, "_source_policy_context", coordinated_context)
+    monkeypatch.setattr(policy_context, "resource_row", coordinated_row)
     monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
 
     def relink() -> None:
@@ -212,6 +225,82 @@ def test_task_notification_text_and_policy_snapshot_share_one_write(
     stored = fresh_db.query_one("SELECT * FROM notifications ORDER BY id DESC LIMIT 1")
     assert "SNAPSHOT TITLE BEFORE" in stored["message"]
     assert "SNAPSHOT TITLE AFTER" not in stored["message"]
+    assert json.loads(stored["source_policy_context"])["project_type"] == "standard"
+    assert (
+        notifications.policy_filter(
+            [stored],
+            lambda _entity, _entity_id, attributes: attributes.get("project_type") != "regulated",
+            allow_unclassified=False,
+        )
+        == []
+    )
+
+
+def test_blocker_sweep_and_notification_share_one_write(fresh_db, monkeypatch):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.services import blockers, engagements, notifications, policy_context, users, work
+
+    users.ensure_user("mira")
+    standard = engagements.create_engagement(
+        "Sweep standard",
+        project_class="standard",
+    )["id"]
+    regulated = engagements.create_engagement(
+        "Sweep regulated",
+        project_class="regulated",
+    )["id"]
+    task = work.create_task(
+        "Sweep task",
+        engagement_id=standard,
+        assignee="mira",
+        actor="mira",
+    )["id"]
+    blocker = blockers.raise_blocker(
+        "Sweep blocker",
+        task_id=task,
+        owner="mira",
+        impact="high",
+        actor="mira",
+    )["id"]
+    fresh_db.execute(
+        "UPDATE blockers SET created_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+        (blocker,),
+    )
+
+    entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    original_row = policy_context.resource_row
+
+    def coordinated_row(entity, entity_id):
+        entered.set()
+        assert writer_attempted.wait(5)
+        sleep(0.05)
+        assert not writer_done.is_set()
+        return original_row(entity, entity_id)
+
+    monkeypatch.setattr(policy_context, "resource_row", coordinated_row)
+    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
+
+    def relink() -> None:
+        assert entered.wait(5)
+        writer_attempted.set()
+        work.update_task(task, engagement_id=regulated, actor="mira")
+        writer_done.set()
+
+    writer = Thread(target=relink)
+    writer.start()
+    assert len(blockers.sweep_escalations()) == 1
+    writer.join(5)
+
+    assert writer_done.is_set()
+    stored = fresh_db.query_one(
+        "SELECT * FROM notifications WHERE source_entity = 'blocker' AND source_id = ?",
+        (blocker,),
+    )
+    assert stored is not None
     assert json.loads(stored["source_policy_context"])["project_type"] == "standard"
     assert (
         notifications.policy_filter(

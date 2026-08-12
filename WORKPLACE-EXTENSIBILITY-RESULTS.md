@@ -1936,3 +1936,34 @@ Current verification:
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit. Chrome validation starts after that gate.
+
+### Current typed-notification remediation
+
+The independent review rejected `1e18db0`. It did not issue final scores.
+
+The review found a transaction gap in typed notification producers. A
+producer can commit its source change before it captures the notification
+text and policy context.
+
+The notification API now requires a source-row message builder for each typed
+source. It loads the row, builds the message, captures the policy context, and
+inserts the notification in one transaction.
+
+Each typed producer now includes the source change in that transaction. The
+change covers questions, mentions, review proposals, promise reminders, and
+the blocker and decision sweeps.
+
+Blocker snapshots now include the project of the linked task. The coordinated
+regression proves that a concurrent task relink waits for the notification
+transaction.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused notification and producer tests | 101 passed |
+| Complete backend suite | 1,981 passed in 142.79 seconds |
+| Complete static gate | Passed |
+
+These results do not change the final score. A fresh independent review must
+approve one clean exact commit before Chrome validation starts.

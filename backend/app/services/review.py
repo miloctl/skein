@@ -133,6 +133,47 @@ def propose_change(
     review_owner: str = "",
     policy_context: dict | None = None,
 ) -> dict:
+    """Store a proposal and its notice in one transaction."""
+    with db.transaction():
+        return _propose_change_locked(
+            entity,
+            action,
+            payload,
+            summary,
+            entity_id,
+            actor=actor,
+            origin=origin,
+            notify_team=notify_team,
+            requested_by=requested_by,
+            policy_obligations=policy_obligations,
+            approver_groups=approver_groups,
+            approver_capabilities=approver_capabilities,
+            review_visibility=review_visibility,
+            review_crew_id=review_crew_id,
+            review_owner=review_owner,
+            policy_context=policy_context,
+        )
+
+
+def _propose_change_locked(
+    entity: str,
+    action: str,
+    payload: dict,
+    summary: str = "",
+    entity_id: int = 0,
+    *,
+    actor: str = "agent",
+    origin: str = "agent",
+    notify_team: bool = True,
+    requested_by: str = "",
+    policy_obligations: tuple[str, ...] = (),
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
+    review_visibility: str = scope.WORKSPACE,
+    review_crew_id: int = 0,
+    review_owner: str = "",
+    policy_context: dict | None = None,
+) -> dict:
     reg = _registry()
     extension_entity = (entity, action) in lexicon.REVIEW_ONLY
     if entity not in reg and not extension_entity:
@@ -195,7 +236,13 @@ def propose_change(
 
         notify(
             "team",
-            f"Review needed: #{pid} {summary or f'{action} {entity}'}",
+            (
+                lambda source: (
+                    f"Review needed: #{pid} {action} {entity} #{source['id']}"
+                    if entity_id
+                    else f"Review needed: #{pid} {summary or f'{action} {entity}'}"
+                )
+            ),
             tier="digest",
             link="/review",
             source_entity=entity,

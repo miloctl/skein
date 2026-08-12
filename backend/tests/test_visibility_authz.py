@@ -455,13 +455,29 @@ _EXEMPT_FUNCTIONS = {
     # keyed on something other than a row id
     "ci.py::ci_event": "resolves the blocker from its own SELECT over a webhook payload",
     "weekly.py::apply_plan": "task_ids come from the caller, each routed through update_task",
-    "blockers.py::sweep_escalations": "a job over every open blocker, not one a caller named",
-    "promises.py::chase_received": "a job over every overdue received promise, not one a caller named",
+    "blockers.py::_sweep_escalations_locked": (
+        "the public sweep owns one transaction over every open blocker;"
+        " this private implementation updates only rows selected by that job"
+    ),
+    "promises.py::_chase_received_locked": (
+        "the public chase owns one transaction over every overdue promise;"
+        " this private implementation updates only rows selected by that job"
+    ),
     "schedule.py::record_outcome": (
         "guards with scope.assert_editable, and is a flag on the event the"
         " caller named rather than a content write"
     ),
-    "collab.py::sweep_stale_decisions": "a job over every active decision",
+    "collab.py::_assign_question_locked": (
+        "the public assign_question wrapper owns the transaction; this private"
+        " implementation performs its guarded SQL inside that boundary"
+    ),
+    "collab.py::_answer_question_locked": (
+        "the public answer_question wrapper owns the transaction; this private"
+        " implementation performs its guarded SQL inside that boundary"
+    ),
+    "collab.py::_sweep_stale_decisions_locked": (
+        "the public sweep owns one transaction over every active decision"
+    ),
     "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::create_engagement": (
         "adopts milestones that match the new engagement name; each updated id"
@@ -584,6 +600,12 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "policy_context.py::resource_row": (
+        "loads one typed notification source inside the notification write"
+        " transaction. The source-row builder and saved policy context use"
+        " that snapshot; every public reader then requires saved and current"
+        " policy permission before it returns the body"
+    ),
     "policy_context.py::opaque_project_contexts": (
         "policy-only input inventory for aggregates that intentionally count"
         " hidden tiers. It returns no row to a caller; hidden attributes go"
@@ -630,7 +652,7 @@ _UNFILTERED_READS = {
         "reads only relationship ids for the exact resource being changed. It"
         " computes the target state for policy and returns no data to the caller"
     ),
-    "promises.py::chase_received": (
+    "promises.py::_chase_received_locked": (
         "a job, so no viewer exists. It reads every tier ON PURPOSE: the"
         " personal nudge goes to the row's own author and leaks nothing at any"
         " tier. What LEAVES is guarded twice — the team-wide escalation fires"
@@ -741,12 +763,12 @@ _UNFILTERED_READS = {
     "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::_experiment_lesson": "same",
     # --- jobs that carry their own rule ---
-    "blockers.py::sweep_escalations": (
+    "blockers.py::_sweep_escalations_locked": (
         "escalates every tier on purpose — a crew blocker that silently never"
         " escalates is worse than one nobody is told about. The notify and the"
         " ledger line inside it ARE tier-gated."
     ),
-    "collab.py::sweep_stale_decisions": "same rule, same two gates inside",
+    "collab.py::_sweep_stale_decisions_locked": "same rule, same two gates inside",
     "digest.py::publish_digest": "upserts its own artifact row, keyed on the file path",
     "rituals.py::_write_artifact": "same",
     "readout.py::exec_readout": "same — and its body is built from filtered readers",

@@ -228,7 +228,10 @@ def _disposition(
 
         notify(
             row["requester"],
-            f"Your request #{request_id} “{row['title']}” was {disposition}: {reason[:140]}",
+            lambda source: (
+                f"Your request #{source['id']} “{source['title']}” was"
+                f" {source['status']}: {source['disposition_reason'][:140]}"
+            ),
             tier="digest",
             link="/intake",
             source_entity="intake",
