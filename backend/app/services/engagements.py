@@ -136,6 +136,37 @@ def update_engagement(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
+    """Update an engagement and complete its close-out in one transaction."""
+    with db.transaction():
+        return _update_engagement_locked(
+            engagement_id,
+            status,
+            name,
+            summary,
+            lead,
+            conclusion,
+            outcome,
+            timebox_end,
+            kill_criteria,
+            actor=actor,
+            origin=origin,
+        )
+
+
+def _update_engagement_locked(
+    engagement_id: int,
+    status: str = "",
+    name: str = "",
+    summary: str = "",
+    lead: str = "",
+    conclusion: str = "",
+    outcome: str = "",
+    timebox_end: str = "",
+    kill_criteria: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
     if status and status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
     if conclusion and conclusion not in CONCLUSIONS:

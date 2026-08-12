@@ -478,6 +478,10 @@ _EXEMPT_FUNCTIONS = {
     "collab.py::_sweep_stale_decisions_locked": (
         "the public sweep owns one transaction over every active decision"
     ),
+    "engagements.py::_update_engagement_locked": (
+        "the public update_engagement wrapper owns the transaction and inventory"
+        " entry; this private implementation performs its guarded SQL inside that boundary"
+    ),
     "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::create_engagement": (
         "adopts milestones that match the new engagement name; each updated id"
@@ -751,7 +755,10 @@ _UNFILTERED_READS = {
     "search.py::_is_private": "same, and it is the guard that keeps a private row unindexed",
     # --- write paths: the SELECT feeds the guard, not a response ---
     "engagements.py::create_engagement": "reads its own name, NOCASE, to refuse a duplicate",
-    "engagements.py::update_engagement": "same duplicate-name check, excluding itself",
+    "engagements.py::_update_engagement_locked": (
+        "the exact duplicate-name check for the engagement that the public"
+        " transaction updates; it returns no row to the caller"
+    ),
     "context_pack.py::_crew_section": "filters on `visibility = 'crew' AND crew_id = ?` itself",
     # --- keyed on a row the caller did not name ---
     "ci.py::ci_event": "resolves its blocker from a webhook payload, not an id",
