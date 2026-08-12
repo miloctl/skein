@@ -188,6 +188,28 @@ def rename_subject(old: str, new: str) -> None:
         conn.commit()
 
 
+def recover_identity_ownership(old: str, new: str) -> dict:
+    """Move private identity references during an operator collision repair.
+
+    This operation records an administrative tombstone but no note content.
+    The private database commits before the core roster rename. If the core
+    step fails, the operator can safely repeat the same repair command.
+    """
+    with closing(_connect()) as conn:
+        author_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM private_notes WHERE author = ?", (old,)
+        ).fetchone()["n"]
+        subject_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM private_notes WHERE person = ?", (old,)
+        ).fetchone()["n"]
+        conn.execute("UPDATE private_notes SET author = ? WHERE author = ?", (new, old))
+        conn.execute("UPDATE private_audit SET author = ? WHERE author = ?", (new, old))
+        conn.execute("UPDATE private_notes SET person = ? WHERE person = ?", (new, old))
+        _audit(conn, new, f"system_identity_repair:{old}->{new}", None)
+        conn.commit()
+    return {"author_rows": author_rows, "subject_rows": subject_rows}
+
+
 def list_audit(author: str, limit: int = 100) -> list[dict]:
     """The author's own audit trail: adds, reads, briefs, deletes."""
     with closing(_connect()) as conn:

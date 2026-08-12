@@ -12,18 +12,20 @@ authority, and private ownership without an operator decision.
 import sys
 
 from . import db
-from .services.users import folded_identity_collisions, rename_user
+from .services.users import identity_ownership_conflicts, repair_identity_ownership
 
 
 def main() -> None:
     db.init_db()
     if len(sys.argv) == 1:
-        collisions = folded_identity_collisions()
+        collisions = identity_ownership_conflicts()
         if not collisions:
-            print("No conflicting folded identities found.")
+            print("No conflicting identity ownership found.")
             return
-        for rows in collisions:
-            print(", ".join(f"{row['name']} ({row['kind']})" for row in rows))
+        for conflict in collisions:
+            names = ", ".join(conflict["names"])
+            claim = f"; machine content: {conflict['claim']}" if conflict.get("claim") else ""
+            print(f"{conflict['kind']}: {names}{claim}")
         print(
             "Rename one row in each group. Do not merge human and agent rows."
             " Use: python -m app.identity_audit rename <old-name> <new-name>",
@@ -32,7 +34,11 @@ def main() -> None:
         raise SystemExit(1)
     if len(sys.argv) == 4 and sys.argv[1] == "rename":
         old, new = sys.argv[2], sys.argv[3]
-        result = rename_user(old, new, actor=old)
+        try:
+            result = repair_identity_ownership(old, new)
+        except (ValueError, db.NotFound) as exc:
+            print(f"identity-audit: repair refused: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
         print(f"Renamed {result['old']} to {result['new']}.")
         return
     print(

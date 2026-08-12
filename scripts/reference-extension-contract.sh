@@ -120,7 +120,7 @@ from app.extensions import (
     SkeinModule,
 )
 from app.main import create_app
-from app.services import review, users
+from app.services import private_notes, review, users
 from atlas_skein import AtlasSettings, atlas_module
 
 assert version("skein") == "0.2.0"
@@ -197,6 +197,7 @@ for name, kind in (("RACE-OWNER", "human"), ("race-owner", "agent")):
         "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
         (name, kind, db.now()),
     )
+private_notes.add_note("RACE-OWNER", "manager", "private upgrade recovery marker")
 assert db.pending_migrations() == []
 PY
 )
@@ -240,6 +241,7 @@ from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
 import asyncio
+import sys
 
 from fastapi.testclient import TestClient
 
@@ -255,6 +257,7 @@ from app.extensions import (
     SkeinModule,
 )
 from app.extensions.tools import ToolCallContext, execute_tool
+from app import identity_audit
 from app.main import _job_specs, create_app
 from app.public import CreateTaskCommand, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
@@ -279,10 +282,19 @@ for helper, name in (
         assert "conflicting roster ownership" in str(exc)
     else:
         raise AssertionError("an ambiguous upgraded identity was not quarantined")
-users.rename_user("RACE-OWNER", "person-owner", actor="RACE-OWNER")
+sys.argv = ["identity_audit", "rename", "RACE-OWNER", "person-owner"]
+identity_audit.main()
 assert users.folded_identity_collisions() == []
 assert users.ensure_human_identity("person-owner")["kind"] == "human"
 assert users.ensure_agent_identity("race-owner")["kind"] == "agent"
+from app.services import private_notes
+assert [
+    row["body"] for row in private_notes.list_notes("person-owner", "manager")
+] == ["private upgrade recovery marker"]
+assert any(
+    row["action"] == "system_identity_repair:RACE-OWNER->person-owner"
+    for row in private_notes.list_audit("person-owner")
+)
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
 def review_playbook(request):
     if request.action == "playbook.create":

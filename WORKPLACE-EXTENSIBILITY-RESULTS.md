@@ -1372,6 +1372,29 @@ and completes the extension checks.
 
 The exact commit and fresh independent review follow. Chrome remains blocked.
 
+The independent extension-author review rejected `a29ecf7` at 8.3, 7.9, and
+8.1. The repair command impersonated the affected user. It could move an
+ordinary user's private notes and record the user as the actor. The adversarial
+audit also found an inherited human row that conflicted with persona content.
+
+The supported repair is now collision-only. It refuses ordinary users and
+existing targets. The core ledger records `system` and the explicit
+`repair_identity_ownership` action. The private database records a separate
+administrative repair audit without note content. The operation never merges
+two roster histories.
+
+The two SQLite databases cannot commit atomically. Private ownership moves
+first. If the core rename fails, the operator can repeat the same command.
+Regression tests exercise that recovery. The canonical audit now covers
+folded duplicates, persona and flock names, and reserved core actors.
+
+| Final remediation command | Result |
+|---|---|
+| Identity, authentication, privacy, provenance, policy, and extension suite | 337 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,790 passed in 110.24 seconds |
+| `./scripts/lint.sh` | All gates passed |
+| `scripts/reference-extension-contract.sh` | Real repair CLI and private audit passed; unchanged Atlas wheel passed both cores |
+
 ## 15. Remaining limitations and deferred work
 
 - Public command and event coverage is task-first.

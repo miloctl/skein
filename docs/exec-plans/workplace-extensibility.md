@@ -1373,6 +1373,30 @@ Verification for this remediation:
 
 The exact commit and fresh four-role review follow. Chrome remains blocked.
 
+The first repair implementation in `a29ecf7` was rejected. Its command called
+the user rename as if the affected person had requested it. That recorded false
+human provenance and moved private ownership through the self-service path.
+It also accepted ordinary accounts. A second audit found old human rows that
+conflicted with later persona content but were absent from the health audit.
+
+The final repair is a collision-only administrative operation. It refuses an
+existing target, records `system` in the core ledger, and writes a separate
+private administrative audit without note content. The private move commits
+first. If the core step fails, the operator repeats the same idempotent repair.
+The ownership audit now covers folded roster duplicates, personas, flocks, and
+reserved core actors. Tests also cover ordinary-user refusal, private audit,
+content and core claims, specialist startup, and retry after a core-step
+failure.
+
+Final remediation verification:
+
+- Identity, authentication, privacy, provenance, policy, and extension suite:
+  337 passed.
+- Full backend suite: 1,790 passed in 110.24 seconds.
+- Complete static gate: passed.
+- Installed backend extension rehearsal: the real CLI repaired private and
+  core ownership. The unchanged Atlas wheel then passed both core artifacts.
+
 ### Seventeenth review gate and remediation
 
 The score auditor approved commit `3b2dbd7` at 8.3 for all three measures.
