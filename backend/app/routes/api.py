@@ -2914,14 +2914,32 @@ def patch_engagement(engagement_id: int, body: EngagementPatch, user: CurrentUse
 
 
 @router.get("/engagements/{engagement_id}/plan-diff")
-def get_plan_diff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+def get_plan_diff(
+    engagement_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     """Planned versus what happened, for an engagement born from a playbook.
 
     `{}` for one created by hand — the close-out control renders nothing
     rather than an empty section, because "no variance" and "no plan to vary
     from" are different statements.
     """
-    return playbooks.close_out_diff(engagement_id, viewer)
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.engagements.plan-diff",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return playbooks.close_out_diff(
+            engagement_id,
+            viewer,
+            resource_filter=policy.permits,
+        )
 
 
 class AllocationIn(BaseModel):
@@ -3113,8 +3131,13 @@ def get_interventions(
     """The manager's ranked queue. Composition only — every row restates one
     an engine already produced (services/intervention.py)."""
     with db.read_transaction():
-        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.interventions")
-        return intervention.interventions(viewer, limit)
+        policy = _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.interventions",
+        )
+        return intervention.interventions(viewer, limit, resource_filter=policy.permits)
 
 
 @router.get("/engagements/{engagement_id}/brief")
