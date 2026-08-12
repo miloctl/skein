@@ -2024,3 +2024,31 @@ Current verification:
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit before Chrome validation starts.
+
+### Public contributed-tool error remediation
+
+The extension-author review rejected `bde7a8b` before it issued final scores.
+
+The contributed-tool runtime recognized an internal error type for declared
+safe codes. A private package could not use that type through the documented
+public modules.
+
+The runtime now recognizes the original API 1.0 `PublicError` from
+`app.public`. A tool result keeps only a code declared by its contribution.
+
+Atlas translates synchronization and notification adapter failures to its
+declared codes. Stable results contain safe detail and no private transport
+text. The installed strict-type fixture uses the same public error type.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused policy, reference, workflow, release, and packaging tests | 170 passed in 20.05 seconds |
+| Complete backend suite | 1,987 passed in 130.32 seconds |
+| Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+
+These results do not change the final score. A fresh independent review must
+approve one clean exact commit before Chrome validation starts.

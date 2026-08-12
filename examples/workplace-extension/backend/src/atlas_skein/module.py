@@ -25,11 +25,19 @@ from app.extensions import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
+    ToolHandlerContext,
     WorkflowActionContext,
     WorkflowActionContribution,
 )
+from app.public import PublicError
 
-from .integration import AtlasClient, AtlasHttpClient, AtlasIntegration, MemoryAtlasClient
+from .integration import (
+    AtlasClient,
+    AtlasHttpClient,
+    AtlasIntegration,
+    AtlasUnavailableError,
+    MemoryAtlasClient,
+)
 from .policy import atlas_directory, atlas_identity, atlas_policy, atlas_profile
 
 
@@ -84,12 +92,34 @@ def atlas_module(
         return integration.metrics()
 
     def notify(context: WorkflowActionContext, request: NotifyIn) -> NotifyOut:
-        selected_client.notify_manager(
-            request.channel,
-            request.message,
-            f"{context.correlation_id}:manager-notification",
-        )
+        try:
+            selected_client.notify_manager(
+                request.channel,
+                request.message,
+                f"{context.correlation_id}:manager-notification",
+            )
+        except AtlasUnavailableError as exc:
+            raise PublicError(
+                "NOTIFICATION_UNAVAILABLE",
+                "The Atlas notification service is unavailable.",
+                retryable=True,
+            ) from exc
         return NotifyOut(accepted=True)
+
+    def sync_tool(context: ToolHandlerContext, _request: SyncIn) -> SyncOut:
+        try:
+            return SyncOut.model_validate(
+                integration.sync(
+                    context.work_items,
+                    context.command_context(project_type="standard"),
+                )
+            )
+        except AtlasUnavailableError as exc:
+            raise PublicError(
+                "ATLAS_UNAVAILABLE",
+                "The Atlas synchronization service is unavailable.",
+                retryable=True,
+            ) from exc
 
     return SkeinModule(
         module_id="atlas.workplace",
@@ -187,10 +217,7 @@ def atlas_module(
                 version="1.0.0",
                 model_name="atlas_sync",
                 description="Synchronize work items with the fictional Atlas system.",
-                handler=lambda context, _request: integration.sync(
-                    context.work_items,
-                    context.command_context(project_type="standard"),
-                ),
+                handler=sync_tool,
                 input_schema=SyncIn,
                 output_schema=SyncOut,
                 effect="write",

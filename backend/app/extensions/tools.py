@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
 
+from ..public.errors import PublicError
 from .contracts import ToolContribution, ToolHandlerContext
 from .policy import (
     PolicyDecision,
@@ -210,7 +211,7 @@ async def execute_tool(
             context,
             ToolExecution(status=status, error_code="deadline_exceeded", **common),
         )
-    except ExtensionToolError as exc:
+    except (ExtensionToolError, PublicError) as exc:
         code = exc.code if exc.code in contribution.error_codes else "tool_error"
         status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
         return _finish(

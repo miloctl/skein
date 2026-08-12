@@ -35,6 +35,7 @@ from app.extensions.policy import reset_policy_engine, set_policy_engine
 from app.extensions.registry import ExtensionRegistry
 from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import create_app
+from app.public import PublicError
 from app.tools._gate import gated_write
 
 
@@ -627,6 +628,71 @@ def test_write_exception_after_side_effect_reports_unknown_completion(fresh_db):
     assert calls == ["A-UNKNOWN"]
     assert result.status == "completion_unknown"
     assert result.error_code == "internal_error"
+
+
+def test_governed_tool_preserves_a_declared_public_error(fresh_db):
+    module = _module()
+
+    def unavailable(_context, _request: SyncIn):
+        raise PublicError("remote_error", "The remote service is unavailable.", retryable=True)
+
+    contribution = replace(
+        module.tools[0],
+        handler=unavailable,
+        risk="low",
+        policy_action="atlas.background.write",
+        error_codes=("remote_error",),
+    )
+    specialist = replace(module.specialists[0], tools=(contribution.name,))
+    registry = ExtensionRegistry.build(
+        (replace(module, policies=(), tools=(contribution,), specialists=(specialist,)),)
+    )
+
+    result = asyncio.run(
+        execute_tool(
+            contribution,
+            {"external_id": "A-OFFLINE"},
+            ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+
+    assert result.status == "completion_unknown"
+    assert result.error_code == "remote_error"
+    assert result.detail == "The remote service is unavailable."
+
+
+def test_governed_tool_replaces_an_undeclared_public_error_code(fresh_db):
+    module = _module()
+
+    def unavailable(_context, _request: SyncIn):
+        raise PublicError("private_adapter_code", "A safe summary.")
+
+    contribution = replace(
+        module.tools[0],
+        handler=unavailable,
+        risk="low",
+        policy_action="atlas.background.read",
+        effect="read",
+        error_codes=("remote_error",),
+    )
+    specialist = replace(module.specialists[0], tools=(contribution.name,))
+    registry = ExtensionRegistry.build(
+        (replace(module, policies=(), tools=(contribution,), specialists=(specialist,)),)
+    )
+
+    result = asyncio.run(
+        execute_tool(
+            contribution,
+            {"external_id": "A-OFFLINE"},
+            ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "tool_error"
+    assert result.detail == "A safe summary."
 
 
 def test_workplace_policy_also_narrows_the_existing_agent_gate(fresh_db):
