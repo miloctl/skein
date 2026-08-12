@@ -351,12 +351,13 @@ actor name is write attribution. It is not proof of human identity and does
 not grant crew or private reads. A route contribution can read scoped work
 only through the strongly authenticated human subject that the core supplies.
 
-A task cannot have a wider audience than a linked engagement or milestone.
-A crew link must use the same crew. A private link requires a private task.
-Skein checks the milestone and its engagement parent in the same transaction
-as policy and the write. Task responses redact a relationship identifier when
-the reader cannot read the linked row. This redaction also protects rows that
-an older Skein release created before the containment rule existed.
+A task cannot have a wider audience than a linked engagement, milestone, task,
+blocker, or promise. A crew link must use the same crew. A private link
+requires a private task. Skein checks the milestone and its engagement parent
+in the same transaction as policy and the write. Task responses redact a
+relationship identifier when the reader cannot read the linked row. This
+redaction also protects rows that an older Skein release created before the
+containment rule existed.
 
 ## Register tools and specialists
 

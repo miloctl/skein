@@ -1379,6 +1379,21 @@ contract tests and the complete static gate passed after this fix. A fresh
 exact-commit review must pass before scores can change. Chrome remains
 blocked.
 
+The review of `f5730c6` found that the `waiting_on` relationship did not use
+the containment rule. A workspace task could publish a private task, blocker,
+or promise ID. The same review found that core task GET policy loaded project
+context before the viewer-scoped task lookup. Scores for `f5730c6` are void.
+
+The shared update service now applies containment to every waiting target.
+Task get and list results redact hidden waiting type and ID values for legacy
+rows. Core task GET skips the generic unscoped policy lookup. Its route binds
+the scoped task, project policy, and returned projection in one transaction.
+Tests cover all three waiting target types, legacy redaction, private
+contained writes, and regulated/standard hidden task parity. The focused
+visibility, policy, API, public, and task tests passed 185 tests. The complete
+static gate passed. A fresh exact-commit review follows the complete backend
+suite. Chrome remains blocked.
+
 ### Durable identity ownership remediation
 
 The architecture review rejected commit `d83ce94`. A generic delegated agent

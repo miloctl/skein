@@ -447,6 +447,40 @@ def task_update_policy_context(
         )
 
 
+def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]:
+    """Return policy metadata only from relationships visible in this snapshot."""
+    project_type = ""
+    engagement_id = int(task.get("engagement_id") or 0)
+    milestone_id = int(task.get("milestone_id") or 0)
+    if engagement_id:
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        engagement = db.query_one(
+            f"SELECT engagement.project_class FROM engagements engagement"  # noqa: S608 -- scope emits bound marks
+            f" WHERE engagement.id = ? AND {visible}",
+            (engagement_id, *params),
+        )
+        project_type = str((engagement or {}).get("project_class") or "")
+    elif milestone_id:
+        milestone_visible, milestone_params = scope.visible_filter(
+            viewer, "milestones", "milestone"
+        )
+        engagement_visible, engagement_params = scope.visible_filter(
+            viewer, "engagements", "engagement"
+        )
+        engagement = db.query_one(
+            f"SELECT engagement.project_class FROM milestones milestone"  # noqa: S608 -- scope emits bound marks
+            " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
+            f" AND {engagement_visible}"
+            f" WHERE milestone.id = ? AND {milestone_visible}",
+            (*engagement_params, milestone_id, *milestone_params),
+        )
+        project_type = str((engagement or {}).get("project_class") or "")
+    return {
+        "classification": str(task.get("visibility") or ""),
+        "project_type": project_type,
+    }
+
+
 # portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
 WAITING_ON_TYPES = ("task", "blocker", "promise")
@@ -551,17 +585,18 @@ def _update_task_locked(
         waiting_type, waiting_id = kind, int(ref.strip().lstrip("#"))
         if kind == "task" and waiting_id == task_id:
             raise ValueError("a task cannot wait on itself")
-        table = _WAITING_TABLES[kind]
-        wfrag, wp = scope.visible_filter(scope.Viewer.for_actor(actor), table)
-        if not db.query_one(
-            f"SELECT id FROM {table} WHERE id = ? AND {wfrag}",  # noqa: S608 — table from _WAITING_TABLES, and scope.visible_filter emits only bound marks
-            (waiting_id, *wp),
-        ):
-            raise ValueError(scope.missing_text(table, waiting_id))
     current = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise scope.missing("tasks", task_id)
     scope.assert_editable("tasks", current, actor, verb="update")
+    if waiting_type and waiting_id:
+        waiting_row = _visible_link(_WAITING_TABLES[waiting_type], waiting_id, actor)
+        scope.assert_relationship_contains(
+            waiting_row["visibility"],
+            waiting_row["crew_id"],
+            current["visibility"],
+            current["crew_id"],
+        )
     # delegated work is closed by the sponsor's verdict, never by an agent
     # marking it done — otherwise submit_for_acceptance is a paper wall.
     #
@@ -814,13 +849,24 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
     efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
+    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
+    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
     row = db.query_one(
         "SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " e.id AS visible_engagement_id, e.name AS engagement_name"
+        " e.id AS visible_engagement_id, e.name AS engagement_name,"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
+        " AS visible_waiting_id"
         f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
+        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
+        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
+        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
+        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
+        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
         f" WHERE t.id = ? AND {frag}",
-        (*mp, *ep, task_id, *vp),
+        (*mp, *ep, *wtp, *wbp, *wpp, task_id, *vp),
     )
     if not row:
         raise scope.missing("tasks", task_id)
@@ -845,10 +891,14 @@ def _redact_hidden_task_links(row: dict) -> dict:
     task = dict(row)
     visible_milestone = task.pop("visible_milestone_id", None)
     visible_engagement = task.pop("visible_engagement_id", None)
+    visible_waiting = task.pop("visible_waiting_id", None)
     if task.get("milestone_id") and visible_milestone is None:
         task["milestone_id"] = None
     if task.get("engagement_id") and visible_engagement is None:
         task["engagement_id"] = None
+    if task.get("waiting_on_id") and visible_waiting is None:
+        task["waiting_on_type"] = None
+        task["waiting_on_id"] = None
     return task
 
 
@@ -976,15 +1026,26 @@ def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
     efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
+    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
+    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
     rows = db.query(
         f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " e.id AS visible_engagement_id FROM tasks t"
+        " e.id AS visible_engagement_id,"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
+        " AS visible_waiting_id FROM tasks t"
         f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
+        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
+        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
+        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
+        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
+        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
         f" WHERE {frag}"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT 500",
-        (*mp, *ep, *vp),
+        (*mp, *ep, *wtp, *wbp, *wpp, *vp),
     )
     return [_redact_hidden_task_links(row) for row in rows]
 
@@ -998,14 +1059,25 @@ def list_tasks(
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
     efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
+    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
+    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
     sql = (
         "SELECT t.*, m.id AS visible_milestone_id,"  # noqa: S608 — scope emits bound marks
-        " e.id AS visible_engagement_id FROM tasks t"
+        " e.id AS visible_engagement_id,"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
+        " AS visible_waiting_id FROM tasks t"
         f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
+        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
+        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
+        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
+        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
+        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
         f" WHERE {frag}"
     )
-    params: list[str | int] = [*mp, *ep, *vp]
+    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *vp]
     if milestone_id:
         sql += " AND m.id = ?"
         params.append(milestone_id)

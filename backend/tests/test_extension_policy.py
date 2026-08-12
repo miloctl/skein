@@ -788,6 +788,49 @@ def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
     assert listing.status_code == 200
 
 
+@pytest.mark.parametrize("project_class", ["regulated", "standard"])
+def test_rest_task_read_checks_visibility_before_project_policy(fresh_db, project_class):
+    from app.services import crews, engagements, scope, work
+
+    crew_id = crews.create_crew(f"Hidden {project_class}", actor="other-person")["id"]
+    engagement = engagements.create_engagement(
+        f"Hidden {project_class} engagement",
+        project_class=project_class,
+        actor="other-person",
+        visibility=scope.CREW,
+        crew_id=crew_id,
+    )["id"]
+    task = work.create_task(
+        f"Hidden {project_class} task",
+        engagement_id=engagement,
+        actor="other-person",
+        visibility=scope.CREW,
+        crew_id=crew_id,
+    )["id"]
+
+    def deny_regulated_read(request: PolicyInput):
+        if (
+            request.action == "skein.rest.get.tasks"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("regulated task read is paused",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.regulated-read", deny_regulated_read),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.get(f"/api/tasks/{task}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"no task #{task}"
+
+
 def test_all_contributed_routes_receive_the_composed_policy(fresh_db):
     from fastapi import APIRouter
 
