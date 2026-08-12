@@ -139,6 +139,48 @@ def test_content_validation_cli_accepts_explicit_directories(fresh_db, tmp_path,
     assert isinstance(empty, Path)
 
 
+def test_content_validation_cli_rejects_core_machine_overlay_slugs(
+    fresh_db, tmp_path, monkeypatch, capsys
+):
+    from app import config, content
+
+    empty = tmp_path / "empty"
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    for directory in (empty, persona_dir, flock_dir):
+        directory.mkdir()
+    (persona_dir / "agent.md").write_text(
+        "---\nname: Wrong Chief\ndescription: Reserved prompt\n---\nDo not load.\n"
+    )
+    (flock_dir / "system.yaml").write_text(
+        "name: Wrong system\ndescription: Reserved flock\n"
+        "members:\n  - backend-architect\n  - code-reviewer\n"
+    )
+    # content.main() assigns these process globals because a real CLI process
+    # exits immediately afterwards. Register their current values so this
+    # in-process test restores them before another app lifespan starts.
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", config.PLAYBOOKS_OVERLAY)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", config.PERSONAS_OVERLAY)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", config.FLOCKS_OVERLAY)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "content",
+            "--playbooks",
+            str(empty),
+            "--personas",
+            str(persona_dir),
+            "--flocks",
+            str(flock_dir),
+        ],
+    )
+
+    assert content.main() == 1
+    output = capsys.readouterr().out
+    assert "persona: agent.md (overlay): slug is reserved" in output
+    assert "flock: system.yaml (overlay): slug is reserved" in output
+
+
 def test_playbook_validation_rejects_nested_entries_without_titles(fresh_db, tmp_path, monkeypatch):
     from app import config
     from app.services import playbooks

@@ -1434,6 +1434,13 @@ The next architecture review found that persona and flock overlay slugs were
 not compared with the canonical core-machine set. Startup now rejects any
 content owner that claims a core actor before it reserves machine identities.
 
+The next review found that live mounted overlays could add a reserved file
+after the startup check. Persona and flock discovery now reject core-machine
+slugs on every scan. Hot-add tests prove that neither roster resolves a file
+added after an initial clean read. The deployment content validator reports
+the same conflict. The focused tests passed 32 cases. The full backend suite
+passed 1,835 tests in 110.27 seconds, and all static gates passed.
+
 Verification for this remediation:
 
 - Focused repair, reservation, and ownership tests: 52 passed.
