@@ -1996,3 +1996,31 @@ Current verification:
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit before Chrome validation starts.
+
+### Optional close-out lesson rollback remediation
+
+The independent review rejected `63ca095` before it issued final scores.
+
+The optional playbook lesson caught an internal error without a nested rollback
+boundary. A forced later failure left a partial proposal and notification in
+the surrounding engagement transaction.
+
+The optional lesson now runs in a database savepoint. A failure removes its
+proposal, notification, activity entry, and deferred effects before the
+engagement close commits.
+
+A forced post-proposal failure proves that the engagement closes successfully.
+It also proves that no optional lesson record remains.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused close-out, transaction, and review tests | 66 passed |
+| Complete backend suite | 1,983 passed in 131.17 seconds |
+| Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+
+These results do not change the final score. A fresh independent review must
+approve one clean exact commit before Chrome validation starts.

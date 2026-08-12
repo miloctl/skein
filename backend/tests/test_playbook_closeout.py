@@ -112,6 +112,43 @@ def test_closing_drafts_the_lesson_as_a_proposal(client):
     assert payload["project_class"] == "incident"
 
 
+def test_failed_optional_lesson_rolls_back_its_whole_unit(client, monkeypatch):
+    """The engagement close stays valid when the optional lesson fails.
+
+    The proposal and its notice must not survive the caught failure.
+    """
+    made = _born()
+    eid = made["engagement"]["id"]
+    work.update_milestone(
+        made["milestones"][0]["id"],
+        due_date=(db.today() + timedelta(days=90)).isoformat(),
+        actor="ava",
+    )
+    original_log_activity = db.log_activity
+
+    def fail_after_proposal(actor, action, detail="", **kwargs):
+        if action == "playbook_closeout":
+            raise RuntimeError("forced close-out audit failure")
+        return original_log_activity(actor, action, detail, **kwargs)
+
+    monkeypatch.setattr(db, "log_activity", fail_after_proposal)
+
+    result = engagements.update_engagement(eid, status="closed", conclusion="partial", actor="ava")
+
+    assert result["lesson_proposal_id"] == 0
+    assert db.query_one("SELECT status FROM engagements WHERE id = ?", (eid,))["status"] == "closed"
+    assert not db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'lesson' AND payload LIKE ?",
+        (f'%"engagement_id": {eid},%',),
+    )
+    assert not db.query_one(
+        "SELECT id FROM notifications WHERE message LIKE 'Review needed:%Close-out lesson%'"
+    )
+    assert not db.query_one(
+        "SELECT id FROM activity WHERE action = 'propose_change' AND detail LIKE '%lesson%'"
+    )
+
+
 def test_an_engagement_that_went_to_plan_drafts_nothing(client):
     """ "It went to plan" teaches the next reader nothing and costs a reviewer
     a verdict. Every planned task done, no date moved, no ritual dropped."""

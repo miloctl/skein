@@ -682,7 +682,7 @@ _UNFILTERED_READS = {
         " diff when any row comes back hidden — a snapshot title is never"
         " emitted on the strength of the snapshot alone"
     ),
-    "engagements.py::_playbook_lesson": (
+    "engagements.py::_playbook_lesson_locked": (
         "reads the engagement the caller is CLOSING, which update_engagement"
         " already proved editable by this actor. It takes name, project_class"
         " and the tier itself, and copies that tier onto the drafted proposal"
