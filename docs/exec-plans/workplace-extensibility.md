@@ -1929,3 +1929,40 @@ Verification before the next exact-commit review:
 
 The next step is a clean commit and a new four-role review. Chrome validation
 remains blocked until that review accepts the exact commit.
+
+### Remediation after the `fd51fc0` review
+
+The review of `fd51fc0` stopped after it confirmed two legacy-relationship
+policy defects. Scores for that commit are void.
+
+Task collection policy received the same redacted rows that the response used.
+A legacy workspace task with a hidden regulated parent therefore lost its
+project before policy. Collection policy now batch-loads the raw relationship
+keys only for task IDs that already passed task visibility. A hidden, missing,
+or conflicting parent sets `relationship_conflict`. The core policy denies the
+row without returning the hidden ID or project class.
+
+Blocker policy had the opposite defect. It loaded a hidden linked task without
+the actor's visibility scope. A visible blocker could therefore produce a
+different policy result for a hidden regulated task and a hidden standard
+task. Blocker edit and resolve now require the linked task to be visible to the
+writer. Hidden regulated, hidden standard, and dangling legacy links all return
+the same missing-blocker result. Agent and verdict-time policy refresh also
+fail closed.
+
+New tests cover direct engagement and milestone parent links, both project
+classes, REST and stock-agent lists, blocker edit and resolve, agent use,
+review refresh, and an installed prior-core upgrade fixture.
+
+Verification for this remediation:
+
+| Verification | Result |
+|---|---|
+| Focused extension, policy, public-command, visibility, and delegation tests | 262 passed |
+| Complete backend suite | 1,920 passed in 114.97 seconds |
+| Complete static gate | Passed |
+| Base-to-feature migration and activity-chain rehearsal | Passed; schemas matched and the chain was valid through sequence 7 |
+| Installed backend extension rehearsal | Retry pending; isolated dependency installation stalled and was stopped cleanly |
+
+The scores remain provisional. A fresh independent review must accept one
+clean exact commit before Chrome validation can start.

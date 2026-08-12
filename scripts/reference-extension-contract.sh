@@ -120,7 +120,7 @@ from app.extensions import (
     SkeinModule,
 )
 from app.main import create_app
-from app.services import private_notes, review, users
+from app.services import blockers, crews, engagements, private_notes, review, users, work
 from atlas_skein import AtlasSettings, atlas_module
 
 assert version("skein") == "0.2.0"
@@ -178,6 +178,32 @@ legacy = review.propose_change(
     actor="legacy-agent",
     origin="agent",
 )
+# Preserve two relationship shapes that an older core or direct migration
+# could contain. The next compatible artifact must fail closed without
+# revealing the hidden regulated parent through collection or blocker policy.
+crew_id = crews.create_crew("Legacy hidden policy", actor="other-person")["id"]
+hidden_engagement = engagements.create_engagement(
+    "Legacy hidden regulated",
+    project_class="regulated",
+    actor="other-person",
+    visibility="crew",
+    crew_id=crew_id,
+)["id"]
+hidden_task = work.create_task(
+    "Legacy hidden task",
+    engagement_id=hidden_engagement,
+    actor="other-person",
+    visibility="crew",
+    crew_id=crew_id,
+)["id"]
+visible_task = work.create_task("Legacy visible policy child", actor="manager")["id"]
+db.execute(
+    "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+    (hidden_engagement, visible_task),
+)
+visible_blocker = blockers.raise_blocker("Legacy visible blocker", actor="manager")["id"]
+db.execute("UPDATE blockers SET task_id = ? WHERE id = ?", (hidden_task, visible_blocker))
+Path("../legacy-policy-blocker-id").write_text(str(visible_blocker))
 db.execute(
     "UPDATE pending_changes SET policy_context = '{}', review_contract_version = 0 WHERE id = ?",
     (legacy["id"],),
@@ -407,6 +433,17 @@ with TestClient(app) as client:
     )
     assert rejected.status_code == 200, rejected.text
     assert rejected.json()["status"] == "rejected"
+    listed = client.get("/api/tasks", headers={"X-User": "manager"})
+    assert listed.status_code == 200, listed.text
+    assert "Legacy visible policy child" not in {row["title"] for row in listed.json()}
+    blocker_id = int(Path("../legacy-policy-blocker-id").read_text())
+    concealed = client.patch(
+        f"/api/blockers/{blocker_id}",
+        headers={"X-User": "manager"},
+        json={"title": "must remain unchanged"},
+    )
+    assert concealed.status_code == 404, concealed.text
+    assert concealed.json() == {"detail": f"no blocker #{blocker_id}"}
 
 registry = app.state.skein_registry
 subject = PolicySubject(

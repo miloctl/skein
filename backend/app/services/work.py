@@ -545,9 +545,24 @@ def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]
 def task_collection_policy_contexts(
     tasks: list[dict], viewer: scope.Viewer
 ) -> dict[int, dict[str, str]]:
-    """Resolve policy metadata for one visible task list with two batch reads."""
-    engagement_ids = sorted({int(task.get("engagement_id") or 0) for task in tasks} - {0})
-    milestone_ids = sorted({int(task.get("milestone_id") or 0) for task in tasks} - {0})
+    """Resolve policy metadata without trusting already-redacted relationships."""
+    task_ids = sorted({int(task["id"]) for task in tasks})
+    if not task_ids:
+        return {}
+    task_marks = ",".join("?" for _ in task_ids)
+    raw_rows = db.query(
+        f"SELECT id, engagement_id, milestone_id FROM tasks WHERE id IN ({task_marks})",  # noqa: S608 -- marks are controlled
+        tuple(task_ids),
+    )
+    raw_links = {
+        int(row["id"]): (
+            int(row.get("engagement_id") or 0),
+            int(row.get("milestone_id") or 0),
+        )
+        for row in raw_rows
+    }
+    engagement_ids = sorted({link[0] for link in raw_links.values()} - {0})
+    milestone_ids = sorted({link[1] for link in raw_links.values()} - {0})
     engagements: dict[int, str] = {}
     if engagement_ids:
         visible, params = scope.visible_filter(viewer, "engagements", "engagement")
@@ -558,7 +573,7 @@ def task_collection_policy_contexts(
             (*engagement_ids, *params),
         )
         engagements = {int(row["id"]): str(row.get("project_class") or "") for row in rows}
-    milestones: dict[int, tuple[int, str]] = {}
+    milestones: dict[int, tuple[int, int, str]] = {}
     if milestone_ids:
         milestone_visible, milestone_params = scope.visible_filter(
             viewer, "milestones", "milestone"
@@ -569,6 +584,7 @@ def task_collection_policy_contexts(
         marks = ",".join("?" for _ in milestone_ids)
         rows = db.query(
             f"SELECT milestone.id, milestone.engagement_id,"  # noqa: S608 -- marks and scope are controlled
+            " engagement.id AS visible_engagement_id,"
             " engagement.project_class FROM milestones milestone"
             " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
             f" AND {engagement_visible} WHERE milestone.id IN ({marks})"
@@ -578,6 +594,7 @@ def task_collection_policy_contexts(
         milestones = {
             int(row["id"]): (
                 int(row.get("engagement_id") or 0),
+                int(row.get("visible_engagement_id") or 0),
                 str(row.get("project_class") or ""),
             )
             for row in rows
@@ -585,14 +602,22 @@ def task_collection_policy_contexts(
     result: dict[int, dict[str, str]] = {}
     for task in tasks:
         task_id = int(task["id"])
-        engagement_id = int(task.get("engagement_id") or 0)
-        milestone_id = int(task.get("milestone_id") or 0)
-        milestone_engagement, milestone_project = milestones.get(milestone_id, (0, ""))
+        engagement_id, milestone_id = raw_links.get(task_id, (0, 0))
+        milestone_engagement, visible_milestone_engagement, milestone_project = milestones.get(
+            milestone_id, (0, 0, "")
+        )
         attributes = {
             "classification": str(task.get("visibility") or ""),
             "project_type": engagements.get(engagement_id, "") or milestone_project,
         }
-        if engagement_id and milestone_engagement and engagement_id != milestone_engagement:
+        hidden_relationship = bool(
+            (engagement_id and engagement_id not in engagements)
+            or (milestone_id and milestone_id not in milestones)
+            or (milestone_engagement and not visible_milestone_engagement)
+        )
+        if hidden_relationship or (
+            engagement_id and milestone_engagement and engagement_id != milestone_engagement
+        ):
             attributes["project_type"] = ""
             attributes["relationship_conflict"] = "true"
         result[task_id] = attributes
