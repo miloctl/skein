@@ -1265,6 +1265,60 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     return out
 
 
+def filter_policy_resources(
+    rows: list[dict],
+    resource_filter,
+    *,
+    allow_unclassified: bool,
+    viewer: scope.Viewer | None,
+) -> list[dict]:
+    """Filter static review text by saved and current target policy context."""
+    from . import policy_context as domain_policy
+
+    resources = [(str(row.get("entity") or ""), int(row.get("entity_id") or 0)) for row in rows]
+    supported = [
+        resource
+        for resource in resources
+        if resource[1] > 0 and domain_policy.supports_resource(resource[0])
+    ]
+    current = (
+        {resource: domain_policy.existing(resource[0], resource[1]) for resource in supported}
+        if viewer is None
+        else domain_policy.resource_contexts(supported, viewer)
+    )
+    result: list[dict] = []
+    for row, (entity, entity_id) in zip(rows, resources, strict=True):
+        if entity_id > 0 and domain_policy.supports_resource(entity):
+            attributes = current.get((entity, entity_id))
+            if not attributes or not resource_filter(entity, entity_id, attributes):
+                continue
+
+        try:
+            saved = json.loads(str(row.get("policy_context") or "{}"))
+        except (TypeError, ValueError):
+            saved = {}
+        policy_input = saved.get("input") if isinstance(saved, dict) else None
+        resource = policy_input.get("resource") if isinstance(policy_input, dict) else None
+        if isinstance(resource, dict) and str(resource.get("type") or ""):
+            saved_entity = str(resource["type"])
+            try:
+                saved_id = int(resource.get("id") or 0)
+            except (TypeError, ValueError):
+                saved_id = 0
+            raw_attributes = resource.get("attributes")
+            attributes = dict(raw_attributes) if isinstance(raw_attributes, dict) else {}
+            attributes.update(
+                project_type=str(resource.get("project_type") or ""),
+                classification=str(resource.get("classification") or ""),
+            )
+            if not resource_filter(saved_entity, saved_id, attributes):
+                continue
+        elif not allow_unclassified:
+            continue
+        result.append(row)
+    return result
+
+
 def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     if status:
         rows = db.query(

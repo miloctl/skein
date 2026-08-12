@@ -1065,9 +1065,15 @@ def test_public_read_redacts_a_policy_denied_relationship(fresh_db):
     facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
 
     viewed = facade.get_task(task, _context(facade, project_type="standard"))
+    updated = facade.update_task(
+        UpdateTaskCommand(task_id=task, title="Updated public outer task"),
+        _context(facade, project_type="standard"),
+    )
 
     assert viewed.id == task
     assert viewed.milestone_id is None
+    assert updated.id == task
+    assert updated.milestone_id is None
 
 
 def test_public_update_policy_uses_target_engagement(fresh_db):

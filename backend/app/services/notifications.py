@@ -67,11 +67,13 @@ def notify(
     if tier == "passive":
         db.log_activity("notifier", "notify_passive", message[:120])
         return None
+    source_entity = _SOURCE_ALIASES.get(source_entity, source_entity)
+    source_context = _source_policy_context(source_entity, source_id)
     ts = db.now()
     nid = db.execute(
         "INSERT INTO notifications"
-        " (user, tier, message, link, sent_at, created_at, source_entity, source_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " (user, tier, message, link, sent_at, created_at, source_entity, source_id,"
+        " source_policy_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user,
             tier,
@@ -81,6 +83,7 @@ def notify(
             ts,
             source_entity,
             source_id or None,
+            json.dumps(source_context, sort_keys=True, separators=(",", ":")),
         ),
     )
     if tier == "immediate":
@@ -92,6 +95,16 @@ def notify(
         # No emoji: Slack is not one of Skein's own surfaces (CLAUDE.md).
         _post_slack(f"Skein — 1 notification for {user}. Open Skein to read it.")
     return {"id": nid, "tier": tier}
+
+
+def _source_policy_context(entity: str, entity_id: int) -> dict[str, str]:
+    if not entity or entity_id <= 0:
+        return {}
+    from . import policy_context
+
+    if not policy_context.supports_resource(entity):
+        return {}
+    return policy_context.existing(entity, entity_id)
 
 
 # Unread, for ONE reader. A personal row is unread while its own `read_at` is
@@ -131,7 +144,7 @@ def policy_filter(
     safely.
     """
     if resource_filter is None:
-        return rows
+        return [_public_row(row) for row in rows]
     from . import policy_context
 
     resources = [source_resource(row) for row in rows]
@@ -140,7 +153,7 @@ def policy_filter(
         for resource in resources
         if policy_context.supports_resource(resource[0]) and resource[1] > 0
     ]
-    contexts = (
+    current_contexts = (
         {resource: policy_context.existing(resource[0], resource[1]) for resource in supported}
         if viewer is None
         else policy_context.resource_contexts(supported, viewer)
@@ -148,17 +161,36 @@ def policy_filter(
     result: list[dict] = []
     for row, resource in zip(rows, resources, strict=True):
         entity, entity_id = resource
-        if not entity or entity_id <= 0:
+        if not entity or entity_id <= 0 or not policy_context.supports_resource(entity):
             if allow_unclassified:
-                result.append(row)
+                result.append(_public_row(row))
             continue
-        attributes = contexts.get((entity, entity_id))
-        if attributes is None:
+        current = current_contexts.get((entity, entity_id))
+        if current is None:
             # A deleted or unsupported source cannot make free-form text safe.
             continue
-        if resource_filter(entity, entity_id, attributes):
-            result.append(row)
+        try:
+            snapshot = json.loads(str(row.get("source_policy_context") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            snapshot = {}
+        if not isinstance(snapshot, dict) or not snapshot:
+            if allow_unclassified and resource_filter(entity, entity_id, current):
+                result.append(_public_row(row))
+            continue
+        saved = {str(key): str(value) for key, value in snapshot.items()}
+        if resource_filter(entity, entity_id, saved) and resource_filter(
+            entity, entity_id, current
+        ):
+            result.append(_public_row(row))
     return result
+
+
+def _public_row(row: dict) -> dict:
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in {"source_entity", "source_id", "source_policy_context"}
+    }
 
 
 def source_resource(row: dict) -> tuple[str, int]:

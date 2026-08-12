@@ -320,7 +320,8 @@ def my_day(
                 # It is the difference between "your agent is waiting on you"
                 # and "the team has a queue".
                 "SELECT id, entity, entity_id, action, summary, proposed_by,"
-                " requested_by, created_at, review_visibility, review_crew_id, review_owner"
+                " requested_by, created_at, review_visibility, review_crew_id, review_owner,"
+                " policy_context"
                 " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
             ),
             viewer,

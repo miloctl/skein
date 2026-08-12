@@ -1,5 +1,7 @@
 """Fictional directory mapping and workplace policy."""
 
+from dataclasses import dataclass
+
 from app.extensions import PolicyDecision, PolicyEffect, PolicyInput
 
 
@@ -32,7 +34,14 @@ def atlas_profile(_name: str) -> dict[str, object]:
     return {"active": True}
 
 
-def atlas_policy(request: PolicyInput) -> PolicyDecision | None:
+_ATLAS_POLICY_ACTIONS = (
+    "atlas.dashboard.view",
+    "atlas.integration.sync",
+    "atlas.release.approve",
+)
+
+
+def _atlas_policy(request: PolicyInput) -> PolicyDecision | None:
     capabilities = set(request.subject.capabilities)
     if request.action == "atlas.dashboard.view" and "atlas.dashboard" not in capabilities:
         return PolicyDecision(PolicyEffect.DENY, ("The manager dashboard needs Atlas access.",))
@@ -53,3 +62,18 @@ def atlas_policy(request: PolicyInput) -> PolicyDecision | None:
             approver_capabilities=("atlas.approve",),
         )
     return None
+
+
+@dataclass(frozen=True)
+class _AtlasPolicy:
+    """Carry action scope without requiring a newer PolicyContribution constructor."""
+
+    actions: tuple[str, ...] = _ATLAS_POLICY_ACTIONS
+
+    def __call__(self, request: PolicyInput) -> PolicyDecision | None:
+        if request.action not in self.actions:
+            return None
+        return _atlas_policy(request)
+
+
+atlas_policy = _AtlasPolicy()

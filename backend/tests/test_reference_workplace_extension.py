@@ -94,6 +94,11 @@ def test_reference_module_exercises_each_supported_backend_contribution(tmp_path
     assert len(registry.events) == 1
     assert len(registry.migrations) == 1
     assert len(registry.workflow_actions) == 1
+    assert tuple(registry.policies[0].rule.actions) == (
+        "atlas.dashboard.view",
+        "atlas.integration.sync",
+        "atlas.release.approve",
+    )
 
 
 def test_service_identities_cannot_be_claimed_by_humans(fresh_db, tmp_path):
