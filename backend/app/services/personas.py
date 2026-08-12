@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 
 from .. import config
-from ..identity_names import CORE_MACHINE_SUBJECTS
+from ..identity_names import content_subject_refusal
 
 PERSONAS_DIR = config.STOCK_DIR / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
@@ -53,7 +53,7 @@ def _persona_files() -> dict[str, Path]:
     files: dict[str, Path] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
-            if _SLUG.match(path.stem) and path.stem not in CORE_MACHINE_SUBJECTS:
+            if _SLUG.match(path.stem) and not content_subject_refusal(path.stem):
                 files[path.stem] = path
     return files
 
@@ -69,10 +69,12 @@ def configured_slugs() -> set[str]:
 
 
 def bench_slugs() -> set[str]:
-    """Slugs reserved as agent identities, computed live (glob only, no
-    parsing) — a cached set would miss a persona dropped into a mounted
-    overlay after startup, and the human-name guard in users.ensure_user
-    would then let a human absorb that persona's identity."""
+    """Accepted persona identities from the current content layers.
+
+    File contents are read live. During an application lifespan, composition
+    fixes the slug set at startup. This prevents a new mounted file from
+    racing a human, service, specialist, or MCP identity claim.
+    """
     return set(_persona_files())
 
 
@@ -109,7 +111,7 @@ SCHEMA_VERSION = 1
 
 def _parse(path: Path) -> dict | None:
     slug = path.stem
-    if not _SLUG.match(slug) or slug in CORE_MACHINE_SUBJECTS:
+    if not _SLUG.match(slug) or content_subject_refusal(slug):
         return None
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -296,8 +298,8 @@ def validate_all() -> list[str]:
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
                 continue
-            if path.stem in CORE_MACHINE_SUBJECTS:
-                errors.append(f"{label}: slug is reserved for a core machine identity")
+            if refusal := content_subject_refusal(path.stem):
+                errors.append(f"{label}: {refusal}")
                 continue
             text = path.read_text(encoding="utf-8")
             try:

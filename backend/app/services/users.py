@@ -7,6 +7,7 @@ from ..identity_names import (
     CORE_MACHINE_SUBJECTS,
     HUMAN_RESERVED_SUBJECTS,
     ROSTER_CORE_AGENT_SUBJECTS,
+    fold_identity,
 )
 
 IDENTITY_COLLISION = (
@@ -34,10 +35,7 @@ def fold(name: str) -> str:
     a fullwidth `TEAM` renders as `team`, and category Cf is stripped
     because a zero-width joiner inside `team` does too — a name that reads as a system actor in every
     surface must not be a different identity from the system actor."""
-    import unicodedata
-
-    folded = unicodedata.normalize("NFKC", (name or "").strip())
-    return "".join(c for c in folded if unicodedata.category(c) != "Cf").casefold()
+    return fold_identity(name)
 
 
 def names_someone(text: str, roster: set[str]) -> bool:

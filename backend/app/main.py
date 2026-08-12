@@ -27,6 +27,10 @@ from .extensions.contracts import (
 from .extensions.core import core_module
 from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
 from .extensions.registry import validate_core_tool_names
+from .identity_names import (
+    activate_runtime_machine_subjects,
+    deactivate_runtime_machine_subjects,
+)
 from .public.errors import PublicError
 from .services import handoff
 from .services.activity import chain_health
@@ -328,6 +332,7 @@ async def lifespan(app: FastAPI):
             # Operator-supplied config never takes down REST. The same rule
             # lets a bad model provider degrade to deterministic mode.
             minted = False
+            mcp_identity_available = False
             log.error(
                 "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
                 " unavailable until this is changed. The REST API is unaffected.",
@@ -395,9 +400,31 @@ async def lifespan(app: FastAPI):
 
     import_file_sessions()
     lifecycle_context = LifecycleContext(core_version=SKEIN_CORE_VERSION)
-    started = await _start_extensions(registry, lifecycle_context)
     scheduler = None
     keepalive_open = False
+    runtime_subjects = {
+        *(identity.subject for identity in registry.service_identities),
+        *(specialist.name for specialist in registry.specialists),
+    }
+    if mcp_identity_available:
+        runtime_subjects.add(mcp_user)
+    from .services import flocks as flocks_svc
+    from .services import personas as personas_svc
+
+    # Persona filenames reserve identity even when their prompt is malformed;
+    # the strict validator reports that fault. A malformed flock is not an
+    # identity until it parses, so fixing or adding one requires restart.
+    runtime_content_owners = personas_svc.bench_slugs() | {
+        item["slug"] for item in flocks_svc.list_flocks()
+    }
+    runtime_subject_token = activate_runtime_machine_subjects(
+        runtime_subjects, runtime_content_owners
+    )
+    try:
+        started = await _start_extensions(registry, lifecycle_context)
+    except BaseException:
+        deactivate_runtime_machine_subjects(runtime_subject_token)
+        raise
     try:
         # claim-guarded catch-up runs fill in for cron firings missed while the
         # process was down (no misfire replay); run_job never raises
@@ -468,8 +495,11 @@ async def lifespan(app: FastAPI):
         try:
             await _stop_extensions(started, lifecycle_context)
         finally:
-            if keepalive_open:
-                db.close_keepalive()
+            try:
+                if keepalive_open:
+                    db.close_keepalive()
+            finally:
+                deactivate_runtime_machine_subjects(runtime_subject_token)
 
 
 async def perimeter_auth(request: Request, call_next):

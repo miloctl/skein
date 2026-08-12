@@ -1113,6 +1113,85 @@ def test_deployment_content_cannot_claim_core_machine_subjects(
         validate_machine_identity_ownership(registry)
 
 
+def test_live_content_cannot_claim_composed_service_or_mcp_subjects(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import flocks, personas, users
+
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    persona_dir.mkdir()
+    flock_dir.mkdir()
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+    (persona_dir / "editable-reviewer.md").write_text(
+        "---\nname: Original reviewer\ndescription: Startup owner\n---\nReview work.\n"
+    )
+
+    module = _module(
+        routes=(),
+        service_identities=(
+            ServiceIdentityContribution("acme.workplace.sync-service", "Atlas-Sync"),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), mcp_user="MCP-Agent")
+    built = create_app(settings=settings, modules=(module,))
+
+    with TestClient(built):
+        (persona_dir / "editable-reviewer.md").write_text(
+            "---\nname: Updated reviewer\ndescription: Same identity\n---\nReview work.\n"
+        )
+        assert personas.get_persona("editable-reviewer")["name"] == "Updated reviewer"
+        # These files did not exist when startup validated composition. A
+        # mounted overlay can add them while the process is live.
+        (persona_dir / "atlas-sync.md").write_text(
+            "---\nname: Wrong service\ndescription: Must stay hidden\n"
+            "---\nDo not merge this prompt with the service identity.\n"
+        )
+        members = sorted(personas.bench_slugs())[:2]
+        (flock_dir / "mcp-agent.yaml").write_text(
+            "schema_version: 1\n"
+            "name: Wrong MCP actor\n"
+            "description: Must stay hidden\n"
+            f"members:\n  - {members[0]}\n  - {members[1]}\n"
+            "synthesis: true\n"
+        )
+        users.ensure_human_identity("existing-person")
+        users.ensure_agent_identity("field-agent")
+        for slug in ("existing-person", "field-agent"):
+            (persona_dir / f"{slug}.md").write_text(
+                f"---\nname: {slug}\ndescription: Must stay hidden\n"
+                "---\nDo not merge this prompt with an existing roster identity.\n"
+            )
+
+        # Identity-bearing rosters are fixed at startup. This closes the race
+        # in which a new file and a new human or agent claim the same name.
+        # Edit an existing file live; restart to add a new slug.
+        (persona_dir / "new-reviewer.md").write_text(
+            "---\nname: New reviewer\ndescription: Restart required\n---\nReview new work.\n"
+        )
+
+        with pytest.raises(ValueError, match="no persona"):
+            personas.get_persona("atlas-sync")
+        with pytest.raises(ValueError, match="no flock"):
+            flocks.get_flock("mcp-agent")
+        for slug in ("existing-person", "field-agent"):
+            with pytest.raises(ValueError, match="no persona"):
+                personas.get_persona(slug)
+        with pytest.raises(ValueError, match="no persona"):
+            personas.get_persona("new-reviewer")
+        assert "atlas-sync" not in personas.bench_slugs()
+        assert "mcp-agent" not in {item["slug"] for item in flocks.list_flocks()}
+        assert any("composed machine identity" in error for error in personas.validate_all())
+        assert any("composed machine identity" in error for error in flocks.validate_all())
+        assert any("application restart" in error for error in personas.validate_all())
+
+    # The scope belongs to this app lifespan. Embedders and tests can compose
+    # another app after shutdown without inheriting stale machine claims.
+    assert personas.get_persona("new-reviewer")["name"] == "New reviewer"
+
+
 def test_dependencies_are_ordered_independently_of_input_order():
     base = _module(module_id="acme.base", routes=())
     child = _module(module_id="acme.child", requires=("acme.base",), routes=())

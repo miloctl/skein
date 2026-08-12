@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from .. import config, db
-from ..identity_names import CORE_MACHINE_SUBJECTS
+from ..identity_names import content_subject_refusal
 from . import personas
 
 FLOCKS_DIR = config.STOCK_DIR / "flocks"
@@ -55,7 +55,7 @@ def _flock_files() -> dict[str, Path]:
     files: dict[str, Path] = {}
     for d in _flock_dirs():
         for path in sorted(d.glob("*.yaml")):
-            if _SLUG.match(path.stem) and path.stem not in CORE_MACHINE_SUBJECTS:
+            if _SLUG.match(path.stem) and not content_subject_refusal(path.stem):
                 files[path.stem] = path
     return files
 
@@ -75,7 +75,7 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
     here has a matching loud error in validate_all() — keep the two in step,
     or a file drops off the roster with no CI failure to explain it."""
     slug = path.stem
-    if not _SLUG.match(slug) or slug in CORE_MACHINE_SUBJECTS:
+    if not _SLUG.match(slug) or content_subject_refusal(slug):
         return None
     # a flock slug that is also a persona slug would merge two heads in every
     # by-name rollup: synthesis logs usage under the FLOCK slug (routes/
@@ -181,8 +181,8 @@ def validate_all() -> list[str]:
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
                 continue
-            if path.stem in CORE_MACHINE_SUBJECTS:
-                errors.append(f"{label}: slug is reserved for a core machine identity")
+            if refusal := content_subject_refusal(path.stem):
+                errors.append(f"{label}: {refusal}")
                 continue
             if path.stem in bench:
                 errors.append(

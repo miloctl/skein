@@ -54,11 +54,11 @@ async def slack_command(request: Request):
     from ..services import users as users_svc
     from ..services.adoption import record_use
     from ..services.users import ensure_human_identity
+    from .deps import INACTIVE
 
     # threadpooled, all three: this is an async route on the loop that
     # carries every open chat stream, and each of these opens a SQLite
     # connection — the same rule routes/chat.py states at its top
-    await run_in_threadpool(record_use, user, "slack")
     # every other write surface registers its writer (deps.py does it for
     # REST); without this, Slack captures logged under an unrostered name
     # were invisible to the scoped activity surfaces.
@@ -72,6 +72,8 @@ async def slack_command(request: Request):
         await run_in_threadpool(ensure_human_identity, user)
     except ValueError as exc:
         return {"response_type": "ephemeral", "text": str(exc)}
+    if not await run_in_threadpool(users_svc.is_active, user):
+        return {"response_type": "ephemeral", "text": INACTIVE}
     if await run_in_threadpool(users_svc.is_agent, user):
         return {
             "response_type": "ephemeral",
@@ -102,6 +104,9 @@ async def slack_command(request: Request):
             )
         )
     )
+    # Count only an active, policy-authorized identity. Offboarded or denied
+    # calls must not create adoption records before they are refused.
+    await run_in_threadpool(record_use, user, "slack")
     # EVERY route-level command, not a hardcoded list: a handler-None entry is
     # resolved by routes/chat.py, so commands.dispatch returns None for it and
     # the MockAgent below would smart-capture the raw slash command as a note

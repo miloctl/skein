@@ -1434,12 +1434,15 @@ The next architecture review found that persona and flock overlay slugs were
 not compared with the canonical core-machine set. Startup now rejects any
 content owner that claims a core actor before it reserves machine identities.
 
-The next review found that live mounted overlays could add a reserved file
-after the startup check. Persona and flock discovery now reject core-machine
-slugs on every scan. Hot-add tests prove that neither roster resolves a file
-added after an initial clean read. The deployment content validator reports
-the same conflict. The focused tests passed 32 cases. The full backend suite
-passed 1,835 tests in 110.27 seconds, and all static gates passed.
+The next reviews found that live mounted overlays could claim both core and
+composed private identities after the startup check. The application now binds
+the complete machine-owner set and the accepted content roster to its lifespan.
+Existing persona and flock files can change live. New identity-bearing slugs
+require restart. Hot-add tests cover core, service, MCP, human, and agent names.
+Signed Slack and OIDC token exchange now refuse inactive people at their first
+door. The focused composition, content, Slack, OIDC, persona, and specialist
+suite passed 233 tests. The full backend suite passed 1,838 tests in 108.46
+seconds, and all static gates passed.
 
 Verification for this remediation:
 
