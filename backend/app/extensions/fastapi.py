@@ -25,6 +25,17 @@ if TYPE_CHECKING:
     from .contracts import RouteContribution
 
 
+_TASK_HANDLER_POLICY = frozenset(
+    {
+        ("GET", "/api/tasks/{task_id}"),
+        ("GET", "/api/tasks/{task_id}/worklog"),
+        ("POST", "/api/tasks"),
+        ("POST", "/api/tasks/{task_id}/delegate"),
+        ("PATCH", "/api/tasks/{task_id}"),
+    }
+)
+
+
 def subject_for(request: Request, user: str) -> PolicySubject:
     groups = tuple(getattr(request.state, "auth_groups", ()))
     strong = bool(getattr(request.state, "strong_auth", False))
@@ -264,9 +275,9 @@ async def enforce_mutation_policy(
     # hidden target id first, because a project-specific DENY would become a
     # project-class oracle before the service returns the stable missing-id
     # refusal.
-    if resource_type == "tasks" and (
-        request.method in {"POST", "PATCH"} or (request.method == "GET" and resource_id)
-    ):
+    route = request.scope.get("route")
+    template = str(getattr(route, "path", request.url.path))
+    if (request.method, template) in _TASK_HANDLER_POLICY:
         domain = {}
     else:
         domain = for_route(resource_type, resource_id, payload)

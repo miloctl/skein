@@ -1788,3 +1788,34 @@ Verification for this remediation:
   two different compatible core implementations.
 
 The exact commit and repeated review follow. Chrome remains blocked.
+
+### Task policy and relationship review remediation
+
+The independent review rejected `622d5a7`. Three high-severity findings were
+valid. Scores for that commit are void.
+
+A route contribution could name a resource parameter that was absent from its
+path. The policy then received an empty resource ID. Startup now rejects that
+contract before it serves the route.
+
+The generic task policy exception included delegation and worklog routes. Both
+routes now resolve the visible task and its project context in the handler.
+The policy decision and operation use one database transaction.
+
+A task could link one engagement directly and a milestone from another
+engagement. Shared services and public commands now reject this state before
+policy evaluation or mutation.
+
+Legacy task relationships were redacted on primary task reads but not on all
+composed views. Briefing, engagement brief, context pack, portfolio, weekly,
+and handoff services now use one batch redaction helper.
+
+Verification for this remediation:
+
+- Focused extension, policy, public-command, visibility, and delegation tests:
+  313 passed.
+- Complete backend suite: 1,894 passed in 111.96 seconds.
+- Complete static gate: passed.
+
+The next step is a clean milestone commit and a new four-role review. Chrome
+validation remains blocked until that review accepts the exact commit.

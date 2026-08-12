@@ -362,8 +362,10 @@ def _assert_task_relationships(
 ) -> dict[str, str]:
     """Validate link visibility without turning hidden ids into an oracle."""
     project_type = ""
+    direct_engagement = None
     if engagement_id:
         engagement = _visible_link("engagements", engagement_id, actor)
+        direct_engagement = engagement
         scope.assert_relationship_contains(
             engagement["visibility"],
             engagement["crew_id"],
@@ -389,6 +391,8 @@ def _assert_task_relationships(
     except ValueError as exc:
         # Do not reveal that a visible milestone points to a hidden parent.
         raise ValueError(scope.missing_text("milestones", milestone_id)) from exc
+    if direct_engagement is not None and int(direct_engagement["id"]) != parent_id:
+        raise ValueError("a task's milestone and engagement must belong to the same engagement")
     scope.assert_relationship_contains(
         engagement["visibility"],
         engagement["crew_id"],
@@ -452,6 +456,9 @@ def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]
     project_type = ""
     engagement_id = int(task.get("engagement_id") or 0)
     milestone_id = int(task.get("milestone_id") or 0)
+    direct_project_type = ""
+    milestone_project_type = ""
+    milestone_engagement_id = 0
     if engagement_id:
         visible, params = scope.visible_filter(viewer, "engagements", "engagement")
         engagement = db.query_one(
@@ -459,8 +466,8 @@ def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]
             f" WHERE engagement.id = ? AND {visible}",
             (engagement_id, *params),
         )
-        project_type = str((engagement or {}).get("project_class") or "")
-    elif milestone_id:
+        direct_project_type = str((engagement or {}).get("project_class") or "")
+    if milestone_id:
         milestone_visible, milestone_params = scope.visible_filter(
             viewer, "milestones", "milestone"
         )
@@ -468,13 +475,18 @@ def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]
             viewer, "engagements", "engagement"
         )
         engagement = db.query_one(
-            f"SELECT engagement.project_class FROM milestones milestone"  # noqa: S608 -- scope emits bound marks
+            f"SELECT milestone.engagement_id, engagement.project_class"  # noqa: S608 -- scope emits bound marks
+            " FROM milestones milestone"
             " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
             f" AND {engagement_visible}"
             f" WHERE milestone.id = ? AND {milestone_visible}",
             (*engagement_params, milestone_id, *milestone_params),
         )
-        project_type = str((engagement or {}).get("project_class") or "")
+        milestone_engagement_id = int((engagement or {}).get("engagement_id") or 0)
+        milestone_project_type = str((engagement or {}).get("project_class") or "")
+    if engagement_id and milestone_engagement_id and engagement_id != milestone_engagement_id:
+        raise scope.missing("tasks", int(task.get("id") or 0))
+    project_type = direct_project_type or milestone_project_type
     return {
         "classification": str(task.get("visibility") or ""),
         "project_type": project_type,
@@ -900,6 +912,54 @@ def _redact_hidden_task_links(row: dict) -> dict:
         task["waiting_on_type"] = None
         task["waiting_on_id"] = None
     return task
+
+
+def redact_task_relationships(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
+    """Redact every task relationship in an arbitrary user-facing projection."""
+    tasks = [dict(row) for row in rows]
+
+    def visible_ids(table: str, ids: set[int]) -> set[int]:
+        if not ids:
+            return set()
+        marks = ",".join("?" for _ in ids)
+        visible, params = scope.visible_filter(viewer, table)
+        return {
+            int(row["id"])
+            for row in db.query(
+                f"SELECT id FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 -- closed table set and bound marks
+                (*sorted(ids), *params),
+            )
+        }
+
+    milestones = visible_ids(
+        "milestones", {int(row["milestone_id"]) for row in tasks if row.get("milestone_id")}
+    )
+    engagements = visible_ids(
+        "engagements",
+        {int(row["engagement_id"]) for row in tasks if row.get("engagement_id")},
+    )
+    waiting_visible = {
+        kind: visible_ids(
+            table,
+            {
+                int(row["waiting_on_id"])
+                for row in tasks
+                if row.get("waiting_on_type") == kind and row.get("waiting_on_id")
+            },
+        )
+        for kind, table in _WAITING_TABLES.items()
+    }
+    for task in tasks:
+        if task.get("milestone_id") and int(task["milestone_id"]) not in milestones:
+            task["milestone_id"] = None
+        if task.get("engagement_id") and int(task["engagement_id"]) not in engagements:
+            task["engagement_id"] = None
+        kind = task.get("waiting_on_type")
+        waiting_id = int(task.get("waiting_on_id") or 0)
+        if kind and waiting_id and waiting_id not in waiting_visible.get(str(kind), set()):
+            task["waiting_on_type"] = None
+            task["waiting_on_id"] = None
+    return tasks
 
 
 def _source_finding(task: dict) -> dict | None:

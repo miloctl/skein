@@ -401,6 +401,19 @@ class WorkItems:
             require_containment(milestone)
             if milestone.get("visible_engagement_id"):
                 require_containment(milestone, milestone_parent=True)
+                if engagement is not None and int(engagement["id"]) != int(
+                    milestone["visible_engagement_id"]
+                ):
+                    if conceal_as_task:
+                        raise PublicError(
+                            error_code,
+                            scope.missing_text("tasks", conceal_as_task),
+                            status_code=404,
+                        )
+                    raise PublicError(
+                        error_code,
+                        "A task's milestone and engagement must belong to the same engagement.",
+                    )
 
         effective_engagement = engagement_id or int((milestone or {}).get("engagement_id") or 0)
         project_type = fallback_project_type

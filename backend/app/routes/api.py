@@ -162,9 +162,30 @@ def get_task(
 
 
 @router.get("/tasks/{task_id}/worklog")
-def get_task_worklog(user: CurrentUser, viewer: ViewerDep, task_id: int):
+def get_task_worklog(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    task_id: int,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     try:
-        return delegation.list_worklog(task_id, viewer=viewer)
+        with db.transaction():
+            task = work.get_task(task_id, viewer)
+            domain = work.task_read_policy_context(task, viewer)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.get.tasks.worklog",
+                    "task",
+                    resource_id=str(task_id),
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return delegation.list_worklog(task_id, viewer=viewer)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
@@ -1166,7 +1187,14 @@ class DelegateIn(BaseModel):
 
 
 @router.post("/tasks/{task_id}/delegate")
-def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser, request: Request):
+def post_delegate(
+    task_id: int,
+    body: DelegateIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     # capped like every other content write: this UPDATEs a task, appends a
     # hash-chained activity row, and notifies the sponsor — the amplifier
     # patch_task's own comment names. It became a one-click control when the
@@ -1179,18 +1207,33 @@ def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser, request: Re
     # and lock them out of sign-in, repairable only through rename_user. The
     # scarce credential is the bar for creating an identity, matching
     # POST /api/keys; using one that already exists is not gated.
-    if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
-        raise HTTPException(
-            403,
-            # lowercase fragment, like the other 187: the frontend joins a
-            # refusal into its own sentence (docs/LEXICON.md, "Backend
-            # refusal shape")
-            "creating an agent identity requires a personal API key."
-            " Delegate to an agent that already exists, or get your first key from"
-            " whoever runs the server (python -m app.bootstrap_key <you>) and paste"
-            " it in Settings, step 2.",
+    with db.transaction():
+        task = work.get_task(task_id, viewer)
+        domain = work.task_read_policy_context(task, viewer)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.tasks.delegate",
+                "task",
+                resource_id=str(task_id),
+                project_type=domain["project_type"],
+                classification=domain["classification"],
+                attributes=domain,
+            )
         )
-    return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
+        if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
+            raise HTTPException(
+                403,
+                # lowercase fragment, like the other 187: the frontend joins a
+                # refusal into its own sentence (docs/LEXICON.md, "Backend
+                # refusal shape")
+                "creating an agent identity requires a personal API key."
+                " Delegate to an agent that already exists, or get your first key from"
+                " whoever runs the server (python -m app.bootstrap_key <you>) and paste"
+                " it in Settings, step 2.",
+            )
+        return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
 
 
 @router.get("/context-pack")

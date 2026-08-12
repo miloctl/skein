@@ -29,6 +29,7 @@ from .policy import PolicyEngine, PolicySubject
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
 _MODEL_TOOL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_PATH_PARAMETER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)(?::[^}]+)?\}")
 _RESERVED_CORE_SUBJECTS = CORE_MACHINE_SUBJECTS
 
 
@@ -630,6 +631,12 @@ def _validate_route_operation(
         )
     if operation.risk not in ("low", "medium", "high", "critical"):
         raise ExtensionValidationError(f"route {contribution.name!r} has an invalid operation risk")
+    path_parameters = set(_PATH_PARAMETER.findall(operation.path))
+    if operation.resource_id_param and operation.resource_id_param not in path_parameters:
+        raise ExtensionValidationError(
+            f"route {contribution.name!r} operation {operation.method} {operation.path}"
+            f" names missing resource id parameter {operation.resource_id_param!r}"
+        )
 
 
 def _validate_namespace(module: SkeinModule) -> None:

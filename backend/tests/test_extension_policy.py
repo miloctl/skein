@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import ClassVar
 
 import pytest
+from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -21,6 +22,8 @@ from app.extensions import (
     PolicyInput,
     PolicyResource,
     PolicySubject,
+    RouteContribution,
+    RouteOperationContribution,
     ServiceIdentityContribution,
     SkeinModule,
     SpecialistContribution,
@@ -706,6 +709,96 @@ def test_rest_task_policy_uses_persisted_project_class(fresh_db):
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'must not land'") is None
 
 
+def test_rest_delegation_uses_transaction_bound_task_policy_context(fresh_db):
+    from app.services import engagements, work
+
+    engagement = engagements.create_engagement(
+        "Regulated launch",
+        project_class="regulated",
+        actor="manager",
+    )
+    task = work.create_task(
+        "Regulated delegation",
+        engagement_id=engagement["id"],
+        actor="manager",
+    )
+    seen: list[tuple[str, bool]] = []
+
+    def deny_regulated_delegation(request: PolicyInput):
+        if request.action == "skein.rest.post.tasks.delegate":
+            seen.append((request.resource.project_type, fresh_db._ambient.get() is not None))
+            if request.resource.project_type == "regulated":
+                return PolicyDecision(PolicyEffect.DENY, ("regulated delegation is paused",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(
+            PolicyContribution(
+                "acme.workplace.regulated-delegation",
+                deny_regulated_delegation,
+            ),
+        ),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.post(
+            f"/api/tasks/{task['id']}/delegate",
+            json={"agent": "agent", "sponsor": "manager"},
+        )
+
+    assert response.status_code == 403
+    assert ("regulated", True) in seen
+    assert fresh_db.query_one(
+        "SELECT delegated_agent, sponsor FROM tasks WHERE id = ?", (task["id"],)
+    ) == {"delegated_agent": "", "sponsor": ""}
+
+
+def test_rest_worklog_read_uses_transaction_bound_task_policy_context(fresh_db):
+    from app.services import engagements, work
+
+    engagement = engagements.create_engagement(
+        "Regulated launch",
+        project_class="regulated",
+        actor="manager",
+    )
+    task = work.create_task(
+        "Regulated worklog",
+        engagement_id=engagement["id"],
+        actor="manager",
+    )
+    seen: list[tuple[str, bool]] = []
+
+    def deny_regulated_worklog(request: PolicyInput):
+        if request.action == "skein.rest.get.tasks.worklog":
+            seen.append((request.resource.project_type, fresh_db._ambient.get() is not None))
+            if request.resource.project_type == "regulated":
+                return PolicyDecision(PolicyEffect.DENY, ("regulated worklogs are closed",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(
+            PolicyContribution(
+                "acme.workplace.regulated-worklog",
+                deny_regulated_worklog,
+            ),
+        ),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        response = client.get(f"/api/tasks/{task['id']}/worklog")
+
+    assert response.status_code == 403
+    assert ("regulated", True) in seen
+
+
 def test_rest_task_policy_does_not_inspect_a_hidden_relationship_before_refusal(fresh_db):
     from app.services import crews, engagements, scope
 
@@ -887,6 +980,50 @@ def test_all_contributed_routes_receive_the_composed_policy(fresh_db):
     assert response.json()["code"] == "POLICY_DENIED"
     assert read_response.status_code == 403
     assert read_response.json()["code"] == "POLICY_DENIED"
+
+
+def test_contributed_route_policy_receives_the_declared_path_resource_id(fresh_db):
+    router = APIRouter(prefix="/api/extensions/acme.workplace")
+
+    @router.get("/items/{item_id}")
+    def read_item(item_id: str):
+        return {"id": item_id}
+
+    seen: list[str] = []
+
+    def protect_item(request: PolicyInput):
+        if request.action == "acme.item.read":
+            seen.append(request.resource.id)
+            if request.resource.id == "secret":
+                return PolicyDecision(PolicyEffect.DENY, ("Secret item is closed.",))
+        return None
+
+    module = replace(
+        _module(),
+        routes=(
+            RouteContribution(
+                "acme.workplace.items",
+                router,
+                (
+                    RouteOperationContribution(
+                        "GET",
+                        "/api/extensions/acme.workplace/items/{item_id}",
+                        "acme.item.read",
+                        PolicyResource("acme-item"),
+                        "read",
+                        "low",
+                        resource_id_param="item_id",
+                    ),
+                ),
+            ),
+        ),
+        policies=(PolicyContribution("acme.workplace.item-policy", protect_item),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.get("/api/extensions/acme.workplace/items/secret")
+
+    assert response.status_code == 403
+    assert seen == ["secret"]
 
 
 class _FakeModel:

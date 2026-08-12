@@ -1676,3 +1676,30 @@ project policy. It binds lookup, policy, and response to one transaction.
 Focused visibility, policy, API, public-contract, and task tests passed 185
 tests. The complete static gate passed. A fresh review follows the complete
 backend suite. Chrome validation remains blocked.
+
+The review of `622d5a7` found three additional high-severity faults. A route
+could declare a missing resource path parameter. Delegation policy received no
+task project context. Conflicting direct and milestone links could hide the
+regulated project from policy. Several composed task views also exposed
+legacy waiting target IDs.
+
+Startup now validates each declared route resource parameter against the exact
+path. Delegation and worklog routes bind visible task context, policy, and the
+operation to one transaction. Shared services and public commands reject task
+links that resolve to different engagements.
+
+One batch helper now redacts inaccessible task relationships on every affected
+composed view. The new tests cover the route contract, the real policy path,
+conflicting links, and all affected read projections.
+
+Verification for this remediation:
+
+| Verification | Result |
+|---|---|
+| Focused extension, policy, public-command, visibility, and delegation tests | 313 passed |
+| Complete backend suite | 1,894 passed in 111.96 seconds |
+| Complete static gate | Passed |
+
+Scores for `622d5a7` are void. The report remains provisional until a fresh
+independent review accepts the next exact commit. Chrome validation remains
+blocked.
