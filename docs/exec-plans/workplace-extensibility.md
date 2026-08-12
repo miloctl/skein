@@ -1339,6 +1339,33 @@ Verification for this remediation:
 
 The exact commit and repeated review follow. Chrome remains blocked.
 
+### Latest task-relationship review and remediation
+
+The review rejected `584cc04`. A task could have a wider audience than its
+linked engagement or milestone. A workspace reader then received the hidden
+parent's sequential ID. The public facade also treated a machine actor name
+as a scoped read identity. This behavior conflicted with the existing
+workspace-only machine rule. Scores for `584cc04` are void.
+
+The shared task service now checks audience containment for create and
+update. The check covers a direct engagement, a milestone, and the
+milestone's engagement. Link resolution, policy, and mutation use one write
+transaction. The REST and core-agent gates use the same actor-visible target
+context. The generic REST precheck does not inspect hidden task links.
+
+Task reads now remove an engagement or milestone ID when the reader cannot
+read the linked row. This rule protects legacy rows. Public extension jobs,
+events, workflows, services, MCP calls, and agent tools use the workspace
+viewer for queries. Only a strongly authenticated human route context gets
+crew or private reads. A command can still return the row that it just wrote
+without creating a machine read identity.
+
+The focused public, REST, policy, tool, visibility, and legacy-data tests
+passed 203 tests. A second focused matrix passed 163 tests. The complete
+backend suite passed 1,883 tests in 114.96 seconds. The complete static gate
+passed. A fresh exact-commit review must pass before scores can change.
+Chrome remains blocked.
+
 ### Durable identity ownership remediation
 
 The architecture review rejected commit `d83ce94`. A generic delegated agent

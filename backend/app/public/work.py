@@ -269,16 +269,17 @@ class WorkItems:
 
     @staticmethod
     def _viewer(context: CommandContext) -> scope.Viewer:
-        """Return the viewer that matches the identity used by the write."""
+        """Return a read viewer without turning a machine actor into a person."""
         if context.execution_actor_kind == "human":
             return scope.Viewer(context.execution_actor, context.subject.strong)
-        return scope.Viewer.for_actor(context.execution_actor)
+        return scope.NOBODY
 
     @staticmethod
     def _visible_engagement(engagement_id: int, viewer: scope.Viewer) -> dict | None:
         visible, params = scope.visible_filter(viewer, "engagements", "engagement")
         return db.query_one(
-            f"SELECT engagement.id, engagement.project_class"  # noqa: S608 -- scope emits only bound marks
+            f"SELECT engagement.id, engagement.project_class,"  # noqa: S608 -- scope emits only bound marks
+            " engagement.visibility, engagement.crew_id"
             " FROM engagements engagement"
             f" WHERE engagement.id = ? AND {visible}",
             (engagement_id, *params),
@@ -294,7 +295,10 @@ class WorkItems:
         )
         row = db.query_one(
             f"SELECT milestone.id, milestone.engagement_id,"  # noqa: S608 -- scope emits only bound marks
-            " engagement.id AS visible_engagement_id, engagement.project_class"
+            " milestone.visibility, milestone.crew_id,"
+            " engagement.id AS visible_engagement_id, engagement.project_class,"
+            " engagement.visibility AS engagement_visibility,"
+            " engagement.crew_id AS engagement_crew_id"
             " FROM milestones milestone LEFT JOIN engagements engagement"
             " ON engagement.id = milestone.engagement_id"
             f" AND {engagement_visible}"
@@ -314,6 +318,8 @@ class WorkItems:
         fallback_project_type: str = "",
         error_code: str,
         conceal_as_task: int = 0,
+        child_visibility: str = scope.WORKSPACE,
+        child_crew_id: int | None = None,
     ) -> dict[str, Any]:
         """Resolve all task links without exposing an unreadable parent."""
         engagement = None
@@ -342,6 +348,40 @@ class WorkItems:
                     scope.missing_text(table, row_id),
                     status_code=404 if conceal_as_task else 400,
                 )
+
+        def require_containment(parent: dict, *, milestone_parent: bool = False) -> None:
+            parent_visibility = (
+                parent.get("engagement_visibility")
+                if milestone_parent
+                else parent.get("visibility")
+            )
+            parent_crew_id = (
+                parent.get("engagement_crew_id") if milestone_parent else parent.get("crew_id")
+            )
+            if parent_visibility and not scope.relationship_contains(
+                str(parent_visibility),
+                parent_crew_id,
+                child_visibility,
+                child_crew_id,
+            ):
+                if conceal_as_task:
+                    raise PublicError(
+                        error_code,
+                        scope.missing_text("tasks", conceal_as_task),
+                        status_code=404,
+                    )
+                raise PublicError(
+                    error_code,
+                    "A task cannot be visible to more people than its linked work."
+                    " Use the same or a narrower visibility.",
+                )
+
+        if engagement is not None:
+            require_containment(engagement)
+        if milestone is not None:
+            require_containment(milestone)
+            if milestone.get("visible_engagement_id"):
+                require_containment(milestone, milestone_parent=True)
 
         effective_engagement = engagement_id or int((milestone or {}).get("engagement_id") or 0)
         project_type = fallback_project_type
@@ -377,6 +417,8 @@ class WorkItems:
             viewer,
             error_code="TASK_NOT_FOUND",
             conceal_as_task=task_id,
+            child_visibility=str(row["visibility"]),
+            child_crew_id=row["crew_id"],
         )
         attributes.update(
             classification=str(row["visibility"] or ""),
@@ -419,6 +461,8 @@ class WorkItems:
             viewer,
             fallback_project_type=context.project_type,
             error_code="TASK_CREATE_REJECTED",
+            child_visibility=command.visibility,
+            child_crew_id=command.crew_id or None,
         )
         self._authorize(
             context,
@@ -471,12 +515,10 @@ class WorkItems:
                             db.now(),
                         ),
                     )
-                # The caller already supplied every field in this new row.
-                # Return that write result even when a weak human name cannot
-                # later use the public query to read private data.
-                return self._task_view(
-                    result["id"], viewer=scope.Viewer.for_actor(context.execution_actor)
-                )
+                # This is the result of the caller's own write, not a query.
+                # Do not manufacture a read-capable Viewer for a machine or a
+                # weak identity merely to populate the command result.
+                return self._written_task_view(result["id"])
         except PublicError:
             raise
         except (ValueError, PermissionError) as exc:
@@ -515,6 +557,8 @@ class WorkItems:
                     milestone_id,
                     viewer,
                     error_code="TASK_UPDATE_REJECTED",
+                    child_visibility=str(current_row["visibility"]),
+                    child_crew_id=current_row["crew_id"],
                 )
                 attributes.update(
                     classification=str(current_row["visibility"] or ""),
@@ -557,3 +601,15 @@ class WorkItems:
             return TaskView.model_validate(work.get_task(task_id, viewer))
         except db.NotFound as exc:
             raise PublicError("TASK_NOT_FOUND", str(exc), status_code=404) from exc
+
+    @staticmethod
+    def _written_task_view(task_id: int) -> TaskView:
+        """Return the exact row created by this command as its write receipt."""
+        row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if row is None:
+            raise PublicError(
+                "TASK_NOT_FOUND",
+                scope.missing_text("tasks", task_id),
+                status_code=404,
+            )
+        return TaskView.model_validate(row)

@@ -173,6 +173,13 @@ inventory:
   and leaving it out refused the ordinary case: capture hardcodes
   `owner=actor`, so every private capture that classified as a blocker was
   refused, and every private standup with blockers text rolled back whole.
+- `relationship_contains(parent_tier, parent_crew_id, child_tier,
+  child_crew_id)` — require every task reader to be able to read each linked
+  engagement or milestone. A workspace task cannot publish a crew or private
+  parent ID. A crew task can use workspace or same-crew parents. A private
+  task can use a parent that its author can read. The write path checks every
+  link and a milestone's engagement parent in one transaction. Read paths
+  redact inaccessible relationship IDs for legacy rows.
 - `assert_editable(table, row, actor)` — every mutation finds its row by a
   caller-supplied id, so `UPDATE notes SET ... WHERE id = ?` matched a private
   note whoever asked. Any reader can edit. A machine actor can work a CREW row

@@ -1619,3 +1619,34 @@ visibility, scope, and provenance suites passed 224 tests.
 
 The complete backend suite passed 1,868 tests in 113.54 seconds. The complete
 cross-language static gate also passed.
+
+### Task relationship containment and machine read scope
+
+The review rejected `584cc04`. A task could publish the raw ID of a narrower
+engagement or milestone. Public extension queries also treated a service or
+agent actor name as a scoped human viewer. This change broke Skein's existing
+workspace-only rule for machine reads. Scores for `584cc04` are void.
+
+The shared service now requires the task audience to fit inside every linked
+audience. A workspace task can link only workspace work. A crew task can link
+workspace work or work in the same crew. A private task can link work that its
+author can read. The check includes a milestone's engagement parent.
+
+REST, agent, and public-extension writes resolve links before policy and hold
+the same write transaction through mutation. Hidden and absent links have the
+same refusal. Public task queries give scoped views only to a strongly
+authenticated human route context. Machine execution contexts query the
+workspace tier. Read results redact relationship IDs that the reader cannot
+see, including IDs in legacy rows.
+
+Verification for this remediation:
+
+- Focused public, REST, tool-policy, visibility, and legacy-row tests: 203
+  passed.
+- Focused task, public, policy, and visibility matrix: 163 passed.
+- Complete backend suite: 1,883 passed in 114.96 seconds.
+- Complete lint, format, type, content, dead-code, license, theme,
+  TypeScript, ESLint, and frontend dead-code gate: passed.
+
+The prior scores remain unchanged until a fresh independent review passes.
+Chrome validation remains blocked.

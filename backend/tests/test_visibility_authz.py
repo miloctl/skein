@@ -441,6 +441,10 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    "work.py::_update_task_locked": (
+        "the public update_task wrapper owns the transaction and inventory entry;"
+        " this private implementation performs its guarded SQL inside that boundary"
+    ),
     # the id is the row this call just created, not a row the caller named
     "insights.py::convert_finding": "sets source_finding_id on the row it just inserted",
     "blockers.py::raise_blocker": "flips the task it was given to blocked",
@@ -576,6 +580,14 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
+    "work.py::_visible_link": (
+        "reads only tier metadata after the actor-visible id probe succeeds,"
+        " inside the task write transaction; no row data is returned to the caller"
+    ),
+    "work.py::_assert_task_relationships": (
+        "reads one validated milestone's parent id only to enforce audience"
+        " containment; hidden parents receive the same missing-milestone refusal"
+    ),
     "policy_context.py::existing": (
         "reads only classification and project type for one exact resource id."
         " The policy gate uses these values to restrict the operation and never"

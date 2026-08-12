@@ -257,7 +257,15 @@ async def enforce_mutation_policy(
             pass
     from ..services.policy_context import for_route
 
-    domain = for_route(resource_type, resource_id, payload)
+    # Task routes perform an actor-visible, transaction-bound relationship
+    # decision in their handler. The generic early gate must not inspect a
+    # hidden target id first, because a project-specific DENY would become a
+    # project-class oracle before the service returns the stable missing-id
+    # refusal.
+    if resource_type == "tasks" and request.method in {"POST", "PATCH"}:
+        domain = {}
+    else:
+        domain = for_route(resource_type, resource_id, payload)
     if action == "playbook.create":
         request.state.skein_playbook_policy_context = dict(domain)
     policy_input = _policy_input(

@@ -27,7 +27,7 @@ from ..extensions.policy import (
     current_policy_subject,
     policy_input_data,
 )
-from ..services import lexicon, review
+from ..services import lexicon, review, scope, work
 from ..services.delegation import authority_level
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -144,7 +144,23 @@ def _gated_write_locked(
         return json.dumps({"error": str(exc)})
     from ..services import policy_context as domain_policy
 
-    attributes = domain_policy.for_change(entity, entity_id, payload)
+    try:
+        if entity == "task":
+            if entity_id:
+                attributes = work.task_update_policy_context(entity_id, payload, actor=actor)
+            else:
+                attributes = work.task_create_policy_context(
+                    milestone_id=int(payload.get("milestone_id") or 0),
+                    engagement_id=int(payload.get("engagement_id") or 0),
+                    visibility=str(payload.get("visibility") or scope.WORKSPACE),
+                    crew_id=int(payload.get("crew_id") or 0),
+                    actor=actor,
+                )
+        else:
+            attributes = domain_policy.for_change(entity, entity_id, payload)
+    except (db.NotFound, PermissionError, ValueError) as exc:
+        receipts.record("failed", entity, str(exc), actor=actor)
+        return json.dumps({"error": str(exc)})
     project_type = str(attributes.get("project_type") or "")
     classification = str(attributes.get("classification") or "")
     subject = current_policy_subject()

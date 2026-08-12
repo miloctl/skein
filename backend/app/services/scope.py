@@ -157,6 +157,45 @@ def audience(tier: str, crew_id: int | None, writer: Viewer) -> Viewer:
     return NOBODY
 
 
+def relationship_contains(
+    parent_tier: str,
+    parent_crew_id: int | None,
+    child_tier: str,
+    child_crew_id: int | None,
+) -> bool:
+    """Whether every reader of a child can also read its parent.
+
+    Relationship identifiers are data. A workspace task that points at a
+    private engagement publishes that engagement's sequential id even when a
+    join correctly hides its name. Enforce audience containment at the write
+    boundary so a child cannot become a wider index of narrower work.
+
+    The caller must first prove that the writer can read the parent. That
+    makes a private child a safe subset: its only reader is the same writer.
+    """
+    if child_tier == PRIVATE:
+        return True
+    if child_tier == CREW:
+        return parent_tier == WORKSPACE or (
+            parent_tier == CREW and bool(child_crew_id) and child_crew_id == parent_crew_id
+        )
+    return child_tier == WORKSPACE and parent_tier == WORKSPACE
+
+
+def assert_relationship_contains(
+    parent_tier: str,
+    parent_crew_id: int | None,
+    child_tier: str,
+    child_crew_id: int | None,
+) -> None:
+    """Refuse a relationship that would disclose a narrower parent's id."""
+    if not relationship_contains(parent_tier, parent_crew_id, child_tier, child_crew_id):
+        raise ValueError(
+            "a task cannot be visible to more people than its linked work."
+            " Use the same or a narrower visibility."
+        )
+
+
 def is_machine(actor: str) -> bool:
     """Is this actor a job, a webhook, or an agent rather than a person?"""
     if actor in _SYSTEM_ACTORS:

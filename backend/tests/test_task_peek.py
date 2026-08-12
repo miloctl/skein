@@ -71,12 +71,13 @@ def test_a_private_milestone_title_never_rides_a_readable_task(fresh_db):
     """The join is the leak path list_tasks_joined already records: filtered
     only on the task, a private milestone's title travels beside a workspace
     task, inside a panel built to be read."""
-    # written by ava, who can read both. create_task already refuses a
-    # milestone the ACTOR cannot see, so the leak this pins is at READ time:
-    # a workspace task whose parent is private, fetched by somebody else.
+    # Simulate a row written before relationship audience containment shipped.
+    # The read boundary must protect upgraded data as well as new writes.
     ms = work.create_milestone("Layoff planning", actor="ava", visibility="private")
-    task = work.create_task("book the room", milestone_id=ms["id"], actor="ava")
+    task = work.create_task("book the room", actor="ava")
+    fresh_db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (ms["id"], task["id"]))
 
-    got = work.get_task(task["id"], scope.Viewer.for_actor("tester"))
+    got = work.get_task(task["id"], scope.Viewer("tester", True))
     assert got["title"] == "book the room"
+    assert got["milestone_id"] is None
     assert got["milestone_title"] is None

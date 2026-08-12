@@ -43,7 +43,6 @@ from ..services import (
     personas,
     planning,
     playbooks,
-    policy_context,
     portfolio,
     promises,
     provenance,
@@ -1338,7 +1337,13 @@ def post_task(
     ratelimit.check("write", user)
     values = body.model_dump()
     with db.transaction():
-        domain = policy_context.proposed("task", values)
+        domain = work.task_create_policy_context(
+            milestone_id=body.milestone_id,
+            engagement_id=body.engagement_id,
+            visibility=body.visibility,
+            crew_id=body.crew_id,
+            actor=user,
+        )
         enforce_decision(
             decide(
                 request,
@@ -1387,7 +1392,7 @@ def patch_task(
     # while this check is the authoritative decision that cannot race a
     # concurrent project relink.
     with db.transaction():
-        domain = policy_context.for_change("task", task_id, changes)
+        domain = work.task_update_policy_context(task_id, changes, actor=user)
         enforce_decision(
             decide(
                 request,
