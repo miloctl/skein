@@ -578,6 +578,10 @@ Use `ExtensionStore` for a small extension-owned SQLite database. The store
 refuses both core database paths. Its migration stream is namespaced and
 independent from core migration numbers.
 
+Core `0.2.0` supplies `connect`, `execute`, `query`, and `query_one`. The
+`transaction` helper requires core `0.2.1`. A package with a `0.2.0` floor
+must use `connect` when one operation needs an explicit SQLite transaction.
+
 Use namespaced metadata only for sparse annotations with simple validation.
 Use extension-owned tables or an external store for indexed, relational, or
 invariant-rich data. Do not create a general entity-attribute-value store.
@@ -824,6 +828,8 @@ environment. It starts the installed application. It then moves the unchanged
 private package from core `0.2.0` to a compatible `0.2.1` artifact. That
 pair uses different backend source trees. It applies migrations 018 through 020.
 It also runs the documented legacy identity-owner claims before startup.
+The script runs a real Atlas synchronization on both core versions. It checks
+the Atlas source against each compatible public interface with strict mypy.
 `scripts/upgrade-path.sh` separately verifies all additive core migrations
 from the historical base, schema equality, and activity-chain integrity. The
 frontend script creates two host artifacts from distinct source

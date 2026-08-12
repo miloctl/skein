@@ -25,6 +25,7 @@ from app.extensions import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
+    ToolHandlerContext,
     WorkflowActionContext,
     WorkflowActionContribution,
 )
@@ -90,11 +91,12 @@ def atlas_module(
     def metrics(_services: ExtensionRouteServicesDep) -> dict[str, int]:
         return integration.metrics()
 
-    def notify(context: WorkflowActionContext, request: NotifyIn) -> NotifyOut:
+    def notify(context: WorkflowActionContext, request: BaseModel) -> NotifyOut:
+        validated = NotifyIn.model_validate(request)
         try:
             selected_client.notify_manager(
-                request.channel,
-                request.message,
+                validated.channel,
+                validated.message,
                 f"{context.correlation_id}:manager-notification",
             )
         except AtlasUnavailableError as exc:
@@ -104,6 +106,15 @@ def atlas_module(
                 retryable=True,
             ) from exc
         return NotifyOut(accepted=True)
+
+    def sync_tool(context: ToolHandlerContext, _request: BaseModel) -> dict[str, int]:
+        return integration.sync(
+            context.work_items,
+            context.command_context(project_type="standard"),
+        )
+
+    def sync_preview(request: BaseModel) -> dict[str, bool]:
+        return {"full_sync": SyncIn.model_validate(request).full}
 
     return SkeinModule(
         module_id="atlas.workplace",
@@ -201,10 +212,7 @@ def atlas_module(
                 version="1.0.0",
                 model_name="atlas_sync",
                 description="Synchronize work items with the fictional Atlas system.",
-                handler=lambda context, _request: integration.sync(
-                    context.work_items,
-                    context.command_context(project_type="standard"),
-                ),
+                handler=sync_tool,
                 input_schema=SyncIn,
                 output_schema=SyncOut,
                 effect="write",
@@ -213,7 +221,7 @@ def atlas_module(
                 allowed_agents=("atlas.workplace.delivery-specialist",),
                 required_capabilities=("atlas.integration",),
                 timeout_seconds=20,
-                review_preview=lambda request: {"full_sync": request.full},
+                review_preview=sync_preview,
             ),
         ),
         specialists=(

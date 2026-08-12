@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import sqlite3
+from collections.abc import Iterator, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
@@ -150,6 +154,51 @@ class AtlasIntegration:
     def __init__(self, client: AtlasClient, store: ExtensionStore) -> None:
         self.client = client
         self.store = store
+        self._active: ContextVar[sqlite3.Connection | None] = ContextVar(
+            f"atlas_store_{id(self)}",
+            default=None,
+        )
+
+    @contextlib.contextmanager
+    def _transaction(self) -> Iterator[None]:
+        """Use the ExtensionStore connection contract available in core 0.2.0."""
+        active = self._active.get()
+        if active is not None:
+            yield
+            return
+        with contextlib.closing(self.store.connect()) as connection:
+            connection.isolation_level = None
+            connection.execute("BEGIN IMMEDIATE")
+            token = self._active.set(connection)
+            try:
+                yield
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+            finally:
+                self._active.reset(token)
+
+    def _execute(self, sql: str, params: Sequence[Any] = ()) -> int:
+        active = self._active.get()
+        if active is None:
+            return self.store.execute(sql, params)
+        cursor = active.execute(sql, tuple(params))
+        return int(cursor.lastrowid or 0)
+
+    def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        active = self._active.get()
+        if active is None:
+            return self.store.query(sql, params)
+        return [dict(row) for row in active.execute(sql, tuple(params)).fetchall()]
+
+    def _query_one(
+        self,
+        sql: str,
+        params: Sequence[Any] = (),
+    ) -> dict[str, Any] | None:
+        rows = self._query(sql, params)
+        return rows[0] if rows else None
 
     def sync(
         self,
@@ -159,7 +208,7 @@ class AtlasIntegration:
         # The route and scheduled job have separate core receipt namespaces.
         # Serialize their shared business key in the extension-owned store so
         # both entry points cannot create a different task for one Atlas item.
-        with self.store.transaction():
+        with self._transaction():
             result = self._sync_locked(work, context)
         # The core and extension stores cannot share one transaction. Commit
         # the durable core mapping and outbound intent before network I/O.
@@ -175,7 +224,7 @@ class AtlasIntegration:
     ) -> dict[str, int]:
         created = updated = 0
         for item in self.client.list_items():
-            link = self.store.query_one(
+            link = self._query_one(
                 "SELECT skein_task_id FROM work_links WHERE external_id = ?",
                 (item.external_id,),
             )
@@ -183,29 +232,33 @@ class AtlasIntegration:
                 task = work.get_task(int(link["skein_task_id"]), context)
                 if task.title != item.title or task.status != item.status:
                     task = work.update_task(
-                        UpdateTaskCommand(
-                            task_id=task.id,
-                            title=item.title,
-                            status=item.status,
+                        UpdateTaskCommand.model_validate(
+                            {
+                                "task_id": task.id,
+                                "title": item.title,
+                                "status": item.status,
+                            }
                         ),
                         context,
                     )
                     updated += 1
             else:
                 task = work.create_task(
-                    CreateTaskCommand(
-                        title=item.title,
-                        status=item.status,
-                        idempotency_key=f"atlas-item:{item.external_id}",
+                    CreateTaskCommand.model_validate(
+                        {
+                            "title": item.title,
+                            "status": item.status,
+                            "idempotency_key": f"atlas-item:{item.external_id}",
+                        }
                     ),
                     context,
                 )
-                inserted = self.store.execute(
+                inserted = self._execute(
                     "INSERT OR IGNORE INTO work_links"
                     " (external_id, skein_task_id, classification) VALUES (?, ?, ?)",
                     (item.external_id, task.id, item.classification),
                 )
-                stored = self.store.query_one(
+                stored = self._query_one(
                     "SELECT skein_task_id FROM work_links WHERE external_id = ?",
                     (item.external_id,),
                 )
@@ -214,12 +267,12 @@ class AtlasIntegration:
                 if inserted:
                     created += 1
             event_id = f"atlas-status:{item.external_id}:{task.updated_at}:{task.status}"
-            self.store.execute(
+            self._execute(
                 "INSERT OR IGNORE INTO status_outbox"
                 " (event_id, external_id, status, delivered) VALUES (?, ?, ?, 0)",
                 (event_id, item.external_id, task.status),
             )
-        self.store.execute(
+        self._execute(
             "INSERT INTO sync_runs (created_count, updated_count, finished_at)"
             " VALUES (?, ?, datetime('now'))",
             (created, updated),
@@ -227,8 +280,8 @@ class AtlasIntegration:
         return {"created": created, "updated": updated}
 
     def _deliver_pending_statuses(self) -> None:
-        with self.store.transaction():
-            pending = self.store.query(
+        with self._transaction():
+            pending = self._query(
                 "SELECT event_id, external_id, status FROM status_outbox"
                 " WHERE delivered = 0 ORDER BY event_id"
             )
@@ -238,7 +291,7 @@ class AtlasIntegration:
                     str(delivery["status"]),
                     str(delivery["event_id"]),
                 )
-                self.store.execute(
+                self._execute(
                     "UPDATE status_outbox SET delivered = 1 WHERE event_id = ?",
                     (str(delivery["event_id"]),),
                 )
@@ -248,7 +301,7 @@ class AtlasIntegration:
         event: DomainEvent,
         context: EventExecutionContext,
     ) -> None:
-        link = self.store.query_one(
+        link = self._query_one(
             "SELECT external_id FROM work_links WHERE skein_task_id = ?",
             (int(event.resource.id),),
         )
@@ -259,8 +312,8 @@ class AtlasIntegration:
         self.client.update_status(link["external_id"], task.status, context.delivery_id)
 
     def metrics(self) -> dict[str, int]:
-        links = self.store.query_one("SELECT COUNT(*) AS count FROM work_links")
-        runs = self.store.query_one("SELECT COUNT(*) AS count FROM sync_runs")
+        links = self._query_one("SELECT COUNT(*) AS count FROM work_links")
+        runs = self._query_one("SELECT COUNT(*) AS count FROM sync_runs")
         if links is None or runs is None:
             raise RuntimeError("The Atlas extension store is not initialized.")
         return {"linked_items": int(links["count"]), "sync_runs": int(runs["count"])}

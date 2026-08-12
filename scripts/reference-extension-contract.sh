@@ -118,16 +118,22 @@ from app.extensions import (
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
+    PolicySubject,
     SKEIN_CORE_VERSION,
     SkeinModule,
 )
 from app.main import create_app
+from app.public import WorkItems
 from app.services import blockers, crews, engagements, private_notes, review, users, work
 from atlas_skein import AtlasSettings, atlas_module
+from atlas_skein.integration import AtlasItem, MemoryAtlasClient
 
 assert version("skein") == "0.2.0"
 assert SKEIN_CORE_VERSION == "0.2.0"
-module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
+module = atlas_module(
+    AtlasSettings(Path("../atlas-data/atlas.db").resolve()),
+    MemoryAtlasClient((AtlasItem("ATLAS-OLD-CORE", "Old core sync"),)),
+)
 try:
     ExtensionRegistry.build(
         (
@@ -190,6 +196,24 @@ with TestClient(create_app(settings, (module, compatibility))) as client:
     review_id = queued.json()["workflow"]["review_id"]
     Path("../pending-review-id").write_text(str(review_id))
 
+registry = ExtensionRegistry.build((module, compatibility))
+old_context = JobExecutionContext(
+    registry.policy_engine,
+    WorkItems(registry.policy_engine),
+    PolicySubject(
+        "atlas-sync",
+        kind="service",
+        capabilities=("atlas.integration",),
+    ),
+    "old-core-sync",
+    "atlas.workplace.sync",
+)
+assert module.jobs[0].handler(old_context) == {"created": 1, "updated": 0}
+assert module.migrations[0].store.query_one(
+    "SELECT external_id FROM work_links WHERE external_id = ?",
+    ("ATLAS-OLD-CORE",),
+) == {"external_id": "ATLAS-OLD-CORE"}
+
 users.ensure_user("legacy-agent", kind="agent")
 legacy = review.propose_change(
     "task",
@@ -247,6 +271,13 @@ private_notes.add_note("RACE-OWNER", "manager", "private upgrade recovery marker
 assert db.pending_migrations() == []
 PY
 )
+
+MYPYPATH="$tmp/current-source/backend" "$python" -m mypy \
+    --strict \
+    --follow-imports=silent \
+    --no-incremental \
+    "$tmp/extension-source/backend/src/atlas_skein" \
+    "$tmp/extension-source/backend/typecheck_contract.py"
 
 (
     cd "$tmp/run"
@@ -557,7 +588,8 @@ PY
     --follow-imports=silent \
     --no-incremental \
     "$tmp/extension-source/backend/src/atlas_skein" \
-    "$tmp/extension-source/backend/typecheck_contract.py"
+    "$tmp/extension-source/backend/typecheck_contract.py" \
+    "$tmp/extension-source/backend/typecheck_current_contract.py"
 
 (
     cd "$tmp/run"
@@ -618,4 +650,4 @@ def schema(path):
 assert schema(sys.argv[1]) == schema(sys.argv[2]), "fresh and upgraded schemas differ"
 PY
 
-echo "reference-extension-contract: old core rejected; unchanged Atlas package passed distinct 0.2.0 -> 0.2.1 implementations; 0.2.1 declared tool errors passed"
+echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct 0.2.0 -> 0.2.1 implementations; 0.2.1 declared tool errors passed"

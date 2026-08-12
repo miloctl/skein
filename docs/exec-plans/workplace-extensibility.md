@@ -2493,3 +2493,28 @@ Verification before the next exact-commit review:
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed in 25.87 seconds on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy and the 0.2.1 declared-error fixture passed |
+
+## Atlas compatibility-floor verification
+
+The old artifact check loaded Atlas but did not execute its synchronization
+path. That path used the `ExtensionStore.transaction` helper from core `0.2.1`.
+Thus, the package did not support its declared `0.2.0` floor.
+
+Atlas now implements its transaction through the `ExtensionStore.connect`
+contract from core `0.2.0`. It also uses Pydantic validation to construct
+commands across both typed interfaces.
+
+The installed rehearsal now runs a real Atlas job before and after the core
+upgrade. It checks the unchanged Atlas source against both interfaces with
+strict mypy. A separate current-only file checks the additive generic
+contribution types from core `0.2.1`.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused reference, composition, policy, workflow, release, and packaging tests | 257 passed in 23.40 seconds |
+| Complete backend suite | 1,986 passed in 123.56 seconds |
+| Complete static gate | Passed |
+| Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Real sync and strict source checks passed on distinct compatible 0.2.0 and 0.2.1 cores |
