@@ -706,6 +706,49 @@ def test_rest_task_policy_uses_persisted_project_class(fresh_db):
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'must not land'") is None
 
 
+def test_rest_task_policy_does_not_inspect_a_hidden_relationship_before_refusal(fresh_db):
+    from app.services import crews, engagements, scope
+
+    crew_id = crews.create_crew("Hidden delivery", actor="other-person")["id"]
+    hidden = engagements.create_engagement(
+        "Hidden regulated launch",
+        project_class="regulated",
+        actor="other-person",
+        visibility=scope.CREW,
+        crew_id=crew_id,
+    )["id"]
+
+    def deny_regulated_task(request: PolicyInput):
+        if (
+            request.action == "skein.rest.post.tasks"
+            and request.resource.project_type == "regulated"
+        ):
+            return PolicyDecision(PolicyEffect.DENY, ("regulated task creation is paused",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.regulated-task", deny_regulated_task),),
+    )
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "manager"}) as client:
+        hidden_response = client.post(
+            "/api/tasks", json={"title": "must not land", "engagement_id": hidden}
+        )
+        fresh_db.execute("DELETE FROM engagements WHERE id = ?", (hidden,))
+        absent_response = client.post(
+            "/api/tasks", json={"title": "must not land", "engagement_id": hidden}
+        )
+
+    assert hidden_response.status_code == absent_response.status_code == 400
+    assert hidden_response.json() == absent_response.json()
+    assert hidden_response.json()["detail"] == f"no engagement #{hidden}"
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'must not land'") is None
+
+
 def test_rest_policy_loads_domain_context_for_an_existing_resource(fresh_db):
     from app.services import engagements, work
 

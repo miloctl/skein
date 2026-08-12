@@ -414,7 +414,11 @@ def test_crew_engagement_context_overrides_caller_policy_context(fresh_db, calle
                 visibility="crew",
                 crew_id=crew_id,
             ),
-            _context(facade, project_type=caller_project_type),
+            _context(
+                facade,
+                project_type=caller_project_type,
+                subject=PolicySubject("atlas-sync", strong=True),
+            ),
         )
     assert raised.value.code == "REVIEW_REQUIRED"
     assert fresh_db.query_one("SELECT title FROM tasks") is None
@@ -463,7 +467,11 @@ def test_crew_milestone_context_overrides_caller_policy_context(fresh_db, caller
                 visibility="crew",
                 crew_id=crew_id,
             ),
-            _context(facade, project_type=caller_project_type),
+            _context(
+                facade,
+                project_type=caller_project_type,
+                subject=PolicySubject("atlas-sync", strong=True),
+            ),
         )
     assert raised.value.code == "REVIEW_REQUIRED"
     assert fresh_db.query_one("SELECT title FROM tasks") is None
@@ -650,11 +658,9 @@ def test_public_read_does_not_expose_a_hidden_task_relationship(fresh_db, hidden
         visibility="crew",
         crew_id=crew_id,
     )["id"]
-    task = service_work.create_task(
-        "Visible child",
-        actor="other-person",
-        engagement_id=hidden_id,
-    )["id"]
+    task = service_work.create_task("Visible child", actor="other-person")["id"]
+    # Simulate a row created before relationship audience containment shipped.
+    fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (hidden_id, task))
 
     def deny_regulated(request: PolicyInput):
         if request.action == "work.task.read" and request.resource.project_type == "regulated":
@@ -708,11 +714,9 @@ def test_public_read_does_not_expose_a_visible_milestones_hidden_parent(
         project="Hidden engagement",
         actor="atlas-sync",
     )["id"]
-    task = service_work.create_task(
-        "Visible child",
-        actor="atlas-sync",
-        milestone_id=milestone,
-    )["id"]
+    task = service_work.create_task("Visible child", actor="atlas-sync")["id"]
+    # Simulate a legacy row whose visible milestone has a hidden parent.
+    fresh_db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (milestone, task))
     facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
 
     with pytest.raises(PublicError) as raised:
@@ -724,7 +728,7 @@ def test_public_read_does_not_expose_a_visible_milestones_hidden_parent(
     )
 
 
-def test_public_read_uses_the_execution_actor_for_crew_visibility(fresh_db):
+def test_public_machine_read_is_limited_to_workspace_visibility(fresh_db):
     from app.services import crews, engagements
     from app.services import work as service_work
 
@@ -762,10 +766,78 @@ def test_public_read_uses_the_execution_actor_for_crew_visibility(fresh_db):
         actor_kind="agent",
     )
 
-    result = facade.get_task(task, execution.command_context())
+    with pytest.raises(PublicError) as raised:
+        facade.get_task(task, execution.command_context())
 
-    assert result.id == task
-    assert result.engagement_id == engagement
+    assert raised.value.code == "TASK_NOT_FOUND"
+
+
+def test_public_create_and_update_refuse_a_child_broader_than_its_parent(fresh_db):
+    from app.services import engagements, scope
+    from app.services import work as service_work
+
+    private_parent = engagements.create_engagement(
+        "Private delivery", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    human = _context(
+        facade,
+        subject=PolicySubject("mira", strong=True),
+        namespace="atlas.workplace.human-write",
+    )
+
+    with pytest.raises(PublicError) as create_refusal:
+        facade.create_task(
+            CreateTaskCommand(title="Too broad", engagement_id=private_parent), human
+        )
+    assert create_refusal.value.code == "TASK_CREATE_REJECTED"
+
+    task = service_work.create_task("Unlinked", actor="mira")["id"]
+    with pytest.raises(PublicError) as update_refusal:
+        facade.update_task(UpdateTaskCommand(task_id=task, engagement_id=private_parent), human)
+    assert update_refusal.value.code == "TASK_UPDATE_REJECTED"
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task,)) == {
+        "engagement_id": None
+    }
+
+    private_child = facade.create_task(
+        CreateTaskCommand(
+            title="Contained child",
+            engagement_id=private_parent,
+            visibility=scope.PRIVATE,
+        ),
+        human,
+    )
+    assert private_child.engagement_id == private_parent
+
+
+def test_public_machine_cannot_use_its_actor_name_as_a_private_viewer(fresh_db):
+    from app.services import work as service_work
+
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    execution = JobExecutionContext(
+        policy=facade._policy,
+        work_items=facade,
+        subject=PolicySubject("atlas-sync", kind="service"),
+        run_id="private-read",
+        namespace="atlas.workplace.private-read",
+    )
+    _bind_execution_context(
+        facade,
+        execution,
+        subject=execution.subject,
+        namespace=execution.namespace,
+        receipt_namespace="job:atlas.workplace.private-read",
+        correlation_id=execution.run_id,
+    )
+    private_task = service_work.create_task(
+        "Service secret", actor="atlas-sync", visibility="private"
+    )["id"]
+
+    with pytest.raises(PublicError) as raised:
+        facade.get_task(private_task, execution.command_context())
+
+    assert raised.value.code == "TASK_NOT_FOUND"
 
 
 def test_public_read_uses_proved_human_visibility(fresh_db):
