@@ -584,40 +584,6 @@ def test_reference_specialist_tool_is_governed_and_uses_public_work(fresh_db, tm
     assert "correlation=atlas-tool-call-1" in activities[-1]["detail"]
 
 
-def test_reference_tool_translates_adapter_failure_to_its_declared_code(fresh_db, tmp_path):
-    import asyncio
-
-    from app.extensions.tools import ToolCallContext, execute_tool
-
-    class UnavailableAtlas(MemoryAtlasClient):
-        def list_items(self) -> tuple[AtlasItem, ...]:
-            raise AtlasUnavailableError("transport details stay private")
-
-    module = _module(tmp_path, UnavailableAtlas())
-    registry = ExtensionRegistry.build((module,))
-    registry.migrations[0].store.migrate(registry.migrations[0].migrations)
-
-    result = asyncio.run(
-        execute_tool(
-            registry.tools[0],
-            {"full": True},
-            ToolCallContext(
-                PolicySubject(
-                    "mira",
-                    capabilities=("atlas.integration", "atlas.specialist"),
-                ),
-                registry.specialists[0].name,
-            ),
-            registry.policy_engine,
-        )
-    )
-
-    assert result.status == "completion_unknown"
-    assert result.error_code == "ATLAS_UNAVAILABLE"
-    assert result.detail == "The Atlas synchronization service is unavailable."
-    assert "transport details" not in result.detail
-
-
 def test_reference_workflow_translates_adapter_failure_to_its_declared_code(fresh_db, tmp_path):
     from app.public.workflow import WorkflowEngine, _issue_workflow_context
 

@@ -2476,16 +2476,20 @@ Contributed tools now recognize `PublicError` from `app.public`. Skein keeps a
 code only when the tool declares it in `error_codes`. It replaces other codes
 with `tool_error`.
 
-The Atlas tool and workflow action now translate adapter failures to their
-declared safe codes. Their detail does not include private transport text.
-The installed strict-type fixture now constructs the public error type.
+The Atlas workflow action translates adapter failures to its declared safe
+code on every compatible core. Atlas keeps its `0.2.0` floor and does not
+depend on the newer contributed-tool behavior.
+
+An installed `0.2.1` contract fixture verifies declared contributed-tool
+errors. Core `0.2.0` rejects that fixture from its minimum-core metadata. The
+installed strict-type fixture also constructs the public error type.
 
 Verification before the next exact-commit review:
 
 | Verification | Result |
 |---|---|
-| Focused policy, reference, workflow, release, and packaging tests | 170 passed in 20.05 seconds |
-| Complete backend suite | 1,987 passed in 130.32 seconds |
+| Focused policy, reference, workflow, release, and packaging tests | 169 passed in 18.61 seconds |
+| Complete backend suite | 1,986 passed in 120.95 seconds |
 | Complete static gate | Passed |
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
-| Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
+| Installed unchanged-Atlas artifact rehearsal | Passed in 25.87 seconds on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy and the 0.2.1 declared-error fixture passed |

@@ -111,6 +111,8 @@ from fastapi.testclient import TestClient
 from app import db
 from app.extensions import (
     AppSettings,
+    ExtensionRegistry,
+    ExtensionValidationError,
     IdentityContribution,
     JobExecutionContext,
     PolicyContribution,
@@ -126,6 +128,24 @@ from atlas_skein import AtlasSettings, atlas_module
 assert version("skein") == "0.2.0"
 assert SKEIN_CORE_VERSION == "0.2.0"
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
+try:
+    ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="next.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.1",
+                maximum_core_exclusive="0.3.0",
+            ),
+        )
+    )
+except ExtensionValidationError as exc:
+    assert "supports core versions from 0.2.1" in str(exc)
+else:
+    raise AssertionError("core 0.2.0 accepted a package that requires core 0.2.1")
+
+
 def review_playbook(request):
     if request.action == "playbook.create" and request.resource.project_type == "prototype":
         return PolicyDecision(
@@ -270,9 +290,11 @@ import asyncio
 import sys
 
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from app.extensions import (
     AppSettings,
+    ExtensionRegistry,
     IdentityContribution,
     JobExecutionContext,
     PolicyContribution,
@@ -281,11 +303,12 @@ from app.extensions import (
     PolicySubject,
     SKEIN_CORE_VERSION,
     SkeinModule,
+    ToolContribution,
 )
 from app.extensions.tools import ToolCallContext, execute_tool
 from app import db, identity_audit
 from app.main import _job_specs, create_app
-from app.public import CreateTaskCommand, UpdateTaskCommand, WorkItems
+from app.public import CreateTaskCommand, PublicError, UpdateTaskCommand, WorkItems
 from app.public.events import dispatch_events
 from app.services import users
 from app.extensions import EventExecutionContext
@@ -467,6 +490,53 @@ tool_result = asyncio.run(
 )
 assert tool_result.status == "completed"
 
+class FailureIn(BaseModel):
+    marker: str = ""
+
+
+class FailureOut(BaseModel):
+    accepted: bool
+
+
+def declared_failure(_context, _request):
+    raise PublicError("DECLARED_UNAVAILABLE", "The remote service is unavailable.")
+
+
+error_module = SkeinModule(
+    module_id="next.workplace",
+    version="1.0.0",
+    extension_api="1.0",
+    minimum_core="0.2.1",
+    maximum_core_exclusive="0.3.0",
+    tools=(
+        ToolContribution(
+            name="next.workplace.failure-tool",
+            version="1.0.0",
+            model_name="next_workplace_failure",
+            description="Verify the public declared-error contract.",
+            handler=declared_failure,
+            input_schema=FailureIn,
+            output_schema=FailureOut,
+            effect="read",
+            risk="low",
+            policy_action="next.workplace.read",
+            error_codes=("DECLARED_UNAVAILABLE",),
+        ),
+    ),
+)
+error_registry = ExtensionRegistry.build((error_module,))
+error_result = asyncio.run(
+    execute_tool(
+        error_registry.tools[0],
+        {},
+        ToolCallContext(PolicySubject("upgrade-service", kind="service"), ""),
+        error_registry.policy_engine,
+    )
+)
+assert error_result.status == "failed"
+assert error_result.error_code == "DECLARED_UNAVAILABLE"
+assert error_result.detail == "The remote service is unavailable."
+
 specs = _job_specs(registry, settings)
 job = next(item for item in specs if item.name == "atlas.workplace.sync")
 assert "error_code" not in job.fn()
@@ -548,4 +618,4 @@ def schema(path):
 assert schema(sys.argv[1]) == schema(sys.argv[2]), "fresh and upgraded schemas differ"
 PY
 
-echo "reference-extension-contract: old core rejected; unchanged Atlas package passed distinct 0.2.0 -> 0.2.1 implementations"
+echo "reference-extension-contract: old core rejected; unchanged Atlas package passed distinct 0.2.0 -> 0.2.1 implementations; 0.2.1 declared tool errors passed"

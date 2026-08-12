@@ -25,7 +25,6 @@ from app.extensions import (
     SkeinModule,
     SpecialistContribution,
     ToolContribution,
-    ToolHandlerContext,
     WorkflowActionContext,
     WorkflowActionContribution,
 )
@@ -105,21 +104,6 @@ def atlas_module(
                 retryable=True,
             ) from exc
         return NotifyOut(accepted=True)
-
-    def sync_tool(context: ToolHandlerContext, _request: SyncIn) -> SyncOut:
-        try:
-            return SyncOut.model_validate(
-                integration.sync(
-                    context.work_items,
-                    context.command_context(project_type="standard"),
-                )
-            )
-        except AtlasUnavailableError as exc:
-            raise PublicError(
-                "ATLAS_UNAVAILABLE",
-                "The Atlas synchronization service is unavailable.",
-                retryable=True,
-            ) from exc
 
     return SkeinModule(
         module_id="atlas.workplace",
@@ -217,7 +201,10 @@ def atlas_module(
                 version="1.0.0",
                 model_name="atlas_sync",
                 description="Synchronize work items with the fictional Atlas system.",
-                handler=sync_tool,
+                handler=lambda context, _request: integration.sync(
+                    context.work_items,
+                    context.command_context(project_type="standard"),
+                ),
                 input_schema=SyncIn,
                 output_schema=SyncOut,
                 effect="write",
@@ -226,7 +213,6 @@ def atlas_module(
                 allowed_agents=("atlas.workplace.delivery-specialist",),
                 required_capabilities=("atlas.integration",),
                 timeout_seconds=20,
-                error_codes=("ATLAS_UNAVAILABLE",),
                 review_preview=lambda request: {"full_sync": request.full},
             ),
         ),
