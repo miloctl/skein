@@ -37,6 +37,10 @@ identity-owner claims. Run
 `scripts/upgrade-path.sh` to verify the historical base-to-current migrations,
 fresh-schema equality, and activity-chain integrity.
 
+Atlas migration 4 stores a short synchronization claim before a core create.
+This claim prevents route and job retries from creating two tasks for one
+Atlas item when the extension mapping write fails.
+
 ## Verify the frontend package
 
 Run the clean package rehearsal:

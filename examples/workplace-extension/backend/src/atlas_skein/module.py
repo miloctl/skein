@@ -283,6 +283,15 @@ def atlas_module(
                             " status TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0)",
                         ),
                     ),
+                    ExtensionMigration(
+                        4,
+                        "create-sync-claims",
+                        (
+                            "CREATE TABLE sync_claims"
+                            " (external_id TEXT PRIMARY KEY, owner_namespace TEXT NOT NULL,"
+                            " skein_task_id INTEGER)",
+                        ),
+                    ),
                 ),
             ),
         ),

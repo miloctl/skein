@@ -213,6 +213,10 @@ assert module.migrations[0].store.query_one(
     "SELECT external_id FROM work_links WHERE external_id = ?",
     ("ATLAS-OLD-CORE",),
 ) == {"external_id": "ATLAS-OLD-CORE"}
+assert module.migrations[0].store.query_one(
+    "SELECT external_id FROM sync_claims WHERE external_id = ?",
+    ("ATLAS-OLD-CORE",),
+) is None
 
 users.ensure_user("legacy-agent", kind="agent")
 legacy = review.propose_change(
