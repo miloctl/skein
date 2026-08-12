@@ -128,6 +128,16 @@ def post_token(body: TokenIn, request: Request):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except oidc.OIDCError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    from ..services.users import ensure_human_identity
+
+    try:
+        ensure_human_identity(name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
+            " that gives each person one name.",
+        ) from exc
     return {
         "access_token": token,
         "refresh_token": str(payload.get("refresh_token") or ""),

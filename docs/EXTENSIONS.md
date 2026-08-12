@@ -270,7 +270,9 @@ the one documented compatibility exception. It is a synthetic unnamed subject,
 not an authenticated person or an extension-owned machine identity. OIDC,
 personal API keys, bootstrap keys, explicit trusted headers, delegation, and
 authority changes cannot claim it. Signed Slack identities cannot claim it
-either. Only an absent weak identity and old unnamed records use it.
+either. Browser OIDC token exchange refuses it before the UI reports a
+successful sign-in. Only an absent weak identity and old unnamed records use
+it.
 
 ## Use public work commands
 

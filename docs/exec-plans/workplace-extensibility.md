@@ -1421,6 +1421,15 @@ A second exact-commit review found one remaining generic-service bypass:
 human reservation, so its verified username cannot claim a synthetic or core
 machine subject.
 
+The next review found an OIDC browser-flow inconsistency. Token exchange could
+report a successful sign-in for a reserved principal that all later requests
+refused. Token exchange now reserves the validated human identity before it
+returns success and refuses synthetic or machine-owned names.
+
+The extension-author review also found that the new Atlas example used legacy
+two-resolver inference. Atlas now declares its directory resolver as the group
+owner and its profile resolver as profile-only.
+
 Verification for this remediation:
 
 - Focused repair, reservation, and ownership tests: 52 passed.
@@ -1440,7 +1449,8 @@ Verification after the synthetic-identity correction:
   tests: 230
   passed.
 - Reserved-name tests: 16 passed.
-- Full backend suite: 1,807 passed in 110.44 seconds.
+- OIDC sign-in, reference package, and release-contract tests: 40 passed.
+- Full backend suite: 1,812 passed in 118.88 seconds.
 - Complete static gate: passed.
 - Installed backend extension rehearsal: the unchanged Atlas wheel passed
   both installed core artifacts.

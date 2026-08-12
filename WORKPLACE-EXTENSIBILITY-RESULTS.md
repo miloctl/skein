@@ -1420,6 +1420,16 @@ that name only for a human-shaped legacy record. Signed Slack also uses the
 strict human reservation, so its verified username cannot claim a synthetic or
 machine subject.
 
+The next review found that browser OIDC token exchange returned success for a
+reserved principal even though every authenticated API request then refused
+the token. The exchange now reserves the validated human identity before it
+reports success and returns 403 for synthetic or machine-owned names.
+
+The extension-author review also found that Atlas relied on legacy inference
+for its two identity resolvers. The reference package now declares one group
+resolver and one profile-only resolver explicitly, as the extension guide
+requires for new packages.
+
 | Target-integrity remediation command | Result |
 |---|---|
 | Focused repair, reservation, and ownership tests | 52 passed |
@@ -1432,7 +1442,8 @@ machine subject.
 |---|---|
 | Auth, authority, integration, repair, gate, provenance, and golden-trace tests | 230 passed |
 | Reserved-name tests | 16 passed |
-| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,807 passed in 110.44 seconds |
+| OIDC sign-in, reference package, and release-contract tests | 40 passed |
+| `backend/.venv/bin/pytest -q -n auto backend/tests` | 1,812 passed in 118.88 seconds |
 | `./scripts/lint.sh` | All gates passed |
 | `scripts/reference-extension-contract.sh` | Unchanged Atlas wheel passed both installed core artifacts |
 
