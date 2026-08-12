@@ -29,6 +29,7 @@ from app.extensions import (
     SkeinModule,
     SpecialistContribution,
 )
+from app.extensions.registry import validate_machine_identity_ownership
 from app.main import app as default_app
 from app.main import create_app
 
@@ -1072,6 +1073,44 @@ def test_composed_machine_identities_cannot_claim_overlay_persona_or_flock_names
             mcp_server.main()
         assert raised.value.code == 1
         assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (subject,)) is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "subject"),
+    [
+        *(("persona", subject) for subject in ("agent", "anonymous", "ci", "mcp", "system")),
+        *(("flock", subject) for subject in ("agent", "anonymous", "ci", "mcp", "system")),
+    ],
+)
+def test_deployment_content_cannot_claim_core_machine_subjects(
+    fresh_db, tmp_path, monkeypatch, kind, subject
+):
+    from app import config
+    from app.extensions import ExtensionRegistry
+    from app.extensions.core import core_module
+    from app.services import personas
+
+    if kind == "persona":
+        persona_dir = tmp_path / "personas"
+        persona_dir.mkdir()
+        (persona_dir / f"{subject}.md").write_text("Reserved identity overlay.\n")
+        monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    else:
+        flock_dir = tmp_path / "flocks"
+        flock_dir.mkdir()
+        members = sorted(personas.bench_slugs())[:2]
+        (flock_dir / f"{subject}.yaml").write_text(
+            "schema_version: 1\n"
+            f"name: {subject}\n"
+            "description: Reserved identity overlay.\n"
+            f"members:\n  - {members[0]}\n  - {members[1]}\n"
+            "synthesis: false\n"
+        )
+        monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+
+    registry = ExtensionRegistry.build((core_module(),))
+    with pytest.raises(RuntimeError, match=rf"{kind}.*conflicts with core actor"):
+        validate_machine_identity_ownership(registry)
 
 
 def test_dependencies_are_ordered_independently_of_input_order():
