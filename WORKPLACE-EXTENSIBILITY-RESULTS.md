@@ -1970,3 +1970,29 @@ Current verification:
 
 These results do not change the final score. A fresh independent review must
 approve one clean exact commit before Chrome validation starts.
+
+### Engagement close-out transaction remediation
+
+The independent review rejected `709822a` before it issued final scores.
+
+The review found that engagement close-out started after the engagement
+update committed. A concurrent rename could change the notification text
+before the notification transaction started.
+
+The complete engagement update and close-out now use one outer write
+transaction. The decision and note create paths now include their mention
+scans in the same transaction.
+
+A coordinated regression pauses close-out and starts a concurrent engagement
+rename. The rename waits until the close action and notification commit
+together.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused close-out, notification, mention, and visibility tests | 92 passed |
+| Complete backend suite | 1,982 passed in 129.12 seconds |
+
+These results do not change the final score. A fresh independent review must
+approve one clean exact commit before Chrome validation starts.

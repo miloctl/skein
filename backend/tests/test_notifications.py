@@ -329,6 +329,55 @@ def test_ship_notification_is_plain_text(client, fresh_db):
     assert note and "**" in note["content"]  # the note keeps markdown
 
 
+def test_engagement_close_and_notification_share_one_write(fresh_db, monkeypatch):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.services import engagements, notifications, users
+
+    users.ensure_user("mira")
+    engagement = engagements.create_engagement("CLOSE NAME BEFORE", actor="mira")["id"]
+    entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    original_ship = engagements._ship_it
+
+    def coordinated_ship(engagement_id, *, actor, origin="human"):
+        entered.set()
+        assert writer_attempted.wait(5)
+        sleep(0.05)
+        assert not writer_done.is_set()
+        return original_ship(engagement_id, actor=actor, origin=origin)
+
+    monkeypatch.setattr(engagements, "_ship_it", coordinated_ship)
+    monkeypatch.setattr(notifications, "_post_slack", lambda *_args: None)
+
+    def rename() -> None:
+        assert entered.wait(5)
+        writer_attempted.set()
+        engagements.update_engagement(engagement, name="CLOSE NAME AFTER", actor="mira")
+        writer_done.set()
+
+    writer = Thread(target=rename)
+    writer.start()
+    engagements.update_engagement(
+        engagement,
+        status="closed",
+        conclusion="achieved",
+        actor="mira",
+    )
+    writer.join(5)
+
+    assert writer_done.is_set()
+    stored = fresh_db.query_one(
+        "SELECT * FROM notifications WHERE source_entity = 'engagement' AND source_id = ?",
+        (engagement,),
+    )
+    assert stored is not None
+    assert "CLOSE NAME BEFORE" in stored["message"]
+    assert "CLOSE NAME AFTER" not in stored["message"]
+
+
 def test_blocker_resolution_notifies_waiting_task_owner(fresh_db):
     from app.services import blockers, work
 

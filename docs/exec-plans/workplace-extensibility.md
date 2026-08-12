@@ -2303,6 +2303,36 @@ Verification before the replacement exact-commit review:
 | Historical base-to-current upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct compatible 0.2.0 and 0.2.1 cores; strict mypy passed |
 
+### Remediation after the `709822a` review
+
+The independent review rejected `709822a` before it issued final scores.
+
+The task-create path already had the required outer transaction. The review
+found a separate gap in engagement close-out.
+
+An engagement update committed before the close-out notification transaction
+started. A concurrent rename could change the notification text after the
+close action committed.
+
+The complete engagement update and close-out now use one outer write
+transaction. The status change, recap, lesson, notification, and policy
+snapshot use one engagement state.
+
+The follow-up audit found the same create-then-scan pattern for decisions and
+notes. These create paths now include mention scans in their outer write
+transactions.
+
+A coordinated regression pauses close-out and starts a concurrent engagement
+rename. The rename waits until the close action and notification commit
+together.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused close-out, notification, mention, and visibility tests | 92 passed |
+| Complete backend suite | 1,982 passed in 129.12 seconds |
+
 ### Remediation after the `68d5f43` review
 
 The independent review rejected `68d5f43`. It did not issue final scores.

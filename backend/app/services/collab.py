@@ -222,6 +222,35 @@ def record_decision(
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
 ) -> dict:
+    """Create a decision and its mention notices in one transaction."""
+    with db.transaction():
+        return _record_decision_locked(
+            title,
+            decision,
+            context,
+            decided_by,
+            review_by,
+            category,
+            actor=actor,
+            origin=origin,
+            visibility=visibility,
+            crew_id=crew_id,
+        )
+
+
+def _record_decision_locked(
+    title: str,
+    decision: str,
+    context: str = "",
+    decided_by: str = "",
+    review_by: str = "",
+    category: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
+) -> dict:
     if not title.strip() or not decision.strip():
         raise ValueError("decision title and text are required")
     from .users import resolve_teammate
@@ -503,6 +532,29 @@ def list_standups(limit: int = 30, viewer: scope.Viewer = scope.NOBODY) -> list[
 
 
 def save_note(
+    topic: str,
+    content: str,
+    author: str = "",
+    *,
+    actor: str = "",
+    origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
+) -> dict:
+    """Create a note and its mention notices in one transaction."""
+    with db.transaction():
+        return _save_note_locked(
+            topic,
+            content,
+            author,
+            actor=actor,
+            origin=origin,
+            visibility=visibility,
+            crew_id=crew_id,
+        )
+
+
+def _save_note_locked(
     topic: str,
     content: str,
     author: str = "",
