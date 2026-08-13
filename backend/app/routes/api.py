@@ -103,6 +103,7 @@ def _require_opaque_project_policy(
     action: str,
     *,
     unclassified_inputs: bool = True,
+    resource_types: tuple[str, ...] = projection_policy.PROJECT_RESOURCE_TYPES,
 ) -> projection_policy.ProjectionPolicy:
     """Refuse an opaque derivative when it cannot remove a denied input."""
     policy = projection_policy.ProjectionPolicy(
@@ -112,7 +113,7 @@ def _require_opaque_project_policy(
         "rest",
         viewer,
     )
-    if not policy.allows_all_projects() or (
+    if not policy.allows_all_projects(resource_types) or (
         unclassified_inputs and not policy.allows_unclassified()
     ):
         enforce_decision(
@@ -636,7 +637,18 @@ def get_capacity(
     subject: PolicySubjectDep,
 ):
     with db.read_transaction():
-        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.capacity")
+        # Capacity composes allocations against engagements only, and both
+        # are classified rows — no free-form legacy text rides along. Testing
+        # the full type set (and the unclassified gate) hid the whole card
+        # behind a rule about regulated tasks that no capacity row contains.
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.capacity",
+            unclassified_inputs=False,
+            resource_types=("engagement", "allocation"),
+        )
         return engagements.capacity(viewer)
 
 
@@ -1123,8 +1135,9 @@ def get_notifications(
             "rest",
             viewer,
         )
-        return notifications.policy_filter(
-            notifications.list_notifications(user, unread_only),
+        return notifications.list_notifications_filtered(
+            user,
+            unread_only,
             policy.permits,
             allow_unclassified=policy.allows_unclassified(),
             viewer=viewer,
@@ -2893,6 +2906,11 @@ def post_approve_batch(
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
+        except PermissionError as exc:
+            # Per item, never a batch-level 403: earlier ids in this loop have
+            # already committed, so an aborting handler would hide a partial
+            # apply from the caller and skip every id after this one.
+            results.append({"id": cid, "status": "forbidden", "detail": str(exc)})
     return {"results": results}
 
 

@@ -5701,3 +5701,64 @@ def test_stock_composites_filter_or_refuse_denied_projects(fresh_db):
     assert "STOCK REGULATED DELEGATION CANARY" not in inbox
     assert json.loads(what_if)["error"] == "workplace policy denied this composite read"
     assert json.loads(findings)["error"] == "workplace policy denied this composite read"
+
+
+def test_capacity_is_not_denied_by_a_rule_about_types_it_does_not_compose(fresh_db):
+    """allows_all_projects fabricated every resource type for every project,
+    so a rule that denies regulated TASKS hid the allocation-only capacity
+    card even when no capacity row contains a task."""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.services import engagements, users
+
+    def deny_regulated_tasks(request):
+        if request.resource.type == "task" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated tasks are closed.",))
+        return None
+
+    deny_regulated_tasks.skein_policy_actions = ("skein.rest.get.capacity",)
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.tasks", deny_regulated_tasks),),
+    )
+    users.ensure_user("mira")
+    engagements.create_engagement("Regulated build", project_class="regulated")
+    engagements.allocate("mira", 1, 60)
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.get("/api/capacity")
+    assert response.status_code == 200
+
+
+def test_capacity_still_fails_closed_on_a_rule_about_its_own_inputs(fresh_db):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.services import engagements, users
+
+    def deny_regulated_engagements(request):
+        if request.resource.type == "engagement" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated projects are closed.",))
+        return None
+
+    deny_regulated_engagements.skein_policy_actions = ("skein.rest.get.capacity",)
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.projects", deny_regulated_engagements),),
+    )
+    users.ensure_user("mira")
+    engagements.create_engagement("Regulated build", project_class="regulated")
+    engagements.allocate("mira", 1, 60)
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
+        response = client.get("/api/capacity")
+    assert response.status_code == 403

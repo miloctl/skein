@@ -38,6 +38,12 @@ def _name(tool: Any) -> str:
 
 def _resource(arguments: dict[str, Any]) -> PolicyResource:
     for key, value in arguments.items():
+        # A model sends "42" as often as 42, and Strands coerces the string to
+        # int AFTER this policy check runs. Resolving only exact ints let a
+        # numeric string pass as a generic `tool` resource and skip the
+        # task-scoped rules the delegate's write is subject to.
+        if isinstance(value, str) and value.isdecimal():
+            value = int(value)
         if not key.endswith("_id") or not isinstance(value, int) or value <= 0:
             continue
         entity = key.removesuffix("_id")

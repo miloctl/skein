@@ -149,17 +149,55 @@ UNREAD_FOR = (
 )
 
 
-def list_notifications(user: str, unread_only: bool = True) -> list[dict]:
+def list_notifications(
+    user: str, unread_only: bool = True, *, limit: int = 50, offset: int = 0
+) -> list[dict]:
     # 'team' notifications are addressed to everyone — same rule as briefing
     if unread_only:
         return db.query(
             f"SELECT * FROM notifications WHERE {UNREAD_FOR}"  # noqa: S608 — UNREAD_FOR is a module constant with bound marks
-            " ORDER BY id DESC LIMIT 50",
-            (user, user),
+            " ORDER BY id DESC LIMIT ? OFFSET ?",
+            (user, user, limit, offset),
         )
     return db.query(
-        "SELECT * FROM notifications WHERE user IN (?, 'team') ORDER BY id DESC LIMIT 50", (user,)
+        "SELECT * FROM notifications WHERE user IN (?, 'team') ORDER BY id DESC LIMIT ? OFFSET ?",
+        (user, limit, offset),
     )
+
+
+def list_notifications_filtered(
+    user: str,
+    unread_only: bool,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None,
+    *,
+    allow_unclassified: bool,
+    viewer: "scope.Viewer | None" = None,
+    limit: int = 50,
+) -> list[dict]:
+    """List up to `limit` policy-permitted notifications.
+
+    The SQL LIMIT must not run before the policy filter: 50 denied rows at
+    the head of the inbox otherwise hide a permitted row behind them forever.
+    Pages are scanned until the limit fills, bounded at ten pages so a
+    pathological inbox cannot turn one read into a full-table policy walk.
+    """
+    result: list[dict] = []
+    page = 200
+    for step in range(10):
+        rows = list_notifications(user, unread_only, limit=page, offset=step * page)
+        if not rows:
+            break
+        result.extend(
+            policy_filter(
+                rows,
+                resource_filter,
+                allow_unclassified=allow_unclassified,
+                viewer=viewer,
+            )
+        )
+        if len(result) >= limit or len(rows) < page:
+            break
+    return result[:limit]
 
 
 def policy_filter(

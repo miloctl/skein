@@ -54,8 +54,13 @@ class MockAgent:
         yield {"current_tool_use": {"toolUseId": "mock-capture", "name": "capture"}}
         try:
             ratelimit.check("capture", self.user)
-            actor = self.persona or "agent"
-            kind, entity, payload = capture.plan(text, actor=actor)
+            # The gate's authority row keys on the agent identity; the CONTENT
+            # is the human's own words, transcribed verbatim. Attributing the
+            # payload to the agent made Ava's "q: @mira …" arrive as a
+            # question the agent asked, and Mira's notification named the
+            # agent. origin="agent" still records which path wrote it.
+            agent_actor = self.persona or "agent"
+            kind, entity, payload = capture.plan(text, actor=self.user)
             # threadpooled: this generator is iterated on the event loop
             # (chat SSE, the Slack route), and capture writes SQLite plus the
             # search index — inline, the keyless default path was the one
@@ -66,9 +71,9 @@ class MockAgent:
                     entity,
                     "create",
                     payload,
-                    lambda: capture.capture(text, actor=actor, origin="agent"),
+                    lambda: capture.capture(text, actor=self.user, origin="agent"),
                     summary=text[:160],
-                    actor=actor,
+                    actor=agent_actor,
                 )
             else:
                 if self.direct_policy is not None and self.direct_subject is not None:

@@ -621,3 +621,36 @@ def test_a_create_proposal_is_judged_by_the_tier_of_the_row_it_names(fresh_db):
         review.approve_change(workspace, actor="mallory", strong=True, viewer=mal)["status"]
         == "approved"
     )
+
+
+def test_batch_approve_answers_an_unqualified_approver_per_row(client, fresh_db):
+    """A workplace approver requirement raises PermissionError inside the
+    loop. As a batch-level 403 it hid the ids already committed before it and
+    silently skipped every id after it."""
+    from app.services import review
+
+    first = review.propose_change(
+        "note", "create", {"topic": "a", "content": "a"}, actor="planner-agent"
+    )["id"]
+    guarded = review.propose_change(
+        "note",
+        "create",
+        {"topic": "b", "content": "b"},
+        actor="planner-agent",
+        approver_capabilities=("acme.approve",),
+    )["id"]
+    last = review.propose_change(
+        "note", "create", {"topic": "c", "content": "c"}, actor="planner-agent"
+    )["id"]
+
+    r = client.post("/api/review/approve-batch", json={"ids": [first, guarded, last]})
+    assert r.status_code == 200
+    by_id = {row["id"]: row for row in r.json()["results"]}
+    assert by_id[first]["status"] == "approved"
+    assert by_id[guarded]["status"] == "forbidden"
+    assert "approver" in by_id[guarded]["detail"]
+    assert by_id[last]["status"] == "approved"
+    assert (
+        fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (guarded,))["status"]
+        == "pending"
+    )
