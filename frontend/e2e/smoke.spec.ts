@@ -59,6 +59,34 @@ async function pickName(page: Page, key = "") {
   );
 }
 
+test("an anonymous visitor reaches the name gate", async ({ page }) => {
+  const faults = watch(page);
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByRole("heading", { name: "Who are you?" })).toBeVisible();
+  expect(faults, JSON.stringify(faults, null, 2)).toEqual([]);
+});
+
+test("the capture button includes its visible label in its name", async ({
+  page,
+}) => {
+  await pickName(page);
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "+ Capture", exact: true }),
+  ).toBeVisible();
+
+  const scan = await new AxeBuilder({ page })
+    .withRules(["label-content-name-mismatch"])
+    .analyze();
+  expect(
+    scan.violations.map((violation) => ({
+      rule: violation.id,
+      nodes: violation.nodes.map((node) => node.target),
+    })),
+  ).toEqual([]);
+});
+
 for (const { path, name } of PAGES) {
   test(`${name} renders clean and accessible`, async ({ page }) => {
     await pickName(page);

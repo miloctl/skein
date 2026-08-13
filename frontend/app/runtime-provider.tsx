@@ -9,7 +9,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 
-import { API_URL, actionError, api, bearer, getUser } from "@/lib/api";
+import { API_URL, actionError, api, bearer, userHeader } from "@/lib/api";
 import { accessTokenSync, sessionRejected } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
@@ -42,7 +42,7 @@ function makeAdapter(threadId: string): ChatModelAdapter {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-User": getUser(),
+          ...userHeader(),
           ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         },
         body: JSON.stringify({ thread_id: threadId, message: text }),

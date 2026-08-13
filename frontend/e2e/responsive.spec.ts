@@ -52,8 +52,12 @@ async function probe(page: Page) {
     const de = document.documentElement;
     const header = document.querySelector("header");
     const selvage = document.querySelector(".selvage");
-    const navH =
-      parseFloat(getComputedStyle(de).getPropertyValue("--nav-h")) * 16;
+    const navHToken = getComputedStyle(de).getPropertyValue("--nav-h").trim();
+    if (!navHToken)
+      throw new Error(
+        "Skein CSS did not load. Check the production build and asset responses.",
+      );
+    const navH = parseFloat(navHToken) * 16;
     // a deliberate scroll container is not overflow — the nav's own scroller,
     // the review table, the flock diagram. Only their ANCESTORS would be.
     const scrollers = new Set(

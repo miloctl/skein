@@ -570,6 +570,7 @@ export default function Agents() {
                 <option value="agent" />
               </datalist>
               <select
+                name="authority-entity"
                 value={entity}
                 aria-label="Record type (task, decision, note)"
                 onChange={(e) => setEntity(e.target.value)}
@@ -585,6 +586,7 @@ export default function Agents() {
                 ))}
               </select>
               <select
+                name="authority-level"
                 value={level}
                 aria-label="Authority level"
                 onChange={(e) => setLevel(e.target.value)}

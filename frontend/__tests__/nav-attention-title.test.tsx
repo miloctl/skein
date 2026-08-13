@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The attention count in the tab title, and what the nav does while the auth
@@ -131,6 +131,15 @@ describe("the nav under the auth gate", () => {
     act(() => setGated(true));
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     expect(header.hasAttribute("inert")).toBe(true);
+  });
+});
+
+describe("navigation labels", () => {
+  it("uses the visible capture action as its accessible name", () => {
+    render(<Nav />);
+    expect(
+      screen.getByRole("button", { name: /^\+ Capture$/ }),
+    ).toBeTruthy();
   });
 });
 
