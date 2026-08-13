@@ -398,17 +398,23 @@ def _plain(value: Any) -> Any:
     return value
 
 
-_DEFAULT_ENGINE = PolicyEngine()
-_current_engine: ContextVar[PolicyEngine] = ContextVar(
-    "skein_policy_engine", default=_DEFAULT_ENGINE
-)
+_current_engine: ContextVar[PolicyEngine | None] = ContextVar("skein_policy_engine", default=None)
 _current_subject: ContextVar[PolicySubject | None] = ContextVar(
     "skein_policy_subject", default=None
 )
 
 
 def current_policy_engine() -> PolicyEngine:
-    return _current_engine.get()
+    # A core-rules-only fallback here would silently drop every workplace
+    # rule on an entry point that forgot set_policy_engine. Fail closed.
+    engine = _current_engine.get()
+    if engine is None:
+        raise RuntimeError(
+            "No policy engine is installed in this execution context."
+            " Install the composed engine with set_policy_engine before"
+            " dispatching chat, tool, MCP, or agent work."
+        )
+    return engine
 
 
 def set_policy_engine(engine: PolicyEngine) -> Token:

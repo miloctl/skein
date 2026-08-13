@@ -251,6 +251,19 @@ def test_event_subscriptions_outside_the_catalog_are_refused():
         ExtensionRegistry.build((_event_module(schema_versions=(2,)),))
 
 
+def test_tool_dispatch_without_an_installed_engine_fails_closed():
+    """A core-only fallback engine here would silently drop every workplace
+    rule on an entry point that forgets set_policy_engine."""
+    from app.extensions.policy import _current_engine, current_policy_engine
+
+    token = _current_engine.set(None)
+    try:
+        with pytest.raises(RuntimeError, match="No policy engine is installed"):
+            current_policy_engine()
+    finally:
+        _current_engine.reset(token)
+
+
 def test_a_failed_extension_migration_prevents_startup(fresh_db):
     from app.extensions import ExtensionMigration, MigrationContribution
 
