@@ -598,13 +598,16 @@ def test_http_adapter_uses_the_deployment_secret(monkeypatch):
         def read(self):
             return self.payload
 
-    def open_request(request, timeout):
-        calls.append((request, timeout))
-        if request.get_method() == "GET":
-            return Response(b'{"items":[{"external_id":"ATLAS-7","title":"Map"}]}')
-        return Response(b"")
+    class Opener:
+        # The adapter opens through its redirect-refusing opener, never the
+        # module-level urlopen — patching the opener keeps that pinned.
+        def open(self, request, timeout):
+            calls.append((request, timeout))
+            if request.get_method() == "GET":
+                return Response(b'{"items":[{"external_id":"ATLAS-7","title":"Map"}]}')
+            return Response(b"")
 
-    monkeypatch.setattr(integration, "urlopen", open_request)
+    monkeypatch.setattr(integration, "_NO_REDIRECT_OPENER", Opener())
     client = AtlasHttpClient("https://atlas.example.invalid/api", "secret-token", 4)
     assert client.list_items() == (AtlasItem("ATLAS-7", "Map"),)
     client.update_status("ATLAS-7", "done", "event-7")
