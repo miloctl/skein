@@ -408,3 +408,21 @@ def test_stock_tool_review_preserves_crew_scope(fresh_db):
         review.approve_change(review_id, actor="outsider", viewer=outsider)
     with pytest.raises(db.NotFound):
         review.reject_change(review_id, actor="outsider", viewer=outsider)
+
+
+def test_numeric_string_ids_resolve_the_typed_policy_resource(fresh_db):
+    """Strands coerces "42" to 42 AFTER the wrapper's policy check runs. An
+    exact-int test here evaluated the string call as a generic `tool`
+    resource, so the task-scoped rules never saw the task the delegate was
+    about to mutate."""
+    from app.agents.core_tools import _resource
+    from app.services import engagements, work
+
+    engagements.create_engagement("Typed policy", project_class="regulated")
+    task = work.create_task("string id probe", engagement_id=1)
+
+    for task_id in (task["id"], str(task["id"])):
+        resource = _resource({"task_id": task_id})
+        assert resource.type == "task"
+        assert resource.id == str(task["id"])
+        assert resource.project_type == "regulated"

@@ -416,3 +416,34 @@ def test_blocker_resolution_notification_has_one_task_source(fresh_db, monkeypat
         )
         == []
     )
+
+
+def test_denied_rows_cannot_starve_a_permitted_notification(fresh_db):
+    """The SQL LIMIT ran before the policy filter, so 50 denied rows at the
+    head of the inbox returned an empty list while an older permitted
+    notification stayed unreachable behind them."""
+    from app.services import notifications, work
+
+    permitted = work.create_task("the one readable task")
+    notifications.notify(
+        "mira",
+        lambda row: f"Task #{row['id']} needs you",
+        source_entity="task",
+        source_id=permitted["id"],
+    )
+    for n in range(55):
+        task = work.create_task(f"denied source {n}")
+        notifications.notify(
+            "mira",
+            lambda row: f"Task #{row['id']} moved",
+            source_entity="task",
+            source_id=task["id"],
+        )
+
+    rows = notifications.list_notifications_filtered(
+        "mira",
+        True,
+        lambda _entity, entity_id, _attributes: entity_id == permitted["id"],
+        allow_unclassified=False,
+    )
+    assert [row["message"] for row in rows] == [f"Task #{permitted['id']} needs you"]

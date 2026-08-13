@@ -41,12 +41,22 @@ def ci_webhook(
     request: Request,
     subject: PolicySubjectDep,
 ):
+    # Resolve the repository the write will actually target BEFORE policy: a
+    # GitHub Actions payload carries `repository.full_name` beside the generic
+    # `repo` field, and authorizing one while mutating the other lets a caller
+    # pass policy under an allowed name and file against a denied one.
+    mapped = None
+    if body.workflow_run is not None:
+        mapped = ci.parse_github_actions(body.model_dump())
+        if mapped is None:
+            return {"ignored": "not a completed pass/fail workflow_run"}
+    repository = mapped["repo"] if mapped is not None else body.repo
     enforce_decision(
         request.app.state.skein_registry.policy_engine.decide(
             PolicyInput(
                 subject,
                 "skein.integration.ci",
-                PolicyResource("integration", "ci", attributes={"repository": body.repo}),
+                PolicyResource("integration", "ci", attributes={"repository": repository}),
                 "ci",
                 tool="ci.webhook",
                 tool_effect="write",
@@ -54,10 +64,7 @@ def ci_webhook(
             )
         )
     )
-    if body.workflow_run is not None:
-        mapped = ci.parse_github_actions(body.model_dump())
-        if mapped is None:
-            return {"ignored": "not a completed pass/fail workflow_run"}
+    if mapped is not None:
         return ci.ci_event(**mapped, actor=user)
     return ci.ci_event(body.repo, body.branch, body.status, body.run_url, actor=user)
 
@@ -126,35 +133,44 @@ async def forge_webhook(
     # keyed to the integration: keying on the pusher's name would let a
     # signed caller drain a named teammate's REST write budget.
     ratelimit.check("forge", "forge")
-    task_id = forge.match_task(
-        str(mapped.get("branch") or ""),
-        str(mapped.get("title") or ""),
-        str(mapped.get("body") or ""),
-    )
-    if task_id:
+    registry = request.app.state.skein_registry
+
+    def authorized_event() -> dict:
+        from .. import db
         from ..services.policy_context import existing
 
-        domain = existing("task", task_id)
-        registry = request.app.state.skein_registry
-        enforce_decision(
-            registry.policy_engine.decide(
-                PolicyInput(
-                    registry.service_subject("forge"),
-                    "skein.integration.forge",
-                    PolicyResource(
-                        "task",
-                        str(task_id),
-                        str(domain.get("project_type") or ""),
-                        str(domain.get("classification") or ""),
-                        domain,
-                    ),
-                    "forge",
-                    tool="forge.webhook",
-                    tool_effect="write",
-                    tool_risk="high",
-                )
+        # One BEGIN IMMEDIATE holds the task-match, the policy snapshot, and
+        # the mutation. Without it a concurrent relink can move the task into
+        # a denied project between the decision and forge_event's write.
+        with db.transaction():
+            task_id = forge.match_task(
+                str(mapped.get("branch") or ""),
+                str(mapped.get("title") or ""),
+                str(mapped.get("body") or ""),
             )
-        )
+            if task_id:
+                domain = existing("task", task_id)
+                enforce_decision(
+                    registry.policy_engine.decide(
+                        PolicyInput(
+                            registry.service_subject("forge"),
+                            "skein.integration.forge",
+                            PolicyResource(
+                                "task",
+                                str(task_id),
+                                str(domain.get("project_type") or ""),
+                                str(domain.get("classification") or ""),
+                                domain,
+                            ),
+                            "forge",
+                            tool="forge.webhook",
+                            tool_effect="write",
+                            tool_risk="high",
+                        )
+                    )
+                )
+            return forge.forge_event(**mapped, actor="forge")
+
     # threadpooled for the reason the HMAC above is: this is the full service
     # write chain — task moves, activity, notifications, the search index
-    return await run_in_threadpool(forge.forge_event, **mapped, actor="forge")
+    return await run_in_threadpool(authorized_event)

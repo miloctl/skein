@@ -79,12 +79,19 @@ class ProjectionPolicy:
         """Free-form legacy text is safe only when no workplace rule exists."""
         return not self.engine.has_workplace_rules_for(self.action)
 
-    def allows_all_projects(self) -> bool:
-        """Fail an aggregate if one project domain or legacy link is unsafe."""
+    def allows_all_projects(self, resource_types: tuple[str, ...] = PROJECT_RESOURCE_TYPES) -> bool:
+        """Fail an aggregate if one project domain or legacy link is unsafe.
+
+        `resource_types` is the set of types the aggregate actually composes.
+        The full default is fail-closed but over-broad: a rule that denies
+        regulated tasks also hid an allocation-only aggregate behind a
+        synthetic task that no row of the aggregate contains. A caller that
+        names its real inputs is only refused for rules that can reach them.
+        """
         if policy_context.has_visible_relationship_conflict(self.viewer):
             return False
         return all(
             self.permits(resource_type, resource_id, attributes)
             for resource_id, attributes in policy_context.opaque_project_contexts(self.viewer)
-            for resource_type in PROJECT_RESOURCE_TYPES
+            for resource_type in resource_types
         )

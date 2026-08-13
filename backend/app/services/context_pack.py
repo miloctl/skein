@@ -469,12 +469,24 @@ def get_pack(
     digest = last["content_hash"]
     if resource_filter is not None:
         body = build_pack(crew_id, resource_filter, viewer)
-        digest = hashlib.sha256(body.encode()).hexdigest()[:16]
-        content = body.replace(
-            "# Team context pack",
-            f"# Team context pack\n\n*v{last['version']} · policy-filtered · hash {digest}*",
-            1,
-        )
+        if body != build_pack(crew_id, viewer=viewer):
+            # A filtered projection is DIFFERENT content. Returning the stored
+            # version and created_at over it breaks "versions only bump when
+            # content changes": two readers on one version held two bodies,
+            # and a version-keyed cache kept the wrong one. Version 0 is the
+            # same identity the pre-publish filtered read already uses.
+            digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+            return {
+                "version": 0,
+                "hash": digest,
+                "created_at": db.now(),
+                "content": body.replace(
+                    "# Team context pack",
+                    f"# Team context pack\n\n*policy-filtered · hash {digest}*",
+                    1,
+                ),
+                "crew_id": last["crew_id"],
+            }
     return {
         "version": last["version"],
         "hash": digest,
