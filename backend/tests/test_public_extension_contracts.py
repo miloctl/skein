@@ -1781,3 +1781,44 @@ def test_invalid_event_and_migration_contracts_are_rejected(tmp_path):
                 ),
             )
         )
+
+
+def test_a_timed_out_subscriber_cannot_write_after_its_dead_delivery(fresh_db):
+    """The old executor left the subscriber's WorkItems live past the
+    deadline, so the handler created a core task AFTER its delivery was
+    terminally marked COMPLETION_UNKNOWN. The owner-dispatch facade closes
+    at the deadline and the late command must fail."""
+    import threading
+
+    outcome: dict[str, object] = {}
+    finished = threading.Event()
+
+    def late_writer(event, context):
+        time.sleep(0.15)
+        try:
+            context.work_items.create_task(
+                CreateTaskCommand(title="late event write"),
+                context.command_context(),
+            )
+            outcome["late_write"] = "landed"
+        except PublicError as exc:
+            outcome["late_write"] = exc.code
+        finally:
+            finished.set()
+
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    facade.create_task(CreateTaskCommand(title="delivery"), _context(facade))
+    contribution = _event(
+        "atlas.workplace.late",
+        late_writer,
+        ("skein.task.created",),
+        timeout_seconds=0.02,
+    )
+    assert dispatch_events((contribution,), _event_context()) == {
+        "delivered": 0,
+        "failed": 0,
+        "dead": 1,
+    }
+    assert finished.wait(2)
+    assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late event write'") is None

@@ -1832,3 +1832,60 @@ def test_inbound_mcp_policy_and_delegation_write_share_one_transaction(
         "status": "in_progress",
         "engagement_id": regulated,
     }
+
+
+def test_a_timed_out_job_cannot_write_after_its_unknown_completion(fresh_db):
+    """future.cancel() cannot stop a running thread. The old executor left
+    the job's WorkItems live, so the handler wrote a core task AFTER the run
+    was recorded COMPLETION_UNKNOWN. The owner-dispatch facade closes at the
+    deadline and the late command must fail instead."""
+    from app.public import CreateTaskCommand, PublicError
+
+    outcome: dict[str, object] = {}
+    finished = Event()
+
+    def late_writer(context):
+        sleep(0.15)
+        try:
+            context.work_items.create_task(
+                CreateTaskCommand(title="late job write"),
+                context.command_context(),
+            )
+            outcome["late_write"] = "landed"
+        except PublicError as exc:
+            outcome["late_write"] = exc.code
+        finally:
+            finished.set()
+        return {"synced": 1}
+
+    module = _module(
+        jobs=(
+            JobContribution(
+                "acme.workplace.late-sync",
+                late_writer,
+                service_identity="acme-sync",
+                policy_action="acme.sync",
+                effect="write",
+                risk="medium",
+                timeout_seconds=0.02,
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
+    )
+    from app.main import _job_specs
+
+    registry = ExtensionRegistry.build((module,))
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "acme.workplace.late-sync"
+    )
+    assert spec.fn() == {"status": "error", "error_code": "COMPLETION_UNKNOWN"}
+    assert finished.wait(2)
+    assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late job write'") is None

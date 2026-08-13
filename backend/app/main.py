@@ -1,8 +1,6 @@
 import logging
 import sqlite3
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -80,21 +78,6 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             return {"skipped": "this job run is already claimed", "run_id": run_id}
         from .public.work import _bind_execution_context
 
-        execution_context = JobExecutionContext(
-            policy,
-            work_items,
-            subject,
-            run_id,
-            contribution.name,
-        )
-        execution = _bind_execution_context(
-            work_items,
-            execution_context,
-            subject=subject,
-            namespace=contribution.name,
-            receipt_namespace=f"job:{contribution.name}",
-            correlation_id=run_id,
-        )
         if contribution.name == "skein.core.agent-run":
             # This core adapter needs the full trusted composition root. The
             # public JobExecutionContext stays narrow for private jobs, while
@@ -104,11 +87,57 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
 
             return run_agents(actor=subject.name, extensions=registry, policy=policy)
         if contribution.name.startswith("skein.core."):
-            return contribution.handler(execution)
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-extension-job")
-        future = executor.submit(contribution.handler, execution)
+            return contribution.handler(
+                _bind_execution_context(
+                    work_items,
+                    JobExecutionContext(policy, work_items, subject, run_id, contribution.name),
+                    subject=subject,
+                    namespace=contribution.name,
+                    receipt_namespace=f"job:{contribution.name}",
+                    correlation_id=run_id,
+                )
+            )
+        from .public._owner_work import run_bounded_work_handler
+
+        # The owner-dispatch facade revokes the job's WorkItems authority at
+        # the deadline. A bare executor only stopped WAITING: the worker
+        # thread kept a live context and wrote core rows AFTER the run was
+        # recorded COMPLETION_UNKNOWN.
+        def invoke_handler(services: JobExecutionContext, _request: Any) -> Any:
+            return contribution.handler(services)
+
         try:
-            result = future.result(timeout=contribution.timeout_seconds)
+            bounded = run_bounded_work_handler(
+                policy,
+                lambda bound_work_items: _bind_execution_context(
+                    bound_work_items,
+                    JobExecutionContext(
+                        policy,
+                        bound_work_items,
+                        subject,
+                        run_id,
+                        contribution.name,
+                    ),
+                    subject=subject,
+                    namespace=contribution.name,
+                    receipt_namespace=f"job:{contribution.name}",
+                    correlation_id=run_id,
+                ),
+                invoke_handler,
+                None,
+                contribution.timeout_seconds,
+                thread_name="skein-extension-job",
+            )
+            if bounded.timed_out:
+                return {
+                    "status": "error",
+                    "error_code": (
+                        "COMPLETION_UNKNOWN"
+                        if contribution.effect in ("write", "unknown")
+                        else "JOB_TIMEOUT"
+                    ),
+                }
+            result = bounded.value
             if isawaitable(result):
                 close = getattr(result, "close", None)
                 if close is not None:
@@ -124,16 +153,6 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     ),
                 }
             return result
-        except FutureTimeout:
-            future.cancel()
-            return {
-                "status": "error",
-                "error_code": (
-                    "COMPLETION_UNKNOWN"
-                    if contribution.effect in ("write", "unknown")
-                    else "JOB_TIMEOUT"
-                ),
-            }
         except Exception:
             log.exception("extension job failed", extra={"job": contribution.name})
             return {
@@ -144,8 +163,6 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     else "JOB_FAILED"
                 ),
             }
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     specs = []
     for contribution in registry.jobs:
