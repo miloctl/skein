@@ -64,6 +64,18 @@ The script compiles `index.tsx` and packs the unchanged private package. It
 creates Skein frontend host artifacts for core `0.2.0` and `0.2.1`. It installs
 the same Atlas archive into each host and runs two production builds.
 
+`@skein/extension-api` is a peer dependency and is not in
+`devDependencies`. A private repository installs the packed archive before
+the TypeScript build:
+
+```sh
+npm install --save-dev --legacy-peer-deps skein-extension-api-1.0.0.tgz
+```
+
+Use `--save-dev`, not `--no-save`. npm skips a bare archive argument under
+`--no-save`. The `--legacy-peer-deps` flag stops npm from fetching the
+`react` peer. The frontend host build supplies React.
+
 A workplace build can then install the package archive. Do not add Atlas to
 the core `package.json`.
 

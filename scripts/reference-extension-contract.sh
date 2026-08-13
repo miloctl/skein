@@ -16,7 +16,11 @@ mkdir -p \
     "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
     "$tmp/extension" "$tmp/extension-source" "$tmp/run"
 
-prior_backend_tree="$(git rev-parse d611d79c3c2962adcbc09a68b92976d8baf47b4a:backend)"
+# The 0.2.0 fixture is the newest commit whose backend carries the complete
+# trimmed extension API (test surfaces included). Later commits must keep
+# changing backend/, or the guard below stops the rehearsal from comparing
+# one implementation with itself.
+prior_backend_tree="$(git rev-parse 00f71ad61becd1a3ed922d8a861809378fb59925:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
 if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
     echo "reference-extension-contract: backend implementations must differ" >&2
@@ -26,7 +30,7 @@ fi
 git archive d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3 backend | tar -x -C "$tmp/base"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/base-dist" "$tmp/base/backend"
-git archive d611d79c3c2962adcbc09a68b92976d8baf47b4a backend \
+git archive 00f71ad61becd1a3ed922d8a861809378fb59925 backend \
     | tar -x -C "$tmp/current-source"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/current" "$tmp/current-source/backend"
@@ -79,7 +83,7 @@ PY
 
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv pip install --quiet \
-    --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}"
+    --python "$tmp/venv/bin/python" "${current_wheels[0]}" "${extension_wheels[0]}" pytest
 
 # A base-era deployment could have unversioned, open-ended content. Keep the
 # same files in place across both installed core artifacts.
@@ -108,6 +112,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import asyncio
+
 from app import db
 from app.extensions import (
     AppSettings,
@@ -121,9 +127,12 @@ from app.extensions import (
     PolicySubject,
     SKEIN_CORE_VERSION,
     SkeinModule,
+    ToolCallContext,
+    execute_tool,
+    registry_for,
 )
 from app.main import create_app
-from app.public import WorkItems
+from app.public import PublicError, WorkItems
 from app.services import blockers, crews, engagements, private_notes, review, users, work
 from atlas_skein import AtlasSettings, atlas_module
 from atlas_skein.integration import AtlasItem, MemoryAtlasClient
@@ -179,7 +188,8 @@ compatibility = SkeinModule(
     ),
 )
 settings = replace(AppSettings.from_config(), scheduler_enabled=False)
-with TestClient(create_app(settings, (module, compatibility))) as client:
+app = create_app(settings, (module, compatibility))
+with TestClient(app) as client:
     assert client.get("/health").status_code == 200
     playbooks = client.get("/api/playbooks")
     assert playbooks.status_code == 200
@@ -196,6 +206,26 @@ with TestClient(create_app(settings, (module, compatibility))) as client:
     review_id = queued.json()["workflow"]["review_id"]
     Path("../pending-review-id").write_text(str(review_id))
 
+    # The synchronization runs through the governed tool surface. The core
+    # adapter inside execute_tool binds the command authority.
+    registry = registry_for(app)
+    sync = asyncio.run(
+        execute_tool(
+            registry.tool("atlas.workplace.sync-tool"),
+            {},
+            ToolCallContext(
+                registry.service_subject("atlas-sync"),
+                "atlas.workplace.delivery-specialist",
+                origin="background",
+            ),
+            registry.policy_engine,
+        )
+    )
+    assert sync.status == "completed"
+    assert sync.output == {"created": 1, "updated": 0}
+
+# A caller-created execution context cannot mint command authority on this
+# core. The sealed boundary refused the forged sync before any write.
 registry = ExtensionRegistry.build((module, compatibility))
 old_context = JobExecutionContext(
     registry.policy_engine,
@@ -208,7 +238,12 @@ old_context = JobExecutionContext(
     "old-core-sync",
     "atlas.workplace.sync",
 )
-assert module.jobs[0].handler(old_context) == {"created": 1, "updated": 0}
+try:
+    module.jobs[0].handler(old_context)
+except PublicError as exc:
+    assert exc.code == "COMMAND_CONTEXT_REQUIRED"
+else:
+    raise AssertionError("a caller-created job context ran the Atlas sync")
 assert module.migrations[0].store.query_one(
     "SELECT external_id FROM work_links WHERE external_id = ?",
     ("ATLAS-OLD-CORE",),
@@ -276,12 +311,19 @@ assert db.pending_migrations() == []
 PY
 )
 
-MYPYPATH="$tmp/current-source/backend" "$python" -m mypy \
+"$python" -m mypy \
+    --python-executable "$tmp/venv/bin/python" \
     --strict \
     --follow-imports=silent \
     --no-incremental \
     "$tmp/extension-source/backend/src/atlas_skein" \
     "$tmp/extension-source/backend/typecheck_contract.py"
+
+# The reference extension test suite must pass against the installed
+# current-core artifact before the upgrade rehearses the next one.
+SKEIN_DATA_DIR="$tmp/extension-tests-current" \
+    "$tmp/venv/bin/python" -m pytest -q -p no:cacheprovider \
+    "$tmp/extension-source/backend/tests"
 
 (
     cd "$tmp/run"
@@ -683,6 +725,11 @@ PY
     "$tmp/extension-source/backend/src/atlas_skein" \
     "$tmp/extension-source/backend/typecheck_contract.py" \
     "$tmp/extension-source/backend/typecheck_current_contract.py"
+
+# The unchanged extension test suite must also pass on the upgraded core.
+SKEIN_DATA_DIR="$tmp/extension-tests-next" \
+    "$tmp/venv/bin/python" -m pytest -q -p no:cacheprovider \
+    "$tmp/extension-source/backend/tests"
 
 (
     cd "$tmp/run"
