@@ -1938,3 +1938,72 @@ def test_one_dispatch_window_is_claimed_once(fresh_db):
     second = spec.fn()
     assert "skipped" not in first
     assert second == {"skipped": "this dispatch window is already claimed"}
+
+
+def test_the_standalone_mcp_process_composes_the_configured_workplace_modules(
+    fresh_db, monkeypatch, tmp_path
+):
+    """The documented `python -m app.mcp_server` composed core only, so the
+    API process enforced workplace policy while the MCP process silently ran
+    without it. SKEIN_MCP_MODULES names the same composition source the
+    private ASGI root uses."""
+    import sys
+    import types
+
+    from app import mcp_server
+    from app.extensions.policy import current_policy_engine, current_policy_subject
+
+    def deny_mcp_tasks(request):
+        if request.action == "skein.mcp.tasks.read":
+            return PolicyDecision(PolicyEffect.DENY, ("workplace MCP policy",))
+        return None
+
+    composition = types.ModuleType("acme_composition")
+    composition.modules = (
+        SkeinModule(
+            module_id="acme.workplace",
+            version="1.0.0",
+            extension_api="1.0",
+            minimum_core="0.2.0",
+            maximum_core_exclusive="0.3.0",
+            policies=(PolicyContribution("acme.workplace.mcp-policy", deny_mcp_tasks),),
+            identities=(
+                IdentityContribution(
+                    "acme.workplace.mcp-identity",
+                    lambda _name, _groups, _authenticated: {
+                        "roles": ("integration",),
+                        "capabilities": ("acme.mcp",),
+                    },
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "acme_composition", composition)
+    monkeypatch.setenv("SKEIN_MCP_MODULES", "acme_composition")
+    monkeypatch.setattr(mcp_server, "ACTOR", "acme-mcp")
+
+    observed = {}
+
+    def run():
+        subject = current_policy_subject()
+        observed["capabilities"] = subject.capabilities
+        observed["read"] = json.loads(mcp_server.list_tasks())
+        observed["engine_rules"] = current_policy_engine().has_workplace_rules_for(
+            "skein.mcp.tasks.read"
+        )
+
+    monkeypatch.setattr(mcp_server.mcp, "run", run)
+    mcp_server.main()
+
+    assert observed["capabilities"] == ("acme.mcp",)
+    assert observed["engine_rules"] is True
+    assert observed["read"]["policy_effect"] == "deny"
+
+
+def test_a_bad_mcp_composition_target_fails_fast(fresh_db, monkeypatch):
+    from app import mcp_server
+
+    monkeypatch.setenv("SKEIN_MCP_MODULES", "acme_missing_composition")
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: pytest.fail("must not run"))
+    with pytest.raises(SystemExit):
+        mcp_server.main()

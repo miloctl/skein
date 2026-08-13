@@ -97,6 +97,18 @@ For an independent workplace repository, use
 also derive from the `host` stage in `frontend/Dockerfile`. The example
 `deployment/Frontend.Dockerfile` shows the container workflow.
 
+## Compose the MCP process
+
+The standalone MCP server composes the same modules as the ASGI root:
+
+```sh
+SKEIN_MCP_MODULES=atlas_skein.composition SKEIN_MCP_USER=you-mcp \
+  python -m app.mcp_server
+```
+
+`atlas_skein.composition` exports the one `modules` tuple that
+`atlas_skein.app` also uses. Do not maintain two composition lists.
+
 ## Run content validation
 
 ```sh

@@ -561,6 +561,37 @@ def context_pack_resource() -> str:
         )["content"]
 
 
+def _configured_modules() -> tuple[SkeinModule, ...]:
+    """Resolve the workplace composition for the standalone MCP process.
+
+    SKEIN_MCP_MODULES names a module (dotted path) whose `modules` attribute
+    is the same tuple the private ASGI composition root passes to
+    create_app. Without it, the documented `python -m app.mcp_server`
+    composed CORE ONLY: the API process enforced workplace policy while the
+    MCP process silently ran without the workplace rules, identities, and
+    tools — two policy boundaries for one deployment.
+    """
+    from importlib import import_module
+
+    target = os.getenv("SKEIN_MCP_MODULES", "").strip()
+    if not target:
+        return ()
+    try:
+        composition = import_module(target)
+        modules = composition.modules
+    except (ImportError, AttributeError) as exc:
+        import sys
+
+        print(
+            f"skein-mcp: SKEIN_MCP_MODULES={target!r} does not resolve to a"
+            f" module with a `modules` tuple: {exc}. Fix the value, then"
+            " start the server again.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+    return tuple(modules)
+
+
 def main(modules: Sequence[SkeinModule] = ()) -> None:
     # a long-lived side process must never apply schema — that is the API
     # server's job (migrations + startup jobs belong to one owner)
@@ -574,7 +605,9 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
-    registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    registry = ExtensionRegistry.build(
+        (core_module(), *(tuple(modules) or _configured_modules()))
+    )
     from .extensions.registry import validate_machine_identity_ownership
 
     try:
