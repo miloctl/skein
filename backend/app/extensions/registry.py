@@ -532,6 +532,21 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} has an invalid schema version"
             )
+        # Visibility selectors get the same closed-catalog rule as event
+        # types: a typo ('workspaec') matched nothing, and the zero-match
+        # event was finalized as delivered while the handler never ran.
+        from ..services.scope import TIERS
+
+        if not event_contribution.visibilities:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} must select a visibility"
+            )
+        unknown_visibilities = sorted(set(event_contribution.visibilities) - set(TIERS))
+        if unknown_visibilities:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} selects unknown visibilities: "
+                + ", ".join(unknown_visibilities)
+            )
         if not 1 <= event_contribution.max_attempts <= 100:
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} has invalid max_attempts"

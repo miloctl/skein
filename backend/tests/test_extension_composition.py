@@ -1889,3 +1889,52 @@ def test_a_timed_out_job_cannot_write_after_its_unknown_completion(fresh_db):
     assert finished.wait(2)
     assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late job write'") is None
+
+
+def test_event_visibility_selectors_come_from_the_closed_catalog():
+    """A misspelled visibility matched no event, and the zero-match event was
+    finalized as delivered while the handler never ran — the same silent
+    trap the event-type catalog already refuses."""
+    from app.extensions import EventContribution
+
+    for visibilities in ((), ("workspaec",), ("workspace", "everyone")):
+        module = _module(
+            events=(
+                EventContribution(
+                    "acme.workplace.events",
+                    lambda _event, _context: None,
+                    ("skein.task.updated",),
+                    service_identity="acme-sync",
+                    policy_action="acme.deliver",
+                    effect="read",
+                    risk="low",
+                    visibilities=visibilities,
+                ),
+            ),
+            service_identities=(
+                ServiceIdentityContribution(
+                    "acme.workplace.sync-identity",
+                    "acme-sync",
+                ),
+            ),
+        )
+        with pytest.raises(ExtensionValidationError, match="visibilit"):
+            ExtensionRegistry.build((module,))
+
+
+def test_one_dispatch_window_is_claimed_once(fresh_db):
+    """Two workers that both selected the same pending rows invoked one
+    subscriber twice before either wrote its receipt. The job claims its
+    minute window with the same CAS every other job uses."""
+    from app.main import _job_specs
+
+    registry = ExtensionRegistry.build(())
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "extension-events"
+    )
+    first = spec.fn()
+    second = spec.fn()
+    assert "skipped" not in first
+    assert second == {"skipped": "this dispatch window is already claimed"}
