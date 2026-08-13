@@ -41,6 +41,11 @@ export function getUser(): string {
   return window.localStorage.getItem(USER_KEY) ?? "anonymous";
 }
 
+export function userHeader(): Record<string, string> {
+  const user = getUser();
+  return user === "anonymous" ? {} : { "X-User": user };
+}
+
 export function setUser(name: string) {
   window.localStorage.setItem(USER_KEY, name.trim() || "anonymous");
   // storage events don't fire in the writing tab — nudge same-tab
@@ -135,7 +140,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // the credential that earned it
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-User": getUser(),
+    ...userHeader(),
     "X-Client": "web",
     ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
     ...(init?.headers as Record<string, string> | undefined),

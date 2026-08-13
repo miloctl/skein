@@ -76,9 +76,9 @@ describe("the picker never describes a tier it is not sending", () => {
       ),
     );
     // and the label agrees with what would now be sent
-    expect(
-      (screen.getByLabelText("Who can see this task") as HTMLSelectElement).value,
-    ).toBe("workspace");
+    const select = screen.getByLabelText("Who can see this task") as HTMLSelectElement;
+    expect(select.value).toBe("workspace");
+    expect(select.name).toBe("task-visibility");
   });
 
   it("leaves a crew the caller really is in alone", async () => {
