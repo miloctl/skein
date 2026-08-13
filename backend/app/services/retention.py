@@ -90,8 +90,13 @@ def prune(*, actor: str = "scheduler") -> dict:
         "job_outcomes": db.execute_rowcount(
             "DELETE FROM job_outcomes WHERE created_at < ?", (_cutoff(JOB_ROW_DAYS),)
         ),
+        # pending too: zero-composition dispatch leaves rows pending on
+        # purpose (a disabled extension's backlog survives re-enable), so on
+        # the core-only default deployment nothing else ever finalizes them
+        # and the table grew without bound.
         "extension_outbox": db.execute_rowcount(
-            "DELETE FROM extension_outbox WHERE status IN ('delivered', 'dead') AND created_at < ?",
+            "DELETE FROM extension_outbox"
+            " WHERE status IN ('delivered', 'dead', 'pending') AND created_at < ?",
             (_cutoff(EXTENSION_EVENT_DAYS),),
         ),
         # orphans only, never by age: the (entity, entity_id, person) key is

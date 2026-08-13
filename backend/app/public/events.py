@@ -128,14 +128,17 @@ def dispatch_events(
         # composition is core-only. Finalizing here consumed every pending
         # event, so a disable/re-enable cycle silently lost the backlog. Leave
         # the rows for the composition that can deliver them; retention prunes
-        # rows nothing ever claims.
+        # pending rows at the same age as delivered ones (services/retention.py).
         return {"delivered": 0, "failed": 0, "dead": 0}
     rows = db.query(
-        # rowid, not (created_at, event_id): timestamps carry one-second
-        # precision, so same-second events ordered by random UUID delivered a
-        # task's update before its creation. rowid is insertion order inside
-        # the emitting transactions.
-        "SELECT * FROM extension_outbox WHERE status = 'pending' ORDER BY rowid LIMIT ?",
+        # (created_at, rowid), never (created_at, event_id): timestamps carry
+        # one-second precision, and the random UUID tiebreak delivered a
+        # task's update before its creation for same-second pairs. rowid is
+        # insertion order within the second, and the created_at prefix keeps
+        # idx_extension_outbox_delivery in play — a bare ORDER BY rowid was a
+        # full-table scan every minute.
+        "SELECT * FROM extension_outbox WHERE status = 'pending'"
+        " ORDER BY created_at, rowid LIMIT ?",
         (limit,),
     )
     delivered = failed = dead = 0

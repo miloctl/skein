@@ -660,6 +660,36 @@ def _validate_route_operation(
 def _validate_namespace(module: SkeinModule) -> None:
     if module.module_id == "skein.core":
         return
+    # The capability endpoint exempts `skein.`-prefixed actions from its
+    # composed-catalog refusal, because core REST actions are not
+    # contributions. That exemption is safe only while no private module can
+    # DECLARE an operation under the prefix — a frontend naming
+    # `skein.atlas.view` otherwise rendered with no backend at all, through
+    # the engine's human default. Policy RULES are deliberately absent from
+    # this check: inspecting `skein.rest.*` is how a workplace narrows core
+    # operations, and inspection claims nothing.
+    claimed_core_actions = sorted(
+        {
+            action
+            for action in (
+                *(
+                    operation.policy_action
+                    for route in module.routes
+                    for operation in route.operations
+                ),
+                *(job.policy_action for job in module.jobs),
+                *(context.policy_action for context in module.contexts),
+                *(tool.policy_action for tool in module.tools),
+                *(event.policy_action for event in module.events),
+                *(action.policy_action for action in module.workflow_actions),
+            )
+            if action.startswith("skein.")
+        }
+    )
+    if claimed_core_actions:
+        raise ExtensionValidationError(
+            "private module declares core policy actions: " + ", ".join(claimed_core_actions)
+        )
     # These actors identify core-owned activity and policy principals. A
     # private module must not reuse them for a service or specialist.
     claimed_reserved = sorted(

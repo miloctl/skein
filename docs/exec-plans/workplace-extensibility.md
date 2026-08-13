@@ -1,8 +1,9 @@
 # Workplace extensibility execution plan
 
 Status: complete, through the 2026-08-13 post-audit remediation recorded at
-the end of this file. The authoritative final scores live in
-`WORKPLACE-EXTENSIBILITY-RESULTS.md` beside the exact commit they assess.
+the end of this file. The authoritative review record lives in
+`WORKPLACE-EXTENSIBILITY-RESULTS.md` section 20, beside the exact commits
+it assesses.
 
 ## Mission
 
@@ -2622,8 +2623,9 @@ scope.
 An adversarial audit of head `5afa984`
 (`docs/reviews/2026-08-12-extension-boundary-audit.md`) and a fresh
 five-reviewer pass over head `db1903c` found verified defects that the
-`ef9a2d0` review above did not cover. The remediation landed as six commits
-on this branch:
+`ef9a2d0` review above did not cover. The remediation landed as the
+following commits, plus the review-driven fix commits that section 20 of
+the results file records:
 
 1. Policy boundaries: the CI webhook authorizes the repository the write
    targets; the forge webhook holds decision and mutation in one

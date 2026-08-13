@@ -637,3 +637,55 @@ def test_a_task_someone_else_closed_keeps_its_branch_link(signed, fresh_db):
     assert db.query_one("SELECT forge_url FROM tasks WHERE id = ?", (tid,))["forge_url"].endswith(
         f"/src/branch/task/{tid}-x"
     )
+
+
+def test_workplace_policy_denies_a_forge_transition_in_the_write_transaction(fresh_db, monkeypatch):
+    """The forge decision and mutation share one BEGIN IMMEDIATE. This pins
+    the deny half: a workplace rule on the matched task refuses the move and
+    nothing lands."""
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.extensions import (
+        PolicyContribution,
+        PolicyDecision,
+        PolicyEffect,
+        SkeinModule,
+    )
+    from app.main import create_app
+    from app.routes import deps
+    from app.services import work
+
+    monkeypatch.setattr(config, "FORGE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(deps.config, "FORGE_WEBHOOK_SECRET", SECRET)
+    task = work.create_task("forge denied probe")
+
+    def deny_forge(request):
+        if request.action == "skein.integration.forge":
+            return PolicyDecision(PolicyEffect.DENY, ("forge writes are closed",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.forge", deny_forge),),
+    )
+    body = json.dumps(_push(f"task/{task['id']}-probe")).encode()
+    with TestClient(create_app(modules=(module,))) as workplace_client:
+        response = workplace_client.post(
+            "/api/webhooks/forge",
+            content=body,
+            headers={
+                "X-Gitea-Event": "push",
+                "X-Gitea-Signature": hmac.new(SECRET.encode(), body, sha256).hexdigest(),
+                "Content-Type": "application/json",
+            },
+        )
+    assert response.status_code == 403
+    assert (
+        fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (task["id"],))["status"]
+        == "todo"
+    )

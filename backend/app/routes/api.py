@@ -187,6 +187,12 @@ def get_capabilities(
         # human-origin default otherwise answered `permit` for a misspelled
         # frontend action — and for a frontend whose backend module is not
         # installed at all, which is exactly when its UI must stay hidden.
+        # The `skein.` exemption exists because core REST actions are derived
+        # from routes, not contributed; it is safe because composition
+        # refuses a private module that DECLARES an operation under the
+        # prefix, and the frontend registry refuses a `skein.` policyAction
+        # (extensions/registry.py::_validate_namespace, lib/extensions/
+        # registry.ts::registerAction). This endpoint stays presentation-only.
         if action not in catalog and not action.startswith("skein."):
             out[action] = {
                 "effect": "deny",

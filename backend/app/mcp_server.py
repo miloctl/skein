@@ -575,11 +575,22 @@ def _configured_modules() -> tuple[SkeinModule, ...]:
 
     target = os.getenv("SKEIN_MCP_MODULES", "").strip()
     if not target:
+        import sys
+
+        # Loud, because this is the fail-open shape: a workplace deployment
+        # that forgets the variable gets an MCP process without the
+        # workplace policy the API process enforces, and nothing else at
+        # runtime reports the split.
+        print(
+            "skein-mcp: SKEIN_MCP_MODULES is not set — composing core only."
+            " A workplace deployment must set it to its composition module.",
+            file=sys.stderr,
+        )
         return ()
     try:
         composition = import_module(target)
         modules = composition.modules
-    except (ImportError, AttributeError) as exc:
+    except Exception as exc:
         import sys
 
         print(

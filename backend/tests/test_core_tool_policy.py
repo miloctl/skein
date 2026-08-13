@@ -421,8 +421,13 @@ def test_numeric_string_ids_resolve_the_typed_policy_resource(fresh_db):
     engagements.create_engagement("Typed policy", project_class="regulated")
     task = work.create_task("string id probe", engagement_id=1)
 
-    for task_id in (task["id"], str(task["id"])):
+    # Every form pydantic's lax str->int coercion accepts must resolve the
+    # SAME typed resource, or the delegate writes to a task that policy
+    # never saw. isdecimal() missed all but the bare digits.
+    tid = task["id"]
+    nbsp = "\u00a0"
+    for task_id in (tid, str(tid), f" {tid}", f"+{tid}", f"{tid} ", f"{nbsp}{tid}"):
         resource = _resource({"task_id": task_id})
         assert resource.type == "task"
-        assert resource.id == str(task["id"])
+        assert resource.id == str(tid)
         assert resource.project_type == "regulated"

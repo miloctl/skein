@@ -2235,16 +2235,18 @@ The `ef9a2d0` approval above did not cover the seven commits that followed
 it, and an adversarial audit of head `5afa984`
 (`docs/reviews/2026-08-12-extension-boundary-audit.md`) plus a fresh
 five-reviewer pass over head `db1903c` found verified defects behind the
-8+ scores. The remediation landed as six commits; the execution plan's
-"Post-audit remediation (2026-08-13)" section lists each fix beside its
-finding. The largest corrections:
+8+ scores. The remediation landed as the commits the execution plan's
+"Post-audit remediation (2026-08-13)" section groups by area, plus the
+review-driven fix commits recorded below. The largest corrections:
 
 - Event delivery could lose a disabled subscriber's backlog, reorder
   same-second events, and double-invoke a subscriber under two workers.
 - Direct tools, extension jobs, and event subscribers could write core
   rows after their terminal completion_unknown receipt.
 - The documented standalone MCP command composed core only, splitting the
-  policy boundary in two. `SKEIN_MCP_MODULES` closes it.
+  policy boundary in two. `SKEIN_MCP_MODULES` gives the MCP process the
+  same composition source; a deployment must set it, and an unset value
+  now warns on stderr rather than splitting the boundary silently.
 - The capability endpoint permitted actions no composed module registers,
   so a frontend without its backend rendered instead of hiding.
 - The upgrade rehearsal synthesized its 0.2.1 identity with `sed`. Core is
@@ -2256,4 +2258,33 @@ post-remediation review below.
 
 ### Post-remediation independent review
 
-Recorded after the fresh reviewer pass over the final remediation commit.
+Three independent reviewers assessed remediation head `d165f0f`
+(2026-08-13). None found the six remediation commits decorative; all three
+found real residual defects, which landed as one further fix commit the
+same day.
+
+| Reviewer | Verdict at `d165f0f` | Largest findings |
+|---|---|---|
+| Reliability | Reject with conditions | Pending outbox rows grew without bound on the core-only default; `ORDER BY rowid` was a full-table scan every minute; a lost dispatch-window claim recorded `ok` and masked health on two workers |
+| Security | Reject, two blockers | The filtered context pack could return the stored snapshot containing a denied row that had left the live build; `isdecimal()` was narrower than pydantic's string coercion, so ` 42` still bypassed task-scoped policy |
+| Adversarial audit | Reject (6.5 / 6.5 / 7.0) | `skein.`-prefixed capability actions bypassed the catalog; the documented 64-action bound hit the backend's 2,000-character query bound first and hid the whole UI; `package-frontend-host.sh` stamped a version the tree does not claim |
+
+Every verified finding above is fixed in the follow-up commit: retention
+prunes pending outbox rows, dispatch orders by `(created_at, rowid)` on
+the delivery index, a lost claim records no outcome, the filtered pack
+compares against the stored body, `_resource` coerces as widely as the
+delegate's validator, the CI payload re-validates through its model,
+private modules cannot declare `skein.`-prefixed operations and frontend
+policy actions cannot name them, hrefs are checked by URL origin, the
+frontend bounds its encoded capability query, the host packager refuses a
+version its source tree does not claim, and an unset `SKEIN_MCP_MODULES`
+warns on stderr. Each fix carries a regression test that fails on the
+unfixed code. Design-scale residuals (durable per-subscriber event
+targets with leases, extension route grant lifecycle, a field-guide
+contribution slot) are recorded in `docs/ROADMAP.md`, not silently
+dropped.
+
+The full gate after the fixes: complete backend and frontend suites,
+`./scripts/lint.sh`, the production build, both artifact contracts, and
+the historical upgrade path all pass. The exact reviewed commits are in
+`git log`; the branch head containing this paragraph is the fix commit.
