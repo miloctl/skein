@@ -42,11 +42,14 @@ for i in range(3):
 direct = engagements.create_engagement("Upgrade direct", project_class="standard")["id"]
 engagements.create_engagement("Upgrade milestone", project_class="regulated")
 milestone = work.create_milestone("Upgrade gate", project="Upgrade milestone")["id"]
-work.create_task(
-    "Upgrade relationship conflict",
-    engagement_id=direct,
-    milestone_id=milestone,
-)
+task = work.create_task("Upgrade relationship conflict", engagement_id=direct)
+# The legacy row this check exists for: a task whose milestone and
+# engagement disagree. Services refuse that combination since the
+# relationship guard shipped, so passing it to create_task only worked
+# while the baseline predated the guard — once a release carrying the
+# guard becomes the baseline, the seed itself raises. A deployed database
+# still holds such rows, so write the row the way that deployment has it.
+db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (milestone, task["id"]))
 PY
 
 # 2. HEAD boots it — the upgrade a deployment performs
