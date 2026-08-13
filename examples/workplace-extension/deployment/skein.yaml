@@ -18,7 +18,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: skein
-          image: skein:0.2.0
+          image: skein:0.2.1
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -87,7 +87,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: frontend
-          image: skein-frontend:0.2.0
+          image: skein-frontend:0.2.1
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

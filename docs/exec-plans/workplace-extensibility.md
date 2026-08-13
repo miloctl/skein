@@ -1,6 +1,8 @@
 # Workplace extensibility execution plan
 
-Status: active
+Status: complete, through the 2026-08-13 post-audit remediation recorded at
+the end of this file. The authoritative final scores live in
+`WORKPLACE-EXTENSIBILITY-RESULTS.md` beside the exact commit they assess.
 
 ## Mission
 
@@ -2614,3 +2616,45 @@ no console, page, or failed-request faults.
 
 The workplace extensibility execution plan is complete for its documented
 scope.
+
+## Post-audit remediation (2026-08-13)
+
+An adversarial audit of head `5afa984`
+(`docs/reviews/2026-08-12-extension-boundary-audit.md`) and a fresh
+five-reviewer pass over head `db1903c` found verified defects that the
+`ef9a2d0` review above did not cover. The remediation landed as six commits
+on this branch:
+
+1. Policy boundaries: the CI webhook authorizes the repository the write
+   targets; the forge webhook holds decision and mutation in one
+   transaction; stock tool policy resolves numeric string IDs; the
+   notification list filters before it limits; batch approval answers an
+   unqualified approver per row; keyless captures carry their human author;
+   a policy-filtered context pack never reuses the stored version; opaque
+   aggregates can name their real input types (`/api/capacity` does).
+2. Execution deadlines: direct governed tools, extension jobs, and event
+   subscribers run through the owner-dispatch facade, so a timed-out
+   handler's late `WorkItems` command fails with `EXECUTION_CONTEXT_CLOSED`
+   instead of writing after the terminal receipt.
+3. Event delivery: insertion-order dispatch, zero-composition backlog
+   preservation, closed-catalog visibility validation, a single-flight
+   minute-window claim, `partial` job status over failed or dead
+   deliveries, and no pre-readiness backlog drain.
+4. MCP composition: `SKEIN_MCP_MODULES` gives the standalone MCP process
+   the same workplace composition as the ASGI root;
+   `atlas_skein.composition` is the one shared source.
+5. Frontend boundary: unregistered capability actions fail closed; requests
+   and registries are bounded at 64 actions; full runtime manifest
+   validation; generated Tailwind `@source` entries with a contract canary;
+   `NEXT_PUBLIC_API_TOKEN` in the derivative image; ordinary dependency
+   resolution for the private wheel; `prepack` recompiles dist; the Atlas
+   client requires HTTPS for bearer traffic and refuses redirects.
+6. Version truth: core is 0.2.1 in its committed metadata, and the upgrade
+   rehearsal compares the committed 0.2.0 tree (`00f71ad`) with real HEAD —
+   the `sed` version synthesis is gone.
+
+Two audit findings are deferred to `docs/ROADMAP.md` with their reasons:
+durable per-subscriber event targets, and a field-guide contribution slot.
+Real release tags remain outstanding until the first deploy, so
+`scripts/upgrade-path.sh` still reports that nothing is deployed to upgrade
+from.

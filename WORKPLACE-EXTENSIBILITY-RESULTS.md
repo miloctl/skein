@@ -44,6 +44,11 @@ Execution plan: `docs/exec-plans/workplace-extensibility.md`
 | Workplace extensibility | 3/10 | 8.3/10 | A separate Atlas package exercises backend, agent, approval, data, workflow, content, frontend, and deployment extensions. Public commands and UI slots do not yet cover every core entity or screen. |
 | Upgradeability without forking | 4/10 | 8.2/10 | Backend and frontend manifests declare honest compatibility ranges. Installed wheels, installed startup, two compatible core artifacts, and packed frontend packages pass contract tests. Production release history does not exist yet. |
 
+These scores assess commit `ef9a2d0` and DID NOT carry to the later heads.
+The 2026-08-13 audit and reviewer pass found verified defects in the
+commits that followed that review; section 20 records the remediation and
+the fresh post-remediation review that replaces this table's evidence.
+
 Verdict: **Extendable with limitations**.
 
 Skein can now support a private workplace repository without editing core for
@@ -2223,3 +2228,32 @@ SQLite serializes writers, public commands are task-focused, frontend version
 1 supports navigation and dashboard cards, and workflows are intentionally
 bounded. Production use across several releases is still needed for a score
 of 9 or higher.
+
+## 20. Post-approval audit and remediation (2026-08-13)
+
+The `ef9a2d0` approval above did not cover the seven commits that followed
+it, and an adversarial audit of head `5afa984`
+(`docs/reviews/2026-08-12-extension-boundary-audit.md`) plus a fresh
+five-reviewer pass over head `db1903c` found verified defects behind the
+8+ scores. The remediation landed as six commits; the execution plan's
+"Post-audit remediation (2026-08-13)" section lists each fix beside its
+finding. The largest corrections:
+
+- Event delivery could lose a disabled subscriber's backlog, reorder
+  same-second events, and double-invoke a subscriber under two workers.
+- Direct tools, extension jobs, and event subscribers could write core
+  rows after their terminal completion_unknown receipt.
+- The documented standalone MCP command composed core only, splitting the
+  policy boundary in two. `SKEIN_MCP_MODULES` closes it.
+- The capability endpoint permitted actions no composed module registers,
+  so a frontend without its backend rendered instead of hiding.
+- The upgrade rehearsal synthesized its 0.2.1 identity with `sed`. Core is
+  now 0.2.1 in committed metadata and the rehearsal compares two real
+  trees with two real committed version identities.
+
+The scores in section 1 must not be quoted for any commit before the
+post-remediation review below.
+
+### Post-remediation independent review
+
+Recorded after the fresh reviewer pass over the final remediation commit.

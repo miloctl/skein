@@ -16,10 +16,12 @@ mkdir -p \
     "$tmp/base" "$tmp/current" "$tmp/current-source" "$tmp/next" \
     "$tmp/extension" "$tmp/extension-source" "$tmp/run"
 
-# The 0.2.0 fixture is the newest commit whose backend carries the complete
-# trimmed extension API (test surfaces included). Later commits must keep
-# changing backend/, or the guard below stops the rehearsal from comparing
-# one implementation with itself.
+# The 0.2.0 fixture is the newest commit whose backend both claims version
+# 0.2.0 and carries the complete trimmed extension API (test surfaces
+# included). HEAD claims 0.2.1 in its own committed metadata — the pair is
+# two real version identities from two real trees, with no rewriting. The
+# guard stops the rehearsal from ever comparing one implementation with
+# itself.
 prior_backend_tree="$(git rev-parse 00f71ad61becd1a3ed922d8a861809378fb59925:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
 if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
@@ -42,7 +44,10 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
 mkdir -p "$tmp/core-next"
 tar --exclude=.venv --exclude=build --exclude='*.egg-info' -cf - -C backend . \
     | tar -xf - -C "$tmp/core-next"
-sed -i 's/version = "0.2.0"/version = "0.2.1"/' "$tmp/core-next/pyproject.toml"
+grep -q 'version = "0.2.1"' "$tmp/core-next/pyproject.toml" || {
+    echo "reference-extension-contract: HEAD must claim core 0.2.1" >&2
+    exit 1
+}
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/next" "$tmp/core-next"
 

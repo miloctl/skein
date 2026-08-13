@@ -1,4 +1,4 @@
-ARG SKEIN_FRONTEND_HOST=skein-frontend-host:0.2.0
+ARG SKEIN_FRONTEND_HOST=skein-frontend-host:0.2.1
 FROM ${SKEIN_FRONTEND_HOST} AS build
 
 USER root

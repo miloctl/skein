@@ -17,10 +17,10 @@ uv build --wheel --out-dir examples/workplace-extension/dist \
 npm pack --pack-destination examples/workplace-extension/dist \
   examples/workplace-extension/frontend
 docker build -f examples/workplace-extension/deployment/Dockerfile \
-  --build-arg SKEIN_IMAGE=skein:0.2.0 \
+  --build-arg SKEIN_IMAGE=skein:0.2.1 \
   -t atlas-skein:1.0.0 examples/workplace-extension
 docker build -f examples/workplace-extension/deployment/Frontend.Dockerfile \
-  --build-arg SKEIN_FRONTEND_HOST=skein-frontend-host:0.2.0 \
+  --build-arg SKEIN_FRONTEND_HOST=skein-frontend-host:0.2.1 \
   -t atlas-skein-frontend:1.0.0 examples/workplace-extension
 ```
 

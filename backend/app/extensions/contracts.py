@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 try:
     SKEIN_CORE_VERSION = package_version("skein")
 except PackageNotFoundError:
-    SKEIN_CORE_VERSION = "0.2.0"
+    SKEIN_CORE_VERSION = "0.2.1"
 EXTENSION_API_VERSION = "1.0"
 
 
