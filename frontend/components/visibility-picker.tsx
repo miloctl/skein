@@ -98,6 +98,7 @@ export function VisibilityPicker({
     <label className="flex min-w-0 items-center gap-1.5 text-xs text-ink-3">
       <span>Visible to</span>
       <select
+        name={`${label}-visibility`}
         aria-label={`Who can see this ${label}`}
         value={
           value.visibility === "crew"

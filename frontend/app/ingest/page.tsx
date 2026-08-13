@@ -67,6 +67,7 @@ export default function IngestPage() {
       </p>
 
       <textarea
+        name="meeting-notes"
         value={text}
         onChange={(e) => setText(e.target.value)}
         // placeholder is not a label: it vanishes on the first keystroke and
