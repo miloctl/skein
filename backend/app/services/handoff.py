@@ -50,11 +50,16 @@ def generate_handoff(
         " ORDER BY due_date IS NULL, due_date",
         (engagement_id, *mp),
     )
-    tasks = db.query(
-        f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-        " AND t.status != 'done'",
-        (*tp, engagement_id, engagement_id),
+    from .work import redact_task_relationships
+
+    tasks = redact_task_relationships(
+        db.query(
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done'",
+            (*tp, engagement_id, engagement_id),
+        ),
+        viewer,
     )
     from .portfolio import _linked_blockers
 

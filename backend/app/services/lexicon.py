@@ -19,6 +19,19 @@ hash-chained ledger and those rows can never be rewritten (CLAUDE.md), so
 nothing here may be fed back into a stored string.
 """
 
+# Review records for extension executions use these fixed pseudo-entities.
+# They are not part of the legacy authority registry, but they still reach
+# the same human approval interface and therefore need stable labels.
+REVIEW_ONLY = frozenset(
+    {
+        ("extension_tool", "create"),
+        ("extension_mcp_tool", "create"),
+        ("extension_core_tool", "create"),
+        ("extension_workflow", "create"),
+    }
+)
+
+
 # (entity, action) -> imperative phrase. Verb first, always.
 CAPABILITY: dict[tuple[str, str], str] = {
     ("absence", "create"): "add time away for a teammate",
@@ -33,6 +46,10 @@ CAPABILITY: dict[tuple[str, str], str] = {
     ("engagement", "update"): "change an engagement",
     ("event", "create"): "put an event on the calendar",
     ("event_cancel", "update"): "delete an event from the calendar",
+    ("extension_tool", "create"): "run a governed extension tool",
+    ("extension_mcp_tool", "create"): "run a governed remote tool",
+    ("extension_core_tool", "create"): "run a governed stock tool",
+    ("extension_workflow", "create"): "continue a workplace workflow",
     ("intake", "create"): "file an intake request",
     ("intake_edit", "update"): "change an intake request",
     ("lesson", "create"): "record a lesson",

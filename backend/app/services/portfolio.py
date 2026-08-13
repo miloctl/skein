@@ -2,6 +2,7 @@
 slip forecasting, what-if intake, and the exec readout. All deterministic SQL
 over data the team already records — receipts shown for every verdict."""
 
+from collections.abc import Callable
 from datetime import date, timedelta
 
 from .. import db
@@ -113,17 +114,27 @@ def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     # second of which writes its body to an artifact file on disk.
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
-    return db.query(
+    rows = db.query(
         f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" WHERE {bfrag}"
         " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND b.status != 'resolved'",
         (*tp, *bp, engagement_id, engagement_id),
     )
+    from . import blockers
+
+    contexts = blockers.blocker_collection_policy_contexts(rows, viewer)
+    return [
+        row for row in rows if not contexts.get(int(row["id"]), {}).get("relationship_conflict")
+    ]
 
 
 def engagement_health(
-    viewer: scope.Viewer = scope.NOBODY, *, name_assignees: bool = True
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    name_assignees: bool = True,
+    project_filter: Callable[[str], bool] | None = None,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> list[dict]:
     """R/Y/G per non-closed engagement, each signal listed as a receipt.
 
@@ -145,6 +156,12 @@ def engagement_health(
         f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks
         tuple(vp),
     )
+    if project_filter is not None:
+        engagements = [
+            engagement
+            for engagement in engagements
+            if project_filter(str(engagement.get("project_class") or ""))
+        ]
     # Four batched scans grouped in Python, not per-engagement queries: at
     # ~6 queries per engagement plus one per waiting task, a growing
     # portfolio multiplies /portfolio and exec-readout latency.
@@ -156,37 +173,56 @@ def engagement_health(
     # not WORKSPACE_ONLY: a receipt quotes the row's own title, and the exec
     # readout reaches here with NOBODY, which is the workspace tier anyway
     mfrag, mp = scope.visible_filter(viewer, "milestones")
-    for m in db.query(
+    from . import policy_context
+
+    overdue_rows = db.query(
         f"SELECT id, title, due_date, engagement_id FROM milestones WHERE {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
         " AND status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
         (*mp, today),
+    )
+    for m in policy_context.filter_resource_rows(
+        "milestone", overdue_rows, viewer, resource_filter
     ):
         overdue_by.setdefault(m["engagement_id"], []).append(m)
     blockers_by: dict[int, list[dict]] = {}
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
-    for b in db.query(
+    blocker_rows = db.query(
         "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
         " LEFT JOIN milestones m ON m.id = t.milestone_id"
         f" WHERE b.status != 'resolved' AND {bfrag} ORDER BY b.id",
         (*tp, *bp),
-    ):
+    )
+    from . import blockers
+
+    blocker_contexts = blockers.blocker_collection_policy_contexts(blocker_rows, viewer)
+    blocker_rows = policy_context.filter_resource_rows(
+        "blocker", blocker_rows, viewer, resource_filter
+    )
+    for b in blocker_rows:
+        if blocker_contexts.get(int(b["id"]), {}).get("relationship_conflict"):
+            continue
         for eng_id in {b.pop("t_eng"), b.pop("m_eng")} - {None}:
             blockers_by.setdefault(eng_id, []).append(b)
     stale_by: dict[int, list[dict]] = {}
     waits_by: dict[int, list[dict]] = {}
     last_by: dict[int, str] = {}
     open_by: dict[int, int] = {}
+    from .work import consistent_task_rows, redact_task_relationships
+
     all_waits: list[dict] = []
-    for t in db.query(
+    task_rows = db.query(
         "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"  # noqa: S608 — scope.visible_filter emits only bound marks
         " t.waiting_on_type, t.waiting_on_id,"
         " t.engagement_id AS t_eng, m.engagement_id AS m_eng"
         " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
         f" WHERE {tfrag} ORDER BY t.id",
         tuple(tp),
-    ):
+    )
+    task_rows = consistent_task_rows(task_rows, viewer)
+    task_rows = policy_context.filter_resource_rows("task", task_rows, viewer, resource_filter)
+    for t in redact_task_relationships(task_rows, viewer, resource_filter):
         engs = {t["t_eng"], t["m_eng"]} - {None}
         if not engs:
             continue

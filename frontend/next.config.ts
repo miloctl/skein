@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   // resolution and file watching to that parent. Pinning the root keeps both
   // fixed to this directory no matter what sits above it.
   turbopack: { root: __dirname },
+  transpilePackages: ["@skein/extension-api"],
   // standalone is the minimal server bundle the Docker image copies out of
   // .next/standalone — and `next start` refuses to serve it, warning on every
   // boot. Only the e2e build sets NEXT_DIST_DIR, and it is the only build that

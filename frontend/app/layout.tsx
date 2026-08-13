@@ -15,6 +15,7 @@ import { Nav } from "@/components/nav";
 import { StatusRegion } from "@/components/status-region";
 import { TaskPeek } from "@/components/task-peek";
 import { ThemeSync } from "@/components/theme-sync";
+import { ExtensionProvider } from "@/lib/extensions/context";
 import { themeBootScript } from "@/lib/theme-boot";
 
 const geistSans = Geist({
@@ -110,27 +111,29 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeBootScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <ThemeSync />
-        {/* one live region for the whole app — every surface reports through
-            lib/status.ts rather than calling window.alert() */}
-        <StatusRegion />
-        {/* every header control precedes the page content — a keyboard user
-            tabs through all of them on every page without a bypass */}
-        <a
-          href="#content"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:border focus:border-line-strong focus:bg-card focus:px-3 focus:py-2 focus:text-sm"
-        >
-          Skip to content
-        </a>
-        <Nav />
-        <CapturePalette />
-        {/* locked deployments (oidc, api-key): until an identity exists the
-            gate renders instead of the page — see components/auth-gate.tsx */}
-        <AuthGate>{children}</AuthGate>
-        {/* mounted once for the whole app: any surface that names a task can
-            link to ?task=<id>, and the panel opens over whatever page the
-            reader was already on instead of navigating them away from it */}
-        <TaskPeek />
+        <ExtensionProvider>
+          <ThemeSync />
+          {/* one live region for the whole app — every surface reports through
+              lib/status.ts rather than calling window.alert() */}
+          <StatusRegion />
+          {/* every header control precedes the page content — a keyboard user
+              tabs through all of them on every page without a bypass */}
+          <a
+            href="#content"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:border focus:border-line-strong focus:bg-card focus:px-3 focus:py-2 focus:text-sm"
+          >
+            Skip to content
+          </a>
+          <Nav />
+          <CapturePalette />
+          {/* locked deployments (oidc, api-key): until an identity exists the
+              gate renders instead of the page — see components/auth-gate.tsx */}
+          <AuthGate>{children}</AuthGate>
+          {/* mounted once for the whole app: any surface that names a task can
+              link to ?task=<id>, and the panel opens over whatever page the
+              reader was already on instead of navigating them away from it */}
+          <TaskPeek />
+        </ExtensionProvider>
       </body>
     </html>
   );

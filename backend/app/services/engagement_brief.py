@@ -16,6 +16,8 @@ cannot drift about what an engagement is — both read the same services.
 Composition only. No table, no write path. Every number here keeps its own home.
 """
 
+from collections.abc import Callable
+
 from . import refs, scope
 
 # How many open tasks the brief lists. The page STATES this cap: a list that
@@ -30,7 +32,11 @@ TASK_CAP = 50
 QUEUE_SCAN = 50
 
 
-def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def brief(
+    engagement_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict:
     """Everything about one engagement a person needs before they act.
 
     Viewer-scoped at every read, and the engagement itself is fetched through
@@ -39,10 +45,12 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     engagements exist (services/scope.py::Viewer).
     """
     from .. import db
+    from . import policy_context
     from .handoff import list_artifacts
     from .intervention import interventions
     from .playbooks import close_out_diff
     from .portfolio import _linked_blockers, engagement_health, health_changes
+    from .work import consistent_task_rows, redact_task_relationships
 
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
@@ -56,7 +64,11 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # reads, filtered to this engagement — a second computation here would be
     # a second definition of red
     health = next(
-        (h for h in engagement_health(viewer) if h["id"] == engagement_id),
+        (
+            h
+            for h in engagement_health(viewer, resource_filter=resource_filter)
+            if h["id"] == engagement_id
+        ),
         None,
     )
     moved = next(
@@ -73,21 +85,32 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         " ORDER BY due_date IS NULL, due_date",
         (engagement_id, *mp),
     )
+    milestones = policy_context.filter_resource_rows(
+        "milestone", milestones, viewer, resource_filter
+    )
     # BOTH paths to the engagement, deduped by the query itself: a task reaches
     # one through its own engagement_id or through its milestone's, and
     # portfolio.engagement_health counts it the same way
-    tasks = db.query(
-        f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " AND (t.engagement_id = ? OR t.milestone_id IN"
-        "      (SELECT id FROM milestones WHERE engagement_id = ?))"
-        " AND t.status != 'done'"
-        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"
-        # capped, and the page says so: an engagement with eighty open tasks
-        # buried the drift and the reports under a wall of list
-        f" LIMIT {TASK_CAP}",
-        (*tp, engagement_id, engagement_id),
+    tasks = redact_task_relationships(
+        consistent_task_rows(
+            db.query(
+                f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+                " AND (t.engagement_id = ? OR t.milestone_id IN"
+                "      (SELECT id FROM milestones WHERE engagement_id = ?))"
+                " AND t.status != 'done'"
+                " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+                " WHEN 'medium' THEN 2 ELSE 3 END, t.due_date IS NULL, t.due_date, t.id"
+                # capped, and the page says so: an engagement with eighty open tasks
+                # buried the drift and the reports under a wall of list
+                f" LIMIT {TASK_CAP}",
+                (*tp, engagement_id, engagement_id),
+            ),
+            viewer,
+        ),
+        viewer,
+        resource_filter,
     )
+    tasks = policy_context.filter_resource_rows("task", tasks, viewer, resource_filter)
     # what an agent is carrying right now, with its own last note — the
     # continuity a sponsor has nowhere else to read without opening each task.
     #
@@ -102,7 +125,7 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     # card while the acceptance queue and the worklog still name it. The
     # predicate keeps this bounded by what is actually delegated, not by the
     # engagement's size.
-    delegated = _delegated(
+    delegated_rows = consistent_task_rows(
         db.query(
             f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN"
@@ -113,23 +136,42 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         ),
         viewer,
     )
+    delegated_rows = policy_context.filter_resource_rows(
+        "task", delegated_rows, viewer, resource_filter
+    )
+    delegated = _delegated(
+        redact_task_relationships(delegated_rows, viewer, resource_filter), viewer
+    )
 
     # the matching set for `_mine` is EVERY open task, not the capped display
     # list: a queue row for task 51 would otherwise be dropped and the card
     # would then say nothing in the queue belongs here, which is false in
     # exactly the way that sentence was rewritten to avoid. Ids only, so the
     # extra read costs one column.
-    task_ids = {
-        r["id"]
-        for r in db.query(
+    all_task_rows = consistent_task_rows(
+        db.query(
             f"SELECT t.id FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
             " AND (t.engagement_id = ? OR t.milestone_id IN"
             "      (SELECT id FROM milestones WHERE engagement_id = ?))"
             " AND t.status != 'done'",
             (*tp, engagement_id, engagement_id),
-        )
-    }
+        ),
+        viewer,
+    )
+    all_task_rows = policy_context.filter_resource_rows(
+        "task", all_task_rows, viewer, resource_filter
+    )
+    task_ids = {r["id"] for r in all_task_rows}
     blockers = _linked_blockers(engagement_id, viewer)
+    blockers = policy_context.filter_resource_rows("blocker", blockers, viewer, resource_filter)
+    lessons = db.query(
+        f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
+        (*lp, engagement_id, eng["project_class"]),
+    )
+    lessons = policy_context.filter_resource_rows("lesson", lessons, viewer, resource_filter)
+    artifacts = list_artifacts(engagement_id, viewer)
+    artifacts = policy_context.filter_resource_rows("artifact", artifacts, viewer, resource_filter)
     return {
         "engagement": eng,
         "health": {
@@ -146,18 +188,14 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "tasks": tasks,
         "blockers": blockers,
         "delegated": delegated,
-        "lessons": db.query(
-            f"SELECT * FROM lessons WHERE {lfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-            " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
-            (*lp, engagement_id, eng["project_class"]),
-        ),
-        "artifacts": list_artifacts(engagement_id, viewer),
+        "lessons": lessons,
+        "artifacts": artifacts,
         # {} for an engagement that was not born from a playbook. The snapshot
         # is written at KICKOFF (`playbooks.instantiate`), so this is live
         # drift, not a post-mortem — which is the point: a plan the team can
         # still act on. Named rather than omitted, because an absent key reads
         # as "no drift" and "we never snapshotted a plan" is a different fact.
-        "plan_diff": close_out_diff(engagement_id, viewer),
+        "plan_diff": close_out_diff(engagement_id, viewer, resource_filter=resource_filter),
         # the queue's own rows, narrowed to this engagement and the work under
         # it. The manager's page ranks across the portfolio; here the same
         # rows answer "what does THIS need", with the same actions and
@@ -168,7 +206,10 @@ def brief(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # nothing is escalated while the blockers card shows one that is. The
         # page states the window it read rather than asserting a fact.
         "next_actions": _mine(
-            interventions(viewer, limit=QUEUE_SCAN), engagement_id, task_ids, blockers
+            interventions(viewer, limit=QUEUE_SCAN, resource_filter=resource_filter),
+            engagement_id,
+            task_ids,
+            blockers,
         ),
         "queue_scanned": QUEUE_SCAN,
     }

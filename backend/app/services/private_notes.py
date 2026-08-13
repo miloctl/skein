@@ -188,6 +188,44 @@ def rename_subject(old: str, new: str) -> None:
         conn.commit()
 
 
+def recover_identity_ownership(old: str, new: str) -> dict:
+    """Move private identity references during an operator collision repair.
+
+    This operation records an administrative tombstone but no note content.
+    The private database commits before the core roster rename. If the core
+    step fails, the operator can safely repeat the same repair command.
+    """
+    with closing(_connect()) as conn:
+        marker = f"system_identity_repair:{old}->{new}"
+        prior = conn.execute(
+            "SELECT 1 FROM private_audit WHERE author = ? AND action = ? LIMIT 1",
+            (new, marker),
+        ).fetchone()
+        new_notes = conn.execute(
+            "SELECT 1 FROM private_notes WHERE author = ? LIMIT 1", (new,)
+        ).fetchone()
+        new_audit = conn.execute(
+            "SELECT 1 FROM private_audit WHERE author = ? LIMIT 1", (new,)
+        ).fetchone()
+        if (new_notes or new_audit) and not prior:
+            raise ValueError(
+                f"private identity ownership already exists for '{new}'. Pick another name."
+            )
+        author_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM private_notes WHERE author = ?", (old,)
+        ).fetchone()["n"]
+        subject_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM private_notes WHERE person = ?", (old,)
+        ).fetchone()["n"]
+        conn.execute("UPDATE private_notes SET author = ? WHERE author = ?", (new, old))
+        conn.execute("UPDATE private_audit SET author = ? WHERE author = ?", (new, old))
+        conn.execute("UPDATE private_notes SET person = ? WHERE person = ?", (new, old))
+        if not prior:
+            _audit(conn, new, marker, None)
+        conn.commit()
+    return {"author_rows": author_rows, "subject_rows": subject_rows}
+
+
 def list_audit(author: str, limit: int = 100) -> list[dict]:
     """The author's own audit trail: adds, reads, briefs, deletes."""
     with closing(_connect()) as conn:

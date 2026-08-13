@@ -29,6 +29,32 @@ def test_approval_keeps_proposer_as_author(fresh_db):
     assert task["origin"] == "agent_verified"
 
 
+def test_rejection_requires_the_configured_workplace_approver(fresh_db):
+    from app.services import review, users
+
+    users.ensure_user("reviewer")
+    proposal = review.propose_change(
+        "task",
+        "create",
+        {"title": "manager verdict"},
+        actor="agent",
+        approver_groups=("delivery-managers",),
+    )
+    with pytest.raises(PermissionError, match="workplace approver"):
+        review.reject_change(proposal["id"], actor="reviewer")
+    result = review.reject_change(
+        proposal["id"],
+        actor="reviewer",
+        reviewer_groups=("delivery-managers",),
+    )
+    assert result["status"] == "rejected"
+    row = fresh_db.query_one(
+        "SELECT reviewer_qualifications FROM pending_changes WHERE id = ?",
+        (proposal["id"],),
+    )
+    assert json.loads(row["reviewer_qualifications"])["matched_groups"] == ["delivery-managers"]
+
+
 def test_agent_note_edit_flows_through_review(client, fresh_db, monkeypatch):
     from app import config
     from app.services import collab
@@ -52,10 +78,11 @@ def test_agent_note_edit_flows_through_review(client, fresh_db, monkeypatch):
 
 def test_agent_edit_respects_forbidden_authority(fresh_db, monkeypatch):
     from app import config
-    from app.services import blockers, delegation
+    from app.services import blockers, delegation, users
     from app.tools.platform import edit_blocker
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users._reserve_core_agent_identity("agent")
     b = blockers.raise_blocker(title="typo'd", owner="ava", actor="ava")
     delegation.set_authority("agent", "blocker_edit", "forbidden", actor="tester")
     out = edit_blocker(blocker_id=b["id"], title="nope")
@@ -223,6 +250,8 @@ def test_review_gate_covers_all_mutating_tools(fresh_db, monkeypatch):
 
 def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
     from app import config
+    from app.extensions import ExtensionRegistry
+    from app.extensions.core import core_module
     from app.services import engagements, review
     from app.tools import platform as tp
 
@@ -232,7 +261,11 @@ def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
             playbook_slug="incident", engagement_name="Sev1 db outage"
         )
     )
-    review.approve_change(out["id"], actor="alice")
+    review.approve_change(
+        out["id"],
+        actor="alice",
+        policy_registry=ExtensionRegistry.build((core_module(),)),
+    )
     assert engagements.list_engagements()[0]["name"] == "Sev1 db outage"
 
 
@@ -587,4 +620,37 @@ def test_a_create_proposal_is_judged_by_the_tier_of_the_row_it_names(fresh_db):
     assert (
         review.approve_change(workspace, actor="mallory", strong=True, viewer=mal)["status"]
         == "approved"
+    )
+
+
+def test_batch_approve_answers_an_unqualified_approver_per_row(client, fresh_db):
+    """A workplace approver requirement raises PermissionError inside the
+    loop. As a batch-level 403 it hid the ids already committed before it and
+    silently skipped every id after it."""
+    from app.services import review
+
+    first = review.propose_change(
+        "note", "create", {"topic": "a", "content": "a"}, actor="planner-agent"
+    )["id"]
+    guarded = review.propose_change(
+        "note",
+        "create",
+        {"topic": "b", "content": "b"},
+        actor="planner-agent",
+        approver_capabilities=("acme.approve",),
+    )["id"]
+    last = review.propose_change(
+        "note", "create", {"topic": "c", "content": "c"}, actor="planner-agent"
+    )["id"]
+
+    r = client.post("/api/review/approve-batch", json={"ids": [first, guarded, last]})
+    assert r.status_code == 200
+    by_id = {row["id"]: row for row in r.json()["results"]}
+    assert by_id[first]["status"] == "approved"
+    assert by_id[guarded]["status"] == "forbidden"
+    assert "approver" in by_id[guarded]["detail"]
+    assert by_id[last]["status"] == "approved"
+    assert (
+        fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (guarded,))["status"]
+        == "pending"
     )

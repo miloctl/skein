@@ -9,6 +9,7 @@ import { actionError, api, loadError } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
 import { SectionTabs } from "@/components/section-tabs";
+import { ExtensionDashboardCards } from "@/components/extension-dashboard";
 import { timeAgo } from "@/lib/time";
 import { emptyState, loadingLine } from "@/lib/whimsy";
 
@@ -744,6 +745,7 @@ export default function Dashboard() {
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <ExtensionDashboardCards />
         {pulse && (
           <section className="rounded-xl border border-line bg-card p-4 shadow-card md:col-span-2 loom-band">
             <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-thread">

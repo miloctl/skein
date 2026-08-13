@@ -1,0 +1,15 @@
+[project]
+name = "atlas-skein-extension"
+version = "1.0.0"
+description = "Fictional workplace extension for the Skein extension contract"
+requires-python = ">=3.12"
+dependencies = [
+    "skein>=0.2.0,<0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["backend/src"]

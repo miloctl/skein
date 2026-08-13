@@ -1,11 +1,15 @@
-# Build stage
-FROM node:22-alpine AS build
+# Version and publish this target as skein-frontend-host:<core-version>.
+# A trusted private frontend package composes from it before `next build`.
+FROM node:22-alpine AS host
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+
+# Build stage
+FROM host AS build
 # NEXT_PUBLIC_* values are baked into the bundle at build time.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_API_TOKEN=

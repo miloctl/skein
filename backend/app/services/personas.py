@@ -28,8 +28,9 @@ import re
 from pathlib import Path
 
 from .. import config
+from ..identity_names import content_subject_refusal
 
-PERSONAS_DIR = Path(__file__).resolve().parent.parent.parent / "personas"
+PERSONAS_DIR = config.STOCK_DIR / "personas"
 PACK_FILE = PERSONAS_DIR / "pack.json"
 
 
@@ -52,16 +53,28 @@ def _persona_files() -> dict[str, Path]:
     files: dict[str, Path] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
-            if _SLUG.match(path.stem):
+            if _SLUG.match(path.stem) and not content_subject_refusal(path.stem):
                 files[path.stem] = path
     return files
 
 
+def configured_slugs() -> set[str]:
+    """All configured valid-character slugs, including refused core claims."""
+    return {
+        path.stem
+        for directory in _persona_dirs()
+        for path in directory.glob("*.md")
+        if _SLUG.match(path.stem)
+    }
+
+
 def bench_slugs() -> set[str]:
-    """Slugs reserved as agent identities, computed live (glob only, no
-    parsing) — a cached set would miss a persona dropped into a mounted
-    overlay after startup, and the human-name guard in users.ensure_user
-    would then let a human absorb that persona's identity."""
+    """Accepted persona identities from the current content layers.
+
+    File contents are read live. During an application lifespan, composition
+    fixes the slug set at startup. This prevents a new mounted file from
+    racing a human, service, specialist, or MCP identity claim.
+    """
     return set(_persona_files())
 
 
@@ -81,13 +94,24 @@ def _pack_files() -> list[Path]:
 
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
-_FIELDS = ("name", "description", "emoji", "vibe", "disclosure", "model", "temperature", "tools")
+_FIELDS = (
+    "schema_version",
+    "name",
+    "description",
+    "emoji",
+    "vibe",
+    "disclosure",
+    "model",
+    "temperature",
+    "tools",
+)
 BEHAVIOR_FIELDS = ("model", "temperature", "tools")
+SCHEMA_VERSION = 1
 
 
 def _parse(path: Path) -> dict | None:
     slug = path.stem
-    if not _SLUG.match(slug):
+    if not _SLUG.match(slug) or content_subject_refusal(slug):
         return None
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -103,7 +127,11 @@ def _parse(path: Path) -> dict | None:
             meta[key.strip()] = value.strip()
     if not meta.get("name") or not meta.get("description"):
         return None
+    raw_version = meta.get("schema_version", str(SCHEMA_VERSION))
+    if raw_version != str(SCHEMA_VERSION):
+        return None
     return {
+        "schema_version": SCHEMA_VERSION,
         "slug": slug,
         "name": meta["name"],
         "description": meta["description"],
@@ -270,9 +298,31 @@ def validate_all() -> list[str]:
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
                 continue
+            if refusal := content_subject_refusal(path.stem):
+                errors.append(f"{label}: {refusal}")
+                continue
+            text = path.read_text(encoding="utf-8")
+            try:
+                _, front, _body = text.split("---", 2)
+            except ValueError:
+                front = ""
+            keys = {
+                key.strip()
+                for line in front.splitlines()
+                for key, separator, _value in (line.partition(":"),)
+                if separator
+            }
+            unknown = keys - set(_FIELDS)
+            # Old persona frontmatter was open-ended. A declared schema
+            # version opts into the closed, versioned field contract.
+            if "schema_version" in keys and unknown:
+                errors.append(f"{label}: unknown frontmatter field(s): {sorted(unknown)}")
             p = _parse(path)
             if p is None:
-                errors.append(f"{label}: missing frontmatter, or name/description empty")
+                errors.append(
+                    f"{label}: frontmatter is invalid, name or description is empty,"
+                    f" or schema_version is not {SCHEMA_VERSION}"
+                )
                 continue
             errors += _check_behavior(label, p["temperature"], p["tools"], known)
     return errors

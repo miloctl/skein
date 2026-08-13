@@ -24,7 +24,7 @@ import pytest
 
 from app import db, ratelimit
 from app.agents import receipts
-from app.tools import ALL_TOOLS
+from app.tools import ALL_TOOLS, CORE_WRITE_TOOLS
 
 _KINDS = {"wrote", "queued", "refused", "failed"}  # literal, not imported
 
@@ -128,6 +128,7 @@ def _seed(fresh_db):
     users.ensure_user("tester")  # the sponsor must be an active human
     users.ensure_user("probe-agent", kind="agent")  # delegation target; the
     # calling identity is "agent" and self-delegation is refused pre-gate
+    users._reserve_core_agent_identity("agent")  # application startup owns this row
     engagements.create_engagement("probe engagement", actor="tester")
     work.create_milestone("probe milestone", actor="tester")
     work.create_task("probe task", actor="tester")
@@ -282,6 +283,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         "update_milestone",
         "update_task",
     }
+    assert expected_writers == CORE_WRITE_TOOLS
     assert covered == expected_writers, (
         f"degraded to error paths: {sorted(expected_writers - covered)};"
         f" new unlisted writers: {sorted(covered - expected_writers)}"

@@ -23,8 +23,9 @@ def test_minting_an_agent_cannot_plant_a_system_name(fresh_db):
 
     # delegate_task and set_authority both mint an agent from a caller-supplied
     # string, so a human-only check is a hole rather than a wall
-    with pytest.raises(ValueError, match="reserved for the system"):
-        users.ensure_user("team", kind="agent")
+    for name in ("team", "agent", "ci", "mcp"):
+        with pytest.raises(ValueError, match="reserved for the system"):
+            users.ensure_user(name, kind="agent")
 
 
 def test_rename_cannot_reach_a_system_name(fresh_db):
@@ -69,6 +70,31 @@ def test_a_stuck_row_is_named_at_boot_and_moved_by_rename(fresh_db):
     assert users.reserved_name_rows() == ["team"]
     users.rename_user("team", "tamsin", actor="team")
     assert users.reserved_name_rows() == []
+
+
+def test_the_startup_reserved_chief_is_not_reported_as_a_stuck_human(fresh_db):
+    from app.services import users
+
+    users._reserve_core_agent_identity("agent")
+    assert users.reserved_name_rows() == []
+    assert users.identity_ownership_error() == ""
+
+
+def test_the_chief_does_not_reuse_a_generic_agent_owner(fresh_db):
+    from app import db
+    from app.services import users
+
+    db.execute(
+        "INSERT INTO users (name, kind, identity_owner, created_at)"
+        " VALUES ('agent', 'agent', 'generic-agent', ?)",
+        (db.now(),),
+    )
+    with pytest.raises(ValueError, match="another machine identity"):
+        users.ensure_agent_identity("agent")
+    with pytest.raises(ValueError, match="another machine identity"):
+        users._reserve_core_agent_identity("agent")
+    assert users.reserved_name_rows() == ["agent"]
+    assert users.identity_ownership_error().startswith("1 conflicting identity group")
 
 
 def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):

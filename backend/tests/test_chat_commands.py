@@ -107,7 +107,7 @@ def test_a_late_receipt_in_a_command_survives_the_stream(client, monkeypatch):
         receipts.record("wrote", "note", "recorded after the last yield", 5)
 
     monkeypatch.setattr(
-        commands, "dispatch", lambda text, user, viewer=None: late_receipt_command()
+        commands, "dispatch", lambda text, user, viewer=None, access=None: late_receipt_command()
     )
     body = client.post("/api/chat", json={"thread_id": "t-late", "message": "/briefing"}).text
     assert '"kind": "wrote"' in body
@@ -129,3 +129,31 @@ def test_help_names_the_right_reason_for_mock(monkeypatch):
     out = commands.help_text()
     assert "unavailable" in out
     assert "no API key" not in out
+
+
+def test_deterministic_writes_use_the_composed_workplace_policy(fresh_db):
+    from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
+    from app.main import create_app
+
+    def deny_commands(request):
+        if request.action in ("playbook.create", "memory.create"):
+            return PolicyDecision(PolicyEffect.DENY, ("Commands are paused.",))
+        return None
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("atlas.workplace.commands", deny_commands),),
+    )
+    from fastapi.testclient import TestClient
+
+    with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as governed:
+        remembered = _read_chat(governed, "/remember do not store this")
+        planned = _read_chat(governed, "/plan prototype blocked plan")
+        assert "policy denied" in remembered.lower()
+        assert "policy denied" in planned.lower()
+        assert governed.get("/api/memories").json() == []
+        assert all(row["name"] != "blocked plan" for row in governed.get("/api/engagements").json())

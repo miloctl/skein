@@ -33,14 +33,20 @@ Bounds, because nobody is watching:
     re-spend an agent's allowance.
 """
 
+from __future__ import annotations
+
 import contextlib
 import contextvars
 import logging
 import threading
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from .. import config, db
 from . import delegation, usage
+
+if TYPE_CHECKING:
+    from ..extensions import ExtensionRegistry, PolicyEngine
 
 log = logging.getLogger("skein")
 
@@ -75,13 +81,31 @@ def _release(agent: str) -> None:
     )
 
 
-def _due(agent: str) -> list[dict]:
+def _due(agent: str, policy: PolicyEngine | None = None) -> list[dict]:
     """The agent's open delegated tasks. The inbox's own view, so the runner
     and the agent agree about what is outstanding."""
-    return delegation.agent_inbox(agent)["delegated_tasks"]
+    from ..extensions.policy import PolicySubject, current_policy_engine
+    from . import projection_policy, scope
+
+    task_policy = projection_policy.ProjectionPolicy(
+        policy or current_policy_engine(),
+        PolicySubject(agent, kind="agent", strong=True, source="agent-runner"),
+        "skein.job.agent-run",
+        "background",
+        scope.NOBODY,
+        agent=agent,
+        tool="skein.core.agent-run",
+    )
+    with db.read_transaction():
+        return delegation.agent_inbox(
+            agent,
+            task_filter=lambda task_id, attributes: task_policy.permits(
+                "task", task_id, attributes
+            ),
+        )["delegated_tasks"]
 
 
-def sweep() -> dict:
+def sweep(policy: PolicyEngine | None = None) -> dict:
     """Deterministic: tell each sponsor about delegated work that has gone
     QUIET — no worklog note for QUIET_DAYS.
 
@@ -103,43 +127,61 @@ def sweep() -> dict:
     cutoff = db.local_midnight_utc(db.today() - timedelta(days=QUIET_DAYS))
     touched = 0
     for agent in config.AGENT_RUNNER:
-        for task in _due(agent):
-            if not task["sponsor"]:
-                continue
-            notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
-            last = notes[0] if notes else None
-            # a note INSIDE the window means the work is not quiet. No note at
-            # all is the loudest case, not the quietest — the agent has held
-            # the task since it was delegated and recorded nothing.
-            if last and last["created_at"] >= cutoff:
-                continue
-            note = str(last["note"]) if last else ""
-            # truncation carries its marker: a cut note read as a whole one
-            said = (
-                (f" Last note: {note[:120]}\u2026" if len(note) > 120 else f" Last note: {note}")
-                if note
-                else " No progress note yet."
-            )
-            # Once per (task, ISO week), the bound services/portfolio.py::
-            # nudge_stale_wip already uses for the same shape of nudge. The
-            # QUIET_DAYS threshold alone only decides WHETHER a task is quiet;
-            # without this the sweep runs daily and a task quiet for a month
-            # sends the same sponsor the same sentence twenty-eight times,
-            # which is how a team learns to filter the channel. The claim is
-            # taken only when there is something to send, so a quiet week does
-            # not burn it.
-            iso = db.today().isocalendar()
-            if not db.claim_job(f"sweep-quiet:{task['id']}", f"{iso.year}-W{iso.week:02d}"):
-                continue
-            notify(
-                task["sponsor"],
-                f"{agent} holds task #{task['id']} '{task['title']}'"
-                f" with no progress note for {QUIET_DAYS}"
-                f" day{'' if QUIET_DAYS == 1 else 's'}.{said}",
-                tier="digest",
-                link="/agents",
-            )
-            touched += 1
+        with db.transaction():
+            due = _due(agent, policy)
+            for task in due:
+                if not task["sponsor"]:
+                    continue
+                notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
+                last = notes[0] if notes else None
+                # a note INSIDE the window means the work is not quiet. No note at
+                # all is the loudest case, not the quietest — the agent has held
+                # the task since it was delegated and recorded nothing.
+                if last and last["created_at"] >= cutoff:
+                    continue
+                note = str(last["note"]) if last else ""
+                # truncation carries its marker: a cut note read as a whole one
+                said = (
+                    (
+                        f" Last note: {note[:120]}\u2026"
+                        if len(note) > 120
+                        else f" Last note: {note}"
+                    )
+                    if note
+                    else " No progress note yet."
+                )
+                # Once per (task, ISO week), the bound services/portfolio.py::
+                # nudge_stale_wip already uses for the same shape of nudge. The
+                # QUIET_DAYS threshold alone only decides WHETHER a task is quiet;
+                # without this the sweep runs daily and a task quiet for a month
+                # sends the same sponsor the same sentence twenty-eight times,
+                # which is how a team learns to filter the channel. The claim is
+                # taken only when there is something to send, so a quiet week does
+                # not burn it.
+                iso = db.today().isocalendar()
+                if not db.claim_job(f"sweep-quiet:{task['id']}", f"{iso.year}-W{iso.week:02d}"):
+                    continue
+
+                def quiet_body(
+                    source: dict,
+                    current_agent: str = agent,
+                    last_note: str = said,
+                ) -> str:
+                    return (
+                        f"{current_agent} holds task #{source['id']} '{source['title']}'"
+                        f" with no progress note for {QUIET_DAYS}"
+                        f" day{'' if QUIET_DAYS == 1 else 's'}.{last_note}"
+                    )
+
+                notify(
+                    task["sponsor"],
+                    quiet_body,
+                    source_entity="task",
+                    source_id=int(task["id"]),
+                    tier="digest",
+                    link="/agents",
+                )
+                touched += 1
     return {"swept": touched, "agents": len(config.AGENT_RUNNER)}
 
 
@@ -165,7 +207,13 @@ def _failed(agent: str, reason: str) -> dict:
     return {"agent": agent, "ran": False, "fault": True, "reason": reason}
 
 
-def run_one(agent: str, *, actor: str = "scheduler") -> dict:
+def run_one(
+    agent: str,
+    *,
+    actor: str = "scheduler",
+    extensions: ExtensionRegistry | None = None,
+    policy: PolicyEngine | None = None,
+) -> dict:
     """One bounded, unattended turn for one agent.
 
     Returns a reason rather than raising for every refusal an operator can
@@ -180,28 +228,57 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
         return _refused(agent, "no model provider — sweep only")
     if delegation.authority_level(agent, "task") == "forbidden":
         return _refused(agent, "forbidden on tasks")
-    if not _due(agent):
-        return _refused(agent, "nothing delegated")
     try:
         usage.assert_within_budget(agent)
     except usage.BudgetSpent as exc:
         # a spent budget is a CEILING working, not a fault — the operator set it
         return _refused(agent, str(exc))
 
-    # once per (agent, team day): a restart must not re-spend the allowance
-    if not db.claim_job(f"agent-run:{agent}", db.today().isoformat()):
-        return _refused(agent, "already ran today")
+    # Evaluate the current delegated work and claim this run in one write
+    # transaction. A concurrent relink can finish before this transaction and
+    # become part of policy, or wait until the claim commits. It cannot change
+    # the project between the final policy decision and the daily claim.
+    with db.transaction():
+        if not _due(agent, policy):
+            return _refused(agent, "nothing delegated")
+        # once per (agent, team day): a restart must not re-spend the allowance
+        if not db.claim_job(f"agent-run:{agent}", db.today().isoformat()):
+            return _refused(agent, "already ran today")
 
     from ..agents.identity import reset_agent_identity, set_agent_identity
     from ..agents.team_agent import build_agent
+    from ..extensions.policy import (
+        PolicySubject,
+        current_policy_engine,
+        reset_policy_engine,
+        reset_policy_subject,
+        set_policy_engine,
+        set_policy_subject,
+    )
 
     # A thread id per agent per day, so the run has somewhere to keep its
     # session and a human can read the transcript afterwards on /chat.
     thread = f"run-{agent}-{db.today().isoformat()}"
+    agent_subject = PolicySubject(
+        agent,
+        kind="agent",
+        strong=True,
+        source="agent-runner",
+    )
+    policy_token = set_policy_engine(policy or current_policy_engine())
+    subject_token = set_policy_subject(agent_subject)
     token = set_agent_identity(agent)
     try:
         try:
-            built = build_agent(thread, user=agent)
+            if extensions is not None:
+                built = build_agent(
+                    thread,
+                    user=agent,
+                    extensions=extensions,
+                    policy_subject=agent_subject,
+                )
+            else:
+                built = build_agent(thread, user=agent)
         except Exception as exc:
             # the claim is RELEASED here: nothing reached the provider, so
             # nothing was spent, and a 30-second blip at 05:30 must not cost
@@ -281,14 +358,23 @@ def run_one(agent: str, *, actor: str = "scheduler") -> dict:
         # otherwise leave this thread's identity set to the agent, and the
         # next write on it would carry the wrong actor
         reset_agent_identity(token)
+        reset_policy_subject(subject_token)
+        reset_policy_engine(policy_token)
 
 
-def run(*, actor: str = "scheduler") -> dict:
+def run(
+    *,
+    actor: str = "scheduler",
+    extensions: ExtensionRegistry | None = None,
+    policy: PolicyEngine | None = None,
+) -> dict:
     """The scheduled entry point: the deterministic sweep, then one bounded
     turn per allowlisted agent. The sweep runs FIRST and unconditionally, so
     a sponsor still hears about quiet work on a day every run refuses."""
-    swept = sweep()
-    runs = [run_one(a, actor=actor) for a in config.AGENT_RUNNER]
+    swept = sweep(policy)
+    runs = [
+        run_one(a, actor=actor, extensions=extensions, policy=policy) for a in config.AGENT_RUNNER
+    ]
     ran = sum(1 for r in runs if r["ran"])
     faults = [r for r in runs if r.get("fault")]
     # `status` is read by jobs.run_job, which otherwise records `ok` for any

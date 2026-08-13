@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skein
+spec:
+  template:
+    spec:
+      containers:
+        - name: skein
+          image: atlas-skein:1.0.0
+          env:
+            - name: ATLAS_SKEIN_DATA
+              value: /atlas-data/atlas-extension.db
+            - name: ATLAS_API_URL
+              value: https://atlas.example.invalid/api
+            - name: ATLAS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: atlas-skein-secrets
+                  key: ATLAS_API_TOKEN
+          volumeMounts:
+            - name: atlas-data
+              mountPath: /atlas-data
+            - name: atlas-playbook
+              mountPath: /opt/atlas/content/playbooks/atlas_delivery.yaml
+              subPath: atlas_delivery.yaml
+      volumes:
+        - name: atlas-data
+          persistentVolumeClaim:
+            claimName: atlas-skein-data
+        - name: atlas-playbook
+          configMap:
+            name: atlas-skein-content

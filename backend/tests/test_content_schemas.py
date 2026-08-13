@@ -1,0 +1,250 @@
+"""Version 1 compatibility and deployment content validation."""
+
+from pathlib import Path
+
+
+def test_unversioned_stock_content_is_version_one(fresh_db):
+    from app.services import flocks, personas, playbooks
+
+    assert playbooks.get_playbook("prototype")["schema_version"] == 1
+    assert personas.get_persona("backend-architect")["schema_version"] == 1
+    assert flocks.get_flock("delivery")["schema_version"] == 1
+
+
+def test_unversioned_workplace_content_keeps_the_legacy_open_shape(fresh_db, tmp_path, monkeypatch):
+    from app import config, content
+    from app.services import flocks, personas, playbooks
+
+    playbook_dir = tmp_path / "playbooks"
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    for directory in (playbook_dir, persona_dir, flock_dir):
+        directory.mkdir()
+    (playbook_dir / "legacy.yaml").write_text(
+        "description: Legacy plan\nworkplace_note: preserved\nmilestones:\n  - title: Start\n"
+    )
+    (persona_dir / "legacy-reviewer.md").write_text(
+        "---\nname: Legacy Reviewer\ndescription: Reviews old work\n"
+        "workplace_note: preserved\n---\nReview the work.\n"
+    )
+    (flock_dir / "legacy-team.yaml").write_text(
+        "name: Legacy Team\ndescription: Two views\nworkplace_note: preserved\n"
+        "members:\n  - legacy-reviewer\n  - backend-architect\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", playbook_dir)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+
+    assert playbooks.get_playbook("legacy")["schema_version"] == 1
+    assert (
+        next(item for item in playbooks.list_playbooks() if item["slug"] == "legacy")["name"]
+        == "legacy"
+    )
+    assert personas.get_persona("legacy-reviewer")["schema_version"] == 1
+    assert flocks.get_flock("legacy-team")["schema_version"] == 1
+    assert content.validate() == []
+
+
+def test_startup_validation_skips_malformed_legacy_but_rejects_versioned_content(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "legacy.yaml").write_text("not: [valid")
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    assert playbooks.validate_startup(set()) == []
+
+    (overlay / "strict.yaml").write_text(
+        "schema_version: 1\nname: Strict\nprivate_hook: forbidden\n"
+    )
+    assert any("unknown top-level fields" in error for error in playbooks.validate_startup(set()))
+
+
+def test_deployment_validator_accepts_versioned_overlay_content(fresh_db, tmp_path, monkeypatch):
+    from app import config, content
+
+    playbook_dir = tmp_path / "playbooks"
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    for directory in (playbook_dir, persona_dir, flock_dir):
+        directory.mkdir()
+    (playbook_dir / "atlas.yaml").write_text(
+        "schema_version: 1\nname: Atlas\nmilestones:\n  - title: Start\n"
+    )
+    (persona_dir / "atlas-reviewer.md").write_text(
+        "---\nschema_version: 1\nname: Atlas Reviewer\n"
+        "description: Reviews Atlas work\n---\nReview the work.\n"
+    )
+    (flock_dir / "atlas-team.yaml").write_text(
+        "schema_version: 1\nname: Atlas Team\ndescription: Two views\n"
+        "members:\n  - atlas-reviewer\n  - backend-architect\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", playbook_dir)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+    assert content.validate() == []
+
+
+def test_deployment_validator_rejects_future_versions_and_unknown_fields(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config, content
+
+    playbook_dir = tmp_path / "playbooks"
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    for directory in (playbook_dir, persona_dir, flock_dir):
+        directory.mkdir()
+    (playbook_dir / "atlas.yaml").write_text("schema_version: 2\nname: Atlas\nprivate_hook: yes\n")
+    (persona_dir / "atlas-reviewer.md").write_text(
+        "---\nschema_version: 2\nname: Atlas Reviewer\n"
+        "description: Reviews Atlas work\nprivate_hook: yes\n---\nReview the work.\n"
+    )
+    (flock_dir / "atlas-team.yaml").write_text(
+        "schema_version: 2\nname: Atlas Team\ndescription: Two views\n"
+        "members:\n  - backend-architect\n  - code-reviewer\nprivate_hook: yes\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", playbook_dir)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", persona_dir)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", flock_dir)
+    errors = content.validate()
+    assert any("playbook" in error and "schema_version" in error for error in errors)
+    assert any("persona" in error and "schema_version" in error for error in errors)
+    assert any("persona" in error and "unknown frontmatter" in error for error in errors)
+    assert any("flock" in error and "schema_version" in error for error in errors)
+    assert any("unknown top-level" in error for error in errors)
+
+
+def test_content_validation_cli_accepts_explicit_directories(fresh_db, tmp_path, monkeypatch):
+    from app import content
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "content",
+            "--playbooks",
+            str(empty),
+            "--personas",
+            str(empty),
+            "--flocks",
+            str(empty),
+        ],
+    )
+    assert content.main() == 0
+    assert isinstance(empty, Path)
+
+
+def test_content_validation_cli_rejects_core_machine_overlay_slugs(
+    fresh_db, tmp_path, monkeypatch, capsys
+):
+    from app import config, content
+
+    empty = tmp_path / "empty"
+    persona_dir = tmp_path / "personas"
+    flock_dir = tmp_path / "flocks"
+    for directory in (empty, persona_dir, flock_dir):
+        directory.mkdir()
+    (persona_dir / "agent.md").write_text(
+        "---\nname: Wrong Chief\ndescription: Reserved prompt\n---\nDo not load.\n"
+    )
+    (flock_dir / "system.yaml").write_text(
+        "name: Wrong system\ndescription: Reserved flock\n"
+        "members:\n  - backend-architect\n  - code-reviewer\n"
+    )
+    # content.main() assigns these process globals because a real CLI process
+    # exits immediately afterwards. Register their current values so this
+    # in-process test restores them before another app lifespan starts.
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", config.PLAYBOOKS_OVERLAY)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", config.PERSONAS_OVERLAY)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", config.FLOCKS_OVERLAY)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "content",
+            "--playbooks",
+            str(empty),
+            "--personas",
+            str(persona_dir),
+            "--flocks",
+            str(flock_dir),
+        ],
+    )
+
+    assert content.main() == 1
+    output = capsys.readouterr().out
+    assert "persona: agent.md (overlay): slug is reserved" in output
+    assert "flock: system.yaml (overlay): slug is reserved" in output
+
+
+def test_playbook_validation_rejects_nested_entries_without_titles(fresh_db, tmp_path, monkeypatch):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "broken.yaml").write_text(
+        "schema_version: 1\nname: Broken\n"
+        "milestones:\n  - title: Build\n    tasks:\n      - description: no title\n"
+        "rituals:\n  - day_offset: 1\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    errors = playbooks.validate_all()
+    assert any("task 1 has no title" in error for error in errors)
+    assert any("ritual 1 has no title" in error for error in errors)
+
+
+def test_deployment_validation_checks_composed_workflow_action_names(
+    fresh_db, tmp_path, monkeypatch
+):
+    from app import config
+    from app.services import playbooks
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "atlas.yaml").write_text(
+        "schema_version: 1\nname: Atlas\nworkflow:\n"
+        "  - type: action\n    name: atlas.workplace.missing\n    input: {}\n"
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    assert any(
+        "workflow steps are not valid" in error
+        for error in playbooks.validate_all({"atlas.workplace.notify-manager"})
+    )
+
+
+def test_content_cli_checks_registered_workflow_actions(fresh_db, tmp_path, monkeypatch):
+    from app import config, content
+
+    overlay = tmp_path / "playbooks"
+    empty = tmp_path / "empty"
+    overlay.mkdir()
+    empty.mkdir()
+    (overlay / "atlas.yaml").write_text(
+        "schema_version: 1\nname: Atlas\nworkflow:\n"
+        "  - type: action\n    name: atlas.workplace.missing\n    input: {}\n"
+    )
+    # Record these globals in monkeypatch before main() assigns them so the
+    # invalid fixture cannot leak into another TestClient startup.
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", config.PLAYBOOKS_OVERLAY)
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", config.PERSONAS_OVERLAY)
+    monkeypatch.setattr(config, "FLOCKS_OVERLAY", config.FLOCKS_OVERLAY)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "content",
+            "--playbooks",
+            str(overlay),
+            "--personas",
+            str(empty),
+            "--flocks",
+            str(empty),
+            "--workflow-action",
+            "atlas.workplace.notify-manager",
+        ],
+    )
+    assert content.main() == 1

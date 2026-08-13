@@ -73,6 +73,35 @@ def test_transaction_commits_and_nests(fresh_db):
     assert db.query_row("SELECT COUNT(*) AS n FROM notes")["n"] == 1
 
 
+def test_read_transaction_uses_a_deferred_snapshot(fresh_db, monkeypatch):
+    from app import db
+
+    statements: list[str] = []
+    real_connect = db.connect
+
+    class TrackingConnection:
+        def __init__(self):
+            object.__setattr__(self, "connection", real_connect())
+
+        def __getattr__(self, name):
+            return getattr(self.connection, name)
+
+        def __setattr__(self, name, value):
+            setattr(self.connection, name, value)
+
+        def execute(self, sql, parameters=()):
+            statements.append(sql)
+            return self.connection.execute(sql, parameters)
+
+    monkeypatch.setattr(db, "connect", TrackingConnection)
+
+    with db.read_transaction():
+        assert db.query_row("SELECT 1 AS value") == {"value": 1}
+
+    assert "BEGIN" in statements
+    assert "BEGIN IMMEDIATE" not in statements
+
+
 def test_playbook_instantiate_is_atomic(fresh_db, monkeypatch):
     from app.services import engagements, playbooks, schedule
 
@@ -118,6 +147,20 @@ def test_on_commit_isolates_a_raising_callback(fresh_db):
         db.on_commit(boom)
         db.on_commit(lambda: ran.append("after"))
     assert ran == ["after"]
+
+
+def test_savepoint_rollback_discards_only_its_deferred_callbacks(fresh_db):
+    from app import db
+
+    ran: list[str] = []
+    with db.transaction():
+        db.on_commit(lambda: ran.append("before"))
+        with pytest.raises(RuntimeError), db.savepoint():
+            db.on_commit(lambda: ran.append("rolled-back apply"))
+            raise RuntimeError("apply failed")
+        db.on_commit(lambda: ran.append("after"))
+
+    assert ran == ["before", "after"]
 
 
 def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):

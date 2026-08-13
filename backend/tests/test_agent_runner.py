@@ -405,3 +405,258 @@ def test_the_run_is_recorded_under_the_scheduler_not_the_agent(fresh_db, monkeyp
     # registered, so the feed renders its own sentence rather than the
     # honest-but-generic fallback for an unknown action
     assert rows[0]["action"] in activity.VERBS
+
+
+def test_unattended_turn_uses_composed_policy_and_registry(fresh_db, monkeypatch):
+    """An allowed scheduler job must not replace per-tool workplace policy."""
+    from app.extensions import (
+        AppSettings,
+        ExtensionRegistry,
+        PolicyContribution,
+        PolicyDecision,
+        PolicyEffect,
+        PolicyInput,
+        PolicyResource,
+        PolicySubject,
+        SkeinModule,
+    )
+    from app.extensions.core import core_module
+    from app.extensions.policy import current_policy_engine, current_policy_subject
+    from app.main import _job_specs
+    from app.tools._gate import gated_write
+
+    _delegated("research-agent")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+
+    def deny_agent_create(request):
+        if request.action == "task.create" and request.subject.name == "research-agent":
+            return PolicyDecision(PolicyEffect.DENY, ("unattended create denied",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.runner-policy", deny_agent_create),),
+    )
+    registry = ExtensionRegistry.build((core_module(), module))
+    observed = {}
+
+    def build(_thread, user="", **options):
+        observed["extensions"] = options.get("extensions")
+        observed["subject"] = options.get("policy_subject")
+        observed["engine"] = current_policy_engine()
+
+        def turn(_message):
+            observed["worker_subject"] = current_policy_subject()
+            return gated_write(
+                "task",
+                "create",
+                {"title": "must stay denied"},
+                lambda: work.create_task("must stay denied", actor=user, origin="agent"),
+            )
+
+        return turn
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", build)
+    spec = next(
+        item for item in _job_specs(registry, AppSettings.from_config()) if item.name == "agent-run"
+    )
+    result = spec.fn()
+
+    assert result["runs"][0]["ran"] is True
+    assert observed["extensions"] is registry
+    assert (
+        observed["engine"]
+        .decide(
+            PolicyInput(
+                PolicySubject("research-agent", kind="agent"),
+                "task.create",
+                PolicyResource("task"),
+                "agent_tool",
+            )
+        )
+        .effect
+        == PolicyEffect.DENY
+    )
+    assert observed["subject"] == PolicySubject(
+        "research-agent", kind="agent", strong=True, source="agent-runner"
+    )
+    assert observed["worker_subject"] == observed["subject"]
+    assert db.query_one("SELECT id FROM tasks WHERE title = 'must stay denied'") is None
+
+
+def test_unattended_runner_does_not_wake_for_a_denied_delegated_project(
+    fresh_db,
+    monkeypatch,
+):
+    from app.extensions import PolicyDecision, PolicyEffect, PolicyEngine
+    from app.services import crews, engagements, users
+
+    users.ensure_user("sponsor")
+    users.ensure_agent_identity("research-agent")
+    crew_id = crews.create_crew("Runner policy crew", actor="sponsor")["id"]
+    engagement_id = engagements.create_engagement(
+        "Runner regulated project",
+        project_class="regulated",
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    task_id = work.create_task(
+        "RUNNER REGULATED CANARY",
+        engagement_id=engagement_id,
+        actor="sponsor",
+        visibility="crew",
+        crew_id=crew_id,
+    )["id"]
+    delegation.delegate_task(task_id, "research-agent", "sponsor", actor="sponsor")
+    notifications_before = db.query_one(
+        "SELECT COUNT(*) AS n FROM notifications WHERE user = 'sponsor'"
+    )["n"]
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(
+        "app.agents.team_agent.build_agent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("runner woke")),
+    )
+
+    def deny_regulated_runner(request):
+        if request.action == "skein.job.agent-run" and request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated runner work is closed.",))
+        return None
+
+    result = agent_runner.run(policy=PolicyEngine((deny_regulated_runner,)))
+
+    assert result["sweep"]["swept"] == 0
+    assert result["runs"][0]["ran"] is False
+    assert result["runs"][0]["reason"] == "nothing delegated"
+    assert (
+        db.query_one("SELECT COUNT(*) AS n FROM notifications WHERE user = 'sponsor'")["n"]
+        == notifications_before
+    )
+
+
+def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.extensions import PolicyDecision, PolicyEffect, PolicyEngine
+    from app.services import engagements, notifications
+
+    standard = engagements.create_engagement("Runner standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Runner regulated", project_class="regulated")["id"]
+    task_id = _delegated("research-agent", "sponsor")
+    work.update_task(task_id, engagement_id=standard, actor="sponsor")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    paused = {"value": False}
+
+    def deny_regulated(request):
+        if request.action != "skein.job.agent-run":
+            return None
+        if request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated runner work is closed.",))
+        if request.resource.type == "task" and not paused["value"]:
+            paused["value"] = True
+            policy_entered.set()
+            assert writer_attempted.wait(5)
+            sleep(0.05)
+            assert not writer_done.is_set()
+        return None
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (regulated, task_id),
+        )
+        writer_done.set()
+
+    original_notify = notifications.notify
+
+    def observed_notify(*args, **kwargs):
+        assert not writer_done.is_set()
+        return original_notify(*args, **kwargs)
+
+    monkeypatch.setattr(notifications, "notify", observed_notify)
+    writer = Thread(target=relink)
+    writer.start()
+    result = agent_runner.sweep(PolicyEngine((deny_regulated,)))
+    writer.join(5)
+
+    assert result["swept"] == 1
+    assert writer_done.is_set()
+    assert fresh_db.query_one("SELECT engagement_id FROM tasks WHERE id = ?", (task_id,)) == {
+        "engagement_id": regulated
+    }
+
+
+def test_runner_final_policy_check_and_daily_claim_share_one_transaction(fresh_db, monkeypatch):
+    from threading import Event, Thread
+    from time import sleep
+
+    from app.extensions import PolicyDecision, PolicyEffect, PolicyEngine
+    from app.services import engagements
+
+    standard = engagements.create_engagement("Run claim standard", project_class="standard")["id"]
+    regulated = engagements.create_engagement("Run claim regulated", project_class="regulated")[
+        "id"
+    ]
+    task_id = _delegated("research-agent", "sponsor")
+    work.update_task(task_id, engagement_id=standard, actor="sponsor")
+    monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    policy_entered = Event()
+    writer_attempted = Event()
+    writer_done = Event()
+    build_called = Event()
+
+    def deny_regulated(request):
+        if request.action != "skein.job.agent-run":
+            return None
+        if request.resource.project_type == "regulated":
+            return PolicyDecision(PolicyEffect.DENY, ("Regulated runner work is closed.",))
+        if request.resource.type == "task" and not policy_entered.is_set():
+            policy_entered.set()
+            assert writer_attempted.wait(5)
+            sleep(0.05)
+            assert not writer_done.is_set()
+        return None
+
+    def relink() -> None:
+        assert policy_entered.wait(5)
+        writer_attempted.set()
+        fresh_db.execute(
+            "UPDATE tasks SET engagement_id = ? WHERE id = ?",
+            (regulated, task_id),
+        )
+        writer_done.set()
+
+    def build(_thread, **_options):
+        assert writer_done.wait(5)
+        build_called.set()
+        return lambda _message: "current inbox policy will filter the relinked task"
+
+    monkeypatch.setattr("app.agents.team_agent.build_agent", build)
+    writer = Thread(target=relink)
+    writer.start()
+    result = agent_runner.run_one(
+        "research-agent",
+        policy=PolicyEngine((deny_regulated,)),
+    )
+    writer.join(5)
+
+    assert result["ran"] is True
+    assert build_called.is_set()
+    assert writer_done.is_set()
+    assert fresh_db.query_one(
+        "SELECT 1 AS claimed FROM job_runs WHERE job = ?",
+        ("agent-run:research-agent",),
+    ) == {"claimed": 1}

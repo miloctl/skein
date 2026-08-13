@@ -15,6 +15,8 @@ from starlette.concurrency import run_in_threadpool
 from .. import config
 from ..agents import commands
 from ..agents.mock_agent import MockAgent
+from ..extensions.fastapi import enforce_decision
+from ..extensions.policy import PolicyInput, PolicyResource, PolicySubject
 
 router = APIRouter()
 
@@ -51,12 +53,12 @@ async def slack_command(request: Request):
 
     from ..services import users as users_svc
     from ..services.adoption import record_use
-    from ..services.users import ensure_user
+    from ..services.users import ensure_human_identity
+    from .deps import INACTIVE
 
     # threadpooled, all three: this is an async route on the loop that
     # carries every open chat stream, and each of these opens a SQLite
     # connection — the same rule routes/chat.py states at its top
-    await run_in_threadpool(record_use, user, "slack")
     # every other write surface registers its writer (deps.py does it for
     # REST); without this, Slack captures logged under an unrostered name
     # were invisible to the scoped activity surfaces.
@@ -67,9 +69,11 @@ async def slack_command(request: Request):
     # Slack had no equivalent, so a workspace member whose user_name matched an
     # agent wrote as that agent with origin=human.
     try:
-        await run_in_threadpool(ensure_user, user)
+        await run_in_threadpool(ensure_human_identity, user)
     except ValueError as exc:
         return {"response_type": "ephemeral", "text": str(exc)}
+    if not await run_in_threadpool(users_svc.is_active, user):
+        return {"response_type": "ephemeral", "text": INACTIVE}
     if await run_in_threadpool(users_svc.is_agent, user):
         return {
             "response_type": "ephemeral",
@@ -78,6 +82,31 @@ async def slack_command(request: Request):
                 " tool surface, not Slack. Ask whoever runs the server for a different name."
             ),
         }
+    registry = request.app.state.skein_registry
+    attributes = registry.identity_attributes(user, (), False)
+    subject = PolicySubject(
+        user,
+        roles=tuple(attributes.pop("roles", ())),
+        capabilities=tuple(attributes.pop("capabilities", ())),
+        attributes=attributes,
+        source="slack",
+    )
+    enforce_decision(
+        registry.policy_engine.decide(
+            PolicyInput(
+                subject,
+                "skein.integration.slack",
+                PolicyResource("integration", "slack"),
+                "slack",
+                tool="slack.command",
+                tool_effect="write",
+                tool_risk="medium",
+            )
+        )
+    )
+    # Count only an active, policy-authorized identity. Offboarded or denied
+    # calls must not create adoption records before they are refused.
+    await run_in_threadpool(record_use, user, "slack")
     # EVERY route-level command, not a hardcoded list: a handler-None entry is
     # resolved by routes/chat.py, so commands.dispatch returns None for it and
     # the MockAgent below would smart-capture the raw slash command as a note
@@ -94,7 +123,17 @@ async def slack_command(request: Request):
             "response_type": "ephemeral",
             "text": f"{first[0].lower()} runs in the web chat only — open /chat and use it there.",
         }
-    agent = MockAgent(thread_id="slack", user=user)
+    # Slack has already authenticated a human through the signed webhook.
+    # Keep its capture on the human service path. The keyless web agent uses
+    # the default governed agent path instead.
+    agent = MockAgent(
+        thread_id="slack",
+        user=user,
+        gated_capture=False,
+        direct_policy=registry.policy_engine,
+        direct_subject=subject,
+        direct_origin="slack",
+    )
     chunks = []
     try:
         async for event in agent.stream_async(text or "/help"):

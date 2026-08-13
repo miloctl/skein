@@ -1,4 +1,5 @@
 import hmac
+import sqlite3
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -7,7 +8,7 @@ from .. import config
 from ..services import scope
 from ..services.adoption import record_use
 from ..services.api_keys import PREFIX, verify_key
-from ..services.users import ensure_user, is_agent, refuse_fold_collision
+from ..services.users import ensure_human_identity, is_agent, is_content_identity
 
 # One condition, one wording: main.py's perimeter middleware refuses the same
 # conditions before a route dependency ever runs, so it imports these strings
@@ -48,11 +49,18 @@ def agent_on_signin(name: str) -> str:
     return f"'{name}' is an agent identity — agents authenticate with their API key, not a sign-in"
 
 
+def content_on_signin() -> str:
+    return (
+        "This name is reserved for agent content. Set SKEIN_OIDC_USERNAME_CLAIM"
+        " to a claim that gives each person one name."
+    )
+
+
 def _refuse_reserved(name: str) -> None:
-    from ..services.users import refuse_reserved_name
+    from ..services.users import refuse_authenticated_name
 
     try:
-        refuse_reserved_name(name)
+        refuse_authenticated_name(name)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -74,7 +82,22 @@ def _refuse_inactive(name: str) -> None:
         raise HTTPException(status_code=403, detail=INACTIVE)
 
 
-def is_shared_token(authorization: str) -> bool:
+def _refuse_ambiguous(name: str) -> None:
+    from ..services.users import identity_collision_refusal
+
+    if refusal := identity_collision_refusal(name):
+        raise HTTPException(status_code=403, detail=refusal)
+
+
+def _app_setting(request: Request | None, name: str, fallback):
+    settings = getattr(getattr(request, "app", None), "state", None)
+    if not getattr(settings, "skein_explicit_settings", False):
+        return fallback
+    snapshot = getattr(settings, "skein_settings", None)
+    return getattr(snapshot, name, fallback)
+
+
+def is_shared_token(authorization: str, request: Request | None = None) -> bool:
     """The deployment-wide SKEIN_API_TOKEN. It proves membership in the
     deployment, never identity, so a caller holding it stays weak.
 
@@ -85,10 +108,12 @@ def is_shared_token(authorization: str) -> bool:
     this rather than restating the comparison, so the two doors cannot
     disagree about the same header.
     """
-    if config.AUTH_MODE != "trusted-header" or not config.API_TOKEN:
+    auth_mode = _app_setting(request, "auth_mode", config.AUTH_MODE)
+    api_token = _app_setting(request, "api_token", config.API_TOKEN)
+    if auth_mode != "trusted-header" or not api_token:
         return False
     return hmac.compare_digest(
-        authorization.encode("utf-8", "replace"), f"Bearer {config.API_TOKEN}".encode()
+        authorization.encode("utf-8", "replace"), f"Bearer {api_token}".encode()
     )
 
 
@@ -134,8 +159,10 @@ def _resolve(
     fail closed, unlike the model-provider faults that degrade to mock,
     because "degrade" for auth means "open".
     """
-    if config.AUTH_ERROR:
-        raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
+    auth_error = _app_setting(request, "auth_error", config.AUTH_ERROR)
+    auth_mode = _app_setting(request, "auth_mode", config.AUTH_MODE)
+    if auth_error:
+        raise HTTPException(status_code=503, detail=auth_error)
     if authorization.startswith("Bearer ") and authorization[7:].startswith(PREFIX):
         owner = _cached(request, "auth_key_owner") or verify_key(authorization[7:])
         # A SKEIN_API_TOKEN that begins with sk-skein- reaches this door and is
@@ -145,7 +172,7 @@ def _resolve(
         # have that key silently demoted from strong identity to a weak shared
         # door. The token proves membership in the deployment, never identity,
         # so it falls through to the name-picker door below.
-        if not owner and not is_shared_token(authorization):
+        if not owner and not is_shared_token(authorization, request):
             raise HTTPException(status_code=401, detail=INVALID_KEY)
         if owner:
             # two write paths, one service layer: humans use REST, agents use
@@ -153,6 +180,7 @@ def _resolve(
             # ungated human surface with origin=human — refuse the door entirely
             if is_agent(owner):
                 raise HTTPException(status_code=403, detail=agent_on_rest(owner))
+            _refuse_ambiguous(owner)
             # the key door never calls ensure_user, so a row that predates the
             # reserved-name wall (or was renamed into one) would keep writing as
             # a system actor and leak every row to every viewer. Refuse the
@@ -161,7 +189,7 @@ def _resolve(
             _refuse_reserved(owner)
             _refuse_inactive(owner)
             return owner, True, []
-    if config.AUTH_MODE == "oidc":
+    if auth_mode == "oidc":
         if authorization.startswith("Bearer "):
             from .. import oidc
 
@@ -178,22 +206,32 @@ def _resolve(
             except oidc.OIDCError as exc:
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             if is_agent(name):
+                if is_content_identity(name):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=content_on_signin(),
+                    )
                 raise HTTPException(status_code=403, detail=agent_on_signin(name))
-            # the read path skips ensure_user, so the walls it applies are
-            # applied here too
+            # Apply the same walls for direct dependency calls that do not pass
+            # through the perimeter middleware.
             _refuse_reserved(name)
             _refuse_inactive(name)
             try:
-                if method in ("GET", "HEAD", "OPTIONS"):
-                    # a read never grows the roster, so a polling service
-                    # account does not accumulate rows. It still takes the
-                    # fold wall: resolving the claim onto a fold-equivalent
-                    # roster row would hand `ALICE` (or a zero-width variant)
-                    # every row `alice` owns, private notes included, and
-                    # _is_admin below reads the name this returns.
-                    refuse_fold_collision(name)
+                # The perimeter reserves every validated OIDC principal before
+                # any handler runs. Direct calls and tests do the same here.
+                # Durable ownership prevents a new service, specialist, or MCP
+                # identity from taking the name during this request.
+                if _cached(request, "auth_human_owner") == name:
                     return name, True, groups
-                return ensure_user(name)["name"], True, groups
+                return ensure_human_identity(name)["name"], True, groups
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc):
+                    raise
+                raise HTTPException(
+                    status_code=503,
+                    detail="The database is busy. Wait 5 seconds, then send the request again.",
+                    headers={"Retry-After": "5"},
+                ) from exc
             except ValueError as exc:
                 # a reserved name (bench-persona slug) or a fold collision
                 # would otherwise refuse EVERY request, and an OIDC caller
@@ -205,13 +243,17 @@ def _resolve(
                     " that gives each person one name.",
                 ) from exc
         raise HTTPException(status_code=401, detail=NEED_LOGIN)
-    if config.AUTH_MODE == "api-key":
+    if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
-    name = (x_user or "anonymous").strip()[:64] or "anonymous"
-    # the read path returns before ensure_user, so the wall is applied here —
-    # the same gap the key and OIDC doors had
-    _refuse_reserved(name)
+    supplied_name = (x_user or "").strip()[:64]
+    name = supplied_name or "anonymous"
+    # Weak reads do not reserve a roster row. Apply the stable reserved,
+    # inactive, and agent walls before that early return.
+    if supplied_name:
+        _refuse_reserved(name)
     _refuse_inactive(name)
+    if supplied_name:
+        _refuse_ambiguous(name)
     if is_agent(name):
         raise HTTPException(
             status_code=403,
@@ -220,7 +262,16 @@ def _resolve(
         )
     if method in ("GET", "HEAD", "OPTIONS"):
         return name, False, []
-    return ensure_user(name)["name"], False, []
+    if not supplied_name:
+        # Preserve the historic unnamed weak write identity. It is synthetic,
+        # cannot become strong, and never owns a private surface.
+        from ..services.users import ensure_user
+
+        return ensure_user("anonymous")["name"], False, []
+    try:
+        return ensure_human_identity(name)["name"], False, []
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 def forge_webhook_off() -> HTTPException:
@@ -258,7 +309,7 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
         raise HTTPException(status_code=401, detail="the webhook signature does not match")
 
 
-def _is_admin(user: str, groups: list[str]) -> bool:
+def _is_admin(user: str, groups: list[str], request: Request | None = None) -> bool:
     """SKEIN_ADMINS names administrators; in oidc mode an IdP group
     (SKEIN_OIDC_ADMIN_GROUP) grants it too. With NEITHER configured,
     trusted-header mode lets every key holder administer — the historical
@@ -272,7 +323,9 @@ def _is_admin(user: str, groups: list[str]) -> bool:
     if is_named_admin(user, groups):
         return True
     return (
-        not config.ADMINS and not config.OIDC_ADMIN_GROUP and config.AUTH_MODE == "trusted-header"
+        not config.ADMINS
+        and not config.OIDC_ADMIN_GROUP
+        and _app_setting(request, "auth_mode", config.AUTH_MODE) == "trusted-header"
     )
 
 
@@ -313,12 +366,28 @@ def current_user(
     """Every resolved identity also counts toward adoption telemetry (day/
     user/surface tallies — reach of the tool, never content or output)."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
-    _stash(request, user, strong, groups)
+    _stash(request, user, strong, groups, authentication_source(request, authorization, strong))
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
 
-def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None:
+def authentication_source(request: Request, authorization: str, strong: bool) -> str:
+    """Return the stable source that proved one request identity."""
+    if strong and authorization.startswith("Bearer "):
+        if authorization[7:].startswith(PREFIX):
+            return "api-key"
+        if _app_setting(request, "auth_mode", config.AUTH_MODE) == "oidc":
+            return "oidc"
+    return "trusted-header"
+
+
+def _stash(
+    request: Request,
+    user: str,
+    strong: bool,
+    groups: list[str],
+    source: str = "trusted-header",
+) -> None:
     """What a handler can read back off the request.
 
     All three dependencies stash, not only current_user: a route that
@@ -330,6 +399,7 @@ def _stash(request: Request, user: str, strong: bool, groups: list[str]) -> None
     """
     request.state.strong_auth = strong
     request.state.auth_groups = groups
+    request.state.auth_source = source
     # The viewer every scoped read filters on. Built HERE and nowhere else
     # (services/scope.py::Viewer) so the strong-identity bar is a property of
     # the door rather than a rule every scoped read has to remember.
@@ -368,7 +438,7 @@ def strong_user(
     is who the record says."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, user, True, groups)
+    _stash(request, user, True, groups, authentication_source(request, authorization, True))
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
     return user
 
@@ -387,8 +457,8 @@ def admin_user(
     their own records is not a privilege boundary, it is a dead end."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _require_strong(strong)
-    _stash(request, user, True, groups)
-    if not _is_admin(user, groups):
+    _stash(request, user, True, groups, authentication_source(request, authorization, True))
+    if not _is_admin(user, groups, request):
         raise HTTPException(
             status_code=403,
             detail=f"'{user}' is not an administrator. Ask whoever runs the"

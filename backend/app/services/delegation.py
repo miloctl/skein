@@ -3,12 +3,13 @@ an authority matrix per (agent, entity), a mission-control view, and trust
 scores computed from the review inbox — promotion is suggested, never automatic."""
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from .. import config, db
 from ..agents.identity import refuse_when_consultative
 from . import scope
-from .users import ensure_user
+from .users import ensure_agent_identity, refuse_ambiguous_identity
 
 LEVELS = ("autonomous", "notify", "review", "forbidden")
 
@@ -35,45 +36,62 @@ def delegate_task(
     # human-approved proposal path (origin agent_verified) stays open
     if agent.strip() == actor and origin != "agent_verified":
         raise ValueError("an agent cannot delegate a task to itself — propose it instead")
-    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not task:
-        raise scope.missing("tasks", task_id)
-    scope.assert_editable("tasks", task, actor, verb="delegate")
-    # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
-    # ONLY BARRIER: claim_task, report_progress, accept_completion and
-    # submit_completion below each gate on `delegated_agent` alone and never
-    # call scope.assert_editable, so once a private task carries a delegate
-    # nothing downstream refuses it. It would also put the title in
-    # agent_inbox.
-    if task["visibility"] == scope.PRIVATE:
-        raise ValueError(
-            "a private task has one reader, so it cannot be delegated."
-            " Pick a crew, or make this task visible to everyone on the roster."
+    with db.transaction():
+        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if not task:
+            raise scope.missing("tasks", task_id)
+        scope.assert_editable("tasks", task, actor, verb="delegate")
+        # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
+        # ONLY BARRIER: claim_task, report_progress, accept_completion and
+        # submit_completion below each gate on `delegated_agent` alone and never
+        # call scope.assert_editable, so once a private task carries a delegate
+        # nothing downstream refuses it. It would also put the title in
+        # agent_inbox.
+        if task["visibility"] == scope.PRIVATE:
+            raise ValueError(
+                "a private task has one reader, so it cannot be delegated."
+                " Pick a crew, or make this task visible to everyone on the roster."
+            )
+        # The notification quotes this title. Read, mutation, policy snapshot,
+        # and notification insert therefore share the same serialized write.
+        scope.assert_readable_by(
+            task["visibility"],
+            task["crew_id"],
+            sponsor,
+            label="sponsor",
+            author=task["created_by"],
         )
-    # the notify below quotes the task title to whatever name the caller
-    # passed, and the sponsor then reviews the agent's work on the task
-    scope.assert_readable_by(
-        task["visibility"],
-        task["crew_id"],
-        sponsor,
-        label="sponsor",
-        author=task["created_by"],
-    )
-    ensure_user(agent, kind="agent")
-    db.execute(
-        "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
-        " WHERE id = ?",
-        (agent, sponsor, agent, db.now(), task_id),
-    )
-    db.log_activity(actor, "delegate_task", f"#{task_id} -> {agent} (sponsor: {sponsor})")
-    from .notifications import notify
+        ensure_agent_identity(agent)
+        db.execute(
+            "UPDATE tasks SET delegated_agent = ?, sponsor = ?, assignee = ?, updated_at = ?"
+            " WHERE id = ?",
+            (agent, sponsor, agent, db.now(), task_id),
+        )
+        db.log_activity(actor, "delegate_task", f"#{task_id} -> {agent} (sponsor: {sponsor})")
+        from .work import _emit_task_event
 
-    notify(
-        sponsor,
-        f"You sponsor task #{task_id} '{task['title']}' delegated to {agent}.",
-        tier="digest",
-        link="/agents",
-    )
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=actor,
+            origin=origin,
+            visibility=task["visibility"],
+            changes=("delegated_agent", "sponsor", "assignee"),
+            correlation_id="",
+            actor_kind="",
+        )
+        from .notifications import notify
+
+        notify(
+            sponsor,
+            lambda source: (
+                f"You sponsor task #{source['id']} '{source['title']}' delegated to {agent}."
+            ),
+            tier="digest",
+            link="/agents",
+            source_entity="task",
+            source_id=task_id,
+        )
     return {"id": task_id, "delegated_agent": agent, "sponsor": sponsor}
 
 
@@ -111,30 +129,45 @@ def claim_task(task_id: int, *, actor: str, origin: str = "agent") -> dict:
     reversible and the sponsor is told."""
     refuse_when_consultative("claim delegated tasks")
     _check_not_forbidden(actor)
-    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not task:
-        raise scope.missing("tasks", task_id)
-    if task["delegated_agent"] != actor:
-        _assert_readable_or_missing(task, actor, task_id)
-        raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
-    if task["status"] not in ("todo", "blocked"):
-        raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
-    db.execute(
-        "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
-        (db.now(), task_id),
-    )
-    db.log_activity(
-        actor, "claim_task", scope.detail(task["visibility"], f"#{task_id}", task["title"])
-    )
-    if task["sponsor"]:
-        from .notifications import notify
-
-        notify(
-            task["sponsor"],
-            f"{actor} started on task #{task_id} '{task['title']}'.",
-            tier="digest",
-            link="/agents",
+    with db.transaction():
+        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if not task:
+            raise scope.missing("tasks", task_id)
+        if task["delegated_agent"] != actor:
+            _assert_readable_or_missing(task, actor, task_id)
+            raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
+        if task["status"] not in ("todo", "blocked"):
+            raise ValueError(f"task #{task_id} is {task['status']} — nothing to claim")
+        db.execute(
+            "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
+            (db.now(), task_id),
         )
+        db.log_activity(
+            actor, "claim_task", scope.detail(task["visibility"], f"#{task_id}", task["title"])
+        )
+        from .work import _emit_task_event
+
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=actor,
+            origin=origin,
+            visibility=task["visibility"],
+            changes=("status",),
+            correlation_id="",
+            actor_kind="",
+        )
+        if task["sponsor"]:
+            from .notifications import notify
+
+            notify(
+                task["sponsor"],
+                lambda source: f"{actor} started on task #{source['id']} '{source['title']}'.",
+                tier="digest",
+                link="/agents",
+                source_entity="task",
+                source_id=task_id,
+            )
     return {"id": task_id, "status": "in_progress"}
 
 
@@ -274,31 +307,46 @@ def accept_completion(
     # task accepted here would otherwise count zero in cycle time AND in
     # throughput. The forge routes every delegated close to this function, so
     # the more work a team delegates, the more of its throughput disappears.
-    db.execute(
-        "UPDATE tasks SET status = 'done', completed_at = ?, updated_at = ? WHERE id = ?",
-        (db.now(), db.now(), task_id),
-    )
-    if summary:
-        tier, cid = scope.inherit(task)
+    event_actor = actor or "agent"
+    event_origin = origin or "agent_verified"
+    with db.transaction():
         db.execute(
-            "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
-            " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                actor or "agent",
-                f"[accepted] {summary}",
-                origin or "agent_verified",
-                db.now(),
-                tier,
-                cid,
-            ),
+            "UPDATE tasks SET status = 'done', completed_at = ?, updated_at = ? WHERE id = ?",
+            (db.now(), db.now(), task_id),
         )
-    db.log_activity(
-        actor or "agent",
-        "complete_task",
-        scope.detail(task["visibility"], f"#{task_id}", task["title"]),
-    )
-    clear_acceptance_ping(task_id, task["delegated_agent"] or actor)
+        if summary:
+            tier, cid = scope.inherit(task)
+            db.execute(
+                "INSERT INTO task_worklog (task_id, author, note, origin, created_at,"
+                " visibility, crew_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    event_actor,
+                    f"[accepted] {summary}",
+                    event_origin,
+                    db.now(),
+                    tier,
+                    cid,
+                ),
+            )
+        db.log_activity(
+            event_actor,
+            "complete_task",
+            scope.detail(task["visibility"], f"#{task_id}", task["title"]),
+        )
+        from .work import _emit_task_event
+
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=event_actor,
+            origin=event_origin,
+            visibility=task["visibility"],
+            changes=("status", "completed_at"),
+            correlation_id="",
+            actor_kind="",
+        )
+        clear_acceptance_ping(task_id, task["delegated_agent"] or actor)
     return {"id": task_id, "status": "done"}
 
 
@@ -314,24 +362,6 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     # interrupt a human mid-consultation over work nobody requested
     refuse_when_consultative("submit work for acceptance")
     _check_not_forbidden(actor)
-    task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if not task:
-        raise scope.missing("tasks", task_id)
-    if task["delegated_agent"] != actor:
-        _assert_readable_or_missing(task, actor, task_id)
-        raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
-    if task["status"] == "done":
-        raise ValueError(f"task #{task_id} is already done")
-    dup = db.query_one(
-        "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
-        " AND entity_id = ? AND status = 'pending'",
-        (task_id,),
-    )
-    if dup:
-        raise ValueError(
-            f"task #{task_id} already awaits acceptance (proposal #{dup['id']})"
-            " — wait for the sponsor's verdict"
-        )
     from .review import propose_change
 
     # ONE transaction for the proposal and its sponsor snapshot (db.transaction
@@ -340,6 +370,24 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     # agent's retry then hit the duplicate guard above, telling it to wait for
     # a verdict nobody had been asked for.
     with db.transaction():
+        task = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if not task:
+            raise scope.missing("tasks", task_id)
+        if task["delegated_agent"] != actor:
+            _assert_readable_or_missing(task, actor, task_id)
+            raise ValueError(f"task #{task_id} is not delegated to '{actor}'")
+        if task["status"] == "done":
+            raise ValueError(f"task #{task_id} is already done")
+        dup = db.query_one(
+            "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
+            " AND entity_id = ? AND status = 'pending'",
+            (task_id,),
+        )
+        if dup:
+            raise ValueError(
+                f"task #{task_id} already awaits acceptance (proposal #{dup['id']})"
+                " — wait for the sponsor's verdict"
+            )
         p = propose_change(
             "task_completion",
             "update",
@@ -368,16 +416,20 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
             "UPDATE pending_changes SET sponsor_at_submission = ? WHERE id = ?",
             (task["sponsor"] or "", p["id"]),
         )
-    if task["sponsor"]:
-        from .notifications import notify
+        if task["sponsor"]:
+            from .notifications import notify
 
-        notify(
-            task["sponsor"],
-            f"{actor} submitted task #{task_id} '{task['title']}' for your"
-            f" acceptance (proposal #{p['id']}).",
-            tier="immediate",
-            link="/review",
-        )
+            notify(
+                task["sponsor"],
+                lambda source: (
+                    f"{actor} submitted task #{source['id']} '{source['title']}' for your"
+                    f" acceptance (proposal #{p['id']})."
+                ),
+                tier="immediate",
+                link="/review",
+                source_entity="task",
+                source_id=task_id,
+            )
     return {"proposal_id": p["id"], "task_id": task_id, "status": "pending"}
 
 
@@ -425,7 +477,15 @@ def set_authority(
     # wrongly.
     if entity in ALWAYS_REVIEW and level in ("autonomous", "notify"):
         raise ValueError(f"'{entity}' always waits for a human — set it to 'review' or 'forbidden'")
-    ensure_user(agent, kind="agent")
+    # Authority can govern an existing specialist, service, or MCP agent.
+    # It must not change that agent's durable identity owner. A new name is a
+    # generic delegated agent and uses the strict reservation path.
+    refuse_ambiguous_identity(agent)
+    existing_agent = db.query_one("SELECT kind FROM users WHERE name = ?", (agent,))
+    if existing_agent is None:
+        ensure_agent_identity(agent)
+    elif existing_agent["kind"] != "agent":
+        raise ValueError(f"'{agent}' is already owned by a human identity")
     # authority half-life: elevated grants carry a review-by date (90d
     # default) — "nothing in Skein is trusted forever, not decisions, not
     # agents." The authority_stale findings rule nags past it; reconfirm by
@@ -761,7 +821,14 @@ def mission_control() -> list[dict]:
     return out
 
 
-def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
+def agent_inbox(
+    agent: str,
+    viewer: "scope.Viewer | None" = None,
+    task_filter: Callable[[int, dict[str, str]], bool] | None = None,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    *,
+    allow_unclassified: bool = True,
+) -> dict:
     """Ambient inbox: everything an agent should look at when it wakes up.
     Deterministic — the same view a human gets from my_day, agent-shaped.
 
@@ -791,11 +858,52 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
         " WHEN 'medium' THEN 2 ELSE 3 END, id",
         (agent, *tp),
     )
+    if task_filter is not None:
+        from . import policy_context
+
+        tasks = [
+            task
+            for task in tasks
+            if task_filter(
+                int(task["id"]),
+                policy_context.existing("task", int(task["id"]))
+                if viewer is None
+                else policy_context.existing_scoped("task", int(task["id"]), viewer),
+            )
+        ]
+    elif resource_filter is not None:
+        from . import policy_context
+
+        tasks = [
+            task
+            for task in tasks
+            if resource_filter(
+                "task",
+                int(task["id"]),
+                policy_context.existing("task", int(task["id"]))
+                if viewer is None
+                else policy_context.existing_scoped("task", int(task["id"]), viewer),
+            )
+        ]
     questions = db.query(
         "SELECT id, question, asked_by FROM questions WHERE assigned_to = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
         f" AND status = 'open' AND {qfrag} ORDER BY id",
         (agent, *qp),
     )
+    if resource_filter is not None:
+        from . import policy_context
+
+        questions = [
+            question
+            for question in questions
+            if resource_filter(
+                "question",
+                int(question["id"]),
+                policy_context.existing("question", int(question["id"]))
+                if viewer is None
+                else policy_context.existing_scoped("question", int(question["id"]), viewer),
+            )
+        ]
     # through _readable on the REST door for the same reason the two queries
     # above take a filter: `summary` and `review_note` quote the target row's
     # own text, and GET /api/agents/{agent}/inbox answers any CurrentUser with
@@ -804,18 +912,38 @@ def agent_inbox(agent: str, viewer: "scope.Viewer | None" = None) -> dict:
     from .review import _readable
 
     rejected = db.query(
-        "SELECT id, entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
+        "SELECT id, entity, entity_id, summary, review_note, reviewed_by,"
+        " review_visibility, review_crew_id, review_owner, policy_context"
+        " FROM pending_changes"
         " WHERE proposed_by = ? AND status = 'rejected' ORDER BY id DESC LIMIT 10",
         (agent,),
     )
     if viewer is not None:
         rejected = _readable(rejected, viewer)
+    if resource_filter is not None:
+        from .review import filter_policy_resources
+
+        rejected = filter_policy_resources(
+            rejected,
+            resource_filter,
+            allow_unclassified=allow_unclassified,
+            viewer=viewer,
+        )
     # `notifications` carries no tier (scope.UNSCOPED) and its bodies quote
     # scoped rows, so the REST door gets counts and the agent gets the text.
     notifications = db.query(
-        "SELECT id, message, link, created_at FROM notifications"
+        "SELECT id, message, link, created_at, source_entity, source_id,"
+        " source_policy_context FROM notifications"
         " WHERE user = ? AND read_at IS NULL ORDER BY id DESC LIMIT 20",
         (agent,),
+    )
+    from .notifications import policy_filter as filter_notifications
+
+    notifications = filter_notifications(
+        notifications,
+        resource_filter,
+        allow_unclassified=allow_unclassified,
+        viewer=viewer,
     )
     if viewer is not None:
         notifications = [{k: v for k, v in n.items() if k != "message"} for n in notifications]

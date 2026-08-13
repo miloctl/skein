@@ -129,3 +129,13 @@ def test_persona_slug_collision_is_refused(overlay):
 def test_missing_overlay_dir_surfaces_on_health(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "FLOCKS_OVERLAY", tmp_path / "gone")
     assert any("SKEIN_FLOCKS_DIR" in e for e in config.overlay_errors())
+
+
+@pytest.mark.parametrize("slug", ["agent", "anonymous", "ci", "mcp", "system", "team"])
+def test_live_flock_scan_never_exposes_a_core_machine_subject(overlay, slug):
+    assert slug not in {item["slug"] for item in flocks.list_flocks()}
+    _write(overlay, slug, synthesis=True)
+    assert slug not in {item["slug"] for item in flocks.list_flocks()}
+    with pytest.raises(ValueError, match="no flock"):
+        flocks.get_flock(slug)
+    assert any("reserved for a composed machine identity" in item for item in flocks.validate_all())

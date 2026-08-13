@@ -20,9 +20,10 @@ from pathlib import Path
 import yaml
 
 from .. import config, db
+from ..identity_names import content_subject_refusal
 from . import personas
 
-FLOCKS_DIR = Path(__file__).resolve().parent.parent.parent / "flocks"
+FLOCKS_DIR = config.STOCK_DIR / "flocks"
 
 # same charset as a persona slug: both name an agent head in chat, and
 # services/personas.py holds the matching pattern
@@ -34,6 +35,8 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 # by a number the operator writes in a file.
 MIN_MEMBERS = 2
 MAX_MEMBERS = 4
+SCHEMA_VERSION = 1
+_FIELDS = {"schema_version", "name", "description", "emoji", "members", "synthesis"}
 
 
 def _flock_dirs() -> list[Path]:
@@ -52,9 +55,19 @@ def _flock_files() -> dict[str, Path]:
     files: dict[str, Path] = {}
     for d in _flock_dirs():
         for path in sorted(d.glob("*.yaml")):
-            if _SLUG.match(path.stem):
+            if _SLUG.match(path.stem) and not content_subject_refusal(path.stem):
                 files[path.stem] = path
     return files
+
+
+def configured_slugs() -> set[str]:
+    """All configured valid-character slugs, including refused core claims."""
+    return {
+        path.stem
+        for directory in _flock_dirs()
+        for path in directory.glob("*.yaml")
+        if _SLUG.match(path.stem)
+    }
 
 
 def _parse(path: Path, bench: set[str]) -> dict | None:
@@ -62,7 +75,7 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
     here has a matching loud error in validate_all() — keep the two in step,
     or a file drops off the roster with no CI failure to explain it."""
     slug = path.stem
-    if not _SLUG.match(slug):
+    if not _SLUG.match(slug) or content_subject_refusal(slug):
         return None
     # a flock slug that is also a persona slug would merge two heads in every
     # by-name rollup: synthesis logs usage under the FLOCK slug (routes/
@@ -75,6 +88,11 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
     except (OSError, yaml.YAMLError):
         return None
     if not isinstance(data, dict):
+        return None
+    versioned = "schema_version" in data
+    if versioned and data.get("schema_version") != SCHEMA_VERSION:
+        return None
+    if versioned and set(data) - _FIELDS:
         return None
     name = str(data.get("name") or "").strip()
     description = str(data.get("description") or "").strip()
@@ -91,6 +109,7 @@ def _parse(path: Path, bench: set[str]) -> dict | None:
     if any(m not in bench for m in members):
         return None
     return {
+        "schema_version": SCHEMA_VERSION,
         "slug": slug,
         "name": name,
         "description": description,
@@ -162,6 +181,9 @@ def validate_all() -> list[str]:
             if not _SLUG.match(path.stem):
                 errors.append(f"{label}: slug must match {_SLUG.pattern}")
                 continue
+            if refusal := content_subject_refusal(path.stem):
+                errors.append(f"{label}: {refusal}")
+                continue
             if path.stem in bench:
                 errors.append(
                     f"{label}: {path.stem!r} is also a persona slug — rename the flock,"
@@ -176,6 +198,12 @@ def validate_all() -> list[str]:
             if not isinstance(data, dict):
                 errors.append(f"{label}: expected an object with name, description, and members")
                 continue
+            versioned = "schema_version" in data
+            if versioned and data.get("schema_version") != SCHEMA_VERSION:
+                errors.append(f"{label}: schema_version must be {SCHEMA_VERSION}")
+            unknown = sorted(set(data) - _FIELDS)
+            if versioned and unknown:
+                errors.append(f"{label}: unknown top-level fields: {unknown}")
             if not str(data.get("name") or "").strip():
                 errors.append(f"{label}: name is empty")
             if not str(data.get("description") or "").strip():

@@ -1,12 +1,21 @@
 """REST API: reads for the dashboard, writes for humans (the second write path
 alongside agent tools — both go through app.services)."""
 
-from typing import Annotated
+import asyncio
+from typing import Annotated, Any
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
+from ..extensions.fastapi import (
+    PolicyAPIRoute,
+    PolicySubjectDep,
+    decide,
+    enforce_decision,
+)
+from ..extensions.policy import PolicyDecision, PolicyEffect
 from ..services import (
     absences,
     activity,
@@ -35,7 +44,9 @@ from ..services import (
     personas,
     planning,
     playbooks,
+    policy_context,
     portfolio,
+    projection_policy,
     promises,
     provenance,
     pulse,
@@ -55,7 +66,90 @@ from ..services import (
 )
 from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", route_class=PolicyAPIRoute)
+
+
+def _permitted_collection(
+    request: Request,
+    subject: Any,
+    rows: list[dict],
+    contexts: dict[int, dict[str, str]],
+    *,
+    action: str,
+    resource_type: str,
+) -> list[dict]:
+    """Filter visible rows through their authoritative workplace policy context."""
+    return [
+        row
+        for row in rows
+        if decide(
+            request,
+            subject,
+            action,
+            resource_type,
+            resource_id=str(row["id"]),
+            project_type=contexts[int(row["id"])]["project_type"],
+            classification=contexts[int(row["id"])]["classification"],
+            attributes=contexts[int(row["id"])],
+        ).effect.value
+        == "permit"
+    ]
+
+
+def _require_opaque_project_policy(
+    request: Request,
+    subject: Any,
+    viewer: scope.Viewer,
+    action: str,
+    *,
+    unclassified_inputs: bool = True,
+    resource_types: tuple[str, ...] = projection_policy.PROJECT_RESOURCE_TYPES,
+) -> projection_policy.ProjectionPolicy:
+    """Refuse an opaque derivative when it cannot remove a denied input."""
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        action,
+        "rest",
+        viewer,
+    )
+    if not policy.allows_all_projects(resource_types) or (
+        unclassified_inputs and not policy.allows_unclassified()
+    ):
+        enforce_decision(
+            PolicyDecision(
+                PolicyEffect.DENY,
+                ("The composite contains a resource that policy does not permit.",),
+            )
+        )
+    return policy
+
+
+def _require_resource_policy(
+    request: Request,
+    subject: Any,
+    viewer: scope.Viewer,
+    action: str,
+    entity: str,
+    entity_id: int,
+) -> dict[str, str]:
+    """Authorize one visible domain resource in the caller's read snapshot."""
+    attributes = policy_context.existing_scoped(entity, entity_id, viewer)
+    if not attributes:
+        raise scope.missing(f"{entity}s", entity_id)
+    enforce_decision(
+        decide(
+            request,
+            subject,
+            action,
+            entity,
+            resource_id=str(entity_id),
+            project_type=attributes.get("project_type", ""),
+            classification=attributes.get("classification", ""),
+            attributes=attributes,
+        )
+    )
+    return attributes
 
 
 # ---- reads -----------------------------------------------------------------
@@ -73,32 +167,189 @@ router = APIRouter(prefix="/api")
 # line there fails CI.
 
 
+@router.get("/capabilities")
+def get_capabilities(
+    request: Request,
+    subject: PolicySubjectDep,
+    actions: str = Query("", max_length=2000),
+    project_type: str = Query("", max_length=100),
+):
+    """Return policy decisions for presentation, not for enforcement."""
+    registry = request.app.state.skein_registry
+    requested = {item.strip() for item in actions.split(",") if item.strip()}
+    if len(requested) > 64:
+        raise ValueError("a capability request can name at most 64 actions")
+    requested.update(tool.policy_action for tool in registry.tools)
+    catalog = registry.action_catalog()
+    out = {}
+    for action in sorted(requested):
+        # An action outside the composed catalog fails closed. The engine's
+        # human-origin default otherwise answered `permit` for a misspelled
+        # frontend action — and for a frontend whose backend module is not
+        # installed at all, which is exactly when its UI must stay hidden.
+        # The `skein.` exemption exists because core REST actions are derived
+        # from routes, not contributed; it is safe because composition
+        # refuses a private module that DECLARES an operation under the
+        # prefix, and the frontend registry refuses a `skein.` policyAction
+        # (extensions/registry.py::_validate_namespace, lib/extensions/
+        # registry.ts::registerAction). This endpoint stays presentation-only.
+        if action not in catalog and not action.startswith("skein."):
+            out[action] = {
+                "effect": "deny",
+                "reasons": ["No composed module registers this action."],
+                "obligations": [],
+                "approver_groups": [],
+                "approver_capabilities": [],
+            }
+            continue
+        decision = decide(
+            request,
+            subject,
+            action,
+            action.split(".", 1)[0],
+            project_type=project_type,
+        )
+        out[action] = {
+            "effect": decision.effect.value,
+            "reasons": list(decision.reasons),
+            "obligations": list(decision.obligations),
+            "approver_groups": list(decision.approver_groups),
+            "approver_capabilities": list(decision.approver_capabilities),
+        }
+    return {
+        "subject": subject.name,
+        "roles": list(subject.roles),
+        "capabilities": list(subject.capabilities),
+        "modules": list(registry.module_summaries()),
+        "actions": out,
+    }
+
+
 @router.get("/milestones")
-def get_milestones(user: CurrentUser, viewer: ViewerDep, project: str = "", status: str = ""):
-    return work.list_milestones(project, status, viewer)
+def get_milestones(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    project: str = "",
+    status: str = "",
+):
+    with db.read_transaction():
+        rows = work.list_milestones(project, status, viewer)
+        contexts = work.milestone_collection_policy_contexts(rows, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.milestones",
+                "milestone",
+                resource_id=str(row["id"]),
+                project_type=contexts[int(row["id"])]["project_type"],
+                classification=contexts[int(row["id"])]["classification"],
+                attributes=contexts[int(row["id"])],
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/tasks")
-def get_tasks(user: CurrentUser, viewer: ViewerDep):
-    return work.list_tasks_joined(viewer)
+def get_tasks(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    """Return only rows that the composed workplace policy permits."""
+    with db.read_transaction():
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.tasks",
+            "rest",
+            viewer,
+        )
+        rows = work.list_tasks_joined(viewer)
+        contexts = work.task_collection_policy_contexts(rows, viewer)
+        permitted = [
+            row for row in rows if policy.permits("task", int(row["id"]), contexts[int(row["id"])])
+        ]
+        return work.redact_task_relationships(permitted, viewer, policy.permits)
 
 
 @router.get("/tasks/{task_id}")
-def get_task(user: CurrentUser, viewer: ViewerDep, task_id: int):
+def get_task(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    task_id: int,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     """The side peek's read. Declared BEFORE /tasks/{task_id}/worklog is
     irrelevant to routing here (the paths differ in segment count), but it
     must stay after the literal /tasks route above — FastAPI matches in
     declaration order, and a bare "/tasks/{task_id}" first would swallow it."""
     try:
-        return work.get_task(task_id, viewer)
+        # Bind the viewer-scoped row, domain policy, and returned projection to
+        # one snapshot. The generic route gate skips this exact operation so
+        # an unscoped project lookup cannot reveal a hidden task first.
+        with db.read_transaction():
+            task = work.get_task(task_id, viewer)
+            domain = work.task_read_policy_context(task, viewer)
+            if domain.get("relationship_conflict"):
+                raise scope.missing("tasks", task_id)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.get.tasks",
+                    "task",
+                    resource_id=str(task_id),
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            policy = projection_policy.ProjectionPolicy(
+                request.app.state.skein_registry.policy_engine,
+                subject,
+                "skein.rest.get.tasks",
+                "rest",
+                viewer,
+            )
+            return work.filter_task_projection(task, viewer, policy.permits)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
 
 @router.get("/tasks/{task_id}/worklog")
-def get_task_worklog(user: CurrentUser, viewer: ViewerDep, task_id: int):
+def get_task_worklog(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    task_id: int,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     try:
-        return delegation.list_worklog(task_id, viewer=viewer)
+        with db.read_transaction():
+            task = work.get_task(task_id, viewer)
+            domain = work.task_read_policy_context(task, viewer)
+            if domain.get("relationship_conflict"):
+                raise scope.missing("tasks", task_id)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.get.tasks.worklog",
+                    "task",
+                    resource_id=str(task_id),
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return delegation.list_worklog(task_id, viewer=viewer)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
@@ -119,8 +370,24 @@ def get_standups(user: CurrentUser, viewer: ViewerDep):
 
 
 @router.get("/events")
-def get_events(user: CurrentUser, viewer: ViewerDep, from_date: str = ""):
-    return schedule.list_events(from_date, viewer=viewer)
+def get_events(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    from_date: str = "",
+):
+    with db.read_transaction():
+        rows = schedule.list_events(from_date, viewer=viewer)
+        contexts = policy_context.engagement_linked_collection_contexts("event", rows, viewer)
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            contexts,
+            action="skein.rest.get.events",
+            resource_type="event",
+        )
 
 
 @router.get("/personas")
@@ -214,28 +481,121 @@ def get_activity_verify(user: CurrentUser, tail: int = 0):
 
 
 @router.get("/blockers")
-def get_blockers(user: CurrentUser, viewer: ViewerDep, status: str = "", owner: str = ""):
-    return blockers.list_blockers(status, owner, viewer)
+def get_blockers(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "",
+    owner: str = "",
+):
+    """Return only blocker rows that the composed workplace policy permits."""
+    with db.read_transaction():
+        rows = blockers.list_blockers(status, owner, viewer)
+        contexts = blockers.blocker_collection_policy_contexts(rows, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.blockers",
+                "blocker",
+                resource_id=str(row["id"]),
+                project_type=contexts[int(row["id"])]["project_type"],
+                classification=contexts[int(row["id"])]["classification"],
+                attributes=contexts[int(row["id"])],
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/intake")
-def get_intake(user: CurrentUser, viewer: ViewerDep, status: str = ""):
-    return intake.list_requests(status, viewer)
+def get_intake(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "",
+):
+    with db.read_transaction():
+        rows = intake.list_requests(status, viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.intake",
+                "intake",
+                resource_id=str(row["id"]),
+                project_type=str(row.get("project_class") or ""),
+                classification=str(row.get("visibility") or ""),
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/review")
-def get_review(user: CurrentUser, viewer: ViewerDep, status: str = "pending"):
-    return review.list_changes(status, viewer)
+def get_review(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "pending",
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review")
+        return review.list_changes(status, viewer)
 
 
 @router.get("/engagements")
-def get_engagements(user: CurrentUser, viewer: ViewerDep, status: str = ""):
-    return engagements.list_engagements(status, viewer=viewer)
+def get_engagements(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    status: str = "",
+):
+    with db.read_transaction():
+        rows = engagements.list_engagements(status, viewer=viewer)
+        return [
+            row
+            for row in rows
+            if decide(
+                request,
+                subject,
+                "skein.rest.get.engagements",
+                "engagement",
+                resource_id=str(row["id"]),
+                project_type=str(row.get("project_class") or ""),
+                classification=str(row.get("visibility") or ""),
+            ).effect.value
+            == "permit"
+        ]
 
 
 @router.get("/allocations")
-def get_allocations(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
-    return engagements.list_allocations(engagement_id, viewer=viewer)
+def get_allocations(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    engagement_id: int = 0,
+):
+    with db.read_transaction():
+        rows = engagements.list_allocations(engagement_id, viewer=viewer)
+        contexts = policy_context.resource_contexts(
+            [("allocation", int(row["id"])) for row in rows], viewer
+        )
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            {row_id: value for (_entity, row_id), value in contexts.items()},
+            action="skein.rest.get.allocations",
+            resource_type="allocation",
+        )
 
 
 @router.delete("/allocations/{allocation_id}")
@@ -294,13 +654,49 @@ def delete_absence(absence_id: int, user: CurrentUser):
 
 
 @router.get("/capacity")
-def get_capacity(user: CurrentUser, viewer: ViewerDep):
-    return engagements.capacity(viewer)
+def get_capacity(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        # Capacity composes allocations against engagements only, and both
+        # are classified rows — no free-form legacy text rides along. Testing
+        # the full type set (and the unclassified gate) hid the whole card
+        # behind a rule about regulated tasks that no capacity row contains.
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.capacity",
+            unclassified_inputs=False,
+            resource_types=("engagement", "allocation"),
+        )
+        return engagements.capacity(viewer)
 
 
 @router.get("/lessons")
-def get_lessons(user: CurrentUser, viewer: ViewerDep, project_class: str = ""):
-    return engagements.list_lessons(project_class, viewer=viewer)
+def get_lessons(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    project_class: str = "",
+):
+    with db.read_transaction():
+        rows = engagements.list_lessons(project_class, viewer=viewer)
+        contexts = policy_context.resource_contexts(
+            [("lesson", int(row["id"])) for row in rows], viewer
+        )
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            {row_id: value for (_entity, row_id), value in contexts.items()},
+            action="skein.rest.get.lessons",
+            resource_type="lesson",
+        )
 
 
 @router.get("/playbooks")
@@ -309,13 +705,52 @@ def get_playbooks():
 
 
 @router.get("/artifacts")
-def get_artifacts(user: CurrentUser, viewer: ViewerDep, engagement_id: int = 0):
-    return handoff.list_artifacts(engagement_id, viewer)
+def get_artifacts(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    engagement_id: int = 0,
+):
+    with db.read_transaction():
+        rows = handoff.list_artifacts(engagement_id, viewer)
+        contexts = policy_context.resource_contexts(
+            [("artifact", int(row["id"])) for row in rows], viewer
+        )
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            {row_id: value for (_entity, row_id), value in contexts.items()},
+            action="skein.rest.get.artifacts",
+            resource_type="artifact",
+        )
 
 
 @router.get("/artifacts/{artifact_id}")
-def get_artifact(artifact_id: int, user: CurrentUser, viewer: ViewerDep):
-    return handoff.read_artifact(artifact_id, viewer)
+def get_artifact(
+    artifact_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        artifact = handoff.read_artifact(artifact_id, viewer)
+        domain = policy_context.existing_scoped("artifact", artifact_id, viewer)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.get.artifacts",
+                "artifact",
+                resource_id=str(artifact_id),
+                project_type=domain.get("project_type", ""),
+                classification=domain.get("classification", ""),
+                attributes=domain,
+            )
+        )
+        return artifact
 
 
 @router.get("/users")
@@ -510,15 +945,43 @@ def post_team_theme(body: ThemeIn, user: AdminUser):
 
 
 @router.get("/search")
-def get_search(q: str, user: CurrentUser, viewer: ViewerDep):
+def get_search(
+    q: str,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     fieldguide.mark(user, "search")
-    return search.search(q, viewer=viewer)
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.search",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return search.search(q, viewer=viewer, row_filter=policy.filter_resources)
 
 
 @router.get("/ask")
-def get_ask(q: str, user: CurrentUser, viewer: ViewerDep):
+def get_ask(
+    q: str,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     fieldguide.mark(user, "search")
-    return search.ask(q, viewer=viewer)
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.ask",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return search.ask(q, viewer=viewer, row_filter=policy.filter_resources)
 
 
 @router.get("/field-guide")
@@ -595,12 +1058,37 @@ def post_key_request(user: CurrentUser):
 
 
 @router.get("/briefing")
-def get_briefing(user: CurrentUser, viewer: ViewerDep):
-    return briefing.my_day(user, viewer)
+def get_briefing(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.briefing",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return briefing.my_day(
+            user,
+            viewer,
+            policy.filter_rows,
+            policy.filter_resources,
+            policy.allows_unclassified(),
+            policy.permits,
+        )
 
 
 @router.get("/attention")
-def get_attention(user: CurrentUser, viewer: ViewerDep):
+def get_attention(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     # `count` IS `yours`, not the Inbox number. Both readers of this field —
     # the browser tab title and `skein attention` — say "waiting on you", and
     # the Inbox total said that about a queue anyone may work. The nav badge
@@ -608,8 +1096,10 @@ def get_attention(user: CurrentUser, viewer: ViewerDep):
     #
     # The viewer rides along because `yours` must equal what /briefing's header
     # prints, and that number is viewer-scoped (services/briefing.py).
-    counts = briefing.attention_count(user, viewer)
-    return {"count": counts["yours"], **counts}
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.attention")
+        counts = briefing.attention_count(user, viewer)
+        return {"count": counts["yours"], **counts}
 
 
 class KeyIn(BaseModel):
@@ -654,8 +1144,28 @@ def post_revoke_all_keys(user: AdminUser):
 
 
 @router.get("/notifications")
-def get_notifications(user: CurrentUser, unread_only: bool = True):
-    return notifications.list_notifications(user, unread_only)
+def get_notifications(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    unread_only: bool = True,
+):
+    with db.read_transaction():
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.notifications",
+            "rest",
+            viewer,
+        )
+        return notifications.list_notifications_filtered(
+            user,
+            unread_only,
+            policy.permits,
+            allow_unclassified=policy.allows_unclassified(),
+            viewer=viewer,
+        )
 
 
 class MarkReadIn(BaseModel):
@@ -668,13 +1178,29 @@ def post_notifications_read(body: MarkReadIn, user: CurrentUser):
 
 
 @router.get("/memories")
-def get_memories(user: CurrentUser, viewer: ViewerDep, q: str = ""):
+def get_memories(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    q: str = "",
+):
     # engagement_id=None: this endpoint BROWSES, and it is the only surface
     # that lists memories or offers to delete one (app/agents/page.tsx). A
     # predicate that hid an engagement's memories here would leave them
     # steering every conversation about that work from a row no human could
     # reach (services/memory.py::recall names the three states).
-    return memory.recall(q, user=user, viewer=viewer, engagement_id=None)
+    with db.read_transaction():
+        rows = memory.recall(q, user=user, viewer=viewer, engagement_id=None)
+        contexts = policy_context.engagement_linked_collection_contexts("memory", rows, viewer)
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            contexts,
+            action="skein.rest.get.memories",
+            resource_type="memory",
+        )
 
 
 @router.delete("/memories/{memory_id}")
@@ -687,34 +1213,94 @@ def delete_memory(memory_id: int, user: CurrentUser):
 
 
 @router.get("/pulse")
-def get_pulse(user: CurrentUser):
-    return pulse.pulse()
+def get_pulse(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.pulse")
+        return pulse.pulse()
 
 
 @router.get("/portfolio/health")
-def get_portfolio_health(user: CurrentUser, viewer: ViewerDep):
-    return portfolio.engagement_health(viewer)
+def get_portfolio_health(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.portfolio.health",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return policy.filter_rows(
+            "engagement",
+            portfolio.engagement_health(viewer, resource_filter=policy.permits),
+        )
 
 
 @router.get("/portfolio/conflicts")
-def get_portfolio_conflicts(user: CurrentUser, viewer: ViewerDep):
-    return portfolio.allocation_conflicts(viewer)
+def get_portfolio_conflicts(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request, subject, viewer, "skein.rest.get.portfolio.conflicts"
+        )
+        return portfolio.allocation_conflicts(viewer)
 
 
 @router.get("/portfolio/flow")
-def get_portfolio_flow(user: CurrentUser):
-    return portfolio.flow_metrics()
+def get_portfolio_flow(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.portfolio.flow")
+        return portfolio.flow_metrics()
 
 
 @router.get("/portfolio/forecast")
-def get_portfolio_forecast(user: CurrentUser):
-    return portfolio.slip_forecast()
+def get_portfolio_forecast(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request, subject, viewer, "skein.rest.get.portfolio.forecast"
+        )
+        return portfolio.slip_forecast()
 
 
 @router.post("/portfolio/readout")
-def post_portfolio_readout(user: CurrentUser):
+def post_portfolio_readout(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("artifact", user)
-    return readout.exec_readout(actor=user)
+    with db.transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.post.portfolio.readout",
+        )
+        return readout.exec_readout(actor=user)
 
 
 class WhatIfIn(BaseModel):
@@ -723,29 +1309,67 @@ class WhatIfIn(BaseModel):
 
 
 @router.post("/intake/{request_id}/what-if")
-def post_what_if(request_id: int, body: WhatIfIn, user: CurrentUser, viewer: ViewerDep):
-    return portfolio.what_if(request_id, body.people, body.percent, viewer)
+def post_what_if(
+    request_id: int,
+    body: WhatIfIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.post.intake.what-if",
+        )
+        return portfolio.what_if(request_id, body.people, body.percent, viewer)
 
 
 @router.get("/planning")
-def get_planning(user: CurrentUser, viewer: ViewerDep, weeks: int = 6):
+def get_planning(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    weeks: int = 6,
+):
     """The Monday cockpit: one read, in meeting order (services/planning.py).
 
     CurrentUser, not AdminUser: the manager controls this page hosts are
     ordinary CurrentUser writes today, and gating the READ would be a new
     authorization rule invented in a route rather than in routes/deps.py.
     The viewer carries the scope, so the page shows what its caller may see."""
-    return planning.cockpit(viewer, ahead_weeks=weeks)
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.planning")
+        return planning.cockpit(viewer, ahead_weeks=weeks)
 
 
 @router.get("/week")
-def get_week(user: CurrentUser, week: str = ""):
-    return weekly.week_view(week)
+def get_week(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    week: str = "",
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.week")
+        return weekly.week_view(week)
 
 
 @router.get("/week/draft")
-def get_week_draft(user: CurrentUser, week: str = ""):
-    return weekly.draft_plan(week)
+def get_week_draft(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    week: str = "",
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.week.draft")
+        return weekly.draft_plan(week)
 
 
 class WeekPlanIn(BaseModel):
@@ -754,19 +1378,56 @@ class WeekPlanIn(BaseModel):
 
 
 @router.post("/week/plan")
-def post_week_plan(body: WeekPlanIn, user: CurrentUser):
-    return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids, actor=user)
+def post_week_plan(
+    body: WeekPlanIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.transaction():
+        for task_id in body.task_ids:
+            try:
+                task = work.get_task(task_id, viewer)
+            except (db.NotFound, ValueError):
+                continue
+            attributes = work.task_read_policy_context(task, viewer)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.post.week.plan",
+                    "task",
+                    resource_id=str(task_id),
+                    project_type=attributes.get("project_type", ""),
+                    classification=attributes.get("classification", ""),
+                    attributes=attributes,
+                )
+            )
+        return weekly.apply_plan(body.week or weekly.current_week(), body.task_ids, actor=user)
 
 
 @router.get("/promises")
 def get_promises(
     user: CurrentUser,
     viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
     status: str = "",
     audience: str = "",
     direction: str = "",
 ):
-    return promises.list_promises(status, audience, viewer, direction)
+    with db.read_transaction():
+        rows = promises.list_promises(status, audience, viewer, direction)
+        contexts = policy_context.engagement_linked_collection_contexts("promise", rows, viewer)
+        return _permitted_collection(
+            request,
+            subject,
+            rows,
+            contexts,
+            action="skein.rest.get.promises",
+            resource_type="promise",
+        )
 
 
 class PromiseIn(BaseModel):
@@ -839,8 +1500,15 @@ def post_reconfirm(decision_id: int, body: ReconfirmIn, user: CurrentUser):
 
 
 @router.get("/review/stats")
-def get_review_stats(user: CurrentUser, viewer: ViewerDep):
-    return review.review_stats(viewer)
+def get_review_stats(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.review.stats")
+        return review.review_stats(viewer)
 
 
 class FeedbackIn(BaseModel):
@@ -1087,11 +1755,31 @@ def post_agents_authority(body: AuthorityIn, user: AdminUser):
 
 
 @router.get("/agents/{agent}/inbox")
-def get_agent_inbox(agent: str, user: CurrentUser, viewer: ViewerDep):
+def get_agent_inbox(
+    agent: str,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     if not users.is_agent(agent):
         # names no name: an error never echoes a rejected value back (CLAUDE.md)
         raise HTTPException(status_code=404, detail="no such agent. Check the name.")
-    return delegation.agent_inbox(agent, viewer)
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.agents.inbox",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return delegation.agent_inbox(
+            agent,
+            viewer,
+            task_filter=lambda task_id, attributes: policy.permits("task", task_id, attributes),
+            resource_filter=policy.permits,
+            allow_unclassified=policy.allows_unclassified(),
+        )
 
 
 class DelegateIn(BaseModel):
@@ -1100,7 +1788,14 @@ class DelegateIn(BaseModel):
 
 
 @router.post("/tasks/{task_id}/delegate")
-def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser, request: Request):
+def post_delegate(
+    task_id: int,
+    body: DelegateIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     # capped like every other content write: this UPDATEs a task, appends a
     # hash-chained activity row, and notifies the sponsor — the amplifier
     # patch_task's own comment names. It became a one-click control when the
@@ -1113,33 +1808,88 @@ def post_delegate(task_id: int, body: DelegateIn, user: CurrentUser, request: Re
     # and lock them out of sign-in, repairable only through rename_user. The
     # scarce credential is the bar for creating an identity, matching
     # POST /api/keys; using one that already exists is not gated.
-    if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
-        raise HTTPException(
-            403,
-            # lowercase fragment, like the other 187: the frontend joins a
-            # refusal into its own sentence (docs/LEXICON.md, "Backend
-            # refusal shape")
-            "creating an agent identity requires a personal API key."
-            " Delegate to an agent that already exists, or get your first key from"
-            " whoever runs the server (python -m app.bootstrap_key <you>) and paste"
-            " it in Settings, step 2.",
+    with db.transaction():
+        task = work.get_task(task_id, viewer)
+        domain = work.task_read_policy_context(task, viewer)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.tasks.delegate",
+                "task",
+                resource_id=str(task_id),
+                project_type=domain["project_type"],
+                classification=domain["classification"],
+                attributes=domain,
+            )
         )
-    return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
+        if not users.is_agent(body.agent) and not getattr(request.state, "strong_auth", False):
+            raise HTTPException(
+                403,
+                # lowercase fragment, like the other 187: the frontend joins a
+                # refusal into its own sentence (docs/LEXICON.md, "Backend
+                # refusal shape")
+                "creating an agent identity requires a personal API key."
+                " Delegate to an agent that already exists, or get your first key from"
+                " whoever runs the server (python -m app.bootstrap_key <you>) and paste"
+                " it in Settings, step 2.",
+            )
+        return delegation.delegate_task(task_id, body.agent, body.sponsor or user, actor=user)
 
 
 @router.get("/context-pack")
-def get_context_pack(user: CurrentUser, viewer: ViewerDep, engagement: int = 0, crew: int = 0):
-    if engagement:
-        return {
-            "engagement": engagement,
-            "content": context_pack.build_engagement_pack(engagement, viewer),
-        }
-    return context_pack.get_pack(actor=user, crew_id=crew, viewer=viewer)
+def get_context_pack(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    engagement: int = 0,
+    crew: int = 0,
+):
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.context-pack",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        if engagement:
+            attributes = policy_context.existing_scoped("engagement", engagement, viewer)
+            if not attributes or not policy.permits("engagement", engagement, attributes):
+                raise db.NotFound(f"no engagement #{engagement}")
+            return {
+                "engagement": engagement,
+                "content": context_pack.build_engagement_pack(
+                    engagement,
+                    viewer,
+                    policy.permits,
+                ),
+            }
+        return context_pack.get_pack(
+            actor=user,
+            crew_id=crew,
+            viewer=viewer,
+            resource_filter=policy.permits,
+        )
 
 
 @router.post("/context-pack/publish")
-def post_context_pack(user: CurrentUser, viewer: ViewerDep, crew: int = 0):
-    return context_pack.publish_pack(actor=user, crew_id=crew, viewer=viewer)
+def post_context_pack(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    crew: int = 0,
+):
+    with db.transaction():
+        _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.post.context-pack.publish",
+        )
+        return context_pack.publish_pack(actor=user, crew_id=crew, viewer=viewer)
 
 
 @router.get("/onboarding")
@@ -1164,10 +1914,18 @@ def get_insights(user: CurrentUser):
 
 
 @router.get("/findings")
-def get_findings(user: CurrentUser, weeks: int = 4):
+def get_findings(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    weeks: int = 4,
+):
     from ..services import insights as insights_svc
 
-    return insights_svc.list_findings(weeks)
+    with db.read_transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.findings")
+        return insights_svc.list_findings(weeks)
 
 
 class FindingDispositionIn(BaseModel):
@@ -1286,9 +2044,34 @@ class TaskIn(BaseModel):
 
 
 @router.post("/tasks")
-def post_task(body: TaskIn, user: CurrentUser):
+def post_task(
+    body: TaskIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return work.create_task(**body.model_dump(), actor=user)
+    values = body.model_dump()
+    with db.transaction():
+        domain = work.task_create_policy_context(
+            milestone_id=body.milestone_id,
+            engagement_id=body.engagement_id,
+            visibility=body.visibility,
+            crew_id=body.crew_id,
+            actor=user,
+        )
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.tasks",
+                "task",
+                project_type=domain["project_type"],
+                classification=domain["classification"],
+                attributes=values,
+            )
+        )
+        return work.create_task(**values, actor=user)
 
 
 class TaskPatch(BaseModel):
@@ -1308,15 +2091,44 @@ class TaskPatch(BaseModel):
 
 
 @router.patch("/tasks/{task_id}")
-def patch_task(task_id: int, body: TaskPatch, user: CurrentUser, viewer: ViewerDep):
+def patch_task(
+    task_id: int,
+    body: TaskPatch,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     # edits scan for @mentions, so an uncapped PATCH is a notification
     # amplifier — same cap as the create routes
     ratelimit.check("write", user)
-    # `strong` is read off the viewer, whose name survives only a proved
-    # identity (services/scope.py::Viewer). A sponsor closing delegated work
-    # here settles the acceptance proposal, and that verdict records whether
-    # a person really proved who they were — provenance reports it.
-    return work.update_task(task_id, **body.model_dump(), actor=user, strong=bool(viewer.name))
+    changes = body.model_dump()
+    # Resolve the target domain state and write under one SQLite write
+    # transaction. The generic route dependency remains an early refusal,
+    # while this check is the authoritative decision that cannot race a
+    # concurrent project relink.
+    with db.transaction():
+        domain = work.task_update_policy_context(task_id, changes, actor=user)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.patch.tasks",
+                "task",
+                resource_id=str(task_id),
+                project_type=str(domain.get("project_type") or ""),
+                classification=str(domain.get("classification") or ""),
+                attributes=domain,
+            )
+        )
+        # `strong` is read off the viewer, whose name survives only a proved
+        # identity. A sponsor's direct close records that proof strength.
+        return work.update_task(
+            task_id,
+            **changes,
+            actor=user,
+            strong=bool(viewer.name),
+        )
 
 
 class QuestionIn(BaseModel):
@@ -1516,9 +2328,35 @@ class BlockerIn(BaseModel):
 
 
 @router.post("/blockers")
-def post_blocker(body: BlockerIn, user: CurrentUser):
+def post_blocker(
+    body: BlockerIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("write", user)
-    return blockers.raise_blocker(**body.model_dump(), actor=user)
+    try:
+        with db.transaction():
+            domain = blockers.create_policy_context(
+                body.task_id,
+                body.visibility,
+                body.crew_id,
+                actor=user,
+            )
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.post.blockers",
+                    "blocker",
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return blockers.raise_blocker(**body.model_dump(), actor=user)
+    except (db.NotFound, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 class ResolveIn(BaseModel):
@@ -1532,9 +2370,31 @@ class BlockerEditIn(BaseModel):
 
 
 @router.patch("/blockers/{blocker_id}")
-def patch_blocker(blocker_id: int, body: BlockerEditIn, user: CurrentUser):
+def patch_blocker(
+    blocker_id: int,
+    body: BlockerEditIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     try:
-        return blockers.edit_blocker(blocker_id, body.title, body.detail, body.owner, actor=user)
+        with db.transaction():
+            domain = blockers.existing_policy_context(blocker_id, actor=user)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.patch.blockers",
+                    "blocker",
+                    resource_id=str(blocker_id),
+                    project_type=domain["project_type"],
+                    classification=domain["classification"],
+                    attributes=domain,
+                )
+            )
+            return blockers.edit_blocker(
+                blocker_id, body.title, body.detail, body.owner, actor=user
+            )
     except db.NotFound:
         raise
     except ValueError as e:
@@ -1542,8 +2402,28 @@ def patch_blocker(blocker_id: int, body: BlockerEditIn, user: CurrentUser):
 
 
 @router.post("/blockers/{blocker_id}/resolve")
-def post_resolve_blocker(blocker_id: int, body: ResolveIn, user: CurrentUser):
-    return blockers.resolve_blocker(blocker_id, body.resolution, actor=user)
+def post_resolve_blocker(
+    blocker_id: int,
+    body: ResolveIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    with db.transaction():
+        domain = blockers.existing_policy_context(blocker_id, actor=user)
+        enforce_decision(
+            decide(
+                request,
+                subject,
+                "skein.rest.post.blockers.resolve",
+                "blocker",
+                resource_id=str(blocker_id),
+                project_type=domain["project_type"],
+                classification=domain["classification"],
+                attributes=domain,
+            )
+        )
+        return blockers.resolve_blocker(blocker_id, body.resolution, actor=user)
 
 
 class IntakeIn(BaseModel):
@@ -1625,6 +2505,280 @@ class ReviewActionIn(BaseModel):
     note: str = Field("", max_length=1000)
 
 
+def _execute_extension_review(request: Request, invocation: dict, _change_id: int) -> dict:
+    """Resume an approved invocation through the current composed registry."""
+    registry = request.app.state.skein_registry
+    if invocation.get("kind") == "tool":
+        from ..extensions.tools import execute_reviewed_tool
+
+        tool = registry.tool(str(invocation.get("tool") or ""))
+        tool_execution = asyncio.run(execute_reviewed_tool(tool, invocation, registry))
+        if tool_execution.error_code == "approval_stale":
+            raise PermissionError("the reviewed tool approval became stale")
+        return tool_execution.model_dump(mode="json")
+    if invocation.get("kind") == "mcp_tool":
+        from ..agents.mcp_tools import execute_reviewed_mcp
+
+        result = asyncio.run(execute_reviewed_mcp(invocation, registry))
+        if result.get("status") == "approval_stale":
+            raise PermissionError("the reviewed remote tool approval became stale")
+        return result
+    if invocation.get("kind") == "core_tool":
+        from ..agents.core_tools import execute_reviewed_core
+
+        result = asyncio.run(execute_reviewed_core(invocation, registry))
+        if result.get("status") != "completed":
+            raise PermissionError("the current policy did not permit the reviewed stock tool")
+        return result
+    if (
+        invocation.get("kind") == "workflow"
+        and invocation.get("workflow_kind") == "playbook_policy"
+    ):
+        from ..extensions.policy import (
+            policy_subject_from_data,
+        )
+        from ..public.workflow import WorkflowEngine, _issue_workflow_context
+
+        saved_subject = invocation.get("subject")
+        if not isinstance(saved_subject, dict):
+            raise ValueError("the reviewed playbook identity is invalid")
+        subject = registry.refresh_subject(policy_subject_from_data(saved_subject))
+        slug = str(invocation.get("playbook") or "")
+        definition = _reviewed_playbook_definition(invocation)
+        project_type = str(definition.get("project_class") or slug)
+        # review.approve_change refreshed the requester, evaluated the current
+        # policy, and checked the reviewer immediately before this executor.
+        # A second decision here could name different approvers without the
+        # review service checking them. Execute the one qualified verdict.
+        workflow_engine = WorkflowEngine(
+            registry.workflow_actions,
+            registry.policy_engine,
+        )
+        workflow_context = _issue_workflow_context(
+            workflow_engine,
+            subject,
+            "human",
+            project_type=project_type,
+            run_id=str(invocation.get("run_id") or uuid4().hex),
+            values={"project_type": project_type},
+        )
+        workflow_result = playbooks.instantiate(
+            slug,
+            str(invocation.get("engagement_name") or ""),
+            str(invocation.get("lead") or ""),
+            str(invocation.get("start_date") or ""),
+            actor=str(invocation.get("actor") or subject.name),
+            origin="human",
+            workflow_engine=workflow_engine,
+            workflow_context=workflow_context,
+            expected_definition_digest=str(invocation.get("definition_digest") or ""),
+        )
+        if workflow_result.get("workflow", {}).get("status") == "review_required":
+            return _queue_workflow_review(
+                workflow_result,
+                {
+                    **invocation,
+                    "project_type": project_type,
+                    "values": {"project_type": project_type},
+                },
+            )
+        return workflow_result
+    if invocation.get("kind") == "workflow":
+        from ..extensions.policy import (
+            policy_decision_from_data,
+            policy_subject_from_data,
+        )
+        from ..public.workflow import WorkflowEngine, _issue_workflow_context
+
+        subject_data = invocation.get("subject") or {}
+        saved_subject = policy_subject_from_data(subject_data)
+        subject = registry.refresh_subject(saved_subject)
+        definition = _reviewed_playbook_definition(invocation)
+        current_project_type = str(
+            definition.get("project_class") or invocation.get("playbook") or ""
+        )
+        approval_grants = dict(invocation.get("approval_grants") or {})
+        reviewed_key = str(invocation.get("reviewed_key") or "")
+        reviewed_fingerprint = str(
+            invocation.get("_approval_grant") or invocation.get("reviewed_fingerprint") or ""
+        )
+        if not reviewed_key or not reviewed_fingerprint:
+            raise ValueError("the reviewed workflow grant is incomplete")
+        decision_data = invocation.get("_approval_decision")
+        if not isinstance(decision_data, dict):
+            raise ValueError("the reviewed workflow decision is incomplete")
+        approved_decision = policy_decision_from_data(decision_data)
+        approval_grants[reviewed_key] = reviewed_fingerprint
+        workflow_engine = WorkflowEngine(
+            registry.workflow_actions,
+            registry.policy_engine,
+        )
+        workflow_context = _issue_workflow_context(
+            workflow_engine,
+            subject,
+            "human",
+            project_type=current_project_type,
+            resource_id=str(invocation.get("resource_id") or ""),
+            run_id=str(invocation.get("run_id") or uuid4().hex),
+            values={
+                **dict(invocation.get("values") or {}),
+                "project_type": current_project_type,
+            },
+            approval_grants=approval_grants,
+            approval_decisions={reviewed_key: approved_decision},
+        )
+        workflow_result = playbooks.instantiate(
+            str(invocation.get("playbook") or ""),
+            str(invocation.get("engagement_name") or ""),
+            str(invocation.get("lead") or ""),
+            str(invocation.get("start_date") or ""),
+            actor=str(invocation.get("actor") or subject.name),
+            origin="human",
+            workflow_engine=workflow_engine,
+            workflow_context=workflow_context,
+            expected_definition_digest=str(invocation.get("definition_digest") or ""),
+        )
+        workflow = workflow_result.get("workflow", {})
+        if workflow.get("error_code") == "STALE_APPROVAL_GRANT":
+            raise PermissionError("the reviewed workflow approval became stale")
+        if workflow.get("status") == "review_required":
+            return _queue_workflow_review(
+                workflow_result,
+                {**invocation, "approval_grants": approval_grants},
+            )
+        return workflow_result
+    raise ValueError("the extension review kind is not supported")
+
+
+def _reviewed_playbook_definition(invocation: dict) -> dict:
+    """Load only the exact playbook content stored with a durable review."""
+    slug = str(invocation.get("playbook") or "")
+    expected = str(invocation.get("definition_digest") or "")
+    if not expected:
+        raise PermissionError("The reviewed playbook has no content digest. Request a new review.")
+    definition = playbooks.get_playbook(slug)
+    if not playbooks.definition_digest_matches(expected, definition):
+        raise PermissionError("The reviewed playbook changed. Request a new review.")
+    return definition
+
+
+def _queue_workflow_review(result: dict, invocation: dict) -> dict:
+    workflow = result.get("workflow") or {}
+    review_policy = workflow.pop("_review_policy", {})
+    saved_policy_input = None
+    if isinstance(review_policy, dict) and review_policy:
+        from ..extensions.policy import policy_input_from_data, policy_subject_from_data
+
+        saved_subject = review_policy.get("subject")
+        if not isinstance(saved_subject, dict):
+            raise ValueError("the workflow review identity is invalid")
+        saved_policy_input = policy_input_from_data(
+            review_policy,
+            policy_subject_from_data(saved_subject),
+        )
+    obligations = tuple(str(value) for value in workflow.get("obligations") or ())
+    groups = tuple(
+        value.removeprefix("approver-group:")
+        for value in obligations
+        if value.startswith("approver-group:")
+    )
+    capabilities = tuple(
+        value.removeprefix("approver-capability:")
+        for value in obligations
+        if value.startswith("approver-capability:")
+    )
+    plain = tuple(
+        value
+        for value in obligations
+        if not value.startswith(("approver-group:", "approver-capability:"))
+    )
+    checkpoint = str(workflow.get("checkpoint") or "")
+    review_key = str(workflow.get("review_key") or "")
+    review_fingerprint = str(workflow.get("review_fingerprint") or "")
+    if not review_key or not review_fingerprint:
+        raise ValueError("the workflow review grant is incomplete")
+    proposal = review.propose_extension_invocation(
+        "workflow",
+        {
+            "playbook": invocation["playbook"],
+            "engagement_name": invocation["engagement_name"],
+            "checkpoint": checkpoint,
+        },
+        {
+            **invocation,
+            "reviewed_key": review_key,
+            "reviewed_fingerprint": review_fingerprint,
+        },
+        summary=f"Continue workflow {invocation['playbook']} at {checkpoint}",
+        actor=str(invocation["actor"]),
+        requested_by=str(invocation["actor"]),
+        policy_obligations=plain,
+        approver_groups=groups,
+        approver_capabilities=capabilities,
+        review_owner=str(invocation["actor"]),
+        policy_input=saved_policy_input,
+    )
+    workflow["review_id"] = proposal["id"]
+    result["workflow"] = workflow
+    return result
+
+
+def _queue_playbook_policy_review(
+    body: "InstantiateIn",
+    *,
+    actor: str,
+    subject,
+    definition_digest: str,
+    policy_input,
+    decision,
+) -> dict:
+    from ..extensions.policy import (
+        PolicyEffect,
+        policy_subject_data,
+    )
+
+    if decision.effect != PolicyEffect.REVIEW:
+        raise PermissionError("the playbook review is no longer required")
+    proposal = review.propose_extension_invocation(
+        "workflow",
+        {
+            "playbook": body.playbook,
+            "engagement_name": body.engagement_name,
+        },
+        {
+            "playbook": body.playbook,
+            "engagement_name": body.engagement_name,
+            "lead": body.lead or actor,
+            "start_date": body.start_date,
+            "actor": actor,
+            "subject": policy_subject_data(subject),
+            "workflow_kind": "playbook_policy",
+            "definition_digest": definition_digest,
+            "run_id": uuid4().hex,
+        },
+        summary=f"Start governed playbook {body.playbook}",
+        actor=actor,
+        requested_by=actor,
+        policy_obligations=decision.obligations,
+        approver_groups=decision.approver_groups,
+        approver_capabilities=decision.approver_capabilities,
+        review_owner=actor,
+        policy_input=policy_input,
+    )
+    obligations = [*decision.obligations]
+    obligations.extend(f"approver-group:{value}" for value in decision.approver_groups)
+    obligations.extend(f"approver-capability:{value}" for value in decision.approver_capabilities)
+    return {
+        "workflow": {
+            "status": "review_required",
+            "checkpoint": "workplace-policy",
+            "error_code": "REVIEW_REQUIRED",
+            "obligations": list(dict.fromkeys(obligations)),
+            "review_id": proposal["id"],
+        }
+    }
+
+
 @router.post("/review/{change_id}/approve")
 def post_approve(
     change_id: int,
@@ -1632,9 +2786,22 @@ def post_approve(
     user: CurrentUser,
     viewer: ViewerDep,
     request: Request,
+    subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.approve_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
+    return review.approve_change(
+        change_id,
+        body.note,
+        actor=user,
+        strong=strong,
+        viewer=viewer,
+        reviewer_groups=subject.groups,
+        reviewer_capabilities=subject.capabilities,
+        extension_executor=lambda invocation, change_id: _execute_extension_review(
+            request, invocation, change_id
+        ),
+        policy_registry=request.app.state.skein_registry,
+    )
 
 
 @router.post("/review/{change_id}/reject")
@@ -1644,9 +2811,19 @@ def post_reject(
     user: CurrentUser,
     viewer: ViewerDep,
     request: Request,
+    subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
-    return review.reject_change(change_id, body.note, actor=user, strong=strong, viewer=viewer)
+    return review.reject_change(
+        change_id,
+        body.note,
+        actor=user,
+        strong=strong,
+        viewer=viewer,
+        reviewer_groups=subject.groups,
+        reviewer_capabilities=subject.capabilities,
+        policy_registry=request.app.state.skein_registry,
+    )
 
 
 class CaptureIn(BaseModel):
@@ -1661,16 +2838,37 @@ class CaptureIn(BaseModel):
 
 
 @router.post("/capture")
-def post_capture(body: CaptureIn, user: CurrentUser, request: Request):
+def post_capture(
+    body: CaptureIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     ratelimit.check("capture", user)
     strong = bool(getattr(request.state, "strong_auth", False))
-    return capture.capture(
-        body.text,
-        actor=user,
-        strong_auth=strong,
-        visibility=body.visibility,
-        crew_id=body.crew_id,
-    )
+    with db.transaction():
+        if not capture.is_private_feedback(body.text):
+            _kind, entity, payload = capture.plan(body.text, actor=user)
+            payload.update({"visibility": body.visibility, "crew_id": body.crew_id})
+            attributes = policy_context.for_change(entity, 0, payload, actor=user)
+            enforce_decision(
+                decide(
+                    request,
+                    subject,
+                    "skein.rest.post.capture",
+                    entity,
+                    project_type=attributes.get("project_type", ""),
+                    classification=attributes.get("classification", ""),
+                    attributes=attributes,
+                )
+            )
+        return capture.capture(
+            body.text,
+            actor=user,
+            strong_auth=strong,
+            visibility=body.visibility,
+            crew_id=body.crew_id,
+        )
 
 
 class IngestIn(BaseModel):
@@ -1703,7 +2901,11 @@ def post_review_seen(body: SeenIn, user: CurrentUser):
 
 @router.post("/review/approve-batch")
 def post_approve_batch(
-    body: BatchApproveIn, user: CurrentUser, viewer: ViewerDep, request: Request
+    body: BatchApproveIn,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
 ):
     strong = bool(getattr(request.state, "strong_auth", False))
     results = []
@@ -1713,10 +2915,26 @@ def post_approve_batch(
     # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
         try:
-            r = review.approve_change(cid, actor=user, strong=strong, viewer=viewer)
+            r = review.approve_change(
+                cid,
+                actor=user,
+                strong=strong,
+                viewer=viewer,
+                reviewer_groups=subject.groups,
+                reviewer_capabilities=subject.capabilities,
+                extension_executor=lambda invocation, change_id: _execute_extension_review(
+                    request, invocation, change_id
+                ),
+                policy_registry=request.app.state.skein_registry,
+            )
             results.append({"id": cid, "status": r["status"]})
         except ValueError as exc:
             results.append({"id": cid, "status": "error", "detail": str(exc)})
+        except PermissionError as exc:
+            # Per item, never a batch-level 403: earlier ids in this loop have
+            # already committed, so an aborting handler would hide a partial
+            # apply from the caller and skip every id after this one.
+            results.append({"id": cid, "status": "forbidden", "detail": str(exc)})
     return {"results": results}
 
 
@@ -1759,14 +2977,32 @@ def patch_engagement(engagement_id: int, body: EngagementPatch, user: CurrentUse
 
 
 @router.get("/engagements/{engagement_id}/plan-diff")
-def get_plan_diff(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+def get_plan_diff(
+    engagement_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     """Planned versus what happened, for an engagement born from a playbook.
 
     `{}` for one created by hand — the close-out control renders nothing
     rather than an empty section, because "no variance" and "no plan to vary
     from" are different statements.
     """
-    return playbooks.close_out_diff(engagement_id, viewer)
+    policy = projection_policy.ProjectionPolicy(
+        request.app.state.skein_registry.policy_engine,
+        subject,
+        "skein.rest.get.engagements.plan-diff",
+        "rest",
+        viewer,
+    )
+    with db.read_transaction():
+        return playbooks.close_out_diff(
+            engagement_id,
+            viewer,
+            resource_filter=policy.permits,
+        )
 
 
 class AllocationIn(BaseModel):
@@ -1810,9 +3046,73 @@ class InstantiateIn(BaseModel):
 
 
 @router.post("/playbooks/instantiate")
-def post_instantiate(body: InstantiateIn, user: CurrentUser):
-    return playbooks.instantiate(
-        body.playbook, body.engagement_name, body.lead or user, body.start_date, actor=user
+def post_instantiate(
+    body: InstantiateIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    from ..extensions.policy import policy_subject_data
+    from ..public.workflow import WorkflowEngine, _issue_workflow_context
+
+    registry = request.app.state.skein_registry
+    playbook = playbooks.get_playbook(body.playbook)
+    project_type = str(playbook.get("project_class") or body.playbook)
+    definition_digest = playbooks.definition_digest(playbook)
+    evaluated = dict(getattr(request.state, "skein_playbook_policy_context", {}))
+    if evaluated.get("definition_digest") != definition_digest:
+        from ..public.errors import PublicError
+
+        raise PublicError(
+            "PLAYBOOK_CHANGED",
+            "The selected playbook changed during this request. Retry the request.",
+            status_code=409,
+        )
+    if getattr(request.state, "skein_playbook_policy_review", False):
+        return _queue_playbook_policy_review(
+            body,
+            actor=user,
+            subject=subject,
+            definition_digest=definition_digest,
+            policy_input=request.state.skein_playbook_policy_input,
+            decision=request.state.skein_playbook_policy_decision,
+        )
+    workflow_engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    workflow_context = _issue_workflow_context(
+        workflow_engine,
+        subject,
+        "human",
+        values={"project_type": project_type},
+        project_type=project_type,
+    )
+    result = playbooks.instantiate(
+        body.playbook,
+        body.engagement_name,
+        body.lead or user,
+        body.start_date,
+        actor=user,
+        workflow_engine=workflow_engine,
+        workflow_context=workflow_context,
+        expected_definition_digest=definition_digest,
+    )
+    if result.get("workflow", {}).get("status") != "review_required":
+        return result
+    return _queue_workflow_review(
+        result,
+        {
+            "playbook": body.playbook,
+            "engagement_name": body.engagement_name,
+            "lead": body.lead or user,
+            "start_date": body.start_date,
+            "actor": user,
+            "project_type": project_type,
+            "resource_id": "",
+            "run_id": workflow_context.run_id,
+            "values": dict(workflow_context.values),
+            "approval_grants": {},
+            "subject": policy_subject_data(subject),
+            "definition_digest": definition_digest,
+        },
     )
 
 
@@ -1829,7 +3129,7 @@ def post_digest(user: CurrentUser):
 
 
 @router.get("/calendar.ics")
-def get_calendar_ics(token: str = ""):
+def get_calendar_ics(request: Request, token: str = ""):
     """iCalendar feed of events + due dates (team-visible data only).
     Keep the feed inside the trusted network. Calendar clients can't send
     headers, so auth is a DEDICATED
@@ -1849,7 +3149,15 @@ def get_calendar_ics(token: str = ""):
         # bytes compare: str compare_digest raises on non-ASCII input (→500)
         if not hmac.compare_digest(token.encode(), config.ICS_TOKEN.encode()):
             raise HTTPException(status_code=401, detail="token required")
-    elif config.API_TOKEN or config.AUTH_MODE != "trusted-header":
+    elif (
+        request.app.state.skein_settings.api_token
+        if request.app.state.skein_explicit_settings
+        else config.API_TOKEN
+    ) or (
+        request.app.state.skein_settings.auth_mode
+        if request.app.state.skein_explicit_settings
+        else config.AUTH_MODE
+    ) != "trusted-header":
         raise HTTPException(
             status_code=403,
             detail="calendar feed disabled — set SKEIN_ICS_TOKEN to enable it",
@@ -1876,21 +3184,68 @@ def get_export(user: AdminUser):
 
 
 @router.get("/interventions")
-def get_interventions(user: CurrentUser, viewer: ViewerDep, limit: int = 12):
+def get_interventions(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    limit: int = 12,
+):
     """The manager's ranked queue. Composition only — every row restates one
     an engine already produced (services/intervention.py)."""
-    return intervention.interventions(viewer, limit)
+    with db.read_transaction():
+        policy = _require_opaque_project_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.interventions",
+            unclassified_inputs=False,
+        )
+        return intervention.interventions(viewer, limit, resource_filter=policy.permits)
 
 
 @router.get("/engagements/{engagement_id}/brief")
-def get_engagement_brief(engagement_id: int, user: CurrentUser, viewer: ViewerDep):
+def get_engagement_brief(
+    engagement_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     """One engagement, whole. Composition only — every number keeps its own
     home (services/engagement_brief.py)."""
-    return engagement_brief.brief(engagement_id, viewer)
+    with db.read_transaction():
+        _require_resource_policy(
+            request,
+            subject,
+            viewer,
+            "skein.rest.get.engagements.brief",
+            "engagement",
+            engagement_id,
+        )
+        policy = projection_policy.ProjectionPolicy(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "skein.rest.get.engagements.brief",
+            "rest",
+            viewer,
+        )
+        return engagement_brief.brief(
+            engagement_id,
+            viewer,
+            resource_filter=policy.permits,
+        )
 
 
 @router.get("/provenance/{entity}/{entity_id}")
-def get_provenance(entity: str, entity_id: int, user: CurrentUser, viewer: ViewerDep):
+def get_provenance(
+    entity: str,
+    entity_id: int,
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+):
     # capped: ids are a dense integer space and this answers about ONE row, so
     # an uncapped GET is the mechanism that turns per-row provenance into a
     # dataset (app/ratelimit.py names the bucket and the reasoning).
@@ -1900,7 +3255,17 @@ def get_provenance(entity: str, entity_id: int, user: CurrentUser, viewer: Viewe
     # asking the question IS the act this knot names: the panel writes nothing,
     # so no predicate could ever find it (services/fieldguide.py::mark)
     fieldguide.mark(user, "provenance")
-    return provenance.lineage(entity, entity_id, viewer)
+    with db.read_transaction():
+        if policy_context.supports_resource(entity):
+            _require_resource_policy(
+                request,
+                subject,
+                viewer,
+                "skein.rest.get.provenance",
+                entity,
+                entity_id,
+            )
+        return provenance.lineage(entity, entity_id, viewer)
 
 
 class EngagementMemoryIn(BaseModel):
@@ -1937,10 +3302,19 @@ def post_engagement_memory(
 
 
 @router.get("/delta")
-def get_delta(user: CurrentUser, viewer: ViewerDep, mark: bool = False):
+def get_delta(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    mark: bool = False,
+):
     """What changed for this reader since their last brief.
 
     `mark` defaults to False so a caller can PREVIEW without consuming: the
     chat command shows the brief, and only the surface that displays it moves
     the reader's last-seen mark (services/delta.py)."""
-    return delta.brief(user, viewer, mark=mark)
+    transaction = db.transaction if mark else db.read_transaction
+    with transaction():
+        _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.delta")
+        return delta.brief(user, viewer, mark=mark)

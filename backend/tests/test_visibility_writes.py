@@ -558,6 +558,284 @@ def test_quick_capture_scopes_every_kind_it_routes_to(fresh_db):
         assert row == {"visibility": "crew", "crew_id": cid}, text
 
 
+@pytest.mark.parametrize(
+    ("parent_tier", "parent_crew", "child_tier", "child_crew", "allowed"),
+    [
+        (scope.WORKSPACE, None, scope.WORKSPACE, None, True),
+        (scope.WORKSPACE, None, scope.CREW, 1, True),
+        (scope.WORKSPACE, None, scope.PRIVATE, None, True),
+        (scope.CREW, 1, scope.WORKSPACE, None, False),
+        (scope.CREW, 1, scope.CREW, 1, True),
+        (scope.CREW, 1, scope.CREW, 2, False),
+        (scope.CREW, 1, scope.PRIVATE, None, True),
+        (scope.PRIVATE, None, scope.WORKSPACE, None, False),
+        (scope.PRIVATE, None, scope.CREW, 1, False),
+        (scope.PRIVATE, None, scope.PRIVATE, None, True),
+    ],
+)
+def test_task_relationship_audience_must_fit_inside_its_parent(
+    parent_tier, parent_crew, child_tier, child_crew, allowed
+):
+    assert scope.relationship_contains(parent_tier, parent_crew, child_tier, child_crew) is allowed
+
+
+def test_shared_task_service_refuses_links_that_publish_narrow_parent_ids(fresh_db):
+    from app.services import engagements
+
+    users.ensure_user("mira")
+    private_engagement = engagements.create_engagement(
+        "Private parent", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+    private_milestone = work.create_milestone(
+        "Private milestone", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+
+    for links in (
+        {"engagement_id": private_engagement},
+        {"milestone_id": private_milestone},
+    ):
+        with pytest.raises(ValueError, match="cannot be visible to more people"):
+            work.create_task("Published child", actor="mira", **links)
+
+    private_child = work.create_task(
+        "Private child",
+        actor="mira",
+        visibility=scope.PRIVATE,
+        engagement_id=private_engagement,
+    )
+    assert private_child["id"] > 0
+
+    workspace_child = work.create_task("Unlinked child", actor="mira")["id"]
+    with pytest.raises(ValueError, match="cannot be visible to more people"):
+        work.update_task(workspace_child, engagement_id=private_engagement, actor="mira")
+    assert fresh_db.query_one(
+        "SELECT engagement_id FROM tasks WHERE id = ?", (workspace_child,)
+    ) == {"engagement_id": None}
+
+
+def test_task_reads_redact_legacy_relationship_ids_the_viewer_cannot_read(fresh_db):
+    from app.services import engagements
+
+    users.ensure_user("mira")
+    engagement = engagements.create_engagement(
+        "Private parent", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+    milestone = work.create_milestone("Private milestone", actor="mira", visibility=scope.PRIVATE)[
+        "id"
+    ]
+    direct = work.create_task("Legacy direct", actor="mira")["id"]
+    through_milestone = work.create_task("Legacy milestone", actor="mira")["id"]
+    fresh_db.execute("UPDATE tasks SET engagement_id = ? WHERE id = ?", (engagement, direct))
+    fresh_db.execute(
+        "UPDATE tasks SET milestone_id = ? WHERE id = ?", (milestone, through_milestone)
+    )
+
+    assert work.get_task(direct)["engagement_id"] is None
+    assert work.get_task(through_milestone)["milestone_id"] is None
+    listed = {row["id"]: row for row in work.list_tasks()}
+    joined = {row["id"]: row for row in work.list_tasks_joined()}
+    assert listed[direct]["engagement_id"] is None
+    assert listed[through_milestone]["milestone_id"] is None
+    assert joined[direct]["engagement_id"] is None
+    assert joined[through_milestone]["milestone_id"] is None
+
+    owner = scope.Viewer("mira", True)
+    assert work.get_task(direct, owner)["engagement_id"] == engagement
+    assert work.get_task(through_milestone, owner)["milestone_id"] == milestone
+
+
+def test_task_links_must_resolve_to_one_engagement(fresh_db):
+    from app.services import engagements
+
+    users.ensure_user("mira")
+    direct = engagements.create_engagement("Direct project", actor="mira")["id"]
+    engagements.create_engagement("Milestone project", actor="mira")
+    milestone = work.create_milestone(
+        "Milestone gate",
+        project="Milestone project",
+        actor="mira",
+    )["id"]
+
+    with pytest.raises(ValueError, match="must belong to the same engagement"):
+        work.create_task(
+            "Conflicting create",
+            actor="mira",
+            engagement_id=direct,
+            milestone_id=milestone,
+        )
+
+    task = work.create_task("Conflicting update", actor="mira", engagement_id=direct)["id"]
+    with pytest.raises(ValueError, match="must belong to the same engagement"):
+        work.update_task(task, milestone_id=milestone, actor="mira")
+    assert fresh_db.query_one(
+        "SELECT engagement_id, milestone_id FROM tasks WHERE id = ?", (task,)
+    ) == {"engagement_id": direct, "milestone_id": None}
+
+
+def test_milestone_relationships_cannot_publish_narrow_engagement_ids(fresh_db):
+    from app.services import engagements
+
+    users.ensure_user("mira")
+    private_engagement = engagements.create_engagement(
+        "Private milestone parent",
+        actor="mira",
+        visibility=scope.PRIVATE,
+    )["id"]
+
+    with pytest.raises(ValueError, match="milestone cannot be visible to more people"):
+        work.create_milestone(
+            "Published milestone",
+            project="Private milestone parent",
+            actor="mira",
+        )
+
+    milestone = work.create_milestone("Unlinked milestone", actor="mira")["id"]
+    with pytest.raises(ValueError, match="milestone cannot be visible to more people"):
+        work.update_milestone(milestone, engagement_id=private_engagement, actor="mira")
+
+    fresh_db.execute(
+        "UPDATE milestones SET engagement_id = ? WHERE id = ?",
+        (private_engagement, milestone),
+    )
+    outsider = work.list_milestones()
+    owner = work.list_milestones(viewer=scope.Viewer("mira", True))
+    assert outsider[0]["engagement_id"] is None
+    assert owner[0]["engagement_id"] == private_engagement
+
+
+def test_milestone_relink_preserves_linked_task_project_coherence(fresh_db):
+    from app.services import engagements
+
+    first = engagements.create_engagement("First project")["id"]
+    second = engagements.create_engagement("Second project")["id"]
+    milestone = work.create_milestone("Shared gate", project="First project")["id"]
+    task = work.create_task(
+        "Dual-linked task",
+        engagement_id=first,
+        milestone_id=milestone,
+    )["id"]
+
+    with pytest.raises(ValueError, match="must belong to the same engagement"):
+        work.update_milestone(milestone, engagement_id=second)
+
+    assert fresh_db.query_one(
+        "SELECT engagement_id FROM milestones WHERE id = ?", (milestone,)
+    ) == {"engagement_id": first}
+    assert fresh_db.query_one(
+        "SELECT engagement_id, milestone_id FROM tasks WHERE id = ?", (task,)
+    ) == {"engagement_id": first, "milestone_id": milestone}
+
+
+def test_engagement_auto_adoption_skips_a_conflicting_orphan_milestone(fresh_db):
+    from app.services import engagements
+
+    direct = engagements.create_engagement("Existing direct project")["id"]
+    milestone = work.create_milestone("Future gate", project="Future project")["id"]
+    work.create_task(
+        "Existing direct link",
+        engagement_id=direct,
+        milestone_id=milestone,
+    )
+
+    engagements.create_engagement("Future project")
+
+    assert fresh_db.query_one(
+        "SELECT engagement_id FROM milestones WHERE id = ?", (milestone,)
+    ) == {"engagement_id": None}
+
+
+def test_waiting_relationships_cannot_publish_narrow_work_ids(fresh_db):
+    from app.services import promises
+
+    users.ensure_user("mira")
+    private_task = work.create_task("Private dependency", actor="mira", visibility=scope.PRIVATE)[
+        "id"
+    ]
+    private_blocker = blockers.raise_blocker(
+        "Private blocker", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+    private_promise = promises.add_promise(
+        "Private promise", actor="mira", visibility=scope.PRIVATE
+    )["id"]
+
+    for kind, target in (
+        ("task", private_task),
+        ("blocker", private_blocker),
+        ("promise", private_promise),
+    ):
+        child = work.create_task(f"Workspace waits on {kind}", actor="mira")["id"]
+        with pytest.raises(ValueError, match="cannot be visible to more people"):
+            work.update_task(child, waiting_on=f"{kind}:{target}", actor="mira")
+
+        # Protect data that a release before the containment rule could store.
+        fresh_db.execute(
+            "UPDATE tasks SET waiting_on_type = ?, waiting_on_id = ? WHERE id = ?",
+            (kind, target, child),
+        )
+        assert work.get_task(child)["waiting_on_id"] is None
+        listed = next(row for row in work.list_tasks() if row["id"] == child)
+        joined = next(row for row in work.list_tasks_joined() if row["id"] == child)
+        assert (listed["waiting_on_type"], listed["waiting_on_id"]) == (None, None)
+        assert (joined["waiting_on_type"], joined["waiting_on_id"]) == (None, None)
+
+    private_child = work.create_task("Private waiting child", actor="mira", visibility="private")
+    work.update_task(private_child["id"], waiting_on=f"blocker:{private_blocker}", actor="mira")
+    owner = scope.Viewer("mira", True)
+    assert work.get_task(private_child["id"], owner)["waiting_on_id"] == private_blocker
+
+
+def test_composed_task_views_redact_legacy_private_waiting_ids(fresh_db):
+    from app.services import (
+        briefing,
+        context_pack,
+        engagement_brief,
+        engagements,
+        portfolio,
+        weekly,
+    )
+
+    users.ensure_user("mira")
+    users.ensure_user("noah")
+    engagement = engagements.create_engagement("Visible delivery", actor="mira")["id"]
+    private_blocker = blockers.raise_blocker(
+        "Private blocker",
+        actor="mira",
+        visibility=scope.PRIVATE,
+    )["id"]
+    task = work.create_task(
+        "Legacy published wait",
+        actor="mira",
+        assignee="noah",
+        due_date=db.today().isoformat(),
+        engagement_id=engagement,
+    )["id"]
+    week = weekly.current_week()
+    fresh_db.execute(
+        "UPDATE tasks SET waiting_on_type = 'blocker', waiting_on_id = ?, committed_week = ?"
+        " WHERE id = ?",
+        (private_blocker, week, task),
+    )
+    viewer = scope.Viewer("noah", True)
+
+    day = briefing.my_day("noah", viewer)["your_work"]
+    day_tasks = [*day["tasks"], *day["due_soon"]]
+    assert day_tasks
+    assert all((row["waiting_on_type"], row["waiting_on_id"]) == (None, None) for row in day_tasks)
+
+    brief = engagement_brief.brief(engagement, viewer)
+    brief_task = next(row for row in brief["tasks"] if row["id"] == task)
+    assert (brief_task["waiting_on_type"], brief_task["waiting_on_id"]) == (None, None)
+
+    pack = context_pack.build_engagement_pack(engagement, viewer)
+    assert f"waiting on blocker #{private_blocker}" not in pack
+
+    health = next(row for row in portfolio.engagement_health(viewer) if row["id"] == engagement)
+    assert not any(f"blocker #{private_blocker}" in receipt for receipt in health["receipts"])
+
+    week_task = next(row for row in weekly.week_view(week)["tasks"] if row["id"] == task)
+    assert (week_task["waiting_on_type"], week_task["waiting_on_id"]) == (None, None)
+
+
 def test_a_create_body_exposes_the_tier_its_service_accepts():
     """A create form that omits `visibility` files at the workspace tier no
     matter what the caller chose, silently. Five did — absence, promise,

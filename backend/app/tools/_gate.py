@@ -14,10 +14,20 @@ IT. Write paths that skip this gate by design carry their own guard
 
 import json
 
-from .. import config, ratelimit
+from .. import db, ratelimit
 from ..agents import receipts
-from ..agents.identity import agent_identity, force_review, requester_identity
-from ..services import lexicon, review
+from ..agents.identity import agent_identity, requester_identity
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    PolicySubject,
+    approval_fingerprint,
+    current_policy_engine,
+    current_policy_subject,
+    policy_input_data,
+)
+from ..services import blockers, lexicon, review, scope, work
 from ..services.delegation import authority_level
 
 # irreversible verbs ALWAYS go through the review inbox, even with
@@ -80,6 +90,31 @@ def gated_write(
     summary: str = "",
     actor: str = "",
 ) -> str:
+    # Serialize authoritative context resolution, the workplace decision, and
+    # the resulting local mutation. Nested service transactions join this
+    # transaction. This prevents a concurrent relink from changing the policy
+    # domain after the decision but before the write.
+    with db.transaction():
+        return _gated_write_locked(
+            entity,
+            action,
+            payload,
+            direct,
+            entity_id,
+            summary,
+            actor,
+        )
+
+
+def _gated_write_locked(
+    entity: str,
+    action: str,
+    payload: dict,
+    direct,
+    entity_id: int = 0,
+    summary: str = "",
+    actor: str = "",
+) -> str:
     """One gate for every agent write path (chat tools AND the MCP server) —
     per-agent authority and the review inbox see all agent traffic, so trust
     scores accrue no matter which door the agent came through."""
@@ -107,8 +142,67 @@ def gated_write(
         ratelimit.check("write", requester_identity() or actor)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
-    level = effective_level(actor, entity)
-    if level == "forbidden":
+    from ..services import policy_context as domain_policy
+
+    try:
+        if entity == "task":
+            if entity_id:
+                attributes = work.task_update_policy_context(entity_id, payload, actor=actor)
+            else:
+                attributes = work.task_create_policy_context(
+                    milestone_id=int(payload.get("milestone_id") or 0),
+                    engagement_id=int(payload.get("engagement_id") or 0),
+                    visibility=str(payload.get("visibility") or scope.WORKSPACE),
+                    crew_id=int(payload.get("crew_id") or 0),
+                    actor=actor,
+                )
+        elif entity in {"blocker", "blocker_edit"}:
+            if entity_id:
+                attributes = blockers.existing_policy_context(entity_id, actor=actor)
+            else:
+                attributes = blockers.create_policy_context(
+                    int(payload.get("task_id") or 0),
+                    str(payload.get("visibility") or scope.WORKSPACE),
+                    int(payload.get("crew_id") or 0),
+                    actor=actor,
+                )
+        else:
+            attributes = domain_policy.for_change(
+                entity,
+                entity_id,
+                payload,
+                actor=actor,
+            )
+    except (db.NotFound, PermissionError, ValueError) as exc:
+        receipts.record("failed", entity, str(exc), actor=actor)
+        return json.dumps({"error": str(exc)})
+    project_type = str(attributes.get("project_type") or "")
+    classification = str(attributes.get("classification") or "")
+    subject = current_policy_subject()
+    resolved_subject = requester_identity() or actor
+    if subject.name == "agent" and resolved_subject != "agent":
+        subject = PolicySubject(
+            resolved_subject,
+            kind="human" if requester_identity() else "agent",
+        )
+    policy_input = PolicyInput(
+        subject=subject,
+        action=f"{entity}.{action}",
+        resource=PolicyResource(
+            entity,
+            str(entity_id or ""),
+            project_type,
+            classification,
+            attributes,
+        ),
+        origin="agent",
+        agent=actor,
+        tool=f"skein.{entity}.{action}",
+        tool_effect="write",
+        tool_risk="high" if entity in ALWAYS_REVIEW else "medium",
+    )
+    decision = current_policy_engine().decide(policy_input)
+    if decision.effect == PolicyEffect.DENY:
         # actor is passed even though the detail already names it: the live
         # chip composes its own sentence ("forbidden for ...") and needs the
         # name as data, not parsed back out of prose
@@ -121,11 +215,7 @@ def gated_write(
     # proposal). Without it a flock member that earned `autonomous` writes
     # directly during a fan-out, so ONE consultative human message becomes N
     # unreviewed writes — see docs/FLOCKS.md and agents/identity.py.
-    if (
-        entity not in ALWAYS_REVIEW
-        and not force_review()
-        and (level == "autonomous" or level == "notify" or not config.AGENT_REVIEW)
-    ):
+    if decision.effect == PolicyEffect.PERMIT:
         try:
             result = direct()
         except ValueError as exc:
@@ -138,14 +228,16 @@ def gated_write(
             int(result.get("id") or 0),
             actor=actor,
         )
-        if level == "notify":
+        if "notify-team" in decision.obligations:
             from ..services.notifications import notify
 
             notify(
                 "team",
-                f"Agent {actor} wrote {entity}.{action}: {summary or json.dumps(payload)[:120]}",
+                lambda source: f"Agent {actor} wrote {entity}.{action} #{source['id']}.",
                 tier="digest",
                 link="/review",
+                source_entity=entity,
+                source_id=int(result.get("id") or entity_id or 0),
             )
         return json.dumps(result)
     try:
@@ -158,6 +250,28 @@ def gated_write(
             actor=actor,
             origin="agent",
             requested_by=requester_identity(),
+            policy_obligations=decision.obligations,
+            approver_groups=decision.approver_groups,
+            approver_capabilities=decision.approver_capabilities,
+            policy_context={
+                "input": policy_input_data(policy_input),
+                "contract": {
+                    "entity": entity,
+                    "action": action,
+                    "entity_id": entity_id,
+                    "payload": payload,
+                },
+                "approval_fingerprint": approval_fingerprint(
+                    policy_input,
+                    decision,
+                    {
+                        "entity": entity,
+                        "action": action,
+                        "entity_id": entity_id,
+                        "payload": payload,
+                    },
+                ),
+            },
         )
     except ValueError as exc:
         receipts.record("failed", entity, str(exc), actor=actor)

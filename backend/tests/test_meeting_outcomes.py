@@ -252,11 +252,12 @@ def test_an_all_day_block_today_is_not_asked_about_during_it(client, monkeypatch
             return datetime(2026, 8, 9, 12, 30, tzinfo=tz or UTC)
 
     monkeypatch.setattr(schedule, "datetime", _Noon)
+    monkeypatch.setattr(schedule.db, "today", lambda: date(2026, 8, 9))
     today = db.today().isoformat()
     eid = schedule.schedule_event("All-hands offsite", today, attendees="a, b", actor="ava")["id"]
     db.execute(
         "UPDATE events SET created_at = ? WHERE id = ?",
-        ((datetime.now(UTC) - timedelta(days=3)).isoformat(), eid),
+        ((_Noon.now(UTC) - timedelta(days=3)).isoformat(), eid),
     )
     asked = {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
     assert eid not in asked
@@ -267,7 +268,7 @@ def test_an_all_day_block_today_is_not_asked_about_during_it(client, monkeypatch
     )["id"]
     db.execute(
         "UPDATE events SET created_at = ? WHERE id = ?",
-        ((datetime.now(UTC) - timedelta(days=3)).isoformat(), past),
+        ((_Noon.now(UTC) - timedelta(days=3)).isoformat(), past),
     )
     assert past in {e["id"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}
 

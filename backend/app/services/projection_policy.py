@@ -1,0 +1,97 @@
+"""Reusable per-row policy for composite and search-style read projections."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ..extensions.policy import PolicyEngine, PolicySubject, permits_resource
+from . import policy_context, scope
+
+PROJECT_RESOURCE_TYPES = (
+    "engagement",
+    "milestone",
+    "task",
+    "blocker",
+    "event",
+    "promise",
+    "memory",
+    "lesson",
+    "intake",
+    "allocation",
+    "artifact",
+)
+
+
+@dataclass(frozen=True)
+class ProjectionPolicy:
+    engine: PolicyEngine
+    subject: PolicySubject
+    action: str
+    origin: str
+    viewer: scope.Viewer = scope.NOBODY
+    agent: str = ""
+    tool: str = ""
+
+    def permits(
+        self,
+        entity: str,
+        entity_id: int,
+        attributes: dict[str, str],
+    ) -> bool:
+        return permits_resource(
+            self.engine,
+            self.subject,
+            self.action,
+            entity,
+            entity_id,
+            attributes,
+            self.origin,
+            agent=self.agent,
+            tool=self.tool,
+        )
+
+    def filter_rows(self, entity: str, rows: list[dict]) -> list[dict]:
+        contexts = policy_context.resource_contexts(
+            [(entity, int(row["id"])) for row in rows],
+            self.viewer,
+        )
+        return [
+            row
+            for row in rows
+            if self.permits(
+                entity,
+                int(row["id"]),
+                contexts.get((entity, int(row["id"])), {}),
+            )
+        ]
+
+    def filter_resources(self, rows: list[dict]) -> list[dict]:
+        from .review import filter_policy_resources
+
+        return filter_policy_resources(
+            rows,
+            self.permits,
+            allow_unclassified=self.allows_unclassified(),
+            viewer=self.viewer,
+        )
+
+    def allows_unclassified(self) -> bool:
+        """Free-form legacy text is safe only when no workplace rule exists."""
+        return not self.engine.has_workplace_rules_for(self.action)
+
+    def allows_all_projects(self, resource_types: tuple[str, ...] = PROJECT_RESOURCE_TYPES) -> bool:
+        """Fail an aggregate if one project domain or legacy link is unsafe.
+
+        `resource_types` is the set of types the aggregate actually composes.
+        The full default is fail-closed but over-broad: a rule that denies
+        regulated tasks also hid an allocation-only aggregate behind a
+        synthetic task that no row of the aggregate contains. A caller that
+        names its real inputs is only refused for rules that can reach them.
+        """
+        if policy_context.has_visible_relationship_conflict(self.viewer):
+            return False
+        return all(
+            self.permits(resource_type, resource_id, attributes)
+            for resource_id, attributes in policy_context.opaque_project_contexts(self.viewer)
+            for resource_type in resource_types
+        )

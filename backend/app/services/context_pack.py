@@ -4,7 +4,9 @@ markdown so any agent (Claude Code, custom, MCP) can load the team's context
 without asking anyone. Versions only bump when the content actually changes."""
 
 import hashlib
+import re
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 from .. import config, db
@@ -12,7 +14,11 @@ from . import scope, wording
 from .scope import WORKSPACE_ONLY
 
 
-def build_pack(crew_id: int = 0) -> str:
+def build_pack(
+    crew_id: int = 0,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    viewer: scope.Viewer = scope.NOBODY,
+) -> str:
     """Assemble the pack body. Pure read — same data in, same text out.
 
     The body is always the workspace tier, because a crew member reads the
@@ -37,7 +43,22 @@ def build_pack(crew_id: int = 0) -> str:
     ]
 
     lines.append("## Active engagements")
-    health = engagement_health()
+    from . import policy_context
+
+    health = engagement_health(resource_filter=resource_filter)
+    if resource_filter is not None:
+        contexts = policy_context.resource_contexts(
+            [("engagement", int(row["id"])) for row in health], scope.NOBODY
+        )
+        health = [
+            row
+            for row in health
+            if resource_filter(
+                "engagement",
+                int(row["id"]),
+                contexts.get(("engagement", int(row["id"])), {}),
+            )
+        ]
     for h in health:
         lines.append(
             f"- **{wording.flatten(h['name'])}** ({h['status']}, lead: {h['lead'] or 'unset'},"
@@ -52,6 +73,9 @@ def build_pack(crew_id: int = 0) -> str:
         f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 25"
     )
+    decisions = policy_context.filter_resource_rows(
+        "decision", decisions, scope.NOBODY, resource_filter
+    )
     for d in decisions:
         line = f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}"
         if d["review_by"]:
@@ -63,6 +87,7 @@ def build_pack(crew_id: int = 0) -> str:
         f"SELECT * FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 5"
     )
+    stale = policy_context.filter_resource_rows("decision", stale, scope.NOBODY, resource_filter)
     if stale:
         lines.append("")
         lines.append("Stale (past review-by — confirm before relying on):")
@@ -73,6 +98,19 @@ def build_pack(crew_id: int = 0) -> str:
     lessons = db.query(
         f"SELECT * FROM lessons WHERE {WORKSPACE_ONLY} ORDER BY id DESC LIMIT 15"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
     )
+    if resource_filter is not None:
+        contexts = policy_context.resource_contexts(
+            [("lesson", int(row["id"])) for row in lessons], scope.NOBODY
+        )
+        lessons = [
+            lesson
+            for lesson in lessons
+            if resource_filter(
+                "lesson",
+                int(lesson["id"]),
+                contexts.get(("lesson", int(lesson["id"])), {}),
+            )
+        ]
     lines += [
         f"- [{wording.flatten(les['project_class'])}] {wording.flatten(les['lesson'])}"
         + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
@@ -85,6 +123,9 @@ def build_pack(crew_id: int = 0) -> str:
         f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 15"
     )
+    conventions = policy_context.filter_resource_rows(
+        "note", conventions, scope.NOBODY, resource_filter
+    )
     lines += [
         f"- {wording.flatten(n['topic'])}: {wording.flatten(n['content'])}" for n in conventions
     ] or ["- none recorded (save notes with topic 'convention: ...' to add)"]
@@ -94,6 +135,9 @@ def build_pack(crew_id: int = 0) -> str:
     questions = db.query(
         f"SELECT * FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
+    )
+    questions = policy_context.filter_resource_rows(
+        "question", questions, scope.NOBODY, resource_filter
     )
     lines += [
         f"- #{q['id']} {wording.flatten(q['question'])} (asked by {wording.flatten(q['asked_by'])})"
@@ -108,11 +152,15 @@ def build_pack(crew_id: int = 0) -> str:
         "- CLI: `skein capture|my-day|tasks|context`",
     ]
     if crew_id:
-        lines += _crew_section(crew_id)
+        lines += _crew_section(crew_id, resource_filter, viewer)
     return "\n".join(lines)
 
 
-def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> str:
+def build_engagement_pack(
+    engagement_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> str:
     """Scoped pack for ONE engagement — what a delegated agent needs and
     nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
     on demand (unversioned; versioning is for the org-brain)."""
@@ -155,6 +203,11 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         " ORDER BY due_date IS NULL, due_date",
         (engagement_id, *mp),
     )
+    from . import policy_context
+
+    milestones = policy_context.filter_resource_rows(
+        "milestone", milestones, viewer, resource_filter
+    )
     lines += [
         f"- [{m['status']}] #{m['id']} {wording.flatten(m['title'])}"
         + (f" — due {m['due_date']}" if m["due_date"] else "")
@@ -162,14 +215,21 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     ] or ["- none recorded"]
     lines.append("")
     lines.append("## Open tasks")
-    tasks = db.query(
-        f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-        " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
-        " AND t.status != 'done'"
-        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END",
-        (*tp, engagement_id, engagement_id),
+    from . import work
+
+    tasks = work.consistent_task_rows(
+        db.query(
+            f"SELECT t.* FROM tasks t WHERE {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
+            " AND t.status != 'done'"
+            " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+            " WHEN 'medium' THEN 2 ELSE 3 END",
+            (*tp, engagement_id, engagement_id),
+        ),
+        viewer,
     )
+    tasks = policy_context.filter_resource_rows("task", tasks, viewer, resource_filter)
+    tasks = work.redact_task_relationships(tasks, viewer, resource_filter)
     for t in tasks:
         line = f"- [{t['status']}/{t['priority']}] #{t['id']} {wording.flatten(t['title'])}"
         if t["assignee"]:
@@ -183,6 +243,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
     from .portfolio import _linked_blockers
 
     blockers = _linked_blockers(engagement_id, viewer)
+    blockers = policy_context.filter_resource_rows("blocker", blockers, viewer, resource_filter)
     lines.append("## Unresolved blockers")
     lines += [
         f"- [{b['status']}/{b['impact']}] #{b['id']} {wording.flatten(b['title'])}"
@@ -195,6 +256,7 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         " AND (engagement_id = ? OR project_class = ?) ORDER BY id DESC LIMIT 10",
         (*lp, engagement_id, eng["project_class"]),
     )
+    lessons = policy_context.filter_resource_rows("lesson", lessons, viewer, resource_filter)
     lines += [
         f"- {wording.flatten(les['lesson'])}"
         + (f" → {wording.flatten(les['recommendation'])}" if les["recommendation"] else "")
@@ -206,13 +268,18 @@ def build_engagement_pack(engagement_id: int, viewer: scope.Viewer = scope.NOBOD
         f"SELECT * FROM decisions WHERE status = 'active' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
         " ORDER BY id DESC LIMIT 10"
     )
+    decisions = policy_context.filter_resource_rows("decision", decisions, viewer, resource_filter)
     lines += [
         f"- **{wording.flatten(d['title'])}** — {wording.flatten(d['decision'])}" for d in decisions
     ] or ["- none recorded"]
     return "\n".join(lines)
 
 
-def _crew_section(crew_id: int) -> list[str]:
+def _crew_section(
+    crew_id: int,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+    viewer: scope.Viewer = scope.NOBODY,
+) -> list[str]:
     """One crew's own rows, appended to the workspace body.
 
     A crew pack is handed to an agent and written to disk, so it holds the
@@ -226,19 +293,24 @@ def _crew_section(crew_id: int) -> list[str]:
     lines = ["", f"## {wording.flatten(crew['name'])} only", ""]
     if crew["summary"]:
         lines += [crew["summary"], ""]
-    for heading, sql, fmt in (
+    from . import policy_context
+
+    for heading, entity, sql, fmt in (
         (
             "Decisions",
+            "decision",
             f"SELECT * FROM decisions WHERE status = 'active' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: f"- **{wording.flatten(r['title'])}** — {wording.flatten(r['decision'])}",
         ),
         (
             "Conventions",
+            "note",
             f"SELECT * FROM notes WHERE topic LIKE 'convention%' AND {scoped} ORDER BY id DESC LIMIT 15",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: f"- {wording.flatten(r['topic'])}: {wording.flatten(r['content'])}",
         ),
         (
             "Open questions",
+            "question",
             f"SELECT * FROM questions WHERE status = 'open' AND {scoped} ORDER BY id DESC LIMIT 10",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- #{r['id']} {wording.flatten(r['question'])} (asked by {wording.flatten(r['asked_by'])})"
@@ -246,6 +318,7 @@ def _crew_section(crew_id: int) -> list[str]:
         ),
         (
             "Open work",
+            "task",
             f"SELECT * FROM tasks WHERE status != 'done' AND {scoped} ORDER BY id DESC LIMIT 25",  # noqa: S608 — `scoped` is a module-local literal with one bound mark
             lambda r: (
                 f"- [{r['status']}] #{r['id']} {wording.flatten(r['title'])} (@{r['assignee'] or 'unassigned'})"
@@ -253,6 +326,11 @@ def _crew_section(crew_id: int) -> list[str]:
         ),
     ):
         rows = db.query(sql, (crew_id,))
+        if entity == "task":
+            from . import work
+
+            rows = work.consistent_task_rows(rows, viewer)
+        rows = policy_context.filter_resource_rows(entity, rows, viewer, resource_filter)
         lines += [f"### {heading}"] + ([fmt(r) for r in rows] or ["- none recorded"]) + [""]
     return lines
 
@@ -267,30 +345,19 @@ def latest_pack(crew_id: int = 0) -> dict | None:
     )
 
 
-def publish_pack(
-    *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
-) -> dict:
-    """Version the pack; no-op if nothing changed since the last version.
+def _assert_publishable(actor: str, crew_id: int, viewer: scope.Viewer) -> None:
+    """Check the scoped write boundary before a pack becomes durable."""
+    if not crew_id:
+        return
+    from . import crews
 
-    Each crew versions independently — v3 of the Platform pack has nothing to
-    do with v3 of the team pack, and a shared counter would bump every crew's
-    version whenever any one of them published.
+    if crew_id not in viewer.crew_ids:
+        raise db.NotFound(f"no context pack for crew #{crew_id}")
+    crews.assert_writable(crew_id, actor)
 
-    Gated on the VIEWER for a crew pack, matching get_pack. Publishing takes
-    the crew id off a query string and writes that crew's decisions,
-    conventions, questions and open work to an artifact file, then bumps the
-    version every member cites — so gating the read at strong identity and the
-    write at a self-asserted name made publish the weaker door to the same
-    rows. assert_writable stays as well: it is the one that refuses a
-    DEACTIVATED crew, which get_pack deliberately allows for reading.
-    """
-    if crew_id:
-        from . import crews
 
-        if crew_id not in viewer.crew_ids:
-            raise db.NotFound(f"no context pack for crew #{crew_id}")
-        crews.assert_writable(crew_id, actor)
-    body = build_pack(crew_id)
+def _store_pack(body: str, *, actor: str, crew_id: int) -> dict:
+    """Persist the exact pack body that the caller approved."""
     digest = hashlib.sha256(body.encode()).hexdigest()[:16]
     last = latest_pack(crew_id)
     if last and last["content_hash"] == digest:
@@ -325,8 +392,34 @@ def publish_pack(
     return {"version": version, "hash": digest, "changed": True, "path": str(path)}
 
 
-def get_pack(
+def publish_pack(
     *, actor: str = "system", crew_id: int = 0, viewer: scope.Viewer = scope.NOBODY
+) -> dict:
+    """Version the pack; no-op if nothing changed since the last version.
+
+    Each crew versions independently — v3 of the Platform pack has nothing to
+    do with v3 of the team pack, and a shared counter would bump every crew's
+    version whenever any one of them published.
+
+    Gated on the VIEWER for a crew pack, matching get_pack. Publishing takes
+    the crew id off a query string and writes that crew's decisions,
+    conventions, questions and open work to an artifact file, then bumps the
+    version every member cites — so gating the read at strong identity and the
+    write at a self-asserted name made publish the weaker door to the same
+    rows. assert_writable stays as well: it is the one that refuses a
+    DEACTIVATED crew, which get_pack deliberately allows for reading.
+    """
+    _assert_publishable(actor, crew_id, viewer)
+    body = build_pack(crew_id, viewer=viewer)
+    return _store_pack(body, actor=actor, crew_id=crew_id)
+
+
+def get_pack(
+    *,
+    actor: str = "system",
+    crew_id: int = 0,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
 ) -> dict:
     """Latest published pack, publishing v1 on first call.
 
@@ -347,6 +440,24 @@ def get_pack(
     if crew_id and crew_id not in viewer.crew_ids:
         raise db.NotFound(f"no context pack for crew #{crew_id}")
     last = latest_pack(crew_id)
+    if not last and resource_filter is not None:
+        body = build_pack(crew_id, resource_filter, viewer)
+        if body != build_pack(crew_id, viewer=viewer):
+            digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+            return {
+                "version": 0,
+                "hash": digest,
+                "created_at": db.now(),
+                "content": body.replace(
+                    "# Team context pack",
+                    f"# Team context pack\n\n*policy-filtered · hash {digest}*",
+                    1,
+                ),
+                "crew_id": crew_id or None,
+            }
+        _assert_publishable(actor, crew_id, viewer)
+        _store_pack(body, actor=actor, crew_id=crew_id)
+        last = latest_pack(crew_id)
     if not last:
         # the same viewer: this call publishes, and publish_pack now gates on
         # it. Passing NOBODY here would refuse the member who just passed the
@@ -355,10 +466,39 @@ def get_pack(
         last = latest_pack(crew_id)
         if last is None:
             raise ValueError("context pack publish produced no pack — retry")
+    content = last["content"]
+    digest = last["content_hash"]
+    if resource_filter is not None:
+        body = build_pack(crew_id, resource_filter, viewer)
+        # Compare against the STORED body, never a second live build: a
+        # denied row that has since left the live build (superseded, closed,
+        # pushed past a section LIMIT) is still inside the snapshot, and the
+        # live-build comparison handed that snapshot to the reader whose
+        # policy denies the row. The stored identity is safe only when the
+        # filtered projection IS the stored body.
+        stored_body = re.sub(r"\n\n\*v\d+ · generated [^\n]*\*", "", content, count=1)
+        if body != stored_body:
+            # A filtered projection is DIFFERENT content. Returning the stored
+            # version and created_at over it breaks "versions only bump when
+            # content changes": two readers on one version held two bodies,
+            # and a version-keyed cache kept the wrong one. Version 0 is the
+            # same identity the pre-publish filtered read already uses.
+            digest = hashlib.sha256(body.encode()).hexdigest()[:16]
+            return {
+                "version": 0,
+                "hash": digest,
+                "created_at": db.now(),
+                "content": body.replace(
+                    "# Team context pack",
+                    f"# Team context pack\n\n*policy-filtered · hash {digest}*",
+                    1,
+                ),
+                "crew_id": last["crew_id"],
+            }
     return {
         "version": last["version"],
-        "hash": last["content_hash"],
+        "hash": digest,
         "created_at": last["created_at"],
-        "content": last["content"],
+        "content": content,
         "crew_id": last["crew_id"],
     }

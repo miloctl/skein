@@ -1,0 +1,14 @@
+description: Legacy delivery plan
+workplace_note: retained across upgrade
+private_metadata:
+  review_date: 2026-08-11
+  flags: !!set
+    one: null
+    two: null
+  payload: !!binary |
+    SGVsbG8=
+  mixed_keys:
+    1: integer
+    "1": string
+milestones:
+  - title: Start

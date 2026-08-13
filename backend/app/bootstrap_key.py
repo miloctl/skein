@@ -11,7 +11,7 @@ import sys
 
 from . import db
 from .services.api_keys import create_key
-from .services.users import ensure_user
+from .services.users import ensure_human_identity
 
 
 def main() -> None:
@@ -22,7 +22,7 @@ def main() -> None:
     label = sys.argv[2] if len(sys.argv) > 2 else "bootstrap"
     db.init_db()
     try:
-        ensure_user(name)
+        ensure_human_identity(name)
     except ValueError as exc:
         # a reserved or colliding name is the operator's typo, not a crash:
         # the reason belongs on stderr, never a traceback to decode. No

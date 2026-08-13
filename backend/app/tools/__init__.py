@@ -126,3 +126,45 @@ ALL_TOOLS = [
     get_findings,
     list_absences,
 ]
+
+# Production metadata for the composition-time policy wrapper. The receipt
+# coverage test pins this set to observed database writes so a new writer
+# cannot be mislabeled as a read.
+CORE_WRITE_TOOLS = frozenset(
+    {
+        "add_absence",
+        "add_promise",
+        "answer_question",
+        "ask_question",
+        "assign_question",
+        "cancel_event",
+        "claim_delegated_task",
+        "create_milestone",
+        "create_task",
+        "delegate_task",
+        "delete_note",
+        "edit_blocker",
+        "edit_intake_request",
+        "edit_note",
+        "edit_promise",
+        "forget_memory",
+        "generate_handoff",
+        "mark_promise",
+        "post_standup",
+        "raise_blocker",
+        "record_decision",
+        "record_lesson",
+        "remember",
+        "report_progress",
+        "resolve_blocker",
+        "save_note",
+        "schedule_event",
+        "start_engagement_from_playbook",
+        "submit_for_acceptance",
+        "submit_intake_request",
+        "supersede_decision",
+        "update_engagement",
+        "update_milestone",
+        "update_task",
+    }
+)

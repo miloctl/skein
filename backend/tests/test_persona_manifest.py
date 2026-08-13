@@ -75,6 +75,18 @@ def test_the_shipped_bench_validates(fresh_db):
     assert personas.validate_all() == []
 
 
+@pytest.mark.parametrize("slug", ["agent", "anonymous", "ci", "mcp", "system", "team"])
+def test_live_persona_scan_never_exposes_a_core_machine_subject(bench, slug):
+    assert slug not in personas.bench_slugs()
+    _write(bench, slug)
+    assert slug not in personas.bench_slugs()
+    with pytest.raises(ValueError, match="no persona"):
+        personas.get_persona(slug)
+    assert any(
+        "reserved for a composed machine identity" in item for item in personas.validate_all()
+    )
+
+
 def test_known_tool_names_come_from_the_registry():
     names = personas._known_tool_names()
     assert "save_note" in names

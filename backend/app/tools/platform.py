@@ -5,8 +5,25 @@ from typing import Any
 
 from strands import tool
 
+from .. import db
 from ..agents.identity import agent_identity
-from ..services import blockers, engagements, handoff, intake, playbooks, search
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
+from ..services import (
+    blockers,
+    engagements,
+    handoff,
+    intake,
+    playbooks,
+    projection_policy,
+    scope,
+    search,
+)
 from ._gate import gated_write
 
 
@@ -66,7 +83,35 @@ def list_blockers(status: str = "", owner: str = "") -> str:
         status: 'open', 'escalated', 'resolved', or empty for all unresolved.
         owner: Filter to one owner.
     """
-    return json.dumps(blockers.list_blockers(status, owner))
+    with db.read_transaction():
+        rows = blockers.list_blockers(status, owner)
+        contexts = blockers.blocker_collection_policy_contexts(rows, scope.NOBODY)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        permitted = []
+        for row in rows:
+            attributes = contexts[int(row["id"])]
+            decision = engine.decide(
+                PolicyInput(
+                    subject,
+                    "skein.tool.list_blockers",
+                    PolicyResource(
+                        "blocker",
+                        str(row["id"]),
+                        attributes["project_type"],
+                        attributes["classification"],
+                        attributes,
+                    ),
+                    "agent_tool",
+                    agent=agent_identity(),
+                    tool="list_blockers",
+                    tool_effect="read",
+                    tool_risk="low",
+                )
+            )
+            if decision.effect == PolicyEffect.PERMIT:
+                permitted.append(row)
+        return json.dumps(permitted)
 
 
 @tool
@@ -102,7 +147,34 @@ def list_intake_requests(status: str = "") -> str:
     Args:
         status: submitted, scored, accepted, deferred, declined, or empty for all.
     """
-    return json.dumps(intake.list_requests(status))
+    with db.read_transaction():
+        rows = intake.list_requests(status)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.list_intake_requests",
+                        PolicyResource(
+                            "intake",
+                            str(row["id"]),
+                            str(row.get("project_class") or ""),
+                            str(row.get("visibility") or ""),
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="list_intake_requests",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool
@@ -112,14 +184,53 @@ def list_engagements(status: str = "") -> str:
     Args:
         status: proposed, active, closing, closed, or empty for all.
     """
-    return json.dumps(engagements.list_engagements(status))
+    with db.read_transaction():
+        rows = engagements.list_engagements(status)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.list_engagements",
+                        PolicyResource(
+                            "engagement",
+                            str(row["id"]),
+                            str(row.get("project_class") or ""),
+                            str(row.get("visibility") or ""),
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="list_engagements",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool
 def team_capacity() -> str:
     """Show total allocation percent per person across active engagements
     (over 100 means overcommitted). Use before accepting new work."""
-    return json.dumps(engagements.capacity())
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.team_capacity",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="team_capacity",
+    )
+    with db.read_transaction():
+        if not policy.allows_all_projects() or not policy.allows_unclassified():
+            return json.dumps({"error": "workplace policy denied this composite read"})
+        return json.dumps(engagements.capacity())
 
 
 @tool
@@ -169,18 +280,30 @@ def start_engagement_from_playbook(
         lead: Who leads it.
         start_date: Start date YYYY-MM-DD (defaults to today).
     """
+    try:
+        definition = playbooks.get_playbook(playbook_slug)
+        definition_digest = playbooks.definition_digest(definition)
+    except ValueError:
+        # Keep validation on the shared gate path. It records the same safe
+        # failed receipt as the other stock writes.
+        definition_digest = ""
     payload: dict[str, Any] = {
         "slug": playbook_slug,
         "engagement_name": engagement_name,
         "lead": lead,
         "start_date": start_date,
+        "expected_definition_digest": definition_digest,
     }
     return gated_write(
         "playbook",
         "create",
         payload,
         summary=f"instantiate playbook {playbook_slug} -> {engagement_name}",
-        direct=lambda: playbooks.instantiate(**payload, actor=agent_identity(), origin="agent"),
+        direct=lambda: playbooks.instantiate(
+            **payload,
+            actor=agent_identity(),
+            origin="agent",
+        ),
     )
 
 
@@ -221,7 +344,17 @@ def search_workspace(query: str) -> str:
     Args:
         query: What to look for.
     """
-    return json.dumps(search.search(query))
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.tool.search_workspace",
+        "agent_tool",
+        scope.NOBODY,
+        agent=agent_identity(),
+        tool="search_workspace",
+    )
+    with db.read_transaction():
+        return json.dumps(search.search(query, row_filter=policy.filter_resources))
 
 
 @tool

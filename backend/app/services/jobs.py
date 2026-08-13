@@ -6,7 +6,7 @@ back into it (insights reads the registry for staleness periods)."""
 import contextlib
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -280,6 +280,13 @@ def run_job(spec: JobSpec) -> None:
         # week. Only our own literals are honored — anything else is `ok`, so
         # a job returning a row with a `status` column cannot forge a state.
         declared = result.get("status") if isinstance(result, dict) else None
+        # A lost cross-worker claim records NOTHING: the loser's every-minute
+        # skip otherwise wrote a fresh 'ok', so job_health's last-success was
+        # permanently current on the one deployment shape (two workers) where
+        # the winner's failures needed to show.
+        if declared == "noop":
+            log.info("job %s: done (noop) %s", spec.name, detail)
+            return
         # `partial` is STORED as 'error': job_outcomes.status is a two-value
         # CHECK (001_baseline.sql) and job_health counts only 'ok' rows toward
         # last-success, which is the honest answer for a fleet where some
@@ -296,7 +303,7 @@ def run_job(spec: JobSpec) -> None:
         log.exception("job %s: FAILED", spec.name)
 
 
-def job_health() -> list[dict]:
+def job_health(specs: Sequence[JobSpec] = JOBS) -> list[dict]:
     """Last success per registered job, with a stale flag at 2x the period.
     Never-succeeded jobs count as stale only once they have any recorded
     attempt older than the threshold — a fresh install isn't an incident."""
@@ -312,7 +319,7 @@ def job_health() -> list[dict]:
         for r in db.query("SELECT job, MIN(created_at) AS ts FROM job_outcomes GROUP BY job")
     }
     out = []
-    for spec in JOBS:
+    for spec in specs:
         threshold = (now - timedelta(hours=2 * spec.period_hours)).isoformat(timespec="seconds")
         ok_ts = last_ok.get(spec.name)
         if ok_ts:

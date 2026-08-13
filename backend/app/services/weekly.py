@@ -5,9 +5,9 @@ inbox humans already work, so the plan is approved, not imposed."""
 from datetime import timedelta
 
 from .. import db
-from . import wording
+from . import scope, wording
 from .scope import WORKSPACE_ONLY
-from .work import WEEK_RE, update_task
+from .work import WEEK_RE, redact_task_relationships, update_task
 
 MAX_PER_PERSON = 5
 
@@ -21,14 +21,17 @@ def week_view(week: str = "") -> dict:
     week = week or current_week()
     if not WEEK_RE.match(week):
         raise ValueError("week must look like 2026-W31")
-    tasks = db.query(
-        "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
-        # the milestone lock rides the ON clause, not the WHERE: in the WHERE it
-        # would drop every task with no milestone and turn the join INNER
-        # (services/scope.py::visible_filter names this placement)
-        f" LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
-        f" WHERE t.{WORKSPACE_ONLY} AND t.committed_week = ? ORDER BY t.assignee, t.id",
-        (week,),
+    tasks = redact_task_relationships(
+        db.query(
+            "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            # the milestone lock rides the ON clause, not the WHERE: in the WHERE it
+            # would drop every task with no milestone and turn the join INNER
+            # (services/scope.py::visible_filter names this placement)
+            f" LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
+            f" WHERE t.{WORKSPACE_ONLY} AND t.committed_week = ? ORDER BY t.assignee, t.id",
+            (week,),
+        ),
+        scope.NOBODY,
     )
     done = sum(1 for t in tasks if t["status"] == "done")
     return {

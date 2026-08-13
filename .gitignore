@@ -10,3 +10,4 @@ __pycache__/
 # docs/reviews/ with a date — a third copy is what the 2026-08-02
 # consolidation existed to undo.
 tasks/
+backend/build/

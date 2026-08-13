@@ -3,25 +3,49 @@ a real Strands Agent. Slash commands come from the shared commands engine
 (also used by the chat route for every provider); freeform text is
 smart-captured — no model, no keys, fully testable."""
 
+import json
+
 from starlette.concurrency import run_in_threadpool
 
 from .. import ratelimit
 from ..services import capture
+from ..tools._gate import gated_write
 from . import commands, receipts
 
 
 class MockAgent:
-    def __init__(self, thread_id: str, user: str = "anonymous", persona: str = ""):
+    def __init__(
+        self,
+        thread_id: str,
+        user: str = "anonymous",
+        persona: str = "",
+        *,
+        gated_capture: bool = True,
+        direct_policy=None,
+        direct_subject=None,
+        direct_origin: str = "human",
+    ):
         self.thread_id = thread_id
         self.user = user
         self.persona = persona
+        self.gated_capture = gated_capture
+        self.direct_policy = direct_policy
+        self.direct_subject = direct_subject
+        self.direct_origin = direct_origin
 
     async def stream_async(self, message: str):
         text = message.strip()
         if text.lower() in ("help", ""):
             text = "/help"
 
-        it = commands.dispatch(text, self.user)
+        access = None
+        if self.direct_policy is not None and self.direct_subject is not None:
+            access = commands.CommandAccess(
+                self.direct_policy,
+                self.direct_subject,
+                self.direct_origin,
+            )
+        it = commands.dispatch(text, self.user, access=access)
         if it is not None:
             async for event in it:
                 yield event
@@ -30,11 +54,72 @@ class MockAgent:
         yield {"current_tool_use": {"toolUseId": "mock-capture", "name": "capture"}}
         try:
             ratelimit.check("capture", self.user)
+            # The gate's authority row keys on the agent identity; the CONTENT
+            # is the human's own words, transcribed verbatim. Attributing the
+            # payload to the agent made Ava's "q: @mira …" arrive as a
+            # question the agent asked, and Mira's notification named the
+            # agent. origin="agent" still records which path wrote it.
+            agent_actor = self.persona or "agent"
+            kind, entity, payload = capture.plan(text, actor=self.user)
             # threadpooled: this generator is iterated on the event loop
             # (chat SSE, the Slack route), and capture writes SQLite plus the
             # search index — inline, the keyless default path was the one
             # chat path that stalled every open stream on a busy ledger
-            result = await run_in_threadpool(capture.capture, text, actor=self.user, origin="human")
+            if self.gated_capture:
+                encoded = await run_in_threadpool(
+                    gated_write,
+                    entity,
+                    "create",
+                    payload,
+                    lambda: capture.capture(text, actor=self.user, origin="agent"),
+                    summary=text[:160],
+                    actor=agent_actor,
+                )
+            else:
+                if self.direct_policy is not None and self.direct_subject is not None:
+                    from ..extensions.policy import PolicyEffect, PolicyInput, PolicyResource
+                    from ..services.policy_context import for_change
+
+                    domain = for_change(entity, 0, payload)
+                    decision = self.direct_policy.decide(
+                        PolicyInput(
+                            self.direct_subject,
+                            f"{entity}.create",
+                            PolicyResource(
+                                entity,
+                                project_type=str(domain.get("project_type") or ""),
+                                classification=str(domain.get("classification") or ""),
+                                attributes=domain,
+                            ),
+                            self.direct_origin,
+                            tool="capture",
+                            tool_effect="write",
+                            tool_risk="medium",
+                        )
+                    )
+                    if decision.effect != PolicyEffect.PERMIT:
+                        word = "review" if decision.effect == PolicyEffect.REVIEW else "denied"
+                        yield {"data": f"⚠️ workplace policy {word} this capture"}
+                        return
+                direct = await run_in_threadpool(
+                    capture.capture,
+                    text,
+                    actor=self.user,
+                    origin=self.direct_origin,
+                )
+                encoded = json.dumps(direct)
+            result = json.loads(encoded)
+            if result.get("error"):
+                yield {"data": f"⚠️ {result['error']}"}
+                return
+            if result.get("status") == "pending":
+                yield {
+                    "data": (
+                        f"Queued {kind} #{result['id']} for human review."
+                        " *(rule-based — `/help` for commands)*"
+                    )
+                }
+                return
             acks = {
                 "task": (
                     "Filed as task #{id}. It will not escape.",
@@ -66,12 +151,6 @@ class MockAgent:
                 result["kind"], ("Captured as {kind} #{id}.".replace("{kind}", result["kind"]),)
             )
             line = pool[sum(ord(c) for c in text) % len(pool)].format(id=result["id"])
-            # the mock writes straight through capture.capture rather than the
-            # tool gate, so nothing else would report this write. Without a
-            # receipt the keyless path is the one path where the UI cannot
-            # state what happened to your data — and the turn guard would call
-            # a successful capture "nothing was filed".
-            receipts.record("wrote", result["kind"], text[:160], int(result["id"] or 0))
             yield {"data": f"{line} *(rule-based — `/help` for commands)*"}
         except ValueError as exc:
             receipts.record("failed", capture.classify(text), str(exc))
@@ -89,6 +168,26 @@ class MockAgent:
 
         asyncio.run(run())
         return "\n".join(chunks)
+
+
+class MockExtensionSpecialist:
+    """A keyless contributed specialist that cannot execute or capture work."""
+
+    def __init__(self, specialist, context: tuple[str, ...] = ()):
+        self.specialist = specialist
+        self.system_prompt = specialist.system_prompt
+        self.context = tuple(context)
+        # No model is configured, so no executable tool is exposed.
+        self.tool_names: list[str] = []
+
+    async def stream_async(self, message: str):
+        del message
+        yield {
+            "data": (
+                f"{self.specialist.display_name} is available, but no model provider is"
+                " configured. No tool ran and no work was written."
+            )
+        }
 
 
 # One line per member of a keyless flock turn. This pool is one of the five

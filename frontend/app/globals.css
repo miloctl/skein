@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Composed extension packages, so Tailwind scans their compiled JavaScript.
+   scripts/compose-extensions.mjs rewrites this file from
+   SKEIN_FRONTEND_EXTENSIONS before every build; empty means core only. */
+@import "../extensions/generated-sources.css";
 
 /* Skein design language — "The Loom".
    Warm loom-neutral surfaces, indigo-dye thread accent, weld-ochre signature.

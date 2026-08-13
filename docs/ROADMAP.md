@@ -19,6 +19,45 @@ The ID tags are kept because source comments cite them. `TD1` and `TP5` and
 their neighbours are named in `frontend/app/globals.css`, `frontend/lib/theme.ts`,
 and `frontend/lib/whimsy.ts`.
 
+## Extension surfaces to add only on demand
+
+The first workplace extension API ships routes, jobs, policy, identity,
+governed tools, specialists, events, isolated data, workflows, frontend
+navigation, and manager dashboard cards. These additions remain deferred until
+a real extension needs them:
+
+- Frontend detail panels, forms, general actions, notification renderers,
+  theme packages, and terminology packages
+- Durable pause and resume for long-running workflow approvals
+- Public commands for core entities other than task work
+- A supported alternative core database adapter
+- Remote or untrusted extension execution
+- A startup and shutdown lifecycle hook (removed pre-release: no consumer,
+  and unlike routes, jobs, events, and migrations it ran trusted code with
+  no declared identity, policy action, or timeout)
+- Module dependency ordering (`SkeinModule.requires`, removed pre-release:
+  composition order is core first, then the allowlist order)
+- Durable per-subscriber event targets. Delivery now survives a composition
+  with ZERO subscribers (2026-08-13), but an event whose type matches one
+  composed extension and not a second, disabled one is still finalized
+  without the disabled subscriber. Durable targets snapshot the intended
+  subscribers at emission; they also carry per-target leases, backoff, and
+  an operator redrive.
+- A field-guide contribution slot, so a private extension's user-visible
+  navigation and cards can ship a discovery card the way every core
+  feature must (`backend/fieldguide/knots.yaml`). Version 1 has no such
+  slot, and a core knot for a surface only composed deployments have would
+  be wrong in the default app.
+- An extension route grant lifecycle. `ExtensionRouteServicesDep` hands a
+  route a `WorkItems` that nothing ever closes: a thread the handler
+  spawns can write core rows after the response — and after shutdown —
+  under the route's provenance. Routes have no deadline, so the
+  owner-dispatch facade that closes tools, jobs, and subscribers does not
+  apply as-is; the grant needs a request-scoped close.
+
+Do not add these as empty slots. Add one narrow contract with one core use and
+one private-package use when the requirement appears.
+
 ## Bounded-input census (from the 2026-08-03 holistic review)
 
 The rate-cap ratchet and the unbounded list reads shipped 2026-08-09

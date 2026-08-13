@@ -28,6 +28,7 @@ separate promise, and a forgotten one is a body somewhere permanent.
 """
 
 from .. import db
+from ..identity_names import CORE_MACHINE_SUBJECTS
 from . import crews
 
 # The three tiers. `workspace` is the migration default, so a deployment that
@@ -48,7 +49,7 @@ _NOT_A_VIEWER = frozenset({"", "anonymous", "agent"})
 # Actors with no person behind them. `activity.SYSTEM_ACTORS` is the display
 # side of the same idea; this one is the authorization side and adds the
 # never-a-viewer names, so the two are not merged.
-_SYSTEM_ACTORS = frozenset({"system", "scheduler", "forge", "ci", "mcp"}) | _NOT_A_VIEWER
+_SYSTEM_ACTORS = CORE_MACHINE_SUBJECTS | _NOT_A_VIEWER
 
 
 class Viewer:
@@ -154,6 +155,47 @@ def audience(tier: str, crew_id: int | None, writer: Viewer) -> Viewer:
     if tier == CREW and crew_id and crew_id in writer.crew_ids:
         return Viewer.for_crew(crew_id)
     return NOBODY
+
+
+def relationship_contains(
+    parent_tier: str,
+    parent_crew_id: int | None,
+    child_tier: str,
+    child_crew_id: int | None,
+) -> bool:
+    """Whether every reader of a child can also read its parent.
+
+    Relationship identifiers are data. A workspace task that points at a
+    private engagement publishes that engagement's sequential id even when a
+    join correctly hides its name. Enforce audience containment at the write
+    boundary so a child cannot become a wider index of narrower work.
+
+    The caller must first prove that the writer can read the parent. That
+    makes a private child a safe subset: its only reader is the same writer.
+    """
+    if child_tier == PRIVATE:
+        return True
+    if child_tier == CREW:
+        return parent_tier == WORKSPACE or (
+            parent_tier == CREW and bool(child_crew_id) and child_crew_id == parent_crew_id
+        )
+    return child_tier == WORKSPACE and parent_tier == WORKSPACE
+
+
+def assert_relationship_contains(
+    parent_tier: str,
+    parent_crew_id: int | None,
+    child_tier: str,
+    child_crew_id: int | None,
+    *,
+    child_label: str = "task",
+) -> None:
+    """Refuse a relationship that would disclose a narrower parent's id."""
+    if not relationship_contains(parent_tier, parent_crew_id, child_tier, child_crew_id):
+        raise ValueError(
+            f"a {child_label} cannot be visible to more people than its linked work."
+            " Use the same or a narrower visibility."
+        )
 
 
 def is_machine(actor: str) -> bool:
@@ -630,6 +672,15 @@ UNSCOPED: dict[str, str] = {
         " reviewer may not be able to read the original."
     ),
     "schema_version": "migration bookkeeping",
+    "extension_outbox": (
+        "durable integration delivery state with identifiers and safe field names, not row bodies"
+    ),
+    "extension_event_deliveries": "idempotent subscriber receipts, not user-authored content",
+    "extension_event_attempts": "per-subscriber retry state, not user-authored content",
+    "extension_command_receipts": "idempotent public-command receipts, not user-authored content",
+    "extension_review_invocations": (
+        "operational reviewed-action state; access is only through the scoped review service"
+    ),
     "tool_usage": "adoption counters, no content",
     "usage_log": "token spend, no content",
     "users": "the roster. Hiding a teammate's existence is not a tier, it is a different product.",
