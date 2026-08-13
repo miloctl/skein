@@ -5762,3 +5762,56 @@ def test_capacity_still_fails_closed_on_a_rule_about_its_own_inputs(fresh_db):
     with TestClient(create_app(modules=(module,)), headers={"X-User": "mira"}) as client:
         response = client.get("/api/capacity")
     assert response.status_code == 403
+
+
+def test_a_timed_out_direct_tool_cannot_write_after_its_unknown_completion(fresh_db):
+    """asyncio.wait_for stopped WAITING at the deadline while the worker
+    thread kept a live WorkItems, so the handler created a core task AFTER
+    the terminal completion_unknown receipt. The owner-dispatch facade
+    closes at the deadline and the late command must fail."""
+    import threading
+
+    from app.public import CreateTaskCommand, PublicError
+
+    outcome: dict[str, object] = {}
+    finished = threading.Event()
+    module = _module()
+
+    def late_writer(context, request: SyncIn):
+        time.sleep(0.15)
+        try:
+            context.work_items.create_task(
+                CreateTaskCommand(title="late tool write"),
+                context.command_context(),
+            )
+            outcome["late_write"] = "landed"
+        except PublicError as exc:
+            outcome["late_write"] = exc.code
+        finally:
+            finished.set()
+        return {"updated": request.external_id}
+
+    contribution = replace(
+        module.tools[0],
+        handler=late_writer,
+        risk="low",
+        policy_action="atlas.background.write",
+        timeout_seconds=0.02,
+    )
+    specialist = replace(module.specialists[0], tools=(contribution.name,))
+    registry = ExtensionRegistry.build(
+        (replace(module, policies=(), tools=(contribution,), specialists=(specialist,)),)
+    )
+    result = asyncio.run(
+        execute_tool(
+            contribution,
+            {"external_id": "A-LATE"},
+            ToolCallContext(PolicySubject("manager"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    assert result.status == "completion_unknown"
+    assert result.error_code == "deadline_exceeded"
+    assert finished.wait(2)
+    assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late tool write'") is None

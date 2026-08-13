@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import replace
 from inspect import isawaitable
 from typing import TYPE_CHECKING
@@ -191,33 +189,50 @@ def dispatch_events(
                         ),
                         terminal=True,
                     )
-                delivery_context = replace(
-                    context,
-                    subject=subject,
-                    delivery_id=f"{event.event_id}:{contribution.name}",
-                    namespace=contribution.name,
-                )
+                from ._owner_work import run_bounded_work_handler
                 from .work import _bind_execution_context
 
-                delivery_context = _bind_execution_context(
-                    context.work_items,
-                    delivery_context,
-                    subject=subject,
-                    namespace=contribution.name,
-                    receipt_namespace=f"event:{contribution.name}",
-                    correlation_id=f"{event.event_id}:{contribution.name}",
+                # Owner dispatch, not a bare executor: the facade closes at
+                # the deadline, so a subscriber that keeps running cannot
+                # write core rows AFTER its delivery is terminally marked
+                # COMPLETION_UNKNOWN. Defaults bind the loop variables.
+                def invoke_subscriber(
+                    services: EventExecutionContext,
+                    request: DomainEvent,
+                    _handler=contribution.handler,
+                ):
+                    return _handler(request, services)
+
+                def bind_delivery(
+                    bound_work_items,
+                    _contribution=contribution,
+                    _event=event,
+                    _subject=subject,
+                ):
+                    return _bind_execution_context(
+                        bound_work_items,
+                        replace(
+                            context,
+                            work_items=bound_work_items,
+                            subject=_subject,
+                            delivery_id=f"{_event.event_id}:{_contribution.name}",
+                            namespace=_contribution.name,
+                        ),
+                        subject=_subject,
+                        namespace=_contribution.name,
+                        receipt_namespace=f"event:{_contribution.name}",
+                        correlation_id=f"{_event.event_id}:{_contribution.name}",
+                    )
+
+                bounded = run_bounded_work_handler(
+                    context.policy,
+                    bind_delivery,
+                    invoke_subscriber,
+                    event,
+                    contribution.timeout_seconds,
+                    thread_name="skein-event",
                 )
-                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-event")
-                future = executor.submit(contribution.handler, event, delivery_context)
-                try:
-                    result = future.result(timeout=contribution.timeout_seconds)
-                    if isawaitable(result):
-                        close = getattr(result, "close", None)
-                        if close is not None:
-                            close()
-                        raise _DeliveryRefused("ASYNC_HANDLER_UNSUPPORTED", terminal=True)
-                except FutureTimeout as exc:
-                    future.cancel()
+                if bounded.timed_out:
                     raise _DeliveryRefused(
                         (
                             "COMPLETION_UNKNOWN"
@@ -225,9 +240,12 @@ def dispatch_events(
                             else "SUBSCRIBER_TIMEOUT"
                         ),
                         terminal=contribution.effect in ("write", "unknown"),
-                    ) from exc
-                finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
+                    )
+                if isawaitable(bounded.value):
+                    close = getattr(bounded.value, "close", None)
+                    if close is not None:
+                        close()
+                    raise _DeliveryRefused("ASYNC_HANDLER_UNSUPPORTED", terminal=True)
                 db.execute(
                     "INSERT OR IGNORE INTO extension_event_deliveries"
                     " (event_id, subscriber, delivered_at) VALUES (?, ?, ?)",

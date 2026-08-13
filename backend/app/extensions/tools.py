@@ -203,24 +203,16 @@ async def execute_tool(
         )
         return services
 
-    async def invoke() -> Any:
-        work_items = WorkItems(policy)
-        services = bind(work_items)
-        result = await asyncio.to_thread(contribution.handler, services, validated)
-        if isawaitable(result):
-            return await result
-        return result
-
     def invoke_owned(services: ToolHandlerContext, request: BaseModel) -> Any:
         result = contribution.handler(services, request)
         if isawaitable(result):
             return asyncio.run(_await_handler_result(result))
         return result
 
+    from ..public._owner_work import run_bounded_work_handler
+
     try:
         if _owner_dispatch:
-            from ..public._owner_work import run_bounded_work_handler
-
             execution = run_bounded_work_handler(
                 policy,
                 bind,
@@ -229,11 +221,26 @@ async def execute_tool(
                 contribution.timeout_seconds,
                 thread_name="skein-reviewed-tool",
             )
-            if execution.timed_out:
-                raise TimeoutError
-            raw = execution.value
         else:
-            raw = await asyncio.wait_for(invoke(), timeout=contribution.timeout_seconds)
+            # The direct path must also revoke write authority at the
+            # deadline: asyncio.wait_for stopped WAITING but the worker
+            # thread kept a live WorkItems and wrote AFTER the terminal
+            # completion_unknown receipt. The owner-dispatch facade closes
+            # at the deadline, so a late command fails instead of landing.
+            # to_thread keeps the dispatcher's blocking loop off the event
+            # loop that carries every open chat stream.
+            execution = await asyncio.to_thread(
+                run_bounded_work_handler,
+                policy,
+                bind,
+                invoke_owned,
+                validated,
+                contribution.timeout_seconds,
+                thread_name="skein-extension-tool",
+            )
+        if execution.timed_out:
+            raise TimeoutError
+        raw = execution.value
         output = contribution.output_schema.model_validate(raw)
     except TimeoutError:
         status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
