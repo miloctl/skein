@@ -3083,7 +3083,7 @@ def test_registry_rejects_multiple_authoritative_group_resolvers():
         ExtensionRegistry.build((module,))
 
 
-def test_legacy_two_resolver_identity_package_remains_compatible(fresh_db):
+def test_a_resolver_without_group_ownership_cannot_return_groups(fresh_db):
     from app.services import users
 
     users.ensure_user("mira")
@@ -3106,15 +3106,15 @@ def test_legacy_two_resolver_identity_package_remains_compatible(fresh_db):
             ),
         ),
     )
-    refreshed = ExtensionRegistry.build((module,)).refresh_subject(
-        PolicySubject(
-            "mira",
-            groups=("old-group",),
-            source="oidc",
-            refresh_required=True,
+    with pytest.raises(PermissionError, match="returned groups"):
+        ExtensionRegistry.build((module,)).refresh_subject(
+            PolicySubject(
+                "mira",
+                groups=("old-group",),
+                source="oidc",
+                refresh_required=True,
+            )
         )
-    )
-    assert refreshed.groups == ("delivery-managers",)
 
 
 def test_rest_playbook_policy_uses_authoritative_project_class(fresh_db):

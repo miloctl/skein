@@ -198,14 +198,8 @@ def definition_digest(definition: dict) -> str:
 
 
 def definition_digest_matches(expected: str, definition: dict) -> bool:
-    """Match current or legacy digests stored by a compatible core release."""
-    if expected.startswith(f"{DEFINITION_DIGEST_VERSION}:"):
-        return hmac.compare_digest(expected, definition_digest(definition))
-    try:
-        legacy = json.dumps(definition, sort_keys=True, separators=(",", ":"))
-    except (TypeError, ValueError):
-        return False
-    return hmac.compare_digest(expected, hashlib.sha256(legacy.encode()).hexdigest())
+    """Match the tagged digest stored with a durable playbook review."""
+    return hmac.compare_digest(expected, definition_digest(definition))
 
 
 def _canonical_yaml_value(value: object) -> object:

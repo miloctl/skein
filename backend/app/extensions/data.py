@@ -46,19 +46,8 @@ class ExtensionStore:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS extension_schema_version"
                 " (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL,"
-                " digest TEXT NOT NULL DEFAULT '')"
+                " digest TEXT NOT NULL)"
             )
-            columns = {
-                str(row["name"])
-                for row in connection.execute(
-                    "PRAGMA table_info(extension_schema_version)"
-                ).fetchall()
-            }
-            if "digest" not in columns:
-                connection.execute(
-                    "ALTER TABLE extension_schema_version"
-                    " ADD COLUMN digest TEXT NOT NULL DEFAULT ''"
-                )
             for migration in sorted(migrations, key=lambda item: item.version):
                 digest = sha256("\0".join(migration.statements).encode()).hexdigest()
                 connection.execute("BEGIN IMMEDIATE")
@@ -72,14 +61,9 @@ class ExtensionStore:
                             raise ValueError(
                                 f"extension migration {migration.version} changed its name"
                             )
-                        if row["digest"] and row["digest"] != digest:
+                        if row["digest"] != digest:
                             raise ValueError(
                                 f"extension migration {migration.version} changed its statements"
-                            )
-                        if not row["digest"]:
-                            connection.execute(
-                                "UPDATE extension_schema_version SET digest = ? WHERE version = ?",
-                                (digest, migration.version),
                             )
                         connection.execute("COMMIT")
                         continue
