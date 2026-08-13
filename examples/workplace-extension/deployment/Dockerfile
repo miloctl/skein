@@ -1,4 +1,4 @@
-ARG SKEIN_IMAGE=skein:0.2.0
+ARG SKEIN_IMAGE=skein:0.2.1
 FROM ${SKEIN_IMAGE}
 
 USER root

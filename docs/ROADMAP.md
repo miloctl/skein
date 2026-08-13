@@ -37,6 +37,17 @@ a real extension needs them:
   no declared identity, policy action, or timeout)
 - Module dependency ordering (`SkeinModule.requires`, removed pre-release:
   composition order is core first, then the allowlist order)
+- Durable per-subscriber event targets. Delivery now survives a composition
+  with ZERO subscribers (2026-08-13), but an event whose type matches one
+  composed extension and not a second, disabled one is still finalized
+  without the disabled subscriber. Durable targets snapshot the intended
+  subscribers at emission; they also carry per-target leases, backoff, and
+  an operator redrive.
+- A field-guide contribution slot, so a private extension's user-visible
+  navigation and cards can ship a discovery card the way every core
+  feature must (`backend/fieldguide/knots.yaml`). Version 1 has no such
+  slot, and a core knot for a surface only composed deployments have would
+  be wrong in the default app.
 
 Do not add these as empty slots. Add one narrow contract with one core use and
 one private-package use when the requirement appears.
