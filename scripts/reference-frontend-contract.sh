@@ -13,7 +13,7 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-mkdir -p "$tmp/tarballs" "$tmp/build/node_modules/@skein" "$tmp/build/node_modules/@types"
+mkdir -p "$tmp/tarballs" "$tmp/build"
 mkdir -p "$tmp/current-source/frontend"
 tar --exclude=node_modules --exclude=.next --exclude='*.tsbuildinfo' \
     -cf - -C frontend . | tar -xf - -C "$tmp/current-source/frontend"
@@ -24,14 +24,26 @@ installed="$tmp/current-source/frontend/node_modules/@atlas/skein-extension"
 npm pack --silent --pack-destination "$tmp/tarballs" frontend/packages/extension-api >/dev/null
 api_tar=("$tmp/tarballs"/skein-extension-api-*.tgz)
 [ "${#api_tar[@]}" -eq 1 ]
-mkdir -p "$tmp/build/node_modules/@skein/extension-api"
-tar -xzf "${api_tar[0]}" --strip-components=1 -C "$tmp/build/node_modules/@skein/extension-api"
-ln -s "$(pwd)/frontend/node_modules/react" "$tmp/build/node_modules/react"
-ln -s "$(pwd)/frontend/node_modules/@types/react" "$tmp/build/node_modules/@types/react"
-ln -s "$(pwd)/frontend/node_modules/csstype" "$tmp/build/node_modules/csstype"
 cp examples/workplace-extension/frontend/index.tsx "$tmp/build/index.tsx"
 cp examples/workplace-extension/frontend/tsconfig.json "$tmp/build/tsconfig.json"
 cp examples/workplace-extension/frontend/package.json "$tmp/build/package.json"
+# Real npm resolution of the packed public package, exactly as a private
+# repository installs it (npm install --save-dev <archive>; npm skips a bare
+# archive argument under --no-save). The copied package.json absorbs the
+# write. Its devDependencies are removed first and the toolchain symlinks
+# below supply them, so the install needs no registry. --legacy-peer-deps
+# stops npm from fetching the react peer; the host build supplies React.
+node -e 'const fs = require("fs"); const path = process.argv[1];
+const pkg = JSON.parse(fs.readFileSync(path));
+delete pkg.devDependencies;
+fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");' "$tmp/build/package.json"
+(cd "$tmp/build" && npm install --silent --save-dev --no-audit --no-fund \
+    --legacy-peer-deps "${api_tar[0]}" >/dev/null)
+[ -f "$tmp/build/node_modules/@skein/extension-api/index.d.ts" ]
+mkdir -p "$tmp/build/node_modules/@types"
+ln -s "$(pwd)/frontend/node_modules/react" "$tmp/build/node_modules/react"
+ln -s "$(pwd)/frontend/node_modules/@types/react" "$tmp/build/node_modules/@types/react"
+ln -s "$(pwd)/frontend/node_modules/csstype" "$tmp/build/node_modules/csstype"
 frontend/node_modules/.bin/tsc --project "$tmp/build/tsconfig.json"
 cmp "$tmp/build/dist/index.js" examples/workplace-extension/frontend/dist/index.js
 cmp "$tmp/build/dist/index.d.ts" examples/workplace-extension/frontend/dist/index.d.ts
@@ -39,10 +51,12 @@ cmp "$tmp/build/dist/index.d.ts" examples/workplace-extension/frontend/dist/inde
 npm pack --silent --pack-destination "$tmp/tarballs" examples/workplace-extension/frontend >/dev/null
 atlas_tar=("$tmp/tarballs"/atlas-skein-extension-*.tgz)
 [ "${#atlas_tar[@]}" -eq 1 ]
-mkdir -p "$tmp/consumer/node_modules/@skein/extension-api"
-mkdir -p "$tmp/consumer/node_modules/@atlas/skein-extension"
-tar -xzf "${api_tar[0]}" --strip-components=1 -C "$tmp/consumer/node_modules/@skein/extension-api"
-tar -xzf "${atlas_tar[0]}" --strip-components=1 -C "$tmp/consumer/node_modules/@atlas/skein-extension"
+mkdir -p "$tmp/consumer"
+printf '{"name":"workplace-consumer","private":true,"type":"module"}\n' \
+    > "$tmp/consumer/package.json"
+(cd "$tmp/consumer" && npm install --silent --save --no-audit --no-fund \
+    --legacy-peer-deps "${api_tar[0]}" "${atlas_tar[0]}" >/dev/null)
+[ -f "$tmp/consumer/node_modules/@atlas/skein-extension/dist/index.js" ]
 ln -s "$(pwd)/frontend/node_modules/react" "$tmp/consumer/node_modules/react"
 (
     cd "$tmp/consumer"

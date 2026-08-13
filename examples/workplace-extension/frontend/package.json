@@ -20,7 +20,6 @@
     "build": "tsc --project tsconfig.json"
   },
   "devDependencies": {
-    "@skein/extension-api": "file:../../../frontend/packages/extension-api",
     "@types/react": "^19.0.0",
     "typescript": "^5.0.0"
   }
