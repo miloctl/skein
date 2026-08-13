@@ -2,7 +2,7 @@
 
 Status: complete, through the 2026-08-13 post-audit remediation recorded at
 the end of this file. The authoritative review record lives in
-`WORKPLACE-EXTENSIBILITY-RESULTS.md` section 20, beside the exact commits
+`docs/reviews/2026-08-13-workplace-extensibility-results.md` section 20, beside the exact commits
 it assesses.
 
 ## Mission
@@ -16,7 +16,7 @@ The implementation must preserve the deterministic core, current APIs, security 
 - Base branch: `main`
 - Base commit: `d3b0f2ebbb6437b9ba34afb398d548ec955d3ae3`
 - Feature branch: `feature/workplace-extensibility`
-- Historical assessment: `docs/WORKPLACE-EXTENSIBILITY.md`
+- Historical assessment: `docs/reviews/2026-08-10-workplace-extensibility-assessment.md`
 - Historical scores: modularity 5/10, workplace extensibility 3/10, upgradeability 4/10
 - Drift from assessed commit: none
 - Pre-existing worktree item: the untracked historical assessment from the preceding architecture review
@@ -323,15 +323,18 @@ Scores can increase only when core behavior and the reference extension use the 
 
 ## Risks
 
-| Risk | Control | Status |
+Settled at the close of the work. No row remains open: this is a closed
+transcript, and un-shipped work lives in `docs/ROADMAP.md`.
+
+| Risk | Control | Outcome |
 |---|---|---|
-| App factory changes startup order | Characterization tests and default `app` parity | Open |
+| App factory changes startup order | Characterization tests and default `app` parity | Controlled. The default `app` composes through the same factory, and the full suite covers both entry points. |
 | Policy duplicates current authorization | Core authorization still runs; workplace rules can only narrow | Controlled |
-| Public facade leaks internal dictionaries | Typed task views and public errors hide service dictionaries | Controlled for task work |
+| Public facade leaks internal dictionaries | Typed task views and public errors hide service dictionaries | Controlled for task work. Coverage beyond tasks is a ROADMAP item. |
 | Extension migrations enter core security inventories | The store refuses both Skein database paths | Controlled |
-| MCP wrappers cannot infer write effects | Explicit metadata and deny-unknown default | Open |
-| Next.js build-time extension imports become core hard-coding | External composition manifest and generated build input | Open |
-| Scope expands into unused abstractions | Remove any contract unused by core and Acme | Open |
+| MCP wrappers cannot infer write effects | Explicit metadata and deny-unknown default | Controlled. An unclassified MCP tool is omitted from the agent. |
+| Next.js build-time extension imports become core hard-coding | External composition manifest and generated build input | Controlled. Core holds no extension name; `extensions/generated.ts` and the Tailwind `@source` list are both generated from `SKEIN_FRONTEND_EXTENSIONS`. |
+| Scope expands into unused abstractions | Remove any contract unused by core and Acme | Controlled. The lifecycle hook and `SkeinModule.requires` were removed pre-release for having no consumer; both removals are recorded in `docs/ROADMAP.md`. |
 
 ## Progress log
 
@@ -425,7 +428,7 @@ Scores can increase only when core behavior and the reference extension use the 
 - Added an always-present outbox delivery job. A deployment without subscribers
   marks events delivered without calling external code.
 - Confirmed 48 focused event, reference, REST, scheduler, and agent-gate tests.
-- Created `WORKPLACE-EXTENSIBILITY-RESULTS.md` with the current architecture,
+- Created `docs/reviews/2026-08-13-workplace-extensibility-results.md` with the current architecture,
   scorecard, evidence, A–H results, limits, and repository guidance.
 - Completed the final pre-review verification: 1,620 backend tests, 229
   frontend tests, the default production build, full lint, both upgrade

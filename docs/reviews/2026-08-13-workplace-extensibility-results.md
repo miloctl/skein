@@ -32,9 +32,9 @@ independent review.
 The report commit is necessarily newer than the commit named above. Use
 `git rev-parse HEAD` for the exact branch head that contains this file.
 
-Historical assessment: `docs/WORKPLACE-EXTENSIBILITY.md`
+Historical assessment: `docs/reviews/2026-08-10-workplace-extensibility-assessment.md`
 
-Execution plan: `docs/exec-plans/workplace-extensibility.md`
+Execution plan: `docs/reviews/2026-08-10-workplace-extensibility-plan.md`
 
 ## 1. Executive verdict
 

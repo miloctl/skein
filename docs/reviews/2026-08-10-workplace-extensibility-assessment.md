@@ -245,101 +245,101 @@ Use workload identities, secret-manager references, egress rules, and least-priv
 
 #### Composition and API
 
-- [`backend/app/main.py`](../backend/app/main.py#L206) creates a global `FastAPI` object at import time.
+- [`backend/app/main.py`](../../backend/app/main.py#L206) creates a global `FastAPI` object at import time.
 - The same file statically includes six routers at lines 476 through 481.
 - The `lifespan()` function initializes the database, jobs, agents, telemetry, pools, MCP, and other services.
 - No `create_app(settings, modules)` factory or dependency container exists.
-- [`backend/app/routes/api.py`](../backend/app/routes/api.py#L58) contains 157 route decorators and many inline Pydantic input models.
-- [`backend/app/routes/chat.py`](../backend/app/routes/chat.py#L40) combines commands, personas, flocks, sessions, agent construction, and SSE delivery.
-- [`backend/app/routes/deps.py`](../backend/app/routes/deps.py#L100) calls `_resolve()` the single identity swap point. Its implementation still selects three concrete modes.
+- [`backend/app/routes/api.py`](../../backend/app/routes/api.py#L58) contains 157 route decorators and many inline Pydantic input models.
+- [`backend/app/routes/chat.py`](../../backend/app/routes/chat.py#L40) combines commands, personas, flocks, sessions, agent construction, and SSE delivery.
+- [`backend/app/routes/deps.py`](../../backend/app/routes/deps.py#L100) calls `_resolve()` the single identity swap point. Its implementation still selects three concrete modes.
 
 An external module can import `app.main.app` and call `include_router()`. Skein does not define this mutation as a supported lifecycle contract.
 
 #### Services, domain, and persistence
 
-- [`backend/tests/test_write_path_boundary.py`](../backend/tests/test_write_path_boundary.py) enforces shared services as the REST and tool write path.
+- [`backend/tests/test_write_path_boundary.py`](../../backend/tests/test_write_path_boundary.py) enforces shared services as the REST and tool write path.
 - That test proves useful reuse and provenance discipline. It does not prove substitution.
-- Most service modules import [`backend/app/db.py`](../backend/app/db.py) directly and contain hand-written SQL.
+- Most service modules import [`backend/app/db.py`](../../backend/app/db.py) directly and contain hand-written SQL.
 - `db.connect()` opens `sqlite3.Connection` and applies SQLite PRAGMAs at line 181.
 - `db.MIGRATIONS_DIR` points to one core directory at line 18.
 - `db.init_db()` loads only files from that directory at line 244.
 - SQLite-specific usage includes FTS5, `julianday`, PRAGMAs, `sqlite_master`, and Boolean expressions inside `SUM()`.
 - Services return dictionaries instead of stable domain objects or published command results.
-- [`backend/app/services/tuning.py`](../backend/app/services/tuning.py#L144) imports `routes.chat` and `agents.team_agent` inside service functions.
-- [`backend/app/services/delegation.py`](../backend/app/services/delegation.py#L9) and `handoff.py` import agent identity state.
+- [`backend/app/services/tuning.py`](../../backend/app/services/tuning.py#L144) imports `routes.chat` and `agents.team_agent` inside service functions.
+- [`backend/app/services/delegation.py`](../../backend/app/services/delegation.py#L9) and `handoff.py` import agent identity state.
 
 These reverse imports make route and agent implementation details part of service behavior.
 
 #### Static registration and security inventories
 
-- [`backend/app/services/jobs.py`](../backend/app/services/jobs.py#L136) defines one immutable `JOBS` tuple.
-- [`backend/app/services/insights.py`](../backend/app/services/insights.py#L1273) defines one fixed `RULES` tuple.
-- [`backend/app/services/review.py`](../backend/app/services/review.py#L11) builds a private action registry.
+- [`backend/app/services/jobs.py`](../../backend/app/services/jobs.py#L136) defines one immutable `JOBS` tuple.
+- [`backend/app/services/insights.py`](../../backend/app/services/insights.py#L1273) defines one fixed `RULES` tuple.
+- [`backend/app/services/review.py`](../../backend/app/services/review.py#L11) builds a private action registry.
 - The review module also maintains target, diff, creation-parent, and untargeted maps.
-- [`backend/app/services/scope.py`](../backend/app/services/scope.py#L489) classifies every table through static `CLASSIFIED` and `UNSCOPED` dictionaries.
-- [`backend/app/services/admin.py`](../backend/app/services/admin.py#L58) uses a fixed table export inventory.
-- [`backend/app/services/search.py`](../backend/app/services/search.py#L49) maps each indexed entity to a table.
-- [`backend/app/services/provenance.py`](../backend/app/services/provenance.py#L97) uses fixed entity and activity maps.
+- [`backend/app/services/scope.py`](../../backend/app/services/scope.py#L489) classifies every table through static `CLASSIFIED` and `UNSCOPED` dictionaries.
+- [`backend/app/services/admin.py`](../../backend/app/services/admin.py#L58) uses a fixed table export inventory.
+- [`backend/app/services/search.py`](../../backend/app/services/search.py#L49) maps each indexed entity to a table.
+- [`backend/app/services/provenance.py`](../../backend/app/services/provenance.py#L97) uses fixed entity and activity maps.
 - Tests intentionally fail when a core table or writer is absent from these inventories.
 
 Those tests protect security and completeness. They also prove that a new table or entity requires coordinated core edits.
 
 #### Events, jobs, integrations, and errors
 
-- [`backend/app/db.py`](../backend/app/db.py#L28) exposes `on_commit()` for transaction-local callbacks.
+- [`backend/app/db.py`](../../backend/app/db.py#L28) exposes `on_commit()` for transaction-local callbacks.
 - That callback queue is not a public domain-event contract. It has no schema, subscriber registry, retry, or replay.
-- [`backend/app/services/digest.py`](../backend/app/services/digest.py#L148) exposes one narrow `set_narrator()` callback.
-- [`backend/app/services/notifications.py`](../backend/app/services/notifications.py) posts directly to one configured Slack webhook.
-- [`backend/app/routes/webhooks.py`](../backend/app/routes/webhooks.py) owns fixed CI and forge routes and payload parsing.
-- [`backend/app/main.py`](../backend/app/main.py#L365) centralizes database, permission, validation, rate, and unexpected error handling.
+- [`backend/app/services/digest.py`](../../backend/app/services/digest.py#L148) exposes one narrow `set_narrator()` callback.
+- [`backend/app/services/notifications.py`](../../backend/app/services/notifications.py) posts directly to one configured Slack webhook.
+- [`backend/app/routes/webhooks.py`](../../backend/app/routes/webhooks.py) owns fixed CI and forge routes and payload parsing.
+- [`backend/app/main.py`](../../backend/app/main.py#L365) centralizes database, permission, validation, rate, and unexpected error handling.
 - Extensions can register another FastAPI handler only by mutating the global app or changing core composition.
 - The core error bodies are consistent. They do not yet define versioned machine-readable extension error codes.
 
 #### Authentication, authorization, and approval
 
-- [`backend/app/config.py`](../backend/app/config.py#L783) fixes authentication modes to `trusted-header`, `api-key`, and `oidc`.
+- [`backend/app/config.py`](../../backend/app/config.py#L783) fixes authentication modes to `trusted-header`, `api-key`, and `oidc`.
 - OIDC supports issuer, audience, claims, client settings, and one administrator group.
-- [`backend/app/routes/deps.py`](../backend/app/routes/deps.py#L300) exposes `CurrentUser`, `StrongUser`, and `AdminUser` dependencies.
+- [`backend/app/routes/deps.py`](../../backend/app/routes/deps.py#L300) exposes `CurrentUser`, `StrongUser`, and `AdminUser` dependencies.
 - No general role mapping or policy decision point exists.
-- [`frontend/components/manage-toggle.tsx`](../frontend/components/manage-toggle.tsx#L5) states that manager mode is scope control, not authorization.
-- [`backend/app/services/delegation.py`](../backend/app/services/delegation.py#L13) fixes authority to four levels.
-- [`backend/app/tools/_gate.py`](../backend/app/tools/_gate.py#L27) hard-codes always-reviewed actions and entity families.
+- [`frontend/components/manage-toggle.tsx`](../../frontend/components/manage-toggle.tsx#L5) states that manager mode is scope control, not authorization.
+- [`backend/app/services/delegation.py`](../../backend/app/services/delegation.py#L13) fixes authority to four levels.
+- [`backend/app/tools/_gate.py`](../../backend/app/tools/_gate.py#L27) hard-codes always-reviewed actions and entity families.
 - `gated_write()` uses agent authority and one global `SKEIN_AGENT_REVIEW` switch.
 
 The gate does not receive project type, human role, data class, tool risk, or workplace approval policy.
 
 #### Agents and AI
 
-- [`backend/app/tools/__init__.py`](../backend/app/tools/__init__.py#L69) defines one static `ALL_TOOLS` list.
-- [`backend/app/agents/team_agent.py`](../backend/app/agents/team_agent.py#L89) selects model provider classes through hard-coded branches.
-- Provider metadata is also hard-coded in [`backend/app/config.py`](../backend/app/config.py#L78).
+- [`backend/app/tools/__init__.py`](../../backend/app/tools/__init__.py#L69) defines one static `ALL_TOOLS` list.
+- [`backend/app/agents/team_agent.py`](../../backend/app/agents/team_agent.py#L89) selects model provider classes through hard-coded branches.
+- Provider metadata is also hard-coded in [`backend/app/config.py`](../../backend/app/config.py#L78).
 - `build_agent()` owns Chief, planner, specialist, memory, tool, MCP, and session composition.
-- [`backend/app/services/personas.py`](../backend/app/services/personas.py#L190) excludes external and MCP tools from persona allowlist validation.
-- [`backend/app/agents/extra_tools.py`](../backend/app/agents/extra_tools.py#L24) permits only a fixed set of package tools.
-- [`backend/app/agents/mcp_tools.py`](../backend/app/agents/mcp_tools.py#L25) discovers remote MCP tools from configured servers.
+- [`backend/app/services/personas.py`](../../backend/app/services/personas.py#L190) excludes external and MCP tools from persona allowlist validation.
+- [`backend/app/agents/extra_tools.py`](../../backend/app/agents/extra_tools.py#L24) permits only a fixed set of package tools.
+- [`backend/app/agents/mcp_tools.py`](../../backend/app/agents/mcp_tools.py#L25) discovers remote MCP tools from configured servers.
 - MCP tools join the Strands tool list directly. They do not pass through Skein's `gated_write()` contract.
 - MCP bearer tokens are values inside one JSON environment setting.
-- [`backend/app/agents/session_store.py`](../backend/app/agents/session_store.py) provides Strands session hooks for SQLite persistence.
+- [`backend/app/agents/session_store.py`](../../backend/app/agents/session_store.py) provides Strands session hooks for SQLite persistence.
 
 The keyless fallback is genuine. A bad model configuration preserves deterministic REST behavior and reports the provider fault.
 
 #### Playbooks and workflows
 
-- [`backend/app/services/playbooks.py`](../backend/app/services/playbooks.py#L1) calls playbooks deterministic templates.
+- [`backend/app/services/playbooks.py`](../../backend/app/services/playbooks.py#L1) calls playbooks deterministic templates.
 - An overlay file joins the roster or replaces a stock file with the same slug.
 - `instantiate()` creates an engagement, milestones, tasks, and scheduled rituals.
 - The interpreter recognizes fixed dates, priorities, text, and project classification.
 - It defines no condition, branch, action-handler, approval, role, SLA, escalation, or human-checkpoint contract.
-- [`backend/playbooks/prototype.yaml`](../backend/playbooks/prototype.yaml) demonstrates the current fixed template shape.
+- [`backend/playbooks/prototype.yaml`](../../backend/playbooks/prototype.yaml) demonstrates the current fixed template shape.
 
 The YAML files are configuration inputs. They are not executable extension packages or a general workflow language.
 
 #### Frontend
 
-- [`frontend/app/layout.tsx`](../frontend/app/layout.tsx#L65) hard-codes metadata, fonts, the navigation, and global shell components.
-- [`frontend/components/nav.tsx`](../frontend/components/nav.tsx#L22) defines private static navigation groups.
-- [`frontend/components/section-tabs.tsx`](../frontend/components/section-tabs.tsx#L8) defines private static tab sets.
-- [`frontend/lib/theme.ts`](../frontend/lib/theme.ts#L27) contains the static theme pack and colorway registries.
+- [`frontend/app/layout.tsx`](../../frontend/app/layout.tsx#L65) hard-codes metadata, fonts, the navigation, and global shell components.
+- [`frontend/components/nav.tsx`](../../frontend/components/nav.tsx#L22) defines private static navigation groups.
+- [`frontend/components/section-tabs.tsx`](../../frontend/components/section-tabs.tsx#L8) defines private static tab sets.
+- [`frontend/lib/theme.ts`](../../frontend/lib/theme.ts#L27) contains the static theme pack and colorway registries.
 - Pages make 143 direct `api()` calls across `frontend/app` and `frontend/components`.
 - Dashboard, settings, My Day, and agents pages each contain approximately 900 to 1,638 lines.
 - Reusable components exist, including `Card`, `TaskPeek`, `StatusRegion`, and visibility controls.
@@ -349,13 +349,13 @@ A separate workplace frontend can consume REST. It cannot join the core shell, r
 
 #### Deployment and release
 
-- [`deploy/README.md`](../deploy/README.md) explicitly recommends one private deployment repository per site.
+- [`deploy/README.md`](../../deploy/README.md) explicitly recommends one private deployment repository per site.
 - That repository can own environment files, Compose overrides, and content overlays.
-- [`docker-compose.yml`](../docker-compose.yml) includes commented read-only mounts for playbooks, personas, and flocks.
-- [`backend/Dockerfile`](../backend/Dockerfile) installs the core wheel and runs as a non-root user.
-- [`frontend/Dockerfile`](../frontend/Dockerfile) bakes public configuration into the build.
-- [`scripts/upgrade-path.sh`](../scripts/upgrade-path.sh) compares upgraded and fresh schemas and verifies the activity chain.
-- [`backend/pyproject.toml`](../backend/pyproject.toml#L1) declares version `0.1.0` and no extension entry points.
+- [`docker-compose.yml`](../../docker-compose.yml) includes commented read-only mounts for playbooks, personas, and flocks.
+- [`backend/Dockerfile`](../../backend/Dockerfile) installs the core wheel and runs as a non-root user.
+- [`frontend/Dockerfile`](../../frontend/Dockerfile) bakes public configuration into the build.
+- [`scripts/upgrade-path.sh`](../../scripts/upgrade-path.sh) compares upgraded and fresh schemas and verifies the activity chain.
+- [`backend/pyproject.toml`](../../backend/pyproject.toml#L1) declares version `0.1.0` and no extension entry points.
 - The frontend package is version `0.1.0`, private, and not a workspace package.
 - The reviewed repository has no `v*` release tag.
 
