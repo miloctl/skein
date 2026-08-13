@@ -427,7 +427,6 @@ export function Nav() {
                 e.currentTarget.focus();
                 window.dispatchEvent(new Event("skein-capture-open"));
               }}
-              aria-label="Quick capture"
               // no shortcut here: a title is a plain string, so it cannot
               // carry the per-keyboard spelling the button itself renders,
               // and a hard-coded ⌘K names the wrong key on most keyboards

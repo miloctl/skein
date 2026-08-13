@@ -48,6 +48,8 @@ describe("the credential ladder", () => {
     // rung while every test above stays green.
     const source = readFileSync(join(__dirname, "..", "app", "runtime-provider.tsx"), "utf8");
     expect(source).toContain("await bearer()");
+    expect(source).toContain("...userHeader()");
     expect(source).not.toContain("getApiKey() ||");
+    expect(source).not.toContain('"X-User": getUser()');
   });
 });

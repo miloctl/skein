@@ -532,6 +532,7 @@ export default function SettingsPage() {
         </p>
         <div className="flex gap-2">
           <input
+            name="display-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && saveName()}
@@ -640,6 +641,8 @@ export default function SettingsPage() {
         )}
         <div className="flex gap-2">
           <input
+            name="personal-api-key"
+            autoComplete="off"
             value={keyDraft}
             onChange={(e) => setKeyDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && testAndSaveKey()}
@@ -688,6 +691,7 @@ export default function SettingsPage() {
         </p>
         <div className="flex gap-2">
           <input
+            name="growth-interests"
             value={interests}
             onChange={(e) => setInterests(e.target.value)}
             aria-label="Growth interests"

@@ -337,6 +337,7 @@ export default function IntakePage() {
         </h2>
         <div className="flex flex-col gap-2">
           <input
+            name="request-title"
             value={form.title}
             maxLength={200}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -345,6 +346,7 @@ export default function IntakePage() {
             className="rounded-lg border border-line-strong bg-transparent px-3 py-2 text-sm outline-none focus:border-thread-solid"
           />
           <textarea
+            name="request-detail"
             value={form.detail}
             maxLength={4000}
             onChange={(e) => setForm({ ...form, detail: e.target.value })}
@@ -355,6 +357,7 @@ export default function IntakePage() {
           />
           <div className="flex items-center gap-2">
             <select
+              name="request-project-class"
               // the first option reads as a placeholder but names nothing: a
               // screen reader announces the current VALUE and never says what
               // the control is for. Same idiom as the textarea above.
