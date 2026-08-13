@@ -666,6 +666,10 @@ returns `completion_unknown`. A late handler can finish external work, but a
 late core work call returns `EXECUTION_CONTEXT_CLOSED`. A core command that
 completed before the deadline stays part of the reviewer transaction. Make
 all write actions idempotent because the final external result can be unknown.
+Each owner-bound `WorkItems` command has its own rollback boundary. If a local
+command writes and then fails, Skein removes that command's rows and deferred
+callbacks. The reviewed action remains `completion_unknown` because an
+external effect can already exist.
 
 Version 1 does not support timers, parallel branches, or a general workflow
 state machine. Keep these processes in an extension service.
