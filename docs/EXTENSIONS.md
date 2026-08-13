@@ -522,6 +522,22 @@ Use `auth_token_env` to name an environment variable that contains an MCP
 token. An inline `auth_token` remains compatible, but Skein logs a warning.
 Keep tokens in the deployment secret manager.
 
+The standalone MCP server is a separate process and composes its own module
+list. Set `SKEIN_MCP_MODULES` to the dotted path of a module whose `modules`
+attribute is the same tuple the private composition root passes to
+`create_app`. The reference package exports one at
+`atlas_skein.composition`:
+
+```sh
+SKEIN_MCP_MODULES=atlas_skein.composition SKEIN_MCP_USER=you-mcp \
+    python -m app.mcp_server
+```
+
+Without this value the MCP process composes core only. A workplace
+deployment must set it, or MCP calls run without the workplace policy,
+identity, and tool contributions that the API process enforces. A value
+that does not resolve stops the server with the reason on stderr.
+
 Reviewed tools store their exact input in the core review database. Do not put
 credentials or unneeded sensitive content in tool arguments. Apply the
 workplace backup and retention policy to this database.
