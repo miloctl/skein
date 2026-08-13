@@ -2110,5 +2110,36 @@ Current verification:
 | Complete static gate | Passed |
 | Installed unchanged-Atlas artifact rehearsal | Real sync and strict source checks passed on distinct compatible 0.2.0 and 0.2.1 cores |
 
+### Reviewed workflow transaction ownership
+
+The independent release report rejected `73054ca` after the first reviewers
+approved it. A reviewed workflow handler ran on a worker without the approval
+transaction context. Its public task command opened a second SQLite writer and
+waited on the approval transaction until the command failed.
+
+Workflow and reviewed-tool handlers now receive an owner-bound `WorkItems`
+service. The handler remains on its bounded worker. Its public task calls run
+on the thread that owns policy refresh, the reviewer verdict, and the apply
+savepoint.
+
+The service closes atomically at the action deadline. Pending and later core
+calls get `EXECUTION_CONTEXT_CLOSED`. The worker never receives the SQLite
+connection and cannot use it after the approval transaction closes.
+
+A forced settlement failure proves that the playbook rows, action task,
+command receipt, and action activity roll back together. The same review can
+then retry and creates one task. Separate deadline tests cover work completed
+before the deadline and a core call attempted after it.
+
+Current verification:
+
+| Verification | Result |
+|---|---|
+| Focused workflow, tool, public, policy, review, transaction, composition, release, packaging, and migration tests | 373 passed in 27.51 seconds |
+| Complete backend suite | 1,993 passed in 123.74 seconds |
+| Complete backend static gate | Passed, including strict mypy on 123 source files |
+| Historical base upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct 0.2.0 and 0.2.1 cores; the old core rejected the 0.2.1-floor module, and the current core completed its reviewed local write |
+
 These results do not change the final score. A fresh independent review must
-approve one clean exact commit before Chrome validation starts.
+approve one clean exact commit before Chrome validation resumes.

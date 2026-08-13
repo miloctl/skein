@@ -179,11 +179,9 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
 
 
 def connect() -> sqlite3.Connection:
-    # A reviewed extension executes its bounded synchronous handler in a
-    # worker while the caller owns the ambient authorization transaction.
-    # Context variables carry this connection to that one worker. Skein never
-    # uses an ambient connection concurrently; allowing the hand-off keeps
-    # policy revalidation and the resulting local write atomic.
+    # A reviewed extension handler stays on its worker. Its public work calls
+    # return to the thread that owns the authorization transaction. The
+    # connection therefore remains single-owner even when a handler times out.
     conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

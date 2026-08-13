@@ -2543,3 +2543,30 @@ Verification before the next exact-commit review:
 | Complete backend suite | 1,988 passed in 125.50 seconds |
 | Complete static gate | Passed |
 | Installed unchanged-Atlas artifact rehearsal | Real sync and strict source checks passed on distinct compatible 0.2.0 and 0.2.1 cores |
+
+## Reviewed workflow transaction ownership
+
+The independent release report rejected `73054ca`.
+
+A reviewed workflow action used a raw worker thread. The worker did not carry
+the approval transaction context. A public task command then opened a second
+SQLite writer and waited on the approval transaction until it failed.
+
+The runtime now keeps the handler on its bounded worker and moves its public
+task operations to the thread that owns the current transaction. The same
+owner-bound service is used for reviewed contributed tools.
+
+At the deadline, the runtime closes the service before the approval
+transaction can commit or close. A pending or late core call fails with a
+stable public error. External work can still finish late, so a write deadline
+continues to report `completion_unknown`.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused workflow, tool, public, policy, review, transaction, composition, release, packaging, and migration tests | 373 passed in 27.51 seconds |
+| Complete backend suite | 1,993 passed in 123.74 seconds |
+| Complete backend static gate | Passed, including strict mypy on 123 source files |
+| Historical base upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct 0.2.0 and 0.2.1 cores; the old core rejected the 0.2.1-floor module, and the current core completed its reviewed local write |

@@ -521,6 +521,10 @@ Reviewed tools store their exact input in the core review database. Do not put
 credentials or unneeded sensitive content in tool arguments. Apply the
 workplace backup and retention policy to this database.
 
+A reviewed tool that uses the supplied `WorkItems` service requires core
+`0.2.1` or later. Set its module's `minimum_core` to `0.2.1`. A tool that does
+not perform a reviewed local write can retain a `0.2.0` floor.
+
 A timed-out synchronous write has the status `completion_unknown`. A worker
 thread can finish after the deadline. Make write handlers idempotent. Use the
 supplied stable identifiers.
@@ -648,6 +652,20 @@ Each workflow execution has a random run ID. Review resume and retry keep the
 same ID. A separate run gets a different ID. Skein combines the run ID and
 step path for action correlation and idempotency. The activity chain records
 an attempt and its outcome, including `completion_unknown`.
+
+Skein runs an action handler on a bounded worker. Calls through the supplied
+`WorkItems` service run on the thread that owns the current core transaction.
+Thus, a reviewed task command uses the same transaction as policy refresh and
+the reviewer verdict. The worker never owns that database connection.
+This reviewed local-write behavior requires core `0.2.1` or later. Set
+`minimum_core` to `0.2.1` when a workflow action uses `WorkItems` after review.
+An external-only action can retain a `0.2.0` floor.
+
+At the deadline, Skein closes the action's public work service before it
+returns `completion_unknown`. A late handler can finish external work, but a
+late core work call returns `EXECUTION_CONTEXT_CLOSED`. A core command that
+completed before the deadline stays part of the reviewer transaction. Make
+all write actions idempotent because the final external result can be unknown.
 
 Version 1 does not support timers, parallel branches, or a general workflow
 state machine. Keep these processes in an extension service.
