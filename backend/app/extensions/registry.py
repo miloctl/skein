@@ -516,7 +516,19 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} must select an event type"
             )
-        if any(version < 1 for version in event_contribution.schema_versions):
+        # A subscription to a name outside the catalog would mark every event
+        # delivered while the handler never runs. Refuse it at composition.
+        from ..public.events import EVENT_SCHEMA_VERSIONS, EVENT_TYPES
+
+        unknown_types = sorted(set(event_contribution.event_types) - set(EVENT_TYPES))
+        if unknown_types:
+            raise ExtensionValidationError(
+                f"event {event_contribution.name!r} selects unknown event types: "
+                + ", ".join(unknown_types)
+            )
+        if any(
+            version not in EVENT_SCHEMA_VERSIONS for version in event_contribution.schema_versions
+        ):
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} has an invalid schema version"
             )

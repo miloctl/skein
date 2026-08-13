@@ -220,6 +220,37 @@ def test_existing_human_stops_standalone_mcp_before_it_runs(fresh_db, monkeypatc
     assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'mira'") == {"kind": "human"}
 
 
+def test_event_subscriptions_outside_the_catalog_are_refused():
+    from app.extensions import EventContribution
+
+    def _event_module(**changes):
+        values = {
+            "name": "acme.workplace.deliver",
+            "handler": lambda _event, _context: None,
+            "event_types": ("skein.task.updated",),
+            "service_identity": "acme-sync",
+            "policy_action": "acme.deliver",
+            "effect": "write",
+            "risk": "low",
+        }
+        values.update(changes)
+        return _module(
+            routes=(),
+            events=(EventContribution(**values),),
+            service_identities=(
+                ServiceIdentityContribution("acme.workplace.sync-identity", "acme-sync"),
+            ),
+        )
+
+    # "skein.task.update" is the typo this pin exists for: before composition
+    # validation, the subscription matched nothing and every event was marked
+    # delivered with the handler never invoked.
+    with pytest.raises(ExtensionValidationError, match="unknown event types"):
+        ExtensionRegistry.build((_event_module(event_types=("skein.task.update",)),))
+    with pytest.raises(ExtensionValidationError, match="invalid schema version"):
+        ExtensionRegistry.build((_event_module(schema_versions=(2,)),))
+
+
 def test_a_failed_extension_migration_prevents_startup(fresh_db):
     from app.extensions import ExtensionMigration, MigrationContribution
 
