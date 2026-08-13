@@ -71,12 +71,44 @@ def create_engagement(
                 crew,
             ),
         )
-        # adopt milestones created under this name before the engagement existed —
-        # health/handoff/ship-it join on engagement_id, not the display name
-        db.execute(
-            "UPDATE milestones SET engagement_id = ? WHERE project = ? AND engagement_id IS NULL",
-            (eid, name),
-        )
+        # Adoption preserves every audience and direct task relationship. An
+        # incompatible orphan stays unlinked for an explicit repair.
+        viewer = scope.Viewer.for_actor(actor)
+        for milestone in db.query(
+            "SELECT * FROM milestones WHERE project = ? AND engagement_id IS NULL",
+            (name,),
+        ):
+            if not scope.can_read(
+                milestone["visibility"],
+                milestone["crew_id"],
+                viewer,
+                milestone["created_by"],
+            ) or not scope.relationship_contains(
+                tier,
+                crew,
+                milestone["visibility"],
+                milestone["crew_id"],
+            ):
+                continue
+            tasks = db.query(
+                "SELECT engagement_id, visibility, crew_id FROM tasks WHERE milestone_id = ?",
+                (milestone["id"],),
+            )
+            if any(
+                task["engagement_id"]
+                or not scope.relationship_contains(
+                    tier,
+                    crew,
+                    task["visibility"],
+                    task["crew_id"],
+                )
+                for task in tasks
+            ):
+                continue
+            db.execute(
+                "UPDATE milestones SET engagement_id = ? WHERE id = ? AND engagement_id IS NULL",
+                (eid, milestone["id"]),
+            )
         db.log_activity(
             actor, "create_engagement", scope.detail(tier, f"#{eid}", f"{name} [{project_class}]")
         )
@@ -91,6 +123,37 @@ def create_engagement(
 
 
 def update_engagement(
+    engagement_id: int,
+    status: str = "",
+    name: str = "",
+    summary: str = "",
+    lead: str = "",
+    conclusion: str = "",
+    outcome: str = "",
+    timebox_end: str = "",
+    kill_criteria: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    """Update an engagement and complete its close-out in one transaction."""
+    with db.transaction():
+        return _update_engagement_locked(
+            engagement_id,
+            status,
+            name,
+            summary,
+            lead,
+            conclusion,
+            outcome,
+            timebox_end,
+            kill_criteria,
+            actor=actor,
+            origin=origin,
+        )
+
+
+def _update_engagement_locked(
     engagement_id: int,
     status: str = "",
     name: str = "",
@@ -209,6 +272,9 @@ def update_engagement(
                 f" {'it' if open_tasks['n'] == 1 else 'them'}.",
                 tier="digest",
                 link="/dashboard",
+                # This count is derived from several task rows. It has no
+                # single authoritative source, so policy-aware readers treat
+                # it as unclassified instead of checking only the engagement.
             )
             return {
                 "id": engagement_id,
@@ -245,53 +311,61 @@ def _playbook_lesson(engagement_id: int, *, actor: str) -> int:
     playbook engagement, a scoped one, or a plan that held. Never raises: a
     close must not fail because the lesson could not be drafted.
     """
-    from . import playbooks, review
-
     try:
-        eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
-        if not eng or eng["visibility"] != scope.WORKSPACE:
-            return 0
-        diff = playbooks.close_out_diff(engagement_id)
-        if not diff:
-            return 0
-        lesson, recommendation = playbooks._variance_lesson(diff, eng["name"])
-        if not lesson:
-            return 0
-        # Reopening and re-closing must not file a second identical draft.
-        # `freshly_closed` already makes a repeated PATCH a no-op, but a
-        # reopen resets it, and two approvable copies of one lesson is two
-        # verdicts and two rows in the next kickoff note.
-        if db.query_one(
-            "SELECT id FROM pending_changes WHERE entity = 'lesson' AND status = 'pending'"
-            " AND payload LIKE ?",
-            (f'%"engagement_id": {engagement_id},%',),
-        ):
-            return 0
-        prop = review.propose_change(
-            "lesson",
-            "create",
-            {
-                "lesson": lesson,
-                "recommendation": recommendation,
-                "engagement_id": engagement_id,
-                "project_class": eng["project_class"],
-                "visibility": eng["visibility"],
-                "crew_id": eng["crew_id"] or 0,
-            },
-            summary=f"Close-out lesson from the {diff['playbook']} playbook",
-            actor="system",
-            origin="agent",
-            requested_by=actor,
-        )
-        # the closer, not "system": this is what the field guide's
-        # `playbook_closeout` card reads to know the person has tied it
-        db.log_activity(actor, "playbook_closeout", f"#{engagement_id} -> proposal #{prop['id']}")
-        return int(prop["id"])
+        # The lesson is optional, but its proposal, notice, ledger entry, and
+        # deferred effects are one unit. A caught failure must remove the
+        # whole unit before the engagement close commits.
+        with db.savepoint():
+            return _playbook_lesson_locked(engagement_id, actor=actor)
     except Exception:
         logging.getLogger("skein").warning(
             "close-out lesson could not be drafted for engagement #%s", engagement_id, exc_info=True
         )
         return 0
+
+
+def _playbook_lesson_locked(engagement_id: int, *, actor: str) -> int:
+    from . import playbooks, review
+
+    eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+    if not eng or eng["visibility"] != scope.WORKSPACE:
+        return 0
+    diff = playbooks.close_out_diff(engagement_id)
+    if not diff:
+        return 0
+    lesson, recommendation = playbooks._variance_lesson(diff, eng["name"])
+    if not lesson:
+        return 0
+    # Reopening and re-closing must not file a second identical draft.
+    # `freshly_closed` already makes a repeated PATCH a no-op, but a
+    # reopen resets it, and two approvable copies of one lesson is two
+    # verdicts and two rows in the next kickoff note.
+    if db.query_one(
+        "SELECT id FROM pending_changes WHERE entity = 'lesson' AND status = 'pending'"
+        " AND payload LIKE ?",
+        (f'%"engagement_id": {engagement_id},%',),
+    ):
+        return 0
+    prop = review.propose_change(
+        "lesson",
+        "create",
+        {
+            "lesson": lesson,
+            "recommendation": recommendation,
+            "engagement_id": engagement_id,
+            "project_class": eng["project_class"],
+            "visibility": eng["visibility"],
+            "crew_id": eng["crew_id"] or 0,
+        },
+        summary=f"Close-out lesson from the {diff['playbook']} playbook",
+        actor="system",
+        origin="agent",
+        requested_by=actor,
+    )
+    # the closer, not "system": this is what the field guide's
+    # `playbook_closeout` card reads to know the person has tied it
+    db.log_activity(actor, "playbook_closeout", f"#{engagement_id} -> proposal #{prop['id']}")
+    return int(prop["id"])
 
 
 def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
@@ -316,6 +390,11 @@ def _experiment_lesson(engagement_id: int, *, actor: str, origin: str) -> None:
 
 
 def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
+    with db.transaction():
+        _ship_it_locked(engagement_id, actor=actor, origin=origin)
+
+
+def _ship_it_locked(engagement_id: int, *, actor: str, origin: str) -> None:
     """The Ship It moment: recap card + team notification when an engagement
     closes. Deterministic — all counts from SQL."""
     eng = db.query_one("SELECT * FROM engagements WHERE id = ?", (engagement_id,))
@@ -393,7 +472,17 @@ def _ship_it(engagement_id: int, *, actor: str, origin: str = "human") -> None:
     # "team" is every person on the roster, so a scoped closure is not
     # announced at all — the crew reads it on the note above.
     if eng["visibility"] == scope.WORKSPACE:
-        notify("team", recap.replace("**", ""), tier="immediate", link="/dashboard")
+        event = "concluded" if eng["kind"] == "experiment" else "shipped"
+        notify(
+            "team",
+            lambda source: (
+                f"Engagement #{source['id']} '{source['name']}' {event}. Open Skein for the recap."
+            ),
+            tier="immediate",
+            link="/dashboard",
+            source_entity="engagement",
+            source_id=engagement_id,
+        )
 
 
 def list_engagements(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:

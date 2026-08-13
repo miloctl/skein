@@ -195,3 +195,15 @@ def test_punctuation_after_the_slug_still_invokes(client):
     then warned that it had not been notified."""
     assert "Growth Mentor" in _read_chat(client, "@growth-mentor, plan a goal?", thread="cm-6")
     assert "Growth Mentor" in _read_chat(client, "@growth-mentor\nplan a goal?", thread="cm-7")
+
+
+def test_the_keyless_capture_carries_the_human_author(client, fresh_db):
+    """MockAgent transcribes the human's own words. Attributing the payload
+    to the agent identity filed Ava's question as one the agent asked, and
+    the mention notification named the agent instead of her."""
+    users.ensure_user("mira")
+    _read_chat(client, "q: @mira can you check the export job?", thread="cm-author")
+    question = fresh_db.query_one("SELECT asked_by, created_by FROM questions ORDER BY id DESC")
+    assert question["asked_by"] == "tester"
+    assert question["created_by"] == "tester"
+    assert any("tester mentioned you" in m for m in _unread(fresh_db, "mira"))

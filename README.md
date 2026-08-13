@@ -57,7 +57,7 @@ backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
   ├─ app/routes/     REST (human writes) + /api/chat SSE (agent writes)
   ├─ app/tools/      58 Strands @tool wrappers over the same services
   ├─ app/agents/     Chief of Staff + planner sub-agent + keyless mock agent
-  ├─ migrations/     numbered SQL, applied at startup (schema_version)
+  ├─ app/core_migrations/ numbered SQL, applied at startup (schema_version)
   ├─ playbooks/      YAML project-class templates (prototype, incident, migration)
   ├─ personas/       the bench: one markdown file per specialist persona
   ├─ flocks/         YAML groups of personas, called with one message
@@ -65,6 +65,13 @@ backend/   FastAPI + Strands Agents + SQLite (WAL, migrations, FTS5)
 
 frontend/  Next.js 16 + @assistant-ui/react + Tailwind
 ```
+
+Workplace deployments can compose trusted private modules without changing
+this source tree. The backend accepts explicit typed contributions for routes,
+jobs, policy, identity, tools, specialists, events, extension-owned migrations,
+and workflow actions. The frontend accepts trusted build-time navigation and
+dashboard contributions. See [extension authoring](docs/EXTENSIONS.md) and the
+[fictional Atlas package](examples/workplace-extension/README.md).
 
 Key mechanics:
 

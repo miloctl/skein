@@ -13,6 +13,7 @@ import { api, getApiKey, getUser, subscribeUser } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { authConfig, isSignedIn, signIn, signOut } from "@/lib/auth";
 import { isGated, subscribeGated } from "@/lib/gated";
+import { useFrontendExtensions } from "@/lib/extensions/context";
 
 // five destinations, grouped by job: my work | team work | needs a verdict |
 // people & rules. Former top-level pages live on as tabs inside Work
@@ -88,6 +89,7 @@ function NavLink({
 }
 
 export function Nav() {
+  const { navigation } = useFrontendExtensions();
   const pathname = usePathname();
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   // two independent numbers — see the poll below for why they cannot be one
@@ -465,6 +467,19 @@ export function Nav() {
               ))}
             </div>
           ))}
+          {navigation.length > 0 && (
+            <div className="flex items-center gap-3">
+              <span aria-hidden className="h-4 w-px bg-line" />
+              {navigation.map((item) => (
+                <NavLink
+                  key={item.id}
+                  href={item.href}
+                  label={item.label}
+                  active={item.activePaths.includes(pathname)}
+                />
+              ))}
+            </div>
+          )}
         </nav>
       </div>
       <div className="selvage" id="selvage" aria-hidden />

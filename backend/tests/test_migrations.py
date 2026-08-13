@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+MIGRATIONS = Path(__file__).resolve().parent.parent / "app" / "core_migrations"
 BASELINE = "001_baseline.sql"
 
 
@@ -33,6 +33,89 @@ def test_migrations_idempotent_and_atomic(fresh_db):
     fresh_db.init_db()  # second run must be a clean no-op
     versions = [r["version"] for r in fresh_db.query("SELECT version FROM schema_version")]
     assert len(versions) == len(set(versions)) >= 1
+
+
+def test_identity_owner_migration_classifies_legacy_rows(fresh_db, tmp_path, monkeypatch):
+    from app import db
+
+    staged = _staged(tmp_path, monkeypatch)
+    migration = staged / "018_identity_ownership.sql"
+    migration_sql = migration.read_text()
+    migration.unlink()
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-017.db")
+    db.init_db()
+    for name, kind in (
+        ("legacy-human", "human"),
+        ("legacy-agent", "agent"),
+        ("code-reviewer", "agent"),
+        ("delivery", "agent"),
+    ):
+        db.execute(
+            "INSERT INTO users (name, kind, created_at) VALUES (?, ?, ?)",
+            (name, kind, db.now()),
+        )
+
+    migration.write_text(migration_sql)
+    db.init_db()
+
+    columns = {row["name"] for row in db.query("PRAGMA table_info(users)")}
+    assert "identity_owner" in columns
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'legacy-human'") == {
+        "identity_owner": "human"
+    }
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'legacy-agent'") == {
+        "identity_owner": "generic-agent"
+    }
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'code-reviewer'") == {
+        "identity_owner": "content"
+    }
+    assert db.query_one("SELECT identity_owner FROM users WHERE name = 'delivery'") == {
+        "identity_owner": "content"
+    }
+
+
+def test_identity_owner_migration_lists_all_stock_content():
+    from app import config, db
+
+    migration = (db.MIGRATIONS_DIR / "018_identity_ownership.sql").read_text()
+    stock_slugs = {path.stem for path in (config.STOCK_DIR / "personas").glob("*.md")} | {
+        path.stem for path in (config.STOCK_DIR / "flocks").glob("*.yaml")
+    }
+    assert stock_slugs
+    assert not {slug for slug in stock_slugs if f"'{slug}'" not in migration}
+
+
+def test_notification_source_migration_preserves_legacy_rows(fresh_db, tmp_path, monkeypatch):
+    from app import db
+
+    staged = _staged(tmp_path, monkeypatch)
+    migration = staged / "019_notification_sources.sql"
+    migration_sql = migration.read_text()
+    policy_migration = staged / "020_policy_projection_indexes.sql"
+    policy_migration_sql = policy_migration.read_text()
+    migration.unlink()
+    policy_migration.unlink()
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "legacy-018.db")
+    db.init_db()
+    notification_id = db.execute(
+        "INSERT INTO notifications (user, message, created_at) VALUES ('mira', 'legacy', ?)",
+        (db.now(),),
+    )
+
+    migration.write_text(migration_sql)
+    policy_migration.write_text(policy_migration_sql)
+    db.init_db()
+
+    assert db.query_one(
+        "SELECT message, source_entity, source_id, source_policy_context"
+        " FROM notifications WHERE id = ?",
+        (notification_id,),
+    ) == {
+        "message": "legacy",
+        "source_entity": "",
+        "source_id": None,
+        "source_policy_context": "{}",
+    }
 
 
 # the activity chain is born in the baseline, so NO migration may ever
@@ -204,7 +287,7 @@ def test_seed_builds_its_demo_team_on_a_fresh_database(fresh_db, capsys):
     import importlib.util
 
     # backend/ is not a package on the test path; load the script by file
-    spec = importlib.util.spec_from_file_location("seed", MIGRATIONS.parent / "seed.py")
+    spec = importlib.util.spec_from_file_location("seed", MIGRATIONS.parent.parent / "seed.py")
     seed = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(seed)

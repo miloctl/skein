@@ -1,6 +1,7 @@
 """Milestone and task services — the single write path for both REST and tools."""
 
 import re
+from collections.abc import Callable
 
 from .. import db
 from . import scope
@@ -18,6 +19,39 @@ WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 # a row the system wrote that its own UI could not edit.
 TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
+
+
+def _event_actor_kind(origin: str) -> str:
+    if origin.startswith("agent"):
+        return "agent"
+    if origin == "human":
+        return "human"
+    return "service"
+
+
+def _emit_task_event(
+    event_type: str,
+    task_id: int,
+    *,
+    actor: str,
+    origin: str,
+    visibility: str,
+    changes: tuple[str, ...],
+    correlation_id: str,
+    actor_kind: str,
+) -> None:
+    """Emit from the shared write path so every caller gets one event."""
+    from ..public.events import EventActor, ResourceReference, _emit_event
+
+    _emit_event(
+        event_type,
+        actor=EventActor(name=actor, kind=actor_kind or _event_actor_kind(origin)),
+        origin=origin,
+        resource=ResourceReference(type="task", id=str(task_id)),
+        changes=changes,
+        correlation_id=correlation_id,
+        visibility=visibility,
+    )
 
 
 def _bounded(entity: str, title: str, description: str) -> None:
@@ -50,14 +84,27 @@ def create_milestone(
     _bounded("milestone", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
-    # resolve the engagement link at write time — the name join is display
-    # only, the id is what health/forecast/handoff trust
-    eng = db.query_one("SELECT id FROM engagements WHERE name = ?", (project,))
     # the membership check belongs INSIDE the insert's transaction — bare, it
     # opens its own connection, so a person removed from the crew between the
     # check and the write still scopes the row (services/scope.py::resolve_write)
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        visible, params = scope.visible_filter(
+            scope.Viewer.for_actor(actor), "engagements", "engagement"
+        )
+        eng = db.query_one(
+            f"SELECT engagement.* FROM engagements engagement"  # noqa: S608 -- scope emits bound marks
+            f" WHERE engagement.name = ? AND {visible}",
+            (project, *params),
+        )
+        if eng is not None:
+            scope.assert_relationship_contains(
+                eng["visibility"],
+                eng["crew_id"],
+                tier,
+                crew,
+                child_label="milestone",
+            )
         mid = db.execute(
             "INSERT INTO milestones (project, engagement_id, title, description, owner,"
             " due_date, origin, created_by, created_at, updated_at, visibility, crew_id)"
@@ -85,10 +132,15 @@ def create_milestone(
 
             notify(
                 "team",
-                f"Milestone #{mid} '{title}' names project '{project}' but no engagement"
-                " matches — it will not count in health/forecast until you relink it.",
+                lambda source: (
+                    f"Milestone #{source['id']} '{source['title']}' names project"
+                    f" '{source['project']}' but no engagement matches — it will not"
+                    " count in health/forecast until you relink it."
+                ),
                 tier="digest",
                 link="/dashboard",
+                source_entity="milestone",
+                source_id=mid,
             )
         db.log_activity(actor, "create_milestone", scope.detail(tier, f"#{mid}", title))
         index_record("milestone", mid, title, f"{description} {project} {owner}")
@@ -111,75 +163,153 @@ def update_milestone(
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
     _bounded("milestone", title, description)
     db.validate_date("due_date", due_date)
-    current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
-    if not current:
-        # scope.missing, not missing_text: this is the row in the PATH, so it
-        # is a 404. The link probes below name a row in the BODY and stay 400.
-        raise scope.missing("milestones", milestone_id)
-    scope.assert_editable("milestones", current, actor, verb="update")
-    fields: dict[str, str | None] = {
-        k: v
-        for k, v in [
-            ("status", status),
-            ("title", title),
-            ("description", description),
-            ("owner", owner),
-            ("due_date", due_date),
-        ]
-        if v
-    }
-    if engagement_id:
-        # mislinked work silently drops out of health/forecast/handoff —
-        # the link must be repairable, not set-once (-1 unlinks)
-        efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
-        if engagement_id > 0 and not db.query_one(
-            f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-            (engagement_id, *ep),
-        ):
-            raise ValueError(scope.missing_text("engagements", engagement_id))
-        fields["engagement_id"] = None if engagement_id < 0 else engagement_id  # type: ignore[assignment]
-    if not fields:
-        raise ValueError("nothing to update")
-    for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
-        if fields.get(clearable) == "-":
-            fields[clearable] = empty
-    current = db.query_one("SELECT status FROM milestones WHERE id = ?", (milestone_id,))
-    if status == "done" and current and current["status"] != "done":
-        fields["completed_at"] = db.now()  # slip forecast reads this, not updated_at
-    elif status and status != "done" and current and current["status"] == "done":
-        fields["completed_at"] = None
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(
-        f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
-        (*fields.values(), db.now(), milestone_id),
-    )
-    db.log_activity(actor, "update_milestone", f"#{milestone_id} {status or 'edited'}")
-    row = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
-    if row:
-        index_record(
-            "milestone",
-            milestone_id,
-            row["title"],
-            f"{row['description']} {row['project']} {row['owner']}",
+    with db.transaction():
+        current = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
+        if not current:
+            raise scope.missing("milestones", milestone_id)
+        scope.assert_editable("milestones", current, actor, verb="update")
+        fields: dict[str, str | int | None] = {
+            k: v
+            for k, v in [
+                ("status", status),
+                ("title", title),
+                ("description", description),
+                ("owner", owner),
+                ("due_date", due_date),
+            ]
+            if v
+        }
+        target_id = max(engagement_id, 0) if engagement_id else int(current["engagement_id"] or 0)
+        if target_id:
+            try:
+                target = _visible_link("engagements", target_id, actor)
+            except ValueError as exc:
+                # This is a relationship id from the body or current row, not
+                # the path milestone. Keep the established 400 contract while
+                # giving hidden and absent targets the same refusal.
+                raise ValueError(scope.missing_text("engagements", target_id)) from exc
+            scope.assert_relationship_contains(
+                target["visibility"],
+                target["crew_id"],
+                current["visibility"],
+                current["crew_id"],
+                child_label="milestone",
+            )
+            linked_tasks = db.query(
+                "SELECT engagement_id, visibility, crew_id FROM tasks WHERE milestone_id = ?",
+                (milestone_id,),
+            )
+            for task in linked_tasks:
+                direct = int(task["engagement_id"] or 0)
+                if direct and direct != target_id:
+                    raise ValueError(
+                        "a task's milestone and engagement must belong to the same engagement"
+                    )
+                scope.assert_relationship_contains(
+                    target["visibility"],
+                    target["crew_id"],
+                    task["visibility"],
+                    task["crew_id"],
+                )
+        if engagement_id:
+            fields["engagement_id"] = None if engagement_id < 0 else engagement_id
+        if not fields:
+            raise ValueError("nothing to update")
+        for clearable, empty in (("due_date", None), ("owner", ""), ("description", "")):
+            if fields.get(clearable) == "-":
+                fields[clearable] = empty
+        if status == "done" and current["status"] != "done":
+            fields["completed_at"] = db.now()
+        elif status and status != "done" and current["status"] == "done":
+            fields["completed_at"] = None
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(
+            f"UPDATE milestones SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 -- keys are fixed above
+            (*fields.values(), db.now(), milestone_id),
         )
+        db.log_activity(actor, "update_milestone", f"#{milestone_id} {status or 'edited'}")
+        row = db.query_one("SELECT * FROM milestones WHERE id = ?", (milestone_id,))
+        if row:
+            index_record(
+                "milestone",
+                milestone_id,
+                row["title"],
+                f"{row['description']} {row['project']} {row['owner']}",
+            )
     return {"id": milestone_id, "updated": list(fields)}
 
 
 def list_milestones(
     project: str = "", status: str = "", viewer: scope.Viewer = scope.NOBODY
 ) -> list[dict]:
-    frag, vp = scope.visible_filter(viewer, "milestones")
+    frag, vp = scope.visible_filter(viewer, "milestones", "milestone")
+    engagement_visible, engagement_params = scope.visible_filter(
+        viewer, "engagements", "engagement"
+    )
     sql, params = (
-        f"SELECT * FROM milestones WHERE {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        list(vp),
+        f"SELECT milestone.*, engagement.id AS visible_engagement_id"  # noqa: S608 -- scope emits bound marks
+        " FROM milestones milestone LEFT JOIN engagements engagement"
+        " ON engagement.id = milestone.engagement_id"
+        f" AND {engagement_visible} WHERE {frag}",
+        [*engagement_params, *vp],
     )
     if project:
-        sql += " AND project = ?"
+        sql += " AND milestone.project = ?"
         params.append(project)
     if status:
-        sql += " AND status = ?"
+        sql += " AND milestone.status = ?"
         params.append(status)
-    return db.query(sql + " ORDER BY due_date IS NULL, due_date, id LIMIT 500", tuple(params))
+    rows = db.query(
+        sql + " ORDER BY milestone.due_date IS NULL, milestone.due_date, milestone.id LIMIT 500",
+        tuple(params),
+    )
+    for row in rows:
+        visible_engagement = row.pop("visible_engagement_id", None)
+        if row.get("engagement_id") and visible_engagement is None:
+            row["engagement_id"] = None
+    return rows
+
+
+def milestone_collection_policy_contexts(
+    rows: list[dict], viewer: scope.Viewer
+) -> dict[int, dict[str, str]]:
+    """Resolve project policy for milestones that already passed row visibility."""
+    milestone_ids = sorted({int(row["id"]) for row in rows})
+    if not milestone_ids:
+        return {}
+    marks = ",".join("?" for _ in milestone_ids)
+    raw_links = {
+        int(row["id"]): int(row.get("engagement_id") or 0)
+        for row in db.query(
+            f"SELECT id, engagement_id FROM milestones WHERE id IN ({marks})",  # noqa: S608 -- marks are controlled
+            tuple(milestone_ids),
+        )
+    }
+    engagement_ids = sorted(set(raw_links.values()) - {0})
+    projects: dict[int, str] = {}
+    if engagement_ids:
+        engagement_marks = ",".join("?" for _ in engagement_ids)
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        projects = {
+            int(row["id"]): str(row.get("project_class") or "")
+            for row in db.query(
+                f"SELECT engagement.id, engagement.project_class FROM engagements engagement"  # noqa: S608 -- marks and scope are controlled
+                f" WHERE engagement.id IN ({engagement_marks}) AND {visible}",
+                (*engagement_ids, *params),
+            )
+        }
+    result: dict[int, dict[str, str]] = {}
+    for row in rows:
+        milestone_id = int(row["id"])
+        engagement_id = raw_links.get(milestone_id, 0)
+        attributes = {
+            "classification": str(row.get("visibility") or ""),
+            "project_type": projects.get(engagement_id, ""),
+        }
+        if engagement_id and engagement_id not in projects:
+            attributes["relationship_conflict"] = "true"
+        result[milestone_id] = attributes
+    return result
 
 
 def create_task(
@@ -195,6 +325,43 @@ def create_task(
     origin: str = "human",
     visibility: str = scope.WORKSPACE,
     crew_id: int = 0,
+    correlation_id: str = "",
+    event_actor_kind: str = "",
+) -> dict:
+    """Create a task and validate all linked audiences in one transaction."""
+    with db.transaction():
+        return _create_task_locked(
+            title,
+            description,
+            milestone_id,
+            assignee,
+            priority,
+            due_date,
+            engagement_id,
+            actor=actor,
+            origin=origin,
+            visibility=visibility,
+            crew_id=crew_id,
+            correlation_id=correlation_id,
+            event_actor_kind=event_actor_kind,
+        )
+
+
+def _create_task_locked(
+    title: str,
+    description: str = "",
+    milestone_id: int = 0,
+    assignee: str = "",
+    priority: str = "medium",
+    due_date: str = "",
+    engagement_id: int = 0,
+    *,
+    actor: str = "system",
+    origin: str = "human",
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
+    correlation_id: str = "",
+    event_actor_kind: str = "",
 ) -> dict:
     if not title.strip():
         raise ValueError("task title is required")
@@ -202,25 +369,16 @@ def create_task(
     db.validate_date("due_date", due_date, allow_clear=False)
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
-    # scope.Viewer.for_actor, not a bare id probe: an unfiltered existence
-    # check accepts a scoped id and rejects an absent one, and ids are
-    # sequential — so the two answers enumerate the private rows.
-    av = scope.Viewer.for_actor(actor)
-    mfrag, mp = scope.visible_filter(av, "milestones")
-    if milestone_id and not db.query_one(
-        f"SELECT id FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (milestone_id, *mp),
-    ):
-        raise ValueError(scope.missing_text("milestones", milestone_id))
-    efrag, ep = scope.visible_filter(av, "engagements")
-    if engagement_id and not db.query_one(
-        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
-        (engagement_id, *ep),
-    ):
-        raise ValueError(scope.missing_text("engagements", engagement_id))
     ts = db.now()
+    tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+    _assert_task_relationships(
+        milestone_id,
+        engagement_id,
+        actor=actor,
+        task_visibility=tier,
+        task_crew_id=cid,
+    )
     with db.transaction():
-        tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
         scope.assert_readable_by(tier, cid, assignee, label="assignee", author=actor)
         tid = db.execute(
             "INSERT INTO tasks (milestone_id, engagement_id, title, description, assignee,"
@@ -245,12 +403,247 @@ def create_task(
         )
         db.log_activity(actor, "create_task", scope.detail(tier, f"#{tid}", title))
         index_record("task", tid, title, f"{description} {assignee}")
+        _emit_task_event(
+            "skein.task.created",
+            tid,
+            actor=actor,
+            origin=origin,
+            visibility=tier,
+            changes=(
+                "title",
+                "description",
+                "milestone_id",
+                "engagement_id",
+                "assignee",
+                "priority",
+                "due_date",
+                "visibility",
+                "crew_id",
+            ),
+            correlation_id=correlation_id,
+            actor_kind=event_actor_kind,
+        )
     from .mentions import scan
 
     # title too: a short `todo: ask @mira ...` capture lands entirely in the
     # title, and a mention there must ping like one in the description
     scan("task", tid, f"{title} {description}", actor=actor, link="/dashboard")
     return {"id": tid, "title": title, "status": "todo"}
+
+
+def _visible_link(table: str, row_id: int, actor: str) -> dict:
+    """Resolve scope metadata only after the actor-visible id probe passes."""
+    viewer = scope.Viewer.for_actor(actor)
+    visible, params = scope.visible_filter(viewer, table)
+    if not db.query_one(
+        f"SELECT id FROM {table} WHERE id = ? AND {visible}",  # noqa: S608 -- table is a private constant
+        (row_id, *params),
+    ):
+        raise ValueError(scope.missing_text(table, row_id))
+    row = db.query_one(
+        f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608 -- table is a private constant
+        (row_id,),
+    )
+    if row is None:  # The caller holds the surrounding write transaction.
+        raise ValueError(scope.missing_text(table, row_id))
+    return row
+
+
+def _assert_task_relationships(
+    milestone_id: int,
+    engagement_id: int,
+    *,
+    actor: str,
+    task_visibility: str,
+    task_crew_id: int | None,
+) -> dict[str, str]:
+    """Validate link visibility without turning hidden ids into an oracle."""
+    project_type = ""
+    direct_engagement = None
+    if engagement_id:
+        engagement = _visible_link("engagements", engagement_id, actor)
+        direct_engagement = engagement
+        scope.assert_relationship_contains(
+            engagement["visibility"],
+            engagement["crew_id"],
+            task_visibility,
+            task_crew_id,
+        )
+        project_type = str(engagement.get("project_class") or "")
+    if not milestone_id:
+        return {"classification": task_visibility, "project_type": project_type}
+    milestone = _visible_link("milestones", milestone_id, actor)
+    scope.assert_relationship_contains(
+        milestone["visibility"],
+        milestone["crew_id"],
+        task_visibility,
+        task_crew_id,
+    )
+    parent = db.query_one("SELECT engagement_id FROM milestones WHERE id = ?", (milestone_id,))
+    parent_id = int((parent or {}).get("engagement_id") or 0)
+    if not parent_id:
+        return {"classification": task_visibility, "project_type": project_type}
+    try:
+        engagement = _visible_link("engagements", parent_id, actor)
+    except ValueError as exc:
+        # Do not reveal that a visible milestone points to a hidden parent.
+        raise ValueError(scope.missing_text("milestones", milestone_id)) from exc
+    if direct_engagement is not None and int(direct_engagement["id"]) != parent_id:
+        raise ValueError("a task's milestone and engagement must belong to the same engagement")
+    scope.assert_relationship_contains(
+        engagement["visibility"],
+        engagement["crew_id"],
+        task_visibility,
+        task_crew_id,
+    )
+    if not engagement_id:
+        project_type = str(engagement.get("project_class") or "")
+    return {"classification": task_visibility, "project_type": project_type}
+
+
+def task_create_policy_context(
+    *,
+    milestone_id: int = 0,
+    engagement_id: int = 0,
+    visibility: str = scope.WORKSPACE,
+    crew_id: int = 0,
+    actor: str,
+) -> dict[str, str]:
+    """Resolve the actor-visible target state used by task create policy."""
+    with db.transaction():
+        tier, resolved_crew = scope.resolve_write(visibility, crew_id, actor=actor)
+        return _assert_task_relationships(
+            milestone_id,
+            engagement_id,
+            actor=actor,
+            task_visibility=tier,
+            task_crew_id=resolved_crew,
+        )
+
+
+def task_update_policy_context(
+    task_id: int,
+    payload: dict,
+    *,
+    actor: str,
+) -> dict[str, str]:
+    """Resolve one editable task and its proposed links for policy evaluation."""
+    with db.transaction():
+        current = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if current is None:
+            raise scope.missing("tasks", task_id)
+        scope.assert_editable("tasks", current, actor, verb="update")
+        milestone_id = int(current["milestone_id"] or 0)
+        engagement_id = int(current["engagement_id"] or 0)
+        if int(payload.get("milestone_id") or 0):
+            milestone_id = max(int(payload["milestone_id"]), 0)
+        if int(payload.get("engagement_id") or 0):
+            engagement_id = max(int(payload["engagement_id"]), 0)
+        return _assert_task_relationships(
+            milestone_id,
+            engagement_id,
+            actor=actor,
+            task_visibility=str(current["visibility"]),
+            task_crew_id=current["crew_id"],
+        )
+
+
+def task_read_policy_context(task: dict, viewer: scope.Viewer) -> dict[str, str]:
+    """Return context from raw links while keeping hidden parent data concealed."""
+    task_id = int(task.get("id") or 0)
+    if not task_id:
+        return {"classification": str(task.get("visibility") or ""), "project_type": ""}
+    return task_collection_policy_contexts([task], viewer)[task_id]
+
+
+def task_collection_policy_contexts(
+    tasks: list[dict], viewer: scope.Viewer
+) -> dict[int, dict[str, str]]:
+    """Resolve policy metadata without trusting already-redacted relationships."""
+    task_ids = sorted({int(task["id"]) for task in tasks})
+    if not task_ids:
+        return {}
+    task_marks = ",".join("?" for _ in task_ids)
+    raw_rows = db.query(
+        f"SELECT id, engagement_id, milestone_id FROM tasks WHERE id IN ({task_marks})",  # noqa: S608 -- marks are controlled
+        tuple(task_ids),
+    )
+    raw_links = {
+        int(row["id"]): (
+            int(row.get("engagement_id") or 0),
+            int(row.get("milestone_id") or 0),
+        )
+        for row in raw_rows
+    }
+    engagement_ids = sorted({link[0] for link in raw_links.values()} - {0})
+    milestone_ids = sorted({link[1] for link in raw_links.values()} - {0})
+    engagements: dict[int, str] = {}
+    if engagement_ids:
+        visible, params = scope.visible_filter(viewer, "engagements", "engagement")
+        marks = ",".join("?" for _ in engagement_ids)
+        rows = db.query(
+            f"SELECT engagement.id, engagement.project_class FROM engagements engagement"  # noqa: S608 -- marks and scope are controlled
+            f" WHERE engagement.id IN ({marks}) AND {visible}",
+            (*engagement_ids, *params),
+        )
+        engagements = {int(row["id"]): str(row.get("project_class") or "") for row in rows}
+    milestones: dict[int, tuple[int, int, str]] = {}
+    if milestone_ids:
+        milestone_visible, milestone_params = scope.visible_filter(
+            viewer, "milestones", "milestone"
+        )
+        engagement_visible, engagement_params = scope.visible_filter(
+            viewer, "engagements", "engagement"
+        )
+        marks = ",".join("?" for _ in milestone_ids)
+        rows = db.query(
+            f"SELECT milestone.id, milestone.engagement_id,"  # noqa: S608 -- marks and scope are controlled
+            " engagement.id AS visible_engagement_id,"
+            " engagement.project_class FROM milestones milestone"
+            " LEFT JOIN engagements engagement ON engagement.id = milestone.engagement_id"
+            f" AND {engagement_visible} WHERE milestone.id IN ({marks})"
+            f" AND {milestone_visible}",
+            (*engagement_params, *milestone_ids, *milestone_params),
+        )
+        milestones = {
+            int(row["id"]): (
+                int(row.get("engagement_id") or 0),
+                int(row.get("visible_engagement_id") or 0),
+                str(row.get("project_class") or ""),
+            )
+            for row in rows
+        }
+    result: dict[int, dict[str, str]] = {}
+    for task in tasks:
+        task_id = int(task["id"])
+        engagement_id, milestone_id = raw_links.get(task_id, (0, 0))
+        milestone_engagement, visible_milestone_engagement, milestone_project = milestones.get(
+            milestone_id, (0, 0, "")
+        )
+        attributes = {
+            "classification": str(task.get("visibility") or ""),
+            "project_type": engagements.get(engagement_id, "") or milestone_project,
+        }
+        hidden_relationship = bool(
+            (engagement_id and engagement_id not in engagements)
+            or (milestone_id and milestone_id not in milestones)
+            or (milestone_engagement and not visible_milestone_engagement)
+        )
+        if hidden_relationship or (
+            engagement_id and milestone_engagement and engagement_id != milestone_engagement
+        ):
+            attributes["project_type"] = ""
+            attributes["relationship_conflict"] = "true"
+        result[task_id] = attributes
+    return result
+
+
+def consistent_task_rows(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
+    """Remove visible legacy tasks whose project relationship is unsafe."""
+    contexts = task_collection_policy_contexts(tasks, viewer)
+    return [
+        task for task in tasks if not contexts.get(int(task["id"]), {}).get("relationship_conflict")
+    ]
 
 
 # portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
@@ -286,6 +679,53 @@ def update_task(
     # strength of the verdict a direct close stands in for. Defaults False so
     # every machine path records the weaker, truthful thing.
     strong: bool = False,
+    correlation_id: str = "",
+    event_actor_kind: str = "",
+) -> dict:
+    """Update a task under one transaction-bound relationship snapshot."""
+    with db.transaction():
+        return _update_task_locked(
+            task_id,
+            status,
+            assignee,
+            priority,
+            due_date,
+            description,
+            title,
+            committed_week,
+            waiting_on,
+            milestone_id,
+            engagement_id,
+            forge_url,
+            actor=actor,
+            origin=origin,
+            note=note,
+            strong=strong,
+            correlation_id=correlation_id,
+            event_actor_kind=event_actor_kind,
+        )
+
+
+def _update_task_locked(
+    task_id: int,
+    status: str = "",
+    assignee: str = "",
+    priority: str = "",
+    due_date: str = "",
+    description: str = "",
+    title: str = "",
+    committed_week: str = "",
+    waiting_on: str = "",
+    milestone_id: int = 0,
+    engagement_id: int = 0,
+    forge_url: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+    note: str = "",
+    strong: bool = False,
+    correlation_id: str = "",
+    event_actor_kind: str = "",
 ) -> dict:
     if status and status not in TASK_STATUSES:
         raise ValueError(f"status must be one of {TASK_STATUSES}")
@@ -310,17 +750,18 @@ def update_task(
         waiting_type, waiting_id = kind, int(ref.strip().lstrip("#"))
         if kind == "task" and waiting_id == task_id:
             raise ValueError("a task cannot wait on itself")
-        table = _WAITING_TABLES[kind]
-        wfrag, wp = scope.visible_filter(scope.Viewer.for_actor(actor), table)
-        if not db.query_one(
-            f"SELECT id FROM {table} WHERE id = ? AND {wfrag}",  # noqa: S608 — table from _WAITING_TABLES, and scope.visible_filter emits only bound marks
-            (waiting_id, *wp),
-        ):
-            raise ValueError(scope.missing_text(table, waiting_id))
     current = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
     if not current:
         raise scope.missing("tasks", task_id)
     scope.assert_editable("tasks", current, actor, verb="update")
+    if waiting_type and waiting_id:
+        waiting_row = _visible_link(_WAITING_TABLES[waiting_type], waiting_id, actor)
+        scope.assert_relationship_contains(
+            waiting_row["visibility"],
+            waiting_row["crew_id"],
+            current["visibility"],
+            current["crew_id"],
+        )
     # delegated work is closed by the sponsor's verdict, never by an agent
     # marking it done — otherwise submit_for_acceptance is a paper wall.
     #
@@ -383,18 +824,21 @@ def update_task(
     elif waiting_type:
         fields["waiting_on_type"] = waiting_type
         fields["waiting_on_id"] = waiting_id
-    for link_field, link_id, table in (
-        ("milestone_id", milestone_id, "milestones"),
-        ("engagement_id", engagement_id, "engagements"),
+    for link_field, link_id in (
+        ("milestone_id", milestone_id),
+        ("engagement_id", engagement_id),
     ):
         if link_id:
-            lfrag, lp = scope.visible_filter(scope.Viewer.for_actor(actor), table)
-            if link_id > 0 and not db.query_one(
-                f"SELECT id FROM {table} WHERE id = ? AND {lfrag}",  # noqa: S608 — table hardcoded, and scope.visible_filter emits only bound marks
-                (link_id, *lp),
-            ):
-                raise ValueError(scope.missing_text(table, link_id))
             fields[link_field] = None if link_id < 0 else link_id
+    final_milestone = int(fields.get("milestone_id", current["milestone_id"]) or 0)
+    final_engagement = int(fields.get("engagement_id", current["engagement_id"]) or 0)
+    _assert_task_relationships(
+        final_milestone,
+        final_engagement,
+        actor=actor,
+        task_visibility=current["visibility"],
+        task_crew_id=current["crew_id"],
+    )
     if not fields:
         raise ValueError("nothing to update")
     if committed_week == "-":
@@ -432,33 +876,39 @@ def update_task(
         fields["delegated_agent"] = ""
         fields["sponsor"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
-    db.execute(
-        f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
-        (*fields.values(), db.now(), task_id),
-    )
-    db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
-    # The sponsor just answered the acceptance ask by hand, so the proposal
-    # waiting for that answer has to be settled here or it never can be: its
-    # apply calls delegation.accept_completion, which raises on a task that is
-    # already done, and approve_change resets a failed apply to pending — the
-    # verdict boomerangs on every click and the only way out is a rejection
-    # that lands on the agent's demotion streak (services/delegation.py) for
-    # work the sponsor accepted.
-    if fields.get("status") == "done" and current["delegated_agent"]:
-        _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
-    row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    if row:
-        index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
-        if fields.get("description") or fields.get("title"):
-            from .mentions import scan
+    with db.transaction():
+        db.execute(
+            f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+            (*fields.values(), db.now(), task_id),
+        )
+        db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
+        # The sponsor just answered the acceptance ask by hand, so the proposal
+        # waiting for that answer has to be settled here or it never can be.
+        if fields.get("status") == "done" and current["delegated_agent"]:
+            _settle_acceptance(task_id, actor, strong, current["delegated_agent"])
+        row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if row:
+            index_record("task", task_id, row["title"], f"{row['description']} {row['assignee']}")
+            if fields.get("description") or fields.get("title"):
+                from .mentions import scan
 
-            scan(
-                "task",
-                task_id,
-                f"{row['title']} {row['description']}",
-                actor=actor,
-                link="/dashboard",
-            )
+                scan(
+                    "task",
+                    task_id,
+                    f"{row['title']} {row['description']}",
+                    actor=actor,
+                    link="/dashboard",
+                )
+        _emit_task_event(
+            "skein.task.updated",
+            task_id,
+            actor=actor,
+            origin=origin,
+            visibility=current["visibility"],
+            changes=tuple(fields),
+            correlation_id=correlation_id,
+            actor_kind=event_actor_kind,
+        )
     return {"id": task_id, "updated": list(fields)}
 
 
@@ -564,19 +1014,32 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
     efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
+    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
+    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
     row = db.query_one(
-        "SELECT t.*, m.title AS milestone_title, e.name AS engagement_name"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " e.id AS visible_engagement_id, e.name AS engagement_name,"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
+        " AS visible_waiting_id"
         f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
         f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
+        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
+        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
+        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
+        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
+        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
         f" WHERE t.id = ? AND {frag}",
-        (*mp, *ep, task_id, *vp),
+        (*mp, *ep, *wtp, *wbp, *wpp, task_id, *vp),
     )
     if not row:
         raise scope.missing("tasks", task_id)
     # what finishing it releases, resolved here so the peek and any other
     # reader of one task get the same answer
+    task = _redact_hidden_task_links(row)
     return {
-        **row,
+        **task,
         **downstream(task_id, viewer),
         "blockers": blocking(task_id, viewer),
         # the finding that ASKED for this work, if one did. `source_finding_id`
@@ -584,8 +1047,176 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # back, so a task existed because a rule fired and the task could not
         # say so — which is the half of the loop that tells a reader whether
         # the rule was worth keeping.
-        "source_finding": _source_finding(row),
+        "source_finding": _source_finding(task),
     }
+
+
+def _redact_hidden_task_links(row: dict) -> dict:
+    """Remove foreign identifiers when this reader cannot see their rows."""
+    task = dict(row)
+    visible_milestone = task.pop("visible_milestone_id", None)
+    visible_engagement = task.pop("visible_engagement_id", None)
+    visible_waiting = task.pop("visible_waiting_id", None)
+    if task.get("milestone_id") and visible_milestone is None:
+        task["milestone_id"] = None
+    if task.get("engagement_id") and visible_engagement is None:
+        task["engagement_id"] = None
+    if task.get("waiting_on_id") and visible_waiting is None:
+        task["waiting_on_type"] = None
+        task["waiting_on_id"] = None
+    return task
+
+
+def redact_task_relationships(
+    rows: list[dict],
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> list[dict]:
+    """Redact task links that visibility or composed policy does not permit."""
+    tasks = [dict(row) for row in rows]
+
+    def visible_ids(table: str, ids: set[int]) -> set[int]:
+        if not ids:
+            return set()
+        marks = ",".join("?" for _ in ids)
+        visible, params = scope.visible_filter(viewer, table)
+        return {
+            int(row["id"])
+            for row in db.query(
+                f"SELECT id FROM {table} WHERE id IN ({marks}) AND {visible}",  # noqa: S608 -- closed table set and bound marks
+                (*sorted(ids), *params),
+            )
+        }
+
+    milestones = visible_ids(
+        "milestones", {int(row["milestone_id"]) for row in tasks if row.get("milestone_id")}
+    )
+    engagements = visible_ids(
+        "engagements",
+        {int(row["engagement_id"]) for row in tasks if row.get("engagement_id")},
+    )
+    waiting_visible = {
+        kind: visible_ids(
+            table,
+            {
+                int(row["waiting_on_id"])
+                for row in tasks
+                if row.get("waiting_on_type") == kind and row.get("waiting_on_id")
+            },
+        )
+        for kind, table in _WAITING_TABLES.items()
+    }
+    policy_contexts: dict[tuple[str, int], dict[str, str]] = {}
+    if resource_filter is not None:
+        from . import policy_context
+
+        resources = {
+            *(("milestone", int(row["milestone_id"])) for row in tasks if row.get("milestone_id")),
+            *(
+                ("engagement", int(row["engagement_id"]))
+                for row in tasks
+                if row.get("engagement_id")
+            ),
+            *(
+                (str(row["waiting_on_type"]), int(row["waiting_on_id"]))
+                for row in tasks
+                if row.get("waiting_on_type") in _WAITING_TABLES and row.get("waiting_on_id")
+            ),
+            *(
+                ("finding", int(row["source_finding_id"]))
+                for row in tasks
+                if row.get("source_finding_id")
+            ),
+        }
+        policy_contexts = policy_context.resource_contexts(list(resources), viewer)
+
+    def policy_permits(entity: str, entity_id: int) -> bool:
+        if resource_filter is None:
+            return True
+        context = policy_contexts.get(
+            (entity, entity_id),
+            {"relationship_conflict": "true"},
+        )
+        return resource_filter(entity, entity_id, context)
+
+    for task in tasks:
+        milestone_id = int(task.get("milestone_id") or 0)
+        if milestone_id and (
+            milestone_id not in milestones or not policy_permits("milestone", milestone_id)
+        ):
+            task["milestone_id"] = None
+            task.pop("milestone_title", None)
+        engagement_id = int(task.get("engagement_id") or 0)
+        if engagement_id and (
+            engagement_id not in engagements or not policy_permits("engagement", engagement_id)
+        ):
+            task["engagement_id"] = None
+            task.pop("engagement_name", None)
+        kind = task.get("waiting_on_type")
+        waiting_id = int(task.get("waiting_on_id") or 0)
+        if (
+            kind
+            and waiting_id
+            and (
+                waiting_id not in waiting_visible.get(str(kind), set())
+                or not policy_permits(str(kind), waiting_id)
+            )
+        ):
+            task["waiting_on_type"] = None
+            task["waiting_on_id"] = None
+        finding_id = int(task.get("source_finding_id") or 0)
+        if finding_id and not policy_permits("finding", finding_id):
+            task["source_finding_id"] = None
+    return tasks
+
+
+def filter_task_projection(
+    task: dict,
+    viewer: scope.Viewer,
+    resource_filter: Callable[[str, int, dict[str, str]], bool],
+) -> dict:
+    """Apply one action's policy to every resource nested in a task view."""
+    from . import policy_context
+
+    result = redact_task_relationships([task], viewer, resource_filter)[0]
+
+    def permitted_rows(entity: str, rows: list[dict]) -> list[dict]:
+        if not rows:
+            return []
+        if policy_context.supports_resource(entity):
+            contexts = policy_context.resource_contexts(
+                [(entity, int(row["id"])) for row in rows], viewer
+            )
+        else:
+            contexts = {
+                (entity, int(row["id"])): {
+                    "classification": "workspace",
+                    "project_type": "",
+                }
+                for row in rows
+            }
+        return [
+            row
+            for row in rows
+            if resource_filter(
+                entity,
+                int(row["id"]),
+                contexts.get((entity, int(row["id"])), {"relationship_conflict": "true"}),
+            )
+        ]
+
+    result["blockers"] = permitted_rows("blocker", list(result.get("blockers") or []))
+    policy_downstream = downstream(
+        int(result["id"]),
+        viewer,
+        resource_filter=resource_filter,
+    )
+    result.update(policy_downstream)
+    source = result.get("source_finding")
+    if source and not permitted_rows("finding", [source]):
+        result["source_finding"] = None
+        result["source_finding_id"] = None
+    return result
 
 
 def _source_finding(task: dict) -> dict | None:
@@ -665,7 +1296,12 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
     )
 
 
-def downstream(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def downstream(
+    task_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    *,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict:
     """What finishing this task releases: the tasks waiting on it directly,
     and how many wait behind those.
 
@@ -677,12 +1313,31 @@ def downstream(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     through the chain either, and a bare count would leak its existence.
     """
     seen: set[int] = {task_id}
-    direct = _blocked_by({task_id}, viewer)
+
+    def permitted(rows: list[dict]) -> list[dict]:
+        if resource_filter is None or not rows:
+            return rows
+        from . import policy_context
+
+        contexts = policy_context.resource_contexts(
+            [("task", int(row["id"])) for row in rows], viewer
+        )
+        return [
+            row
+            for row in rows
+            if resource_filter(
+                "task",
+                int(row["id"]),
+                contexts.get(("task", int(row["id"])), {"relationship_conflict": "true"}),
+            )
+        ]
+
+    direct = permitted(_blocked_by({task_id}, viewer))
     frontier = {t["id"] for t in direct}
     seen |= frontier
     transitive, depth, truncated = len(frontier), 1, False
     while frontier:
-        nxt = {t["id"] for t in _blocked_by(frontier, viewer)} - seen
+        nxt = {t["id"] for t in permitted(_blocked_by(frontier, viewer))} - seen
         # the next hop is read BEFORE the depth test, so `truncated` means work
         # was really left uncounted rather than "the walk reached ten". A chain
         # of exactly _WAIT_DEPTH hops is counted in full, and the peek must not
@@ -711,14 +1366,29 @@ def list_tasks_joined(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     # title beside a workspace task (weekly.week_view has the same pair).
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
     mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
-    return db.query(
-        f"SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 — scope.visible_filter emits only bound marks
+    efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
+    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
+    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
+    rows = db.query(
+        f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        " e.id AS visible_engagement_id,"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
+        " AS visible_waiting_id FROM tasks t"
         f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
+        f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
+        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
+        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
+        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
+        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
+        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
         f" WHERE {frag}"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, t.id LIMIT 500",
-        (*mp, *vp),
+        (*mp, *ep, *wtp, *wbp, *wpp, *vp),
     )
+    return [_redact_hidden_task_links(row) for row in rows]
 
 
 def list_tasks(
@@ -727,21 +1397,40 @@ def list_tasks(
     assignee: str = "",
     viewer: scope.Viewer = scope.NOBODY,
 ) -> list[dict]:
-    frag, vp = scope.visible_filter(viewer, "tasks")
-    sql = f"SELECT * FROM tasks WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
-    params: list[str | int] = list(vp)
+    frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
+    mfrag, mp = scope.visible_filter(viewer, "milestones", alias="m")
+    efrag, ep = scope.visible_filter(viewer, "engagements", alias="e")
+    wtfrag, wtp = scope.visible_filter(viewer, "tasks", alias="waiting_task")
+    wbfrag, wbp = scope.visible_filter(viewer, "blockers", alias="waiting_blocker")
+    wpfrag, wpp = scope.visible_filter(viewer, "promises", alias="waiting_promise")
+    sql = (
+        "SELECT t.*, m.id AS visible_milestone_id,"  # noqa: S608 — scope emits bound marks
+        " e.id AS visible_engagement_id,"
+        " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id)"
+        " AS visible_waiting_id FROM tasks t"
+        f" LEFT JOIN milestones m ON m.id = t.milestone_id AND {mfrag}"
+        f" LEFT JOIN engagements e ON e.id = t.engagement_id AND {efrag}"
+        " LEFT JOIN tasks waiting_task ON t.waiting_on_type = 'task'"
+        f" AND waiting_task.id = t.waiting_on_id AND {wtfrag}"
+        " LEFT JOIN blockers waiting_blocker ON t.waiting_on_type = 'blocker'"
+        f" AND waiting_blocker.id = t.waiting_on_id AND {wbfrag}"
+        " LEFT JOIN promises waiting_promise ON t.waiting_on_type = 'promise'"
+        f" AND waiting_promise.id = t.waiting_on_id AND {wpfrag}"
+        f" WHERE {frag}"
+    )
+    params: list[str | int] = [*mp, *ep, *wtp, *wbp, *wpp, *vp]
     if milestone_id:
-        sql += " AND milestone_id = ?"
+        sql += " AND m.id = ?"
         params.append(milestone_id)
     if status:
-        sql += " AND status = ?"
+        sql += " AND t.status = ?"
         params.append(status)
     if assignee:
-        sql += " AND assignee = ?"
+        sql += " AND t.assignee = ?"
         params.append(assignee)
     sql += (
-        " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-        " WHEN 'medium' THEN 2 ELSE 3 END, id"
+        " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+        " WHEN 'medium' THEN 2 ELSE 3 END, t.id"
         " LIMIT 500"  # Browse renders these unpaginated — bound the dump
     )
-    return db.query(sql, tuple(params))
+    return [_redact_hidden_task_links(row) for row in db.query(sql, tuple(params))]

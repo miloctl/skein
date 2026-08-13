@@ -664,6 +664,9 @@ VERBS: dict[str, tuple[str, str]] = {
     "revoke_api_keys_for": ("revoked a person's API keys", "loud"),
     "request_key": ("requested an API key", "normal"),
     "rename_user": ("renamed a teammate", "loud"),
+    "repair_identity_ownership": ("repaired identity ownership", "loud"),
+    "claim_content_identity": ("assigned content identity ownership", "loud"),
+    "claim_machine_identity": ("assigned machine identity ownership", "loud"),
     "set_user_active": ("changed whether a teammate is active", "loud"),
     "set_context_strategy": ("changed the long-chat strategy", "loud"),
     # loud like the strategy above: it changes what every chat costs
@@ -676,6 +679,8 @@ VERBS: dict[str, tuple[str, str]] = {
     "record_feedback": ("recorded feedback", "quiet"),
     "ingest_notes": ("ingested meeting notes", "normal"),
     "instantiate_playbook": ("started an engagement from a playbook", "normal"),
+    "workflow_action": ("ran a workflow action", "normal"),
+    "external_tool": ("ran a governed external tool", "normal"),
     "playbook_closeout": ("closed a playbook engagement and drafted its lesson", "normal"),
     "plan_snapshot": ("recorded the plan an engagement started with", "quiet"),
     "generate_handoff": ("generated a handoff package", "normal"),

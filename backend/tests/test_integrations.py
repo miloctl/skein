@@ -128,6 +128,43 @@ def test_slack_command_roundtrip(client, monkeypatch):
     assert r.status_code == 401
 
 
+def test_workplace_policy_can_deny_signed_slack_writes(fresh_db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.extensions import (
+        PolicyContribution,
+        PolicyDecision,
+        PolicyEffect,
+        SkeinModule,
+    )
+    from app.main import create_app
+
+    def deny_slack(request):
+        if request.action == "skein.integration.slack":
+            return PolicyDecision(PolicyEffect.DENY, ("Slack is disabled",))
+        return None
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        policies=(PolicyContribution("acme.workplace.slack", deny_slack),),
+    )
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = b"text=blocked%20on%20dns&user_name=ava"
+    with TestClient(create_app(modules=(module,))) as client:
+        response = client.post(
+            "/api/slack/command",
+            content=body,
+            headers=_slack_headers("shhh", body),
+        )
+    assert response.status_code == 403
+    assert fresh_db.query_one("SELECT id FROM blockers") is None
+
+
 def test_api_token_gate(client, monkeypatch):
     from app import config
 

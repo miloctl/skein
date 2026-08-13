@@ -21,21 +21,131 @@ delegation is not a proposal — and each one honors the forbidden kill switch.
 
 import json
 import os
+from collections.abc import Sequence
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from . import db, ratelimit
+from .extensions import PolicySubject, SkeinModule
+from .extensions.core import core_module
+from .extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+    reset_policy_engine,
+    reset_policy_subject,
+    set_policy_engine,
+    set_policy_subject,
+)
+from .extensions.registry import ExtensionRegistry
 from .services import blockers as blockers_svc
 from .services import briefing as briefing_svc
 from .services import capture as capture_svc
-from .services import collab, context_pack, delegation, memory, portfolio, search, work
+from .services import (
+    collab,
+    context_pack,
+    delegation,
+    memory,
+    portfolio,
+    projection_policy,
+    scope,
+    search,
+    work,
+)
+from .services import policy_context as domain_policy_context
 from .services.adoption import record_use
 from .tools._gate import gated_write
 
 ACTOR = os.getenv("SKEIN_MCP_USER", "mcp-agent")
 
 mcp = FastMCP("skein")
+
+
+def _policy_refusal(
+    action: str,
+    resource_type: str,
+    resource_id: int | str = "",
+    *,
+    effect: str = "read",
+    risk: str = "low",
+) -> str:
+    """Return a JSON refusal, or an empty string when policy permits."""
+    attributes: dict[str, Any] = {}
+    if resource_type == "task" and resource_id:
+        # Policy context is non-content metadata. It must not use the caller's
+        # content-visibility filter: a delegated agent can legitimately act on
+        # a crew task without being a crew member, and policy still needs the
+        # task's authoritative classification and project type.
+        attributes = domain_policy_context.existing("task", int(resource_id))
+    elif resource_id:
+        try:
+            attributes = domain_policy_context.existing_scoped(
+                resource_type,
+                int(resource_id),
+                scope.NOBODY,
+            )
+        except (TypeError, ValueError):
+            attributes = {}
+    decision = current_policy_engine().decide(
+        PolicyInput(
+            current_policy_subject(),
+            action,
+            PolicyResource(
+                resource_type,
+                str(resource_id),
+                str(attributes.get("project_type") or ""),
+                str(attributes.get("classification") or ""),
+                attributes,
+            ),
+            "mcp",
+            agent=ACTOR,
+            tool=action,
+            tool_effect=effect,
+            tool_risk=risk,
+        )
+    )
+    if decision.effect == PolicyEffect.PERMIT:
+        return ""
+    return json.dumps(
+        {
+            "error": (
+                "workplace policy requires review"
+                if decision.effect == PolicyEffect.REVIEW
+                else "workplace policy denied this operation"
+            ),
+            "policy_effect": decision.effect.value,
+        }
+    )
+
+
+def _policy_permits(
+    action: str,
+    resource_type: str,
+    resource_id: int,
+    attributes: dict[str, str],
+) -> bool:
+    decision = current_policy_engine().decide(
+        PolicyInput(
+            current_policy_subject(),
+            action,
+            PolicyResource(
+                resource_type,
+                str(resource_id),
+                str(attributes.get("project_type") or ""),
+                str(attributes.get("classification") or ""),
+                attributes,
+            ),
+            "mcp",
+            agent=ACTOR,
+            tool=action,
+            tool_effect="read",
+            tool_risk="low",
+        )
+    )
+    return decision.effect == PolicyEffect.PERMIT
 
 
 @mcp.tool()
@@ -48,7 +158,27 @@ def get_my_day() -> str:
     """The briefing for this agent identity: what needs attention, tasks,
     blockers, today's events."""
     record_use(ACTOR, "mcp")
-    return json.dumps(briefing_svc.my_day(ACTOR))
+    if refusal := _policy_refusal("skein.mcp.briefing.read", "briefing"):
+        return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.briefing.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.briefing.read",
+    )
+    with db.read_transaction():
+        return json.dumps(
+            briefing_svc.my_day(
+                ACTOR,
+                row_filter=policy.filter_rows,
+                mixed_filter=policy.filter_resources,
+                allow_unclassified=policy.allows_unclassified(),
+                resource_filter=policy.permits,
+            )
+        )
 
 
 @mcp.tool()
@@ -134,10 +264,15 @@ def claim_delegated_task(task_id: int) -> str:
     """Claim a task delegated to you: todo -> in_progress, sponsor notified.
     Start here before working a delegated task from my_inbox."""
     record_use(ACTOR, "mcp")
-    try:
-        return json.dumps(delegation.claim_task(task_id, actor=ACTOR))
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+    with db.transaction():
+        if refusal := _policy_refusal(
+            "skein.mcp.delegation.claim", "task", task_id, effect="write", risk="medium"
+        ):
+            return refusal
+        try:
+            return json.dumps(delegation.claim_task(task_id, actor=ACTOR))
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
 
 
 @mcp.tool()
@@ -145,10 +280,15 @@ def report_progress(task_id: int, note: str) -> str:
     """Append a worklog entry to your delegated task — the sponsor reads
     this before their acceptance verdict. Report as you go."""
     record_use(ACTOR, "mcp")
-    try:
-        return json.dumps(delegation.report_progress(task_id, note, actor=ACTOR))
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+    with db.transaction():
+        if refusal := _policy_refusal(
+            "skein.mcp.delegation.progress", "task", task_id, effect="write", risk="medium"
+        ):
+            return refusal
+        try:
+            return json.dumps(delegation.report_progress(task_id, note, actor=ACTOR))
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
 
 
 @mcp.tool()
@@ -157,6 +297,8 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
     continuing work you started on an earlier day — it is where you recorded
     what you found, what you decided, and what you were waiting on."""
     record_use(ACTOR, "mcp")
+    if refusal := _policy_refusal("skein.mcp.worklog.read", "task", task_id):
+        return refusal
     try:
         # actor=ACTOR is the door, and the limit is clamped in the service —
         # this twin passed the model's number straight into LIMIT, where a
@@ -177,10 +319,15 @@ def submit_for_acceptance(task_id: int, summary: str) -> str:
     proposal — never claim the task is done after calling this; say it
     awaits the sponsor's verdict."""
     record_use(ACTOR, "mcp")
-    try:
-        return json.dumps(delegation.submit_completion(task_id, summary, actor=ACTOR))
-    except ValueError as exc:
-        return json.dumps({"error": str(exc)})
+    with db.transaction():
+        if refusal := _policy_refusal(
+            "skein.mcp.delegation.submit", "task", task_id, effect="write", risk="high"
+        ):
+            return refusal
+        try:
+            return json.dumps(delegation.submit_completion(task_id, summary, actor=ACTOR))
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
 
 
 @mcp.tool()
@@ -188,7 +335,31 @@ def list_tasks(status: str = "", assignee: str = "") -> str:
     """List team tasks, optionally filtered by status (todo|in_progress|blocked|done)
     and/or assignee."""
     record_use(ACTOR, "mcp")
-    return json.dumps(work.list_tasks(status=status, assignee=assignee))
+    if refusal := _policy_refusal("skein.mcp.tasks.read", "task"):
+        return refusal
+    with db.read_transaction():
+        rows = work.list_tasks(status=status, assignee=assignee)
+        contexts = work.task_collection_policy_contexts(rows, scope.NOBODY)
+        permitted = [
+            row
+            for row in rows
+            if _policy_permits(
+                "skein.mcp.tasks.read",
+                "task",
+                int(row["id"]),
+                contexts[int(row["id"])],
+            )
+        ]
+        policy = projection_policy.ProjectionPolicy(
+            current_policy_engine(),
+            current_policy_subject(),
+            "skein.mcp.tasks.read",
+            "mcp",
+            scope.NOBODY,
+            agent=ACTOR,
+            tool="skein.mcp.tasks.read",
+        )
+        return json.dumps(work.redact_task_relationships(permitted, scope.NOBODY, policy.permits))
 
 
 @mcp.tool()
@@ -230,7 +401,19 @@ def search_workspace(query: str) -> str:
     notes, blockers, questions, lessons, engagements. Use before re-deciding
     or re-researching anything."""
     record_use(ACTOR, "mcp")
-    return json.dumps(search.search(query))
+    if refusal := _policy_refusal("skein.mcp.search.read", "search"):
+        return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.search.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.search.read",
+    )
+    with db.read_transaction():
+        return json.dumps(search.search(query, row_filter=policy.filter_resources))
 
 
 @mcp.tool()
@@ -272,14 +455,39 @@ def get_context_pack(engagement_id: int = 0) -> str:
     Pass engagement_id for the scoped single-engagement pack (cheaper,
     focused — for delegated work)."""
     record_use(ACTOR, "mcp")
-    if engagement_id:
+    if refusal := _policy_refusal("skein.mcp.context.read", "engagement", engagement_id):
+        return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.context.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.context.read",
+    )
+    with db.read_transaction():
+        if engagement_id:
+            attributes = domain_policy_context.existing_scoped(
+                "engagement", engagement_id, scope.NOBODY
+            )
+            if not attributes or not policy.permits("engagement", engagement_id, attributes):
+                return json.dumps({"error": f"no engagement #{engagement_id}"})
+            return json.dumps(
+                {
+                    "engagement": engagement_id,
+                    "content": context_pack.build_engagement_pack(
+                        engagement_id,
+                        resource_filter=policy.permits,
+                    ),
+                }
+            )
         return json.dumps(
-            {
-                "engagement": engagement_id,
-                "content": context_pack.build_engagement_pack(engagement_id),
-            }
+            context_pack.get_pack(
+                actor=ACTOR,
+                resource_filter=policy.permits,
+            )
         )
-    return json.dumps(context_pack.get_pack(actor=ACTOR))
 
 
 @mcp.tool()
@@ -287,26 +495,115 @@ def my_inbox() -> str:
     """Ambient inbox for this agent identity: delegated tasks, questions,
     rejected proposals with reviewer notes, unread notifications."""
     record_use(ACTOR, "mcp")
-    from .services.users import ensure_user
+    if refusal := _policy_refusal("skein.mcp.inbox.read", "inbox"):
+        return refusal
+    from .services.users import ensure_agent_identity
 
-    ensure_user(ACTOR, kind="agent")
-    return json.dumps(delegation.agent_inbox(ACTOR))
+    ensure_agent_identity(ACTOR, owner="mcp")
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.inbox.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.inbox.read",
+    )
+    with db.read_transaction():
+        return json.dumps(
+            delegation.agent_inbox(
+                ACTOR,
+                task_filter=lambda task_id, attributes: policy.permits("task", task_id, attributes),
+                resource_filter=policy.permits,
+                allow_unclassified=policy.allows_unclassified(),
+            )
+        )
 
 
 @mcp.tool()
 def portfolio_health() -> str:
     """Engagement health (red/yellow/green) with receipts."""
     record_use(ACTOR, "mcp")
-    return json.dumps(portfolio.engagement_health())
+    if refusal := _policy_refusal("skein.mcp.portfolio.read", "portfolio"):
+        return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.portfolio.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.portfolio.read",
+    )
+    with db.read_transaction():
+        rows = portfolio.engagement_health(resource_filter=policy.permits)
+        return json.dumps(policy.filter_rows("engagement", rows))
 
 
 @mcp.resource("skein://context-pack")
 def context_pack_resource() -> str:
     """Versioned team context pack as markdown — mountable org-brain."""
-    return context_pack.get_pack(actor=ACTOR)["content"]
+    if refusal := _policy_refusal("skein.mcp.context.read", "context-pack"):
+        return refusal
+    policy = projection_policy.ProjectionPolicy(
+        current_policy_engine(),
+        current_policy_subject(),
+        "skein.mcp.context.read",
+        "mcp",
+        scope.NOBODY,
+        agent=ACTOR,
+        tool="skein.mcp.context.read",
+    )
+    with db.read_transaction():
+        return context_pack.get_pack(
+            actor=ACTOR,
+            resource_filter=policy.permits,
+        )["content"]
 
 
-def main() -> None:
+def _configured_modules() -> tuple[SkeinModule, ...]:
+    """Resolve the workplace composition for the standalone MCP process.
+
+    SKEIN_MCP_MODULES names a module (dotted path) whose `modules` attribute
+    is the same tuple the private ASGI composition root passes to
+    create_app. Without it, the documented `python -m app.mcp_server`
+    composed CORE ONLY: the API process enforced workplace policy while the
+    MCP process silently ran without the workplace rules, identities, and
+    tools — two policy boundaries for one deployment.
+    """
+    from importlib import import_module
+
+    target = os.getenv("SKEIN_MCP_MODULES", "").strip()
+    if not target:
+        import sys
+
+        # Loud, because this is the fail-open shape: a workplace deployment
+        # that forgets the variable gets an MCP process without the
+        # workplace policy the API process enforces, and nothing else at
+        # runtime reports the split.
+        print(
+            "skein-mcp: SKEIN_MCP_MODULES is not set — composing core only."
+            " A workplace deployment must set it to its composition module.",
+            file=sys.stderr,
+        )
+        return ()
+    try:
+        composition = import_module(target)
+        modules = composition.modules
+    except Exception as exc:
+        import sys
+
+        print(
+            f"skein-mcp: SKEIN_MCP_MODULES={target!r} does not resolve to a"
+            f" module with a `modules` tuple: {exc}. Fix the value, then"
+            " start the server again.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+    return tuple(modules)
+
+
+def main(modules: Sequence[SkeinModule] = ()) -> None:
     # a long-lived side process must never apply schema — that is the API
     # server's job (migrations + startup jobs belong to one owner)
     pending = db.pending_migrations()
@@ -319,13 +616,23 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
+    registry = ExtensionRegistry.build((core_module(), *(tuple(modules) or _configured_modules())))
+    from .extensions.registry import validate_machine_identity_ownership
+
+    try:
+        validate_machine_identity_ownership(registry, (("MCP actor", ACTOR),))
+    except RuntimeError as exc:
+        import sys
+
+        print(f"skein-mcp: {exc}.", file=sys.stderr)
+        raise SystemExit(1) from exc
     # reserve THIS process's identity as kind=agent before any request — the
     # API server only reserves its own env's SKEIN_MCP_USER, and a human
     # picking this name first would permanently shadow the agent
-    from .services.users import ensure_user
+    from .services.users import ensure_agent_identity
 
     try:
-        ensure_user(ACTOR, kind="agent")
+        ensure_agent_identity(ACTOR, owner="mcp")
     except ValueError as exc:
         import sys
 
@@ -338,7 +645,27 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(1) from exc
-    mcp.run()  # stdio: stdout carries the protocol, so diagnostics (the print above) go to stderr
+    attributes = registry.identity_attributes(ACTOR, (), True)
+    roles = attributes.pop("roles", ())
+    capabilities = attributes.pop("capabilities", ())
+    if not isinstance(roles, (list, tuple)) or not isinstance(capabilities, (list, tuple)):
+        raise RuntimeError("identity roles and capabilities must be lists or tuples")
+    engine_token = set_policy_engine(registry.policy_engine)
+    subject_token = set_policy_subject(
+        PolicySubject(
+            ACTOR,
+            kind="agent",
+            roles=tuple(str(value) for value in roles),
+            capabilities=tuple(str(value) for value in capabilities),
+            attributes=attributes,
+        )
+    )
+    try:
+        # stdio: stdout carries the protocol, so diagnostics above go to stderr.
+        mcp.run()
+    finally:
+        reset_policy_subject(subject_token)
+        reset_policy_engine(engine_token)
 
 
 if __name__ == "__main__":

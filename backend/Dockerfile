@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.lock
 
 COPY pyproject.toml ./
 COPY app ./app
-COPY migrations ./migrations
 # Content directories, resolved from the package root by services/playbooks.py,
 # personas.py, flocks.py and fieldguide.py. Each one MUST be copied: a missing
 # personas/ or flocks/ degrades silently to an empty bench (no @ picker
@@ -24,6 +23,7 @@ COPY playbooks ./playbooks
 COPY personas ./personas
 COPY flocks ./flocks
 COPY fieldguide ./fieldguide
+COPY schemas ./schemas
 COPY seed.py ./
 
 RUN pip install --no-cache-dir --no-deps . \

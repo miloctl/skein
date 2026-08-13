@@ -1,10 +1,13 @@
 {
   "name": "frontend",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
+    "compose:extensions": "node scripts/compose-extensions.mjs",
+    "predev": "npm run compose:extensions",
     "dev": "NODE_OPTIONS=--max-old-space-size=8192 next dev",
+    "prebuild": "npm run compose:extensions",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -13,6 +16,7 @@
     "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest"
   },
   "dependencies": {
+    "@skein/extension-api": "file:packages/extension-api",
     "@assistant-ui/react": "^0.14.27",
     "@assistant-ui/react-markdown": "^0.14.6",
     "canvas-confetti": "^1.9.4",
@@ -44,5 +48,10 @@
   "overrides": {
     "sharp": "^0.35.0",
     "postcss": "^8.5.10"
+  },
+  "knip": {
+    "entry": [
+      "lib/extensions/public.tsx"
+    ]
   }
 }

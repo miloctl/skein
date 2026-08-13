@@ -31,11 +31,8 @@ if [ "$mode" != "frontend" ]; then
     echo "== vulture (dead code) =="
     (cd backend && vulture)
 
-    echo "== personas =="
-    (cd backend && python -m app.services.personas)
-
-    echo "== flocks =="
-    (cd backend && python -m app.services.flocks)
+    echo "== versioned content =="
+    (cd backend && python -m app.content)
 
     echo "== license copies =="
     # backend/ carries copies because PEP 639 forbids ../ in license-files;

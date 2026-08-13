@@ -5,8 +5,16 @@ from typing import Any
 
 from strands import tool
 
+from .. import db
 from ..agents.identity import agent_identity
-from ..services import schedule, scope
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
+from ..services import policy_context, schedule, scope
 from ._gate import gated_write
 
 
@@ -46,7 +54,36 @@ def list_events(from_date: str = "", limit: int = 25) -> str:
         from_date: Only include events starting on/after this date (YYYY-MM-DD); empty for all.
         limit: Maximum number of events to return.
     """
-    return json.dumps(schedule.list_events(from_date, limit))
+    with db.read_transaction():
+        rows = schedule.list_events(from_date, limit)
+        contexts = policy_context.engagement_linked_collection_contexts("event", rows, scope.NOBODY)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        return json.dumps(
+            [
+                row
+                for row in rows
+                if engine.decide(
+                    PolicyInput(
+                        subject,
+                        "skein.tool.list_events",
+                        PolicyResource(
+                            "event",
+                            str(row["id"]),
+                            contexts[int(row["id"])]["project_type"],
+                            contexts[int(row["id"])]["classification"],
+                            contexts[int(row["id"])],
+                        ),
+                        "agent_tool",
+                        agent=agent_identity(),
+                        tool="list_events",
+                        tool_effect="read",
+                        tool_risk="low",
+                    )
+                ).effect
+                == PolicyEffect.PERMIT
+            ]
+        )
 
 
 @tool

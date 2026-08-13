@@ -93,7 +93,7 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
     from app import config
     from app.services import users
 
-    users.ensure_user("agent", kind="agent")
+    users._reserve_core_agent_identity("agent")
     monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
 
     body = "text=todo%3A+exfiltrate+the+roster&user_name=agent"
@@ -110,11 +110,112 @@ def test_slack_refuses_to_write_as_an_agent_identity(client, fresh_db, monkeypat
     )
     assert r.status_code == 200
     # loose on wording (an STE pass may reword it), strict on the outcome
-    assert "agent" in r.json()["text"].lower()
+    assert "reserved" in r.json()["text"].lower()
     # and nothing was written as that identity
     from app.services import work
 
     assert [t for t in work.list_tasks() if t["created_by"] == "agent"] == []
+
+
+def test_slack_cannot_claim_the_synthetic_anonymous_subject(client, fresh_db, monkeypatch):
+    import hashlib
+    import hmac
+    import time
+
+    from app import config
+
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = "text=todo%3A+synthetic+identity&user_name=anonymous"
+    ts = str(int(time.time()))
+    sig = "v0=" + hmac.new(b"shhh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    response = client.post(
+        "/api/slack/command",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": sig,
+        },
+    )
+    assert response.status_code == 200
+    assert "reserved for the system" in response.json()["text"]
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'anonymous'") is None
+
+
+def test_signed_slack_refuses_an_inactive_person_without_side_effects(
+    client, fresh_db, monkeypatch
+):
+    import hashlib
+    import hmac
+    import time
+
+    from app import config
+    from app.services import adoption, users
+
+    users.ensure_human_identity("departed")
+    users.set_active("departed", False, actor="ops")
+    baseline = {
+        "tasks": fresh_db.query_row("SELECT COUNT(*) AS n FROM tasks")["n"],
+        "activity": fresh_db.query_row("SELECT COUNT(*) AS n FROM activity")["n"],
+        "adoption": fresh_db.query_row("SELECT COUNT(*) AS n FROM tool_usage")["n"],
+    }
+    adoption.reset()
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = "text=todo%3A+must+not+land&user_name=departed"
+    ts = str(int(time.time()))
+    signature = "v0=" + hmac.new(b"shhh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/api/slack/command",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": signature,
+        },
+    )
+    adoption.flush()
+
+    assert response.status_code == 200
+    assert "not active" in response.json()["text"]
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM tasks")["n"] == baseline["tasks"]
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM activity")["n"] == baseline["activity"]
+    assert fresh_db.query_row("SELECT COUNT(*) AS n FROM tool_usage")["n"] == baseline["adoption"]
+
+
+def test_signed_slack_cannot_claim_pending_content_identity(
+    client, fresh_db, tmp_path, monkeypatch
+):
+    import hashlib
+    import hmac
+    import time
+
+    from app import config
+
+    overlay = tmp_path / "personas"
+    overlay.mkdir()
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    (overlay / "future-slack.md").write_text(
+        "---\nname: Future Slack\ndescription: Pending restart\n---\nWait for restart.\n"
+    )
+    monkeypatch.setattr(config, "SLACK_SIGNING_SECRET", "shhh")
+    body = "text=todo%3A+must+not+land&user_name=FUTURE-SLACK"
+    ts = str(int(time.time()))
+    signature = "v0=" + hmac.new(b"shhh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/api/slack/command",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": signature,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "reserved for a bench persona" in response.json()["text"]
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'FUTURE-SLACK'") is None
 
 
 @pytest.mark.parametrize("name", ["dana", "slack-user"])

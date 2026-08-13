@@ -36,6 +36,26 @@ def _reset_ratelimit():
 
 
 @pytest.fixture(autouse=True)
+def _core_policy_engine():
+    """Unit tests dispatch stock tools without an application entry point.
+
+    Production entry points install the composed engine, and
+    current_policy_engine() fails closed without one. Install the
+    core-rules-only engine here so a direct tool call keeps the exact
+    pre-composition behavior. A test that composes workplace rules
+    installs its own engine on top with its own token."""
+    from app.extensions.policy import (
+        PolicyEngine,
+        reset_policy_engine,
+        set_policy_engine,
+    )
+
+    token = set_policy_engine(PolicyEngine())
+    yield
+    reset_policy_engine(token)
+
+
+@pytest.fixture(autouse=True)
 def _reset_telemetry_buffers(monkeypatch):
     """Process-local perf state must not cross test databases: a detect()
     timestamp from one test would let hint() skip detection against the next

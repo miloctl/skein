@@ -3,9 +3,32 @@ approve. Approval applies the payload through the same service registry the
 rest of the platform uses, stamped origin='agent_verified'."""
 
 import json
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Any
 
 from .. import db
+from ..public.errors import PublicError
 from . import lexicon, scope
+
+
+@dataclass(frozen=True)
+class _CurrentExtensionReview:
+    request: Any
+    contract: dict[str, Any] | None = None
+    decision: Any | None = None
+    fingerprint: str = ""
+
+
+@dataclass(frozen=True)
+class _ApprovalGrant:
+    fingerprint: str
+    decision: Any
+
+
+@dataclass(frozen=True)
+class _ApprovalFailure:
+    error: Exception
 
 
 def _registry() -> dict:
@@ -102,11 +125,61 @@ def propose_change(
     origin: str = "agent",
     notify_team: bool = True,
     requested_by: str = "",
+    policy_obligations: tuple[str, ...] = (),
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
+    review_visibility: str = scope.WORKSPACE,
+    review_crew_id: int = 0,
+    review_owner: str = "",
+    policy_context: dict | None = None,
+) -> dict:
+    """Store a proposal and its notice in one transaction."""
+    with db.transaction():
+        return _propose_change_locked(
+            entity,
+            action,
+            payload,
+            summary,
+            entity_id,
+            actor=actor,
+            origin=origin,
+            notify_team=notify_team,
+            requested_by=requested_by,
+            policy_obligations=policy_obligations,
+            approver_groups=approver_groups,
+            approver_capabilities=approver_capabilities,
+            review_visibility=review_visibility,
+            review_crew_id=review_crew_id,
+            review_owner=review_owner,
+            policy_context=policy_context,
+        )
+
+
+def _propose_change_locked(
+    entity: str,
+    action: str,
+    payload: dict,
+    summary: str = "",
+    entity_id: int = 0,
+    *,
+    actor: str = "agent",
+    origin: str = "agent",
+    notify_team: bool = True,
+    requested_by: str = "",
+    policy_obligations: tuple[str, ...] = (),
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
+    review_visibility: str = scope.WORKSPACE,
+    review_crew_id: int = 0,
+    review_owner: str = "",
+    policy_context: dict | None = None,
 ) -> dict:
     reg = _registry()
-    if entity not in reg:
+    extension_entity = (entity, action) in lexicon.REVIEW_ONLY
+    if entity not in reg and not extension_entity:
         raise ValueError(f"unknown entity — one of {sorted(reg)}")
-    if action not in ("create", "update") or action not in reg[entity]:
+    supported = action == "create" if extension_entity else action in reg[entity]
+    if action not in ("create", "update") or not supported:
         raise ValueError(f"unsupported action for {entity} — create or update")
     if action == "update" and not entity_id:
         raise ValueError("entity_id required for updates")
@@ -114,6 +187,13 @@ def propose_change(
     # oversized payloads would also fail at apply and wedge in the queue
     if len(json.dumps(payload)) > 20_000:
         raise ValueError("proposal payload too large — keep it under 20k characters")
+    if review_visibility not in scope.TIERS:
+        raise ValueError("review visibility must be private, crew, or workspace")
+    if review_visibility == scope.CREW and not review_crew_id:
+        raise ValueError("a crew review must name its crew")
+    encoded_policy = json.dumps(policy_context or {})
+    if len(encoded_policy) > 20_000:
+        raise ValueError("reviewed policy context must be under 20k characters")
     # HERE, not in one producer: the agent gate (tools/_gate.py) and the notes
     # ingester both file proposals, and a guard in either one leaves the other
     # storing rows that can never be approved.
@@ -122,8 +202,10 @@ def propose_change(
         raise ValueError(refusal)
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
-        " proposed_by, origin, created_at, requested_by)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " proposed_by, origin, created_at, requested_by, policy_obligations,"
+        " approver_groups, approver_capabilities, review_visibility, review_crew_id,"
+        " review_owner, policy_context, review_contract_version)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entity,
             entity_id or None,
@@ -134,6 +216,14 @@ def propose_change(
             origin,
             db.now(),
             requested_by or None,
+            json.dumps(tuple(dict.fromkeys(policy_obligations))),
+            json.dumps(tuple(dict.fromkeys(approver_groups))),
+            json.dumps(tuple(dict.fromkeys(approver_capabilities))),
+            review_visibility,
+            review_crew_id or None,
+            review_owner,
+            encoded_policy,
+            1,
         ),
     )
     db.log_activity(
@@ -146,11 +236,75 @@ def propose_change(
 
         notify(
             "team",
-            f"Review needed: #{pid} {summary or f'{action} {entity}'}",
+            (
+                lambda source: (
+                    f"Review needed: #{pid} {action} {entity} #{source['id']}"
+                    if entity_id
+                    else f"Review needed: #{pid} {summary or f'{action} {entity}'}"
+                )
+            ),
             tier="digest",
             link="/review",
+            source_entity=entity,
+            source_id=entity_id,
         )
     return {"id": pid, "status": "pending"}
+
+
+def propose_extension_invocation(
+    kind: str,
+    public_payload: dict,
+    invocation: dict,
+    *,
+    summary: str,
+    actor: str,
+    requested_by: str,
+    policy_obligations: tuple[str, ...] = (),
+    approver_groups: tuple[str, ...] = (),
+    approver_capabilities: tuple[str, ...] = (),
+    review_visibility: str = scope.WORKSPACE,
+    review_crew_id: int = 0,
+    review_owner: str = "",
+    policy_input=None,
+) -> dict:
+    """Create one review and keep its executable arguments out of the queue."""
+    if kind not in ("tool", "workflow", "mcp_tool", "core_tool"):
+        raise ValueError("extension review kind is not supported")
+    stored_invocation = {**invocation, "kind": kind}
+    encoded = json.dumps(stored_invocation)
+    if len(encoded) > 20_000:
+        raise ValueError("reviewed invocation must be under 20k characters")
+    policy_context = None
+    if policy_input is not None:
+        from ..extensions.policy import policy_input_data
+
+        policy_context = {
+            "kind": "extension",
+            "input": policy_input_data(policy_input),
+        }
+    with db.transaction():
+        proposal = propose_change(
+            f"extension_{kind}",
+            "create",
+            public_payload,
+            summary,
+            actor=actor,
+            origin="agent" if kind in ("tool", "mcp_tool", "core_tool") else "human",
+            requested_by=requested_by,
+            policy_obligations=policy_obligations,
+            approver_groups=approver_groups,
+            approver_capabilities=approver_capabilities,
+            review_visibility=review_visibility,
+            review_crew_id=review_crew_id,
+            review_owner=review_owner,
+            policy_context=policy_context,
+        )
+        db.execute(
+            "INSERT INTO extension_review_invocations"
+            " (change_id, kind, invocation) VALUES (?, ?, ?)",
+            (proposal["id"], kind, encoded),
+        )
+    return proposal
 
 
 def _check_reviewer(actor: str) -> None:
@@ -160,6 +314,23 @@ def _check_reviewer(actor: str) -> None:
 
     if is_agent(actor):
         raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
+
+
+def _check_policy_approver(
+    change: dict,
+    groups: tuple[str, ...],
+    capabilities: tuple[str, ...],
+) -> dict[str, list[str]]:
+    required_groups = set(json.loads(change.get("approver_groups") or "[]"))
+    required_capabilities = set(json.loads(change.get("approver_capabilities") or "[]"))
+    missing_groups = required_groups - set(groups)
+    missing_capabilities = required_capabilities - set(capabilities)
+    if missing_groups or missing_capabilities:
+        raise PermissionError("This approval requires the configured workplace approver.")
+    return {
+        "matched_groups": sorted(required_groups & set(groups)),
+        "matched_capabilities": sorted(required_capabilities & set(capabilities)),
+    }
 
 
 def _sponsor_of(change: dict) -> str:
@@ -257,7 +428,44 @@ def approve_change(
     actor: str = "system",
     strong: bool = False,
     viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    extension_executor: Callable[[dict, int], dict] | None = None,
+    policy_registry=None,
 ) -> dict:
+    # Serialize current-state policy resolution, the verdict claim, and the
+    # resulting write. This is intentionally a SQLite-sized boundary: it
+    # prevents project relinks or policy-relevant state changes from racing a
+    # durable approval. Nested service transactions join this one.
+    with db.transaction():
+        result = _approve_change_locked(
+            change_id,
+            note,
+            actor=actor,
+            strong=strong,
+            viewer=viewer,
+            reviewer_groups=reviewer_groups,
+            reviewer_capabilities=reviewer_capabilities,
+            extension_executor=extension_executor,
+            policy_registry=policy_registry,
+        )
+    if isinstance(result, _ApprovalFailure):
+        raise result.error
+    return result
+
+
+def _approve_change_locked(
+    change_id: int,
+    note: str = "",
+    *,
+    actor: str = "system",
+    strong: bool = False,
+    viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    extension_executor: Callable[[dict, int], dict] | None = None,
+    policy_registry=None,
+) -> dict | _ApprovalFailure:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
     if not change:
@@ -267,6 +475,17 @@ def approve_change(
     # isn't told to fetch a note for a verdict that already happened
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    approval_grant = _revalidate_policy(
+        change,
+        policy_registry,
+        reviewer_groups,
+        reviewer_capabilities,
+    )
+    qualifications: dict[str, Any] = _check_policy_approver(
+        change,
+        reviewer_groups,
+        reviewer_capabilities,
+    )
     # the direct authority endpoint requires a personal key; the proposal
     # path must not be the weaker door to the same lever
     if change["entity"] == "authority" and not strong:
@@ -276,25 +495,70 @@ def approve_change(
 
     # resolve the handler BEFORE claiming — a stale entity/action must not
     # leave the row marked approved with nothing applied
-    try:
-        fn = _registry()[change["entity"]][change["action"]]
-    except KeyError as exc:
-        raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
+    is_extension = (change["entity"], change["action"]) in lexicon.REVIEW_ONLY
+    executor = extension_executor
+    if is_extension:
+        if executor is None:
+            raise ValueError("this extension review needs the composed application executor")
+        stored = db.query_one(
+            "SELECT * FROM extension_review_invocations WHERE change_id = ?",
+            (change_id,),
+        )
+        if stored is None:
+            raise ValueError("the reviewed extension invocation is missing")
+        invocation = json.loads(stored["invocation"])
+        if approval_grant is not None:
+            from ..extensions.policy import policy_decision_data
+
+            invocation["_approval_grant"] = approval_grant.fingerprint
+            invocation["_approval_decision"] = policy_decision_data(approval_grant.decision)
+        fn = None
+    else:
+        try:
+            fn = _registry()[change["entity"]][change["action"]]
+        except KeyError as exc:
+            raise ValueError(f"no handler for {change['entity']}.{change['action']}") from exc
     payload = json.loads(change["payload"])
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "approved", note, actor, strong, override=bool(sponsor))
+    db.execute(
+        "UPDATE pending_changes SET reviewer_qualifications = ? WHERE id = ?",
+        (json.dumps(qualifications), change_id),
+    )
     try:
-        # compound applies (playbook, weekly_plan) land atomically or not at
-        # all — a failed apply rolls back, so pending is safe for EVERY entity
-        with db.transaction():
-            # authorship stays with the proposer: created_by must say who
-            # wrote it, not who clicked approve (the verdict is recorded on
-            # the pending_changes row + activity)
-            author = change["proposed_by"] or actor
-            if change["action"] == "update":
-                result = fn(change["entity_id"], **payload, actor=author, origin="agent_verified")
+        # The verdict claim belongs to the outer transaction. The apply gets a
+        # savepoint of its own. If it fails, roll back its partial domain writes
+        # before the handler records a durable pending or rejected settlement.
+        with db.savepoint():
+            if is_extension:
+                if executor is None:
+                    raise ValueError("the extension review executor is missing")
+                result = executor(invocation, change_id)
+                db.execute(
+                    "UPDATE extension_review_invocations SET status = 'approved', result = ?,"
+                    " error_code = ?, executed_at = ? WHERE change_id = ?",
+                    (
+                        json.dumps(result),
+                        str(result.get("error_code") or ""),
+                        db.now(),
+                        change_id,
+                    ),
+                )
             else:
-                result = fn(**payload, actor=author, origin="agent_verified")
+                # Compound applies (playbook, weekly_plan) land atomically or
+                # not at all. A failed apply returns safely to the review queue.
+                if fn is None:
+                    raise ValueError("the core review handler is missing")
+                # authorship stays with the proposer: created_by must say who
+                # wrote it, not who clicked approve (the verdict is recorded on
+                # the pending_changes row + activity)
+                author = change["proposed_by"] or actor
+                if change["action"] == "update":
+                    result = fn(
+                        change["entity_id"], **payload, actor=author, origin="agent_verified"
+                    )
+                else:
+                    result = fn(**payload, actor=author, origin="agent_verified")
     except db.NotFound as exc:
         # the proposal's own target vanished (event cancelled via REST, row
         # hard-deleted): re-approving can never succeed, so a pending reset
@@ -308,10 +572,12 @@ def approve_change(
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (target vanished)")
         _clear_review_ping(change_id)
-        raise ValueError(
-            f"could not apply {change['entity']}.{change['action']}: {exc}"
-            " — proposal auto-rejected (its target no longer exists)"
-        ) from exc
+        return _ApprovalFailure(
+            ValueError(
+                f"could not apply {change['entity']}.{change['action']}: {exc}"
+                " — proposal auto-rejected (its target no longer exists)"
+            )
+        )
     except db.TerminalReject as exc:
         # a permanent policy block (an agent's own delegated-done proposal):
         # re-approving can never succeed, so settle it rejected like a vanished
@@ -330,7 +596,7 @@ def approve_change(
         )
         db.log_activity(actor, "reject_change", f"#{change_id} (not applicable)")
         _clear_review_ping(change_id)
-        raise ValueError(f"could not apply and auto-rejected: {exc}") from exc
+        return _ApprovalFailure(ValueError(f"could not apply and auto-rejected: {exc}"))
     except Exception as exc:
         # ANY OTHER failure (IntegrityError, lock timeout, stale state)
         # resets the claim — an approved-but-never-applied proposal would
@@ -338,10 +604,18 @@ def approve_change(
         db.execute(
             "UPDATE pending_changes SET status = 'pending', reviewed_by = NULL,"
             " reviewed_at = NULL, reviewed_strong = 0, reviewed_override = 0,"
-            " review_note = ? WHERE id = ?",
+            " reviewer_qualifications = '{}', review_note = ? WHERE id = ?",
             (f"apply failed: {exc}" + (f" (reviewer note: {note})" if note else ""), change_id),
         )
-        raise ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}") from exc
+        if is_extension:
+            db.execute(
+                "UPDATE extension_review_invocations SET status = 'pending',"
+                " error_code = 'EXECUTION_FAILED' WHERE change_id = ?",
+                (change_id,),
+            )
+        return _ApprovalFailure(
+            ValueError(f"could not apply {change['entity']}.{change['action']}: {exc}")
+        )
 
     db.execute(
         "UPDATE pending_changes SET result_id = ? WHERE id = ?", (result.get("id"), change_id)
@@ -355,6 +629,311 @@ def approve_change(
     )
     _clear_review_ping(change_id)
     return {"id": change_id, "status": "approved", "result": result}
+
+
+def _revalidate_policy(
+    change: dict,
+    registry,
+    reviewer_groups: tuple[str, ...],
+    reviewer_capabilities: tuple[str, ...],
+    *,
+    approving: bool = True,
+) -> _ApprovalGrant | None:
+    """Refresh and re-evaluate the policy that created a core proposal."""
+    saved = json.loads(change.get("policy_context") or "{}")
+    if not saved:
+        if approving and _legacy_review_needs_binding(change, registry):
+            raise PermissionError(
+                "The reviewed action has no policy binding. Request a new review."
+            )
+        return None
+    if registry is None:
+        raise PermissionError("The reviewed policy cannot be refreshed.")
+    policy_data = saved.get("input")
+    if not isinstance(policy_data, dict):
+        raise PermissionError("The reviewed policy context is invalid.")
+    if saved.get("kind") == "extension":
+        subject_data = policy_data.get("subject")
+        if not isinstance(subject_data, dict):
+            raise PermissionError("The reviewed requester identity is invalid.")
+        from ..extensions.policy import (
+            PolicyEffect,
+            policy_input_from_data,
+            policy_subject_from_data,
+        )
+
+        saved_subject = policy_subject_from_data(subject_data)
+        # Rejection never executes the invocation. Resolve the executable
+        # contract before refreshing its requester so removal of an entire
+        # workplace module (including its directory resolver) cannot strand a
+        # durable proposal forever. Approval still requires a current
+        # directory identity and remains closed.
+        if not approving:
+            saved_current = policy_input_from_data(policy_data, saved_subject)
+            try:
+                _current_extension_review(
+                    change,
+                    registry,
+                    saved_current,
+                    approving=False,
+                )
+            except (KeyError, TypeError, ValueError, PermissionError, PublicError):
+                change["approver_groups"] = "[]"
+                change["approver_capabilities"] = "[]"
+                change["_stale_contract"] = True
+                return None
+        subject = registry.refresh_subject(saved_subject)
+        current = policy_input_from_data(policy_data, subject)
+        try:
+            state = _current_extension_review(
+                change,
+                registry,
+                current,
+                approving=approving,
+            )
+        except PermissionError:
+            if approving:
+                raise
+            change["approver_groups"] = "[]"
+            change["approver_capabilities"] = "[]"
+            change["_stale_contract"] = True
+            return None
+        except (KeyError, TypeError, ValueError, PublicError) as exc:
+            if approving:
+                raise PermissionError(
+                    "The reviewed extension contract cannot be refreshed. Request a new review."
+                ) from exc
+            change["approver_groups"] = "[]"
+            change["approver_capabilities"] = "[]"
+            change["_stale_contract"] = True
+            return None
+        decision = state.decision or registry.policy_engine.decide(state.request)
+        if decision.effect == PolicyEffect.DENY and approving:
+            raise PermissionError("The current workplace policy denies this reviewed action.")
+        # The next qualification check must use current requirements. Reusing
+        # the proposal-time group would let a removed group reject work or
+        # require a reviewer to hold both the old and new grants.
+        change["approver_groups"] = json.dumps(
+            decision.approver_groups if decision.effect == PolicyEffect.REVIEW else ()
+        )
+        change["approver_capabilities"] = json.dumps(
+            decision.approver_capabilities if decision.effect == PolicyEffect.REVIEW else ()
+        )
+        if not approving:
+            return None
+        if state.fingerprint:
+            return _ApprovalGrant(state.fingerprint, decision)
+        if state.contract is None:
+            return None
+        from ..extensions.policy import approval_fingerprint
+
+        return _ApprovalGrant(
+            approval_fingerprint(state.request, decision, state.contract),
+            decision,
+        )
+    contract = saved.get("contract")
+    if not isinstance(contract, dict):
+        raise PermissionError("The reviewed policy context is invalid.")
+    expected = {
+        "entity": change["entity"],
+        "action": change["action"],
+        "entity_id": int(change.get("entity_id") or 0),
+        "payload": json.loads(change["payload"]),
+    }
+    if contract != expected:
+        raise PermissionError("The reviewed action no longer matches its policy context.")
+    subject_data = policy_data.get("subject")
+    if not isinstance(subject_data, dict):
+        raise PermissionError("The reviewed requester identity is invalid.")
+    from ..extensions.policy import (
+        PolicyEffect,
+        policy_input_from_data,
+        policy_subject_from_data,
+    )
+
+    saved_subject = policy_subject_from_data(subject_data)
+    subject = registry.refresh_subject(saved_subject)
+    current = policy_input_from_data(policy_data, subject)
+    from ..extensions.policy import PolicyResource
+    from . import policy_context as domain_policy
+
+    actual = domain_policy.for_change(
+        change["entity"],
+        int(change.get("entity_id") or 0),
+        expected["payload"],
+        actor=str(current.agent or subject.name),
+    )
+    if change["entity"] == "playbook":
+        from . import playbooks
+
+        expected_digest = str(expected["payload"].get("expected_definition_digest") or "")
+        if not expected_digest and approving:
+            raise PermissionError(
+                "The reviewed playbook has no content digest. Request a new review."
+            )
+        if expected_digest and approving:
+            slug = str(expected["payload"].get("slug") or "")
+            try:
+                definition = playbooks.get_playbook(slug)
+            except ValueError as exc:
+                raise PermissionError(
+                    "The reviewed playbook is no longer available. Request a new review."
+                ) from exc
+            if not playbooks.definition_digest_matches(expected_digest, definition):
+                raise PermissionError("The reviewed playbook changed. Request a new review.")
+    current = replace(
+        current,
+        resource=PolicyResource(
+            current.resource.type,
+            current.resource.id,
+            str(actual.get("project_type") or ""),
+            str(actual.get("classification") or ""),
+            actual,
+        ),
+    )
+    decision = registry.policy_engine.decide(current)
+    if decision.effect == PolicyEffect.DENY and approving:
+        raise PermissionError("The current workplace policy denies this reviewed action.")
+    change["approver_groups"] = json.dumps(
+        decision.approver_groups if decision.effect == PolicyEffect.REVIEW else ()
+    )
+    change["approver_capabilities"] = json.dumps(
+        decision.approver_capabilities if decision.effect == PolicyEffect.REVIEW else ()
+    )
+    return None
+
+
+def _legacy_review_needs_binding(change: dict, registry) -> bool:
+    """Return true when an old agent review reaches a composed policy boundary."""
+    if registry is None:
+        return False
+    if int(change.get("review_contract_version") or 0) >= 1:
+        return False
+    return (change["entity"], change["action"]) in lexicon.REVIEW_ONLY or change.get(
+        "origin"
+    ) == "agent"
+
+
+def _current_extension_review(
+    change: dict,
+    registry,
+    current,
+    *,
+    approving: bool,
+) -> _CurrentExtensionReview:
+    """Resolve mutable extension resources again before either verdict."""
+    stored = db.query_one(
+        "SELECT kind, invocation FROM extension_review_invocations WHERE change_id = ?",
+        (change["id"],),
+    )
+    if stored is None:
+        raise PermissionError("The reviewed extension invocation is missing.")
+    try:
+        invocation = json.loads(stored["invocation"])
+    except (TypeError, ValueError) as exc:
+        raise PermissionError("The reviewed extension invocation is invalid.") from exc
+    kind = str(stored["kind"] or "")
+    if kind == "core_tool":
+        from ..agents.core_tools import reviewed_policy_input
+
+        request = reviewed_policy_input(invocation, current.subject)
+        tool_use = invocation.get("tool_use")
+        if not isinstance(tool_use, dict):
+            raise ValueError("the reviewed stock tool call is invalid")
+        return _CurrentExtensionReview(
+            request,
+            {
+                "tool": str(invocation.get("tool") or ""),
+                "input": tool_use.get("input") or {},
+            },
+        )
+    if kind == "tool":
+        tool = registry.tool(str(invocation.get("tool") or ""))
+        if invocation.get("version") != tool.version and approving:
+            raise PermissionError("The reviewed tool contract changed.")
+        arguments = invocation.get("arguments")
+        if not isinstance(arguments, dict):
+            raise PermissionError("The reviewed tool arguments are invalid.")
+        try:
+            validated = tool.input_schema.model_validate(arguments)
+            resource = tool.resource(validated) if tool.resource else current.resource
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("The reviewed tool resource cannot be refreshed.") from exc
+        request = replace(
+            current,
+            action=tool.policy_action,
+            resource=resource,
+            tool=tool.name,
+            tool_effect=tool.effect,
+            tool_risk=tool.risk,
+        )
+        return _CurrentExtensionReview(
+            request,
+            {
+                "tool": tool.name,
+                "version": tool.version,
+                "arguments": validated.model_dump(mode="json"),
+            },
+        )
+    if kind == "mcp_tool":
+        from ..agents.mcp_tools import reviewed_policy_contract
+
+        request, contract, version_matches = reviewed_policy_contract(
+            invocation,
+            current.subject,
+        )
+        if not version_matches and approving:
+            raise PermissionError("The reviewed remote tool contract changed.")
+        return _CurrentExtensionReview(request, contract)
+    if kind == "workflow":
+        from . import playbooks
+
+        slug = str(invocation.get("playbook") or "")
+        expected = str(invocation.get("definition_digest") or "")
+        if not expected and approving:
+            raise PermissionError(
+                "The reviewed playbook has no content digest. Request a new review."
+            )
+        definition = playbooks.get_playbook(slug)
+        if expected and not playbooks.definition_digest_matches(expected, definition) and approving:
+            raise PermissionError("The reviewed playbook changed. Request a new review.")
+        project_type = str(definition.get("project_class") or slug)
+        resource = replace(current.resource, project_type=project_type)
+        request = replace(current, resource=resource)
+        if invocation.get("workflow_kind") == "playbook_policy":
+            return _CurrentExtensionReview(request)
+        raw_workflow = definition.get("workflow")
+        if raw_workflow is None:
+            raise ValueError("the reviewed playbook no longer has a workflow")
+        from ..public.workflow import WorkflowEngine, _issue_workflow_context
+
+        engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+        steps = engine.prepare(raw_workflow)
+        context = _issue_workflow_context(
+            engine,
+            current.subject,
+            str(invocation.get("origin") or "human"),
+            project_type=project_type,
+            resource_id=str(invocation.get("resource_id") or ""),
+            run_id=str(invocation.get("run_id") or ""),
+            values={
+                **dict(invocation.get("values") or {}),
+                "project_type": project_type,
+            },
+            approval_grants=dict(invocation.get("approval_grants") or {}),
+        )
+        review_key = str(invocation.get("reviewed_key") or "")
+        workflow_request, decision, fingerprint = engine.current_review(
+            steps,
+            context,
+            review_key,
+        )
+        return _CurrentExtensionReview(
+            workflow_request,
+            decision=decision,
+            fingerprint=fingerprint,
+        )
+    return _CurrentExtensionReview(current)
 
 
 def _clear_review_ping(change_id: int) -> None:
@@ -373,6 +952,35 @@ def reject_change(
     actor: str = "system",
     strong: bool = False,
     viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    policy_registry=None,
+) -> dict:
+    # Rejection is a durable policy verdict. Serialize current target lookup,
+    # reviewer qualification, and settlement just as approval does.
+    with db.transaction():
+        return _reject_change_locked(
+            change_id,
+            note,
+            actor=actor,
+            strong=strong,
+            viewer=viewer,
+            reviewer_groups=reviewer_groups,
+            reviewer_capabilities=reviewer_capabilities,
+            policy_registry=policy_registry,
+        )
+
+
+def _reject_change_locked(
+    change_id: int,
+    note: str = "",
+    *,
+    actor: str = "system",
+    strong: bool = False,
+    viewer: scope.Viewer = scope.NOBODY,
+    reviewer_groups: tuple[str, ...] = (),
+    reviewer_capabilities: tuple[str, ...] = (),
+    policy_registry=None,
 ) -> dict:
     _check_reviewer(actor)
     change = db.query_one("SELECT * FROM pending_changes WHERE id = ?", (change_id,))
@@ -383,10 +991,34 @@ def reject_change(
     _assert_judgeable(change, viewer)
     if change["status"] != "pending":
         raise ValueError(f"change #{change_id} already {change['status']}")
+    _revalidate_policy(
+        change,
+        policy_registry,
+        reviewer_groups,
+        reviewer_capabilities,
+        approving=False,
+    )
+    qualifications: dict[str, Any] = _check_policy_approver(
+        change,
+        reviewer_groups,
+        reviewer_capabilities,
+    )
+    if change.get("_stale_contract"):
+        qualifications["stale_contract"] = True
     # symmetric with approve: a non-sponsor reject feeds rejection streaks
     # (demotion input), so it needs the same reason-on-record
     sponsor = _sponsor_override(change, actor, note)
     _claim(change_id, "rejected", note, actor, strong, override=bool(sponsor))
+    db.execute(
+        "UPDATE pending_changes SET reviewer_qualifications = ? WHERE id = ?",
+        (json.dumps(qualifications), change_id),
+    )
+    if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
+        db.execute(
+            "UPDATE extension_review_invocations SET status = 'rejected', executed_at = ?"
+            " WHERE change_id = ?",
+            (db.now(), change_id),
+        )
     db.log_activity(
         actor,
         "reject_change",
@@ -555,7 +1187,8 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY) -> dict:
     # proposal against a crew note republished it to the whole roster.
     rejection_reasons = _readable(
         db.query(
-            "SELECT entity, entity_id, summary, review_note, reviewed_by FROM pending_changes"
+            "SELECT entity, entity_id, summary, review_note, reviewed_by,"
+            " review_visibility, review_crew_id, review_owner FROM pending_changes"
             " WHERE status = 'rejected' AND review_note != '' ORDER BY id DESC LIMIT 20"
         ),
         viewer,
@@ -598,6 +1231,12 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     Three sources, in order: the row `entity_id` names (updates), the row the
     payload names (_CREATE_PARENT), then the tier the payload declares.
     """
+    if any(change["entity"] == entity for entity, _action in lexicon.REVIEW_ONLY):
+        return (
+            str(change.get("review_visibility") or scope.WORKSPACE),
+            change.get("review_crew_id"),
+            str(change.get("review_owner") or change.get("requested_by") or ""),
+        )
     table = _TARGET_TABLE.get(change["entity"])
     if table not in scope.CLASSIFIED:
         return None
@@ -673,6 +1312,85 @@ def _readable(rows: list[dict], viewer: scope.Viewer) -> list[dict]:
     return out
 
 
+def filter_policy_resources(
+    rows: list[dict],
+    resource_filter,
+    *,
+    allow_unclassified: bool,
+    viewer: scope.Viewer | None,
+) -> list[dict]:
+    """Filter static review text by saved and current target policy context."""
+    from . import policy_context as domain_policy
+
+    resources = [(str(row.get("entity") or ""), int(row.get("entity_id") or 0)) for row in rows]
+    saved_resources: list[tuple[str, int, dict[str, str]] | None] = []
+    for row in rows:
+        try:
+            saved = json.loads(str(row.get("policy_context") or "{}"))
+        except (TypeError, ValueError):
+            saved = {}
+        policy_input = saved.get("input") if isinstance(saved, dict) else None
+        resource = policy_input.get("resource") if isinstance(policy_input, dict) else None
+        if not isinstance(resource, dict) or not str(resource.get("type") or ""):
+            saved_resources.append(None)
+            continue
+        saved_entity = str(resource["type"])
+        try:
+            saved_id = int(resource.get("id") or 0)
+        except (TypeError, ValueError):
+            saved_id = 0
+        raw_attributes = resource.get("attributes")
+        attributes = dict(raw_attributes) if isinstance(raw_attributes, dict) else {}
+        attributes.update(
+            project_type=str(resource.get("project_type") or ""),
+            classification=str(resource.get("classification") or ""),
+        )
+        saved_resources.append((saved_entity, saved_id, attributes))
+
+    supported = {
+        resource
+        for resource in resources
+        if resource[1] > 0 and domain_policy.supports_resource(resource[0])
+    }
+    supported.update(
+        (entity, entity_id)
+        for saved_resource in saved_resources
+        if saved_resource is not None
+        for entity, entity_id, _attributes in (saved_resource,)
+        if entity_id > 0 and domain_policy.supports_resource(entity)
+    )
+    current = (
+        {resource: domain_policy.existing(resource[0], resource[1]) for resource in supported}
+        if viewer is None
+        else domain_policy.resource_contexts(list(supported), viewer)
+    )
+    result: list[dict] = []
+    for row, (entity, entity_id), saved_resource in zip(
+        rows, resources, saved_resources, strict=True
+    ):
+        if entity_id > 0 and domain_policy.supports_resource(entity):
+            current_attributes = current.get((entity, entity_id))
+            if not current_attributes or not resource_filter(entity, entity_id, current_attributes):
+                continue
+
+        if saved_resource is not None:
+            saved_entity, saved_id, saved_attributes = saved_resource
+            if saved_id > 0 and domain_policy.supports_resource(saved_entity):
+                current_saved = current.get((saved_entity, saved_id))
+                if not current_saved:
+                    continue
+                if str(current_saved.get("relationship_conflict") or "").lower() == "true":
+                    continue
+                if not resource_filter(saved_entity, saved_id, current_saved):
+                    continue
+            if not resource_filter(saved_entity, saved_id, saved_attributes):
+                continue
+        elif not allow_unclassified:
+            continue
+        result.append({key: value for key, value in row.items() if key != "policy_context"})
+    return result
+
+
 def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     if status:
         rows = db.query(
@@ -688,6 +1406,9 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
     record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
     for r in rows:
         r["payload"] = json.loads(r["payload"])
+        r["policy_obligations"] = json.loads(r.get("policy_obligations") or "[]")
+        r["approver_groups"] = json.loads(r.get("approver_groups") or "[]")
+        r["approver_capabilities"] = json.loads(r.get("approver_capabilities") or "[]")
         # what this proposal is CALLED, resolved here so the header, the
         # checkbox label and the notification cannot drift apart
         r["label"] = lexicon.phrase(r["entity"], r["action"])

@@ -4,7 +4,9 @@ unblock / commit / review / notice) and each carries a "why you're seeing
 this" reason. An LLM narrative can be layered on top later (see digest.py)."""
 
 import re
+from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 from .. import db
 from . import notifications, scope
@@ -256,7 +258,14 @@ def _scoped_recent(user: str, since: str) -> list[dict]:
     )
 
 
-def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def my_day(
+    user: str,
+    viewer: scope.Viewer = scope.NOBODY,
+    row_filter: Callable[[str, list[dict]], list[dict]] | None = None,
+    mixed_filter: Callable[[list[dict]], list[dict]] | None = None,
+    allow_unclassified: bool = True,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict:
     """`viewer`, not just `user`: these three lists are addressed to a person
     BY NAME, and a name is self-asserted in trusted-header mode. Keyed on the
     name alone, `X-User: ava` with no credential returned Ava's private task
@@ -265,6 +274,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
     — membership is checked at the write, and this read outlives it.
     """
     from .review import _readable
+    from .work import redact_task_relationships
 
     # The team's day (config.SKEIN_TZ): due_date and committed_week carry no
     # zone, so "due today" must mean the day the reader is living in.
@@ -310,7 +320,8 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
                 # It is the difference between "your agent is waiting on you"
                 # and "the team has a queue".
                 "SELECT id, entity, entity_id, action, summary, proposed_by,"
-                " requested_by, created_at"
+                " requested_by, created_at, review_visibility, review_crew_id, review_owner,"
+                " policy_context"
                 " FROM pending_changes WHERE status = 'pending' ORDER BY id LIMIT 50"
             ),
             viewer,
@@ -340,7 +351,7 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
         "SELECT COUNT(*) AS n FROM pending_changes WHERE status = 'pending'"
     )
     attention = _attention(user, needs_you, today, week)
-    return {
+    result: dict[str, Any] = {
         "user": user,
         "date": today,
         "needs_you": needs_you,
@@ -385,21 +396,24 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             #
             # `in_progress` after the commitment, because work already open
             # costs more to leave than to finish.
-            "tasks": db.query(
-                "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
-                f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
-                " ORDER BY CASE WHEN priority = 'urgent'"
-                "   OR (due_date IS NOT NULL AND due_date < ?) THEN 0 ELSE 1 END,"
-                " CASE WHEN committed_week = ? THEN 0 ELSE 1 END,"
-                " CASE status WHEN 'in_progress' THEN 0 ELSE 1 END,"
-                " CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
-                " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
-                # `this_week` binds LAST: its placeholder is in ORDER BY, which
-                # follows the scope filter's marks in the SQL text. SQLite binds
-                # by position, not by clause.
-                # both ORDER BY marks bind after the filter's, in text order:
-                # the overdue test first, then the commitment test
-                (user, *t_p, today, this_week),
+            "tasks": redact_task_relationships(
+                db.query(
+                    "SELECT * FROM tasks WHERE assignee = ?"  # noqa: S608 — scope.visible_filter emits only bound marks
+                    f" AND status IN ('todo', 'in_progress', 'blocked') AND {t_f}"
+                    " ORDER BY CASE WHEN priority = 'urgent'"
+                    "   OR (due_date IS NOT NULL AND due_date < ?) THEN 0 ELSE 1 END,"
+                    " CASE WHEN committed_week = ? THEN 0 ELSE 1 END,"
+                    " CASE status WHEN 'in_progress' THEN 0 ELSE 1 END,"
+                    " CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
+                    " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
+                    # `this_week` binds LAST: its placeholder is in ORDER BY, which
+                    # follows the scope filter's marks in the SQL text. SQLite binds
+                    # by position, not by clause.
+                    # both ORDER BY marks bind after the filter's, in text order:
+                    # the overdue test first, then the commitment test
+                    (user, *t_p, today, this_week),
+                ),
+                viewer,
             ),
             # The tier filter wraps BOTH arms. The unowned arm was already
             # workspace-locked; the named-assignee arm was not, and it is a
@@ -416,12 +430,15 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             # them as SELECT * on every dashboard load, for every user.
             # ORDER BY due_date puts the most overdue first, so the cap drops
             # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
-            "due_soon": db.query(
-                "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
-                f" AND due_date <= ? AND {t_f}"
-                f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
-                " ORDER BY due_date LIMIT 50",
-                (week, *t_p, user),
+            "due_soon": redact_task_relationships(
+                db.query(
+                    "SELECT * FROM tasks WHERE status != 'done' AND due_date IS NOT NULL"  # noqa: S608 — scope.visible_filter emits only bound marks
+                    f" AND due_date <= ? AND {t_f}"
+                    f" AND (assignee = ? OR (assignee = '' AND {WORKSPACE_ONLY}))"
+                    " ORDER BY due_date LIMIT 50",
+                    (week, *t_p, user),
+                ),
+                viewer,
             ),
             "standup_suggestion": _standup_suggestion(user, yesterday),
         },
@@ -445,6 +462,44 @@ def my_day(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:
             "recent_activity": _human_digest(_scoped_recent(user, yesterday)),
         },
     }
+    if row_filter is not None:
+        needs = result["needs_you"]
+        needs["open_questions"] = row_filter("question", needs["open_questions"])
+        needs["meetings_awaiting_outcome"] = row_filter("event", needs["meetings_awaiting_outcome"])
+        needs["your_blockers"] = row_filter("blocker", needs["your_blockers"])
+        needs["intake_to_triage"] = row_filter("intake", needs["intake_to_triage"])
+        if mixed_filter is not None:
+            needs["pending_reviews"] = mixed_filter(needs["pending_reviews"])
+        from .notifications import policy_filter as filter_notifications
+
+        needs["notifications"] = filter_notifications(
+            needs["notifications"],
+            resource_filter,
+            allow_unclassified=allow_unclassified,
+            viewer=viewer,
+        )
+        result["your_work"]["tasks"] = row_filter("task", result["your_work"]["tasks"])
+        result["your_work"]["due_soon"] = row_filter("task", result["your_work"]["due_soon"])
+        if not allow_unclassified:
+            result["your_work"]["standup_suggestion"] = ""
+        result["team"]["recently_shipped"] = row_filter(
+            "engagement", result["team"]["recently_shipped"]
+        )
+        result["team"]["escalated_blockers"] = row_filter(
+            "blocker", result["team"]["escalated_blockers"]
+        )
+        result["team"]["todays_events"] = row_filter("event", result["team"]["todays_events"])
+        result["team"]["recent_activity"] = (
+            row_filter("activity", result["team"]["recent_activity"]) if allow_unclassified else []
+        )
+        filtered_attention = _attention(user, needs, today, week)
+        result["attention"] = filtered_attention
+        result["attention_total"] = sum(
+            1
+            for item in filtered_attention
+            if item["audience"] == "you" and item["group"] != "notice"
+        )
+    return result
 
 
 def attention_count(user: str, viewer: scope.Viewer = scope.NOBODY) -> dict:

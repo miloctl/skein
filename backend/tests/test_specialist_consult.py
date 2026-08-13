@@ -117,6 +117,210 @@ def test_the_bench_roster_reaches_the_system_prompt(real_provider):
     assert f"at most {MAX_CONSULTS_PER_TURN} specialists" in agent.system_prompt
 
 
+def test_chief_cannot_consult_a_contributed_specialist_without_its_capability(
+    real_provider,
+):
+    from app.extensions import ExtensionRegistry, SkeinModule, SpecialistContribution
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_subject,
+        set_policy_subject,
+    )
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        specialists=(
+            SpecialistContribution(
+                name="acme.workplace.private-specialist",
+                display_name="Private Specialist",
+                description="Uses restricted workplace context.",
+                system_prompt="Use restricted workplace context.",
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+    )
+    agent = team_agent.build_agent(
+        "t-workplace-capability",
+        extensions=ExtensionRegistry.build((module,)),
+    )
+    consult = _consult_tool(agent)
+    token = set_policy_subject(PolicySubject("mira"))
+    try:
+        events = asyncio.run(
+            _drain(consult("acme.workplace.private-specialist", "What is at risk?"))
+        )
+    finally:
+        reset_policy_subject(token)
+
+    assert json.loads(events[-1]) == {"error": "this specialist needs a workplace capability"}
+
+
+def test_chief_consults_a_contributed_specialist_after_lifespan_reserves_its_owner(
+    real_provider, monkeypatch, fresh_db
+):
+    from dataclasses import replace
+
+    from fastapi.testclient import TestClient
+
+    from app.extensions import AppSettings, SkeinModule, SpecialistContribution
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_subject,
+        set_policy_subject,
+    )
+    from app.main import create_app
+
+    name = "acme.workplace.private-specialist"
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        specialists=(
+            SpecialistContribution(
+                name=name,
+                display_name="Private Specialist",
+                description="Uses restricted workplace context.",
+                system_prompt="Use restricted workplace context.",
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,))) as client:
+        registry = client.app.state.skein_registry
+        chief = team_agent.build_agent("t-private-specialist", extensions=registry)
+        consult = _consult_tool(chief)
+        monkeypatch.setattr(
+            team_agent, "build_agent", lambda *a, **k: _Answering(("Private ", "read."))
+        )
+        token = set_policy_subject(PolicySubject("mira", capabilities=("acme.specialist",)))
+        try:
+            events = asyncio.run(_drain(consult(name, "What is at risk?")))
+        finally:
+            reset_policy_subject(token)
+
+        assert json.loads(events[-1])["answer"] == "Private read."
+        assert fresh_db.query_one(
+            "SELECT kind, identity_owner FROM users WHERE name = ?", (name,)
+        ) == {"kind": "agent", "identity_owner": f"specialist:{name}"}
+
+
+def test_chief_consult_refuses_a_contributed_specialist_with_the_wrong_owner(
+    real_provider, fresh_db
+):
+    from app.extensions import ExtensionRegistry, SkeinModule, SpecialistContribution
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_subject,
+        set_policy_subject,
+    )
+
+    name = "acme.workplace.private-specialist"
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        specialists=(
+            SpecialistContribution(
+                name=name,
+                display_name="Private Specialist",
+                description="Uses restricted workplace context.",
+                system_prompt="Use restricted workplace context.",
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+    )
+    fresh_db.execute(
+        "INSERT INTO users (name, kind, identity_owner, created_at)"
+        " VALUES (?, 'agent', 'generic-agent', ?)",
+        (name, fresh_db.now()),
+    )
+    chief = team_agent.build_agent(
+        "t-private-specialist-owner", extensions=ExtensionRegistry.build((module,))
+    )
+    consult = _consult_tool(chief)
+    token = set_policy_subject(PolicySubject("mira", capabilities=("acme.specialist",)))
+    try:
+        events = asyncio.run(_drain(consult(name, "What is at risk?")))
+    finally:
+        reset_policy_subject(token)
+
+    assert "another machine identity" in json.loads(events[-1])["error"]
+
+
+def test_keyless_contributed_specialist_is_deterministic_and_cannot_write(fresh_db):
+    from app.agents.mock_agent import MockExtensionSpecialist
+    from app.extensions import (
+        ContextContribution,
+        ExtensionRegistry,
+        SkeinModule,
+        SpecialistContribution,
+    )
+    from app.extensions.policy import (
+        PolicySubject,
+        reset_policy_subject,
+        set_policy_subject,
+    )
+
+    module = SkeinModule(
+        module_id="acme.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        contexts=(
+            ContextContribution(
+                "acme.workplace.delivery-context",
+                lambda user: f"for {user}",
+                policy_action="acme.delivery-context.read",
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+        specialists=(
+            SpecialistContribution(
+                name="acme.workplace.delivery",
+                display_name="Delivery Specialist",
+                description="Reads delivery context.",
+                system_prompt="Use delivery context.",
+                context_sources=("acme.workplace.delivery-context",),
+                required_capabilities=("acme.specialist",),
+            ),
+        ),
+    )
+    registry = ExtensionRegistry.build((module,))
+    token = set_policy_subject(PolicySubject("mira", capabilities=("acme.specialist",)))
+    try:
+        specialist = team_agent.build_agent(
+            "keyless-specialist",
+            "mira",
+            persona="acme.workplace.delivery",
+            extensions=registry,
+        )
+        events = asyncio.run(_drain(specialist.stream_async("Create a task from this text")))
+    finally:
+        reset_policy_subject(token)
+
+    assert isinstance(specialist, MockExtensionSpecialist)
+    assert specialist.system_prompt == "Use delivery context."
+    assert specialist.context == ("for mira",)
+    assert specialist.tool_names == []
+    assert "No tool ran and no work was written" in events[-1]["data"]
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+    assert fresh_db.query_one("SELECT actor, action, detail FROM activity") == {
+        "actor": "acme.workplace.delivery",
+        "action": "external_tool",
+        "detail": ("acme.workplace.delivery-context completed correlation=keyless-specialist"),
+    }
+
+
 def test_an_empty_bench_says_so_rather_than_rendering_nothing(monkeypatch):
     """A silent gap reads to the model as "no such feature", and it then tells
     the user consulting is impossible when an overlay simply is not mounted."""
@@ -747,10 +951,10 @@ def test_a_held_slug_returns_the_error_instead_of_raising(real_provider, monkeyp
     agent = team_agent.build_agent("t-held")
     consult = _consult_tool(agent)
 
-    def held(name, kind="human"):
+    def held(name, **_kwargs):
         raise ValueError("that name belongs to a teammate")
 
-    monkeypatch.setattr(users_svc, "ensure_user", held)
+    monkeypatch.setattr(users_svc, "ensure_agent_identity", held)
     out = json.loads(asyncio.run(_drain(consult("code-reviewer", "q")))[-1])
     assert "belongs to a teammate" in out["error"]
 

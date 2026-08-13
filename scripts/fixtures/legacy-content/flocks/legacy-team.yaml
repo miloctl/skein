@@ -1,0 +1,6 @@
+name: Legacy Team
+description: Two legacy viewpoints
+workplace_note: retained across upgrade
+members:
+  - legacy-reviewer
+  - backend-architect

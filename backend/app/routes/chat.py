@@ -13,7 +13,7 @@ import re
 import time
 from collections import Counter
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
@@ -31,13 +31,22 @@ from ..agents.identity import (
     start_consults,
 )
 from ..agents.team_agent import build_agent, build_synthesizer, build_titler
+from ..extensions.fastapi import PolicyAPIRoute, subject_for
+from ..extensions.policy import (
+    PolicyEngine,
+    PolicySubject,
+    reset_policy_engine,
+    reset_policy_subject,
+    set_policy_engine,
+    set_policy_subject,
+)
 from ..services import capture, chat_threads, fieldguide, flocks, mentions, personas
 from ..services.private_notes import FB_GUARD
 from ..services.usage import record_chat_usage
 from ..services.usage import row_from_agent as _usage_row
 from .deps import CurrentUser, ViewerDep
 
-router = APIRouter()
+router = APIRouter(route_class=PolicyAPIRoute)
 
 # agent streams in flight, keyed by their session id. The command bridge
 # (session_log) computes message indices from disk while a live agent caches
@@ -421,7 +430,16 @@ async def _run_member(
         out.put_nowait({"type": "member-end", "entry": entry})
 
 
-async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw: str, viewer=None):
+async def _flock_stream(
+    fdef: dict,
+    ui_thread: str,
+    user: str,
+    message: str,
+    raw: str,
+    viewer=None,
+    policy_engine: PolicyEngine | None = None,
+    policy_subject: PolicySubject | None = None,
+):
     """Fan one message out to every member, render the answers as sections in
     declared order, then merge them when the flock synthesizes."""
     cards = await run_in_threadpool(flocks.member_cards, fdef["members"])
@@ -440,6 +458,8 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
     # a member files must name the human who asked (tools/_gate.py reads it as
     # requested_by). Identity is per-task; the requester is per-turn.
     req_token = set_requester_identity(user)
+    policy_token = set_policy_engine(policy_engine) if policy_engine is not None else None
+    subject_token = set_policy_subject(policy_subject) if policy_subject is not None else None
     # and the requesting human's VIEWER, because `/as <persona>` hands a human
     # an agent identity: without it the tool surface reads as the persona,
     # which is in no crew, and agent_inbox is unfiltered for its own agent
@@ -669,17 +689,22 @@ async def _flock_stream(fdef: dict, ui_thread: str, user: str, message: str, raw
         with contextlib.suppress(ValueError):
             reset_requester_identity(req_token)
             reset_requester_viewer(rv_token)
+            if policy_token is not None:
+                reset_policy_engine(policy_token)
+            if subject_token is not None:
+                reset_policy_subject(subject_token)
     yield _sse({"type": "done"})
 
 
 @router.post("/api/chat")
-async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
+async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: ViewerDep):
     # Sync work (SQLite reads, disk session restore, transcript writes) goes
     # through run_in_threadpool everywhere in this route: this coroutine and
     # its generators run on the event loop that carries every open SSE
     # stream, so one inline disk or DB stall freezes them all. main.py's
     # perimeter middleware documents the same rule.
     ratelimit.check("chat", user)
+    subject = subject_for(request, user)
     # the UI transcript is keyed by the BASE thread id (persona sessions
     # share one visible conversation); sanitize once, up front
     ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64]
@@ -692,6 +717,9 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     # unknown slugs get a deterministic error, valid ones swap the agent's
     # head and identity (writes are attributed and gated per persona)
     persona = ""
+    extension_specialists = {
+        item.name: item for item in request.app.state.skein_registry.specialists
+    }
     message = req.message
     stripped = message.strip()
     # A LEADING @slug invokes that bench persona for this ONE message. Rewritten
@@ -714,7 +742,8 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # its error string. Without this pre-check the commonest @ message in
         # the product — "@mira can you look" — paid a full bench parse to
         # produce a message nobody reads.
-        if rest and slug in await run_in_threadpool(personas.bench_slugs):
+        bench = set(await run_in_threadpool(personas.bench_slugs)) | set(extension_specialists)
+        if rest and slug in bench:
             stripped = f"/as {slug} {rest}"
             message = stripped
     if stripped.lower().split(maxsplit=1)[:1] == ["/as"]:
@@ -723,8 +752,24 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
             err = "Usage: `/as <persona> <message>` — `/personas` lists the bench."
         else:
             try:
-                pdef = await run_in_threadpool(personas.get_persona, parts[1].lower())
-                persona = str(pdef["slug"])
+                selected = parts[1].lower()
+                if selected in extension_specialists:
+                    extension = extension_specialists[selected]
+                    from ..extensions.agents import missing_specialist_capabilities
+
+                    missing = missing_specialist_capabilities(
+                        request.app.state.skein_registry,
+                        extension.name,
+                        subject,
+                    )
+                    if missing:
+                        raise ValueError(
+                            "this specialist needs a workplace capability that your identity lacks"
+                        )
+                    persona = extension.name
+                else:
+                    pdef = await run_in_threadpool(personas.get_persona, selected)
+                    persona = str(pdef["slug"])
                 message = parts[2]
                 err = ""
             except ValueError as exc:
@@ -820,7 +865,16 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     # tokens — same engine the mock agent and Slack use. The exchange is
     # still bridged into the model session afterwards (session_log) so a
     # follow-up question to the agent has the context.
-    command_events = commands.dispatch(message, user, viewer)
+    command_events = commands.dispatch(
+        message,
+        user,
+        viewer,
+        commands.CommandAccess(
+            request.app.state.skein_registry.policy_engine,
+            subject,
+            "human",
+        ),
+    )
     if command_events is not None:
 
         async def command_stream():
@@ -929,7 +983,16 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # what a filing-shaped message asked for, and a flock turn has N heads
         # and no write path of its own (docs/FLOCKS.md)
         return StreamingResponse(
-            _flock_stream(flock_def, ui_thread, user, message, req.message, viewer),
+            _flock_stream(
+                flock_def,
+                ui_thread,
+                user,
+                message,
+                req.message,
+                viewer,
+                request.app.state.skein_registry.policy_engine,
+                subject,
+            ),
             media_type="text/event-stream",
         )
     thread_id = ui_thread
@@ -942,7 +1005,16 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
     if persona:
         # deterministic nameplate for EVERY provider, once per thread — who
         # answered must never depend on whether the model signs its work
-        pdef = await run_in_threadpool(personas.get_persona, persona)
+        if persona in extension_specialists:
+            extension = extension_specialists[persona]
+            pdef = {
+                "name": extension.display_name,
+                "emoji": "🧩",
+                "vibe": extension.description,
+                "disclosure": "Workplace extension specialist",
+            }
+        else:
+            pdef = await run_in_threadpool(personas.get_persona, persona)
         # provider-neutral once-per-persona-per-thread check: transcripts are
         # logged under the BASE thread id (the mock path never creates a
         # session dir, and the suffixed id never appears in chat_messages)
@@ -958,7 +1030,13 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # threadpool, not inline: build_agent restores the whole session
         # transcript from disk before it returns
         agent = await run_in_threadpool(
-            build_agent, thread_id, user, persona=persona, viewer=viewer
+            build_agent,
+            thread_id,
+            user,
+            persona=persona,
+            viewer=viewer,
+            extensions=request.app.state.skein_registry,
+            policy_subject=subject,
         )
     except Exception as exc:
         # keep the SSE protocol even when agent construction fails (bad model id, etc.)
@@ -1000,6 +1078,8 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
         # here, the default identity "agent" was ONE team-wide 30/min bucket,
         # and person B's write refused because person A was mid-turn
         req_token = set_requester_identity(user)
+        policy_token = set_policy_engine(request.app.state.skein_registry.policy_engine)
+        subject_token = set_policy_subject(subject)
         rv_token = set_requester_viewer(viewer)
         if masthead:
             yield _sse({"type": "text", "text": masthead})
@@ -1179,6 +1259,8 @@ async def chat(req: ChatRequest, user: CurrentUser, viewer: ViewerDep):
                 reset_agent_identity(token)
                 reset_requester_identity(req_token)
                 reset_requester_viewer(rv_token)
+                reset_policy_engine(policy_token)
+                reset_policy_subject(subject_token)
             except ValueError:
                 pass
             # sync fallback for the CANCELLED stream (stop button, tab

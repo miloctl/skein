@@ -140,6 +140,63 @@ def test_token_exchange_returns_a_validated_token(client, monkeypatch, fresh_db)
     assert sent["code_verifier"] == "v"
     assert sent["client_id"] == "skein-web"
     assert "client_secret" not in sent
+    assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'casey'") == {"kind": "human"}
+
+
+@pytest.mark.parametrize("name", ["anonymous", "agent", "ci", "mcp", "system"])
+def test_token_exchange_refuses_synthetic_and_core_identities(client, monkeypatch, fresh_db, name):
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "reserved"})
+    monkeypatch.setattr(oidc, "validate", lambda token: {"preferred_username": name})
+
+    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+
+    assert response.status_code == 403
+    assert "reserved for the system" in response.json()["detail"]
+    row = fresh_db.query_one("SELECT kind FROM users WHERE name = ?", (name,))
+    if name == "agent":
+        assert row == {"kind": "agent"}  # application startup owns it
+    else:
+        assert row is None
+
+
+def test_token_exchange_refuses_an_inactive_principal(client, monkeypatch, fresh_db):
+    from app.routes.deps import INACTIVE
+    from app.services import users
+
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    users.ensure_human_identity("departed")
+    users.set_active("departed", False, actor="ops")
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "inactive"})
+    monkeypatch.setattr(oidc, "validate", lambda token: {"preferred_username": "departed"})
+
+    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == INACTIVE
+
+
+def test_token_exchange_cannot_claim_pending_content_identity(
+    client, monkeypatch, fresh_db, tmp_path
+):
+    overlay = tmp_path / "personas"
+    overlay.mkdir()
+    monkeypatch.setattr(config, "PERSONAS_OVERLAY", overlay)
+    (overlay / "future-oidc.md").write_text(
+        "---\nname: Future OIDC\ndescription: Pending restart\n---\nWait for restart.\n"
+    )
+    _as_oidc(monkeypatch)
+    _discovery(monkeypatch)
+    monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "pending"})
+    monkeypatch.setattr(oidc, "validate", lambda token: {"preferred_username": "FUTURE-OIDC"})
+
+    response = client.post("/api/auth/token", json={"refresh_token": "r1"})
+
+    assert response.status_code == 403
+    assert "reserved for a bench persona" in response.json()["detail"]
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'FUTURE-OIDC'") is None
 
 
 def test_token_refuses_a_token_it_cannot_validate(client, monkeypatch, fresh_db):

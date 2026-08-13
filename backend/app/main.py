@@ -1,9 +1,13 @@
 import logging
-import os
 import sqlite3
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from functools import partial
+from inspect import isawaitable
+from typing import Any, cast
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -11,10 +15,19 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
-from .routes import api, auth, chat, private, slack, webhooks
+from .extensions import AppSettings, ExtensionRegistry, SkeinModule
+from .extensions.contracts import JobContribution, JobExecutionContext
+from .extensions.core import core_module
+from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
+from .extensions.registry import validate_core_tool_names
+from .identity_names import (
+    activate_runtime_machine_subjects,
+    deactivate_runtime_machine_subjects,
+)
+from .public.errors import PublicError
 from .services import handoff
 from .services.activity import chain_health
-from .services.jobs import JOBS, job_health, run_job
+from .services.jobs import JOBS, JobSpec, job_health, run_job
 from .services.personas import unlisted_model_warnings
 from .services.settings import effective_context_strategy, model_pick_state
 from .telemetry import setup_telemetry
@@ -26,18 +39,202 @@ logging.basicConfig(
 log = logging.getLogger("skein")
 
 
-def _start_scheduler():
-    """Background jobs in the TEAM's zone (config.TZ_NAME), one per
-    services.jobs.JOBS entry. Jobs are once-only via db.claim_job or CAS status
-    flips, so an accidental multi-worker deployment can't double-run them.
+def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobSpec, ...]:
+    from .public.work import WorkItems
+
+    policy = registry.policy_engine
+    work_items = WorkItems(policy)
+
+    def invoke(contribution: JobContribution) -> Any:
+        from .extensions.policy import PolicyEffect, PolicyInput, PolicyResource
+
+        subject = registry.service_subject(contribution.service_identity)
+        decision = policy.decide(
+            PolicyInput(
+                subject,
+                contribution.policy_action,
+                PolicyResource("job", contribution.name),
+                "background",
+                agent=subject.name,
+                tool=contribution.name,
+                tool_effect=contribution.effect,
+                tool_risk=contribution.risk,
+            )
+        )
+        if decision.effect != PolicyEffect.PERMIT:
+            return {
+                "status": "error",
+                "error_code": (
+                    "POLICY_REVIEW_UNSUPPORTED"
+                    if decision.effect == PolicyEffect.REVIEW
+                    else "POLICY_DENIED"
+                ),
+            }
+        seconds = max(int(contribution.period_hours * 3600), 60)
+        run_id = f"{contribution.name}:{int(datetime.now(UTC).timestamp()) // seconds}"
+        if not contribution.name.startswith("skein.core.") and not db.claim_job(
+            f"extension:{contribution.name}", run_id
+        ):
+            return {"skipped": "this job run is already claimed", "run_id": run_id}
+        from .public.work import _bind_execution_context
+
+        if contribution.name == "skein.core.agent-run":
+            # This core adapter needs the full trusted composition root. The
+            # public JobExecutionContext stays narrow for private jobs, while
+            # every model-facing tool in an unattended turn receives the same
+            # policy engine and extension registry as an interactive turn.
+            from .services.agent_runner import run as run_agents
+
+            return run_agents(actor=subject.name, extensions=registry, policy=policy)
+        if contribution.name.startswith("skein.core."):
+            return contribution.handler(
+                _bind_execution_context(
+                    work_items,
+                    JobExecutionContext(policy, work_items, subject, run_id, contribution.name),
+                    subject=subject,
+                    namespace=contribution.name,
+                    receipt_namespace=f"job:{contribution.name}",
+                    correlation_id=run_id,
+                )
+            )
+        from .public._owner_work import run_bounded_work_handler
+
+        # The owner-dispatch facade revokes the job's WorkItems authority at
+        # the deadline. A bare executor only stopped WAITING: the worker
+        # thread kept a live context and wrote core rows AFTER the run was
+        # recorded COMPLETION_UNKNOWN.
+        def invoke_handler(services: JobExecutionContext, _request: Any) -> Any:
+            return contribution.handler(services)
+
+        try:
+            bounded = run_bounded_work_handler(
+                policy,
+                lambda bound_work_items: _bind_execution_context(
+                    bound_work_items,
+                    JobExecutionContext(
+                        policy,
+                        bound_work_items,
+                        subject,
+                        run_id,
+                        contribution.name,
+                    ),
+                    subject=subject,
+                    namespace=contribution.name,
+                    receipt_namespace=f"job:{contribution.name}",
+                    correlation_id=run_id,
+                ),
+                invoke_handler,
+                None,
+                contribution.timeout_seconds,
+                thread_name="skein-extension-job",
+            )
+            if bounded.timed_out:
+                return {
+                    "status": "error",
+                    "error_code": (
+                        "COMPLETION_UNKNOWN"
+                        if contribution.effect in ("write", "unknown")
+                        else "JOB_TIMEOUT"
+                    ),
+                }
+            result = bounded.value
+            if isawaitable(result):
+                close = getattr(result, "close", None)
+                if close is not None:
+                    close()
+                return {"status": "error", "error_code": "ASYNC_HANDLER_UNSUPPORTED"}
+            if not isinstance(result, dict):
+                return {
+                    "status": "error",
+                    "error_code": (
+                        "COMPLETION_UNKNOWN"
+                        if contribution.effect in ("write", "unknown")
+                        else "INVALID_JOB_RESULT"
+                    ),
+                }
+            return result
+        except Exception:
+            log.exception("extension job failed", extra={"job": contribution.name})
+            return {
+                "status": "error",
+                "error_code": (
+                    "COMPLETION_UNKNOWN"
+                    if contribution.effect in ("write", "unknown")
+                    else "JOB_FAILED"
+                ),
+            }
+
+    specs = []
+    for contribution in registry.jobs:
+        name = contribution.name
+        if name.startswith("skein.core."):
+            name = name.removeprefix("skein.core.")
+        specs.append(
+            JobSpec(
+                name=name,
+                fn=partial(invoke, contribution),
+                trigger=dict(contribution.trigger),
+                period_hours=contribution.period_hours,
+                catch_up=contribution.catch_up,
+            )
+        )
+    from .extensions.contracts import EventExecutionContext
+    from .public.events import dispatch_events
+
+    event_context = EventExecutionContext(policy, work_items, registry.service_subject)
+
+    def dispatch_extension_events() -> dict[str, Any]:
+        # One dispatcher per minute WINDOW, not true single-flight: a batch
+        # that outlives its minute can still overlap the next window's
+        # winner, which the at-least-once contract (handlers key on
+        # event_id) is what survives. The claim removes the common two-worker
+        # same-minute duplication; a per-delivery lease is the ROADMAP item.
+        # status "noop" on the lost claim: run_job records nothing for it, so
+        # the loser's every-minute skip cannot keep last-success fresh while
+        # the winner fails.
+        window = f"events:{int(datetime.now(UTC).timestamp()) // 60}"
+        if not db.claim_job("extension-events", window):
+            return {"skipped": "this dispatch window is already claimed", "status": "noop"}
+        counts = dict(dispatch_events(registry.events, event_context))
+        if counts.get("failed") or counts.get("dead"):
+            # `partial` is what run_job records as an error — without it a
+            # night of dead deliveries left /health green.
+            return {**counts, "status": "partial"}
+        return counts
+
+    specs.append(
+        JobSpec(
+            name="extension-events",
+            fn=dispatch_extension_events,
+            trigger={"trigger": "interval", "minutes": 1},
+            period_hours=1 / 60,
+            # catch_up drained the whole backlog synchronously before the
+            # lifespan yielded — a slow subscriber delayed readiness by its
+            # full timeout per event. The one-minute interval covers boot.
+            catch_up=False,
+        )
+    )
+    return tuple(specs)
+
+
+def _start_scheduler(
+    specs: Sequence[JobSpec] = JOBS,
+    timezone: str | None = None,
+):
+    """Background jobs in the team's zone, from the composed registry.
+
+    Jobs are once-only via db.claim_job or CAS status flips, so an accidental
+    multi-worker deployment cannot double-run them.
 
     The hours in JOBS are the hours a person experiences: the 07:00 digest is
     07:00 where the team works. APScheduler resolves the DST edges — a job at
     an hour that a spring-forward skips runs once, not zero times."""
-    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.schedulers.background import (
+        BackgroundScheduler,
+    )
 
-    scheduler = BackgroundScheduler(daemon=True, timezone=config.TZ_NAME)
-    for spec in JOBS:
+    scheduler = BackgroundScheduler(daemon=True, timezone=timezone or config.TZ_NAME)
+    for spec in specs:
         scheduler.add_job(lambda spec=spec: run_job(spec), id=spec.name, **spec.trigger)
     scheduler.start()
     return scheduler
@@ -45,46 +242,104 @@ def _start_scheduler():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings: AppSettings = app.state.skein_settings
+    registry: ExtensionRegistry = app.state.skein_registry
+    specs = _job_specs(registry, settings)
     db.init_db()  # a failed migration MUST abort startup — everything else must not
+    from .services.users import identity_ownership_conflicts
+
+    for conflict in identity_ownership_conflicts():
+        log.error(
+            "conflicting identity ownership (%s): %s. Run python -m app.identity_audit"
+            " before these identities authenticate or run as machines.",
+            conflict["kind"],
+            ", ".join(conflict["names"]),
+        )
+    for contribution in registry.migrations:
+        contribution.store.migrate(contribution.migrations)
     # same rule for the field-guide registry: malformed knots.yaml aborts boot
     # here, instead of 500ing the first /field-guide request at 3pm
-    from .services import fieldguide
+    from .services import fieldguide, playbooks
 
     fieldguide.registry()
+    content_errors = playbooks.validate_startup(
+        {contribution.name for contribution in registry.workflow_actions}
+    )
+    if content_errors:
+        raise RuntimeError("invalid playbook content: " + "; ".join(content_errors))
+    from .extensions.registry import validate_machine_identity_ownership
+
+    # Invalid contributed machine ownership is an application composition
+    # error. An invalid operator-supplied MCP actor disables only MCP; REST
+    # stays available, as it did before the extension composition work.
+    validate_machine_identity_ownership(registry)
+    mcp_identity_available = True
+    try:
+        validate_machine_identity_ownership(
+            registry,
+            (("MCP actor", settings.mcp_user),),
+        )
+    except RuntimeError as exc:
+        mcp_identity_available = False
+        log.error(
+            "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
+            " unavailable until this is changed. The REST API is unaffected.",
+            settings.mcp_user,
+            exc,
+        )
     # reserve the built-in agent identities as kind=agent BEFORE any request
     # can claim them: a weak X-User minting "agent" as a human row would
     # permanently shadow the chat identity's writes
-    from .services.users import ensure_user
+    from .services.activity import SYSTEM_ACTORS
+    from .services.users import _reserve_core_agent_identity, ensure_agent_identity
 
     try:
-        ensure_user("agent", kind="agent")
+        _reserve_core_agent_identity("agent")
     except ValueError as exc:
         # a legacy human row named `Agent` was legal before the collision
         # guard; it must not brick a boot nobody can reach the rename route on
         log.error("the built-in 'agent' identity is unavailable: %s", exc)
+    for specialist in registry.specialists:
+        try:
+            ensure_agent_identity(specialist.name, owner=f"specialist:{specialist.name}")
+        except ValueError as exc:
+            raise RuntimeError(
+                f"specialist identity {specialist.name!r} is already owned: {exc}"
+            ) from exc
+    for identity in registry.service_identities:
+        # Core machine actors are reserved independently of the users table.
+        # `ensure_user` intentionally refuses those names, and no human entry
+        # point can claim them. Private service names still get an agent row so
+        # they cannot be claimed later through a legacy or direct user path.
+        if identity.subject not in SYSTEM_ACTORS:
+            try:
+                ensure_agent_identity(identity.subject, owner=f"service:{identity.name}")
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"service identity {identity.subject!r} is already owned: {exc}"
+                ) from exc
     # SKEIN_MCP_USER is operator-supplied, and the obvious thing to type is
     # your own name — which reserves it as an AGENT identity, and agent
     # identities are refused on REST and on every private surface. An existing
-    # human row is safe (INSERT OR IGNORE leaves it alone), so the trap is a
-    # fresh install. Say so at boot instead of letting the operator find out
-    # by being locked out; the recovery is a rename of the agent row.
-    mcp_user = os.getenv("SKEIN_MCP_USER", "mcp-agent")
-    minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
-    try:
-        ensure_user(mcp_user, kind="agent")
-    except ValueError as exc:
-        # operator-supplied config NEVER takes down the REST API — the same
-        # rule the model provider follows when it degrades to mock. Without
-        # this, one typo in SKEIN_MCP_USER refuses every request in the
-        # deployment, which is worse than the lockout the warning below
-        # exists to prevent.
-        minted = False
-        log.error(
-            "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
-            " unavailable until this is changed. The REST API is unaffected.",
-            mcp_user,
-            exc,
-        )
+    # human row is unsafe because it would merge human and machine ownership.
+    # Disable MCP and keep REST available when that collision exists.
+    mcp_user = settings.mcp_user
+    minted = False
+    if mcp_identity_available:
+        minted = db.query_one("SELECT 1 FROM users WHERE name = ?", (mcp_user,)) is None
+        try:
+            ensure_agent_identity(mcp_user, owner="mcp")
+        except ValueError as exc:
+            # Operator-supplied config never takes down REST. The same rule
+            # lets a bad model provider degrade to deterministic mode.
+            minted = False
+            mcp_identity_available = False
+            log.error(
+                "SKEIN_MCP_USER=%r cannot be reserved: %s. The MCP identity is"
+                " unavailable until this is changed. The REST API is unaffected.",
+                mcp_user,
+                exc,
+            )
     if minted and mcp_user != "mcp-agent":
         log.warning(
             "reserved %r as an AGENT identity (SKEIN_MCP_USER). Agent identities cannot"
@@ -102,17 +357,17 @@ async def lifespan(app: FastAPI):
             config.TZ_REJECTED,
             config.TZ_ERROR,
         )
-    if config.AUTH_ERROR:
+    if settings.auth_error:
         # the rejected value goes to the LOG, never to the 503 body: that
         # response is served to unauthenticated callers, and an operator who
         # pastes a secret into the wrong variable must not broadcast it
         log.error(
             "auth is misconfigured (SKEIN_AUTH_MODE=%r): %s — every /api request"
             " is refused until this is fixed",
-            config.AUTH_MODE,
-            config.AUTH_ERROR,
+            settings.auth_mode,
+            settings.auth_error,
         )
-    elif config.AUTH_MODE == "trusted-header":
+    elif settings.auth_mode == "trusted-header":
         log.warning(
             "SKEIN_AUTH_MODE=trusted-header: identity is the self-asserted X-User"
             " header. This mode is for a trusted network or local development. If the"
@@ -134,86 +389,121 @@ async def lifespan(app: FastAPI):
             stuck,
         )
 
-    if config.API_TOKEN and config.AUTH_MODE != "trusted-header":
+    if settings.api_token and settings.auth_mode != "trusted-header":
         log.warning(
             "SKEIN_API_TOKEN has no effect with SKEIN_AUTH_MODE=%s — that mode"
             " already demands a per-caller credential on every request",
-            config.AUTH_MODE,
+            settings.auth_mode,
         )
     # one-time import of pre-045 file sessions; flagged, so it never
     # resurrects a deleted chat. Per-session failures log and skip.
     from .agents.session_store import import_file_sessions
 
     import_file_sessions()
-    # claim-guarded catch-up runs fill in for cron firings missed while the
-    # process was down (no misfire replay); run_job never raises
-    for spec in JOBS:
-        if spec.catch_up:
-            run_job(spec)
-    setup_telemetry()
-    from .agents.narrator import register_narrator
+    scheduler = None
+    keepalive_open = False
+    runtime_subjects = {
+        *(identity.subject for identity in registry.service_identities),
+        *(specialist.name for specialist in registry.specialists),
+    }
+    if mcp_identity_available:
+        runtime_subjects.add(mcp_user)
+    from .services import flocks as flocks_svc
+    from .services import personas as personas_svc
 
-    register_narrator()  # composition root: agents plug into services here
-    # Two SEPARATE thread pools, sized here so the numbers are chosen rather
-    # than inherited (config.py documents the measurement). anyio's limiter
-    # carries every sync route handler and run_in_threadpool call; the loop's
-    # default executor carries every sync @tool via asyncio.to_thread — left
-    # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
+    # Persona filenames reserve identity even when their prompt is malformed;
+    # the strict validator reports that fault. A malformed flock is not an
+    # identity until it parses, so fixing or adding one requires restart.
+    configured_content_owners = personas_svc.bench_slugs() | {
+        item["slug"] for item in flocks_svc.list_flocks()
+    }
+    from .services.users import reserve_content_identities
 
-    import anyio.to_thread
-
-    # THE only place either pool size is applied. services/tuning.py exposes
-    # both as knobs marked live=False, and this line is why that mark is
-    # honest: an administrator's override reaches the process here and
-    # nowhere else, so it takes effect at the next boot and not before.
-    # db.init_db() ran at the top of this function, so the read is safe.
-    pools = {"thread_pool": config.THREAD_POOL, "tool_threads": config.TOOL_THREADS}
-    try:
-        from .services.tuning import effective
-
-        pools = {name: effective(name) for name in pools}
-    except Exception:
-        # operator config never takes down the API — the env values are a
-        # correct sizing, just not the stored one
-        log.exception("could not read the stored pool sizes — using the environment values")
-    anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
-    asyncio.get_running_loop().set_default_executor(
-        ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
+    runtime_content_owners, content_identity_conflicts = reserve_content_identities(
+        configured_content_owners
     )
-    # held for the process lifetime so writes stop paying WAL
-    # checkpoint-on-close — 42x per write when idle, measured (db.py)
-    db.open_keepalive()
-    scheduler = _start_scheduler() if config.SCHEDULER_ENABLED else None
-    yield
-    if scheduler:
-        scheduler.shutdown(wait=False)
-    from .agents.mcp_tools import shutdown_mcp
+    for conflict in content_identity_conflicts:
+        log.error(
+            "content identity %r is unavailable because roster ownership belongs to: %s",
+            conflict["claim"],
+            ", ".join(conflict["names"]),
+        )
+    runtime_subject_token = activate_runtime_machine_subjects(
+        runtime_subjects, runtime_content_owners
+    )
+    try:
+        # claim-guarded catch-up runs fill in for cron firings missed while the
+        # process was down (no misfire replay); run_job never raises
+        for spec in specs:
+            if spec.catch_up:
+                run_job(spec)
+        setup_telemetry()
+        from .agents.narrator import register_narrator
 
-    shutdown_mcp()
-    from .services import adoption
+        register_narrator()  # composition root: agents plug into services here
+        # Two SEPARATE thread pools, sized here so the numbers are chosen rather
+        # than inherited (config.py documents the measurement). anyio's limiter
+        # carries every sync route handler and run_in_threadpool call; the loop's
+        # default executor carries every sync @tool via asyncio.to_thread — left
+        # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
 
-    adoption.flush()
-    db.close_keepalive()
+        import anyio.to_thread
+
+        # THE only place either pool size is applied. services/tuning.py exposes
+        # both as knobs marked live=False, and this line is why that mark is
+        # honest: an administrator's override reaches the process here and
+        # nowhere else, so it takes effect at the next boot and not before.
+        # db.init_db() ran at the top of this function, so the read is safe.
+        pools = {"thread_pool": settings.thread_pool, "tool_threads": settings.tool_threads}
+        try:
+            from .services.tuning import effective
+
+            pools = {name: effective(name) for name in pools}
+        except Exception:
+            # operator config never takes down the API — the env values are a
+            # correct sizing, just not the stored one
+            log.exception("could not read the stored pool sizes — using the environment values")
+        anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
+        asyncio.get_running_loop().set_default_executor(
+            ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
+        )
+        # held for the process lifetime so writes stop paying WAL
+        # checkpoint-on-close — 42x per write when idle, measured (db.py)
+        db.open_keepalive()
+        keepalive_open = True
+        scheduler = (
+            _start_scheduler(specs, settings.timezone) if settings.scheduler_enabled else None
+        )
+        yield
+    finally:
+        # Keep each cleanup independent so one failure cannot skip the
+        # database close or the machine-subject release.
+        if scheduler:
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                log.exception("scheduler shutdown failed")
+        try:
+            from .agents.mcp_tools import shutdown_mcp
+
+            shutdown_mcp()
+        except Exception:
+            log.exception("MCP shutdown failed")
+        try:
+            from .services import adoption
+
+            adoption.flush()
+        except Exception:
+            log.exception("adoption flush failed")
+        try:
+            if keepalive_open:
+                db.close_keepalive()
+        finally:
+            deactivate_runtime_machine_subjects(runtime_subject_token)
 
 
-# /docs, /redoc and /openapi.json sit OUTSIDE /api, so the perimeter
-# middleware never sees them. In the locked modes the endpoint map is
-# credentialed surface like everything else — an unauthenticated caller must
-# not be able to read the whole admin route list.
-_open_docs = config.AUTH_MODE == "trusted-header"
-app = FastAPI(
-    title="Skein",
-    description="Many strands. One formation.",
-    lifespan=lifespan,
-    docs_url="/docs" if _open_docs else None,
-    redoc_url="/redoc" if _open_docs else None,
-    openapi_url="/openapi.json" if _open_docs else None,
-)
-
-
-@app.middleware("http")
 async def perimeter_auth(request: Request, call_next):
     """Perimeter gate, by SKEIN_AUTH_MODE. Route dependencies (routes/deps.py)
     resolve WHO the caller is; this layer only refuses requests that carry no
@@ -248,10 +538,13 @@ async def perimeter_auth(request: Request, call_next):
         or request.url.path.startswith(open_paths)
     ):
         return await call_next(request)
-    if config.AUTH_ERROR:
+    settings: AppSettings = request.app.state.skein_settings
+    if not request.app.state.skein_explicit_settings:
+        settings = AppSettings.from_config()
+    if settings.auth_error:
         # fail CLOSED: a typo'd mode must not silently open the deployment
-        return JSONResponse(status_code=503, content={"detail": config.AUTH_ERROR})
-    if config.AUTH_MODE == "trusted-header" and not config.API_TOKEN:
+        return JSONResponse(status_code=503, content={"detail": settings.auth_error})
+    if settings.auth_mode == "trusted-header" and not settings.api_token:
         return await call_next(request)
     from .routes.deps import (
         INACTIVE,
@@ -260,10 +553,18 @@ async def perimeter_auth(request: Request, call_next):
         NEED_LOGIN,
         agent_on_rest,
         agent_on_signin,
+        content_on_signin,
         is_shared_token,
     )
     from .services.api_keys import PREFIX, verify_key
-    from .services.users import is_active, is_agent, reserved_refusal
+    from .services.users import (
+        ensure_human_identity,
+        identity_collision_refusal,
+        is_active,
+        is_agent,
+        is_content_identity,
+        reserved_refusal,
+    )
 
     auth = request.headers.get("Authorization", "")
     # The shared token is checked BEFORE the key prefix: an operator whose
@@ -272,7 +573,7 @@ async def perimeter_auth(request: Request, call_next):
     # order is safe either way — this door only decides pass-or-refuse, and a
     # key that is also the token passes on both branches. routes/deps.py has
     # to check it AFTER verify_key, because it decides identity as well.
-    if is_shared_token(auth):
+    if is_shared_token(auth, request):
         return await call_next(request)
     if auth.startswith(f"Bearer {PREFIX}"):
         # verify_key and is_agent hit SQLite; oidc.validate does network I/O
@@ -287,6 +588,9 @@ async def perimeter_auth(request: Request, call_next):
         # (tests/test_route_identity.py::OPEN_READS).
         if await run_in_threadpool(is_agent, owner):
             return JSONResponse(status_code=403, content={"detail": agent_on_rest(owner)})
+        collision = await run_in_threadpool(identity_collision_refusal, owner)
+        if collision:
+            return JSONResponse(status_code=403, content={"detail": collision})
         # and the reserved-name wall, for exactly the same reason: deps.py
         # refuses this credential, but the catalog reads never reach deps.
         reserved = await run_in_threadpool(reserved_refusal, owner)
@@ -300,9 +604,9 @@ async def perimeter_auth(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
         request.state.auth_key_owner = owner
         return await call_next(request)
-    if config.AUTH_MODE == "trusted-header":
+    if settings.auth_mode == "trusted-header":
         return JSONResponse(status_code=401, content={"detail": "invalid API token"})
-    if config.AUTH_MODE == "oidc" and auth.startswith("Bearer "):
+    if settings.auth_mode == "oidc" and auth.startswith("Bearer "):
         from . import oidc
 
         try:
@@ -318,15 +622,41 @@ async def perimeter_auth(request: Request, call_next):
         # naming an agent row must be refused before any handler, catalog
         # reads included.
         if await run_in_threadpool(is_agent, name):
+            if await run_in_threadpool(is_content_identity, name):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": content_on_signin()},
+                )
             return JSONResponse(status_code=403, content={"detail": agent_on_signin(name)})
         reserved = await run_in_threadpool(reserved_refusal, name)
         if reserved:
             return JSONResponse(status_code=403, content={"detail": reserved})
         if not await run_in_threadpool(is_active, name):
             return JSONResponse(status_code=403, content={"detail": INACTIVE})
+        try:
+            human = await run_in_threadpool(ensure_human_identity, name)
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc):
+                raise
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "The database is busy. Wait 5 seconds, then send the request again."
+                },
+                headers={"Retry-After": "5"},
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
+                    " that gives each person one name."
+                },
+            )
         request.state.auth_claims = claims
+        request.state.auth_human_owner = human["name"]
         return await call_next(request)
-    detail = NEED_KEY if config.AUTH_MODE == "api-key" else NEED_LOGIN
+    detail = NEED_KEY if settings.auth_mode == "api-key" else NEED_LOGIN
     return JSONResponse(status_code=401, content={"detail": detail})
 
 
@@ -335,23 +665,9 @@ async def perimeter_auth(request: Request, call_next):
 # and a 251 KB /api/tasks response measured 1.37 ms at level 9 against
 # 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire — on an
 # internal deployment the loop time is the scarce resource, not the bytes.
-app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
-
-
 # added AFTER perimeter_auth so CORS is the OUTERMOST layer — a 401 short-circuit
 # must still carry Access-Control-Allow-Origin, or the browser reports an
 # opaque CORS failure instead of a readable auth error
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    # X-User/X-Client make every call non-simple, so each one preflights;
-    # a 10-minute cache meant a phone re-preflighted constantly
-    max_age=7200,
-)
-
-
 # Malformed input is the caller's error. The rule is the classification, not
 # this list of handlers: if a request body, path, or query can produce the
 # exception, it maps to a 4xx here. If only our own state can produce it, it
@@ -362,14 +678,12 @@ app.add_middleware(
 # class looked familiar. A handler never echoes the rejected value back. The
 # caller already has it, and rendering it turned a 50 MB body into a 50 MB
 # response.
-@app.exception_handler(db.NotFound)
 async def not_found_handler(request: Request, exc: db.NotFound):
     # one rule for the surface: entity-lookup failures are 404, everywhere
     # an owner-scoped miss is a 404 too, because any other status confirms the row exists
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
-@app.exception_handler(PermissionError)
 async def permission_error_handler(request: Request, exc: PermissionError):
     # 403, not 404: a crew is not a secret. GET /api/crews lists every crew to
     # every caller (scope.UNSCOPED classifies `crews` that way), so refusing a
@@ -378,12 +692,22 @@ async def permission_error_handler(request: Request, exc: PermissionError):
     return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
-@app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
-@app.exception_handler(ratelimit.RateLimited)
+async def public_error_handler(request: Request, exc: PublicError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "code": exc.code,
+            "retryable": exc.retryable,
+            "obligations": list(exc.obligations),
+        },
+    )
+
+
 async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
     # starlette matches handlers by walking the exception's MRO, so this wins
     # over the ValueError handler above even though RateLimited subclasses it
@@ -394,7 +718,6 @@ async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
     )
 
 
-@app.exception_handler(sqlite3.OperationalError)
 async def database_busy_handler(request: Request, exc: sqlite3.OperationalError):
     # A held write lock past busy_timeout (db.py) is LOAD, not fault: the same
     # request succeeds on a retry with nothing changed, which is the 503 +
@@ -410,7 +733,6 @@ async def database_busy_handler(request: Request, exc: sqlite3.OperationalError)
     )
 
 
-@app.exception_handler(handoff.ArtifactUnreadable)
 async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
     # The 500 CLASS is right — the row is readable and the FILE is not, which
     # is our own state and belongs in the error rate. What was wrong is the
@@ -427,13 +749,11 @@ async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
-@app.exception_handler(OverflowError)
 async def overflow_error_handler(request: Request, exc: OverflowError):
     # absurd ints (ids > 2^63, weeks=1e18) must be a 400, never a 500
     return JSONResponse(status_code=400, content={"detail": "value out of range"})
 
 
-@app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception):
     """Anything with no handler above, as JSON with NOTHING from the exception.
 
@@ -454,7 +774,6 @@ async def unhandled_error_handler(request: Request, exc: Exception):
     )
 
 
-@app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     """FastAPI's default handler renders the rejected value back into the body
     with jsonable_encoder. That recurses on a deeply nested body (2000 nested
@@ -473,20 +792,14 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
-app.include_router(api.router)
-app.include_router(auth.router)
-app.include_router(chat.router)
-app.include_router(private.router)
-app.include_router(slack.router)
-app.include_router(webhooks.router)
+def health(specs: Sequence[JobSpec] = JOBS, settings: AppSettings | None = None):
+    from .services.users import identity_ownership_error
 
-
-@app.get("/health")
-def health():
+    selected = settings or AppSettings.from_config()
     return {
         "ok": True,
-        "auth_mode": config.AUTH_MODE,
-        "auth_error": config.AUTH_ERROR,
+        "auth_mode": selected.auth_mode,
+        "auth_error": selected.auth_error,
         "provider": config.MODEL_PROVIDER,
         # the EFFECTIVE model, through the service: with a pick in force,
         # config.MODEL_ID names a model the deployment is not running
@@ -499,6 +812,7 @@ def health():
         "model_warnings": unlisted_model_warnings() + config.menu_warnings(),
         "embeddings_error": config.EMBEDDINGS_ERROR,
         "overlay_errors": config.overlay_errors(),
+        "identity_ownership_error": identity_ownership_error(),
         # the EFFECTIVE strategy, not the env default — the toggle overrides it,
         # and two surfaces disagreeing about one fact is the bug this avoids
         "context_strategy": effective_context_strategy(),
@@ -506,8 +820,90 @@ def health():
         # the zone the scheduler and every "today" run in, and the fault when
         # the configured name degraded to UTC — an operator whose rituals fire
         # at the wrong hour reads it here first
-        "timezone": config.TZ_NAME,
+        "timezone": selected.timezone,
         "timezone_error": config.TZ_ERROR,
-        "jobs": job_health(),
+        "jobs": job_health(specs),
         "activity_chain": chain_health(),
     }
+
+
+def create_app(
+    settings: AppSettings | None = None,
+    modules: Sequence[SkeinModule] = (),
+) -> FastAPI:
+    """Compose one immutable Skein application from trusted modules.
+
+    The caller supplies modules explicitly. Installed packages are never
+    scanned or executed automatically.
+    """
+    explicit_settings = settings is not None
+    selected_settings = settings or AppSettings.from_config()
+    registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    from .tools import ALL_TOOLS
+
+    validate_core_tool_names(
+        registry,
+        {
+            str(getattr(item, "tool_name", ""))
+            for item in ALL_TOOLS
+            if getattr(item, "tool_name", "")
+        }
+        | {"plan_project"},
+    )
+    specs = _job_specs(registry, selected_settings)
+
+    # /docs, /redoc and /openapi.json sit outside /api, so the perimeter
+    # middleware cannot protect them. Locked modes do not expose the map.
+    application = FastAPI(
+        title="Skein",
+        description="Many strands. One formation.",
+        lifespan=lifespan,
+        docs_url="/docs" if selected_settings.docs_enabled else None,
+        redoc_url="/redoc" if selected_settings.docs_enabled else None,
+        openapi_url="/openapi.json" if selected_settings.docs_enabled else None,
+    )
+    application.state.skein_settings = selected_settings
+    application.state.skein_explicit_settings = explicit_settings
+    application.state.skein_registry = registry
+
+    application.middleware("http")(perimeter_auth)
+    # JSON payloads compress well at any level. Add gzip before CORS so CORS
+    # stays outermost and also decorates perimeter-auth refusals.
+    application.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(selected_settings.cors_origins),
+        allow_methods=["*"],
+        allow_headers=["*"],
+        max_age=7200,
+    )
+
+    application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
+    application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
+    application.add_exception_handler(ValueError, cast(Any, value_error_handler))
+    application.add_exception_handler(PublicError, cast(Any, public_error_handler))
+    application.add_exception_handler(ratelimit.RateLimited, cast(Any, rate_limited_handler))
+    application.add_exception_handler(sqlite3.OperationalError, cast(Any, database_busy_handler))
+    application.add_exception_handler(
+        handoff.ArtifactUnreadable, cast(Any, artifact_unreadable_handler)
+    )
+    application.add_exception_handler(OverflowError, cast(Any, overflow_error_handler))
+    application.add_exception_handler(Exception, unhandled_error_handler)
+    application.add_exception_handler(RequestValidationError, cast(Any, validation_error_handler))
+
+    for contribution in registry.routes:
+        dependencies = None
+        if not contribution.name.startswith("skein.core."):
+            dependencies = [
+                Depends(enforce_mutation_policy),
+                Depends(contributed_route_policy(contribution)),
+            ]
+        application.include_router(contribution.router, dependencies=dependencies)
+    health_settings = selected_settings if explicit_settings else None
+    application.add_api_route("/health", lambda: health(specs, health_settings), methods=["GET"])
+    return application
+
+
+# Backward-compatible ASGI entry point. Private deployments can expose their
+# own module that calls create_app(settings, modules) without editing this file.
+app = create_app()

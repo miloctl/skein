@@ -1,0 +1,27 @@
+{
+  "name": "@atlas/skein-extension",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "peerDependencies": {
+    "@skein/extension-api": "^1.0.0",
+    "react": ">=19.0.0"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.0.0"
+  }
+}

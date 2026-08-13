@@ -10,6 +10,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from threading import Event, Thread, current_thread
+from time import sleep
 
 import pytest
 
@@ -210,6 +212,55 @@ def test_an_oidc_sign_in_naming_an_agent_is_refused_at_the_perimeter(client, mon
     assert "agent identity" in r.json()["detail"]
 
 
+def test_an_oidc_sign_in_cannot_claim_the_synthetic_anonymous_subject(
+    client, monkeypatch, fresh_db
+):
+    from fastapi import HTTPException
+
+    from app.routes.deps import _resolve
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "anonymous"}})
+    catalog = client.get("/api/playbooks", headers={"Authorization": "Bearer tok"})
+    assert catalog.status_code == 403
+    assert "reserved for the system" in catalog.json()["detail"]
+    private = client.post(
+        "/api/private/notes",
+        json={"person": "mira", "body": "must not land"},
+        headers={"Authorization": "Bearer tok"},
+    )
+    assert private.status_code == 403
+    with pytest.raises(HTTPException) as raised:
+        _resolve("", "Bearer tok", "POST")
+    assert raised.value.status_code == 403
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'anonymous'") is None
+
+
+def test_a_legacy_anonymous_api_key_cannot_become_strong_identity(client, monkeypatch, fresh_db):
+    from app import config
+    from app.services import users
+    from app.services.api_keys import create_key
+
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    users.ensure_user("anonymous")
+    token = create_key("anonymous", "legacy")["key"]
+    response = client.get(
+        "/api/private/notes",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403
+    assert "reserved for the system" in response.json()["detail"]
+
+
+def test_absent_weak_header_keeps_the_synthetic_compatibility_subject(fresh_db):
+    from app.routes.deps import _resolve
+
+    assert _resolve("", "", "POST") == ("anonymous", False, [])
+    assert fresh_db.query_one("SELECT name, kind FROM users WHERE name = 'anonymous'") == {
+        "name": "anonymous",
+        "kind": "human",
+    }
+
+
 @pytest.mark.parametrize(
     "claim",
     [
@@ -259,14 +310,204 @@ def test_an_oidc_claim_folding_onto_an_admin_name_does_not_reach_admin_surfaces(
     assert r.status_code == 403
 
 
-def test_an_oidc_first_sign_in_still_reads_before_any_roster_row_exists(
-    client, monkeypatch, fresh_db
-):
-    """The fold wall must not close the first-ever read: a name that collides
-    with nobody is not a collision, and a read never grows the roster."""
+def test_an_oidc_first_sign_in_reserves_human_ownership(client, monkeypatch, fresh_db):
+    """A validated read owns its name before a machine can reserve it."""
     _oidc(monkeypatch, {"tok": {"preferred_username": "newcomer"}})
     assert client.get("/api/tasks", headers={"Authorization": "Bearer tok"}).status_code == 200
-    assert fresh_db.query_one("SELECT * FROM users WHERE name = 'newcomer'") is None
+    assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'newcomer'") == {"kind": "human"}
+
+
+def test_established_oidc_read_does_not_wait_for_the_sqlite_writer(client, monkeypatch, fresh_db):
+    """The steady-state OIDC path is a WAL reader, not a global writer."""
+    from app.services.users import ensure_human_identity
+
+    ensure_human_identity("established")
+    _oidc(monkeypatch, {"tok": {"preferred_username": "established"}})
+    holding = Event()
+    release = Event()
+
+    def hold_writer() -> None:
+        connection = fresh_db.connect()
+        connection.isolation_level = None
+        connection.execute("BEGIN IMMEDIATE")
+        holding.set()
+        release.wait(timeout=5)
+        connection.execute("ROLLBACK")
+        connection.close()
+
+    holder = Thread(target=hold_writer)
+    holder.start()
+    try:
+        assert holding.wait(timeout=2)
+        response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+        assert response.status_code == 200
+    finally:
+        release.set()
+        holder.join(timeout=3)
+
+
+def test_first_oidc_read_returns_retryable_503_when_identity_storage_is_busy(
+    client, monkeypatch, fresh_db
+):
+    """A first ownership claim reports load instead of an opaque middleware 500."""
+    from app import db
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "first-reader"}})
+    real_connect = db.connect
+
+    def impatient():
+        connection = real_connect()
+        connection.execute("PRAGMA busy_timeout = 50")
+        return connection
+
+    monkeypatch.setattr(db, "connect", impatient)
+    holding = Event()
+    release = Event()
+
+    def hold_writer() -> None:
+        connection = real_connect()
+        connection.isolation_level = None
+        connection.execute("BEGIN IMMEDIATE")
+        holding.set()
+        release.wait(timeout=5)
+        connection.execute("ROLLBACK")
+        connection.close()
+
+    holder = Thread(target=hold_writer)
+    holder.start()
+    try:
+        assert holding.wait(timeout=2)
+        response = client.get("/api/tasks", headers={"Authorization": "Bearer tok"})
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "5"
+        assert response.json() == {
+            "detail": "The database is busy. Wait 5 seconds, then send the request again."
+        }
+    finally:
+        release.set()
+        holder.join(timeout=3)
+
+
+@pytest.mark.parametrize("oidc_name", ["race-owner", "RACE-OWNER"])
+def test_oidc_read_is_refused_when_machine_reservation_wins(fresh_db, monkeypatch, oidc_name):
+    """A strong read cannot outlive an exact or folded machine reservation."""
+    from fastapi import HTTPException
+
+    from app.routes.deps import _resolve
+    from app.services import users
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": oidc_name}})
+    machine_checked = Event()
+    oidc_attempted = Event()
+    oidc_finished = Event()
+    original_refuse_fold_collision = users.refuse_fold_collision
+    results: dict[str, dict] = {}
+    errors: dict[str, BaseException] = {}
+
+    def pause_machine_after_collision_check(name: str, *, ignore: str = "") -> None:
+        original_refuse_fold_collision(name, ignore=ignore)
+        if current_thread().name == "machine-reservation":
+            machine_checked.set()
+            assert oidc_attempted.wait(timeout=2)
+            sleep(0.05)
+            assert not oidc_finished.is_set()
+
+    monkeypatch.setattr(users, "refuse_fold_collision", pause_machine_after_collision_check)
+
+    def reserve_machine() -> None:
+        try:
+            results["machine"] = users.ensure_agent_identity("race-owner")
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["machine"] = exc
+
+    def authenticate_oidc() -> None:
+        try:
+            assert machine_checked.wait(timeout=2)
+            oidc_attempted.set()
+            _resolve("", "Bearer tok", "GET")
+        except HTTPException as exc:
+            errors["oidc"] = exc
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["unexpected"] = exc
+        finally:
+            oidc_finished.set()
+
+    machine = Thread(target=reserve_machine, name="machine-reservation")
+    oidc = Thread(target=authenticate_oidc, name="oidc-read")
+    machine.start()
+    oidc.start()
+    machine.join(timeout=3)
+    oidc.join(timeout=3)
+
+    assert not machine.is_alive() and not oidc.is_alive()
+    assert set(errors) == {"oidc"}
+    assert getattr(errors["oidc"], "status_code", None) == 403
+    assert results["machine"]["kind"] == "agent"
+    rows = [
+        row
+        for row in fresh_db.query("SELECT name, kind FROM users")
+        if users.fold(row["name"]) == "race-owner"
+    ]
+    assert rows == [{"name": "race-owner", "kind": "agent"}]
+
+
+def test_oidc_read_reservation_blocks_a_concurrent_folded_machine_claim(fresh_db, monkeypatch):
+    """The OIDC winner keeps one human row and the machine claim fails."""
+    from app.routes.deps import _resolve
+    from app.services import users
+
+    _oidc(monkeypatch, {"tok": {"preferred_username": "RACE-OWNER"}})
+    oidc_checked = Event()
+    machine_attempted = Event()
+    machine_finished = Event()
+    original_refuse_fold_collision = users.refuse_fold_collision
+    results: dict[str, tuple[str, bool, list[str]]] = {}
+    errors: dict[str, BaseException] = {}
+
+    def pause_oidc_after_collision_check(name: str, *, ignore: str = "") -> None:
+        original_refuse_fold_collision(name, ignore=ignore)
+        if current_thread().name == "oidc-read":
+            oidc_checked.set()
+            assert machine_attempted.wait(timeout=2)
+            sleep(0.05)
+            assert not machine_finished.is_set()
+
+    monkeypatch.setattr(users, "refuse_fold_collision", pause_oidc_after_collision_check)
+
+    def authenticate_oidc() -> None:
+        try:
+            results["oidc"] = _resolve("", "Bearer tok", "GET")
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["oidc"] = exc
+
+    def claim_machine() -> None:
+        try:
+            assert oidc_checked.wait(timeout=2)
+            machine_attempted.set()
+            users.ensure_agent_identity("race-owner")
+        except ValueError as exc:
+            errors["machine"] = exc
+        except BaseException as exc:  # pragma: no cover - reported by the assertions below
+            errors["unexpected"] = exc
+        finally:
+            machine_finished.set()
+
+    oidc = Thread(target=authenticate_oidc, name="oidc-read")
+    machine = Thread(target=claim_machine, name="machine-claim")
+    oidc.start()
+    machine.start()
+    oidc.join(timeout=3)
+    machine.join(timeout=3)
+
+    assert not oidc.is_alive() and not machine.is_alive()
+    assert set(errors) == {"machine"}
+    assert results["oidc"] == ("RACE-OWNER", True, [])
+    rows = [
+        row
+        for row in fresh_db.query("SELECT name, kind FROM users")
+        if users.fold(row["name"]) == "race-owner"
+    ]
+    assert rows == [{"name": "RACE-OWNER", "kind": "human"}]
 
 
 def test_deactivation_closes_every_door_not_only_the_key(client, monkeypatch, fresh_db):
@@ -395,7 +636,7 @@ def test_oidc_mode_sign_in_is_strong_identity(client, monkeypatch, fresh_db):
     assert client.post("/api/keys", json={"label": "cli"}, headers=hdr).status_code == 200
 
 
-def test_oidc_write_mints_the_roster_row_but_a_read_does_not(client, monkeypatch, fresh_db):
+def test_oidc_reads_and_writes_reserve_human_roster_rows(client, monkeypatch, fresh_db):
     def roster(name):
         return fresh_db.query_one("SELECT * FROM users WHERE name = ?", (name,))
 
@@ -404,8 +645,7 @@ def test_oidc_write_mints_the_roster_row_but_a_read_does_not(client, monkeypatch
         {"w": {"preferred_username": "writer"}, "r": {"preferred_username": "reader"}},
     )
     client.get("/api/notifications", headers={"Authorization": "Bearer r"})
-    # same rule as the name picker: a polling service account never grows the roster
-    assert roster("reader") is None
+    assert roster("reader")["kind"] == "human"
     client.post("/api/capture", json={"text": "todo: x"}, headers={"Authorization": "Bearer w"})
     row = roster("writer")
     assert row is not None and row["kind"] == "human"

@@ -441,6 +441,10 @@ _EXEMPT_FILES = {
 # name -> why the guard does not belong. An absence with no reason reads as an
 # oversight to the next reader (CLAUDE.md).
 _EXEMPT_FUNCTIONS = {
+    "work.py::_update_task_locked": (
+        "the public update_task wrapper owns the transaction and inventory entry;"
+        " this private implementation performs its guarded SQL inside that boundary"
+    ),
     # the id is the row this call just created, not a row the caller named
     "insights.py::convert_finding": "sets source_finding_id on the row it just inserted",
     "blockers.py::raise_blocker": "flips the task it was given to blocked",
@@ -451,14 +455,38 @@ _EXEMPT_FUNCTIONS = {
     # keyed on something other than a row id
     "ci.py::ci_event": "resolves the blocker from its own SELECT over a webhook payload",
     "weekly.py::apply_plan": "task_ids come from the caller, each routed through update_task",
-    "blockers.py::sweep_escalations": "a job over every open blocker, not one a caller named",
-    "promises.py::chase_received": "a job over every overdue received promise, not one a caller named",
+    "blockers.py::_sweep_escalations_locked": (
+        "the public sweep owns one transaction over every open blocker;"
+        " this private implementation updates only rows selected by that job"
+    ),
+    "promises.py::_chase_received_locked": (
+        "the public chase owns one transaction over every overdue promise;"
+        " this private implementation updates only rows selected by that job"
+    ),
     "schedule.py::record_outcome": (
         "guards with scope.assert_editable, and is a flag on the event the"
         " caller named rather than a content write"
     ),
-    "collab.py::sweep_stale_decisions": "a job over every active decision",
-    "engagements.py::_ship_it": "keyed on the engagement update_engagement just closed",
+    "collab.py::_assign_question_locked": (
+        "the public assign_question wrapper owns the transaction; this private"
+        " implementation performs its guarded SQL inside that boundary"
+    ),
+    "collab.py::_answer_question_locked": (
+        "the public answer_question wrapper owns the transaction; this private"
+        " implementation performs its guarded SQL inside that boundary"
+    ),
+    "collab.py::_sweep_stale_decisions_locked": (
+        "the public sweep owns one transaction over every active decision"
+    ),
+    "engagements.py::_update_engagement_locked": (
+        "the public update_engagement wrapper owns the transaction and inventory"
+        " entry; this private implementation performs its guarded SQL inside that boundary"
+    ),
+    "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
+    "engagements.py::create_engagement": (
+        "adopts milestones that match the new engagement name; each updated id"
+        " comes from the actor-visible candidate query in the same transaction"
+    ),
     "engagements.py::_experiment_lesson": "same",
     "intake.py::_disposition": "the public disposition_request guards, then calls this",
     "private_notes.py::delete_note": "the author-private journal in its own private.db file",
@@ -576,7 +604,59 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
-    "promises.py::chase_received": (
+    "policy_context.py::resource_row": (
+        "loads one typed notification source inside the notification write"
+        " transaction. The source-row builder and saved policy context use"
+        " that snapshot; every public reader then requires saved and current"
+        " policy permission before it returns the body"
+    ),
+    "policy_context.py::opaque_project_contexts": (
+        "policy-only input inventory for aggregates that intentionally count"
+        " hidden tiers. It returns no row to a caller; hidden attributes go"
+        " only to the composed policy engine, which can fail the aggregate"
+        " closed"
+    ),
+    "work.py::_visible_link": (
+        "reads only tier metadata after the actor-visible id probe succeeds,"
+        " inside the task write transaction; no row data is returned to the caller"
+    ),
+    "work.py::_assert_task_relationships": (
+        "reads one validated milestone's parent id only to enforce audience"
+        " containment; hidden parents receive the same missing-milestone refusal"
+    ),
+    "policy_context.py::existing": (
+        "reads only classification and project type for one exact resource id."
+        " The policy gate uses these values to restrict the operation and never"
+        " returns them to the caller. Applying the caller visibility filter here"
+        " would remove the data that a stronger workplace policy must inspect"
+    ),
+    "policy_context.py::_task_context": (
+        "resolves only classification and coherent project context for one"
+        " task policy decision; conflicting relationships fail closed and no"
+        " row data is returned to the caller"
+    ),
+    "policy_context.py::_blocker_context": (
+        "resolves only a blocker's classification and linked task id for the"
+        " durable review revalidation path. Actor-facing REST and agent gates"
+        " perform their own visible or editable probe before policy"
+    ),
+    "policy_context.py::_engagement_project_type": (
+        "reads only the project class for one exact relationship target. The"
+        " value goes only to policy evaluation and can only restrict the call"
+    ),
+    "policy_context.py::_milestone_engagement": (
+        "resolves one exact milestone to an engagement id for target-state policy."
+        " Neither id nor content is returned to the caller"
+    ),
+    "policy_context.py::_named_engagement": (
+        "resolves the exact project name supplied to milestone creation. The id"
+        " goes only to policy evaluation and is not returned"
+    ),
+    "policy_context.py::_target_engagement": (
+        "reads only relationship ids for the exact resource being changed. It"
+        " computes the target state for policy and returns no data to the caller"
+    ),
+    "promises.py::_chase_received_locked": (
         "a job, so no viewer exists. It reads every tier ON PURPOSE: the"
         " personal nudge goes to the row's own author and leaks nothing at any"
         " tier. What LEAVES is guarded twice — the team-wide escalation fires"
@@ -602,7 +682,7 @@ _UNFILTERED_READS = {
         " diff when any row comes back hidden — a snapshot title is never"
         " emitted on the strength of the snapshot alone"
     ),
-    "engagements.py::_playbook_lesson": (
+    "engagements.py::_playbook_lesson_locked": (
         "reads the engagement the caller is CLOSING, which update_engagement"
         " already proved editable by this actor. It takes name, project_class"
         " and the tier itself, and copies that tier onto the drafted proposal"
@@ -674,12 +754,11 @@ _UNFILTERED_READS = {
     "search.py::_tier_of": "reads the tier itself — the thing every filter asks for",
     "search.py::_is_private": "same, and it is the guard that keeps a private row unindexed",
     # --- write paths: the SELECT feeds the guard, not a response ---
-    "work.py::create_milestone": (
-        "resolves the engagement by NAME, not by id — there is no id to"
-        " enumerate, and a name the caller already knows is not a disclosure"
-    ),
     "engagements.py::create_engagement": "reads its own name, NOCASE, to refuse a duplicate",
-    "engagements.py::update_engagement": "same duplicate-name check, excluding itself",
+    "engagements.py::_update_engagement_locked": (
+        "the exact duplicate-name check for the engagement that the public"
+        " transaction updates; it returns no row to the caller"
+    ),
     "context_pack.py::_crew_section": "filters on `visibility = 'crew' AND crew_id = ?` itself",
     # --- keyed on a row the caller did not name ---
     "ci.py::ci_event": "resolves its blocker from a webhook payload, not an id",
@@ -688,15 +767,15 @@ _UNFILTERED_READS = {
     "delegation.py::report_progress": "the actor must be the delegate or the sponsor",
     "delegation.py::accept_completion": "same delegated_agent check",
     "delegation.py::submit_completion": "same delegated_agent check",
-    "engagements.py::_ship_it": "keyed on the engagement update_engagement just closed",
+    "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::_experiment_lesson": "same",
     # --- jobs that carry their own rule ---
-    "blockers.py::sweep_escalations": (
+    "blockers.py::_sweep_escalations_locked": (
         "escalates every tier on purpose — a crew blocker that silently never"
         " escalates is worse than one nobody is told about. The notify and the"
         " ledger line inside it ARE tier-gated."
     ),
-    "collab.py::sweep_stale_decisions": "same rule, same two gates inside",
+    "collab.py::_sweep_stale_decisions_locked": "same rule, same two gates inside",
     "digest.py::publish_digest": "upserts its own artifact row, keyed on the file path",
     "rituals.py::_write_artifact": "same",
     "readout.py::exec_readout": "same — and its body is built from filtered readers",

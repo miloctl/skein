@@ -7,10 +7,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .. import ratelimit
+from ..extensions.fastapi import PolicyAPIRoute
 from ..services import private_notes
 from .deps import StrongUser, ViewerDep
 
-router = APIRouter(prefix="/api/private")
+router = APIRouter(prefix="/api/private", route_class=PolicyAPIRoute)
 
 
 class NoteIn(BaseModel):

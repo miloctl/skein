@@ -22,13 +22,18 @@ router = APIRouter(prefix="/api/auth")
 
 
 @router.get("/config")
-def get_auth_config():
+def get_auth_config(request: Request):
     """What the web app needs to render the right sign-in affordance.
 
     Always answers, in every mode: the frontend has no other way to learn that
     the self-asserted name picker is not the identity model here."""
-    out: dict = {"mode": config.AUTH_MODE, "error": config.AUTH_ERROR}
-    if config.AUTH_ERROR or config.AUTH_MODE != "oidc":
+    settings = request.app.state.skein_settings
+    if not request.app.state.skein_explicit_settings:
+        from ..extensions import AppSettings
+
+        settings = AppSettings.from_config()
+    out: dict = {"mode": settings.auth_mode, "error": settings.auth_error}
+    if settings.auth_error or settings.auth_mode != "oidc":
         return out
     out["client_id"] = config.OIDC_CLIENT_ID
     out["scopes"] = config.OIDC_SCOPES
@@ -55,9 +60,14 @@ class TokenIn(BaseModel):
 
 @router.post("/token")
 def post_token(body: TokenIn, request: Request):
-    if config.AUTH_ERROR:
-        raise HTTPException(status_code=503, detail=config.AUTH_ERROR)
-    if config.AUTH_MODE != "oidc":
+    settings = request.app.state.skein_settings
+    if not request.app.state.skein_explicit_settings:
+        from ..extensions import AppSettings
+
+        settings = AppSettings.from_config()
+    if settings.auth_error:
+        raise HTTPException(status_code=503, detail=settings.auth_error)
+    if settings.auth_mode != "oidc":
         raise HTTPException(
             status_code=404,
             detail="If SKEIN_AUTH_MODE is not oidc, browser sign-in is off.",
@@ -118,6 +128,19 @@ def post_token(body: TokenIn, request: Request):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except oidc.OIDCError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    from ..services.users import ensure_human_identity, is_active
+    from .deps import INACTIVE
+
+    try:
+        ensure_human_identity(name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{exc} Set SKEIN_OIDC_USERNAME_CLAIM to a claim"
+            " that gives each person one name.",
+        ) from exc
+    if not is_active(name):
+        raise HTTPException(status_code=403, detail=INACTIVE)
     return {
         "access_token": token,
         "refresh_token": str(payload.get("refresh_token") or ""),

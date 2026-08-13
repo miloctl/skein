@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .. import config, ratelimit
+from ..extensions.fastapi import PolicySubjectDep, enforce_decision
+from ..extensions.policy import PolicyInput, PolicyResource
 from ..services import ci, forge
 from .deps import CurrentUser, forge_webhook_off, verify_forge_signature
 
@@ -33,11 +35,41 @@ class CIEventIn(BaseModel):
 
 
 @router.post("/api/webhooks/ci")
-def ci_webhook(body: CIEventIn, user: CurrentUser):
+def ci_webhook(
+    body: CIEventIn,
+    user: CurrentUser,
+    request: Request,
+    subject: PolicySubjectDep,
+):
+    # Resolve the repository the write will actually target BEFORE policy: a
+    # GitHub Actions payload carries `repository.full_name` beside the generic
+    # `repo` field, and authorizing one while mutating the other lets a caller
+    # pass policy under an allowed name and file against a denied one.
+    mapped = None
     if body.workflow_run is not None:
-        mapped = ci.parse_github_actions(body.model_dump())
-        if mapped is None:
+        raw = ci.parse_github_actions(body.model_dump())
+        if raw is None:
             return {"ignored": "not a completed pass/fail workflow_run"}
+        # Re-validate through the same model: `repository` is an unschema'd
+        # dict, so full_name arrives as anything — a nested dict raised
+        # inside the first policy rule that called .lower() on it, and an
+        # unbounded string was CPU spent before authorization.
+        mapped = CIEventIn(**raw).model_dump(exclude={"workflow_run", "repository"})
+    repository = mapped["repo"] if mapped is not None else body.repo
+    enforce_decision(
+        request.app.state.skein_registry.policy_engine.decide(
+            PolicyInput(
+                subject,
+                "skein.integration.ci",
+                PolicyResource("integration", "ci", attributes={"repository": repository}),
+                "ci",
+                tool="ci.webhook",
+                tool_effect="write",
+                tool_risk="high",
+            )
+        )
+    )
+    if mapped is not None:
         return ci.ci_event(**mapped, actor=user)
     return ci.ci_event(body.repo, body.branch, body.status, body.run_url, actor=user)
 
@@ -106,6 +138,44 @@ async def forge_webhook(
     # keyed to the integration: keying on the pusher's name would let a
     # signed caller drain a named teammate's REST write budget.
     ratelimit.check("forge", "forge")
+    registry = request.app.state.skein_registry
+
+    def authorized_event() -> dict:
+        from .. import db
+        from ..services.policy_context import existing
+
+        # One BEGIN IMMEDIATE holds the task-match, the policy snapshot, and
+        # the mutation. Without it a concurrent relink can move the task into
+        # a denied project between the decision and forge_event's write.
+        with db.transaction():
+            task_id = forge.match_task(
+                str(mapped.get("branch") or ""),
+                str(mapped.get("title") or ""),
+                str(mapped.get("body") or ""),
+            )
+            if task_id:
+                domain = existing("task", task_id)
+                enforce_decision(
+                    registry.policy_engine.decide(
+                        PolicyInput(
+                            registry.service_subject("forge"),
+                            "skein.integration.forge",
+                            PolicyResource(
+                                "task",
+                                str(task_id),
+                                str(domain.get("project_type") or ""),
+                                str(domain.get("classification") or ""),
+                                domain,
+                            ),
+                            "forge",
+                            tool="forge.webhook",
+                            tool_effect="write",
+                            tool_risk="high",
+                        )
+                    )
+                )
+            return forge.forge_event(**mapped, actor="forge")
+
     # threadpooled for the reason the HMAC above is: this is the full service
     # write chain — task moves, activity, notifications, the search index
-    return await run_in_threadpool(forge.forge_event, **mapped)
+    return await run_in_threadpool(authorized_event)

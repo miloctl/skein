@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import sysconfig
 from datetime import UTC, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,6 +13,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+_stock_candidates = (
+    BASE_DIR / "skein_stock",
+    Path(sysconfig.get_path("data")) / "skein_stock",
+    BASE_DIR,
+)
+STOCK_DIR = next((path for path in _stock_candidates if (path / "fieldguide").is_dir()), BASE_DIR)
 DATA_DIR = Path(os.getenv("SKEIN_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -757,7 +764,7 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 
 # MCP servers for the real agent, JSON list:
-# [{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "..."}]
+# [{"name": "github", "url": "https://.../mcp/", "auth_token_env": "GITHUB_MCP_TOKEN"}]
 MCP_SERVERS = os.getenv("SKEIN_MCP_SERVERS", "")
 
 # OpenTelemetry OTLP endpoint (e.g. http://jaeger:4318). Empty = disabled.

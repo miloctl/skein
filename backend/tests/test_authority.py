@@ -114,6 +114,19 @@ def test_set_authority_rejects_blank_agent(client, fresh_db):
     assert not fresh_db.query_one("SELECT * FROM users WHERE name = 'anonymous' AND kind = 'agent'")
 
 
+@pytest.mark.parametrize("name", ["anonymous", "system", "ci", "mcp", "scheduler", "team"])
+def test_caller_supplied_agent_names_cannot_mint_core_subjects(client, fresh_db, name):
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    task = work.create_task("reserved delegate", actor="mira")
+    with pytest.raises(ValueError, match=r"reserved for the system|agent name is required"):
+        delegation.delegate_task(task["id"], name, sponsor="mira", actor="mira")
+    with pytest.raises(ValueError, match=r"reserved for the system|agent name is required"):
+        delegation.set_authority(name, "note", "forbidden", actor="mira")
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = ?", (name,)) is None
+
+
 def test_mcp_forbidden_authority_holds(client, fresh_db, monkeypatch):
     """Every MCP writer routes through gated_write now, so the kill switch is
     asserted where it is actually enforced rather than in a private helper."""
@@ -317,6 +330,7 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
     users.ensure_user("mcp-agent", kind="agent")
 
     from app import mcp_server
+    from app.main import create_app
     from app.services import review, work
 
     out = json.loads(mcp_server.capture("todo: ungated straight into the tracker"))
@@ -326,7 +340,9 @@ def test_mcp_capture_gates_on_the_classified_entity(fresh_db, monkeypatch):
     # and the queued proposal must be APPLICABLE. A payload the registry
     # handler cannot take made every capture fail at apply and reset to
     # pending, wedging the inbox — a gate that swallows the work is not a gate
-    review.approve_change(out["id"], actor="mira")
+    review.approve_change(
+        out["id"], actor="mira", policy_registry=create_app().state.skein_registry
+    )
     assert [t["title"] for t in work.list_tasks()] == ["ungated straight into the tracker"]
 
 
@@ -336,6 +352,7 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
     import json
 
     from app import config, mcp_server
+    from app.main import create_app
     from app.services import blockers, collab, intake, promises, review, users, work
 
     monkeypatch.setattr(config, "AGENT_REVIEW", True)
@@ -352,7 +369,9 @@ def test_every_classified_capture_kind_produces_an_applicable_proposal(fresh_db,
     for text, rows in cases:
         out = json.loads(mcp_server.capture(text))
         assert out.get("status") == "pending", (text, out)
-        review.approve_change(out["id"], actor="mira")  # must not raise
+        review.approve_change(
+            out["id"], actor="mira", policy_registry=create_app().state.skein_registry
+        )  # must not raise
         assert rows(), text
 
 

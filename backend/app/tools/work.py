@@ -10,8 +10,16 @@ from typing import Any
 
 from strands import tool
 
+from .. import db
 from ..agents.identity import agent_identity
-from ..services import work
+from ..extensions.policy import (
+    PolicyEffect,
+    PolicyInput,
+    PolicyResource,
+    current_policy_engine,
+    current_policy_subject,
+)
+from ..services import projection_policy, scope, work
 from ._gate import gated_write
 
 
@@ -89,7 +97,35 @@ def list_milestones(project: str = "", status: str = "") -> str:
         project: Filter to one project (empty for all).
         status: Filter to one status (empty for all).
     """
-    return json.dumps(work.list_milestones(project, status))
+    with db.read_transaction():
+        rows = work.list_milestones(project, status)
+        contexts = work.milestone_collection_policy_contexts(rows, scope.NOBODY)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        permitted = []
+        for row in rows:
+            attributes = contexts[int(row["id"])]
+            decision = engine.decide(
+                PolicyInput(
+                    subject,
+                    "skein.tool.list_milestones",
+                    PolicyResource(
+                        "milestone",
+                        str(row["id"]),
+                        attributes["project_type"],
+                        attributes["classification"],
+                        attributes,
+                    ),
+                    "agent_tool",
+                    agent=agent_identity(),
+                    tool="list_milestones",
+                    tool_effect="read",
+                    tool_risk="low",
+                )
+            )
+            if decision.effect == PolicyEffect.PERMIT:
+                permitted.append(row)
+        return json.dumps(permitted)
 
 
 @tool
@@ -180,4 +216,41 @@ def list_tasks(milestone_id: int = 0, status: str = "", assignee: str = "") -> s
         status: Filter to one status (empty for all).
         assignee: Filter to one assignee (empty for all).
     """
-    return json.dumps(work.list_tasks(milestone_id, status, assignee))
+    with db.read_transaction():
+        rows = work.list_tasks(milestone_id, status, assignee)
+        contexts = work.task_collection_policy_contexts(rows, scope.NOBODY)
+        subject = current_policy_subject()
+        engine = current_policy_engine()
+        permitted = []
+        for row in rows:
+            attributes = contexts[int(row["id"])]
+            decision = engine.decide(
+                PolicyInput(
+                    subject,
+                    "skein.tool.list_tasks",
+                    PolicyResource(
+                        "task",
+                        str(row["id"]),
+                        attributes["project_type"],
+                        attributes["classification"],
+                        attributes,
+                    ),
+                    "agent_tool",
+                    agent=agent_identity(),
+                    tool="list_tasks",
+                    tool_effect="read",
+                    tool_risk="low",
+                )
+            )
+            if decision.effect == PolicyEffect.PERMIT:
+                permitted.append(row)
+        policy = projection_policy.ProjectionPolicy(
+            engine,
+            subject,
+            "skein.tool.list_tasks",
+            "agent_tool",
+            scope.NOBODY,
+            agent=agent_identity(),
+            tool="list_tasks",
+        )
+        return json.dumps(work.redact_task_relationships(permitted, scope.NOBODY, policy.permits))

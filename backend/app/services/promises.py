@@ -190,18 +190,19 @@ ESCALATE_AFTER_CYCLES = 2
 
 
 def _names_a_teammate(text: str) -> bool:
-    """Does this free text carry a roster name?
-
-    The WHOLE roster, not active members only: a teammate who left is exactly
-    the person a delay verdict must not name, and services/stakeholders.py
-    reads the roster unfiltered for the same reason.
-    """
+    """Return true when free text contains any current or former teammate."""
     from .users import fold, names_someone
 
     return names_someone(text, {fold(u["name"]) for u in db.query("SELECT name FROM users")})
 
 
 def chase_received(*, actor: str = "scheduler") -> dict:
+    """Chase overdue promises and create their notices in one transaction."""
+    with db.transaction():
+        return _chase_received_locked(actor=actor)
+
+
+def _chase_received_locked(*, actor: str) -> dict:
     """Nudge the person waiting on an overdue received promise, and escalate
     to the team when two cycles have passed with no settlement.
 
@@ -232,7 +233,6 @@ def chase_received(*, actor: str = "scheduler") -> dict:
             if now - seen < timedelta(hours=NUDGE_CYCLE_HOURS):
                 continue  # already chased this cycle
         cycles = int(row["nudge_count"] or 0) + 1
-        who = row["to_whom"] or "the other party"
         # The recorder is the person waiting, and the only one who can chase
         # it. An agent identity cannot: it reads no notifications and cannot
         # send an email, so the nudge would land nowhere (the same reason
@@ -256,39 +256,42 @@ def chase_received(*, actor: str = "scheduler") -> dict:
             continue
         notify(
             target,
-            f"Still open with {who}: “{row['promise'][:80]}” was due {row['due_date']}.",
+            lambda source: (
+                f"Still open with {source['to_whom'] or 'the other party'}:"
+                f" “{source['promise'][:80]}” was due {source['due_date']}."
+            ),
             tier="digest",
             link="/planning",
+            source_entity="promise",
+            source_id=int(row["id"]),
         )
         nudged.append(row["id"])
-        # The team-wide escalation withholds `to_whom`, which is free text that
-        # nothing stops being a teammate — services/forge.py declines to name a
-        # pusher for the same reason. The BODY is free text too, and the
-        # capture grammar leaves a name in it whenever the line carries no dash
-        # ("awaiting: dana will send the redlines" keeps `to_whom` empty), so a
-        # body carrying a roster name is withheld as well and the reader is
-        # sent to the page that can show it under their own tier. The tier
-        # check stands beside both: a crew or private promise must not reach
-        # the whole roster at all, in any wording.
+        # The team escalation names only its promise source. It quotes the
+        # body only when the body and party fields name no teammate.
         #
         # Once, not daily. `==`, not `>=`: the recorder keeps being nudged,
         # but a team-wide message repeating the same promise every 24 hours
         # forever is how a digest gets muted.
         if cycles == ESCALATE_AFTER_CYCLES and row["visibility"] == scope.WORKSPACE:
-            body = row["promise"][:80]
-            quoted = (
-                f" “{body}”"
-                if not _names_a_teammate(f"{body} {row['to_whom'] or ''}")
-                else ". Read it on Work → Plan the week"
-            )
             notify(
                 "team",
-                f"A promise made to the team is overdue and unanswered{quoted},"
-                f" due {row['due_date']}."
-                f" Skein sent {wording.count(ESCALATE_AFTER_CYCLES, 'reminder')}"
-                " to whoever recorded it.",
+                lambda source: (
+                    "A promise made to the team is overdue and unanswered"
+                    + (
+                        f" “{source['promise'][:80]}”"
+                        if not _names_a_teammate(
+                            f"{source['promise'][:80]} {source['to_whom'] or ''}"
+                        )
+                        else ". Read it on Work → Plan the week"
+                    )
+                    + f", due {source['due_date']}. Skein sent"
+                    f" {wording.count(ESCALATE_AFTER_CYCLES, 'reminder')}"
+                    " to whoever recorded it."
+                ),
                 tier="digest",
                 link="/planning",
+                source_entity="promise",
+                source_id=int(row["id"]),
             )
             escalated.append(row["id"])
         db.execute(

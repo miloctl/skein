@@ -8,9 +8,13 @@ added and deleted, and a ritual that never happened leaves no row at all, so
 by the time an engagement closes the plan it started with is gone.
 """
 
+import base64
+import hashlib
+import hmac
 import json
 import re
-from datetime import date, timedelta
+from collections.abc import Callable
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +23,104 @@ import yaml
 from .. import config, db
 from . import collab, engagements, schedule, scope, wording, work
 
-PLAYBOOKS_DIR = Path(__file__).resolve().parent.parent.parent / "playbooks"
+PLAYBOOKS_DIR = config.STOCK_DIR / "playbooks"
 
 
 _SLUG = re.compile(r"^[a-z0-9_-]+$")
+SCHEMA_VERSION = 1
+DEFINITION_DIGEST_VERSION = "v2"
+_TOP_LEVEL = {
+    "schema_version",
+    "name",
+    "description",
+    "project_class",
+    "milestones",
+    "rituals",
+    "workflow",
+}
+
+
+def _schema_errors(data: object, workflow_actions: set[str] | None = None) -> list[str]:
+    if not isinstance(data, dict):
+        return ["expected an object"]
+    errors = []
+    version = data.get("schema_version", SCHEMA_VERSION)
+    if isinstance(version, bool) or not isinstance(version, int) or version != SCHEMA_VERSION:
+        errors.append(f"schema_version must be {SCHEMA_VERSION}")
+    unknown = sorted(set(data) - _TOP_LEVEL)
+    if unknown:
+        errors.append(f"unknown top-level fields: {unknown}")
+    if not str(data.get("name") or "").strip():
+        errors.append("name is empty")
+    milestones = data.get("milestones", [])
+    if not isinstance(milestones, list):
+        errors.append("milestones must be a list")
+    else:
+        for index, milestone in enumerate(milestones):
+            if not isinstance(milestone, dict) or not str(milestone.get("title") or "").strip():
+                errors.append(f"milestone {index + 1} has no title")
+                continue
+            tasks = milestone.get("tasks", [])
+            if not isinstance(tasks, list):
+                errors.append(f"milestone {index + 1} tasks must be a list")
+                continue
+            for task_index, task in enumerate(tasks):
+                if isinstance(task, str):
+                    valid = bool(task.strip())
+                else:
+                    valid = isinstance(task, dict) and bool(str(task.get("title") or "").strip())
+                if not valid:
+                    errors.append(f"milestone {index + 1} task {task_index + 1} has no title")
+    rituals = data.get("rituals", [])
+    if not isinstance(rituals, list):
+        errors.append("rituals must be a list")
+    else:
+        for index, ritual in enumerate(rituals):
+            if not isinstance(ritual, dict) or not str(ritual.get("title") or "").strip():
+                errors.append(f"ritual {index + 1} has no title")
+    if "workflow" in data:
+        try:
+            from ..public.workflow import validate_workflow_actions, validate_workflow_shape
+
+            validate_workflow_shape(data["workflow"])
+            if workflow_actions is not None:
+                validate_workflow_actions(data["workflow"], workflow_actions)
+        except Exception:
+            errors.append("workflow steps are not valid")
+    return errors
+
+
+def _legacy_errors(data: object) -> list[str]:
+    """Checks that the pre-schema reader applied to unversioned files."""
+    if not isinstance(data, dict):
+        return ["expected an object"]
+    errors: list[str] = []
+    milestones = data.get("milestones", [])
+    if not isinstance(milestones, list):
+        return ["milestones must be a list"]
+    for index, milestone in enumerate(milestones):
+        if not isinstance(milestone, dict) or "title" not in milestone:
+            errors.append(f"milestone {index + 1} has no title")
+    return errors
+
+
+def _content_errors(data: object, workflow_actions: set[str] | None = None) -> list[str]:
+    """Use strict version 1 rules only when the file opts in explicitly."""
+    if isinstance(data, dict) and "schema_version" not in data:
+        errors = _legacy_errors(data)
+        # Workflow is new executable content. Validate it when present, but
+        # keep all unrelated legacy metadata and defaults backward compatible.
+        if "workflow" in data:
+            try:
+                from ..public.workflow import validate_workflow_actions, validate_workflow_shape
+
+                validate_workflow_shape(data["workflow"])
+                if workflow_actions is not None:
+                    validate_workflow_actions(data["workflow"], workflow_actions)
+            except Exception:
+                errors.append("workflow steps are not valid")
+        return errors
+    return _schema_errors(data, workflow_actions)
 
 
 def _playbook_files() -> dict[str, Path]:
@@ -55,12 +153,18 @@ def list_playbooks() -> list[dict]:
             continue
         if not isinstance(data, dict):
             continue
+        # Before schema versions, a mapping could omit name and carry private
+        # metadata. Preserve that reader. An explicit schema_version opts into
+        # the strict contract.
+        if "schema_version" in data and _schema_errors(data):
+            continue
         out.append(
             {
                 "slug": slug,
                 "name": data.get("name", slug),
                 "description": data.get("description", ""),
                 "milestones": len(data.get("milestones", [])),
+                "schema_version": data.get("schema_version", SCHEMA_VERSION),
             }
         )
     return out
@@ -80,10 +184,117 @@ def get_playbook(slug: str) -> dict:
         raise ValueError(f"playbook '{slug}' is malformed ({type(exc).__name__})") from exc
     if not isinstance(pb, dict):
         raise ValueError(f"playbook '{slug}' is malformed (expected a mapping)")
-    for m in pb.get("milestones", []):
-        if not isinstance(m, dict) or "title" not in m:
-            raise ValueError(f"playbook '{slug}' has a milestone without a title")
+    errors = _content_errors(pb)
+    if errors:
+        raise ValueError(f"playbook '{slug}' is malformed ({'; '.join(errors)})")
+    pb.setdefault("schema_version", SCHEMA_VERSION)
     return pb
+
+
+def definition_digest(definition: dict) -> str:
+    """Return the canonical identity of executable playbook content."""
+    encoded = json.dumps(_canonical_yaml_value(definition), separators=(",", ":"))
+    return f"{DEFINITION_DIGEST_VERSION}:{hashlib.sha256(encoded.encode()).hexdigest()}"
+
+
+def definition_digest_matches(expected: str, definition: dict) -> bool:
+    """Match the tagged digest stored with a durable playbook review."""
+    return hmac.compare_digest(expected, definition_digest(definition))
+
+
+def _canonical_yaml_value(value: object) -> object:
+    """Tag every SafeLoader value before hashing to prevent type collisions."""
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, float):
+        return ["float", value.hex()]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, bytes):
+        return ["bytes", base64.b64encode(value).decode("ascii")]
+    if isinstance(value, datetime):
+        return ["datetime", value.isoformat()]
+    if isinstance(value, date):
+        return ["date", value.isoformat()]
+    if isinstance(value, list):
+        return ["list", [_canonical_yaml_value(item) for item in value]]
+    if isinstance(value, tuple):
+        return ["tuple", [_canonical_yaml_value(item) for item in value]]
+    if isinstance(value, (set, frozenset)):
+        items = [_canonical_yaml_value(item) for item in value]
+        items.sort(key=_canonical_sort_key)
+        return ["set", items]
+    if isinstance(value, dict):
+        pairs: list[tuple[object, object]] = [
+            (_canonical_yaml_value(key), _canonical_yaml_value(item)) for key, item in value.items()
+        ]
+        pairs.sort(key=lambda pair: _canonical_sort_key(pair[0]))
+        return ["map", pairs]
+    raise TypeError(f"unsupported playbook value type: {type(value).__name__}")
+
+
+def _canonical_sort_key(value: object) -> str:
+    return json.dumps(value, separators=(",", ":"))
+
+
+def validate_all(workflow_actions: set[str] | None = None) -> list[str]:
+    """Return all schema errors from stock files and the configured overlay."""
+    errors = []
+    directories = [PLAYBOOKS_DIR]
+    if config.PLAYBOOKS_OVERLAY and config.PLAYBOOKS_OVERLAY.is_dir():
+        directories.append(config.PLAYBOOKS_OVERLAY)
+    for directory in directories:
+        for path in sorted(directory.glob("*.yaml")):
+            label = path.name if directory == PLAYBOOKS_DIR else f"{path.name} (overlay)"
+            if not _SLUG.match(path.stem):
+                errors.append(f"{label}: slug must match {_SLUG.pattern}")
+                continue
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                errors.append(f"{label}: not valid YAML ({type(exc).__name__})")
+                continue
+            errors.extend(f"{label}: {error}" for error in _content_errors(data, workflow_actions))
+    return errors
+
+
+def validate_startup(workflow_actions: set[str]) -> list[str]:
+    """Validate executable or explicitly versioned content without breaking legacy boot.
+
+    The old runtime skipped malformed overlay files until a caller selected
+    one. Keep that behavior for unversioned files. A schema declaration is an
+    explicit strict contract, and a workflow is executable, so those two
+    cases must fail before the application accepts traffic.
+    """
+    errors: list[str] = []
+    directories = [PLAYBOOKS_DIR]
+    if config.PLAYBOOKS_OVERLAY and config.PLAYBOOKS_OVERLAY.is_dir():
+        directories.append(config.PLAYBOOKS_OVERLAY)
+    for directory in directories:
+        for path in sorted(directory.glob("*.yaml")):
+            label = path.name if directory == PLAYBOOKS_DIR else f"{path.name} (overlay)"
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            if "schema_version" in data:
+                current = _schema_errors(data, workflow_actions)
+            elif "workflow" in data:
+                current = [
+                    error
+                    for error in _content_errors(data, workflow_actions)
+                    if error == "workflow steps are not valid"
+                ]
+            else:
+                current = []
+            errors.extend(f"{label}: {error}" for error in current)
+    return errors
 
 
 def instantiate(
@@ -94,11 +305,43 @@ def instantiate(
     *,
     actor: str = "system",
     origin: str = "human",
+    workflow_engine: Any | None = None,
+    workflow_context: Any | None = None,
+    expected_definition_digest: str = "",
 ) -> dict:
     pb = get_playbook(slug)
+    if expected_definition_digest and not definition_digest_matches(expected_definition_digest, pb):
+        raise ValueError("the selected playbook changed; retry the request")
+    prepared_workflow = None
+    if pb.get("workflow"):
+        if workflow_engine is None or workflow_context is None:
+            raise ValueError("this playbook has workflow actions and needs a composed application")
+        prepared_workflow = workflow_engine.prepare(pb["workflow"])
     start = date.fromisoformat(start_date) if start_date else db.today()
+    workflow_result = None
+    authorized_context = workflow_context
+    if prepared_workflow is not None and workflow_engine is not None:
+        workflow_result = workflow_engine.authorize(prepared_workflow, workflow_context)
+        if workflow_result.status != "completed":
+            serialized = workflow_result.model_dump(mode="json")
+            if workflow_result.review_policy:
+                serialized["_review_policy"] = workflow_result.review_policy
+            return {"workflow": serialized}
+        if workflow_context is None:
+            raise ValueError("this playbook workflow has no execution context")
+        authorized_context = workflow_engine._with_authorization_grants(
+            workflow_context,
+            workflow_result.authorization_grants,
+        )
     with db.transaction():
-        return _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
+        created = _instantiate(pb, slug, engagement_name, lead, start, actor=actor, origin=origin)
+    if prepared_workflow is not None and workflow_engine is not None:
+        result = workflow_engine.run(prepared_workflow, authorized_context)
+        serialized = result.model_dump(mode="json")
+        if result.review_policy:
+            serialized["_review_policy"] = result.review_policy
+        created["workflow"] = serialized
+    return created
 
 
 def _instantiate(
@@ -288,7 +531,11 @@ def _exists(table: str, row_id: int) -> bool:
     )
 
 
-def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
+def close_out_diff(
+    engagement_id: int,
+    viewer: scope.Viewer = scope.NOBODY,
+    resource_filter: Callable[[str, int, dict[str, str]], bool] | None = None,
+) -> dict:
     """Planned versus what happened, for an engagement born from a playbook.
 
     Returns {} when there is no snapshot. A playbook that never learns is the
@@ -311,7 +558,7 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
     # section, the first is a 404 (scope.missing gives both the same sentence)
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
-        f"SELECT visibility FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT visibility, project_class FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if not eng:
@@ -325,8 +572,23 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
     tfrag, tp = scope.visible_filter(viewer, "tasks")
     efrag, ep = scope.visible_filter(viewer, "events")
 
+    from . import policy_context
+
+    parent_context = {
+        "classification": str(eng.get("visibility") or ""),
+        "project_type": str(eng.get("project_class") or ""),
+    }
+
+    def allowed(entity: str, entity_id: int) -> bool:
+        if resource_filter is None:
+            return True
+        attributes = policy_context.existing_scoped(entity, entity_id, viewer) or parent_context
+        return resource_filter(entity, entity_id, attributes)
+
     slipped = []
     for m in plan["milestones"]:
+        if not allowed("milestone", int(m["id"])):
+            return {}
         row = db.query_one(
             f"SELECT title, due_date, completed_at FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
             (m["id"], *mp),
@@ -379,6 +641,8 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
 
     unfinished, dropped_tasks = [], []
     for t in plan["tasks"]:
+        if not allowed("task", int(t["id"])):
+            return {}
         row = db.query_one(
             f"SELECT id, title, status FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
             (t["id"], *tp),
@@ -402,17 +666,17 @@ def close_out_diff(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> d
     # and a title-keyed filter reports a RENAMED planned task as new work and
     # recommends adding it to the YAML it is already in
     planned_ids = {t["id"] for t in plan["tasks"]}
-    added = [
-        r["title"]
-        for r in db.query(
-            f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 — scope.visible_filter emits only bound marks
-            f" (SELECT id FROM milestones WHERE engagement_id = ?)) AND {tfrag} ORDER BY id",
-            (engagement_id, engagement_id, *tp),
-        )
-        if r["id"] not in planned_ids
-    ]
+    added_rows = db.query(
+        f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f" (SELECT id FROM milestones WHERE engagement_id = ?)) AND {tfrag} ORDER BY id",
+        (engagement_id, engagement_id, *tp),
+    )
+    added_rows = policy_context.filter_resource_rows("task", added_rows, viewer, resource_filter)
+    added = [r["title"] for r in added_rows if r["id"] not in planned_ids]
     skipped_rituals = []
     for r in plan["rituals"]:
+        if not allowed("event", int(r["id"])):
+            return {}
         if db.query_one(
             f"SELECT id FROM events WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
             (r["id"], *ep),

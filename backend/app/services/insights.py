@@ -151,7 +151,8 @@ def automation_ratio(months: int = 6) -> list[dict]:
         m = months_map.setdefault(
             r["month"], {"month": r["month"], "human": 0, "agent": 0, "agent_verified": 0}
         )
-        m[r["origin"]] = m.get(r["origin"], 0) + r["n"]
+        origin = r["origin"] if r["origin"] in ("human", "agent", "agent_verified") else "agent"
+        m[origin] += r["n"]
     out = []
     for m in months_map.values():
         total = m["human"] + m["agent"] + m["agent_verified"]
@@ -553,6 +554,7 @@ def _r_review_stall() -> list[dict]:
     pending = _readable(
         db.query(
             "SELECT id, entity, entity_id, summary, proposed_by,"
+            " review_visibility, review_crew_id, review_owner,"
             " ROUND((julianday('now') - julianday(created_at)) * 24) AS hours"
             " FROM pending_changes WHERE status = 'pending' ORDER BY created_at"
         ),
@@ -600,7 +602,8 @@ def _r_rejection_spike() -> list[dict]:
 
     notes = _readable(
         db.query(
-            "SELECT entity, entity_id, summary, review_note FROM pending_changes"
+            "SELECT entity, entity_id, summary, review_note,"
+            " review_visibility, review_crew_id, review_owner FROM pending_changes"
             " WHERE status = 'rejected' AND reviewed_at >= ? AND review_note != ''"
             " ORDER BY id DESC LIMIT 10",
             (cut,),
@@ -1475,12 +1478,24 @@ def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str =
         raise db.NotFound(f"finding #{finding_id} not found")
     text = title.strip() or finding["message"]
     if kind == "task":
-        from .work import create_task
+        from .work import _emit_task_event, create_task
 
-        created = create_task(title=text[:120], description=text, actor=actor, origin="human")
-        db.execute(
-            "UPDATE tasks SET source_finding_id = ? WHERE id = ?", (finding_id, created["id"])
-        )
+        with db.transaction():
+            created = create_task(title=text[:120], description=text, actor=actor, origin="human")
+            db.execute(
+                "UPDATE tasks SET source_finding_id = ? WHERE id = ?",
+                (finding_id, created["id"]),
+            )
+            _emit_task_event(
+                "skein.task.updated",
+                int(created["id"]),
+                actor=actor,
+                origin="human",
+                visibility="workspace",
+                changes=("source_finding_id",),
+                correlation_id="",
+                actor_kind="human",
+            )
     elif kind == "question":
         from .collab import ask_question
 

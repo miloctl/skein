@@ -98,9 +98,11 @@ def test_golden_trace(scenario, fresh_db, monkeypatch):
     from app import config
     from app.services import notifications
     from app.services.delegation import set_authority
+    from app.services.users import _reserve_core_agent_identity
 
     monkeypatch.setattr(notifications, "_post_slack", lambda *_: None)
     monkeypatch.setattr(config, "AGENT_REVIEW", scenario["review"])
+    _reserve_core_agent_identity("agent")
     for agent, entity, level in scenario.get("authority", []):
         set_authority(agent, entity, level, actor="golden-human")
 
@@ -149,7 +151,11 @@ def test_golden_review_roundtrip(fresh_db, monkeypatch):
     assert out.get("note") == "queued for human review"
     assert fresh_db.query("SELECT * FROM tasks") == []
     p = fresh_db.query_row("SELECT id FROM pending_changes WHERE status = 'pending'")
-    review.approve_change(p["id"], actor="human-reviewer")
+    from app.main import create_app
+
+    review.approve_change(
+        p["id"], actor="human-reviewer", policy_registry=create_app().state.skein_registry
+    )
     task = fresh_db.query_row("SELECT * FROM tasks")
     assert task["origin"] == "agent_verified"
     assert task["title"] == "proposed by agent"
