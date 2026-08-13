@@ -6,8 +6,6 @@ import hashlib
 import hmac
 import json
 import secrets
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
 from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -29,6 +27,7 @@ from ..extensions.policy import (
     approval_fingerprint,
     policy_input_data,
 )
+from ._owner_work import run_bounded_work_handler
 from .errors import PublicError
 
 
@@ -675,44 +674,51 @@ class WorkflowEngine:
                     ),
                     outputs=state.outputs,
                 )
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skein-workflow")
         from .work import WorkItems, _bind_execution_context
 
-        work_items = WorkItems(self._policy)
         correlation_id = f"{context.run_id}:{step_path}"
-        action_context = WorkflowActionContext(
-            context.subject,
-            self._policy,
-            work_items,
-            contribution.name,
-            correlation_id,
-        )
-        services = _bind_execution_context(
-            work_items,
-            action_context,
-            subject=context.subject,
-            namespace=contribution.name,
-            receipt_namespace=f"workflow:{contribution.name}",
-            correlation_id=correlation_id,
-        )
+
+        def bind(work_items: WorkItems) -> WorkflowActionContext:
+            action_context = WorkflowActionContext(
+                context.subject,
+                self._policy,
+                work_items,
+                contribution.name,
+                correlation_id,
+            )
+            return _bind_execution_context(
+                work_items,
+                action_context,
+                subject=context.subject,
+                namespace=contribution.name,
+                receipt_namespace=f"workflow:{contribution.name}",
+                correlation_id=correlation_id,
+            )
+
         _log_action_outcome(context, contribution, step_path, "attempt")
-        future = executor.submit(contribution.handler, services, input_data)
         try:
-            raw = future.result(timeout=contribution.timeout_seconds)
+            execution = run_bounded_work_handler(
+                self._policy,
+                bind,
+                contribution.handler,
+                input_data,
+                contribution.timeout_seconds,
+                thread_name="skein-workflow",
+            )
+            if execution.timed_out:
+                if contribution.effect in ("write", "unknown"):
+                    _log_action_outcome(context, contribution, step_path, "completion_unknown")
+                    return WorkflowResult(
+                        status="completion_unknown",
+                        completed=tuple(state.completed),
+                        checkpoint=step.name,
+                        error_code="DEADLINE_EXCEEDED",
+                        outputs=state.outputs,
+                    )
+                _log_action_outcome(context, contribution, step_path, "failed")
+                return self._failed(state, step.name, "ACTION_TIMEOUT")
+            raw = execution.value
             output = contribution.output_schema.model_validate(raw)
-        except FutureTimeout:
-            future.cancel()
-            if contribution.effect in ("write", "unknown"):
-                _log_action_outcome(context, contribution, step_path, "completion_unknown")
-                return WorkflowResult(
-                    status="completion_unknown",
-                    completed=tuple(state.completed),
-                    checkpoint=step.name,
-                    error_code="DEADLINE_EXCEEDED",
-                    outputs=state.outputs,
-                )
-            _log_action_outcome(context, contribution, step_path, "failed")
-            return self._failed(state, step.name, "ACTION_TIMEOUT")
         except PublicError as exc:
             code = exc.code if exc.code in contribution.error_codes else "ACTION_ERROR"
             if contribution.effect in ("write", "unknown"):
@@ -750,8 +756,6 @@ class WorkflowEngine:
                 )
             _log_action_outcome(context, contribution, step_path, "failed")
             return self._failed(state, step.name, "ACTION_ERROR")
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
         state.outputs[step.name] = output.model_dump(mode="json")
         state.completed.append(step.name)
         db.log_activity(

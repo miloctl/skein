@@ -339,6 +339,7 @@ from app.extensions import (
     SKEIN_CORE_VERSION,
     SkeinModule,
     ToolContribution,
+    WorkflowActionContribution,
 )
 from app.extensions.tools import ToolCallContext, execute_tool
 from app import db, identity_audit
@@ -397,6 +398,73 @@ assert any(
     for row in private_notes.list_audit("person-owner")
 )
 module = atlas_module(AtlasSettings(Path("../atlas-data/atlas.db").resolve()))
+
+
+class ReviewedWorkIn(BaseModel):
+    title: str
+
+
+class ReviewedWorkOut(BaseModel):
+    task_id: int
+
+
+def create_reviewed_work(context, request):
+    task = context.work_items.create_task(
+        CreateTaskCommand(
+            title=request.title,
+            idempotency_key="current-reviewed-local-write",
+        ),
+        context.command_context(project_type="standard"),
+    )
+    return {"task_id": task.id}
+
+
+def review_local_work(request):
+    if request.action == "next.workplace.task.create":
+        return PolicyDecision(
+            PolicyEffect.REVIEW,
+            approver_capabilities=("upgrade.approve",),
+        )
+    return None
+
+
+Path("../extension-source/content/playbooks/current_reviewed_work.yaml").write_text(
+    """\
+schema_version: 1
+name: Current reviewed local work
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: next.workplace.create-task
+    input:
+      title: Installed reviewed workflow task
+"""
+)
+local_write_module = SkeinModule(
+    module_id="next.workplace",
+    version="1.0.0",
+    extension_api="1.0",
+    minimum_core="0.2.1",
+    maximum_core_exclusive="0.3.0",
+    workflow_actions=(
+        WorkflowActionContribution(
+            name="next.workplace.create-task",
+            version="1.0.0",
+            handler=create_reviewed_work,
+            input_schema=ReviewedWorkIn,
+            output_schema=ReviewedWorkOut,
+            effect="write",
+            risk="high",
+            policy_action="next.workplace.task.create",
+            timeout_seconds=1,
+        ),
+    ),
+    policies=(PolicyContribution("next.workplace.local-review", review_local_work),),
+)
+
+
 def review_playbook(request):
     if request.action == "playbook.create" and request.resource.project_type == "prototype":
         return PolicyDecision(
@@ -424,7 +492,7 @@ compatibility = SkeinModule(
     ),
 )
 settings = replace(AppSettings.from_config(), scheduler_enabled=False)
-app = create_app(settings, (module, compatibility))
+app = create_app(settings, (module, compatibility, local_write_module))
 with TestClient(app) as client:
     assert client.get("/health").status_code == 200
     assert "atlas_delivery" in {
@@ -456,6 +524,16 @@ with TestClient(app) as client:
         )
         assert workflow_started.status_code == 200, workflow_started.text
         workflow_review_id = workflow_started.json()["workflow"]["review_id"]
+        local_started = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "ava"},
+            json={
+                "playbook": "current_reviewed_work",
+                "engagement_name": "Installed reviewed local work",
+            },
+        )
+        assert local_started.status_code == 200, local_started.text
+        local_review_id = local_started.json()["workflow"]["review_id"]
     finally:
         deps._resolve = original_resolve
     deps._resolve = lambda *_args, **_kwargs: (
@@ -467,10 +545,21 @@ with TestClient(app) as client:
             headers={"X-User": "manager"},
             json={"note": "Approve the installed workflow action."},
         )
+        local_approved = client.post(
+            f"/api/review/{local_review_id}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Approve the installed local-write action."},
+        )
     finally:
         deps._resolve = original_resolve
     assert workflow_approved.status_code == 200, workflow_approved.text
     assert workflow_approved.json()["result"]["workflow"]["status"] == "completed"
+    assert local_approved.status_code == 200, local_approved.text
+    assert local_approved.json()["result"]["workflow"]["status"] == "completed"
+    assert db.query_one(
+        "SELECT title FROM tasks WHERE title = ?",
+        ("Installed reviewed workflow task",),
+    ) == {"title": "Installed reviewed workflow task"}
     review_id = int(Path("../pending-review-id").read_text())
     approved = client.post(
         f"/api/review/{review_id}/approve",
@@ -654,4 +743,4 @@ def schema(path):
 assert schema(sys.argv[1]) == schema(sys.argv[2]), "fresh and upgraded schemas differ"
 PY
 
-echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct 0.2.0 -> 0.2.1 implementations; 0.2.1 declared tool errors passed"
+echo "reference-extension-contract: old core rejected; unchanged Atlas sync and strict source checks passed distinct 0.2.0 -> 0.2.1 implementations; 0.2.1 declared tool errors and reviewed local writes passed"

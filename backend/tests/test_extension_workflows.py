@@ -1,5 +1,6 @@
 """Typed workflow steps and composed playbook execution."""
 
+import threading
 import time
 from dataclasses import replace
 
@@ -19,7 +20,7 @@ from app.extensions import (
 )
 from app.extensions.policy import PolicyInput, PolicySubject
 from app.main import create_app
-from app.public import PublicError
+from app.public import CreateTaskCommand, PublicError
 from app.public.workflow import WorkflowEngine, _issue_workflow_context
 
 
@@ -31,6 +32,14 @@ class SendIn(BaseModel):
 
 class SendOut(BaseModel):
     sent: bool
+
+
+class CreateWorkIn(BaseModel):
+    title: str
+
+
+class CreateWorkOut(BaseModel):
+    task_id: int
 
 
 def _action(calls: list[str]) -> WorkflowActionContribution:
@@ -726,6 +735,294 @@ workflow:
     assert fresh_db.query_one(
         "SELECT COUNT(*) AS count FROM pending_changes WHERE entity = 'extension_workflow'"
     ) == {"count": 1}
+
+
+def test_reviewed_workflow_action_writes_through_the_public_facade(fresh_db, tmp_path, monkeypatch):
+    from app import config, db
+    from app.extensions import IdentityContribution
+    from app.public import WorkItems
+    from app.services import users
+
+    overlay = tmp_path / "playbooks"
+    overlay.mkdir()
+    (overlay / "reviewed-write.yaml").write_text(
+        """\
+schema_version: 1
+name: Reviewed write workflow
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: atlas.workplace.create-task
+    input:
+      title: Created by the reviewed workflow
+"""
+    )
+    monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
+    handler_threads: list[int] = []
+    owner_threads: list[int] = []
+    original_create_locked = WorkItems._create_task_locked
+
+    def record_owner(work_items, command, context):
+        owner_threads.append(threading.get_ident())
+        return original_create_locked(work_items, command, context)
+
+    monkeypatch.setattr(WorkItems, "_create_task_locked", record_owner)
+
+    def create_task(context, request: CreateWorkIn):
+        handler_threads.append(threading.get_ident())
+        command_context = context.command_context(project_type="standard")
+        command = CreateTaskCommand(
+            title=request.title,
+            idempotency_key="reviewed-workflow-task",
+        )
+        task = context.work_items.create_task(command, command_context)
+        replay = context.work_items.create_task(command, command_context)
+        assert replay.id == task.id
+        return {"task_id": task.id}
+
+    def review_action(request: PolicyInput):
+        if request.action == "atlas.task.create":
+            return PolicyDecision(
+                PolicyEffect.REVIEW,
+                approver_capabilities=("atlas.approve",),
+            )
+        return None
+
+    def identity(name, _groups, _strong):
+        return {"capabilities": ("atlas.approve",) if name == "manager" else ()}
+
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        workflow_actions=(
+            WorkflowActionContribution(
+                name="atlas.workplace.create-task",
+                version="1.0.0",
+                handler=create_task,
+                input_schema=CreateWorkIn,
+                output_schema=CreateWorkOut,
+                effect="write",
+                risk="high",
+                policy_action="atlas.task.create",
+                timeout_seconds=1,
+            ),
+        ),
+        policies=(PolicyContribution("atlas.workplace.review-write", review_action),),
+        identities=(IdentityContribution("atlas.workplace.identity", identity),),
+    )
+    for name in ("requester", "manager"):
+        users.ensure_user(name)
+
+    with TestClient(create_app(modules=(module,))) as client:
+        queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={
+                "playbook": "reviewed-write",
+                "engagement_name": "Reviewed workflow project",
+            },
+        ).json()["workflow"]
+        original_execute = db.execute
+        failed = {"once": False}
+
+        def fail_first_settlement(sql, params=()):
+            if "SET status = 'approved', result = ?" in sql and not failed["once"]:
+                failed["once"] = True
+                raise RuntimeError("forced settlement failure")
+            return original_execute(sql, params)
+
+        monkeypatch.setattr(db, "execute", fail_first_settlement)
+        first = client.post(
+            f"/api/review/{queued['review_id']}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "First attempt."},
+        )
+        assert first.status_code == 400, first.text
+        assert (
+            fresh_db.query_one(
+                "SELECT id FROM tasks WHERE title = ?", ("Created by the reviewed workflow",)
+            )
+            is None
+        )
+        assert (
+            fresh_db.query_one(
+                "SELECT id FROM engagements WHERE name = ?", ("Reviewed workflow project",)
+            )
+            is None
+        )
+        assert (
+            fresh_db.query_one(
+                "SELECT result_id FROM extension_command_receipts WHERE idempotency_key = ?",
+                ("reviewed-workflow-task",),
+            )
+            is None
+        )
+        assert fresh_db.query_one(
+            "SELECT status FROM pending_changes WHERE id = ?", (queued["review_id"],)
+        ) == {"status": "pending"}
+        started = time.monotonic()
+        approved = client.post(
+            f"/api/review/{queued['review_id']}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Approved."},
+        )
+        elapsed = time.monotonic() - started
+
+    assert approved.status_code == 200, approved.text
+    assert elapsed < 2
+    assert approved.json()["result"]["workflow"]["status"] == "completed"
+    assert len(handler_threads) == 2
+    assert owner_threads
+    assert set(owner_threads).isdisjoint(handler_threads)
+    assert fresh_db.query_one(
+        "SELECT title, created_by FROM tasks WHERE title = ?",
+        ("Created by the reviewed workflow",),
+    ) == {"title": "Created by the reviewed workflow", "created_by": "requester"}
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM tasks WHERE title = ?",
+        ("Created by the reviewed workflow",),
+    ) == {"count": 1}
+    assert fresh_db.query_one(
+        "SELECT namespace, idempotency_key FROM extension_command_receipts"
+        " WHERE idempotency_key = ?",
+        ("reviewed-workflow-task",),
+    ) == {
+        "namespace": "workflow:atlas.workplace.create-task",
+        "idempotency_key": "reviewed-workflow-task",
+    }
+
+
+def test_timed_out_workflow_closes_late_public_work_calls(fresh_db):
+    from app.services import users
+
+    late = threading.Event()
+    errors: list[str] = []
+
+    def create_after_deadline(context, request: CreateWorkIn):
+        time.sleep(0.05)
+        try:
+            context.work_items.create_task(
+                CreateTaskCommand(title=request.title),
+                context.command_context(project_type="standard"),
+            )
+        except PublicError as exc:
+            errors.append(exc.code)
+        finally:
+            late.set()
+        return {"task_id": 0}
+
+    action = WorkflowActionContribution(
+        name="atlas.workplace.late-task",
+        version="1.0.0",
+        handler=create_after_deadline,
+        input_schema=CreateWorkIn,
+        output_schema=CreateWorkOut,
+        effect="write",
+        risk="high",
+        policy_action="atlas.task.create",
+        timeout_seconds=0.01,
+    )
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                workflow_actions=(action,),
+            ),
+        )
+    )
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    with fresh_db.transaction():
+        result = engine.run(
+            engine.prepare(
+                [
+                    {
+                        "type": "action",
+                        "name": action.name,
+                        "input": {"title": "Must not appear after timeout"},
+                    }
+                ]
+            ),
+            _context(engine, PolicySubject("requester"), "workflow"),
+        )
+
+    assert result.status == "completion_unknown"
+    assert result.error_code == "DEADLINE_EXCEEDED"
+    assert late.wait(1)
+    assert errors == ["EXECUTION_CONTEXT_CLOSED"]
+    assert (
+        fresh_db.query_one(
+            "SELECT id FROM tasks WHERE title = ?", ("Must not appear after timeout",)
+        )
+        is None
+    )
+    users.ensure_user("database-still-usable")
+
+
+def test_workflow_work_completed_before_deadline_commits_with_unknown_completion(fresh_db):
+    finished = threading.Event()
+
+    def create_then_finish_late(context, request: CreateWorkIn):
+        context.work_items.create_task(
+            CreateTaskCommand(title=request.title),
+            context.command_context(project_type="standard"),
+        )
+        time.sleep(0.05)
+        finished.set()
+        return {"task_id": 0}
+
+    action = WorkflowActionContribution(
+        name="atlas.workplace.early-task",
+        version="1.0.0",
+        handler=create_then_finish_late,
+        input_schema=CreateWorkIn,
+        output_schema=CreateWorkOut,
+        effect="write",
+        risk="high",
+        policy_action="atlas.task.create",
+        timeout_seconds=0.01,
+    )
+    registry = ExtensionRegistry.build(
+        (
+            SkeinModule(
+                module_id="atlas.workplace",
+                version="1.0.0",
+                extension_api="1.0",
+                minimum_core="0.2.0",
+                maximum_core_exclusive="0.3.0",
+                workflow_actions=(action,),
+            ),
+        )
+    )
+    engine = WorkflowEngine(registry.workflow_actions, registry.policy_engine)
+    with fresh_db.transaction():
+        result = engine.run(
+            engine.prepare(
+                [
+                    {
+                        "type": "action",
+                        "name": action.name,
+                        "input": {"title": "Committed before timeout"},
+                    }
+                ]
+            ),
+            _context(engine, PolicySubject("requester"), "workflow"),
+        )
+
+    assert result.status == "completion_unknown"
+    assert result.error_code == "DEADLINE_EXCEEDED"
+    assert fresh_db.query_one(
+        "SELECT title FROM tasks WHERE title = ?", ("Committed before timeout",)
+    ) == {"title": "Committed before timeout"}
+    assert finished.wait(1)
 
 
 def test_workflow_rejection_uses_current_action_metadata(fresh_db, tmp_path, monkeypatch):

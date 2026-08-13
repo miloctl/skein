@@ -35,7 +35,7 @@ from app.extensions.policy import reset_policy_engine, set_policy_engine
 from app.extensions.registry import ExtensionRegistry
 from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import create_app
-from app.public import PublicError
+from app.public import CreateTaskCommand, PublicError
 from app.tools._gate import gated_write
 
 
@@ -409,6 +409,153 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
     )
     assert stored["status"] == "approved"
     assert json.loads(stored["result"])["status"] == "completed"
+
+
+def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
+    from app import db
+    from app.extensions.tools import execute_reviewed_tool
+    from app.services import review, users
+
+    calls: list[str] = []
+
+    def handler(context, request: SyncIn):
+        calls.append(request.external_id)
+        task = context.work_items.create_task(
+            CreateTaskCommand(
+                title=f"Imported {request.external_id}",
+                idempotency_key=f"tool-{request.external_id}",
+            ),
+            context.command_context(project_type="standard"),
+        )
+        return {"updated": str(task.id)}
+
+    base = _module()
+    module = replace(base, tools=(replace(base.tools[0], handler=handler),))
+    registry = ExtensionRegistry.build((module,))
+    queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "ATLAS-WRITE"},
+            ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    users.ensure_user("manager")
+
+    def resume(invocation, _change_id):
+        return asyncio.run(
+            execute_reviewed_tool(registry.tools[0], invocation, registry)
+        ).model_dump(mode="json")
+
+    original_execute = db.execute
+    failed = {"once": False}
+
+    def fail_first_settlement(sql, params=()):
+        if "SET status = 'approved', result = ?" in sql and not failed["once"]:
+            failed["once"] = True
+            raise RuntimeError("forced tool settlement failure")
+        return original_execute(sql, params)
+
+    monkeypatch.setattr(db, "execute", fail_first_settlement)
+    with pytest.raises(ValueError, match="forced tool settlement failure"):
+        review.approve_change(
+            queued.review_id,
+            actor="manager",
+            reviewer_groups=("delivery-managers",),
+            reviewer_capabilities=("acme.approve-atlas",),
+            extension_executor=resume,
+            policy_registry=registry,
+        )
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'Imported ATLAS-WRITE'") is None
+    assert (
+        fresh_db.query_one(
+            "SELECT result_id FROM extension_command_receipts WHERE idempotency_key = ?",
+            ("tool-ATLAS-WRITE",),
+        )
+        is None
+    )
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (queued.review_id,)
+    ) == {"status": "pending"}
+
+    approved = review.approve_change(
+        queued.review_id,
+        actor="manager",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("acme.approve-atlas",),
+        extension_executor=resume,
+        policy_registry=registry,
+    )
+
+    assert approved["result"]["status"] == "completed"
+    task = fresh_db.query_one(
+        "SELECT id, created_by FROM tasks WHERE title = 'Imported ATLAS-WRITE'"
+    )
+    assert task == {
+        "id": int(approved["result"]["output"]["updated"]),
+        "created_by": "acme.workplace.delivery",
+    }
+    assert fresh_db.query_one(
+        "SELECT namespace FROM extension_command_receipts WHERE idempotency_key = ?",
+        ("tool-ATLAS-WRITE",),
+    ) == {"namespace": "tool:acme.workplace.atlas-update"}
+    assert calls == ["ATLAS-WRITE", "ATLAS-WRITE"]
+
+
+def test_timed_out_reviewed_tool_closes_late_public_work_calls(fresh_db):
+    import threading
+
+    from app.extensions.tools import execute_reviewed_tool
+    from app.services import review, users
+
+    late = threading.Event()
+    errors: list[str] = []
+
+    def handler(context, request: SyncIn):
+        time.sleep(0.05)
+        try:
+            context.work_items.create_task(
+                CreateTaskCommand(title=f"Late {request.external_id}"),
+                context.command_context(project_type="standard"),
+            )
+        except PublicError as exc:
+            errors.append(exc.code)
+        finally:
+            late.set()
+        return {"updated": request.external_id}
+
+    base = _module()
+    tool = replace(base.tools[0], handler=handler, timeout_seconds=0.01)
+    registry = ExtensionRegistry.build((replace(base, tools=(tool,)),))
+    queued = asyncio.run(
+        execute_tool(
+            tool,
+            {"external_id": "ATLAS-LATE"},
+            ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    users.ensure_user("manager")
+
+    def resume(invocation, _change_id):
+        return asyncio.run(execute_reviewed_tool(tool, invocation, registry)).model_dump(
+            mode="json"
+        )
+
+    approved = review.approve_change(
+        queued.review_id,
+        actor="manager",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("acme.approve-atlas",),
+        extension_executor=resume,
+        policy_registry=registry,
+    )
+
+    assert approved["result"]["status"] == "completion_unknown"
+    assert approved["result"]["error_code"] == "deadline_exceeded"
+    assert late.wait(1)
+    assert errors == ["EXECUTION_CONTEXT_CLOSED"]
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'Late ATLAS-LATE'") is None
 
 
 def test_reviewed_tool_fails_closed_when_current_policy_changes(fresh_db):

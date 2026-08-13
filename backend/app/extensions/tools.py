@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Any
@@ -56,6 +57,10 @@ class ToolCallContext:
     correlation_id: str = field(default_factory=lambda: uuid4().hex)
 
 
+async def _await_handler_result(result: Awaitable[Any]) -> Any:
+    return await result
+
+
 async def execute_tool(
     contribution: ToolContribution,
     arguments: dict[str, Any],
@@ -64,6 +69,7 @@ async def execute_tool(
     *,
     _approved_fingerprint: str = "",
     _approved_decision: PolicyDecision | None = None,
+    _owner_dispatch: bool = False,
 ) -> ToolExecution:
     """Validate, authorize, execute, and validate one contributed tool."""
     if contribution.allowed_agents and context.agent not in contribution.allowed_agents:
@@ -174,10 +180,9 @@ async def execute_tool(
             ),
         )
 
-    async def invoke() -> Any:
-        from ..public.work import WorkItems, _bind_execution_context
+    from ..public.work import WorkItems, _bind_execution_context
 
-        work_items = WorkItems(policy)
+    def bind(work_items: WorkItems) -> ToolHandlerContext:
         handler_context = ToolHandlerContext(
             context.subject,
             policy,
@@ -196,13 +201,39 @@ async def execute_tool(
             actor=context.agent or context.subject.name,
             actor_kind="agent" if context.agent else context.subject.kind,
         )
+        return services
+
+    async def invoke() -> Any:
+        work_items = WorkItems(policy)
+        services = bind(work_items)
         result = await asyncio.to_thread(contribution.handler, services, validated)
         if isawaitable(result):
             return await result
         return result
 
+    def invoke_owned(services: ToolHandlerContext, request: BaseModel) -> Any:
+        result = contribution.handler(services, request)
+        if isawaitable(result):
+            return asyncio.run(_await_handler_result(result))
+        return result
+
     try:
-        raw = await asyncio.wait_for(invoke(), timeout=contribution.timeout_seconds)
+        if _owner_dispatch:
+            from ..public._owner_work import run_bounded_work_handler
+
+            execution = run_bounded_work_handler(
+                policy,
+                bind,
+                invoke_owned,
+                validated,
+                contribution.timeout_seconds,
+                thread_name="skein-reviewed-tool",
+            )
+            if execution.timed_out:
+                raise TimeoutError
+            raw = execution.value
+        else:
+            raw = await asyncio.wait_for(invoke(), timeout=contribution.timeout_seconds)
         output = contribution.output_schema.model_validate(raw)
     except TimeoutError:
         status = "completion_unknown" if contribution.effect in ("write", "unknown") else "failed"
@@ -288,6 +319,7 @@ async def execute_reviewed_tool(
             invocation.get("_approval_grant") or invocation.get("approval_fingerprint") or ""
         ),
         _approved_decision=approved_decision,
+        _owner_dispatch=True,
     )
 
 
