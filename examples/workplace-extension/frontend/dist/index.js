@@ -9,7 +9,7 @@ function AtlasDeliveryCard({ api }) {
             .then(setMetrics)
             .catch(() => setMetrics({ linked_items: 0, sync_runs: 0 }));
     }, [api]);
-    return (_jsx("div", { id: "atlas-delivery", className: "md:col-span-2", children: _jsx(Card, { title: "Atlas delivery indicators", children: _jsx("p", { className: "text-sm text-ink-2", children: metrics
+    return (_jsx("div", { id: "atlas-delivery", className: "md:col-span-2", children: _jsx(Card, { title: "Atlas delivery indicators", children: _jsx("p", { className: "mt-[7px] text-sm text-ink-2", children: metrics
                     ? `${metrics.linked_items} linked items · ${metrics.sync_runs} sync runs`
                     : "Loading Atlas delivery indicators…" }) }) }));
 }

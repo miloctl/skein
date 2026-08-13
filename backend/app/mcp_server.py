@@ -605,9 +605,7 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
-    registry = ExtensionRegistry.build(
-        (core_module(), *(tuple(modules) or _configured_modules()))
-    )
+    registry = ExtensionRegistry.build((core_module(), *(tuple(modules) or _configured_modules())))
     from .extensions.registry import validate_machine_identity_ownership
 
     try:

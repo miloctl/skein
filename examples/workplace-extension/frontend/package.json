@@ -17,7 +17,8 @@
     "react": ">=19.0.0"
   },
   "scripts": {
-    "build": "tsc --project tsconfig.json"
+    "build": "tsc --project tsconfig.json",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

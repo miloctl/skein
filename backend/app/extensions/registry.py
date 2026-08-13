@@ -180,6 +180,36 @@ class ExtensionRegistry:
             refresh_required=subject.refresh_required,
         )
 
+    def action_catalog(self) -> frozenset[str]:
+        """Every policy action a composed contribution declares or inspects.
+
+        The capability endpoint refuses actions outside this catalog: a
+        misspelled frontend action, or one whose backend module is absent
+        from the composition, otherwise fell through to the human-origin
+        default and came back `permit`.
+        """
+        actions: set[str] = set()
+        for route in self.routes:
+            actions.update(operation.policy_action for operation in route.operations)
+        for job in self.jobs:
+            actions.add(job.policy_action)
+        for context in self.contexts:
+            actions.add(context.policy_action)
+        for tool in self.tools:
+            actions.add(tool.policy_action)
+        for event in self.events:
+            actions.add(event.policy_action)
+        for action in self.workflow_actions:
+            actions.add(action.policy_action)
+        for policy in self.policies:
+            actions.update(_policy_actions(policy))
+        actions.discard("")
+        return frozenset(actions)
+
+    def module_summaries(self) -> tuple[dict[str, str], ...]:
+        """Composed module identity for capability diagnostics."""
+        return tuple({"id": module.module_id, "version": module.version} for module in self.modules)
+
     def tool(self, name: str) -> ToolContribution:
         try:
             return next(contribution for contribution in self.tools if contribution.name == name)

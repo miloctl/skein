@@ -33,11 +33,22 @@ cleanup() {
 trap cleanup EXIT
 
 cp -R examples/workplace-extension "$tmp/extension"
-mkdir -p "$tmp/extension/dist"
+mkdir -p "$tmp/extension/dist" "$tmp/tarballs"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/extension/dist" "$tmp/extension"
+# prepack recompiles dist from source; the devDependencies carry the
+# compiler, and the packed public API supplies the contract types.
+npm pack --silent --pack-destination "$tmp/tarballs" \
+    frontend/packages/extension-api >/dev/null
+api_tar=("$tmp/tarballs"/skein-extension-api-*.tgz)
+(cd "$tmp/extension/frontend" && npm install --silent --no-audit --no-fund \
+    --package-lock=false --legacy-peer-deps >/dev/null)
+mkdir -p "$tmp/extension/frontend/node_modules/@skein/extension-api"
+tar -xzf "${api_tar[0]}" --strip-components=1 \
+    -C "$tmp/extension/frontend/node_modules/@skein/extension-api"
 npm pack --silent --pack-destination "$tmp/extension/dist" \
     "$tmp/extension/frontend" >/dev/null
+rm -rf "$tmp/extension/frontend/node_modules"
 
 docker build --quiet -t "$core_image" backend >/dev/null
 docker build --quiet --target host -t "$host_image" frontend >/dev/null

@@ -23,7 +23,12 @@ function AtlasDeliveryCard({ api }: DashboardCardProps) {
   return (
     <div id="atlas-delivery" className="md:col-span-2">
       <Card title="Atlas delivery indicators">
-        <p className="text-sm text-ink-2">
+        {/* mt-[7px] appears nowhere in the core source. It is the canary the
+            frontend contract greps out of the built CSS: extension packages
+            are Tailwind sources only through the generated @source list, and
+            without it this card rendered with its extension-only utilities
+            silently missing. */}
+        <p className="mt-[7px] text-sm text-ink-2">
           {metrics
             ? `${metrics.linked_items} linked items · ${metrics.sync_runs} sync runs`
             : "Loading Atlas delivery indicators…"}

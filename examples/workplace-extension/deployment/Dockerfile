@@ -3,7 +3,11 @@ FROM ${SKEIN_IMAGE}
 
 USER root
 COPY dist/atlas_skein_extension-*.whl /tmp/
-RUN pip install --no-cache-dir --no-deps /tmp/atlas_skein_extension-*.whl \
+# Ordinary dependency resolution, on purpose: --no-deps happened to work
+# while the only dependency was the already-installed core, and silently
+# omitted the first real private dependency an extension adds.
+RUN pip install --no-cache-dir /tmp/atlas_skein_extension-*.whl \
+    && pip check \
     && rm /tmp/atlas_skein_extension-*.whl
 
 ENV SKEIN_PLAYBOOKS_DIR=/opt/atlas/content/playbooks

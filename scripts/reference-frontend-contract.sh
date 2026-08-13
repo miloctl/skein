@@ -48,7 +48,17 @@ frontend/node_modules/.bin/tsc --project "$tmp/build/tsconfig.json"
 cmp "$tmp/build/dist/index.js" examples/workplace-extension/frontend/dist/index.js
 cmp "$tmp/build/dist/index.d.ts" examples/workplace-extension/frontend/dist/index.d.ts
 
+# prepack recompiles dist, so a source edit cannot ship stale JavaScript.
+# The toolchain is the package's own devDependencies; the public API comes
+# from the PACKED tarball, because the example deliberately carries no
+# monorepo file: dependency on it.
+(cd examples/workplace-extension/frontend && npm install --silent --no-audit \
+    --no-fund --package-lock=false --legacy-peer-deps >/dev/null)
+mkdir -p examples/workplace-extension/frontend/node_modules/@skein/extension-api
+tar -xzf "${api_tar[0]}" --strip-components=1 \
+    -C examples/workplace-extension/frontend/node_modules/@skein/extension-api
 npm pack --silent --pack-destination "$tmp/tarballs" examples/workplace-extension/frontend >/dev/null
+rm -rf examples/workplace-extension/frontend/node_modules
 atlas_tar=("$tmp/tarballs"/atlas-skein-extension-*.tgz)
 [ "${#atlas_tar[@]}" -eq 1 ]
 mkdir -p "$tmp/consumer"
@@ -76,6 +86,13 @@ mkdir -p "$installed"
 tar -xzf "${atlas_tar[0]}" --strip-components=1 -C "$installed"
 SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension \
     npm --prefix "$tmp/current-source/frontend" run build >/dev/null
+# The Atlas card's mt-[7px] utility exists nowhere in core source. Tailwind
+# scans composed packages only through the generated @source list, so this
+# grep is what proves extension-only styling reaches the production CSS.
+grep -Frq 'mt-\[7px\]' "$tmp/current-source/frontend/.next/static" || {
+    echo "extension-only Tailwind utility missing from the built CSS" >&2
+    exit 1
+}
 
 fixture="scripts/fixtures/frontend-host-0.2.0.txt"
 previous_commit="$(sed -n 's/^commit=//p' "$fixture")"
