@@ -1,6 +1,6 @@
 # Workplace extensibility results
 
-Assessment date: 2026-08-11
+Assessment date: 2026-08-12
 
 Base branch: `main`
 
@@ -24,6 +24,8 @@ Seventh-review commit: `4c7a450`
 
 Eighth-review commit: `5493d61`
 
+Final implementation review commit: `ef9a2d01cbaa04cc5ecd90e1b8e73b837412fdc5`
+
 The final remediation and report commits are recorded after the final
 independent review.
 
@@ -36,11 +38,11 @@ Execution plan: `docs/exec-plans/workplace-extensibility.md`
 
 ## 1. Executive verdict
 
-| Measure | Historical | Provisional remediated score | Explanation |
+| Measure | Historical | Final conservative score | Explanation |
 |---|---:|---:|---|
-| Overall modularity | 5/10 | 8.3/10 | The application has an explicit composition root, typed concern-specific contracts, public work APIs, central policy, versioned events, isolated extension data, and build-time UI composition. Internal services still use concrete SQLite. |
-| Workplace extensibility | 3/10 | 8.4/10 | A separate Atlas package exercises backend, agent, approval, data, workflow, content, frontend, and deployment extensions. Public commands and UI slots do not yet cover every core entity or screen. |
-| Upgradeability without forking | 4/10 | 8.3/10 | Backend and frontend manifests declare honest compatibility ranges. Installed wheels, installed startup, two compatible core artifacts, and packed frontend packages pass contract tests. Production release history does not exist yet. |
+| Overall modularity | 5/10 | 8.2/10 | The application has an explicit composition root, typed concern-specific contracts, public work APIs, central policy, versioned events, isolated extension data, and build-time UI composition. Internal services still use concrete SQLite. |
+| Workplace extensibility | 3/10 | 8.3/10 | A separate Atlas package exercises backend, agent, approval, data, workflow, content, frontend, and deployment extensions. Public commands and UI slots do not yet cover every core entity or screen. |
+| Upgradeability without forking | 4/10 | 8.2/10 | Backend and frontend manifests declare honest compatibility ranges. Installed wheels, installed startup, two compatible core artifacts, and packed frontend packages pass contract tests. Production release history does not exist yet. |
 
 Verdict: **Extendable with limitations**.
 
@@ -53,9 +55,9 @@ A workplace still needs a core contribution for a new public command on an
 unsupported entity or for a new frontend slot. Timers, parallel workflow
 branches, and service-level escalation need more architecture.
 
-These scores are candidates. The final conservative scores are the lower of
-these scores and the median final-review scores. Section 14 records that
-calculation after review.
+These are the final conservative scores. They are the lower of the proposed
+scores and the median scores from the final independent reviews. Section 14
+records the evidence.
 
 ### Scoring rubric
 
@@ -2170,3 +2172,54 @@ Current verification:
 | Complete backend static gate | Passed, including strict mypy on 123 source files |
 | Historical base upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct 0.2.0 and 0.2.1 cores, including the current reviewed local-write fixture |
+
+### Final independent review and live Chrome validation
+
+Three fresh reviews assessed exact commit
+`ef9a2d01cbaa04cc5ecd90e1b8e73b837412fdc5`. No reviewer found a blocker or
+high-severity defect.
+
+| Reviewer | Modularity | Workplace | Upgradeability | Decision |
+|---|---:|---:|---:|---|
+| Architecture and policy | 8.2 | 8.3 | 8.2 | Approve |
+| Compatibility and reliability | 8.3 | 8.4 | 8.3 | Approve |
+| Independent release report | 8.2 | 8.3 | 8.2 | Approve |
+
+All reviewers passed scenarios A through H for the documented scope. The
+final conservative scores are the lower of the proposed scores and the median
+review scores: 8.2 for modularity, 8.3 for workplace extensibility, and 8.2
+for upgradeability without forking.
+
+The final review evidence includes these results:
+
+| Verification | Result |
+|---|---|
+| Complete backend suite | 1,993 passed |
+| Focused final compatibility suite | 388 passed |
+| Complete backend static gate | Passed, including strict mypy on 123 source files |
+| Historical base upgrade | Fresh and upgraded schemas matched; the activity chain was valid through sequence 7 |
+| Installed backend artifact rehearsal | One unchanged Atlas wheel passed on distinct installed 0.2.0 and 0.2.1 cores |
+| Installed frontend artifact rehearsal | One unchanged Atlas package built on distinct compatible frontend hosts |
+| Frontend extension tests | 5 passed |
+
+The final live check used the packed Atlas frontend package and the composed
+Atlas backend. A disposable local OIDC issuer supplied a signed user with the
+Atlas delivery-manager group. Chromium loaded the production frontend at
+desktop and mobile sizes.
+
+| Live Chrome check | Result |
+|---|---|
+| Atlas navigation contribution | One visible link |
+| Atlas dashboard contribution | One visible card with `0 linked items · 0 sync runs` |
+| Capability request | HTTP 200 |
+| Atlas metrics request | HTTP 200 |
+| Desktop accessibility scan | Zero violations |
+| Mobile dark-theme accessibility scan | Zero violations |
+| Mobile horizontal page overflow | None |
+| Console, page, and failed-request faults | None |
+
+The implementation passes the release gate. Its documented limits remain:
+SQLite serializes writers, public commands are task-focused, frontend version
+1 supports navigation and dashboard cards, and workflows are intentionally
+bounded. Production use across several releases is still needed for a score
+of 9 or higher.
