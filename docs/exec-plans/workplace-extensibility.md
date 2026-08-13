@@ -2570,3 +2570,25 @@ Verification before the next exact-commit review:
 | Complete backend static gate | Passed, including strict mypy on 123 source files |
 | Historical base upgrade | Schemas identical; activity chain valid through sequence 7 |
 | Installed unchanged-Atlas artifact rehearsal | Passed on distinct 0.2.0 and 0.2.1 cores; the old core rejected the 0.2.1-floor module, and the current core completed its reviewed local write |
+
+## Owner-bound command rollback
+
+The architecture review rejected `3376345`. A queued public command joined the
+review transaction without a command savepoint. If it wrote and then failed,
+the handler received the error but the outer review could commit the partial
+command.
+
+Each queued `WorkItems` operation now runs in a savepoint on the transaction
+owner. A command failure rolls back its SQL and deferred callbacks before the
+runtime returns the error to the handler. The review remains terminal with
+`completion_unknown`; it does not replay a possibly completed external effect.
+
+Verification before the next exact-commit review:
+
+| Verification | Result |
+|---|---|
+| Focused workflow, tool, public, policy, review, transaction, composition, release, packaging, and migration tests | 373 passed in 26.74 seconds |
+| Complete backend suite | 1,993 passed in 122.87 seconds |
+| Complete backend static gate | Passed, including strict mypy on 123 source files |
+| Historical base upgrade | Schemas identical; activity chain valid through sequence 7 |
+| Installed unchanged-Atlas artifact rehearsal | Passed on distinct 0.2.0 and 0.2.1 cores, including the current reviewed local-write fixture |

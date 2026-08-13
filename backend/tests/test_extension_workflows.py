@@ -759,6 +759,20 @@ workflow:
       title: Created by the reviewed workflow
 """
     )
+    (overlay / "reviewed-partial-write.yaml").write_text(
+        """\
+schema_version: 1
+name: Reviewed partial write workflow
+project_class: standard
+milestones:
+  - title: Prepare
+workflow:
+  - type: action
+    name: atlas.workplace.create-task
+    input:
+      title: Must roll back the failed command
+"""
+    )
     monkeypatch.setattr(config, "PLAYBOOKS_OVERLAY", overlay)
     handler_threads: list[int] = []
     owner_threads: list[int] = []
@@ -775,7 +789,7 @@ workflow:
         command_context = context.command_context(project_type="standard")
         command = CreateTaskCommand(
             title=request.title,
-            idempotency_key="reviewed-workflow-task",
+            idempotency_key=f"reviewed-workflow-task:{request.title}",
         )
         task = context.work_items.create_task(command, command_context)
         replay = context.work_items.create_task(command, command_context)
@@ -858,7 +872,7 @@ workflow:
         assert (
             fresh_db.query_one(
                 "SELECT result_id FROM extension_command_receipts WHERE idempotency_key = ?",
-                ("reviewed-workflow-task",),
+                ("reviewed-workflow-task:Created by the reviewed workflow",),
             )
             is None
         )
@@ -873,10 +887,47 @@ workflow:
         )
         elapsed = time.monotonic() - started
 
+        from app.services import mentions
+
+        callback_runs: list[str] = []
+        before_partial = {
+            "activity": fresh_db.query_one(
+                "SELECT COUNT(*) AS count FROM activity WHERE action = 'create_task'"
+            )["count"],
+            "outbox": fresh_db.query_one(
+                "SELECT COUNT(*) AS count FROM extension_outbox"
+                " WHERE event_type = 'skein.task.created'"
+            )["count"],
+        }
+
+        def fail_after_local_writes(*_args, **_kwargs):
+            db.execute(
+                "INSERT INTO notifications (user, tier, message, created_at)"
+                " VALUES ('manager', 'passive', 'must roll back', ?)",
+                (db.now(),),
+            )
+            assert db.on_commit(lambda: callback_runs.append("ran"))
+            raise ValueError("forced post-insert command failure")
+
+        monkeypatch.setattr(mentions, "scan", fail_after_local_writes)
+        partial_queued = client.post(
+            "/api/playbooks/instantiate",
+            headers={"X-User": "requester"},
+            json={
+                "playbook": "reviewed-partial-write",
+                "engagement_name": "Reviewed partial command project",
+            },
+        ).json()["workflow"]
+        partial_approved = client.post(
+            f"/api/review/{partial_queued['review_id']}/approve",
+            headers={"X-User": "manager"},
+            json={"note": "Record the uncertain command result."},
+        )
+
     assert approved.status_code == 200, approved.text
     assert elapsed < 2
     assert approved.json()["result"]["workflow"]["status"] == "completed"
-    assert len(handler_threads) == 2
+    assert len(handler_threads) == 3
     assert owner_threads
     assert set(owner_threads).isdisjoint(handler_threads)
     assert fresh_db.query_one(
@@ -890,11 +941,52 @@ workflow:
     assert fresh_db.query_one(
         "SELECT namespace, idempotency_key FROM extension_command_receipts"
         " WHERE idempotency_key = ?",
-        ("reviewed-workflow-task",),
+        ("reviewed-workflow-task:Created by the reviewed workflow",),
     ) == {
         "namespace": "workflow:atlas.workplace.create-task",
-        "idempotency_key": "reviewed-workflow-task",
+        "idempotency_key": "reviewed-workflow-task:Created by the reviewed workflow",
     }
+    assert partial_approved.status_code == 200, partial_approved.text
+    partial_workflow = partial_approved.json()["result"]["workflow"]
+    assert partial_workflow["status"] == "completion_unknown"
+    assert partial_workflow["error_code"] == "ACTION_ERROR"
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?",
+        (partial_queued["review_id"],),
+    ) == {"status": "approved"}
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+        (partial_queued["review_id"],),
+    ) == {"status": "approved"}
+    assert (
+        fresh_db.query_one(
+            "SELECT id FROM tasks WHERE title = ?", ("Must roll back the failed command",)
+        )
+        is None
+    )
+    assert (
+        fresh_db.query_one(
+            "SELECT result_id FROM extension_command_receipts WHERE idempotency_key = ?",
+            ("reviewed-workflow-task:Must roll back the failed command",),
+        )
+        is None
+    )
+    assert (
+        fresh_db.query_one("SELECT COUNT(*) AS count FROM activity WHERE action = 'create_task'")[
+            "count"
+        ]
+        == before_partial["activity"]
+    )
+    assert (
+        fresh_db.query_one(
+            "SELECT COUNT(*) AS count FROM extension_outbox WHERE event_type = 'skein.task.created'"
+        )["count"]
+        == before_partial["outbox"]
+    )
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM notifications WHERE message = 'must roll back'"
+    ) == {"count": 0}
+    assert callback_runs == []
 
 
 def test_timed_out_workflow_closes_late_public_work_calls(fresh_db):

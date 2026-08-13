@@ -414,7 +414,7 @@ def test_authorized_manager_resumes_the_exact_reviewed_tool_call(fresh_db):
 def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
     from app import db
     from app.extensions.tools import execute_reviewed_tool
-    from app.services import review, users
+    from app.services import mentions, review, users
 
     calls: list[str] = []
 
@@ -500,6 +500,77 @@ def test_reviewed_tool_writes_through_the_public_facade(fresh_db, monkeypatch):
         ("tool-ATLAS-WRITE",),
     ) == {"namespace": "tool:acme.workplace.atlas-update"}
     assert calls == ["ATLAS-WRITE", "ATLAS-WRITE"]
+
+    callback_runs: list[str] = []
+    before_partial = {
+        "activity": fresh_db.query_one(
+            "SELECT COUNT(*) AS count FROM activity WHERE action = 'create_task'"
+        )["count"],
+        "outbox": fresh_db.query_one(
+            "SELECT COUNT(*) AS count FROM extension_outbox WHERE event_type = 'skein.task.created'"
+        )["count"],
+    }
+
+    def fail_after_local_writes(*_args, **_kwargs):
+        db.execute(
+            "INSERT INTO notifications (user, tier, message, created_at)"
+            " VALUES ('manager', 'passive', 'must roll back', ?)",
+            (db.now(),),
+        )
+        assert db.on_commit(lambda: callback_runs.append("ran"))
+        raise ValueError("forced post-insert command failure")
+
+    monkeypatch.setattr(mentions, "scan", fail_after_local_writes)
+    partial_queued = asyncio.run(
+        execute_tool(
+            registry.tools[0],
+            {"external_id": "ATLAS-PARTIAL"},
+            ToolCallContext(PolicySubject("requester"), "acme.workplace.delivery"),
+            registry.policy_engine,
+        )
+    )
+    partial_approved = review.approve_change(
+        partial_queued.review_id,
+        actor="manager",
+        reviewer_groups=("delivery-managers",),
+        reviewer_capabilities=("acme.approve-atlas",),
+        extension_executor=resume,
+        policy_registry=registry,
+    )
+
+    assert partial_approved["result"]["status"] == "completion_unknown"
+    assert partial_approved["result"]["error_code"] == "tool_error"
+    assert fresh_db.query_one(
+        "SELECT status FROM pending_changes WHERE id = ?", (partial_queued.review_id,)
+    ) == {"status": "approved"}
+    assert fresh_db.query_one(
+        "SELECT status FROM extension_review_invocations WHERE change_id = ?",
+        (partial_queued.review_id,),
+    ) == {"status": "approved"}
+    assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'Imported ATLAS-PARTIAL'") is None
+    assert (
+        fresh_db.query_one(
+            "SELECT result_id FROM extension_command_receipts WHERE idempotency_key = ?",
+            ("tool-ATLAS-PARTIAL",),
+        )
+        is None
+    )
+    assert (
+        fresh_db.query_one("SELECT COUNT(*) AS count FROM activity WHERE action = 'create_task'")[
+            "count"
+        ]
+        == before_partial["activity"]
+    )
+    assert (
+        fresh_db.query_one(
+            "SELECT COUNT(*) AS count FROM extension_outbox WHERE event_type = 'skein.task.created'"
+        )["count"]
+        == before_partial["outbox"]
+    )
+    assert fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM notifications WHERE message = 'must roll back'"
+    ) == {"count": 0}
+    assert callback_runs == []
 
 
 def test_timed_out_reviewed_tool_closes_late_public_work_calls(fresh_db):

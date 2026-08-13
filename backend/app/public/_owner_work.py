@@ -90,7 +90,14 @@ class _OwnerDispatcher:
                         self._condition.wait(deadline - now)
                         continue
                 try:
-                    request.result = request.operation()
+                    from .. import db
+
+                    # A top-level WorkItems method normally owns a transaction.
+                    # Here it joins the review transaction, so give the queued
+                    # command the equivalent rollback boundary before its
+                    # exception is transferred back to the handler thread.
+                    with db.savepoint():
+                        request.result = request.operation()
                 except BaseException as exc:
                     request.error = exc
                 finally:
