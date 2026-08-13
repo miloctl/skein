@@ -103,14 +103,14 @@ Major additions: `backend/app/extensions/` (2,910 LOC, 8 modules),
 source), core migrations 012–020, four contract-rehearsal scripts +
 `package-frontend-host.sh` + `upgrade-path.sh` (~1,100 LOC), ~12,600 LOC of
 extension-focused tests, and ~6,700 LOC of docs (`docs/EXTENSIONS.md`,
-`docs/WORKPLACE-EXTENSIBILITY.md`, `WORKPLACE-EXTENSIBILITY-RESULTS.md`,
-`docs/exec-plans/workplace-extensibility.md`).
+`docs/reviews/2026-08-10-workplace-extensibility-assessment.md`, `docs/reviews/2026-08-13-workplace-extensibility-results.md`,
+`docs/reviews/2026-08-10-workplace-extensibility-plan.md`).
 
 ## 3. Audit scope
 
-Read: `docs/WORKPLACE-EXTENSIBILITY.md` (the historical assessment, treated
-as context, not proof), `docs/exec-plans/workplace-extensibility.md`,
-`WORKPLACE-EXTENSIBILITY-RESULTS.md` (the branch's self-reported results),
+Read: `docs/reviews/2026-08-10-workplace-extensibility-assessment.md` (the historical assessment, treated
+as context, not proof), `docs/reviews/2026-08-10-workplace-extensibility-plan.md`,
+`docs/reviews/2026-08-13-workplace-extensibility-results.md` (the branch's self-reported results),
 `docs/EXTENSIONS.md` (the extension-author documentation), packaging,
 deployment, test, and CI configuration. No `AGENTS.md` files exist in the
 repository; `CLAUDE.md` was read in their place.

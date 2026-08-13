@@ -10,10 +10,13 @@ both write paths (human REST, agent tools) and carry provenance
 
 Skein can compose an explicit allowlist of trusted workplace modules through
 `create_app(settings, modules)`. The default `app.main:app` remains compatible.
-Separate typed contracts cover routes, jobs, lifecycle callbacks, policy,
-identity mapping, agent context, governed tools, specialists, events,
+Separate typed contracts cover routes, jobs, policy, identity mapping, service
+identities, agent context, governed tools, specialists, events,
 extension-owned migrations, and workflow actions. There is no universal plugin
-base class and no automatic package scanning.
+base class and no automatic package scanning. There is no startup or shutdown
+hook: a bare lifecycle callback would run trusted code with no declared
+identity, policy action, or timeout, so private setup happens lazily from a
+route, job, subscriber, or migration.
 
 Authenticated core REST mutations, agent tools, classified MCP tools,
 workflow steps, contributed routes, and frontend capability checks use the
