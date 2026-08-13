@@ -227,7 +227,6 @@ def atlas_module(
         specialists=(
             SpecialistContribution(
                 name="atlas.workplace.delivery-specialist",
-                version="1.0.0",
                 display_name="Atlas Delivery Specialist",
                 description="Coordinates delivery data with Atlas.",
                 system_prompt="Use Atlas data only through governed Atlas tools.",
@@ -239,7 +238,6 @@ def atlas_module(
         events=(
             EventContribution(
                 name="atlas.workplace.task-events",
-                version="1.0.0",
                 handler=lambda event, context: integration.deliver_task_event(
                     event,
                     context,

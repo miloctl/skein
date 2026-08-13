@@ -1,14 +1,14 @@
 """Versioned, typed contracts used by the application composition root.
 
-These contracts are deliberately narrow. A route, a scheduled job, and a
-lifecycle callback have different security and runtime properties. They do
+These contracts are deliberately narrow. A route, a scheduled job, and an
+event subscriber have different security and runtime properties. They do
 not share a universal plugin base class.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -145,29 +145,6 @@ class JobContribution:
 
 
 @dataclass(frozen=True)
-class LifecycleContext:
-    """Stable release information supplied to a trusted startup hook.
-
-    A hook captures its private settings in its module closure. It does not
-    receive the FastAPI application or core secrets.
-    """
-
-    core_version: str
-
-
-LifecycleHandler = Callable[[LifecycleContext], Awaitable[None] | None]
-
-
-@dataclass(frozen=True)
-class LifecycleContribution:
-    """A paired startup and optional shutdown callback."""
-
-    name: str
-    startup: LifecycleHandler
-    shutdown: LifecycleHandler | None = None
-
-
-@dataclass(frozen=True)
 class PolicyContribution:
     """One policy rule. A rule can narrow a decision but cannot bypass core."""
 
@@ -211,7 +188,6 @@ class ContextContribution:
 
     name: str
     provider: Callable[[str], str]
-    version: str = "1.0.0"
     policy_action: str = ""
     risk: str = "low"
     required_capabilities: tuple[str, ...] = ()
@@ -265,8 +241,6 @@ class ToolContribution[InputModelT: BaseModel, OutputModelT: BaseModel]:
     required_capabilities: tuple[str, ...] = ()
     timeout_seconds: float = 30
     error_codes: tuple[str, ...] = ()
-    receipt: str = "required"
-    provenance: str = "service"
     resource: Callable[[InputModelT], PolicyResource] | None = None
     review_preview: Callable[[InputModelT], Mapping[str, Any]] | None = None
 
@@ -281,7 +255,6 @@ class SpecialistContribution:
     """A specialist definition composed without a private core import."""
 
     name: str
-    version: str
     display_name: str
     description: str
     system_prompt: str
@@ -327,7 +300,6 @@ class EventContribution:
     """A durable subscriber for selected versions and visibility tiers."""
 
     name: str
-    version: str
     handler: Callable[[DomainEvent, EventExecutionContext], None]
     event_types: tuple[str, ...]
     service_identity: str
@@ -429,10 +401,8 @@ class SkeinModule:
     extension_api: str
     minimum_core: str
     maximum_core_exclusive: str
-    requires: tuple[str, ...] = ()
     routes: tuple[RouteContribution, ...] = ()
     jobs: tuple[JobContribution, ...] = ()
-    lifecycle: tuple[LifecycleContribution, ...] = ()
     policies: tuple[PolicyContribution, ...] = ()
     identities: tuple[IdentityContribution, ...] = ()
     service_identities: tuple[ServiceIdentityContribution, ...] = ()
@@ -444,10 +414,8 @@ class SkeinModule:
     workflow_actions: tuple[WorkflowActionContribution, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "requires", tuple(self.requires))
         object.__setattr__(self, "routes", tuple(self.routes))
         object.__setattr__(self, "jobs", tuple(self.jobs))
-        object.__setattr__(self, "lifecycle", tuple(self.lifecycle))
         object.__setattr__(self, "policies", tuple(self.policies))
         object.__setattr__(self, "identities", tuple(self.identities))
         object.__setattr__(self, "service_identities", tuple(self.service_identities))

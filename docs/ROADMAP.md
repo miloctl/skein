@@ -32,6 +32,11 @@ a real extension needs them:
 - Public commands for core entities other than task work
 - A supported alternative core database adapter
 - Remote or untrusted extension execution
+- A startup and shutdown lifecycle hook (removed pre-release: no consumer,
+  and unlike routes, jobs, events, and migrations it ran trusted code with
+  no declared identity, policy action, or timeout)
+- Module dependency ordering (`SkeinModule.requires`, removed pre-release:
+  composition order is core first, then the allowlist order)
 
 Do not add these as empty slots. Add one narrow contract with one core use and
 one private-package use when the requirement appears.

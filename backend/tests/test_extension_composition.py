@@ -15,8 +15,6 @@ from app.extensions import (
     ExtensionValidationError,
     IdentityContribution,
     JobContribution,
-    LifecycleContext,
-    LifecycleContribution,
     PolicyContribution,
     PolicyDecision,
     PolicyEffect,
@@ -126,16 +124,8 @@ def test_route_resource_id_parameter_must_exist_in_the_declared_path():
         ExtensionRegistry.build((_module(routes=(contribution,)),))
 
 
-def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
+def test_catch_up_job_uses_the_composed_registry(fresh_db):
     events: list[str] = []
-    contexts = []
-
-    def startup(context):
-        contexts.append(context)
-        events.append("startup")
-
-    def shutdown(_context):
-        events.append("shutdown")
 
     module = _module(
         jobs=(
@@ -155,17 +145,12 @@ def test_lifecycle_and_catch_up_job_use_the_composed_registry(fresh_db):
                 "acme-sync",
             ),
         ),
-        lifecycle=(LifecycleContribution("acme.workplace.lifecycle", startup, shutdown),),
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}) as client:
         names = {item["job"] for item in client.get("/health").json()["jobs"]}
-        assert events[:2] == ["startup", "job"]
+        assert events == ["job"]
         assert "acme.workplace.sync" in names
-    assert events[-1] == "shutdown"
-    assert contexts[0].core_version
-    assert not hasattr(contexts[0], "app")
-    assert not hasattr(contexts[0], "settings")
 
 
 def test_configured_mcp_identity_collision_disables_only_mcp(fresh_db, caplog):
@@ -235,83 +220,27 @@ def test_existing_human_stops_standalone_mcp_before_it_runs(fresh_db, monkeypatc
     assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'mira'") == {"kind": "human"}
 
 
-def test_started_lifecycle_is_stopped_if_a_later_startup_fails(fresh_db):
-    events: list[str] = []
+def test_a_failed_extension_migration_prevents_startup(fresh_db):
+    from app.extensions import ExtensionMigration, MigrationContribution
 
-    def fail(_context):
-        events.append("fail")
-        raise RuntimeError("startup failed")
+    class BrokenStore:
+        def migrate(self, _migrations):
+            raise RuntimeError("extension migration failed")
 
     module = _module(
-        lifecycle=(
-            LifecycleContribution(
-                "acme.workplace.first",
-                lambda _context: events.append("start"),
-                lambda _context: events.append("stop"),
+        migrations=(
+            MigrationContribution(
+                "acme.workplace.store",
+                BrokenStore(),
+                (ExtensionMigration(1, "create", ("CREATE TABLE acme (id INTEGER)",)),),
             ),
-            LifecycleContribution("acme.workplace.second", fail),
         )
     )
     with (
-        pytest.raises(RuntimeError, match="startup failed"),
+        pytest.raises(RuntimeError, match="extension migration failed"),
         TestClient(create_app(modules=(module,))),
     ):
         pass
-    assert events == ["start", "fail", "stop"]
-
-
-def test_started_lifecycle_is_stopped_if_core_startup_later_fails(fresh_db, monkeypatch):
-    events: list[str] = []
-    module = _module(
-        lifecycle=(
-            LifecycleContribution(
-                "acme.workplace.lifecycle",
-                lambda _context: events.append("start"),
-                lambda _context: events.append("stop"),
-            ),
-        )
-    )
-
-    def fail_telemetry():
-        raise RuntimeError("telemetry startup failed")
-
-    monkeypatch.setattr("app.main.setup_telemetry", fail_telemetry)
-    with (
-        pytest.raises(RuntimeError, match="telemetry startup failed"),
-        TestClient(create_app(modules=(module,))),
-    ):
-        pass
-    assert events == ["start", "stop"]
-
-
-def test_faulty_shutdown_does_not_skip_other_extension_cleanup(fresh_db):
-    events: list[str] = []
-
-    def faulty(_context):
-        events.append("faulty")
-        raise RuntimeError("shutdown failed")
-
-    module = _module(
-        lifecycle=(
-            LifecycleContribution(
-                "acme.workplace.first",
-                lambda _context: events.append("start-first"),
-                lambda _context: events.append("stop-first"),
-            ),
-            LifecycleContribution(
-                "acme.workplace.second",
-                lambda _context: events.append("start-second"),
-                faulty,
-            ),
-        )
-    )
-    with TestClient(create_app(modules=(module,))):
-        pass
-    assert events == ["start-first", "start-second", "faulty", "stop-first"]
-
-
-def test_lifecycle_context_is_part_of_the_public_extension_api():
-    assert LifecycleContext(core_version="0.2.0").core_version == "0.2.0"
 
 
 def test_settings_and_registry_are_immutable():
@@ -425,11 +354,6 @@ def test_duplicate_ids_contributions_and_cycles_are_rejected():
     with pytest.raises(ExtensionValidationError, match="route collision"):
         ExtensionRegistry.build((collision,))
 
-    left = _module(module_id="acme.left", requires=("acme.right",), routes=())
-    right = _module(module_id="acme.right", requires=("acme.left",), routes=())
-    with pytest.raises(ExtensionValidationError, match="dependency cycle"):
-        ExtensionRegistry.build((left, right))
-
 
 def test_specialist_and_service_machine_identities_cannot_share_a_subject():
     shared = "acme.workplace.operator"
@@ -441,7 +365,6 @@ def test_specialist_and_service_machine_identities_cannot_share_a_subject():
         specialists=(
             SpecialistContribution(
                 name=shared,
-                version="1.0.0",
                 display_name="Operator",
                 description="A specialist identity.",
                 system_prompt="Operate within policy.",
@@ -1057,7 +980,6 @@ def test_legacy_folded_duplicate_blocks_contributed_machine_startup(fresh_db):
         specialists=(
             SpecialistContribution(
                 name="acme.workplace.specialist",
-                version="1.0.0",
                 display_name="Atlas sync",
                 description="Collision regression specialist.",
                 system_prompt="Do not start with ambiguous ownership.",
@@ -1432,11 +1354,16 @@ def test_legacy_private_machine_requires_an_explicit_owner_claim(fresh_db):
     ) == {"actor": "system", "action": "claim_machine_identity"}
 
 
-def test_dependencies_are_ordered_independently_of_input_order():
-    base = _module(module_id="acme.base", routes=())
-    child = _module(module_id="acme.child", requires=("acme.base",), routes=())
-    registry = ExtensionRegistry.build((child, base))
-    assert [module.module_id for module in registry.modules] == ["acme.base", "acme.child"]
+def test_core_composes_first_and_private_modules_keep_their_allowlist_order():
+    first = _module(module_id="acme.first", routes=())
+    second = _module(module_id="acme.second", routes=())
+    core = _module(module_id="skein.core", routes=())
+    registry = ExtensionRegistry.build((second, first, core))
+    assert [module.module_id for module in registry.modules] == [
+        "skein.core",
+        "acme.second",
+        "acme.first",
+    ]
 
 
 def test_job_trigger_input_is_copied_and_read_only():
@@ -1576,7 +1503,6 @@ def test_inbound_mcp_uses_core_dependencies_identity_and_workplace_policy(fresh_
         extension_api="1.0",
         minimum_core="0.2.0",
         maximum_core_exclusive="0.3.0",
-        requires=("skein.core",),
         policies=(PolicyContribution("acme.workplace.mcp-policy", deny_private_action),),
         identities=(
             IdentityContribution(

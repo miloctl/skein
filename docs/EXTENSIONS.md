@@ -31,7 +31,6 @@ and components only from `@skein/extension-api`.
 |---|---|---|
 | Routes | `RouteContribution` | Application creation |
 | Scheduled jobs | `JobContribution` | Application creation |
-| Startup and shutdown | `LifecycleContribution` | Application lifespan |
 | Policy | `PolicyContribution` | Application creation |
 | Identity attributes | `IdentityContribution` | Each resolved identity |
 | Service identities | `ServiceIdentityContribution` | Application creation |
@@ -93,18 +92,12 @@ app = create_app(modules=(atlas,))
 The default `app.main:app` remains unchanged. An extension deployment starts
 its private composition root instead.
 
-A lifecycle handler receives the public `LifecycleContext`. It contains the
-core version only. Skein stops handlers in reverse order. If one shutdown
-handler fails, Skein logs the failure and continues the remaining cleanup.
-
 Module IDs and contribution names must use the module namespace. Extension
 routers must start with `/api/extensions/{module_id}`. Startup rejects these
 conditions:
 
 - Duplicate module or contribution names
 - Unsupported extension API or core versions
-- Missing module dependencies
-- Dependency cycles
 - Route or tool name collisions
 - A route without an exact operation policy contract
 - Invalid tool, event, migration, or workflow metadata
@@ -112,9 +105,11 @@ conditions:
 The module list is an allowlist. Import and instantiate modules in the private
 composition root. Do not load all Python entry points automatically.
 
-A lifecycle handler receives only the installed core version. It does not
-receive the FastAPI application, raw settings, or secrets. Use a route, job,
-event subscriber, or external service for work that needs those boundaries.
+Version 1.0 has no startup or shutdown hook. Initialize private resources
+lazily from a route, job, event subscriber, or migration. Each of these runs
+with a declared identity, policy action, and timeout. A bare startup hook
+would run trusted code with none of those bounds. If a failed extension
+migration raises, the application does not start.
 
 ## Protect routes and apply policy
 
@@ -452,7 +447,9 @@ A tool contribution declares its full security contract:
 - Risk level and policy action
 - Agent allowlist and required capabilities
 - Timeout and safe error codes
-- Receipt and provenance behavior
+
+Every tool write records a receipt with service provenance. This behavior is
+fixed. A contribution cannot opt out of it.
 
 Raise `PublicError` from `app.public` when a tool returns a safe failure. Skein
 preserves the code only when the contribution declares it in `error_codes`.
@@ -534,7 +531,7 @@ required capabilities. The Chief of Staff reads the registry. A private
 package does not import or patch the Chief implementation.
 
 Use a registered tool for side effects. A context contribution declares a
-version, read policy action, risk, capabilities, deadline, and output limit.
+read policy action, risk, capabilities, deadline, and output limit.
 Skein records a content-free receipt for each retrieval. The provider must be
 synchronous and must not write. Its single string argument is the authenticated
 requester name. It is not the current question. Use a governed read tool when
@@ -610,13 +607,12 @@ Version 1 playbooks support four workflow step types:
 Workflow actions declare schemas, effect, risk, policy action, timeout, and
 safe error codes. A playbook cannot call arbitrary Python or an arbitrary URL.
 
-Extension API 1.0 still exports `WorkflowEngine` and `WorkflowContext` for
-source compatibility with early packages. Do not use them as an execution
-entry point. The composed application issues the workflow authority. A
-caller-created context cannot run an action and returns
-`WORKFLOW_CONTEXT_REQUIRED`. Start a workflow-backed playbook through the REST
-endpoint. Resume it through the review endpoint. This rule binds the requester,
-policy, run ID, and action registry to one trusted application boundary.
+The workflow engine is core machinery, and `app.public` does not export it.
+The composed application issues the workflow authority. A caller-created
+context cannot run an action and returns `WORKFLOW_CONTEXT_REQUIRED`. Start a
+workflow-backed playbook through the REST endpoint. Resume it through the
+review endpoint. This rule binds the requester, policy, run ID, and action
+registry to one trusted application boundary.
 
 The REST, deterministic chat, and agent-tool paths use `playbook.create`.
 They use one resolver to load the project class from the selected playbook.

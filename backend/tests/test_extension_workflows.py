@@ -168,10 +168,12 @@ def test_a_caller_created_workflow_context_has_no_execution_authority(fresh_db):
         engine.run(engine.prepare(_steps()), fabricated)
 
     assert raised.value.code == "WORKFLOW_CONTEXT_REQUIRED"
-    # Extension API 1.0 exported these names. Keep the import surface stable,
-    # but do not restore caller-created execution authority.
-    assert public_contracts.WorkflowContext is WorkflowContext
-    assert public_contracts.WorkflowEngine is WorkflowEngine
+    # The workflow engine is core machinery, not extension API. The composed
+    # application is the only execution entry point, so the public package
+    # must not export these names.
+    assert "WorkflowContext" not in public_contracts.__all__
+    assert "WorkflowEngine" not in public_contracts.__all__
+    assert "WorkflowResult" not in public_contracts.__all__
     assert calls == []
     assert fresh_db.query_one("SELECT 1 AS present FROM activity") is None
 
