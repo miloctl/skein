@@ -11,7 +11,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+
+class _RefuseRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        raise AtlasUnavailableError("The Atlas API redirected an authenticated request.")
+
+
+_NO_REDIRECT_OPENER = build_opener(_RefuseRedirect)
 
 from app.extensions import EventExecutionContext, ExtensionStore
 from app.public import (
@@ -82,8 +90,14 @@ class AtlasHttpClient:
 
     def __init__(self, endpoint: str, token: str, timeout_seconds: float = 10) -> None:
         self.endpoint = endpoint.rstrip("/")
-        if urlsplit(self.endpoint).scheme not in ("http", "https"):
-            raise ValueError("The Atlas API URL must use HTTP or HTTPS.")
+        parsed = urlsplit(self.endpoint)
+        # This client sends a bearer token on every request. Plaintext HTTP
+        # hands that token to any network-positioned reader, so only the
+        # loopback development case is exempt from HTTPS.
+        if parsed.scheme != "https" and not (
+            parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+        ):
+            raise ValueError("The Atlas API URL must use HTTPS.")
         self.token = token
         self.timeout_seconds = timeout_seconds
 
@@ -94,7 +108,7 @@ class AtlasHttpClient:
         payload: dict[str, object] | None = None,
     ) -> object:
         body = None if payload is None else json.dumps(payload).encode()
-        request = Request(  # noqa: S310 -- constructor receives the validated HTTP(S) endpoint
+        request = Request(  # noqa: S310 -- constructor receives the validated HTTPS endpoint
             f"{self.endpoint}{path}",
             data=body,
             method=method,
@@ -105,7 +119,9 @@ class AtlasHttpClient:
             },
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
+            # A redirect can move the Authorization header to another origin
+            # or downgrade it to plaintext; the opener refuses instead.
+            with _NO_REDIRECT_OPENER.open(request, timeout=self.timeout_seconds) as response:
                 raw = response.read()
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise AtlasUnavailableError("The Atlas API request failed.") from exc

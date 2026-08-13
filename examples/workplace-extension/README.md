@@ -64,6 +64,10 @@ The script compiles `index.tsx` and packs the unchanged private package. It
 creates Skein frontend host artifacts for core `0.2.0` and `0.2.1`. It installs
 the same Atlas archive into each host and runs two production builds.
 
+`npm pack` runs `prepack`, which recompiles `dist` from source. A stale
+tracked build can therefore never ship. Install the devDependencies and the
+packed public API before you pack.
+
 `@skein/extension-api` is a peer dependency and is not in
 `devDependencies`. A private repository installs the packed archive before
 the TypeScript build:

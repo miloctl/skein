@@ -212,3 +212,43 @@ def test_the_extension_store_cannot_open_the_core_database(atlas):
         ExtensionStore(core_database).connect()
     store_path = module.migrations[0].store.path
     assert store_path != core_database
+
+
+def test_the_http_client_refuses_bearer_tokens_over_plaintext():
+    """The adapter sends Authorization on every request. A plaintext
+    endpoint hands the token to any network-positioned reader."""
+    from atlas_skein.integration import AtlasHttpClient
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        AtlasHttpClient("http://atlas.internal:8080", "secret")
+    assert AtlasHttpClient("https://atlas.example", "secret").endpoint == "https://atlas.example"
+    local = AtlasHttpClient("http://localhost:8080", "secret")
+    assert local.endpoint == "http://localhost:8080"
+
+
+def test_the_http_client_refuses_redirected_authenticated_requests():
+    """A redirect can move the Authorization header to another origin or
+    downgrade it to plaintext."""
+    import http.server
+    import threading
+
+    from atlas_skein.integration import AtlasHttpClient, AtlasUnavailableError
+
+    class Redirector(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "http://attacker.example/items")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            return None
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirector)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = AtlasHttpClient(f"http://127.0.0.1:{server.server_port}", "secret")
+        with pytest.raises(AtlasUnavailableError):
+            client.list_items()
+    finally:
+        server.shutdown()

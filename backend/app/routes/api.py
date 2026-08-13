@@ -175,10 +175,27 @@ def get_capabilities(
     project_type: str = Query("", max_length=100),
 ):
     """Return policy decisions for presentation, not for enforcement."""
+    registry = request.app.state.skein_registry
     requested = {item.strip() for item in actions.split(",") if item.strip()}
-    requested.update(tool.policy_action for tool in request.app.state.skein_registry.tools)
+    if len(requested) > 64:
+        raise ValueError("a capability request can name at most 64 actions")
+    requested.update(tool.policy_action for tool in registry.tools)
+    catalog = registry.action_catalog()
     out = {}
     for action in sorted(requested):
+        # An action outside the composed catalog fails closed. The engine's
+        # human-origin default otherwise answered `permit` for a misspelled
+        # frontend action — and for a frontend whose backend module is not
+        # installed at all, which is exactly when its UI must stay hidden.
+        if action not in catalog and not action.startswith("skein."):
+            out[action] = {
+                "effect": "deny",
+                "reasons": ["No composed module registers this action."],
+                "obligations": [],
+                "approver_groups": [],
+                "approver_capabilities": [],
+            }
+            continue
         decision = decide(
             request,
             subject,
@@ -197,6 +214,7 @@ def get_capabilities(
         "subject": subject.name,
         "roles": list(subject.roles),
         "capabilities": list(subject.capabilities),
+        "modules": list(registry.module_summaries()),
         "actions": out,
     }
 

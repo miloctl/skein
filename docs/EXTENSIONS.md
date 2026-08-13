@@ -785,11 +785,40 @@ frontend API versions. The `host` stage in `frontend/Dockerfile` provides the
 same boundary for derivative container builds. Install the private packed
 package in that stage. Then compose the manifest and run `next build`.
 
-The generator creates static imports. Registry validation rejects duplicate
-IDs, invalid namespaces, unsupported API versions, and incompatible core
-versions. A card or navigation item can declare a policy action. Skein hides
-it unless `/api/capabilities` returns `permit`. An identity or credential
-change clears the old decision and loads current capabilities.
+The generator creates static imports and a Tailwind `@source` entry for each
+allowlisted package, so the production CSS contains the utilities that only
+the extension uses. It does not scan packages outside the allowlist.
+
+The manifest fields are validated at build time. TypeScript declarations do
+not validate an installed JavaScript package, so the registry checks each
+field and names the extension when one is invalid:
+
+| Field | Rule |
+|---|---|
+| `id` | Lowercase dotted identifier. Unique across composed extensions. |
+| `version` | Three-part numeric version of the private package. |
+| `extensionApi` | Must equal the host's frontend extension API (`1.0`). |
+| `minimumCore` | Lowest compatible core version, inclusive. |
+| `maximumCoreExclusive` | First incompatible core version. |
+| `navigation[].id` | Identifier under the extension namespace. Unique. |
+| `navigation[].label` | Non-empty string. |
+| `navigation[].href` | Application-relative path (`/...`, never `//`). |
+| `navigation[].activePaths` | Array of application-relative paths. |
+| `navigation[].policyAction` | Optional string, at most 160 characters. |
+| `dashboardCards[].id` | Identifier under the extension namespace. Unique. |
+| `dashboardCards[].slot` | Exactly `manager-dashboard`. |
+| `dashboardCards[].component` | A React component function. |
+| `dashboardCards[].policyAction` | Optional string, at most 160 characters. |
+
+A composed registry can declare at most 64 policy actions. This is the same
+bound the backend applies to one capability request.
+
+A card or navigation item that declares a policy action is hidden unless
+`/api/capabilities` returns `permit`. The backend refuses an action that no
+composed module registers, so a frontend package whose backend module is not
+installed stays hidden instead of rendering against a missing API. An
+identity or credential change clears the old decision and loads current
+capabilities. A contribution with no policy action always renders.
 
 Only import the components that `@skein/extension-api` exports. A private
 package that imports `frontend/components` or `frontend/lib` uses an internal

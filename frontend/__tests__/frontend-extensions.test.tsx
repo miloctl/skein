@@ -145,3 +145,79 @@ describe("capability-aware contributions", () => {
     expect(screen.getByText("Atlas delivery indicators")).toBeTruthy();
   });
 });
+
+describe("runtime manifest validation", () => {
+  it("rejects malformed fields before the shell can crash on them", () => {
+    // Nav calls activePaths.includes on every render — a packed JavaScript
+    // manifest with a bad shape must fail registration with the extension
+    // named, never later as a bare TypeError inside the shell.
+    expect(() =>
+      registerFrontendExtensions([
+        extension({
+          navigation: [
+            {
+              id: "atlas.workplace.manager-nav",
+              href: "/dashboard",
+              label: "Atlas",
+              activePaths: "not-an-array" as unknown as string[],
+            },
+          ],
+        }),
+      ]),
+    ).toThrow(/activePaths/);
+    expect(() =>
+      registerFrontendExtensions([
+        extension({
+          navigation: [
+            {
+              id: "atlas.workplace.manager-nav",
+              href: "https://evil.example",
+              label: "Atlas",
+              activePaths: [],
+            },
+          ],
+        }),
+      ]),
+    ).toThrow(/application-relative/);
+    expect(() =>
+      registerFrontendExtensions([
+        extension({
+          dashboardCards: [
+            {
+              id: "atlas.workplace.delivery-card",
+              slot: "manager-dashboard",
+              component: "not a component" as unknown as typeof AtlasCard,
+            },
+          ],
+        }),
+      ]),
+    ).toThrow(/React component/);
+    expect(() =>
+      registerFrontendExtensions([
+        extension({
+          dashboardCards: [
+            {
+              id: "atlas.workplace.delivery-card",
+              slot: "sidebar" as "manager-dashboard",
+              component: AtlasCard,
+            },
+          ],
+        }),
+      ]),
+    ).toThrow(/manager-dashboard/);
+  });
+
+  it("caps the composed policy actions at the capability request bound", () => {
+    const crowded = extension({
+      navigation: Array.from({ length: 65 }, (_ignored, index) => ({
+        id: `atlas.workplace.nav-${index}`,
+        href: "/dashboard",
+        label: `Atlas ${index}`,
+        activePaths: [],
+        policyAction: `atlas.view.${index}`,
+      })),
+      dashboardCards: [],
+    });
+    expect(() => registerFrontendExtensions([crowded])).toThrow(/at most 64/);
+  });
+});

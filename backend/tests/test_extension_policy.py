@@ -5815,3 +5815,30 @@ def test_a_timed_out_direct_tool_cannot_write_after_its_unknown_completion(fresh
     assert finished.wait(2)
     assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late tool write'") is None
+
+
+def test_unregistered_capability_actions_fail_closed(fresh_db):
+    """The human-origin default answered `permit` for any unknown action —
+    including every action of a frontend whose backend module is absent, the
+    exact case where its UI must stay hidden."""
+    with TestClient(create_app(), headers={"X-User": "manager"}) as client:
+        response = client.get("/api/capabilities?actions=atlas.dashboard.view")
+    body = response.json()
+    assert body["actions"]["atlas.dashboard.view"]["effect"] == "deny"
+    assert body["modules"] == [{"id": "skein.core", "version": body["modules"][0]["version"]}]
+
+    with TestClient(create_app(modules=(_module(),)), headers={"X-User": "manager"}) as client:
+        composed = client.get(
+            "/api/capabilities?actions=atlas.update&project_type=regulated"
+        ).json()
+        missing = client.get("/api/capabilities?actions=atlas.updtae").json()
+    assert composed["actions"]["atlas.update"]["effect"] == "review"
+    assert missing["actions"]["atlas.updtae"]["effect"] == "deny"
+    assert {module["id"] for module in composed["modules"]} == {"skein.core", "acme.workplace"}
+
+
+def test_capability_requests_are_bounded_by_action_count(fresh_db):
+    crowd = ",".join(f"a.b{i}" for i in range(65))
+    with TestClient(create_app(), headers={"X-User": "manager"}) as client:
+        response = client.get(f"/api/capabilities?actions={crowd}")
+    assert response.status_code == 400
