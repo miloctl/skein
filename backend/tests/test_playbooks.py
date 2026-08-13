@@ -104,9 +104,7 @@ def test_an_untagged_digest_never_matches_playbook_content():
     ).hexdigest()
     assert playbooks.definition_digest(definition).startswith("v2:")
     assert not playbooks.definition_digest_matches(untagged, definition)
-    assert playbooks.definition_digest_matches(
-        playbooks.definition_digest(definition), definition
-    )
+    assert playbooks.definition_digest_matches(playbooks.definition_digest(definition), definition)
 
 
 def test_overlay_wins_a_slug_collision(fresh_db, tmp_path, monkeypatch):

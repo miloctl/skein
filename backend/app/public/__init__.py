@@ -1,7 +1,7 @@
 """Stable contracts for trusted extension packages."""
 
 from .errors import PublicError
-from .events import DomainEvent, EventActor, ResourceReference
+from .events import DomainEvent, EventActor, ResourceReference, dispatch_events
 from .work import (
     CommandContext,
     CreateTaskCommand,
@@ -20,4 +20,5 @@ __all__ = [
     "TaskView",
     "UpdateTaskCommand",
     "WorkItems",
+    "dispatch_events",
 ]

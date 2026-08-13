@@ -24,7 +24,7 @@ from .contracts import (
     WorkflowActionContribution,
 )
 from .data import ExtensionStore
-from .fastapi import ExtensionRouteServices, ExtensionRouteServicesDep
+from .fastapi import ExtensionRouteServices, ExtensionRouteServicesDep, registry_for
 from .policy import (
     PolicyDecision,
     PolicyEffect,
@@ -34,6 +34,7 @@ from .policy import (
     PolicySubject,
 )
 from .registry import ExtensionRegistry, ExtensionValidationError
+from .tools import ToolCallContext, ToolExecution, execute_tool
 
 __all__ = [
     "EXTENSION_API_VERSION",
@@ -64,8 +65,12 @@ __all__ = [
     "ServiceIdentityContribution",
     "SkeinModule",
     "SpecialistContribution",
+    "ToolCallContext",
     "ToolContribution",
+    "ToolExecution",
     "ToolHandlerContext",
     "WorkflowActionContext",
     "WorkflowActionContribution",
+    "execute_tool",
+    "registry_for",
 ]

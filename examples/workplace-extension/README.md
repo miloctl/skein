@@ -41,6 +41,17 @@ Atlas migration 4 stores a short synchronization claim before a core create.
 This claim prevents route and job retries from creating two tasks for one
 Atlas item when the extension mapping write fails.
 
+`backend/tests/` holds the extension test suite. It uses only the public
+surfaces (`registry_for`, `execute_tool`, `dispatch_events`, `create_app`,
+and REST), and it covers registration, policy, tool gating, event
+idempotency, provenance, data ownership, and disabling the extension. Copy
+this pattern into a private repository. Run it with:
+
+```sh
+PYTHONPATH=backend:examples/workplace-extension/backend/src \
+  backend/.venv/bin/pytest examples/workplace-extension/backend/tests
+```
+
 ## Verify the frontend package
 
 Run the clean package rehearsal:
