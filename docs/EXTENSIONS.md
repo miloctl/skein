@@ -462,6 +462,17 @@ Skein stores the executable arguments outside the review queue. A qualified
 human can approve the proposal and run the exact saved call. Before each
 verdict, Skein runs the registered resource resolver again. Current target
 classification controls both approval and rejection.
+
+The review queue is a REST surface. `GET /api/review` lists pending
+proposals. `POST /api/review/{change_id}/approve` and
+`POST /api/review/{change_id}/reject` record the verdict. Both accept a
+JSON body with a `note` string.
+
+Approval requires a human reviewer. It does not require a second person by
+default: the person who asked an agent to act can approve the result. If a
+workplace needs separated duties, return `approver_groups` or
+`approver_capabilities` on the review decision. Skein then refuses every
+approver outside that set.
 The review service supplies the exact current decision to the executor. The
 executor checks the bound request and contract. It does not ask a mutable
 policy source for a second decision after the reviewer qualifies.
@@ -514,6 +525,11 @@ Keep tokens in the deployment secret manager.
 Reviewed tools store their exact input in the core review database. Do not put
 credentials or unneeded sensitive content in tool arguments. Apply the
 workplace backup and retention policy to this database.
+
+Policy rules receive the resource attributes for a decision. For task
+commands these attributes include the title and description. A durable
+review stores the same policy input in the core database. Treat contributed
+policy rules and the review store as readers of that content.
 
 A reviewed tool that uses the supplied `WorkItems` service requires core
 `0.2.1` or later. Set its module's `minimum_core` to `0.2.1`. A tool that does
@@ -580,9 +596,14 @@ their transaction invariants.
 
 ## Own extension data and migrations
 
-Use `ExtensionStore` for a small extension-owned SQLite database. The store
-refuses both core database paths. Its migration stream is namespaced and
-independent from core migration numbers.
+Use `ExtensionStore` for a small extension-owned SQLite database. Its
+migration stream is namespaced and independent from core migration numbers.
+
+The store checks its configured path and refuses the core database paths.
+This check prevents accidents. It is not an isolation boundary: an
+in-process module runs with the same operating-system permissions as Skein
+and can open any file the process can. Keep untrusted code out of the
+module list and use a sidecar service for it.
 
 Core `0.2.0` supplies `connect`, `execute`, `query`, and `query_one`. The
 `transaction` helper requires core `0.2.1`. A package with a `0.2.0` floor
@@ -765,6 +786,31 @@ Type-check the private backend against the installed Skein wheel, not against a
 core source checkout. This check detects removed names and incompatible type
 changes at the same boundary that deployment uses.
 
+Build the core wheel with:
+
+```sh
+uv build --wheel --out-dir dist backend
+```
+
+Point `--out-dir` outside `backend/`. A build that writes inside `backend/`
+leaves a `build/` directory in the source tree.
+
+Skein reads its configuration once, when `app.config` imports. Set every
+variable before the process imports `app`. A value set later has no effect.
+An installed deployment sets at least:
+
+- `SKEIN_DATA_DIR` holds the core SQLite database, artifacts, backups, and
+  exports. Always set it for an installed package. The default resolves
+  inside the installed package directory.
+- `SKEIN_MODEL_PROVIDER` selects the model provider. The keyless `mock`
+  provider is the default.
+- `SKEIN_AUTH_MODE` selects `trusted-header` (the default: the `X-User`
+  header names the caller), `api-key`, or `oidc`.
+- `SKEIN_SCHEDULER=0` disables the background scheduler. Extension tests
+  use this.
+- `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
+  deployment content overlays.
+
 Use separate versioned artifacts:
 
 - A Skein Python wheel or backend image
@@ -799,6 +845,17 @@ kubectl kustomize examples/workplace-extension
 Set a pod file-system group for persistent volumes that the non-root process
 writes. The reference deployment uses `fsGroup: 1000` and tests both core and
 extension data paths in the derivative backend image.
+
+## Contract reference
+
+The dataclasses that `app.extensions` and `app.public` export are the
+authoritative field reference. The wheel is typed (PEP 561), so an editor
+shows every field, type, and default on the installed package. Two shared
+vocabularies apply across contributions:
+
+- `effect` is one of `none`, `read`, `write`, or `unknown`. An unknown
+  effect fails closed.
+- `risk` is one of `low`, `medium`, `high`, or `critical`.
 
 ## Compatibility and deprecation
 
