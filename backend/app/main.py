@@ -17,13 +17,8 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
-from .extensions import SKEIN_CORE_VERSION, AppSettings, ExtensionRegistry, SkeinModule
-from .extensions.contracts import (
-    JobContribution,
-    JobExecutionContext,
-    LifecycleContext,
-    LifecycleContribution,
-)
+from .extensions import AppSettings, ExtensionRegistry, SkeinModule
+from .extensions.contracts import JobContribution, JobExecutionContext
 from .extensions.core import core_module
 from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
 from .extensions.registry import validate_core_tool_names
@@ -206,39 +201,6 @@ def _start_scheduler(
     return scheduler
 
 
-async def _stop_extensions(
-    started: Sequence[LifecycleContribution], context: LifecycleContext
-) -> None:
-    for contribution in reversed(started):
-        if contribution.shutdown is None:
-            continue
-        try:
-            result = contribution.shutdown(context)
-            if isawaitable(result):
-                await result
-        except Exception:
-            # One private cleanup must not strand resources owned by another
-            # module or mask the startup error that triggered this rollback.
-            log.exception("extension shutdown failed", extra={"extension": contribution.name})
-
-
-async def _start_extensions(
-    registry: ExtensionRegistry, context: LifecycleContext
-) -> list[LifecycleContribution]:
-    log.debug("starting extension lifecycle for Skein %s", context.core_version)
-    started: list[LifecycleContribution] = []
-    try:
-        for contribution in registry.lifecycle:
-            result = contribution.startup(context)
-            if isawaitable(result):
-                await result
-            started.append(contribution)
-    except Exception:
-        await _stop_extensions(started, context)
-        raise
-    return started
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: AppSettings = app.state.skein_settings
@@ -399,7 +361,6 @@ async def lifespan(app: FastAPI):
     from .agents.session_store import import_file_sessions
 
     import_file_sessions()
-    lifecycle_context = LifecycleContext(core_version=SKEIN_CORE_VERSION)
     scheduler = None
     keepalive_open = False
     runtime_subjects = {
@@ -431,11 +392,6 @@ async def lifespan(app: FastAPI):
     runtime_subject_token = activate_runtime_machine_subjects(
         runtime_subjects, runtime_content_owners
     )
-    try:
-        started = await _start_extensions(registry, lifecycle_context)
-    except BaseException:
-        deactivate_runtime_machine_subjects(runtime_subject_token)
-        raise
     try:
         # claim-guarded catch-up runs fill in for cron firings missed while the
         # process was down (no misfire replay); run_job never raises
@@ -483,9 +439,8 @@ async def lifespan(app: FastAPI):
         )
         yield
     finally:
-        # A failure after a private module starts must still close that module.
-        # Keep each core cleanup independent so one failure cannot skip the
-        # extension shutdown or the database close.
+        # Keep each cleanup independent so one failure cannot skip the
+        # database close or the machine-subject release.
         if scheduler:
             try:
                 scheduler.shutdown(wait=False)
@@ -504,13 +459,10 @@ async def lifespan(app: FastAPI):
         except Exception:
             log.exception("adoption flush failed")
         try:
-            await _stop_extensions(started, lifecycle_context)
+            if keepalive_open:
+                db.close_keepalive()
         finally:
-            try:
-                if keepalive_open:
-                    db.close_keepalive()
-            finally:
-                deactivate_runtime_machine_subjects(runtime_subject_token)
+            deactivate_runtime_machine_subjects(runtime_subject_token)
 
 
 async def perimeter_auth(request: Request, call_next):

@@ -129,7 +129,6 @@ def _module(handler=lambda external_id: {"updated": external_id}) -> SkeinModule
         specialists=(
             SpecialistContribution(
                 name="acme.workplace.delivery",
-                version="1.0.0",
                 display_name="Acme Delivery Specialist",
                 description="Reviews delivery risk and Atlas synchronization.",
                 system_prompt="Treat Atlas data as reported context.",
@@ -2461,10 +2460,10 @@ def test_mcp_tools_need_complete_metadata_and_pass_through_policy(fresh_db, monk
             allowed_agents=("acme.workplace.delivery",),
             timeout_seconds=1,
             error_codes=("remote_error",),
-            required_capabilities=(),
-            output_schema={"type": "object"},
             receipt="required",
             provenance="service",
+            required_capabilities=(),
+            output_schema={"type": "object"},
         ),
         "atlas-server",
     )

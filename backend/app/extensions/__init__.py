@@ -11,8 +11,6 @@ from .contracts import (
     IdentityContribution,
     JobContribution,
     JobExecutionContext,
-    LifecycleContext,
-    LifecycleContribution,
     MigrationContribution,
     PolicyContribution,
     RouteContribution,
@@ -26,15 +24,7 @@ from .contracts import (
     WorkflowActionContribution,
 )
 from .data import ExtensionStore
-from .fastapi import (
-    ExtensionRouteServices,
-    ExtensionRouteServicesDep,
-    PolicyAPIRoute,
-    PolicySubjectDep,
-    decide,
-    enforce_decision,
-    subject_for,
-)
+from .fastapi import ExtensionRouteServices, ExtensionRouteServicesDep
 from .policy import (
     PolicyDecision,
     PolicyEffect,
@@ -42,9 +32,6 @@ from .policy import (
     PolicyInput,
     PolicyResource,
     PolicySubject,
-    approval_fingerprint,
-    policy_input_data,
-    policy_input_from_data,
 )
 from .registry import ExtensionRegistry, ExtensionValidationError
 
@@ -64,10 +51,7 @@ __all__ = [
     "IdentityContribution",
     "JobContribution",
     "JobExecutionContext",
-    "LifecycleContext",
-    "LifecycleContribution",
     "MigrationContribution",
-    "PolicyAPIRoute",
     "PolicyContribution",
     "PolicyDecision",
     "PolicyEffect",
@@ -75,7 +59,6 @@ __all__ = [
     "PolicyInput",
     "PolicyResource",
     "PolicySubject",
-    "PolicySubjectDep",
     "RouteContribution",
     "RouteOperationContribution",
     "ServiceIdentityContribution",
@@ -85,10 +68,4 @@ __all__ = [
     "ToolHandlerContext",
     "WorkflowActionContext",
     "WorkflowActionContribution",
-    "approval_fingerprint",
-    "decide",
-    "enforce_decision",
-    "policy_input_data",
-    "policy_input_from_data",
-    "subject_for",
 ]

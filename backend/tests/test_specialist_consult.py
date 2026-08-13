@@ -136,7 +136,6 @@ def test_chief_cannot_consult_a_contributed_specialist_without_its_capability(
         specialists=(
             SpecialistContribution(
                 name="acme.workplace.private-specialist",
-                version="1.0.0",
                 display_name="Private Specialist",
                 description="Uses restricted workplace context.",
                 system_prompt="Use restricted workplace context.",
@@ -185,7 +184,6 @@ def test_chief_consults_a_contributed_specialist_after_lifespan_reserves_its_own
         specialists=(
             SpecialistContribution(
                 name=name,
-                version="1.0.0",
                 display_name="Private Specialist",
                 description="Uses restricted workplace context.",
                 system_prompt="Use restricted workplace context.",
@@ -233,7 +231,6 @@ def test_chief_consult_refuses_a_contributed_specialist_with_the_wrong_owner(
         specialists=(
             SpecialistContribution(
                 name=name,
-                version="1.0.0",
                 display_name="Private Specialist",
                 description="Uses restricted workplace context.",
                 system_prompt="Use restricted workplace context.",
@@ -290,7 +287,6 @@ def test_keyless_contributed_specialist_is_deterministic_and_cannot_write(fresh_
         specialists=(
             SpecialistContribution(
                 name="acme.workplace.delivery",
-                version="1.0.0",
                 display_name="Delivery Specialist",
                 description="Reads delivery context.",
                 system_prompt="Use delivery context.",

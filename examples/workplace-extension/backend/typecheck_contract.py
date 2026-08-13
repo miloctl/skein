@@ -16,8 +16,6 @@ from app.public import (
     CreateTaskCommand,
     PublicError,
     UpdateTaskCommand,
-    WorkflowContext,
-    WorkflowEngine,
     WorkItems,
 )
 
@@ -44,8 +42,6 @@ assert_type(AppSettings, type[AppSettings])
 assert_type(SkeinModule, type[SkeinModule])
 assert_type(CreateTaskCommand, type[CreateTaskCommand])
 assert_type(WorkItems, type[WorkItems])
-assert_type(WorkflowContext, type[WorkflowContext])
-assert_type(WorkflowEngine, type[WorkflowEngine])
 assert_type(CreateTaskCommand.model_validate({"title": "Task"}), CreateTaskCommand)
 assert_type(PublicError("REMOTE_UNAVAILABLE", "The remote service is unavailable."), PublicError)
 assert_type(

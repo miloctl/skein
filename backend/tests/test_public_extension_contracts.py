@@ -93,7 +93,6 @@ def _event_context() -> EventExecutionContext:
 def _event(name, handler, event_types, **changes) -> EventContribution:
     values = {
         "name": name,
-        "version": "1.0.0",
         "handler": handler,
         "event_types": event_types,
         "service_identity": "atlas-events",

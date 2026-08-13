@@ -14,7 +14,6 @@ from .contracts import (
     EventContribution,
     IdentityContribution,
     JobContribution,
-    LifecycleContribution,
     MigrationContribution,
     PolicyContribution,
     RouteContribution,
@@ -67,7 +66,6 @@ class ExtensionRegistry:
     modules: tuple[SkeinModule, ...]
     routes: tuple[RouteContribution, ...]
     jobs: tuple[JobContribution, ...]
-    lifecycle: tuple[LifecycleContribution, ...]
     policies: tuple[PolicyContribution, ...]
     identities: tuple[IdentityContribution, ...]
     service_identities: tuple[ServiceIdentityContribution, ...]
@@ -226,7 +224,6 @@ class ExtensionRegistry:
         ordered = _order_modules(modules)
         routes: list[RouteContribution] = []
         jobs: list[JobContribution] = []
-        lifecycle: list[LifecycleContribution] = []
         policies: list[PolicyContribution] = []
         identities: list[IdentityContribution] = []
         service_identities: list[ServiceIdentityContribution] = []
@@ -244,7 +241,6 @@ class ExtensionRegistry:
             for kind, contributions in (
                 ("route", module.routes),
                 ("job", module.jobs),
-                ("lifecycle", module.lifecycle),
                 ("policy", module.policies),
                 ("identity", module.identities),
                 ("service-identity", module.service_identities),
@@ -277,7 +273,6 @@ class ExtensionRegistry:
                         route_signatures[signature] = module.module_id
             routes.extend(module.routes)
             jobs.extend(module.jobs)
-            lifecycle.extend(module.lifecycle)
             policies.extend(module.policies)
             identities.extend(module.identities)
             service_identities.extend(module.service_identities)
@@ -343,7 +338,6 @@ class ExtensionRegistry:
             ordered,
             tuple(routes),
             tuple(jobs),
-            tuple(lifecycle),
             tuple(policies),
             tuple(identities),
             tuple(service_identities),
@@ -401,39 +395,17 @@ def validate_machine_identity_ownership(
 
 
 def _order_modules(modules: tuple[SkeinModule, ...]) -> tuple[SkeinModule, ...]:
-    by_id: dict[str, SkeinModule] = {}
+    """Compose core first, then keep the allowlist order from the caller.
+
+    Core must register before any private module so a collision names the
+    private module as the offender and core routes mount first.
+    """
+    seen: set[str] = set()
     for module in modules:
-        if module.module_id in by_id:
+        if module.module_id in seen:
             raise ExtensionValidationError(f"duplicate module id {module.module_id!r}")
-        by_id[module.module_id] = module
-
-    missing = sorted(
-        {
-            requirement
-            for module in modules
-            for requirement in module.requires
-            if requirement not in by_id
-        }
-    )
-    if missing:
-        raise ExtensionValidationError(f"missing required modules: {', '.join(missing)}")
-
-    result: list[SkeinModule] = []
-    remaining = dict(by_id)
-    while remaining:
-        ready = sorted(
-            (
-                module_id
-                for module_id, module in remaining.items()
-                if all(requirement not in remaining for requirement in module.requires)
-            ),
-            key=lambda module_id: (module_id != "skein.core", module_id),
-        )
-        if not ready:
-            raise ExtensionValidationError("module dependency cycle")
-        for module_id in ready:
-            result.append(remaining.pop(module_id))
-    return tuple(result)
+        seen.add(module.module_id)
+    return tuple(sorted(modules, key=lambda module: (module.module_id != "skein.core",)))
 
 
 def _validate_module(module: SkeinModule) -> None:
@@ -483,12 +455,6 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"job {job_contribution.name!r} must use a synchronous handler"
             )
-    for lifecycle_contribution in module.lifecycle:
-        if not _IDENTIFIER.fullmatch(lifecycle_contribution.name):
-            raise ExtensionValidationError(
-                f"module {module.module_id!r} has invalid contribution name "
-                f"{lifecycle_contribution.name!r}"
-            )
     for policy_contribution in module.policies:
         _validate_contribution_name(module, policy_contribution.name)
         actions = _policy_actions(policy_contribution)
@@ -514,7 +480,6 @@ def _validate_module(module: SkeinModule) -> None:
             )
     for context_contribution in module.contexts:
         _validate_contribution_name(module, context_contribution.name)
-        _version(context_contribution.version, f"context {context_contribution.name} version")
         if not context_contribution.policy_action:
             raise ExtensionValidationError(
                 f"context {context_contribution.name!r} needs a policy action"
@@ -552,23 +517,14 @@ def _validate_module(module: SkeinModule) -> None:
             raise ExtensionValidationError(
                 f"tool {tool_contribution.name!r} needs a positive timeout"
             )
-        if tool_contribution.receipt != "required" or tool_contribution.provenance != "service":
-            raise ExtensionValidationError(
-                f"tool {tool_contribution.name!r} must require receipts and service provenance"
-            )
     for specialist_contribution in module.specialists:
         _validate_contribution_name(module, specialist_contribution.name)
-        _version(
-            specialist_contribution.version,
-            f"specialist {specialist_contribution.name} version",
-        )
         if len(specialist_contribution.name) > 64:
             raise ExtensionValidationError(
                 f"specialist {specialist_contribution.name!r} exceeds the identity limit"
             )
     for event_contribution in module.events:
         _validate_contribution_name(module, event_contribution.name)
-        _version(event_contribution.version, f"event {event_contribution.name} version")
         if not event_contribution.service_identity or not event_contribution.policy_action:
             raise ExtensionValidationError(
                 f"event {event_contribution.name!r} needs a service identity and policy action"
@@ -729,11 +685,6 @@ def _validate_namespace(module: SkeinModule) -> None:
         if not job_contribution.name.startswith(f"{module.module_id}."):
             raise ExtensionValidationError(
                 f"contribution {job_contribution.name!r} must start with {module.module_id!r}"
-            )
-    for lifecycle_contribution in module.lifecycle:
-        if not lifecycle_contribution.name.startswith(f"{module.module_id}."):
-            raise ExtensionValidationError(
-                f"contribution {lifecycle_contribution.name!r} must start with {module.module_id!r}"
             )
     for policy_contribution in module.policies:
         _validate_owned(module, policy_contribution.name)

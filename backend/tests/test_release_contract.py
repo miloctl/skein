@@ -46,11 +46,14 @@ def test_reference_extension_metadata_uses_owned_compatibility_literals():
         assert f'"{literal}"' in frontend_source
 
 
-def test_extension_api_one_keeps_its_original_public_import_surface():
-    """Security hardening can narrow authority without breaking old imports."""
+def test_extension_api_one_exports_exactly_the_documented_surface():
+    """The 1.0 surface is frozen at release. A removal breaks installed
+    packages; an addition is a new compatibility commitment. Both need a
+    deliberate edit here and in docs/EXTENSIONS.md, not a drive-by export."""
+    import app.extensions as extensions
     import app.public as public
 
-    original_api_one = {
+    assert set(public.__all__) == {
         "CommandContext",
         "CreateTaskCommand",
         "DomainEvent",
@@ -60,9 +63,40 @@ def test_extension_api_one_keeps_its_original_public_import_surface():
         "TaskView",
         "UpdateTaskCommand",
         "WorkItems",
-        "WorkflowContext",
-        "WorkflowEngine",
-        "WorkflowResult",
     }
-    assert original_api_one <= set(public.__all__)
-    assert all(getattr(public, name, None) is not None for name in original_api_one)
+    assert set(extensions.__all__) == {
+        "EXTENSION_API_VERSION",
+        "SKEIN_CORE_VERSION",
+        "AppSettings",
+        "ContextContribution",
+        "EventContribution",
+        "EventExecutionContext",
+        "ExtensionMigration",
+        "ExtensionRegistry",
+        "ExtensionRouteServices",
+        "ExtensionRouteServicesDep",
+        "ExtensionStore",
+        "ExtensionValidationError",
+        "IdentityContribution",
+        "JobContribution",
+        "JobExecutionContext",
+        "MigrationContribution",
+        "PolicyContribution",
+        "PolicyDecision",
+        "PolicyEffect",
+        "PolicyEngine",
+        "PolicyInput",
+        "PolicyResource",
+        "PolicySubject",
+        "RouteContribution",
+        "RouteOperationContribution",
+        "ServiceIdentityContribution",
+        "SkeinModule",
+        "SpecialistContribution",
+        "ToolContribution",
+        "ToolHandlerContext",
+        "WorkflowActionContext",
+        "WorkflowActionContribution",
+    }
+    for package in (public, extensions):
+        assert all(getattr(package, name, None) is not None for name in package.__all__)
