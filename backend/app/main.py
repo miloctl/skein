@@ -183,13 +183,30 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
 
     event_context = EventExecutionContext(policy, work_items, registry.service_subject)
 
+    def dispatch_extension_events() -> dict[str, Any]:
+        # One dispatcher per minute window: two workers that both selected
+        # the same pending rows invoked one subscriber twice before either
+        # wrote its receipt. The claim is the same CAS every other job uses.
+        window = f"events:{int(datetime.now(UTC).timestamp()) // 60}"
+        if not db.claim_job("extension-events", window):
+            return {"skipped": "this dispatch window is already claimed"}
+        counts = dict(dispatch_events(registry.events, event_context))
+        if counts.get("failed") or counts.get("dead"):
+            # `partial` is what run_job records as an error — without it a
+            # night of dead deliveries left /health green.
+            return {**counts, "status": "partial"}
+        return counts
+
     specs.append(
         JobSpec(
             name="extension-events",
-            fn=lambda: dispatch_events(registry.events, event_context),
+            fn=dispatch_extension_events,
             trigger={"trigger": "interval", "minutes": 1},
             period_hours=1 / 60,
-            catch_up=True,
+            # catch_up drained the whole backlog synchronously before the
+            # lifespan yielded — a slow subscriber delayed readiness by its
+            # full timeout per event. The one-minute interval covers boot.
+            catch_up=False,
         )
     )
     return tuple(specs)

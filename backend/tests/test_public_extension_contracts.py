@@ -1822,3 +1822,71 @@ def test_a_timed_out_subscriber_cannot_write_after_its_dead_delivery(fresh_db):
     assert finished.wait(2)
     assert outcome["late_write"] == "EXECUTION_CONTEXT_CLOSED"
     assert fresh_db.query_one("SELECT id FROM tasks WHERE title = 'late event write'") is None
+
+
+def test_same_second_events_deliver_in_emission_order(fresh_db):
+    """db.now() carries one-second precision, and the dispatcher ordered
+    equal-second rows by random event UUID — a task's update reached the
+    subscriber before its creation for roughly half of all pairs."""
+    from app import db
+    from app.public.events import EventActor, ResourceReference, _emit_event
+
+    actor = EventActor(name="probe", kind="service")
+    with db.transaction():
+        for task_id in range(1, 31):
+            _emit_event(
+                "skein.task.created",
+                actor=actor,
+                origin="probe",
+                resource=ResourceReference(type="task", id=str(task_id)),
+            )
+            _emit_event(
+                "skein.task.updated",
+                actor=actor,
+                origin="probe",
+                resource=ResourceReference(type="task", id=str(task_id)),
+            )
+
+    seen: list[tuple[str, str]] = []
+    contribution = _event(
+        "atlas.workplace.order",
+        lambda event, _context: seen.append((event.resource.id, event.event_type)),
+        ("skein.task.created", "skein.task.updated"),
+        effect="read",
+    )
+    assert dispatch_events((contribution,), _event_context()) == {
+        "delivered": 60,
+        "failed": 0,
+        "dead": 0,
+    }
+    for task_id in range(1, 31):
+        pair = [event_type for rid, event_type in seen if rid == str(task_id)]
+        assert pair == ["skein.task.created", "skein.task.updated"]
+
+
+def test_events_survive_a_composition_with_no_subscribers(fresh_db):
+    """Dispatching with zero composed subscribers marked every pending row
+    delivered, so disabling an extension during an upgrade consumed its
+    backlog for good."""
+    from app import db
+    from app.public.events import EventActor, ResourceReference, _emit_event
+
+    with db.transaction():
+        _emit_event(
+            "skein.task.updated",
+            actor=EventActor(name="probe", kind="service"),
+            origin="probe",
+            resource=ResourceReference(type="task", id="1"),
+        )
+    assert dispatch_events((), _event_context()) == {"delivered": 0, "failed": 0, "dead": 0}
+    assert fresh_db.query_one("SELECT status FROM extension_outbox")["status"] == "pending"
+
+    calls: list[str] = []
+    contribution = _event(
+        "atlas.workplace.reenabled",
+        lambda event, _context: calls.append(event.event_id),
+        ("skein.task.updated",),
+        effect="read",
+    )
+    assert dispatch_events((contribution,), _event_context())["delivered"] == 1
+    assert len(calls) == 1

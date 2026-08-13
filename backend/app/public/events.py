@@ -123,9 +123,19 @@ def dispatch_events(
     A handler must use ``event_id`` as its idempotency key. A process can stop
     after the side effect and before the delivery receipt is stored.
     """
+    if not contributions:
+        # No subscriber is composed AT ALL — the extension is disabled or the
+        # composition is core-only. Finalizing here consumed every pending
+        # event, so a disable/re-enable cycle silently lost the backlog. Leave
+        # the rows for the composition that can deliver them; retention prunes
+        # rows nothing ever claims.
+        return {"delivered": 0, "failed": 0, "dead": 0}
     rows = db.query(
-        "SELECT * FROM extension_outbox WHERE status = 'pending'"
-        " ORDER BY created_at, event_id LIMIT ?",
+        # rowid, not (created_at, event_id): timestamps carry one-second
+        # precision, so same-second events ordered by random UUID delivered a
+        # task's update before its creation. rowid is insertion order inside
+        # the emitting transactions.
+        "SELECT * FROM extension_outbox WHERE status = 'pending' ORDER BY rowid LIMIT ?",
         (limit,),
     )
     delivered = failed = dead = 0
