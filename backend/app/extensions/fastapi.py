@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import uuid4
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, FastAPI, Header, Request
 from fastapi.routing import APIRoute
 
 from .. import db
@@ -24,6 +24,17 @@ from .policy import (
 if TYPE_CHECKING:
     from ..public.work import CommandContext, WorkItems
     from .contracts import RouteContribution
+    from .registry import ExtensionRegistry
+
+
+def registry_for(app: FastAPI) -> ExtensionRegistry:
+    """Return the validated registry composed into one application.
+
+    Extension tests read contributions and the policy engine here. The
+    `app.state` attribute that backs it is internal and can be renamed.
+    """
+    registry: ExtensionRegistry = app.state.skein_registry
+    return registry
 
 
 _HANDLER_POLICY = frozenset(

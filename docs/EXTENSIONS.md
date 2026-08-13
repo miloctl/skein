@@ -828,6 +828,21 @@ A private extension repository must run these checks:
 - Frontend registry tests and a production build
 - An artifact-level test against the lowest and highest compatible core release
 
+The public packages export the surfaces these tests need:
+
+- `app.extensions.registry_for(app)` returns the composed registry of one
+  application, with its contributions and `policy_engine`.
+- `app.extensions.execute_tool` runs one governed tool call. Build its
+  `ToolCallContext` from `registry_for(app).service_subject(...)` or a
+  `PolicySubject`, and inspect the returned `ToolExecution`.
+- `app.public.dispatch_events` delivers pending outbox events to the
+  contributions you pass it, and returns the delivery counts.
+
+Start the composed application with `TestClient` before a test touches the
+database. The application lifespan applies core and extension migrations.
+The reference tests in `examples/workplace-extension/backend/tests/` use
+each of these surfaces and cover every required category.
+
 Run Skein's local reference rehearsal with:
 
 ```sh

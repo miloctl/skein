@@ -63,6 +63,7 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
         "TaskView",
         "UpdateTaskCommand",
         "WorkItems",
+        "dispatch_events",
     }
     assert set(extensions.__all__) == {
         "EXTENSION_API_VERSION",
@@ -93,10 +94,14 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
         "ServiceIdentityContribution",
         "SkeinModule",
         "SpecialistContribution",
+        "ToolCallContext",
         "ToolContribution",
+        "ToolExecution",
         "ToolHandlerContext",
         "WorkflowActionContext",
         "WorkflowActionContribution",
+        "execute_tool",
+        "registry_for",
     }
     for package in (public, extensions):
         assert all(getattr(package, name, None) is not None for name in package.__all__)
