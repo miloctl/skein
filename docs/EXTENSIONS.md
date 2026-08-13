@@ -280,15 +280,12 @@ applies to an OIDC user who has no groups. A missing record or unavailable
 resolver fails closed. Skein stores the original authentication strength and
 never increases it during refresh. Skein also rejects an inactive local user.
 
-Exactly one identity contribution can own group refresh. Its resolver must
-return a `groups` key. An empty tuple is a successful group refresh. Set
-`resolves_groups=False` on profile-only resolvers. A profile resolver cannot
+Exactly one identity contribution can own group refresh. Set
+`resolves_groups=True` on that directory resolver. Its resolver must
+return a `groups` key. An empty tuple is a successful group refresh. A
+profile resolver keeps the default `resolves_groups=False`. It cannot
 return groups or replace an unavailable group resolver. These rules prevent
 stale approval groups when a workplace uses more than one identity module.
-Extension API 1.0 packages that omit `resolves_groups` keep the original
-resolver inference. All legacy resolvers must be available. Their group
-results must be identical. New packages must declare one group owner with
-`resolves_groups=True`.
 
 Register every job and event subject with `ServiceIdentityContribution`.
 Service identities do not pass through the human identity mapper. Startup
@@ -627,10 +624,9 @@ keys. Skein compares the digest before approval. A changed overlay needs a new
 review. No changed task, action, or project class can use the old verdict.
 Skein still lets a qualified reviewer reject a stale or pre-digest proposal.
 This action removes old work from the pending queue without executing it.
-Digest values include an algorithm prefix. The version 2 reader also accepts
-the untagged digest from the previous compatible release when the content is
-unchanged. An agent-origin proposal with no saved policy binding cannot be
-approved. A qualified reviewer can reject it.
+Digest values include an algorithm prefix. A stored digest without that
+prefix never approves content. An agent-origin proposal with no saved policy
+binding cannot be approved. A qualified reviewer can reject it.
 
 Core migration 017 marks the review-contract version. An unbound row from an
 older core remains version 0. Approval fails closed for that row. New core

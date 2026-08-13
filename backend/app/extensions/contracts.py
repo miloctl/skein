@@ -160,10 +160,9 @@ class IdentityContribution:
     name: str
     mapper: IdentityMapper
     resolver: Callable[[str], Mapping[str, Any] | None] | None = None
-    # None preserves the extension API 1.0 inference for packages built before
-    # group ownership was explicit. New packages set True on one
-    # directory resolver and False on profile-only resolvers.
-    resolves_groups: bool | None = None
+    # Exactly one directory resolver per application sets True and owns group
+    # refresh. A profile resolver keeps the default and cannot return groups.
+    resolves_groups: bool = False
 
 
 @dataclass(frozen=True)

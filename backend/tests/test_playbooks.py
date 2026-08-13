@@ -86,7 +86,9 @@ milestones:
     assert response.json()["engagement"]["name"] == "Legacy typed delivery"
 
 
-def test_current_release_accepts_the_previous_digest_for_unchanged_content():
+def test_an_untagged_digest_never_matches_playbook_content():
+    """A stored digest without the algorithm tag cannot approve content. A
+    reviewer can still reject the stale proposal (services/review.py)."""
     import hashlib
     import json
 
@@ -97,11 +99,14 @@ def test_current_release_accepts_the_previous_digest_for_unchanged_content():
         "project_class": "standard",
         "milestones": [{"title": "Prepare"}],
     }
-    previous = hashlib.sha256(
+    untagged = hashlib.sha256(
         json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert playbooks.definition_digest(definition).startswith("v2:")
-    assert playbooks.definition_digest_matches(previous, definition)
+    assert not playbooks.definition_digest_matches(untagged, definition)
+    assert playbooks.definition_digest_matches(
+        playbooks.definition_digest(definition), definition
+    )
 
 
 def test_overlay_wins_a_slug_collision(fresh_db, tmp_path, monkeypatch):
