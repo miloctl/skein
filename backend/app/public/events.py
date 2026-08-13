@@ -21,6 +21,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("skein.extensions.events")
 
+# The complete version 1 catalog. Composition validates every subscription
+# against it, so a new emitter that is not added here is unreachable for
+# every subscriber.
+EVENT_TYPES = ("skein.task.created", "skein.task.updated")
+EVENT_SCHEMA_VERSIONS = (1,)
+
 
 class _DeliveryRefused(RuntimeError):
     def __init__(self, code: str, *, terminal: bool) -> None:
@@ -71,6 +77,8 @@ def _emit_event(
     visibility: str = "workspace",
 ) -> DomainEvent:
     """Write one event into the ambient core transaction."""
+    if event_type not in EVENT_TYPES:
+        raise ValueError(f"event type {event_type!r} is not in the published catalog")
     event = DomainEvent(
         event_id=str(uuid4()),
         event_type=event_type,

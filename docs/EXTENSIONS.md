@@ -540,6 +540,14 @@ All shared task writes create version 1 domain events in the SQLite outbox.
 Each event has an ID, type, schema version, time, actor, origin, resource
 reference, safe change summary, visibility, and correlation data.
 
+The version 1 catalog has two event types:
+
+- `skein.task.created`
+- `skein.task.updated`
+
+`app.public.events.EVENT_TYPES` carries the same list. Composition rejects a
+subscription to an event type or schema version outside the catalog.
+
 Subscribers select event types, schema versions, and visibility tiers. The
 dispatcher retries failures. It records one delivery receipt for each event
 and subscriber. A subscriber must also use the event ID as the idempotency key
