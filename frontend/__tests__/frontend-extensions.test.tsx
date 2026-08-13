@@ -221,3 +221,63 @@ describe("runtime manifest validation", () => {
     expect(() => registerFrontendExtensions([crowded])).toThrow(/at most 64/);
   });
 });
+
+describe("core namespace and origin hardening", () => {
+  it("refuses a policyAction that claims the skein. namespace", () => {
+    // The backend capability catalog exempts skein.* (core REST actions are
+    // derived, not contributed), so a manifest naming skein.atlas.view
+    // rendered with no backend at all through the engine's default permit.
+    expect(() =>
+      registerFrontendExtensions([
+        extension({
+          navigation: [
+            {
+              id: "atlas.workplace.manager-nav",
+              href: "/dashboard",
+              label: "Atlas",
+              activePaths: [],
+              policyAction: "skein.atlas.view",
+            },
+          ],
+          dashboardCards: [],
+        }),
+      ]),
+    ).toThrow(/skein\. namespace/);
+  });
+
+  it("refuses a backslash href the URL parser would send off-origin", () => {
+    // WHATWG normalizes "/\\evil.com" to "//evil.com".
+    expect(() =>
+      registerFrontendExtensions([
+        extension({
+          navigation: [
+            {
+              id: "atlas.workplace.manager-nav",
+              href: "/\\evil.com/phish",
+              label: "Atlas",
+              activePaths: [],
+            },
+          ],
+          dashboardCards: [],
+        }),
+      ]),
+    ).toThrow(/application-relative/);
+  });
+
+  it("bounds the encoded capability query, not only the action count", () => {
+    // 64 long actions passed the count check, hit the backend's 2,000-char
+    // query bound as a 422, and the provider hid every gated contribution
+    // with nothing said.
+    const long = extension({
+      navigation: Array.from({ length: 60 }, (_ignored, index) => ({
+        id: `atlas.workplace.nav-${index}`,
+        href: "/dashboard",
+        label: `Atlas ${index}`,
+        activePaths: [],
+        policyAction: `atlas.workplace.some.rather.long.action.name.${index}`,
+      })),
+      dashboardCards: [],
+    });
+    expect(() => registerFrontendExtensions([long])).toThrow(/characters/);
+  });
+});

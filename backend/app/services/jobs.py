@@ -280,6 +280,13 @@ def run_job(spec: JobSpec) -> None:
         # week. Only our own literals are honored — anything else is `ok`, so
         # a job returning a row with a `status` column cannot forge a state.
         declared = result.get("status") if isinstance(result, dict) else None
+        # A lost cross-worker claim records NOTHING: the loser's every-minute
+        # skip otherwise wrote a fresh 'ok', so job_health's last-success was
+        # permanently current on the one deployment shape (two workers) where
+        # the winner's failures needed to show.
+        if declared == "noop":
+            log.info("job %s: done (noop) %s", spec.name, detail)
+            return
         # `partial` is STORED as 'error': job_outcomes.status is a two-value
         # CHECK (001_baseline.sql) and job_health counts only 'ok' rows toward
         # last-success, which is the honest answer for a fleet where some

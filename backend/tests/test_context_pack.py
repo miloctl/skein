@@ -84,3 +84,25 @@ def test_a_filtered_projection_never_reuses_the_stored_version(fresh_db):
     assert filtered["hash"] != unfiltered["hash"]
     assert "Filtered project" not in filtered["content"]
     assert "policy-filtered" in filtered["content"]
+
+
+def test_a_filtered_reader_never_receives_the_stored_snapshot(fresh_db):
+    """A denied row that has since LEFT the live build (superseded, closed,
+    pushed past a section LIMIT) is still inside the stored snapshot. The
+    live-build comparison saw no difference and handed that snapshot to the
+    reader whose policy denies the row."""
+    from app.services import collab, context_pack, scope
+
+    secret = collab.record_decision("Buy NorthCo", "for 40M", decided_by="mira", actor="mira")
+    viewer = scope.Viewer("mira", True)
+    context_pack.publish_pack(actor="mira", viewer=viewer)
+    collab.supersede_decision(
+        secret["id"], "Course change", "Do not buy NorthCo", decided_by="mira", actor="mira"
+    )
+
+    def deny_secret(entity, entity_id, _attributes):
+        return not (entity == "decision" and entity_id == secret["id"])
+
+    filtered = context_pack.get_pack(actor="mira", viewer=viewer, resource_filter=deny_secret)
+    assert "Buy NorthCo" not in filtered["content"]
+    assert filtered["version"] == 0

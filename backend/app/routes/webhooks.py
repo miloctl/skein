@@ -47,9 +47,14 @@ def ci_webhook(
     # pass policy under an allowed name and file against a denied one.
     mapped = None
     if body.workflow_run is not None:
-        mapped = ci.parse_github_actions(body.model_dump())
-        if mapped is None:
+        raw = ci.parse_github_actions(body.model_dump())
+        if raw is None:
             return {"ignored": "not a completed pass/fail workflow_run"}
+        # Re-validate through the same model: `repository` is an unschema'd
+        # dict, so full_name arrives as anything — a nested dict raised
+        # inside the first policy rule that called .lower() on it, and an
+        # unbounded string was CPU spent before authorization.
+        mapped = CIEventIn(**raw).model_dump(exclude={"workflow_run", "repository"})
     repository = mapped["repo"] if mapped is not None else body.repo
     enforce_decision(
         request.app.state.skein_registry.policy_engine.decide(

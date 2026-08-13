@@ -15,6 +15,15 @@ tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
 
+# The version argument names the artifact IDENTITY that gates every
+# extension's minimumCore. Stamping a version the source tree does not claim
+# would falsify it, so the argument must match the tree.
+tree_version="$(sed -n 's/.*"version": "\([0-9.]*\)".*/\1/p' "$source_dir/package.json" | head -1)"
+if [ "$version" != "$tree_version" ]; then
+    echo "package-frontend-host: the source tree claims $tree_version, not $version" >&2
+    exit 1
+fi
+
 mkdir -p "$tmp/frontend"
 tar \
     --exclude=.git \

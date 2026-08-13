@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -38,12 +39,14 @@ def _name(tool: Any) -> str:
 
 def _resource(arguments: dict[str, Any]) -> PolicyResource:
     for key, value in arguments.items():
-        # A model sends "42" as often as 42, and Strands coerces the string to
-        # int AFTER this policy check runs. Resolving only exact ints let a
-        # numeric string pass as a generic `tool` resource and skip the
-        # task-scoped rules the delegate's write is subject to.
-        if isinstance(value, str) and value.isdecimal():
-            value = int(value)
+        # A model sends "42" as often as 42, and Strands coerces the string
+        # to int with pydantic AFTER this policy check runs. int() here must
+        # be as wide as that coercion — isdecimal() let ' 42', '+42' and
+        # '4_2' pass as a generic `tool` resource while the delegate wrote
+        # to the real task, skipping its task-scoped rules.
+        if isinstance(value, str):
+            with contextlib.suppress(ValueError):
+                value = int(value)
         if not key.endswith("_id") or not isinstance(value, int) or value <= 0:
             continue
         entity = key.removesuffix("_id")

@@ -121,3 +121,27 @@ def test_ci_policy_sees_the_repository_the_write_targets(fresh_db):
         )
     assert response.status_code == 403
     assert fresh_db.query_one("SELECT id FROM blockers") is None
+
+
+def test_ci_webhook_rejects_an_unvalidated_repository_shape(client, fresh_db):
+    """`repository` is an unschema'd dict, so full_name arrives as anything.
+    Unvalidated, a nested dict raised inside the first policy rule that
+    called .lower() on it — a caller's input must never reach a 500."""
+    payload = {
+        "workflow_run": {
+            "status": "completed",
+            "conclusion": "failure",
+            "head_branch": "main",
+            "html_url": "https://gh/run/9",
+        },
+        "repository": {"full_name": {"nested": "dict"}},
+    }
+    response = client.post("/api/webhooks/ci", json=payload)
+    assert response.status_code == 400
+    assert fresh_db.query_one("SELECT id FROM blockers") is None
+
+    oversized = {
+        **payload,
+        "repository": {"full_name": "A" * 100_000},
+    }
+    assert client.post("/api/webhooks/ci", json=oversized).status_code == 400

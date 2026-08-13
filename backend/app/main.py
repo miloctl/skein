@@ -184,12 +184,17 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
     event_context = EventExecutionContext(policy, work_items, registry.service_subject)
 
     def dispatch_extension_events() -> dict[str, Any]:
-        # One dispatcher per minute window: two workers that both selected
-        # the same pending rows invoked one subscriber twice before either
-        # wrote its receipt. The claim is the same CAS every other job uses.
+        # One dispatcher per minute WINDOW, not true single-flight: a batch
+        # that outlives its minute can still overlap the next window's
+        # winner, which the at-least-once contract (handlers key on
+        # event_id) is what survives. The claim removes the common two-worker
+        # same-minute duplication; a per-delivery lease is the ROADMAP item.
+        # status "noop" on the lost claim: run_job records nothing for it, so
+        # the loser's every-minute skip cannot keep last-success fresh while
+        # the winner fails.
         window = f"events:{int(datetime.now(UTC).timestamp()) // 60}"
         if not db.claim_job("extension-events", window):
-            return {"skipped": "this dispatch window is already claimed"}
+            return {"skipped": "this dispatch window is already claimed", "status": "noop"}
         counts = dict(dispatch_events(registry.events, event_context))
         if counts.get("failed") or counts.get("dead"):
             # `partial` is what run_job records as an error — without it a

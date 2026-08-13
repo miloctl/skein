@@ -777,7 +777,7 @@ Create a versioned host artifact when the private repository cannot use the
 core source tree:
 
 ```sh
-scripts/package-frontend-host.sh 0.2.0 dist/frontend-host
+scripts/package-frontend-host.sh 0.2.1 dist/frontend-host
 ```
 
 The archive contains the trusted build host and a manifest with the core and
@@ -815,8 +815,11 @@ bound the backend applies to one capability request.
 
 A card or navigation item that declares a policy action is hidden unless
 `/api/capabilities` returns `permit`. The backend refuses an action that no
-composed module registers, so a frontend package whose backend module is not
-installed stays hidden instead of rendering against a missing API. An
+composed module registers, outside the reserved `skein.` core namespace —
+and a private module cannot declare an operation under that namespace, and
+a frontend `policyAction` cannot name it. A frontend package whose backend
+module is not installed therefore stays hidden instead of rendering
+against a missing API. An
 identity or credential change clears the old decision and loads current
 capabilities. A contribution with no policy action always renders.
 

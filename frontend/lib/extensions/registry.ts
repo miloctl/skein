@@ -7,9 +7,12 @@ import {
 
 const IDENTIFIER = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
-// The same bound the backend applies to one capability request. A composed
-// registry above it could never resolve its own decisions.
+// The same bounds the backend applies to one capability request: at most 64
+// actions, inside a 2,000-character query (`max_length` on /api/capabilities
+// minus margin for the parameter name). A composed registry above either
+// bound could never resolve its own decisions.
 const MAX_POLICY_ACTIONS = 64;
+const MAX_POLICY_QUERY_CHARS = 1900;
 
 function tuple(value: string): [number, number, number] {
   if (!VERSION.test(value)) throw new Error(`Invalid extension version: ${value}`);
@@ -38,7 +41,17 @@ function requireString(owner: string, field: string, value: unknown): string {
 
 function requireAppPath(owner: string, field: string, value: unknown): string {
   const path = requireString(owner, field, value);
-  if (!path.startsWith("/") || path.startsWith("//"))
+  // Same-origin by URL resolution, not prefix tests: the WHATWG parser
+  // normalizes "/\\evil.com" to "//evil.com", so a backslash walked past
+  // the "//" check and rendered an off-origin link.
+  const probe = "https://skein.invalid";
+  let resolved: URL;
+  try {
+    resolved = new URL(path, probe);
+  } catch {
+    throw new Error(`${owner} ${field} must be an application-relative path`);
+  }
+  if (!path.startsWith("/") || resolved.origin !== probe)
     throw new Error(`${owner} ${field} must be an application-relative path`);
   return path;
 }
@@ -134,6 +147,15 @@ export function registerFrontendExtensions(
     throw new Error(
       `The composed extensions declare ${actions.size} policy actions; the capability request supports at most ${MAX_POLICY_ACTIONS}`,
     );
+  // The backend also bounds the raw query at 2,000 characters, and that
+  // bound bites FIRST for long action names: 64 thirty-character actions
+  // passed the count check, got a 422, and the provider hid every gated
+  // contribution with nothing said. Fail the build, not the page.
+  const encoded = encodeURIComponent([...actions].sort().join(","));
+  if (encoded.length > MAX_POLICY_QUERY_CHARS)
+    throw new Error(
+      `The composed policy actions encode to ${encoded.length} characters; the capability request supports at most ${MAX_POLICY_QUERY_CHARS}`,
+    );
   return Object.freeze({
     extensions: Object.freeze([...extensions]),
     navigation: Object.freeze(navigation),
@@ -158,5 +180,10 @@ function registerAction(owner: string, value: unknown, actions: Set<string>) {
   if (value === undefined) return;
   const action = requireString(owner, "policyAction", value);
   if (action.length > 160) throw new Error(`${owner} policyAction is too long`);
+  // The backend's capability catalog exempts the core namespace, so a
+  // `skein.*` action here would render this contribution through the
+  // engine's default permit even when its backend module is absent.
+  if (action.startsWith("skein."))
+    throw new Error(`${owner} policyAction must not claim the skein. namespace`);
   actions.add(action);
 }

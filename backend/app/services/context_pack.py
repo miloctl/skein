@@ -4,6 +4,7 @@ markdown so any agent (Claude Code, custom, MCP) can load the team's context
 without asking anyone. Versions only bump when the content actually changes."""
 
 import hashlib
+import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -469,7 +470,14 @@ def get_pack(
     digest = last["content_hash"]
     if resource_filter is not None:
         body = build_pack(crew_id, resource_filter, viewer)
-        if body != build_pack(crew_id, viewer=viewer):
+        # Compare against the STORED body, never a second live build: a
+        # denied row that has since left the live build (superseded, closed,
+        # pushed past a section LIMIT) is still inside the snapshot, and the
+        # live-build comparison handed that snapshot to the reader whose
+        # policy denies the row. The stored identity is safe only when the
+        # filtered projection IS the stored body.
+        stored_body = re.sub(r"\n\n\*v\d+ · generated [^\n]*\*", "", content, count=1)
+        if body != stored_body:
             # A filtered projection is DIFFERENT content. Returning the stored
             # version and created_at over it breaks "versions only bump when
             # content changes": two readers on one version held two bodies,

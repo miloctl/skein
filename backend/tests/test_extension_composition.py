@@ -1937,7 +1937,10 @@ def test_one_dispatch_window_is_claimed_once(fresh_db):
     first = spec.fn()
     second = spec.fn()
     assert "skipped" not in first
-    assert second == {"skipped": "this dispatch window is already claimed"}
+    assert second == {
+        "skipped": "this dispatch window is already claimed",
+        "status": "noop",
+    }
 
 
 def test_the_standalone_mcp_process_composes_the_configured_workplace_modules(
@@ -2007,3 +2010,145 @@ def test_a_bad_mcp_composition_target_fails_fast(fresh_db, monkeypatch):
     monkeypatch.setattr(mcp_server.mcp, "run", lambda: pytest.fail("must not run"))
     with pytest.raises(SystemExit):
         mcp_server.main()
+
+
+def test_a_lost_dispatch_window_records_no_job_outcome(fresh_db):
+    """The loser's every-minute skip wrote a fresh 'ok', so on a two-worker
+    deployment last-success stayed current while the winner's dispatches
+    failed."""
+    from app.main import _job_specs
+    from app.services.jobs import run_job
+
+    registry = ExtensionRegistry.build(())
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "extension-events"
+    )
+    run_job(spec)
+    first = fresh_db.query_one(
+        "SELECT COUNT(*) AS count FROM job_outcomes WHERE job = 'extension-events'"
+    )["count"]
+    assert first == 1
+    run_job(spec)  # same minute window: the claim is already taken
+    assert (
+        fresh_db.query_one(
+            "SELECT COUNT(*) AS count FROM job_outcomes WHERE job = 'extension-events'"
+        )["count"]
+        == 1
+    )
+
+
+def test_old_pending_outbox_rows_are_pruned(fresh_db):
+    """Zero-composition dispatch leaves rows pending on purpose, so on the
+    core-only default deployment nothing else finalizes them — retention has
+    to reclaim them or the outbox grows without bound."""
+    from app import db
+    from app.services import retention
+
+    db.execute(
+        "INSERT INTO extension_outbox"
+        " (event_id, event_type, schema_version, payload, visibility, created_at, status)"
+        " VALUES ('ancient', 'skein.task.updated', 1, '{}', 'workspace', '2020-01-01T00:00:00', 'pending')"
+    )
+    counts = retention.prune()
+    assert (
+        fresh_db.query_one("SELECT event_id FROM extension_outbox WHERE event_id = 'ancient'")
+        is None
+    )
+    assert counts["extension_outbox"] >= 1
+
+
+def test_failed_deliveries_record_an_error_outcome(fresh_db, monkeypatch):
+    """A night of dead deliveries left /health green: dispatch counts alone
+    read as success, so the job declares `partial` and run_job records it as
+    an error."""
+    from app import db
+    from app.extensions import EventContribution
+    from app.main import _job_specs
+    from app.public.events import EventActor, ResourceReference, _emit_event
+    from app.services.jobs import run_job
+
+    def explode(_event, _context):
+        raise RuntimeError("subscriber down")
+
+    module = _module(
+        events=(
+            EventContribution(
+                "acme.workplace.events",
+                explode,
+                ("skein.task.updated",),
+                service_identity="acme-sync",
+                policy_action="acme.deliver",
+                effect="read",
+                risk="low",
+                max_attempts=1,
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
+    )
+    with db.transaction():
+        _emit_event(
+            "skein.task.updated",
+            actor=EventActor(name="probe", kind="service"),
+            origin="probe",
+            resource=ResourceReference(type="task", id="1"),
+        )
+    registry = ExtensionRegistry.build((module,))
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "extension-events"
+    )
+    run_job(spec)
+    outcome = fresh_db.query_one(
+        "SELECT status FROM job_outcomes WHERE job = 'extension-events' ORDER BY id DESC LIMIT 1"
+    )
+    assert outcome["status"] == "error"
+
+
+def test_the_events_job_does_not_drain_before_readiness():
+    """catch_up=True ran the whole backlog synchronously before the lifespan
+    yielded — a slow subscriber delayed readiness by its full timeout per
+    event. The one-minute interval covers boot."""
+    from app.main import _job_specs
+
+    registry = ExtensionRegistry.build(())
+    spec = next(
+        item
+        for item in _job_specs(registry, AppSettings.from_config())
+        if item.name == "extension-events"
+    )
+    assert spec.catch_up is False
+
+
+def test_private_modules_cannot_declare_core_namespace_actions():
+    """The capability endpoint exempts skein.* from its catalog refusal, so
+    a private module DECLARING an operation there would ride the engine's
+    default permit. Policy rules still inspect skein.* — that is how a
+    workplace narrows core operations."""
+    module = _module(
+        jobs=(
+            JobContribution(
+                "acme.workplace.sync",
+                lambda _context: None,
+                service_identity="acme-sync",
+                policy_action="skein.acme.sync",
+                effect="write",
+                risk="medium",
+            ),
+        ),
+        service_identities=(
+            ServiceIdentityContribution(
+                "acme.workplace.sync-identity",
+                "acme-sync",
+            ),
+        ),
+    )
+    with pytest.raises(ExtensionValidationError, match="core policy actions"):
+        ExtensionRegistry.build((module,))
