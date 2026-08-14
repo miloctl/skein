@@ -86,10 +86,21 @@ this file is only for accepted trade-offs that must eventually be repaid.
   author and one deployment: the fast half of the protection —
   `tests/test_release_contract.py` pinning the frozen 1.0 import surface, and
   `tests/test_import_boundary.py` — already runs in that hook, and the slow
-  half needs wheels, npm, kubectl, and docker. Repay by provisioning an
-  ephemeral sandboxed runner, then adding the `pull_request` trigger to the
-  `extension-contracts` job alone; the review that asks for a PR trigger
-  without that runner is asking to run untrusted code beside the deployment.
+  half needs wheels, npm, kubectl, and docker. Accepted 2026-08-13; the
+  repayment path opened 2026-08-14 and is not yet closed.
+
+  `.github/workflows/ci.yml` runs the four verification jobs —
+  `extension-contracts` among them — on `pull_request`, on GitHub's hosted
+  runners. Those are ephemeral and disposable, which is the precondition
+  this entry names, so the untrusted-code objection does not apply there.
+  What is still open is where a change is actually proposed: a PR opened
+  against the GitHub mirror is verified before merge, and one opened on
+  Gitea is not. The debt closes when PRs land on the mirror as a matter of
+  course, or when Gitea gets a sandboxed runner of its own. Until then the
+  first gate a Gitea-side change meets is still `scripts/hooks/pre-push`.
+  The Gitea workflow must stay push-only regardless: its runner shares a
+  host with a live deployment, and the review that asks for a PR trigger
+  there is asking to run untrusted code beside the deployment.
 
 - **The extension-store backup registry is one per process, not one per
   application.** `services/admin.py::set_extension_stores` holds a module-level

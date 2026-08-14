@@ -80,8 +80,7 @@ jobs:
         run: ./scripts/lint.sh frontend
       - name: Test
         working-directory: frontend
-        # Coverage is report-only here: at 53% a threshold is a tripwire,
-        # not a ratchet. Gate it once the number is worth defending.
+        # The floor lives in vitest.config.mts, beside the number it defends.
         run: npm run test:coverage
       - name: Audit production dependencies
         # the --omit=dev reasoning moved into the script, beside the
