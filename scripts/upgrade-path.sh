@@ -30,7 +30,7 @@ if [ -z "$baseline" ]; then
     done
 fi
 if [ -z "$baseline" ]; then
-    echo "upgrade-path: no v* release tag, so nothing is deployed to upgrade from. Skipped."
+    echo "upgrade-path: no v* release tag other than this commit, so there is nothing to upgrade from. Skipped."
     exit 0
 fi
 

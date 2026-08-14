@@ -175,6 +175,12 @@ the handler starts would otherwise keep writing core rows under the route's
 provenance after the response and after shutdown. A later call returns
 `EXECUTION_CONTEXT_CLOSED`. Use a `JobContribution` for background work.
 
+One case escapes that close: a `BackgroundTasks` task added by the handler
+runs before the dependency teardown, so it still writes under the route's
+grant. Do not write core rows from a background task in a contributed route.
+Use a `JobContribution`, which declares its own identity, policy action, and
+timeout.
+
 ```python
 from fastapi import APIRouter
 
@@ -508,7 +514,9 @@ A blocker is Skein's word for an impediment. Use `CreateBlockerCommand` and
 `UpdateBlockerCommand` rather than filing one as a task: the entity carries
 its own impact, escalation clock, and resolution. A blocker update can only
 resolve it or correct its wording. Escalation belongs to the scheduled sweep,
-so a command that set it would move a clock the sweep owns.
+so a command that set it would move a clock the sweep owns. The sweep emits
+`skein.blocker.updated` when it escalates, so a subscriber sees that
+transition even though no command caused it.
 
 A promise is a commitment with a direction, an audience, and a settlement
 status. `CreatePromiseCommand` records one and `UpdatePromiseCommand` settles
@@ -645,7 +653,10 @@ identity, and tool contributions that the API process enforces. A value
 that does not resolve stops the server with the reason on stderr.
 
 Reviewed tools store their exact input in the core review database. Do not put
-credentials or unneeded sensitive content in tool arguments. Apply the
+credentials or unneeded sensitive content in tool arguments. A held command
+is queued once per attempt, so an integration that retries a refused write
+files one proposal per retry: record the `review_id` and skip what you
+already asked about. Apply the
 workplace backup and retention policy to this database.
 
 Policy rules receive the resource attributes for a decision. For task
@@ -687,8 +698,8 @@ The version 1 catalog has these event types:
 - `skein.promise.created`
 - `skein.promise.updated`
 
-An entity that has a public command has its events. The blocker pair needs
-core `0.2.2`.
+An entity that has a public command has its events. The blocker and promise
+pairs both need core `0.2.2`.
 
 `app.public.events.EVENT_TYPES` carries the same list. Composition rejects a
 subscription to an event type or schema version outside the catalog.
@@ -760,8 +771,10 @@ contribution declares. Set `include_in_backup=False` when the contents are
 rebuildable from the system the store mirrors. This setting requires core
 `0.2.2` or later. Skein does not mirror an extension store off the box: the
 mirror is an off-box copy and core cannot know what a private package keeps.
-Retention stays extension-owned. Core prunes only its own tables, so a store
-that grows without bound is the private package's job to prune.
+Retention inside the store stays extension-owned: core prunes its own tables
+only, so a store that grows without bound is the private package's job to
+prune. Core does apply its own retention to the backup COPIES it writes, and
+keeps the same number of them as it keeps of its own.
 
 ## Add workflow behavior
 
@@ -903,7 +916,7 @@ Create a versioned host artifact when the private repository cannot use the
 core source tree:
 
 ```sh
-scripts/package-frontend-host.sh 0.2.1 dist/frontend-host
+scripts/package-frontend-host.sh 0.2.2 dist/frontend-host
 ```
 
 The archive contains the trusted build host and a manifest with the core and
@@ -1115,7 +1128,7 @@ scripts/reference-images-contract.sh
 
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
-private package from core `0.2.0` to a compatible `0.2.1` artifact. That
+private package from core `0.2.0` to the current compatible artifact. That
 pair uses different backend source trees. It applies migrations 018 through 020.
 It also runs the documented legacy identity-owner claims before startup.
 The script runs a real Atlas synchronization on both core versions. It checks

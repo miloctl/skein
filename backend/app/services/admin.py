@@ -22,6 +22,7 @@ test_restore_drill_brings_both_databases_back):
 import json
 import logging
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -117,6 +118,9 @@ def _backups_dir() -> Path:
     return d
 
 
+_DATED_BACKUP = re.compile(r"\d{4}-\d{2}-\d{2}\.db")
+
+
 def _today() -> str:
     return db.today().isoformat()
 
@@ -149,7 +153,17 @@ def _backup_one(src: sqlite3.Connection, dest: Path, keep: int, prefix: str = ""
     # extension backup starts with "extension-", so the derived prefix would
     # prune all of them together and keep only the newest store's copies.
     prefix = prefix or dest.name.split("-", 1)[0]
-    for old in sorted(dest.parent.glob(f"{prefix}-*.db"))[:-keep]:
+    # The date suffix must match too. A bare "{prefix}-*" also selects the
+    # files of a store whose name merely STARTS with this one, and the date
+    # sorts before the longer name, so this store's own copies are the ones
+    # that fall off the end of the list. Store names admit both "acme.data"
+    # and "acme.data-archive" (extensions/registry.py::_IDENTIFIER).
+    kept = sorted(
+        path
+        for path in dest.parent.glob(f"{prefix}-*.db")
+        if _DATED_BACKUP.fullmatch(path.name.removeprefix(f"{prefix}-"))
+    )
+    for old in kept[:-keep]:
         old.unlink()
     log.info("backup written: %s", dest)
 

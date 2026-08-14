@@ -109,3 +109,41 @@ def test_an_unimportable_name_is_reported_as_such():
         assert_import_boundary("skein_package_that_does_not_exist")
 
     assert "is not importable" in str(exc.value)
+
+
+def test_a_submodule_of_a_public_package_is_refused(tmp_path):
+    """`from app.public import events` reaches around the export list the same
+    way the dotted form does. Checking the imported-from module alone passes
+    it, because the module IS public and the submodule hides in the alias."""
+    package = _package(tmp_path, "from app.public import events\n")
+
+    with pytest.raises(ExtensionValidationError) as exc:
+        assert_import_boundary(package)
+
+    assert "imports app.public.events" in str(exc.value)
+
+
+def test_an_exported_symbol_is_not_mistaken_for_a_submodule(tmp_path):
+    """The alias in `from app.public import CreateTaskCommand` names a symbol,
+    not a module, so widening the check must not refuse the documented import."""
+    assert_import_boundary(
+        _package(
+            tmp_path,
+            "from app.public import CreateTaskCommand, WorkItems\n"
+            "from app.extensions import SkeinModule\n"
+            "from app.main import create_app\n",
+        )
+    )
+
+
+def test_a_package_with_no_source_is_refused(tmp_path):
+    """A zipped or byte-compiled install yields no source. Reporting that as a
+    pass hands the caller a green check that read nothing."""
+    empty = tmp_path / "compiled_only"
+    empty.mkdir()
+    (empty / "adapter.pyc").write_bytes(b"\x00")
+
+    with pytest.raises(ExtensionValidationError) as exc:
+        assert_import_boundary(empty)
+
+    assert "no Python source" in str(exc.value)

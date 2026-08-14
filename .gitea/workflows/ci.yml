@@ -17,7 +17,6 @@ on:
 
 jobs:
   backend:
-    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -50,7 +49,6 @@ jobs:
           ./scripts/upgrade-path.sh
 
   frontend:
-    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -84,7 +82,6 @@ jobs:
         run: npm run build
 
   extension-contracts:
-    if: "!startsWith(github.ref, 'refs/tags/v')"
     # Exercise the installed artifacts and derivative deployment. Unit tests
     # alone cannot detect missing wheel data, package-host drift, or a broken
     # Kustomize overlay.
@@ -128,6 +125,9 @@ jobs:
     # quietly, because a release that publishes nowhere is the failure this
     # job exists to prevent.
     if: startsWith(github.ref, 'refs/tags/v')
+    # Every gate first. Without this a tag on any commit publishes a wheel
+    # built from a tree that no test ever ran against.
+    needs: [backend, frontend, extension-contracts, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -142,6 +142,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Check the tag names the declared version
+        # A tag of v0.3.0 on a tree that declares 0.2.2 publishes a 0.2.2
+        # wheel beside a 0.3.0 host archive, and nothing else notices.
+        run: |
+          declared="$(sed -n 's/^version = "\(.*\)"/\1/p' backend/pyproject.toml | head -1)"
+          if [ "${GITHUB_REF_NAME#v}" != "$declared" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match declared version $declared" >&2
+            exit 1
+          fi
       - name: Build the wheel
         # --out-dir outside backend/ on purpose: a build that writes inside it
         # leaves a build/ directory in the source tree (docs/EXTENSIONS.md).
@@ -151,9 +160,18 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           ./scripts/package-frontend-host.sh "$version" "dist/frontend-host"
           tar -czf "dist/skein-frontend-host-$version.tar.gz" -C dist frontend-host
-      - name: Pack the extension API
-        run: npm pack --pack-destination ../../dist
-        working-directory: frontend/packages/extension-api
+      - name: Publish the frontend host archive
+        # Built above and previously left in dist/ with nothing to collect it,
+        # so the artifact a derivative frontend build needs published nowhere.
+        env:
+          TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        run: |
+          base="${{ github.server_url }}"
+          version="${GITHUB_REF_NAME#v}"
+          curl --fail --silent --show-error \
+            --user "${{ secrets.CI_CHECKOUT_USER }}:$TOKEN" \
+            --upload-file "dist/skein-frontend-host-$version.tar.gz" \
+            "$base/api/packages/${{ github.repository_owner }}/generic/skein-frontend-host/$version/skein-frontend-host-$version.tar.gz"
       - name: Publish the wheel
         env:
           TOKEN: ${{ secrets.PACKAGE_TOKEN }}
@@ -162,17 +180,27 @@ jobs:
           uv publish --publish-url "$base/api/packages/${{ github.repository_owner }}/pypi" \
             --username "${{ secrets.CI_CHECKOUT_USER }}" --password "$TOKEN" dist/*.whl
       - name: Publish the extension API package
+        # Its version tracks the EXTENSION API (1.0), not the core release, so
+        # it stays put across most releases. Republishing an existing version
+        # is a hard registry error, and the wheel has already published by
+        # this point, so an unguarded republish leaves a half-published
+        # release with nothing to roll back.
         env:
           TOKEN: ${{ secrets.PACKAGE_TOKEN }}
         run: |
           base="${{ github.server_url }}"
           registry="${base#*://}"
+          url="$base/api/packages/${{ github.repository_owner }}/npm/"
           npm config set "//$registry/api/packages/${{ github.repository_owner }}/npm/:_authToken" "$TOKEN"
-          npm publish --registry "$base/api/packages/${{ github.repository_owner }}/npm/"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@skein/extension-api@$version" version --registry "$url" >/dev/null 2>&1; then
+            echo "@skein/extension-api@$version is already published; nothing to do."
+          else
+            npm publish --registry "$url"
+          fi
         working-directory: frontend/packages/extension-api
 
   e2e:
-    if: "!startsWith(github.ref, 'refs/tags/v')"
     # a real browser walking the real app against a seeded mock-provider
     # backend: console errors, failed requests, and an axe scan per page.
     # Needs both toolchains, so it is its own job.

@@ -2010,9 +2010,13 @@ def test_a_declared_extension_store_is_backed_up_beside_the_core_databases(fresh
 
 
 def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monkeypatch):
-    """Every extension backup starts with "extension-", so a prefix derived
-    from the file name prunes all of them together and one store's retention
-    deletes another store's only copy."""
+    """A store must survive its own retention pass.
+
+    Every extension backup starts with "extension-", so a prefix derived from
+    the file name prunes them all together. A prefix that is only the store
+    name is not enough either: extensions/registry.py::_IDENTIFIER admits both
+    "acme.data" and "acme.data-archive", and the date sorts before "archive",
+    so a "{prefix}-*" glob drops this store's own newest copy first."""
     from app.services import admin
 
     backups = tmp_path / "backups"
@@ -2020,6 +2024,8 @@ def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monk
     monkeypatch.setenv("SKEIN_BACKUP_DIR", str(backups))
     neighbour = backups / "extension-acme.workplace.cache-2000-01-01.db"
     neighbour.write_bytes(b"")
+    overlapping = backups / "extension-atlas.workplace.data-archive-2000-01-01.db"
+    overlapping.write_bytes(b"")
 
     store = ExtensionStore(tmp_path / "atlas.db")
     store.migrate((ExtensionMigration(1, "create-links", ("CREATE TABLE links (id INT)",)),))
@@ -2033,9 +2039,12 @@ def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monk
     )
     settings = replace(AppSettings.from_config(), scheduler_enabled=False)
     with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}):
-        admin.backup(keep=1)
+        result = admin.backup(keep=1)
 
+    for path in result["extension_paths"]:
+        assert Path(path).exists(), f"backup reported {path} and then deleted it"
     assert neighbour.exists()
+    assert overlapping.exists()
 
 
 def test_a_domain_write_carries_the_declared_operation_risk(fresh_db):
@@ -2368,3 +2377,186 @@ def test_a_promise_settles_once(fresh_db):
 
     assert raised.value.code == "PROMISE_UPDATE_REJECTED"
     assert facade.get_promise(view.id, context).status == "kept"
+
+
+def test_editing_a_promise_announces_the_change(fresh_db):
+    """The promise text, its date, and its counterparty can all change through
+    the REST and tool paths. A subscriber that never hears about it holds a
+    stale copy of every field the facade cannot reach."""
+    from app.services import promises
+
+    created = promises.add_promise("ship the audit pack", to_whom="Northwind")
+    fresh_db.execute("DELETE FROM extension_outbox")
+
+    promises.edit_promise(created["id"], promise="ship the revised pack", to_whom="Acme")
+
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox")
+    assert [row["event_type"] for row in events] == ["skein.promise.updated"]
+    # the envelope names fields, never the promise text or the counterparty
+    assert "Acme" not in events[0]["payload"]
+
+
+def test_a_promise_read_applies_the_callers_own_filter(fresh_db):
+    """An unfiltered read returned private rows to any caller. The policy
+    engine permits a non-agent origin by default, so this filter is the only
+    thing between an extension and a teammate's private promise."""
+    from app.services import promises, users
+
+    users.ensure_user("alice")
+    users.ensure_user("bob")
+    private = promises.add_promise(
+        "the secret merger deck", to_whom="the board", actor="alice", visibility="private"
+    )
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+
+    with pytest.raises(PublicError) as raised:
+        facade.get_promise(private["id"], _context(facade, subject=PolicySubject("bob")))
+
+    assert raised.value.code == "PROMISE_NOT_FOUND"
+    assert "secret" not in str(raised.value.detail)
+
+
+def test_an_idempotency_key_names_one_kind_of_record(fresh_db):
+    """The receipt records result_type and nothing read it, so a key reused
+    across two command types replayed one entity as another: the caller got a
+    row it never wrote, at any tier, and no write happened."""
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    context = _context(facade)
+    facade.create_task(CreateTaskCommand(title="warm the receipt", idempotency_key="K"), context)
+
+    with pytest.raises(PublicError) as raised:
+        facade.create_promise(
+            CreatePromiseCommand(promise="different kind", idempotency_key="K"), context
+        )
+
+    assert raised.value.code == "IDEMPOTENCY_KEY_REUSED"
+    assert fresh_db.query_one("SELECT 1 AS present FROM promises") is None
+
+
+def test_a_linked_write_carries_the_engagements_project_class(fresh_db):
+    """The engagement owns the class, not the caller. Reading it from the
+    caller's context let a rule keyed on it govern task writes into a
+    regulated engagement and skip a promise written into the same one."""
+    from app.services import engagements
+
+    seen: list[tuple[str, str]] = []
+
+    def recorder(request: PolicyInput):
+        seen.append((request.action, request.resource.project_type))
+        return None
+
+    recorder.skein_policy_actions = ("work.promise.create",)
+    engagement = engagements.create_engagement(
+        "Regulated launch", project_class="regulated", actor="dana"
+    )
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        service_identities=(
+            ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
+        ),
+        policies=(PolicyContribution("atlas.workplace.recorder", recorder),),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+
+    facade.create_promise(
+        CreatePromiseCommand(
+            promise="child of the regulated engagement", engagement_id=engagement["id"]
+        ),
+        # the caller declares nothing; the engagement decides
+        _context(facade, project_type=""),
+    )
+
+    assert seen == [("work.promise.create", "regulated")]
+
+
+def test_one_approval_does_not_satisfy_a_second_review_gate(fresh_db):
+    """A command can meet two independent rules. A blanket approved flag let
+    the first approval disarm every gate in the command, and nobody ever
+    computed the second rule's approvers."""
+    from app.services import review as review_service
+
+    def two_gates(request: PolicyInput):
+        if request.action == "work.task.create":
+            return PolicyDecision(PolicyEffect.REVIEW, ("intake desk",))
+        if request.action == "work.task.update":
+            return PolicyDecision(PolicyEffect.REVIEW, ("release board",))
+        return None
+
+    two_gates.skein_policy_actions = ("work.task.create", "work.task.update")
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        service_identities=(
+            ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
+        ),
+        policies=(PolicyContribution("atlas.workplace.two-gates", two_gates),),
+    )
+    registry = ExtensionRegistry.build((module,))
+    facade = WorkItems(registry.policy_engine)
+
+    # status != todo makes the create meet the update rule as well
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(title="closed on arrival", status="done"), _context(facade)
+        )
+
+    with pytest.raises(Exception):
+        review_service.approve_change(
+            raised.value.review_id,
+            actor="manager",
+            policy_registry=registry,
+            extension_executor=lambda invocation, change_id: _execute_reviewed_command(
+                invocation, registry
+            ),
+        )
+
+    assert fresh_db.query_one("SELECT 1 AS present FROM tasks") is None
+
+
+def test_the_review_queue_shows_what_it_is_approving(fresh_db):
+    """The queue carried the command name alone, so a status change bundled
+    into a create was invisible on the approve screen."""
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        service_identities=(
+            ServiceIdentityContribution("atlas.workplace.sync-identity", "atlas-sync"),
+        ),
+        policies=(
+            PolicyContribution(
+                "atlas.workplace.hold",
+                lambda request: (
+                    PolicyDecision(PolicyEffect.REVIEW, ("held",))
+                    if request.action == "work.task.create"
+                    else None
+                ),
+            ),
+        ),
+    )
+    facade = WorkItems(ExtensionRegistry.build((module,)).policy_engine)
+
+    with pytest.raises(PublicError) as raised:
+        facade.create_task(
+            CreateTaskCommand(title="closed on arrival", status="done", assignee="marcus"),
+            _context(facade),
+        )
+
+    import json
+
+    row = fresh_db.query_one(
+        "SELECT payload FROM pending_changes WHERE id = ?", (raised.value.review_id,)
+    )
+    preview = json.loads(row["payload"])["preview"]
+    assert preview["title"] == "closed on arrival"
+    assert preview["status"] == "done"
+    assert preview["assignee"] == "marcus"

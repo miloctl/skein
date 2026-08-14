@@ -1437,6 +1437,11 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
     record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
     for r in rows:
         r["payload"] = json.loads(r["payload"])
+        # The saved decision carries the requester's resolved roles,
+        # capabilities and directory attributes, plus the resource attributes
+        # the rule inspected. filter_policy_resources already strips it from
+        # the rows it returns; this is the other reader of the same column.
+        r.pop("policy_context", None)
         r["policy_obligations"] = json.loads(r.get("policy_obligations") or "[]")
         r["approver_groups"] = json.loads(r.get("approver_groups") or "[]")
         r["approver_capabilities"] = json.loads(r.get("approver_capabilities") or "[]")
