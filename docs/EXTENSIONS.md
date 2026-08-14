@@ -943,6 +943,12 @@ A private extension repository must run these checks:
 
 The public packages export the surfaces these tests need:
 
+- `app.extensions.assert_import_boundary` raises when a package imports a
+  Skein module outside `app.extensions`, `app.public`, and `app.main`. Pass it
+  the imported package, its dotted name, or a path. A submodule of a public
+  package is internal too: the export list is the contract. The check reads
+  source and is not a security boundary, because a dynamic import evades it.
+  This surface requires core `0.2.2` or later.
 - `app.extensions.registry_for(app)` returns the composed registry of one
   application, with its contributions and `policy_engine`.
 - `app.extensions.execute_tool` runs one governed tool call. Build its

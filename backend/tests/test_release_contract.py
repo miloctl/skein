@@ -100,6 +100,7 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
         "ToolHandlerContext",
         "WorkflowActionContext",
         "WorkflowActionContribution",
+        "assert_import_boundary",
         "execute_tool",
         "registry_for",
     }

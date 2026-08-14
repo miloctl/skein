@@ -27,7 +27,7 @@ does not keeps its existing floor and must keep working untouched.
 
 ## Invariants
 
-Three rules govern every task below.
+Four rules govern every task below.
 
 1. **The Atlas invariant.** The packed Atlas wheel and npm tarball built
    against 0.2.1 must pass, byte-identical, against 0.2.2.
@@ -41,26 +41,12 @@ Three rules govern every task below.
    unfixed code. `./scripts/lint.sh` passes before every commit. New
    user-visible strings follow the wording rules in `CLAUDE.md` — a refusal
    is never warm.
-
-## Phase 0 — Gates
-
-Land first. Everything after runs under them.
-
-Every task below keeps its new contracts inside the frozen-surface pin in
-`tests/test_release_contract.py`. That pin, and the import wall below, are
-what `scripts/hooks/pre-push` checks before a change can reach main; the
-slow artifact-level contracts stay on push-to-main for the reason recorded
-in `TODO.md`.
-
-- **T0.2 Mechanical import wall.** The boundary holds by documentation, mypy
-  contract scripts, and convention. Add `assert_import_boundary` beside the
-  published test surfaces (`registry_for`, `execute_tool`,
-  `dispatch_events`): it walks a private package's source and refuses any
-  import of a Skein module outside `app.extensions`, `app.public`, and
-  `app.main`. Ship it with a core test, an entry in the required-tests list
-  in `docs/EXTENSIONS.md`, and the frozen-surface update.
-Every task below appends its own line to `CHANGELOG.md` in its shipping
-commit.
+4. **Every new contract lands inside the frozen-surface pin** in
+   `tests/test_release_contract.py`, and every task appends its own line to
+   `CHANGELOG.md` in its shipping commit. That pin and
+   `tests/test_import_boundary.py` are what `scripts/hooks/pre-push` checks
+   before a change reaches main. The slow artifact-level contracts stay on
+   push-to-main for the reason recorded in `TODO.md`.
 
 ## Phase 1 — Integrity fixes
 
