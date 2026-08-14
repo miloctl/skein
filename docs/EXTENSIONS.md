@@ -645,6 +645,10 @@ Store stable Skein identifiers as external references. Do not create a foreign
 key into the core SQLite database. The public API, events, and commands define
 the consistency boundary.
 
+Keep the mapping from your own identifier to the Skein one in that store.
+`WorkItems` fetches a task by its Skein id alone, so an idempotency key
+prevents a duplicate write but cannot find the row it protected.
+
 Keep each migration version and name append-only. Add a new version for every
 change. Test a fresh database and an upgrade from the previous extension
 release.
@@ -971,7 +975,8 @@ The public packages export the surfaces these tests need:
   This surface requires core `0.2.2` or later.
 - `app.extensions.registry_for(app)` returns the composed registry of one
   application, with its contributions and `policy_engine`.
-- `app.extensions.execute_tool` runs one governed tool call. Build its
+- `app.extensions.execute_tool` runs one governed tool call. It is a
+  coroutine, so a synchronous test awaits it with `asyncio.run`. Build its
   `ToolCallContext` from `registry_for(app).service_subject(...)` or a
   `PolicySubject`, and inspect the returned `ToolExecution`.
 - `app.public.dispatch_events` delivers pending outbox events to the

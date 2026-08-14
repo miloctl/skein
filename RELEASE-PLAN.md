@@ -104,12 +104,6 @@ blocks a real integration.
   which it already passes. Acceptance: zero core changes beyond the set
   above.
 
-Smaller findings, worth one line each rather than a task: `execute_tool` is a
-coroutine and the authoring guide does not say so, which is the first thing
-an author hits when writing the mandated tool test; and `WorkItems` can only
-fetch a task by its Skein id, so every integration keeps its own id map and
-the idempotency key is write-only.
-
 ## Phase 3 — Convergence and operations
 
 Independent of Phase 2. T3.3 must land before the tag because it changes a
