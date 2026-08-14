@@ -172,8 +172,30 @@ work command** holds the command: Skein stores it, answers
 exact saved command on approval under a new grant. This works from a route, a
 scheduled job, a governed tool, an event subscriber, and a workflow action, so
 an unattended integration can hold a regulated write for a manager instead of
-failing it. Record the `review_id`: the write has not happened yet, and a
-retry creates a second proposal unless the command carries an idempotency key.
+failing it. Record the `review_id`: the write has not happened yet, so the
+command's idempotency key protects nothing, and the next run proposes the
+same write again. A batch keeps its own record and skips what it already
+asked about:
+
+```python
+for item in client.open_items():
+    if store.query_one("SELECT 1 FROM held WHERE external_id = ?", (item.id,)):
+        continue
+    try:
+        view = context.work_items.create_task(command_for(item), command_context)
+    except PublicError as exc:
+        if exc.code != "REVIEW_REQUIRED":
+            raise
+        store.execute(
+            "INSERT INTO held (external_id, review_id) VALUES (?, ?)",
+            (item.id, exc.review_id),
+        )
+        continue
+    remember(item, view)
+```
+
+One held item does not stop the batch. The rest of the run lands, and a
+reviewer answers the held ones once.
 
 A rule on the **operation action itself** — the REST action, a contributed
 route operation, or a scheduled job — has no request to resume, so it returns
