@@ -11,3 +11,5 @@ __pycache__/
 # consolidation existed to undo.
 tasks/
 backend/build/
+# mutmut's generated tree and result cache (scripts/mutation-test.sh)
+backend/mutants/

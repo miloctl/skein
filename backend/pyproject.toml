@@ -40,6 +40,11 @@ dev = [
     # schemas/skein_models.schema.json — runtime validation stays hand-rolled
     # in config.py, and this test is what keeps the two from drifting.
     "jsonschema>=4.21",
+    # CI gates on --cov-fail-under (ci.yml). Not in addopts: coverage adds
+    # ~45% to a local run, so the plain `pytest` stays fast and CI holds
+    # the line.
+    "pytest-cov>=6",
+    "hypothesis>=6.100",
 ]
 
 [tool.setuptools]
@@ -60,8 +65,52 @@ packages = { find = { include = ["app*"] } }
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
+[tool.mutmut]
+# Run through scripts/mutation-test.sh, on demand — never a CI gate: a full
+# sweep of app/services/ takes hours. The services are the write path, so
+# they are the code whose tests must have teeth.
+source_paths = ["app/services/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+# Two classes of test cannot run from mutants/, and both are baseline
+# failures there, not weak tests. (1) Tests that resolve repo files by
+# walking parents of their own path (../cli, examples/, deploy/, the
+# release contract) land outside the tree mutmut copies. (2) The
+# visibility sweeps read services SOURCE TEXT, and mutant-rewritten source
+# is not the text they parse. Every test here still runs in the real suite.
+pytest_add_cli_args = [
+    # -n0 overrides the -n auto in addopts: mutmut maps which test covers
+    # which mutant by tracing IN PROCESS, and xdist moves the tests into
+    # workers where the trace sees nothing — every mutant then reports "no
+    # test case". mutmut parallelizes across mutants itself (max-children).
+    "-n0",
+    "--ignore=tests/test_reference_workplace_extension.py",
+    "--ignore=tests/test_cli.py",
+    "--ignore=tests/test_release_contract.py",
+    "--deselect=tests/test_packaging.py::test_dockerfile_copies_every_content_dir",
+    "--deselect=tests/test_import_boundary.py::test_the_reference_extension_holds_the_boundary",
+    "--deselect=tests/test_visibility_authz.py::test_every_id_addressed_mutation_is_listed",
+    "--deselect=tests/test_visibility_authz.py::test_every_read_of_a_scoped_table_is_filtered_or_excused",
+    "--deselect=tests/test_activity_feed.py::test_the_verb_registry_and_the_logged_actions_agree",
+]
+# The packaged content the app reads at import time, resolved relative to
+# the source tree — absent from mutants/, every run dies on startup. app/
+# here is safe: mutant generation writes AFTER this copy, so the mutated
+# services files win over the plain ones.
+also_copy = [
+    "app/",
+    "personas/",
+    "flocks/",
+    "playbooks/",
+    "fieldguide/",
+    "schemas/",
+    "seed.py",
+]
+
 [tool.pytest.ini_options]
 addopts = "-n auto"
+# a bare `pytest` otherwise also collects mutants/tests/ whenever the
+# mutation cache exists, and the copies fail on their moved paths
+testpaths = ["tests"]
 
 [tool.vulture]
 paths = ["app", "seed.py", "../cli/skein_cli.py"]
