@@ -862,6 +862,14 @@ OIDC_SCOPES = os.getenv("SKEIN_OIDC_SCOPES", "").strip() or "openid profile"
 # same one SKEIN_OIDC_JWKS_URL overrides.
 OIDC_AUTHORIZE_URL = os.getenv("SKEIN_OIDC_AUTHORIZE_URL", "").strip()
 OIDC_TOKEN_URL = os.getenv("SKEIN_OIDC_TOKEN_URL", "").strip()
+# Clock-skew tolerance (seconds) on exp/nbf/iat. PingFederate stamps nbf at
+# issue time, so a pod one second behind the IdP refuses every fresh token
+# with ImmatureSignatureError — intermittently, right after sign-in. A bad
+# value degrades to the default, never to zero.
+try:
+    OIDC_LEEWAY = max(0, int(os.getenv("SKEIN_OIDC_LEEWAY", "").strip() or 30))
+except ValueError:
+    OIDC_LEEWAY = 30
 if not AUTH_ERROR and AUTH_MODE == "oidc":
     if not OIDC_ISSUER:
         AUTH_ERROR = "SKEIN_AUTH_MODE=oidc requires SKEIN_OIDC_ISSUER"

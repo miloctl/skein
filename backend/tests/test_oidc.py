@@ -113,8 +113,9 @@ def test_wrong_audience_refused(issuer):
 
 
 def test_expired_token_refused(issuer):
+    # expiry must clear the clock-skew leeway, or this pins nothing
     with pytest.raises(oidc.OIDCError) as e:
-        oidc.validate(_token(issuer, exp=int(time.time()) - 10))
+        oidc.validate(_token(issuer, exp=int(time.time()) - config.OIDC_LEEWAY - 60))
     # the refusal names the fault class, never the token itself
     assert "ExpiredSignatureError" in str(e.value)
 
@@ -122,6 +123,20 @@ def test_expired_token_refused(issuer):
 def test_missing_exp_refused(issuer):
     with pytest.raises(oidc.OIDCError):
         oidc.validate(_token(issuer, exp=None))
+
+
+def test_nbf_within_leeway_accepted(issuer):
+    # PingFederate stamps nbf at issue time; a validator clock seconds behind
+    # the IdP sees a token from the near future. Without leeway this refused
+    # every fresh sign-in with ImmatureSignatureError.
+    claims = oidc.validate(_token(issuer, nbf=int(time.time()) + 10))
+    assert claims["preferred_username"] == "casey"
+
+
+def test_nbf_beyond_leeway_refused(issuer):
+    with pytest.raises(oidc.OIDCError) as e:
+        oidc.validate(_token(issuer, nbf=int(time.time()) + config.OIDC_LEEWAY + 60))
+    assert "ImmatureSignatureError" in str(e.value)
 
 
 def test_tampered_signature_refused(issuer):
@@ -261,7 +276,7 @@ def test_a_genuinely_bad_token_is_still_refused_not_excused(issuer):
     """The other side of the split: a real token fault must NOT become a 503
     that tells the caller to wait for a provider that is answering fine."""
     with pytest.raises(oidc.OIDCError) as e:
-        oidc.validate(_token(issuer, exp=int(time.time()) - 10))
+        oidc.validate(_token(issuer, exp=int(time.time()) - config.OIDC_LEEWAY - 60))
     assert not isinstance(e.value, oidc.OIDCUnavailable)
 
 

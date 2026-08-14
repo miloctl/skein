@@ -319,6 +319,7 @@ def _decode(token: str, key: Any) -> dict[str, Any]:
         algorithms=ALGORITHMS,
         audience=config.OIDC_AUDIENCE,
         issuer=config.OIDC_ISSUER,
+        leeway=config.OIDC_LEEWAY,
         options={"require": ["exp", "iss", "aud"]},
     )
 

@@ -22,3 +22,18 @@ grep -q "fsGroup: 1000" "$rendered"
 grep -q "fsGroupChangePolicy: OnRootMismatch" "$rendered"
 grep -q "runAsNonRoot: true" "$rendered"
 echo "reference-deployment-contract: standard Kustomize render passed"
+
+# Core OpenShift overlays (deploy/k8s). Each assertion pins a decision
+# whose loss reintroduces a concrete failure (named per line), not a
+# style preference — deploy/k8s/README.md carries the reasons.
+for overlay in example-prod example-dev; do
+  kubectl kustomize "$root/deploy/k8s/overlays/$overlay" >"$rendered"
+  grep -q "type: Recreate" "$rendered"          # RWO PVC + SQLite single writer
+  grep -q "replicas: 1" "$rendered"             # scheduler, rate caps, _inflight
+  grep -q "ReadWriteOnce" "$rendered"           # WAL is unsafe on NFS/RWX
+  grep -q "startupProbe" "$rendered"            # migrations run before /health answers
+  grep -q "timeout: 330s" "$rendered"           # router idle 30s < SSE silences
+  grep -q "SKEIN_TRUST_PROXY_HOPS" "$rendered"
+  ! grep -q "fsGroup:" "$rendered"              # restricted-v2 rejects any fixed value
+done
+echo "reference-deployment-contract: core deploy/k8s overlays passed"
