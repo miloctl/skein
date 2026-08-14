@@ -16,7 +16,12 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config, db, ratelimit
 from .extensions import AppSettings, ExtensionRegistry, SkeinModule
-from .extensions.contracts import JobContribution, JobExecutionContext
+from .extensions.contracts import (
+    CORE_VERSION_IS_INSTALLED,
+    SKEIN_CORE_VERSION,
+    JobContribution,
+    JobExecutionContext,
+)
 from .extensions.core import core_module
 from .extensions.fastapi import contributed_route_policy, enforce_mutation_policy
 from .extensions.registry import validate_core_tool_names
@@ -95,6 +100,8 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     namespace=contribution.name,
                     receipt_namespace=f"job:{contribution.name}",
                     correlation_id=run_id,
+                    effect=contribution.effect,
+                    risk=contribution.risk,
                 )
             )
         from .public._owner_work import run_bounded_work_handler
@@ -122,6 +129,8 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     namespace=contribution.name,
                     receipt_namespace=f"job:{contribution.name}",
                     correlation_id=run_id,
+                    effect=contribution.effect,
+                    risk=contribution.risk,
                 ),
                 invoke_handler,
                 None,
@@ -704,6 +713,7 @@ async def public_error_handler(request: Request, exc: PublicError):
             "code": exc.code,
             "retryable": exc.retryable,
             "obligations": list(exc.obligations),
+            **({"review_id": exc.review_id} if exc.review_id else {}),
         },
     )
 
@@ -838,7 +848,28 @@ def create_app(
     """
     explicit_settings = settings is not None
     selected_settings = settings or AppSettings.from_config()
+    if not CORE_VERSION_IS_INSTALLED:
+        # Every module compatibility range is checked against this number, so a
+        # composition that guessed it can reject a valid private package.
+        log.warning(
+            "no installed skein distribution: composing as core %s from the"
+            " source fallback. Install the wheel to report the real version.",
+            SKEIN_CORE_VERSION,
+        )
     registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    from .extensions.data import ExtensionStore
+    from .services import admin
+
+    # Composition root: the service layer never imports the extension layer,
+    # the same way agents/narrator.py registers itself into digest.
+    admin.set_extension_stores(
+        {
+            contribution.name: contribution.store.path
+            for contribution in registry.migrations
+            if isinstance(contribution.store, ExtensionStore)
+            and contribution.store.include_in_backup
+        }
+    )
     from .tools import ALL_TOOLS
 
     validate_core_tool_names(

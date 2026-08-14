@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import uuid4
@@ -131,8 +132,10 @@ class ExtensionRouteServices:
         )
 
 
-def extension_route_services(request: Request, subject: PolicySubjectDep) -> ExtensionRouteServices:
-    from ..public.work import WorkItems, _bind_execution_context
+def extension_route_services(
+    request: Request, subject: PolicySubjectDep
+) -> Iterator[ExtensionRouteServices]:
+    from ..public.work import WorkItems, _bind_execution_context, _close_execution
 
     policy = request.app.state.skein_registry.policy_engine
     action, _resource_type, _resource_id = _route_policy_action(request)
@@ -140,7 +143,7 @@ def extension_route_services(request: Request, subject: PolicySubjectDep) -> Ext
     work_items = WorkItems(policy)
     correlation_id = uuid4().hex
     context = ExtensionRouteServices(subject, policy, work_items, namespace, correlation_id)
-    return _bind_execution_context(
+    bound = _bind_execution_context(
         work_items,
         context,
         subject=subject,
@@ -149,7 +152,17 @@ def extension_route_services(request: Request, subject: PolicySubjectDep) -> Ext
         correlation_id=correlation_id,
         read_name=subject.name if subject.kind == "human" else "",
         read_strong=subject.strong if subject.kind == "human" else False,
+        effect=str(getattr(request.state, "skein_extension_effect", "none")),
+        risk=str(getattr(request.state, "skein_extension_risk", "low")),
     )
+    try:
+        yield bound
+    finally:
+        # A route declares no deadline, so this teardown is the only thing that
+        # ends its authority. Without it a thread the handler spawned keeps
+        # writing core rows under the route's provenance after the response,
+        # and after shutdown. Background work belongs in a JobContribution.
+        _close_execution(work_items)
 
 
 ExtensionRouteServicesDep = Annotated[
@@ -170,6 +183,10 @@ def contributed_route_policy(contribution: RouteContribution):
             if item.method == request.method and item.path == path
         )
         request.state.skein_extension_namespace = contribution.name
+        # The domain write reads these back: a route that declares a high-risk
+        # write must not reach work.task.create looking like a low-risk read.
+        request.state.skein_extension_effect = operation.effect
+        request.state.skein_extension_risk = operation.risk
         resource = operation.resource
         if operation.resource_id_param:
             resource = replace(

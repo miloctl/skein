@@ -654,3 +654,47 @@ def test_batch_approve_answers_an_unqualified_approver_per_row(client, fresh_db)
         fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (guarded,))["status"]
         == "pending"
     )
+
+
+def test_the_requester_approves_their_own_proposal_by_default(fresh_db):
+    """At team scale the person who asked an agent to act is usually the only
+    one who can judge the result, so separation is opt-in."""
+    from app.services import review
+
+    proposal = review.propose_change(
+        "task", "create", {"title": "routine write"}, actor="agent", requested_by="mira"
+    )
+
+    assert review.approve_change(proposal["id"], actor="mira")["status"] == "approved"
+
+
+def test_separated_duties_refuse_the_person_the_proposal_came_from(fresh_db, monkeypatch):
+    from app import config
+    from app.services import review
+
+    proposal = review.propose_change(
+        "task", "create", {"title": "regulated write"}, actor="agent", requested_by="mira"
+    )
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+
+    with pytest.raises(PermissionError, match="different qualified person"):
+        review.approve_change(proposal["id"], actor="mira")
+    # a different case is the same person
+    with pytest.raises(PermissionError, match="different qualified person"):
+        review.approve_change(proposal["id"], actor="MIRA")
+
+    assert review.approve_change(proposal["id"], actor="hana")["status"] == "approved"
+
+
+def test_separated_duties_still_let_the_requester_reject(fresh_db, monkeypatch):
+    """A rule that traps a proposal in the queue is worse than one person
+    declining it, so separation gates approval alone."""
+    from app import config
+    from app.services import review
+
+    proposal = review.propose_change(
+        "task", "create", {"title": "withdrawn write"}, actor="agent", requested_by="mira"
+    )
+    monkeypatch.setattr(config, "REVIEW_SEPARATION", True)
+
+    assert review.reject_change(proposal["id"], actor="mira")["status"] == "rejected"

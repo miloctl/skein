@@ -26,6 +26,20 @@ def test_core_release_and_extension_api_versions_are_synchronized():
     assert frontend_api.removesuffix(".0") == EXTENSION_API_VERSION
 
 
+def test_the_source_fallback_version_matches_the_packaged_version():
+    """A tree with no installed distribution reports this literal as its own
+    version, and every module compatibility range is checked against it. A
+    stale literal refuses a valid private package with no other symptom, so
+    the release bump moves every packaged version together."""
+    from app.extensions.contracts import FALLBACK_CORE_VERSION
+
+    core = _toml("backend/pyproject.toml")["project"]["version"]
+    assert core == FALLBACK_CORE_VERSION
+    # skein-cli is its own distributable with its own build-system. Calling the
+    # bump "a trio" is what let it drift a release behind unnoticed.
+    assert _toml("cli/pyproject.toml")["project"]["version"] == core
+
+
 def test_reference_extension_metadata_uses_owned_compatibility_literals():
     manifest = _toml("examples/workplace-extension/extension.toml")["extension"]
     backend_package = _toml("examples/workplace-extension/pyproject.toml")["project"]
@@ -54,13 +68,19 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
     import app.public as public
 
     assert set(public.__all__) == {
+        "BlockerView",
         "CommandContext",
+        "CreateBlockerCommand",
+        "CreatePromiseCommand",
         "CreateTaskCommand",
         "DomainEvent",
         "EventActor",
         "PublicError",
         "ResourceReference",
+        "PromiseView",
         "TaskView",
+        "UpdateBlockerCommand",
+        "UpdatePromiseCommand",
         "UpdateTaskCommand",
         "WorkItems",
         "dispatch_events",
@@ -100,6 +120,7 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
         "ToolHandlerContext",
         "WorkflowActionContext",
         "WorkflowActionContribution",
+        "assert_import_boundary",
         "execute_tool",
         "registry_for",
     }

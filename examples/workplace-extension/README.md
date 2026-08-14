@@ -29,7 +29,7 @@ scripts/reference-extension-contract.sh
 The script builds separate Skein and Atlas wheels. It installs them into a
 normal virtual environment and starts the installed application. It rejects
 the old core. It then moves the unchanged Atlas package from core `0.2.0` to a
-compatible `0.2.1` artifact built from a different source tree. The test keeps
+compatible newer artifact built from a different source tree. The test keeps
 the private Atlas data. It runs a real Atlas synchronization on both cores.
 It also checks the Atlas source against both public interfaces with strict
 mypy. It applies migrations 018 through 020 and the required legacy
@@ -61,7 +61,8 @@ scripts/reference-frontend-contract.sh
 ```
 
 The script compiles `index.tsx` and packs the unchanged private package. It
-creates Skein frontend host artifacts for core `0.2.0` and `0.2.1`. It installs
+creates Skein frontend host artifacts for core `0.2.0` and the current
+version. It installs
 the same Atlas archive into each host and runs two production builds.
 
 `npm pack` runs `prepack`, which recompiles `dist` from source. A stale

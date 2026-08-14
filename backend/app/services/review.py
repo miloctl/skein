@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
-from .. import db
+from .. import config, db
 from ..public.errors import PublicError
 from . import lexicon, scope
 
@@ -268,7 +268,7 @@ def propose_extension_invocation(
     policy_input=None,
 ) -> dict:
     """Create one review and keep its executable arguments out of the queue."""
-    if kind not in ("tool", "workflow", "mcp_tool", "core_tool"):
+    if kind not in ("tool", "workflow", "mcp_tool", "core_tool", "public_command"):
         raise ValueError("extension review kind is not supported")
     stored_invocation = {**invocation, "kind": kind}
     encoded = json.dumps(stored_invocation)
@@ -289,7 +289,9 @@ def propose_extension_invocation(
             public_payload,
             summary,
             actor=actor,
-            origin="agent" if kind in ("tool", "mcp_tool", "core_tool") else "human",
+            origin=(
+                "agent" if kind in ("tool", "mcp_tool", "core_tool", "public_command") else "human"
+            ),
             requested_by=requested_by,
             policy_obligations=policy_obligations,
             approver_groups=approver_groups,
@@ -314,6 +316,29 @@ def _check_reviewer(actor: str) -> None:
 
     if is_agent(actor):
         raise ValueError(f"'{actor}' is an agent identity — proposals are judged by humans")
+
+
+def _check_separation(change: dict, actor: str) -> None:
+    """Refuse an approver who is the reason the proposal exists.
+
+    Approval only. Rejection stays open to everyone qualified, because a rule
+    that traps a proposal in the queue is worse than one person declining it.
+    Names are folded the way identity_names folds them, so a different case or
+    Unicode form is the same person here too.
+    """
+    if not config.REVIEW_SEPARATION:
+        return
+    from ..identity_names import fold_identity
+
+    folded = fold_identity(actor)
+    originators = {
+        fold_identity(str(change.get(column) or "")) for column in ("requested_by", "proposed_by")
+    }
+    if folded and folded in originators:
+        raise PermissionError(
+            "This proposal came from you. Separated review duties are on,"
+            " so a different qualified person must approve it."
+        )
 
 
 def _check_policy_approver(
@@ -481,6 +506,7 @@ def _approve_change_locked(
         reviewer_groups,
         reviewer_capabilities,
     )
+    _check_separation(change, actor)
     qualifications: dict[str, Any] = _check_policy_approver(
         change,
         reviewer_groups,
@@ -875,6 +901,11 @@ def _current_extension_review(
                 "arguments": validated.model_dump(mode="json"),
             },
         )
+    if kind == "public_command":
+        # The saved policy input already names the command, its resource, and
+        # the project the write lands in. Re-decide against the CURRENT
+        # subject so a group the reviewer lost since the proposal counts.
+        return _CurrentExtensionReview(current)
     if kind == "mcp_tool":
         from ..agents.mcp_tools import reviewed_policy_contract
 
@@ -1406,6 +1437,11 @@ def list_changes(status: str = "pending", viewer: scope.Viewer = scope.NOBODY) -
     record = _trust_by_pair({(r["proposed_by"], r["entity"]) for r in rows}) if rows else {}
     for r in rows:
         r["payload"] = json.loads(r["payload"])
+        # The saved decision carries the requester's resolved roles,
+        # capabilities and directory attributes, plus the resource attributes
+        # the rule inspected. filter_policy_resources already strips it from
+        # the rows it returns; this is the other reader of the same column.
+        r.pop("policy_context", None)
         r["policy_obligations"] = json.loads(r.get("policy_obligations") or "[]")
         r["approver_groups"] = json.loads(r.get("approver_groups") or "[]")
         r["approver_capabilities"] = json.loads(r.get("approver_capabilities") or "[]")

@@ -1,5 +1,6 @@
 """Stable composition contracts for trusted Skein extensions."""
 
+from .boundary import assert_import_boundary
 from .contracts import (
     EXTENSION_API_VERSION,
     SKEIN_CORE_VERSION,
@@ -71,6 +72,7 @@ __all__ = [
     "ToolHandlerContext",
     "WorkflowActionContext",
     "WorkflowActionContribution",
+    "assert_import_boundary",
     "execute_tool",
     "registry_for",
 ]

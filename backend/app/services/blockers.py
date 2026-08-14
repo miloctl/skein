@@ -8,6 +8,31 @@ from . import scope, work
 from .search import index_record
 
 IMPACTS = ("low", "medium", "high", "critical")
+
+
+def _emit_blocker_event(
+    event_type: str,
+    blocker_id: int,
+    *,
+    actor: str,
+    origin: str,
+    visibility: str,
+    changes: tuple[str, ...],
+) -> None:
+    """Emit from the shared write path so every caller gets one event."""
+    from ..public.events import EventActor, ResourceReference, _emit_event
+    from .work import _event_actor_kind
+
+    _emit_event(
+        event_type,
+        actor=EventActor(name=actor, kind=_event_actor_kind(origin)),
+        origin=origin,
+        resource=ResourceReference(type="blocker", id=str(blocker_id)),
+        changes=changes,
+        visibility=visibility,
+    )
+
+
 DEFAULT_ESCALATION_HOURS = {"low": 72, "medium": 24, "high": 8, "critical": 2}
 
 
@@ -133,6 +158,14 @@ def raise_blocker(
             update_task(task_id, status="blocked", actor=actor, origin=origin)
         db.log_activity(actor, "raise_blocker", scope.detail(tier, f"#{bid}", title))
         index_record("blocker", bid, title, f"{detail} {owner}")
+        _emit_blocker_event(
+            "skein.blocker.created",
+            bid,
+            actor=actor,
+            origin=origin,
+            visibility=tier,
+            changes=("title", "detail", "owner", "impact", "task_id", "status"),
+        )
     return {"id": bid, "title": title, "status": "open", "escalate_after_hours": hours}
 
 
@@ -146,6 +179,24 @@ def edit_blocker(
     origin: str = "human",
 ) -> dict:
     """Correct an open blocker's wording/owner — resolution stays its own verb."""
+    with db.transaction():
+        return _edit_blocker_locked(blocker_id, title, detail, owner, actor=actor, origin=origin)
+
+
+def _edit_blocker_locked(
+    blocker_id: int,
+    title: str = "",
+    detail: str = "",
+    owner: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    """The row change, its receipt, its index, and its event are one unit.
+
+    Each of these was its own autocommit, so a failure between them left a
+    written row that no subscriber ever heard about.
+    """
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
         raise scope.missing("blockers", blocker_id)
@@ -185,6 +236,14 @@ def edit_blocker(
     new = db.query_one("SELECT title, detail, owner FROM blockers WHERE id = ?", (blocker_id,))
     if new:
         index_record("blocker", blocker_id, new["title"], f"{new['detail']} {new['owner']}")
+    _emit_blocker_event(
+        "skein.blocker.updated",
+        blocker_id,
+        actor=actor,
+        origin=origin,
+        visibility=str(row["visibility"] or scope.WORKSPACE),
+        changes=tuple(fields),
+    )
     return {"id": blocker_id, "updated": list(fields)}
 
 
@@ -228,6 +287,14 @@ def resolve_blocker(
                         actor_kind="",
                     )
         db.log_activity(actor, "resolve_blocker", f"#{blocker_id}")
+        _emit_blocker_event(
+            "skein.blocker.updated",
+            blocker_id,
+            actor=actor,
+            origin=origin,
+            visibility=str(row["visibility"] or scope.WORKSPACE),
+            changes=("status", "resolved_at"),
+        )
 
         # Each notification has one authoritative source. This text names only
         # the waiting task, so an exact task decision governs the whole body.
@@ -378,6 +445,16 @@ def _sweep_escalations_locked() -> list[dict]:
             )
             if not claimed:  # resolved between our read and write
                 continue
+            # The sweep owns this transition, and a subscriber tracking blocker
+            # state has no other way to learn it happened.
+            _emit_blocker_event(
+                "skein.blocker.updated",
+                b["id"],
+                actor="scheduler",
+                origin="agent",
+                visibility=str(b["visibility"] or scope.WORKSPACE),
+                changes=("status", "escalated_at"),
+            )
             from .notifications import notify
 
             # Every tier escalates — a crew blocker that silently never

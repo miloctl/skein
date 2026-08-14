@@ -22,6 +22,7 @@ test_restore_drill_brings_both_databases_back):
 import json
 import logging
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -117,11 +118,27 @@ def _backups_dir() -> Path:
     return d
 
 
+_DATED_BACKUP = re.compile(r"\d{4}-\d{2}-\d{2}\.db")
+
+
 def _today() -> str:
     return db.today().isoformat()
 
 
-def _backup_one(src: sqlite3.Connection, dest: Path, keep: int) -> None:
+_EXTENSION_STORES: dict[str, Path] = {}
+
+
+def set_extension_stores(stores: dict[str, Path]) -> None:
+    """Register the extension-owned databases one composed app must back up.
+
+    The composition root calls this so the service layer never imports the
+    extension layer, the way agents/narrator.py registers into digest.
+    """
+    _EXTENSION_STORES.clear()
+    _EXTENSION_STORES.update(stores)
+
+
+def _backup_one(src: sqlite3.Connection, dest: Path, keep: int, prefix: str = "") -> None:
     tmp = dest.with_suffix(".db.tmp")
     try:
         target = sqlite3.connect(tmp)
@@ -132,8 +149,21 @@ def _backup_one(src: sqlite3.Connection, dest: Path, keep: int) -> None:
     finally:
         src.close()
         tmp.unlink(missing_ok=True)
-    prefix = dest.name.split("-", 1)[0]
-    for old in sorted(dest.parent.glob(f"{prefix}-*.db"))[:-keep]:
+    # An explicit prefix keeps one store's retention off another's files: every
+    # extension backup starts with "extension-", so the derived prefix would
+    # prune all of them together and keep only the newest store's copies.
+    prefix = prefix or dest.name.split("-", 1)[0]
+    # The date suffix must match too. A bare "{prefix}-*" also selects the
+    # files of a store whose name merely STARTS with this one, and the date
+    # sorts before the longer name, so this store's own copies are the ones
+    # that fall off the end of the list. Store names admit both "acme.data"
+    # and "acme.data-archive" (extensions/registry.py::_IDENTIFIER).
+    kept = sorted(
+        path
+        for path in dest.parent.glob(f"{prefix}-*.db")
+        if _DATED_BACKUP.fullmatch(path.name.removeprefix(f"{prefix}-"))
+    )
+    for old in kept[:-keep]:
         old.unlink()
     log.info("backup written: %s", dest)
 
@@ -159,10 +189,23 @@ def backup(*, keep: int = 14) -> dict:
         # would. tests/test_privacy.py pins both halves.
         private_path = str(private_dest)
 
+    # Extension stores are deliberately NOT mirrored: SKEIN_BACKUP_MIRROR is an
+    # off-box copy, and core cannot know what a private package keeps in its
+    # own database. The deployment owns any off-box copy of it.
+    extension_paths = []
+    for name, store_path in sorted(_EXTENSION_STORES.items()):
+        if not Path(store_path).exists():
+            continue
+        prefix = f"extension-{name}"
+        store_dest = backups_dir / f"{prefix}-{_today()}.db"
+        _backup_one(sqlite3.connect(store_path), store_dest, keep, prefix)
+        extension_paths.append(str(store_dest))
+
     kept = len(sorted(backups_dir.glob("platform-*.db")))
     return {
         "path": str(dest),
         "private_path": private_path,
+        "extension_paths": extension_paths,
         "kept": min(kept, keep),
         "mirrored": mirrored,
     }

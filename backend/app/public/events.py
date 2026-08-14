@@ -22,7 +22,14 @@ log = logging.getLogger("skein.extensions.events")
 # The complete version 1 catalog. Composition validates every subscription
 # against it, so a new emitter that is not added here is unreachable for
 # every subscriber.
-EVENT_TYPES = ("skein.task.created", "skein.task.updated")
+EVENT_TYPES = (
+    "skein.task.created",
+    "skein.task.updated",
+    "skein.blocker.created",
+    "skein.blocker.updated",
+    "skein.promise.created",
+    "skein.promise.updated",
+)
 EVENT_SCHEMA_VERSIONS = (1,)
 
 
@@ -235,6 +242,8 @@ def dispatch_events(
                         namespace=_contribution.name,
                         receipt_namespace=f"event:{_contribution.name}",
                         correlation_id=f"{_event.event_id}:{_contribution.name}",
+                        effect=_contribution.effect,
+                        risk=_contribution.risk,
                     )
 
                 bounded = run_bounded_work_handler(

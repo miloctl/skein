@@ -2152,3 +2152,23 @@ def test_private_modules_cannot_declare_core_namespace_actions():
     )
     with pytest.raises(ExtensionValidationError, match="core policy actions"):
         ExtensionRegistry.build((module,))
+
+
+def test_composition_warns_when_no_installed_distribution_names_the_version(caplog, monkeypatch):
+    """A tree with no installed wheel guesses its own version from a literal,
+    and every module compatibility range is checked against that guess."""
+    monkeypatch.setattr("app.main.CORE_VERSION_IS_INSTALLED", False)
+
+    with caplog.at_level("WARNING"):
+        create_app()
+
+    assert "no installed skein distribution" in caplog.text
+
+
+def test_composition_is_quiet_when_the_distribution_names_the_version(caplog, monkeypatch):
+    monkeypatch.setattr("app.main.CORE_VERSION_IS_INSTALLED", True)
+
+    with caplog.at_level("WARNING"):
+        create_app()
+
+    assert "no installed skein distribution" not in caplog.text
