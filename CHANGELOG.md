@@ -32,6 +32,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A domain write carries the declared effect and risk of the contribution
+  performing it. A route, job, tool, event subscriber, or workflow action
+  declares `effect` and `risk`, and the `work.task.*` decision previously
+  reached the policy engine as `effect="none"`, `risk="low"` whatever the
+  contribution said, so a workplace rule keyed on risk never fired on the
+  write it meant to gate. Rules keyed on project type are unaffected.
 - An extension route's work grant ends with its response. A route declares no
   deadline, so a thread the handler started kept writing core rows under the
   route's provenance after the response and after shutdown. A later call now

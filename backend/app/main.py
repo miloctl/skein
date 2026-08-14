@@ -100,6 +100,8 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     namespace=contribution.name,
                     receipt_namespace=f"job:{contribution.name}",
                     correlation_id=run_id,
+                    effect=contribution.effect,
+                    risk=contribution.risk,
                 )
             )
         from .public._owner_work import run_bounded_work_handler
@@ -127,6 +129,8 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
                     namespace=contribution.name,
                     receipt_namespace=f"job:{contribution.name}",
                     correlation_id=run_id,
+                    effect=contribution.effect,
+                    risk=contribution.risk,
                 ),
                 invoke_handler,
                 None,

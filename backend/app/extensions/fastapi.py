@@ -152,6 +152,8 @@ def extension_route_services(
         correlation_id=correlation_id,
         read_name=subject.name if subject.kind == "human" else "",
         read_strong=subject.strong if subject.kind == "human" else False,
+        effect=str(getattr(request.state, "skein_extension_effect", "none")),
+        risk=str(getattr(request.state, "skein_extension_risk", "low")),
     )
     try:
         yield bound
@@ -181,6 +183,10 @@ def contributed_route_policy(contribution: RouteContribution):
             if item.method == request.method and item.path == path
         )
         request.state.skein_extension_namespace = contribution.name
+        # The domain write reads these back: a route that declares a high-risk
+        # write must not reach work.task.create looking like a low-risk read.
+        request.state.skein_extension_effect = operation.effect
+        request.state.skein_extension_risk = operation.risk
         resource = operation.resource
         if operation.resource_id_param:
             resource = replace(
