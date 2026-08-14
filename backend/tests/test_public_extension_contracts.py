@@ -36,9 +36,11 @@ from app.main import create_app
 from app.public import (
     CommandContext,
     CreateBlockerCommand,
+    CreatePromiseCommand,
     CreateTaskCommand,
     PublicError,
     UpdateBlockerCommand,
+    UpdatePromiseCommand,
     UpdateTaskCommand,
     WorkItems,
 )
@@ -2317,3 +2319,52 @@ def test_a_held_blocker_write_resumes_on_approval(fresh_db):
     row = fresh_db.query_one("SELECT title, origin FROM blockers")
     assert row["title"] == "Regulated impediment"
     assert row["origin"] == "extension:atlas.workplace.sync"
+
+
+def test_a_promise_command_carries_its_own_vocabulary(fresh_db):
+    """A promise has a direction, an audience, and a settlement status that no
+    other entity has. Filing one as a task loses all three."""
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    context = _context(facade)
+
+    view = facade.create_promise(
+        CreatePromiseCommand(
+            promise="Certificate delivered before the cutover",
+            to_whom="Northwind",
+            audience="external",
+            direction="received",
+            idempotency_key="meridian:MER-9",
+        ),
+        context,
+    )
+
+    assert view.direction == "received"
+    assert view.audience == "external"
+    assert view.status == "open"
+    assert view.origin == "extension:atlas.workplace.sync"
+
+    settled = facade.update_promise(
+        UpdatePromiseCommand(promise_id=view.id, status="kept"), context
+    )
+    assert settled.status == "kept"
+    assert facade.get_promise(view.id, context).status == "kept"
+
+    events = fresh_db.query("SELECT event_type, payload FROM extension_outbox ORDER BY rowid")
+    assert [row["event_type"] for row in events] == [
+        "skein.promise.created",
+        "skein.promise.updated",
+    ]
+    assert "Northwind" not in events[0]["payload"]
+
+
+def test_a_promise_settles_once(fresh_db):
+    facade = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    context = _context(facade)
+    view = facade.create_promise(CreatePromiseCommand(promise="Ship the audit pack"), context)
+    facade.update_promise(UpdatePromiseCommand(promise_id=view.id, status="kept"), context)
+
+    with pytest.raises(PublicError) as raised:
+        facade.update_promise(UpdatePromiseCommand(promise_id=view.id, status="missed"), context)
+
+    assert raised.value.code == "PROMISE_UPDATE_REJECTED"
+    assert facade.get_promise(view.id, context).status == "kept"

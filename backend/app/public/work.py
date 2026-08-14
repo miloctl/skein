@@ -19,7 +19,7 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
 )
-from ..services import blockers, scope, work
+from ..services import blockers, promises, scope, work
 from .errors import PublicError
 
 
@@ -200,7 +200,14 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
     from ..extensions.policy import policy_subject_from_data
 
     name = str(invocation.get("command") or "")
-    if name not in ("create_task", "update_task", "create_blocker", "update_blocker"):
+    if name not in (
+        "create_task",
+        "update_task",
+        "create_blocker",
+        "update_blocker",
+        "create_promise",
+        "update_promise",
+    ):
         raise ValueError("the reviewed command is not supported")
     saved_subject = invocation.get("subject")
     if not isinstance(saved_subject, dict):
@@ -226,7 +233,7 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
         attributes=dict(invocation.get("attributes") or {}),
     )
     arguments = dict(invocation.get("arguments") or {})
-    resumed: TaskView | BlockerView
+    resumed: TaskView | BlockerView | PromiseView
     if name == "create_task":
         resumed = work_items._create_task_locked(
             CreateTaskCommand(**arguments), context, approved=True
@@ -234,6 +241,14 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
     elif name == "update_task":
         resumed = work_items._update_task_locked(
             UpdateTaskCommand(**arguments), context, approved=True
+        )
+    elif name == "create_promise":
+        resumed = work_items._create_promise_locked(
+            CreatePromiseCommand(**arguments), context, approved=True
+        )
+    elif name == "update_promise":
+        resumed = work_items._update_promise_locked(
+            UpdatePromiseCommand(**arguments), context, approved=True
         )
     elif name == "create_blocker":
         resumed = work_items._create_blocker_locked(
@@ -317,6 +332,46 @@ class BlockerView(BaseModel):
     impact: str
     status: str
     task_id: int | None
+    visibility: str
+    crew_id: int | None
+    origin: str
+    created_by: str
+    created_at: str
+    updated_at: str
+
+
+class CreatePromiseCommand(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    promise: Annotated[str, Field(max_length=work.DESCRIPTION_LEN)]
+    to_whom: Annotated[str, Field(max_length=120)] = ""
+    due_date: Annotated[str, Field(max_length=10)] = ""
+    engagement_id: int = 0
+    audience: Annotated[str, Field(max_length=10)] = "external"
+    direction: Annotated[str, Field(max_length=10)] = "given"
+    visibility: str = scope.WORKSPACE
+    crew_id: int = 0
+    idempotency_key: Annotated[str, Field(max_length=200)] = ""
+
+
+class UpdatePromiseCommand(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    promise_id: int
+    status: Annotated[str, Field(max_length=10)]
+
+
+class PromiseView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    promise: str
+    to_whom: str
+    due_date: str | None
+    engagement_id: int | None
+    audience: str
+    direction: str
+    status: str
     visibility: str
     crew_id: int | None
     origin: str
@@ -869,6 +924,161 @@ class WorkItems:
             raise
         except (ValueError, PermissionError) as exc:
             raise PublicError("TASK_CREATE_REJECTED", str(exc)) from exc
+
+    def get_promise(self, promise_id: int, context: CommandContext) -> PromiseView:
+        self._require_issued_context(context)
+        with db.read_transaction():
+            row, attributes = self._promise_state(promise_id, context)
+            self._authorize(
+                context,
+                "work.promise.read",
+                PolicyResource(
+                    "promise",
+                    str(promise_id),
+                    project_type=attributes["project_type"],
+                    classification=attributes["classification"],
+                    attributes=attributes,
+                ),
+            )
+            return PromiseView.model_validate(row)
+
+    def create_promise(self, command: CreatePromiseCommand, context: CommandContext) -> PromiseView:
+        try:
+            with db.transaction():
+                return self._create_promise_locked(command, context)
+        except _HeldForReview as held:
+            raise self._held_error(held) from None
+
+    def _create_promise_locked(
+        self,
+        command: CreatePromiseCommand,
+        context: CommandContext,
+        *,
+        approved: bool = False,
+    ) -> PromiseView:
+        self._require_issued_context(context)
+        attributes = {
+            **command.model_dump(exclude={"idempotency_key"}, mode="json"),
+            "project_type": context.project_type,
+            "classification": command.visibility,
+        }
+        self._authorize(
+            context,
+            "work.promise.create",
+            PolicyResource(
+                "promise",
+                project_type=context.project_type,
+                classification=command.visibility,
+                attributes=attributes,
+            ),
+            command={"command": "create_promise", "arguments": command.model_dump(mode="json")},
+            approved=approved,
+        )
+        try:
+            if command.idempotency_key:
+                prior = db.query_one(
+                    "SELECT result_id FROM extension_command_receipts"
+                    " WHERE namespace = ? AND idempotency_key = ?",
+                    (context.receipt_namespace, command.idempotency_key),
+                )
+                if prior:
+                    return self._written_promise_view(int(prior["result_id"]))
+            result = promises.add_promise(
+                **command.model_dump(exclude={"idempotency_key"}),
+                actor=context.execution_actor,
+                origin=context.origin,
+            )
+            if command.idempotency_key:
+                db.execute(
+                    "INSERT INTO extension_command_receipts"
+                    " (namespace, idempotency_key, result_type, result_id, created_at)"
+                    " VALUES (?, ?, 'promise', ?, ?)",
+                    (
+                        context.receipt_namespace,
+                        command.idempotency_key,
+                        result["id"],
+                        db.now(),
+                    ),
+                )
+            return self._written_promise_view(int(result["id"]))
+        except PublicError:
+            raise
+        except (ValueError, PermissionError) as exc:
+            raise PublicError("PROMISE_CREATE_REJECTED", str(exc)) from exc
+
+    def update_promise(self, command: UpdatePromiseCommand, context: CommandContext) -> PromiseView:
+        try:
+            with db.transaction():
+                return self._update_promise_locked(command, context)
+        except _HeldForReview as held:
+            raise self._held_error(held) from None
+
+    def _update_promise_locked(
+        self,
+        command: UpdatePromiseCommand,
+        context: CommandContext,
+        *,
+        approved: bool = False,
+    ) -> PromiseView:
+        self._require_issued_context(context)
+        _row, attributes = self._promise_state(command.promise_id, context)
+        self._authorize(
+            context,
+            "work.promise.update",
+            PolicyResource(
+                "promise",
+                str(command.promise_id),
+                project_type=attributes["project_type"],
+                classification=attributes["classification"],
+                attributes={**attributes, "status": command.status},
+            ),
+            command={"command": "update_promise", "arguments": command.model_dump(mode="json")},
+            approved=approved,
+        )
+        try:
+            promises.update_promise(
+                command.promise_id,
+                command.status,
+                actor=context.execution_actor,
+                origin=context.origin,
+            )
+            return self._written_promise_view(command.promise_id)
+        except PublicError:
+            raise
+        except db.NotFound as exc:
+            raise PublicError("PROMISE_NOT_FOUND", str(exc), status_code=404) from exc
+        except PermissionError as exc:
+            raise PublicError("PROMISE_UPDATE_FORBIDDEN", str(exc), status_code=403) from exc
+        except ValueError as exc:
+            raise PublicError("PROMISE_UPDATE_REJECTED", str(exc)) from exc
+
+    def _promise_state(
+        self, promise_id: int, context: CommandContext
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        row = self._promise_row(promise_id)
+        attributes = {
+            "project_type": context.project_type,
+            "classification": str(row.get("visibility") or scope.WORKSPACE),
+            "audience": str(row.get("audience") or ""),
+            "direction": str(row.get("direction") or ""),
+            "status": str(row.get("status") or ""),
+        }
+        return row, attributes
+
+    @staticmethod
+    def _promise_row(promise_id: int) -> dict[str, Any]:
+        row = db.query_one("SELECT * FROM promises WHERE id = ?", (promise_id,))
+        if not row:
+            raise PublicError(
+                "PROMISE_NOT_FOUND",
+                f"promise #{promise_id} not found",
+                status_code=404,
+            )
+        return dict(row)
+
+    @staticmethod
+    def _written_promise_view(promise_id: int) -> PromiseView:
+        return PromiseView.model_validate(WorkItems._promise_row(promise_id))
 
     def get_blocker(self, blocker_id: int, context: CommandContext) -> BlockerView:
         self._require_issued_context(context)

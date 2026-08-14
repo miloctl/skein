@@ -27,6 +27,8 @@ EVENT_TYPES = (
     "skein.task.updated",
     "skein.blocker.created",
     "skein.blocker.updated",
+    "skein.promise.created",
+    "skein.promise.updated",
 )
 EVENT_SCHEMA_VERSIONS = (1,)
 
