@@ -13,6 +13,10 @@
 # testing
 /coverage
 
+# lint caches: keyed on file content and config, rebuilt when either changes.
+# CI always starts cold, so these only ever speed up a local run.
+.eslintcache
+
 # next.js
 /.next/
 /.next-e2e/

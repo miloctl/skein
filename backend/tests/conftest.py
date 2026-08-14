@@ -81,10 +81,35 @@ def _reset_telemetry_buffers(monkeypatch):
     identity.reset_consults()
 
 
-@pytest.fixture()
-def fresh_db(tmp_path, monkeypatch):
+@pytest.fixture(scope="session")
+def _schema_template(tmp_path_factory):
+    """Migrated-but-empty database, built once per worker and copied per test.
+
+    Replaying the migration corpus costs ~100 ms; copying the file it produces
+    costs ~0.3 ms. Every test still gets its own file, so isolation is
+    unchanged — only the way the schema arrives is different.
+    """
     from app import config, db
 
+    path = tmp_path_factory.mktemp("schema") / "template.db"
+    db_path, private, data = db.DB_PATH, config.PRIVATE_DB_PATH, config.DATA_DIR
+    db.DB_PATH = path
+    config.DATA_DIR = path.parent
+    config.PRIVATE_DB_PATH = path.parent / "private.db"
+    try:
+        db.init_db()
+    finally:
+        db.DB_PATH, config.PRIVATE_DB_PATH, config.DATA_DIR = db_path, private, data
+    return path
+
+
+@pytest.fixture()
+def fresh_db(tmp_path, monkeypatch, _schema_template):
+    import shutil
+
+    from app import config, db
+
+    shutil.copyfile(_schema_template, tmp_path / "test.db")
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "PRIVATE_DB_PATH", tmp_path / "private.db")
@@ -92,8 +117,21 @@ def fresh_db(tmp_path, monkeypatch):
     # files persist across tests within a worker while the DB resets, and a
     # test that restores a reused thread id reads a previous test's session
     monkeypatch.setattr(config, "SESSIONS_DIR", tmp_path / "sessions")
+    # Keep this call. It is what stops the template from ever going stale: a
+    # copy missing a migration gets it applied here, so adding a migration
+    # needs no change to the fixture. Against a current template it replays
+    # nothing and costs nothing measurable.
     db.init_db()
-    return db
+    # db.py opens a connection per query and closes it. In WAL, closing the
+    # LAST connection runs a full checkpoint, and a test is the only case
+    # where every close is the last one — measured at 8.4 ms per write
+    # against 0.8 ms with this open. It reads nothing and holds no lock; it
+    # exists so the checkpoint happens once, at teardown, instead of per write.
+    sentinel = db.connect()
+    try:
+        yield db
+    finally:
+        sentinel.close()
 
 
 @pytest.fixture()
