@@ -86,19 +86,6 @@ release moved to `docs/ROADMAP.md`.
 
 Strictly sequenced.
 
-- **T4.1 Permanence sweep.** Whatever the tag ships becomes the compatibility
-  floor. Confirm: no legacy-acceptance branch exists only for an unreleased
-  state; `app.extensions.__all__` and `app.public.__all__` contain only
-  documented, consumed symbols; every new contract is documented with its
-  `minimum_core`; `tests/test_release_contract.py` pins the new surface; this
-  file and `docs/ROADMAP.md` hold nothing this release shipped.
-- **T4.2 Tag and publish.** Version bump in one commit —
-  `backend/pyproject.toml`, `frontend/package.json`, and
-  `FALLBACK_CORE_VERSION`, which `tests/test_release_contract.py` enforces as
-  a trio. Finalize the CHANGELOG from its
-  running section. Tag. Publish through T3.4.
-  Note: the tag is also the moment core migrations stop being editable
-  (`TODO.md`, single-replica entry).
 - **T4.3 Upgrade rehearsal on the published pair.** Point the reference
   contracts at the published 0.2.1 and 0.2.2 artifacts instead of a
   `sed`-synthesized version identity. `scripts/upgrade-path.sh` already runs
