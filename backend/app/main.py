@@ -852,6 +852,19 @@ def create_app(
             SKEIN_CORE_VERSION,
         )
     registry = ExtensionRegistry.build((core_module(), *tuple(modules)))
+    from .extensions.data import ExtensionStore
+    from .services import admin
+
+    # Composition root: the service layer never imports the extension layer,
+    # the same way agents/narrator.py registers itself into digest.
+    admin.set_extension_stores(
+        {
+            contribution.name: contribution.store.path
+            for contribution in registry.migrations
+            if isinstance(contribution.store, ExtensionStore)
+            and contribution.store.include_in_backup
+        }
+    )
     from .tools import ALL_TOOLS
 
     validate_core_tool_names(

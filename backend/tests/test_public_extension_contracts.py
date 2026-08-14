@@ -2,6 +2,7 @@
 
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from fastapi import APIRouter
@@ -1967,3 +1968,61 @@ def test_events_survive_a_composition_with_no_subscribers(fresh_db):
     )
     assert dispatch_events((contribution,), _event_context())["delivered"] == 1
     assert len(calls) == 1
+
+
+def test_a_declared_extension_store_is_backed_up_beside_the_core_databases(fresh_db, tmp_path):
+    """An extension store lives outside platform.db, so nothing in core copied
+    it: every private package's data survived on deployment-side discipline."""
+    from app.services import admin
+
+    store = ExtensionStore(tmp_path / "atlas.db")
+    skipped = ExtensionStore(tmp_path / "cache.db", include_in_backup=False)
+    for owned in (store, skipped):
+        owned.migrate((ExtensionMigration(1, "create-links", ("CREATE TABLE links (id INT)",)),))
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        migrations=(
+            MigrationContribution("atlas.workplace.data", store, ()),
+            MigrationContribution("atlas.workplace.cache", skipped, ()),
+        ),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}):
+        result = admin.backup()
+
+    names = [Path(path).name for path in result["extension_paths"]]
+    assert any(name.startswith("extension-atlas.workplace.data-") for name in names)
+    assert not any("cache" in name for name in names)
+
+
+def test_one_store_retention_leaves_another_store_alone(fresh_db, tmp_path, monkeypatch):
+    """Every extension backup starts with "extension-", so a prefix derived
+    from the file name prunes all of them together and one store's retention
+    deletes another store's only copy."""
+    from app.services import admin
+
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    monkeypatch.setenv("SKEIN_BACKUP_DIR", str(backups))
+    neighbour = backups / "extension-acme.workplace.cache-2000-01-01.db"
+    neighbour.write_bytes(b"")
+
+    store = ExtensionStore(tmp_path / "atlas.db")
+    store.migrate((ExtensionMigration(1, "create-links", ("CREATE TABLE links (id INT)",)),))
+    module = SkeinModule(
+        module_id="atlas.workplace",
+        version="1.0.0",
+        extension_api="1.0",
+        minimum_core="0.2.0",
+        maximum_core_exclusive="0.3.0",
+        migrations=(MigrationContribution("atlas.workplace.data", store, ()),),
+    )
+    settings = replace(AppSettings.from_config(), scheduler_enabled=False)
+    with TestClient(create_app(settings, (module,)), headers={"X-User": "tester"}):
+        admin.backup(keep=1)
+
+    assert neighbour.exists()

@@ -29,8 +29,12 @@ def _deny_attach(action: int, *_rest: object) -> int:
 class ExtensionStore:
     """A store that never opens the core or private Skein database."""
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, include_in_backup: bool = True) -> None:
         self.path = Path(path)
+        # Defaults to true because losing an extension's data by omission is
+        # the worse failure. A store whose contents are rebuildable from the
+        # remote system it mirrors can opt out.
+        self.include_in_backup = include_in_backup
         self._active: ContextVar[sqlite3.Connection | None] = ContextVar(
             f"skein_extension_store_{id(self)}",
             default=None,

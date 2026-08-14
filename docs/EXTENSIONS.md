@@ -649,6 +649,14 @@ Keep each migration version and name append-only. Add a new version for every
 change. Test a fresh database and an upgrade from the previous extension
 release.
 
+The daily core backup copies each store that a composed migration
+contribution declares. Set `include_in_backup=False` when the contents are
+rebuildable from the system the store mirrors. This setting requires core
+`0.2.2` or later. Skein does not mirror an extension store off the box: the
+mirror is an off-box copy and core cannot know what a private package keeps.
+Retention stays extension-owned. Core prunes only its own tables, so a store
+that grows without bound is the private package's job to prune.
+
 ## Add workflow behavior
 
 Version 1 playbooks support four workflow step types:
