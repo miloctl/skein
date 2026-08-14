@@ -18,6 +18,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `ExtensionStore(path, include_in_backup=True)` puts an extension-owned
+  database into the daily core backup. Previously nothing in core copied it,
+  so every private package's data survived on deployment-side discipline
+  alone. Skein does not mirror an extension store off the box, and retention
+  stays extension-owned. Needs `minimum_core = "0.2.2"` only to set the flag;
+  a store from an older package is backed up by the default.
 - `app.extensions.assert_import_boundary` raises when a private package
   imports a Skein module outside `app.extensions`, `app.public`, and
   `app.main`. It reads source, so a dynamic import evades it: this is a drift

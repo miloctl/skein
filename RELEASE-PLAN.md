@@ -119,12 +119,6 @@ public contract shape.
   policy context, with the subscriber reading the body under its own service
   identity. Core's own Slack post becomes the first subscriber. Build only if
   the design holds; otherwise record the decision and defer.
-- **T3.3 Extension-store backup opt-in.** `admin.backup()` copies the core
-  and private databases only, and retention never touches an extension store,
-  so every extension's data survives on deployment-side discipline. Add
-  `include_in_backup` to `ExtensionStore`, defaulting to true, and copy
-  declared stores beside the core databases. Retention stays extension-owned;
-  say so plainly in `docs/EXTENSIONS.md`.
 - **T3.4 Publishing channel.** No registry or publishing channel exists for
   any artifact, which is the root of the packaging workarounds the boundary
   audit counted. Use the Gitea instance's package registries for the wheel,
