@@ -127,7 +127,7 @@ build_host() {
     SKEIN_FRONTEND_EXTENSIONS=@atlas/skein-extension \
         npm --prefix "$host/frontend" run build >/dev/null
     grep -q '@atlas/skein-extension' "$host/frontend/extensions/generated.ts"
-    if [ "$version" = "0.2.1" ]; then
+    if [ "$version" = "$CURRENT_CORE" ]; then
         mkdir -p "$host/frontend/__tests__"
         cp frontend/__tests__/setup.ts "$host/frontend/__tests__/setup.ts"
         cp scripts/fixtures/reference-frontend-runtime.test.tsx \
@@ -138,7 +138,16 @@ build_host() {
     rm -rf "$host"
 }
 
-build_host 0.2.0 "$tmp/previous-source/frontend"
-build_host 0.2.1 "$tmp/current-source/frontend"
+# The current version comes from the source of truth, so a release bump does
+# not need an edit here. PREVIOUS is the pinned older tree it is compared to.
+PREVIOUS_CORE="0.2.0"
+CURRENT_CORE="$(node -p "require('./frontend/package.json').version")"
+if [ "$CURRENT_CORE" = "$PREVIOUS_CORE" ]; then
+    echo "reference-frontend-contract: the pair must be two versions" >&2
+    exit 1
+fi
 
-echo "reference-frontend-contract: unchanged Atlas package built on distinct 0.2.0 and 0.2.1 frontend implementations"
+build_host "$PREVIOUS_CORE" "$tmp/previous-source/frontend"
+build_host "$CURRENT_CORE" "$tmp/current-source/frontend"
+
+echo "reference-frontend-contract: unchanged Atlas package built on distinct $PREVIOUS_CORE and $CURRENT_CORE frontend implementations"

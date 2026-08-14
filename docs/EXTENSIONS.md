@@ -11,6 +11,56 @@ must explicitly select each trusted module.
 The fictional [Atlas example](../examples/workplace-extension/README.md)
 uses every supported contract.
 
+## How it works
+
+Skein does not find your code. Your code starts Skein.
+
+Most applications are extended by editing them. Skein works the other way
+around. Skein is a library that your private code calls. Your code creates
+the application and hands Skein a list of your additions. Skein never scans
+installed packages, and it never loads a module the deployment did not name.
+Your whole connection to core is one small file in your own repository, shown
+under "Compose a backend module" below.
+
+That list is one `SkeinModule`. Each entry adds one thing and declares what
+that thing does. The declaration names the identity it runs as, the
+permission it needs, and whether it reads or writes. It also gives a risk
+level and a time limit. Skein reads these declarations when the application
+starts. A duplicate name, a missing permission, or an unsupported core
+version stops the application there, in front of the person who deployed it.
+
+One permission system covers core screens, contributed routes, agent tools,
+scheduled jobs, and workflow steps. Your rules join that system. A rule
+answers `permit`, `deny`, or `review`. A rule can make a decision stricter.
+It can never make one looser, so a workplace permit never removes a core
+denial.
+
+This is one write, from an integration through to the database:
+
+```mermaid
+flowchart TD
+    START[Your route or scheduled job starts] --> GATE1{Is this operation<br/>allowed at all?}
+    GATE1 -->|no| STOP1[Refused. Nothing runs.]
+    GATE1 -->|yes| CALL[Your code calls a public<br/>command such as create_task]
+    CALL --> GATE2{What do the rules say<br/>about this write?}
+    GATE2 -->|deny| STOP2[Refused. Nothing is written.]
+    GATE2 -->|review| HOLD[Skein saves the exact command<br/>and answers with a review number]
+    GATE2 -->|permit| WRITE[Skein writes the row]
+    HOLD --> HUMAN{A qualified person answers}
+    HUMAN -->|approve| WRITE
+    HUMAN -->|reject| STOP3[Nothing is written.]
+    WRITE --> RECORD[Skein records the author,<br/>writes the activity row,<br/>and emits a domain event]
+```
+
+The `review` branch is what lets an unattended integration ask a person.
+Skein stores the command itself, so approval runs that exact command later.
+Your integration stays the recorded author, and the reviewer is recorded
+beside it.
+
+Your extension owns its own database file, its own routes under its
+namespace, its own rules, and its own content files. Core owns its tables,
+its pages, and every module outside the three named below.
+
 ## Supported boundaries
 
 The backend extension API version is `1.0`. Import backend contracts only from
@@ -120,6 +170,17 @@ Use `ExtensionRouteServicesDep` on an extension route. It supplies the mapped
 subject, the composed policy engine, and the public work facade. Do not read
 private values from `request.app.state`.
 
+The grant ends with the response. A route declares no deadline, so a thread
+the handler starts would otherwise keep writing core rows under the route's
+provenance after the response and after shutdown. A later call returns
+`EXECUTION_CONTEXT_CLOSED`. Use a `JobContribution` for background work.
+
+One case escapes that close: a `BackgroundTasks` task added by the handler
+runs before the dependency teardown, so it still writes under the route's
+grant. Do not write core rows from a background task in a contributed route.
+Use a `JobContribution`, which declares its own identity, policy action, and
+timeout.
+
 ```python
 from fastapi import APIRouter
 
@@ -159,10 +220,43 @@ skein.rest.<method>.<literal-path-segments>
 
 For example, `PATCH /api/tasks/{task_id}` is
 `skein.rest.patch.tasks`. A policy rule can return `permit`, `deny`, or
-`review`. A deny returns `POLICY_DENIED`. Direct routes cannot resume a review
-safely. A review on a direct route returns `POLICY_REVIEW_UNSUPPORTED` and does
-not run the operation. Use a governed tool or workflow when the operation
-needs durable human review.
+`review`. A deny returns `POLICY_DENIED`.
+
+Where a review goes next depends on what the rule named. A rule on a **public
+work command** holds the command: Skein stores it, answers
+`REVIEW_REQUIRED` with the `review_id` that a human can approve, and runs the
+exact saved command on approval under a new grant. This works from a route, a
+scheduled job, a governed tool, an event subscriber, and a workflow action, so
+an unattended integration can hold a regulated write for a manager instead of
+failing it. Record the `review_id`: the write has not happened yet, so the
+command's idempotency key protects nothing, and the next run proposes the
+same write again. A batch keeps its own record and skips what it already
+asked about:
+
+```python
+for item in client.open_items():
+    if store.query_one("SELECT 1 FROM held WHERE external_id = ?", (item.id,)):
+        continue
+    try:
+        view = context.work_items.create_task(command_for(item), command_context)
+    except PublicError as exc:
+        if exc.code != "REVIEW_REQUIRED":
+            raise
+        store.execute(
+            "INSERT INTO held (external_id, review_id) VALUES (?, ?)",
+            (item.id, exc.review_id),
+        )
+        continue
+    remember(item, view)
+```
+
+One held item does not stop the batch. The rest of the run lands, and a
+reviewer answers the held ones once.
+
+A rule on the **operation action itself** — the REST action, a contributed
+route operation, or a scheduled job — has no request to resume, so it returns
+`POLICY_REVIEW_UNSUPPORTED` and does not run the operation. Name the command
+action when the intent is to hold one write for approval.
 
 The existing strong-identity, administrator, visibility, authority, and review
 checks still run. A workplace permit cannot remove a core denial. Deny is
@@ -396,7 +490,7 @@ the activity chain. Keep these commands in the deployment upgrade procedure.
 
 ## Use public work commands
 
-`WorkItems` is the first public command and query facade. It validates policy
+`WorkItems` is the public command and query facade for tasks and blockers. It validates policy
 and uses the existing service write path. That shared path preserves
 provenance and writes a versioned outbox event in the same transaction for
 human, agent, and integration callers.
@@ -415,6 +509,20 @@ def import_work(context: JobExecutionContext):
     )
     return {"created": 1, "task_id": task.id}
 ```
+
+A blocker is Skein's word for an impediment. Use `CreateBlockerCommand` and
+`UpdateBlockerCommand` rather than filing one as a task: the entity carries
+its own impact, escalation clock, and resolution. A blocker update can only
+resolve it or correct its wording. Escalation belongs to the scheduled sweep,
+so a command that set it would move a clock the sweep owns. The sweep emits
+`skein.blocker.updated` when it escalates, so a subscriber sees that
+transition even though no command caused it.
+
+A promise is a commitment with a direction, an audience, and a settlement
+status. `CreatePromiseCommand` records one and `UpdatePromiseCommand` settles
+it as `kept`, `missed`, or `withdrawn`. A promise settles once.
+
+Blocker and promise commands need `minimum_core = "0.2.2"`.
 
 Extensions receive typed views. They do not receive SQLite rows or a core
 connection. Propose a new public command when an extension needs a stable core
@@ -473,6 +581,12 @@ default: the person who asked an agent to act can approve the result. If a
 workplace needs separated duties, return `approver_groups` or
 `approver_capabilities` on the review decision. Skein then refuses every
 approver outside that set.
+
+`SKEIN_REVIEW_SEPARATION=1` applies the same rule to every proposal without a
+policy rule: the person a proposal came from cannot approve it. The two
+checks compose, and both must pass. Rejection stays open to every qualified
+reviewer, because a rule that traps a proposal in the queue is worse than one
+person declining it.
 The review service supplies the exact current decision to the executor. The
 executor checks the bound request and contract. It does not ask a mutable
 policy source for a second decision after the reviewer qualifies.
@@ -539,7 +653,10 @@ identity, and tool contributions that the API process enforces. A value
 that does not resolve stops the server with the reason on stderr.
 
 Reviewed tools store their exact input in the core review database. Do not put
-credentials or unneeded sensitive content in tool arguments. Apply the
+credentials or unneeded sensitive content in tool arguments. A held command
+is queued once per attempt, so an integration that retries a refused write
+files one proposal per retry: record the `review_id` and skip what you
+already asked about. Apply the
 workplace backup and retention policy to this database.
 
 Policy rules receive the resource attributes for a decision. For task
@@ -572,10 +689,17 @@ All shared task writes create version 1 domain events in the SQLite outbox.
 Each event has an ID, type, schema version, time, actor, origin, resource
 reference, safe change summary, visibility, and correlation data.
 
-The version 1 catalog has two event types:
+The version 1 catalog has these event types:
 
 - `skein.task.created`
 - `skein.task.updated`
+- `skein.blocker.created`
+- `skein.blocker.updated`
+- `skein.promise.created`
+- `skein.promise.updated`
+
+An entity that has a public command has its events. The blocker and promise
+pairs both need core `0.2.2`.
 
 `app.public.events.EVENT_TYPES` carries the same list. Composition rejects a
 subscription to an event type or schema version outside the catalog.
@@ -615,11 +739,12 @@ their transaction invariants.
 Use `ExtensionStore` for a small extension-owned SQLite database. Its
 migration stream is namespaced and independent from core migration numbers.
 
-The store checks its configured path and refuses the core database paths.
-This check prevents accidents. It is not an isolation boundary: an
-in-process module runs with the same operating-system permissions as Skein
-and can open any file the process can. Keep untrusted code out of the
-module list and use a sidecar service for it.
+The store checks its configured path and refuses the core database paths. Its
+connections also refuse `ATTACH`, because the path check sees only the file
+the store opened. Both checks prevent accidents. They are not an isolation
+boundary: an in-process module runs with the same operating-system
+permissions as Skein and can open any file the process can. Keep untrusted
+code out of the module list and use a sidecar service for it.
 
 Core `0.2.0` supplies `connect`, `execute`, `query`, and `query_one`. The
 `transaction` helper requires core `0.2.1`. A package with a `0.2.0` floor
@@ -633,9 +758,23 @@ Store stable Skein identifiers as external references. Do not create a foreign
 key into the core SQLite database. The public API, events, and commands define
 the consistency boundary.
 
+Keep the mapping from your own identifier to the Skein one in that store.
+`WorkItems` fetches a task by its Skein id alone, so an idempotency key
+prevents a duplicate write but cannot find the row it protected.
+
 Keep each migration version and name append-only. Add a new version for every
 change. Test a fresh database and an upgrade from the previous extension
 release.
+
+The daily core backup copies each store that a composed migration
+contribution declares. Set `include_in_backup=False` when the contents are
+rebuildable from the system the store mirrors. This setting requires core
+`0.2.2` or later. Skein does not mirror an extension store off the box: the
+mirror is an off-box copy and core cannot know what a private package keeps.
+Retention inside the store stays extension-owned: core prunes its own tables
+only, so a store that grows without bound is the private package's job to
+prune. Core does apply its own retention to the backup COPIES it writes, and
+keeps the same number of them as it keeps of its own.
 
 ## Add workflow behavior
 
@@ -777,7 +916,7 @@ Create a versioned host artifact when the private repository cannot use the
 core source tree:
 
 ```sh
-scripts/package-frontend-host.sh 0.2.1 dist/frontend-host
+scripts/package-frontend-host.sh 0.2.2 dist/frontend-host
 ```
 
 The archive contains the trusted build host and a manifest with the core and
@@ -858,6 +997,21 @@ An installed deployment sets at least:
   use this.
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
   deployment content overlays.
+
+A `v*` tag publishes the release to the Gitea package registries: the core
+wheel to PyPI, `@skein/extension-api` to npm, and the frontend host archive
+beside them. A private repository installs a released core rather than
+building one:
+
+```sh
+pip install skein==0.2.2 --index-url https://<gitea-host>/api/packages/<owner>/pypi/simple
+npm install @skein/extension-api --registry https://<gitea-host>/api/packages/<owner>/npm/
+```
+
+Whoever runs the Gitea instance enables the package registry and adds a
+`PACKAGE_TOKEN` secret with `packages:write`. Without it the publish job
+fails, which is the intended outcome: a release that publishes nowhere is
+worse than a release that stops.
 
 Use separate versioned artifacts:
 
@@ -943,9 +1097,16 @@ A private extension repository must run these checks:
 
 The public packages export the surfaces these tests need:
 
+- `app.extensions.assert_import_boundary` raises when a package imports a
+  Skein module outside `app.extensions`, `app.public`, and `app.main`. Pass it
+  the imported package, its dotted name, or a path. A submodule of a public
+  package is internal too: the export list is the contract. The check reads
+  source and is not a security boundary, because a dynamic import evades it.
+  This surface requires core `0.2.2` or later.
 - `app.extensions.registry_for(app)` returns the composed registry of one
   application, with its contributions and `policy_engine`.
-- `app.extensions.execute_tool` runs one governed tool call. Build its
+- `app.extensions.execute_tool` runs one governed tool call. It is a
+  coroutine, so a synchronous test awaits it with `asyncio.run`. Build its
   `ToolCallContext` from `registry_for(app).service_subject(...)` or a
   `PolicySubject`, and inspect the returned `ToolExecution`.
 - `app.public.dispatch_events` delivers pending outbox events to the
@@ -967,7 +1128,7 @@ scripts/reference-images-contract.sh
 
 The backend script builds and installs separate wheels in a normal virtual
 environment. It starts the installed application. It then moves the unchanged
-private package from core `0.2.0` to a compatible `0.2.1` artifact. That
+private package from core `0.2.0` to the current compatible artifact. That
 pair uses different backend source trees. It applies migrations 018 through 020.
 It also runs the documented legacy identity-owner claims before startup.
 The script runs a real Atlas synchronization on both core versions. It checks

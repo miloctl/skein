@@ -29,7 +29,8 @@ a real extension needs them:
 - Frontend detail panels, forms, general actions, notification renderers,
   theme packages, and terminology packages
 - Durable pause and resume for long-running workflow approvals
-- Public commands for core entities other than task work
+- Public commands for core entities other than task, blocker, and promise
+  work (0.2.2 shipped those three)
 - A supported alternative core database adapter
 - Remote or untrusted extension execution
 - A startup and shutdown lifecycle hook (removed pre-release: no consumer,
@@ -48,15 +49,34 @@ a real extension needs them:
   feature must (`backend/fieldguide/knots.yaml`). Version 1 has no such
   slot, and a core knot for a surface only composed deployments have would
   be wrong in the default app.
-- An extension route grant lifecycle. `ExtensionRouteServicesDep` hands a
-  route a `WorkItems` that nothing ever closes: a thread the handler
-  spawns can write core rows after the response — and after shutdown —
-  under the route's provenance. Routes have no deadline, so the
-  owner-dispatch facade that closes tools, jobs, and subscribers does not
-  apply as-is; the grant needs a request-scoped close.
 
 Do not add these as empty slots. Add one narrow contract with one core use and
 one private-package use when the requirement appears.
+
+## Core convergence, deferred from the 0.2.2 release
+
+Both were planned for 0.2.2 and dropped: neither buys a workplace anything it
+cannot already do, and each carries a risk that wants its own release.
+
+- **Stock tools on the `ToolContribution` harness.** Core tools bypass it, so
+  they carry no pydantic schemas, no per-tool timeout, and a different
+  review-proposal shape, which leaves two review disciplines to keep aligned.
+  Migrate the four `SPECIALIZED_WRITE_TOOLS` first: they already run through
+  `GovernedCoreTool` with review proposals. Pending old-shape reviews must
+  stay approvable, so read both shapes at verdict time the way migration
+  017's contract-version field already does, and seed that test from a
+  running older instance rather than a hand-written row. Model-facing tool
+  names must not change: persona allowlists and session history reference
+  them. Do it a tranche at a time, whenever a stock tool is next touched for
+  another reason.
+- **Notification delivery through the outbox.** Channels are hardcoded to
+  in-app rows and one Slack webhook, so a second channel is a core change.
+  The design tension to resolve first: an outbox envelope is content-free by
+  contract and a delivery channel needs the body. The likely shape is a
+  notification event carrying source references and the saved policy context,
+  with the subscriber reading the body under its own service identity, and
+  core's own Slack post becoming the first subscriber. Settle that before
+  writing code.
 
 ## Bounded-input census (from the 2026-08-03 holistic review)
 

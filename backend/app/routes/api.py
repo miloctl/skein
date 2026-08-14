@@ -2516,6 +2516,10 @@ def _execute_extension_review(request: Request, invocation: dict, _change_id: in
         if tool_execution.error_code == "approval_stale":
             raise PermissionError("the reviewed tool approval became stale")
         return tool_execution.model_dump(mode="json")
+    if invocation.get("kind") == "public_command":
+        from ..public.work import _execute_reviewed_command
+
+        return _execute_reviewed_command(invocation, registry)
     if invocation.get("kind") == "mcp_tool":
         from ..agents.mcp_tools import execute_reviewed_mcp
 

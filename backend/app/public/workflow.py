@@ -693,6 +693,8 @@ class WorkflowEngine:
                 namespace=contribution.name,
                 receipt_namespace=f"workflow:{contribution.name}",
                 correlation_id=correlation_id,
+                effect=contribution.effect,
+                risk=contribution.risk,
             )
 
         _log_action_outcome(context, contribution, step_path, "attempt")

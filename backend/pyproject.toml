@@ -1,6 +1,6 @@
 [project]
 name = "skein"
-version = "0.2.1"
+version = "0.2.2"
 description = "Skein — team coordination platform for humans + AI agents, built on the Strands Agents SDK"
 # LICENSE/NOTICE are copies of the repo-root originals: PEP 639 forbids
 # parent-directory paths in license-files, and setuptools silently drops
@@ -96,6 +96,10 @@ ignore_names = [
     "review_id", "delivery_id", "command_context",
     # AgentTool protocol properties called by the Strands registry.
     "tool_type", "supports_hot_reload",
+    # Public work commands. A private package calls these; core only resumes
+    # them after review, so every entry point is outside the scanned paths.
+    "create_blocker", "update_blocker", "get_blocker",
+    "create_promise", "update_promise", "get_promise",
 ]
 min_confidence = 60
 sort_by_size = true

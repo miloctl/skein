@@ -445,6 +445,18 @@ _EXEMPT_FUNCTIONS = {
         "the public update_task wrapper owns the transaction and inventory entry;"
         " this private implementation performs its guarded SQL inside that boundary"
     ),
+    # The same split, for the writes that now emit a domain event: the public
+    # wrapper owns the transaction so the row change, its receipt, and its
+    # event commit together, and the private half keeps the scope check.
+    "blockers.py::_edit_blocker_locked": (
+        "the public edit_blocker wrapper owns the transaction and inventory entry"
+    ),
+    "promises.py::_update_promise_locked": (
+        "the public update_promise wrapper owns the transaction and inventory entry"
+    ),
+    "promises.py::_edit_promise_locked": (
+        "the public edit_promise wrapper owns the transaction and inventory entry"
+    ),
     # the id is the row this call just created, not a row the caller named
     "insights.py::convert_finding": "sets source_finding_id on the row it just inserted",
     "blockers.py::raise_blocker": "flips the task it was given to blocked",

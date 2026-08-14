@@ -198,6 +198,8 @@ async def execute_tool(
             namespace=contribution.name,
             receipt_namespace=f"tool:{contribution.name}",
             correlation_id=context.correlation_id,
+            effect=contribution.effect,
+            risk=contribution.risk,
             actor=context.agent or context.subject.name,
             actor_kind="agent" if context.agent else context.subject.kind,
         )
