@@ -96,6 +96,9 @@ ignore_names = [
     "review_id", "delivery_id", "command_context",
     # AgentTool protocol properties called by the Strands registry.
     "tool_type", "supports_hot_reload",
+    # Public work commands. A private package calls these; core only resumes
+    # them after review, so every entry point is outside the scanned paths.
+    "create_blocker", "update_blocker", "get_blocker",
 ]
 min_confidence = 60
 sort_by_size = true

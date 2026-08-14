@@ -64,19 +64,6 @@ scheduled job, contribute policy and identity, and serve a governed tool and
 specialist. Each item below is a wall it actually hit, in the order that
 blocks a real integration.
 
-- **T2.2 Public commands past task work.** `WorkItems` is `create_task`,
-  `get_task`, `update_task`. Meridian's remote carries impediments, which are
-  blockers in Skein's own vocabulary, so the sync filed them as tasks: the
-  wrong entity, chosen because it was the only one on offer. Add blocker
-  commands first as the template, then promises, each through its existing
-  service with the same unforgeable context grant, idempotency receipt, and
-  single write transaction. Never new SQL in the facade.
-- **T2.3 Event catalog past task work.** Composition refuses
-  `skein.blocker.created` with `event 'x' selects unknown event types`. The
-  refusal is clean and fails closed, and it leaves an integration polling.
-  An entity that gains a command gains its events in the same commit;
-  envelopes stay content-free and a status change rides the `updated`
-  event's change summary.
 - **T2.6 Frontend page slot.** *(Unchanged, still conditional.)* Meridian
   deep-links to a core page anchor exactly as Atlas does, because that is the
   only option. Add the slot when a dashboard outgrows a card.

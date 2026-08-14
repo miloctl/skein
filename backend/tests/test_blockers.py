@@ -26,7 +26,9 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
     assert [row["event_type"] for row in events] == [
         "skein.task.created",
         "skein.task.updated",
+        "skein.blocker.created",
         "skein.task.updated",
+        "skein.blocker.updated",
     ]
     assert '"status"' in events[-1]["payload"]
 

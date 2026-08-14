@@ -19,7 +19,7 @@ from ..extensions.policy import (
     PolicyResource,
     PolicySubject,
 )
-from ..services import scope, work
+from ..services import blockers, scope, work
 from .errors import PublicError
 
 
@@ -200,7 +200,7 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
     from ..extensions.policy import policy_subject_from_data
 
     name = str(invocation.get("command") or "")
-    if name not in ("create_task", "update_task"):
+    if name not in ("create_task", "update_task", "create_blocker", "update_blocker"):
         raise ValueError("the reviewed command is not supported")
     saved_subject = invocation.get("subject")
     if not isinstance(saved_subject, dict):
@@ -226,15 +226,24 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
         attributes=dict(invocation.get("attributes") or {}),
     )
     arguments = dict(invocation.get("arguments") or {})
+    resumed: TaskView | BlockerView
     if name == "create_task":
-        view = work_items._create_task_locked(
+        resumed = work_items._create_task_locked(
             CreateTaskCommand(**arguments), context, approved=True
         )
-    else:
-        view = work_items._update_task_locked(
+    elif name == "update_task":
+        resumed = work_items._update_task_locked(
             UpdateTaskCommand(**arguments), context, approved=True
         )
-    return view.model_dump(mode="json")
+    elif name == "create_blocker":
+        resumed = work_items._create_blocker_locked(
+            CreateBlockerCommand(**arguments), context, approved=True
+        )
+    else:
+        resumed = work_items._update_blocker_locked(
+            UpdateBlockerCommand(**arguments), context, approved=True
+        )
+    return resumed.model_dump(mode="json")
 
 
 class CreateTaskCommand(BaseModel):
@@ -268,6 +277,52 @@ class UpdateTaskCommand(BaseModel):
     milestone_id: int | None = None
     engagement_id: int | None = None
     forge_url: str | None = None
+
+
+class CreateBlockerCommand(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    title: Annotated[str, Field(max_length=work.TITLE_LEN)]
+    detail: Annotated[str, Field(max_length=work.DESCRIPTION_LEN)] = ""
+    owner: Annotated[str, Field(max_length=64)] = ""
+    impact: Annotated[str, Field(max_length=10)] = "medium"
+    task_id: int = 0
+    source: Annotated[str, Field(max_length=200)] = ""
+    escalate_after_hours: int = 0
+    visibility: str = scope.WORKSPACE
+    crew_id: int = 0
+    idempotency_key: Annotated[str, Field(max_length=200)] = ""
+
+
+class UpdateBlockerCommand(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    blocker_id: int
+    # "resolved" is the only status a caller sets. Escalation is the scheduled
+    # sweep's decision, not an integration's (services/blockers.py).
+    status: Annotated[str | None, Field(max_length=10)] = None
+    resolution: Annotated[str | None, Field(max_length=work.DESCRIPTION_LEN)] = None
+    title: Annotated[str | None, Field(max_length=work.TITLE_LEN)] = None
+    detail: Annotated[str | None, Field(max_length=work.DESCRIPTION_LEN)] = None
+    owner: Annotated[str | None, Field(max_length=64)] = None
+
+
+class BlockerView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    title: str
+    detail: str
+    owner: str
+    impact: str
+    status: str
+    task_id: int | None
+    visibility: str
+    crew_id: int | None
+    origin: str
+    created_by: str
+    created_at: str
+    updated_at: str
 
 
 class TaskView(BaseModel):
@@ -814,6 +869,177 @@ class WorkItems:
             raise
         except (ValueError, PermissionError) as exc:
             raise PublicError("TASK_CREATE_REJECTED", str(exc)) from exc
+
+    def get_blocker(self, blocker_id: int, context: CommandContext) -> BlockerView:
+        self._require_issued_context(context)
+        with db.read_transaction():
+            row, attributes = self._blocker_state(blocker_id, context)
+            self._authorize(
+                context,
+                "work.blocker.read",
+                PolicyResource(
+                    "blocker",
+                    str(blocker_id),
+                    project_type=attributes["project_type"],
+                    classification=attributes["classification"],
+                    attributes=attributes,
+                ),
+            )
+            return BlockerView.model_validate(dict(row))
+
+    def create_blocker(self, command: CreateBlockerCommand, context: CommandContext) -> BlockerView:
+        try:
+            with db.transaction():
+                return self._create_blocker_locked(command, context)
+        except _HeldForReview as held:
+            raise self._held_error(held) from None
+
+    def _create_blocker_locked(
+        self,
+        command: CreateBlockerCommand,
+        context: CommandContext,
+        *,
+        approved: bool = False,
+    ) -> BlockerView:
+        self._require_issued_context(context)
+        attributes = {
+            **command.model_dump(exclude={"idempotency_key"}, mode="json"),
+            "project_type": context.project_type,
+            "classification": command.visibility,
+        }
+        self._authorize(
+            context,
+            "work.blocker.create",
+            PolicyResource(
+                "blocker",
+                project_type=context.project_type,
+                classification=command.visibility,
+                attributes=attributes,
+            ),
+            command={"command": "create_blocker", "arguments": command.model_dump(mode="json")},
+            approved=approved,
+        )
+        try:
+            if command.idempotency_key:
+                prior = db.query_one(
+                    "SELECT result_id FROM extension_command_receipts"
+                    " WHERE namespace = ? AND idempotency_key = ?",
+                    (context.receipt_namespace, command.idempotency_key),
+                )
+                if prior:
+                    return self._written_blocker_view(int(prior["result_id"]))
+            result = blockers.raise_blocker(
+                **command.model_dump(exclude={"idempotency_key"}),
+                actor=context.execution_actor,
+                origin=context.origin,
+            )
+            if command.idempotency_key:
+                db.execute(
+                    "INSERT INTO extension_command_receipts"
+                    " (namespace, idempotency_key, result_type, result_id, created_at)"
+                    " VALUES (?, ?, 'blocker', ?, ?)",
+                    (
+                        context.receipt_namespace,
+                        command.idempotency_key,
+                        result["id"],
+                        db.now(),
+                    ),
+                )
+            return self._written_blocker_view(int(result["id"]))
+        except PublicError:
+            raise
+        except (ValueError, PermissionError) as exc:
+            raise PublicError("BLOCKER_CREATE_REJECTED", str(exc)) from exc
+
+    def update_blocker(self, command: UpdateBlockerCommand, context: CommandContext) -> BlockerView:
+        try:
+            with db.transaction():
+                return self._update_blocker_locked(command, context)
+        except _HeldForReview as held:
+            raise self._held_error(held) from None
+
+    def _update_blocker_locked(
+        self,
+        command: UpdateBlockerCommand,
+        context: CommandContext,
+        *,
+        approved: bool = False,
+    ) -> BlockerView:
+        self._require_issued_context(context)
+        _row, attributes = self._blocker_state(command.blocker_id, context)
+        changes = command.model_dump(exclude={"blocker_id"}, exclude_none=True)
+        if not changes:
+            raise PublicError("EMPTY_COMMAND", "The command does not contain a change.")
+        if command.status is not None and command.status != "resolved":
+            # Escalation belongs to the scheduled sweep in services/blockers.py:
+            # a caller that could set it would move the escalation clock.
+            raise PublicError("BLOCKER_UPDATE_REJECTED", "A blocker update can only resolve it.")
+        self._authorize(
+            context,
+            "work.blocker.update",
+            PolicyResource(
+                "blocker",
+                str(command.blocker_id),
+                project_type=attributes["project_type"],
+                classification=attributes["classification"],
+                attributes={**attributes, **changes},
+            ),
+            command={"command": "update_blocker", "arguments": command.model_dump(mode="json")},
+            approved=approved,
+        )
+        try:
+            edits = {
+                key: value
+                for key, value in changes.items()
+                if key in ("title", "detail", "owner") and value is not None
+            }
+            if edits:
+                blockers.edit_blocker(
+                    command.blocker_id,
+                    actor=context.execution_actor,
+                    origin=context.origin,
+                    **edits,
+                )
+            if command.status == "resolved":
+                blockers.resolve_blocker(
+                    command.blocker_id,
+                    command.resolution or "",
+                    actor=context.execution_actor,
+                    origin=context.origin,
+                )
+            return self._written_blocker_view(command.blocker_id)
+        except PublicError:
+            raise
+        except db.NotFound as exc:
+            raise PublicError("BLOCKER_NOT_FOUND", str(exc), status_code=404) from exc
+        except PermissionError as exc:
+            raise PublicError("BLOCKER_UPDATE_FORBIDDEN", str(exc), status_code=403) from exc
+        except ValueError as exc:
+            raise PublicError("BLOCKER_UPDATE_REJECTED", str(exc)) from exc
+
+    def _blocker_state(
+        self, blocker_id: int, context: CommandContext
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
+        if not row:
+            raise PublicError(
+                "BLOCKER_NOT_FOUND",
+                f"blocker #{blocker_id} not found",
+                status_code=404,
+            )
+        attributes = blockers.existing_policy_context(blocker_id, actor=context.execution_actor)
+        return dict(row), attributes
+
+    @staticmethod
+    def _written_blocker_view(blocker_id: int) -> BlockerView:
+        row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
+        if not row:
+            raise PublicError(
+                "BLOCKER_NOT_FOUND",
+                f"blocker #{blocker_id} not found",
+                status_code=404,
+            )
+        return BlockerView.model_validate(dict(row))
 
     def update_task(self, command: UpdateTaskCommand, context: CommandContext) -> TaskView:
         try:

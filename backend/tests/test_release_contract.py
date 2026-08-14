@@ -64,13 +64,16 @@ def test_extension_api_one_exports_exactly_the_documented_surface():
     import app.public as public
 
     assert set(public.__all__) == {
+        "BlockerView",
         "CommandContext",
+        "CreateBlockerCommand",
         "CreateTaskCommand",
         "DomainEvent",
         "EventActor",
         "PublicError",
         "ResourceReference",
         "TaskView",
+        "UpdateBlockerCommand",
         "UpdateTaskCommand",
         "WorkItems",
         "dispatch_events",
