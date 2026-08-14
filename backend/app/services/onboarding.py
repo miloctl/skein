@@ -27,7 +27,7 @@ STEPS = (
         "first_capture",
         "Capture something",
         "#capture",
-        "Press ⌘K anywhere — try 'todo: …', 'blocked on …', or 'decision: …'.",
+        "Select Capture in the top bar — try 'todo: …', 'blocked on …', or 'decision: …'.",
         "you",
     ),
     (

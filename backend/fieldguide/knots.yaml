@@ -11,7 +11,7 @@
 #
 # Voice rules: dry, terse, no exclamation marks, no praise adjectives.
 #
-# Write the capture shortcut as the literal ⌘K. It is a TOKEN, not the text
+# Write the SEARCH shortcut as the literal ⌘K. It is a TOKEN, not the text
 # the reader gets: the guide page renders pitch/how through
 # components/shortcut.tsx, which spells it ⌘K on an Apple keyboard and Ctrl+K
 # on every other one. Writing "Ctrl+K" here defeats that and is then wrong on
@@ -31,7 +31,7 @@ knots:
     knot: Overhand
     set: loops
     pitch: One box that files todos, questions, blockers, decisions, and promises.
-    how: "Press ⌘K anywhere. Try `todo: …`, `q: …`, or `blocked on …` — the preview shows what it will file as."
+    how: "Select Capture in the top bar. Try `todo: …`, `q: …`, or `blocked on …` — the preview shows what it will file as."
     link: /
     since: 2026-07-31
 
@@ -58,7 +58,7 @@ knots:
     knot: Bowline
     set: loops
     pitch: Decisions expire to stale unless reconfirmed — nothing is trusted forever.
-    how: "`decision: …` in ⌘K, then set a review-by date. The daily sweep does the rest."
+    how: "`decision: …` in quick capture, then set a review-by date. The daily sweep does the rest."
     link: /charter
     since: 2026-07-31
 
@@ -67,7 +67,7 @@ knots:
     knot: Angler's Loop
     set: loops
     pitch: Assigned questions notify the assignee and wait visibly.
-    how: "`q: who owns the staging cert?` in ⌘K, or assign one on Work → Browse."
+    how: "`q: who owns the staging cert?` in quick capture, or assign one on Work → Browse."
     link: /dashboard
     since: 2026-07-31
 
@@ -99,7 +99,7 @@ knots:
     # so there is no write to detect
     ties: mark
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
-    how: "The nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and task 42 is the first result. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing — it retries on the separate words and marks the results as loose."
+    how: "Press ⌘K, or use the nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and task 42 is the first result. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing — it retries on the separate words and marks the results as loose."
     link: /chat
     since: 2026-07-31
 
@@ -122,7 +122,7 @@ knots:
     # sweep reads it as a straggler and destroys the contrast the sentence is
     # built on.
     pitch: Work enters through a scored queue, not a hallway conversation.
-    how: "`req: …` in ⌘K or Inbox → Requests. RICE-lite scores it for triage."
+    how: "`req: …` in quick capture or Inbox → Requests. RICE-lite scores it for triage."
     link: /intake
     since: 2026-07-31
 
@@ -131,7 +131,7 @@ knots:
     knot: Water Bowline
     set: loops
     pitch: Promises with an audience and a due date, ledgered until settled.
-    how: "`promised: demo to client by Friday` in ⌘K."
+    how: "`promised: demo to client by Friday` in quick capture."
     link: /portfolio
     since: 2026-07-31
 
@@ -172,7 +172,7 @@ knots:
     # ties when a route calls fieldguide.mark — the feature is a read,
     # so there is no write to detect
     ties: mark
-    pitch: The ⌘K grammar works in chat too — and a turn that files nothing says so.
+    pitch: The capture grammar works in chat too — and a turn that files nothing says so.
     how: "In Chat, start a message with `todo:`, `q:`, `decision:`, or `promised:`. If nothing gets filed, the reply says that outright."
     link: /chat
     since: 2026-08-01

@@ -466,7 +466,7 @@ body {
   font-family: var(--font-body), system-ui, sans-serif;
 }
 
-/* The capture shortcut is ⌘K on an Apple keyboard and Ctrl+K on every other
+/* The search shortcut is ⌘K on an Apple keyboard and Ctrl+K on every other
    one. Both spellings are written into the HTML and CSS drops the wrong one,
    so there is no client-side branch to mismatch on hydration and no flash of
    the wrong key — lib/theme-boot.ts sets data-os before first paint.

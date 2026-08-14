@@ -172,19 +172,13 @@ function CitationRef({
 /** An empty result is the moment read intent turns into write intent: the
  *  reader looked for a record, there is none, and filing one is the next
  *  useful move. Outside the nav button this is the only place the shortcut
- *  is taught, and it hides on touch — where the nav's Capture button is the
- *  door and no key exists to press (same split as the empty task list in
- *  app/page.tsx). */
+ *  is taught. It names the button rather than a keystroke: ⌘K focuses this
+ *  search box, and capture has no shortcut of its own. */
 function CaptureHint() {
   return (
     <p className="mt-1 text-xs text-ink-3">
-      To file a new record, use quick capture
-      <span className="[@media(any-pointer:coarse)]:hidden">
-        {" ("}
-        <Shortcut />
-        {")"}
-      </span>
-      .
+      To file a new record, use quick capture &mdash; the Capture button in
+      the top bar.
     </p>
   );
 }
@@ -197,6 +191,23 @@ export function NavSearch() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // ⌘K focuses search. It is the command-palette convention every other
+  // product follows, and it used to open quick capture here — a box that
+  // WRITES a row, next to a box that reads. The listener is unconditional
+  // because the box is always mounted in the nav.
+  useEffect(() => {
+    const onShortcut = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -246,6 +257,7 @@ export function NavSearch() {
         Search Skein
       </label>
       <input
+        ref={inputRef}
         id="nav-search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -258,8 +270,18 @@ export function NavSearch() {
         // 208px box. It still works, and the field guide still teaches it,
         // where there is room to say what it actually does.
         placeholder="Search"
-        className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-thread-solid sm:w-52"
+        className="w-full rounded-lg border border-line-strong bg-transparent py-1 pl-2 pr-12 text-xs outline-none focus:border-thread-solid sm:w-52"
       />
+      {/* aria-hidden for the same reason the capture button hid it: the
+          accessible name is the label, and a keystroke in the name is a
+          WCAG 2.5.3 Label in Name failure for voice control. Hidden on touch,
+          where there is no key to press. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 font-mono text-[11px] text-ink-3 [@media(any-pointer:fine)]:block"
+      >
+        <Shortcut />
+      </span>
       {open && (
         <div
           role="region"

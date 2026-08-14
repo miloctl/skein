@@ -4,17 +4,17 @@ import { describe, expect, it } from "vitest";
 import { Shortcut, ShortcutText } from "@/components/shortcut";
 import { themeBootScript } from "@/lib/theme-boot";
 
-/** The capture binding is `metaKey || ctrlKey`, so the shortcut is ⌘K on an
+/** The search binding is `metaKey || ctrlKey`, so the shortcut is ⌘K on an
  *  Apple keyboard and Ctrl+K everywhere else. Every hint used to say ⌘K
  *  only. A Windows reader read ⌘ as the Windows key — where Win+K opens the
- *  Cast panel — and reported capture as unusable.
+ *  Cast panel — and reported the feature as unusable.
  *
  *  jsdom loads no stylesheet, so both spellings are present here by design:
  *  what these pin is that the markup carries BOTH and labels each for the
  *  CSS in globals.css to drop one. A render that emits a single spelling is
  *  the bug, whichever one it picks. */
 
-describe("the capture shortcut is written for the reader's keyboard", () => {
+describe("the search shortcut is written for the reader's keyboard", () => {
   it("emits both spellings, each tagged for the CSS that hides one", () => {
     const { container } = render(<Shortcut />);
     const mac = container.querySelector(".os-mac");
@@ -26,12 +26,12 @@ describe("the capture shortcut is written for the reader's keyboard", () => {
   it("swaps the token inside server prose and leaves the rest alone", () => {
     render(
       <p>
-        <ShortcutText text="Press ⌘K anywhere — try 'todo: …'." />
+        <ShortcutText text="Press ⌘K anywhere to search." />
       </p>,
     );
     // the sentence survives intact around the swap
     expect(screen.getByText(/anywhere/).textContent).toContain(
-      "try 'todo: …'.",
+      "anywhere to search.",
     );
     expect(document.querySelector(".os-other")?.textContent).toBe("Ctrl+K");
   });
