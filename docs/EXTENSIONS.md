@@ -935,6 +935,21 @@ An installed deployment sets at least:
 - `SKEIN_PLAYBOOKS_DIR`, `SKEIN_PERSONAS_DIR`, and `SKEIN_FLOCKS_DIR` mount
   deployment content overlays.
 
+A `v*` tag publishes the release to the Gitea package registries: the core
+wheel to PyPI, `@skein/extension-api` to npm, and the frontend host archive
+beside them. A private repository installs a released core rather than
+building one:
+
+```sh
+pip install skein==0.2.2 --index-url https://<gitea-host>/api/packages/<owner>/pypi/simple
+npm install @skein/extension-api --registry https://<gitea-host>/api/packages/<owner>/npm/
+```
+
+Whoever runs the Gitea instance enables the package registry and adds a
+`PACKAGE_TOKEN` secret with `packages:write`. Without it the publish job
+fails, which is the intended outcome: a release that publishes nowhere is
+worse than a release that stops.
+
 Use separate versioned artifacts:
 
 - A Skein Python wheel or backend image
