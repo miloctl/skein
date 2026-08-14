@@ -15,7 +15,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-baseline="${1:-$(git tag --list 'v*' --sort=-version:refname | head -1)}"
+# The newest v* tag that is NOT the commit under test. Taking the newest tag
+# outright made this check vacuous for exactly one commit per release: the
+# release commit carries the tag, so the baseline was HEAD and the run
+# compared a tree with itself and passed.
+baseline="${1:-}"
+if [ -z "$baseline" ]; then
+    head_commit="$(git rev-parse HEAD)"
+    for candidate in $(git tag --list 'v*' --sort=-version:refname); do
+        if [ "$(git rev-parse "$candidate^{commit}")" != "$head_commit" ]; then
+            baseline="$candidate"
+            break
+        fi
+    done
+fi
 if [ -z "$baseline" ]; then
     echo "upgrade-path: no v* release tag, so nothing is deployed to upgrade from. Skipped."
     exit 0
