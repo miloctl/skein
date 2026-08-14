@@ -141,6 +141,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "handoff": lambda u: _act(u, "generate_handoff"),
     "model_pick": lambda u: _act(u, "set_model_pick"),
     "playbook_closeout": lambda u: _act(u, "playbook_closeout"),
+    # only the MANUAL backup logs an actor (services/admin.py::backup) —
+    # the 03:00 scheduled run must not tie this for anybody
+    "backup": lambda u: _act(u, "backup"),
 }
 
 _registry_cache: list[dict] | None = None

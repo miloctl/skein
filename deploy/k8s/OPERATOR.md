@@ -69,8 +69,9 @@ error line in the pod log — if it is there, run a manual backup (below).
 
 Daily at 03:00 team time (the `timezone` field on `/health`). The last
 14 stay on the data volume, the last 30 on the mirror volume
-(`/backup-mirror`). Before a risky change, take one by hand — there is
-no UI button for this, it is an API call with an admin credential:
+(`/backup-mirror`). Before a risky change, take one by hand: sign in as
+an admin and use Settings → "Backups (team)" → "Back up now", or call
+the API:
 
 ```
 curl -X POST -H "Authorization: Bearer <admin-api-key>" \
@@ -87,11 +88,12 @@ If this tool is retired or abandoned, the data is not trapped:
 - The databases are single SQLite files on the data volume:
   `platform.db` and `private.db`. Any SQLite client opens a backup copy.
   The daily backups are the complete record.
-- `GET /api/admin/export` (admin credential) returns the work data as
-  JSON — tasks, promises, decisions, and the rest of the shared tables.
-  The export deliberately excludes chat transcripts, private-visibility
-  rows, and the private notes database. For a complete copy, take the
-  `.db` backups, not the export.
+- The export (Settings → "Backups (team)" → "Download export", or
+  `GET /api/admin/export` with an admin credential) returns the work
+  data as JSON — tasks, promises, decisions, and the rest of the shared
+  tables. The export deliberately excludes chat transcripts,
+  private-visibility rows, and the private notes database. For a
+  complete copy, take the `.db` backups, not the export.
 - With no model provider configured the app runs keyless indefinitely —
   abandonment degrades nothing except the agent features.
 

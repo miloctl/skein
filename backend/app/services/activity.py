@@ -671,6 +671,7 @@ VERBS: dict[str, tuple[str, str]] = {
     "set_context_strategy": ("changed the long-chat strategy", "loud"),
     # loud like the strategy above: it changes what every chat costs
     "set_model_pick": ("changed the team model", "loud"),
+    "backup": ("took a manual backup", "normal"),
     # loud for the reason above it: a capacity limit moved for the whole team
     "set_tuning": ("changed a deployment limit", "loud"),
     "set_team_theme": ("set the team default theme", "quiet"),

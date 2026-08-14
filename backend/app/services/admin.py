@@ -174,12 +174,18 @@ def _backup_one(src: sqlite3.Connection, dest: Path, keep: int, prefix: str = ""
     log.info("backup written: %s", dest)
 
 
-def backup(*, keep: int = 14) -> dict:
+def backup(*, keep: int = 14, actor: str | None = None) -> dict:
     """Both databases, or the backup is not one: platform.db holds the
     workspace, private.db holds the 1:1 notes — the one store that exists
     nowhere else (deliberately outside exports), so a backup that skips it
     silently loses the most personal data on the first disk loss. The
-    private backup stays out of the off-box mirror — see the note below."""
+    private backup stays out of the off-box mirror — see the note below.
+
+    actor is the person behind a MANUAL backup (the route passes it); the
+    scheduled run passes none. The distinction is load-bearing twice: the
+    ledger row is the provenance of a deliberate pre-change copy, and the
+    field-guide `backup` predicate reads it — a scheduler run must not tie
+    the card for anybody."""
     backups_dir = _backups_dir()
     dest = backups_dir / f"platform-{_today()}.db"
     _backup_one(db.connect(), dest, keep)
@@ -208,6 +214,8 @@ def backup(*, keep: int = 14) -> dict:
         extension_paths.append(str(store_dest))
 
     kept = len(sorted(backups_dir.glob("platform-*.db")))
+    if actor:
+        db.log_activity(actor, "backup", dest.name)
     return {
         "path": str(dest),
         "private_path": private_path,

@@ -41,7 +41,8 @@ migrations at startup as the sole writer.
   against a newer schema, and nothing tests that combination. Recovery
   from a bad release is the next version, or a restore from the
   pre-upgrade backup. The 03:00 daily backup is the rollback point. Before
-  a risky sync, take a manual backup: `POST /api/admin/backup`.
+  a risky sync, take a manual backup: Settings → "Backups (team)", or
+  `POST /api/admin/backup`.
 
 ## Secrets
 
