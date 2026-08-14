@@ -30,10 +30,14 @@ def test_the_source_fallback_version_matches_the_packaged_version():
     """A tree with no installed distribution reports this literal as its own
     version, and every module compatibility range is checked against it. A
     stale literal refuses a valid private package with no other symptom, so
-    the version bump at release is a trio: both package files and this one."""
+    the release bump moves every packaged version together."""
     from app.extensions.contracts import FALLBACK_CORE_VERSION
 
-    assert _toml("backend/pyproject.toml")["project"]["version"] == FALLBACK_CORE_VERSION
+    core = _toml("backend/pyproject.toml")["project"]["version"]
+    assert core == FALLBACK_CORE_VERSION
+    # skein-cli is its own distributable with its own build-system. Calling the
+    # bump "a trio" is what let it drift a release behind unnoticed.
+    assert _toml("cli/pyproject.toml")["project"]["version"] == core
 
 
 def test_reference_extension_metadata_uses_owned_compatibility_literals():

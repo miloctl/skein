@@ -18,7 +18,7 @@ mkdir -p \
 
 # The 0.2.0 fixture is the newest commit whose backend both claims version
 # 0.2.0 and carries the complete trimmed extension API (test surfaces
-# included). HEAD claims 0.2.1 in its own committed metadata — the pair is
+# included). HEAD claims its own version in committed metadata — the pair is
 # two real version identities from two real trees, with no rewriting. The
 # guard stops the rehearsal from ever comparing one implementation with
 # itself.
@@ -89,7 +89,7 @@ requirement = Requirement(
 )
 assert Version("0.1.0") not in requirement.specifier
 assert Version("0.2.0") in requirement.specifier
-assert Version("0.2.1") in requirement.specifier
+assert Version(os.environ["NEXT_CORE"]) in requirement.specifier
 PY
 
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" uv venv --quiet "$tmp/venv"
@@ -413,6 +413,7 @@ assert (Path(db.__file__).resolve().parent / "py.typed").is_file()
 assert (db.MIGRATIONS_DIR / "018_identity_ownership.sql").is_file()
 assert (db.MIGRATIONS_DIR / "019_notification_sources.sql").is_file()
 assert (db.MIGRATIONS_DIR / "020_policy_projection_indexes.sql").is_file()
+assert (db.MIGRATIONS_DIR / "021_public_command_review.sql").is_file()
 # An upgrade applies core migrations before it uses the new public contracts.
 # Application startup does this automatically. The artifact rehearsal uses
 # identity helpers before startup, so it applies the same step explicitly.

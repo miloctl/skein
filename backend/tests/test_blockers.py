@@ -80,3 +80,26 @@ def test_blocker_relationship_cannot_publish_a_private_task_id(fresh_db):
     )
     assert blockers.list_blockers()[0]["task_id"] is None
     assert blockers.list_blockers(viewer=scope.Viewer("mira", True))[0]["task_id"] == task_id
+
+
+def test_the_escalation_sweep_announces_the_state_it_changed(fresh_db):
+    """The sweep owns the open-to-escalated transition. A subscriber tracking
+    blocker state has no other way to learn it happened."""
+    from app.services import blockers
+
+    b = blockers.raise_blocker("stuck", escalate_after_hours=1)
+    # raise_blocker reads 0 as "use the default", so age the row instead
+    fresh_db.execute(
+        "UPDATE blockers SET created_at = '2020-01-01T00:00:00+00:00' WHERE id = ?",
+        (b["id"],),
+    )
+    fresh_db.execute("DELETE FROM extension_outbox")
+
+    blockers.sweep_escalations()
+
+    events = fresh_db.query("SELECT event_type FROM extension_outbox")
+    assert [row["event_type"] for row in events] == ["skein.blocker.updated"]
+    assert (
+        fresh_db.query_one("SELECT status FROM blockers WHERE id = ?", (b["id"],))["status"]
+        == "escalated"
+    )

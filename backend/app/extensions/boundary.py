@@ -65,17 +65,31 @@ def _imported_modules(tree: ast.Module) -> Iterator[tuple[int, str]]:
             if node.level or not node.module:
                 continue
             yield node.lineno, node.module
-            if node.module == "app":
+            if node.module == "app" or node.module in _PUBLIC_MODULES:
                 # `from app import services` carries the module name in the
-                # alias, so checking node.module alone would pass it.
+                # alias, and so does `from app.public import events`. Checking
+                # node.module alone passes both. An alias that names an
+                # exported symbol rather than a submodule is not a real module
+                # path, so _is_internal only fires on one that resolves.
                 for alias in node.names:
-                    yield node.lineno, f"app.{alias.name}"
+                    yield node.lineno, f"{node.module}.{alias.name}"
 
 
 def _is_internal(name: str) -> bool:
     if name != "app" and not name.startswith("app."):
         return False
-    return name not in _PUBLIC_MODULES
+    if name in _PUBLIC_MODULES:
+        return False
+    if name.count(".") > 1 and name.rsplit(".", 1)[0] in _PUBLIC_MODULES:
+        # `from app.public import CreateTaskCommand` names an exported symbol,
+        # not a module. Only flag the alias when it resolves to a real module.
+        # find_spec raises rather than returning None when the parent is a
+        # module and not a package, which is every `app.main.<symbol>`.
+        try:
+            return importlib.util.find_spec(name) is not None
+        except (ImportError, AttributeError, ValueError):
+            return False
+    return True
 
 
 def assert_import_boundary(package: ModuleType | str | Path) -> None:
@@ -86,8 +100,10 @@ def assert_import_boundary(package: ModuleType | str | Path) -> None:
     extension repository.
     """
     violations: list[str] = []
+    read = 0
     for root in _roots(package):
         for path in _source_files(root):
+            read += 1
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
             except (OSError, SyntaxError) as exc:
@@ -99,6 +115,13 @@ def assert_import_boundary(package: ModuleType | str | Path) -> None:
                     except ValueError:
                         label = path
                     violations.append(f"{label}:{lineno} imports {name}")
+    if not read:
+        # A zipped or byte-compiled install yields no source, and reporting
+        # that as a pass hands the caller a green check that read nothing.
+        raise ExtensionValidationError(
+            "this package has no Python source to check."
+            " Point the check at the source tree, not an installed archive."
+        )
     if violations:
         allowed = ", ".join(sorted(_PUBLIC_MODULES))
         raise ExtensionValidationError(

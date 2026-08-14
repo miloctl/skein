@@ -179,6 +179,24 @@ def edit_blocker(
     origin: str = "human",
 ) -> dict:
     """Correct an open blocker's wording/owner — resolution stays its own verb."""
+    with db.transaction():
+        return _edit_blocker_locked(blocker_id, title, detail, owner, actor=actor, origin=origin)
+
+
+def _edit_blocker_locked(
+    blocker_id: int,
+    title: str = "",
+    detail: str = "",
+    owner: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    """The row change, its receipt, its index, and its event are one unit.
+
+    Each of these was its own autocommit, so a failure between them left a
+    written row that no subscriber ever heard about.
+    """
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
         raise scope.missing("blockers", blocker_id)
@@ -427,6 +445,16 @@ def _sweep_escalations_locked() -> list[dict]:
             )
             if not claimed:  # resolved between our read and write
                 continue
+            # The sweep owns this transition, and a subscriber tracking blocker
+            # state has no other way to learn it happened.
+            _emit_blocker_event(
+                "skein.blocker.updated",
+                b["id"],
+                actor="scheduler",
+                origin="agent",
+                visibility=str(b["visibility"] or scope.WORKSPACE),
+                changes=("status", "escalated_at"),
+            )
             from .notifications import notify
 
             # Every tier escalates — a crew blocker that silently never

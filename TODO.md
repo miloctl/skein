@@ -91,6 +91,57 @@ this file is only for accepted trade-offs that must eventually be repaid.
   `extension-contracts` job alone; the review that asks for a PR trigger
   without that runner is asking to run untrusted code beside the deployment.
 
+- **The extension-store backup registry is one per process, not one per
+  application.** `services/admin.py::set_extension_stores` holds a module-level
+  dict that `create_app` replaces on every call, and the daily backup job reads
+  it with no application handle. One composed app per process is correct in
+  production, and it is what every other single-replica mechanism here already
+  assumes. It is wrong in a test session: an extension repository that follows
+  docs/EXTENSIONS.md and starts a composed app with `TestClient` can have its
+  stores cleared by a later `create_app()` in the same session, so its backup
+  test passes or fails on test ordering. Accepted 2026-08-14 because the fix
+  wants the stores on `app.state` and the job has no handle to reach them.
+  Repay by giving the core backup job its composed registry the way
+  `skein.core.agent-run` already receives one (`app/main.py`), then deleting
+  the module-level dict.
+
+- **A contributed route's background task outlives its work grant.**
+  `extension_route_services` revokes the grant in its dependency teardown, and
+  FastAPI runs that teardown after the response — but Starlette runs
+  `Response.background` before it, so a `BackgroundTasks` task still writes
+  core rows under the route's provenance. Every other case is closed: a
+  stashed context, a spawned thread, a handler that raised, and use after a
+  streaming body all return `EXECUTION_CONTEXT_CLOSED`. Accepted 2026-08-14
+  because the fix wants a middleware that appends the close after the
+  handler's own tasks, and middleware ordering is the wrong thing to change in
+  a release that already moves the write path. docs/EXTENSIONS.md tells
+  authors to use a `JobContribution` instead. Repay by appending the close as
+  the last background task from a response middleware, then deleting that
+  paragraph.
+
+- **A held public command is queued once per retry.** `_held_error` files a
+  fresh `pending_changes` row and a team notification on every refused
+  attempt, and contributed routes do not pass through `ratelimit.check`. An
+  unattended integration that retries fills the queue its reviewers work from.
+  Accepted 2026-08-14: the documented pattern is to record the `review_id` and
+  skip what was already asked about. Repay by deduplicating on the namespace,
+  command, resource, and argument hash while a proposal is pending, returning
+  the existing `review_id` instead of a second row.
+
+- **The reviewed invocation is not bound to the policy context that gets
+  re-validated.** For a held public command, `_current_extension_review`
+  returns the saved `PolicyInput` and never compares it against
+  `extension_review_invocations.invocation`, so the two columns can drift and
+  the drift executes. The core proposal path builds an expected payload from
+  the row and refuses a mismatch. Accepted 2026-08-14 because there is no
+  external write path to that table today — the only writers are the propose
+  call and the status updates beside it, extension stores are separate
+  databases, and `ATTACH` is refused — so this is a missing integrity binding
+  rather than a live exploit. Provenance no longer depends on it: the resumed
+  actor comes from the refreshed subject. Repay by hashing the invocation into
+  the saved policy context at propose time and comparing at approve time, the
+  way the core path compares its contract.
+
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the

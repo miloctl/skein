@@ -36,12 +36,12 @@ build with its activity chain intact.
   status that no other entity has. It settles once. Needs
   `minimum_core = "0.2.2"`.
 - The event catalog gains `skein.promise.created` and `skein.promise.updated`.
+  Both need `minimum_core = "0.2.2"` in a subscribing package.
 - The event catalog gains `skein.blocker.created` and `skein.blocker.updated`,
   emitted from the shared blocker write path so every caller produces them.
   Composition still refuses a subscription outside the catalog.
 - A public work command that policy holds for review is now durable. A rule
-  that returns `review` on `work.task.create` or `work.task.update` stores the
-  command, and `PublicError.review_id` names the proposal a human approves;
+  that returns `review` on any public work command stores the command, and `PublicError.review_id` names the proposal a human approves;
   approval runs the exact saved command under a new grant with the integration
   still recorded as its author. Before this a route answered `409` and a job
   answered `POLICY_REVIEW_UNSUPPORTED` and neither left anything to approve,
@@ -62,6 +62,24 @@ build with its activity chain intact.
 
 ### Behavior
 
+- A public read applies the caller's own visibility filter on every entity.
+  `get_promise` read any row, so an extension route could return a teammate's
+  private promise. Blocker and task reads were already filtered.
+- An idempotency key names one kind of record. The receipt stored the kind and
+  nothing compared it, so a key reused across two commands replayed one entity
+  as another and returned a row the caller never wrote. A reused key now
+  answers `IDEMPOTENCY_KEY_REUSED`.
+- A linked write carries the project class of the row it attaches to. A
+  blocker and a promise read that class from the caller instead, so a rule
+  keyed on it governed task writes into a regulated engagement and skipped
+  the other two.
+- An approval releases the one action it answered. A command that meets two
+  independent review rules is held again for the second, rather than riding
+  the first approval through a gate whose approvers were never computed.
+- The review queue carries a bounded preview of the command it is holding, so
+  a status change bundled into a create is visible on the approve screen.
+- A held command whose target vanished before the verdict settles as rejected
+  instead of returning to the queue on every attempt.
 - A domain write carries the declared effect and risk of the contribution
   performing it. A route, job, tool, event subscriber, or workflow action
   declares `effect` and `risk`, and the `work.task.*` decision previously

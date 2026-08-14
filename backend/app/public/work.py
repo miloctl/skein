@@ -222,8 +222,11 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
         namespace=str(invocation.get("namespace") or ""),
         receipt_namespace=str(invocation.get("receipt_namespace") or ""),
         correlation_id=str(invocation.get("correlation_id") or ""),
-        actor=str(invocation.get("actor") or ""),
-        actor_kind=str(invocation.get("actor_kind") or ""),
+        # From the REFRESHED subject, not the stored string: the stored name is
+        # whatever the invocation row says, and provenance must not be one
+        # column edit away from naming somebody who never acted.
+        actor=subject.name,
+        actor_kind=subject.kind,
         effect=str(invocation.get("effect") or "none"),
         risk=str(invocation.get("risk") or "low"),
     )
@@ -232,31 +235,58 @@ def _execute_reviewed_command(invocation: dict[str, Any], registry: Any) -> dict
         project_type=str(invocation.get("project_type") or ""),
         attributes=dict(invocation.get("attributes") or {}),
     )
+    reviewed_action = str(invocation.get("action") or "")
     arguments = dict(invocation.get("arguments") or {})
+    try:
+        return _run_reviewed(work_items, name, arguments, context, reviewed_action)
+    except PublicError as exc:
+        if exc.status_code == 404:
+            # The target vanished between the hold and the verdict. Re-approving
+            # can never succeed, so hand review.approve_change the exception its
+            # auto-reject branch already settles instead of the generic one that
+            # resets to pending and boomerangs in the queue forever.
+            raise db.NotFound(str(exc.detail)) from None
+        raise
+    except _HeldForReview as held:
+        # The reviewer answered one gate and this command meets another. Refuse
+        # rather than run: nobody has answered the second rule, and its
+        # approvers were never computed, let alone checked.
+        raise PermissionError(
+            f"this command also needs approval for {held.request.action}"
+        ) from None
+
+
+def _run_reviewed(
+    work_items: WorkItems,
+    name: str,
+    arguments: dict[str, Any],
+    context: CommandContext,
+    reviewed_action: str,
+) -> dict[str, Any]:
     resumed: TaskView | BlockerView | PromiseView
     if name == "create_task":
         resumed = work_items._create_task_locked(
-            CreateTaskCommand(**arguments), context, approved=True
+            CreateTaskCommand(**arguments), context, approved=reviewed_action
         )
     elif name == "update_task":
         resumed = work_items._update_task_locked(
-            UpdateTaskCommand(**arguments), context, approved=True
+            UpdateTaskCommand(**arguments), context, approved=reviewed_action
         )
     elif name == "create_promise":
         resumed = work_items._create_promise_locked(
-            CreatePromiseCommand(**arguments), context, approved=True
+            CreatePromiseCommand(**arguments), context, approved=reviewed_action
         )
     elif name == "update_promise":
         resumed = work_items._update_promise_locked(
-            UpdatePromiseCommand(**arguments), context, approved=True
+            UpdatePromiseCommand(**arguments), context, approved=reviewed_action
         )
     elif name == "create_blocker":
         resumed = work_items._create_blocker_locked(
-            CreateBlockerCommand(**arguments), context, approved=True
+            CreateBlockerCommand(**arguments), context, approved=reviewed_action
         )
     else:
         resumed = work_items._update_blocker_locked(
-            UpdateBlockerCommand(**arguments), context, approved=True
+            UpdateBlockerCommand(**arguments), context, approved=reviewed_action
         )
     return resumed.model_dump(mode="json")
 
@@ -400,6 +430,46 @@ class TaskView(BaseModel):
     updated_at: str
 
 
+_PREVIEW_FIELDS = (
+    "title",
+    "promise",
+    "status",
+    "impact",
+    "assignee",
+    "owner",
+    "to_whom",
+    "priority",
+    "due_date",
+    "visibility",
+    "resolution",
+    "task_id",
+    "blocker_id",
+    "promise_id",
+    "engagement_id",
+    "milestone_id",
+)
+_PREVIEW_CHARS = 200
+
+
+def _command_preview(command: dict[str, Any]) -> dict[str, Any]:
+    """A bounded, readable summary of the arguments a reviewer is approving.
+
+    The full arguments stay out of the queue on purpose (migration 013), so
+    this names the fields that decide whether the write is acceptable and
+    truncates every one of them.
+    """
+    arguments = command.get("arguments")
+    if not isinstance(arguments, dict):
+        return {}
+    preview: dict[str, Any] = {}
+    for name in _PREVIEW_FIELDS:
+        value = arguments.get(name)
+        if value in (None, "", 0):
+            continue
+        preview[name] = value if isinstance(value, int) else str(value)[:_PREVIEW_CHARS]
+    return preview
+
+
 def _revoked_error() -> PublicError:
     return PublicError(
         "EXECUTION_CONTEXT_CLOSED",
@@ -488,7 +558,7 @@ class WorkItems:
         resource: PolicyResource,
         *,
         command: dict[str, Any] | None = None,
-        approved: bool = False,
+        approved: str = "",
     ) -> None:
         request = PolicyInput(
             subject=context.subject,
@@ -508,12 +578,18 @@ class WorkItems:
                 obligations=decision.obligations,
             )
         if decision.effect == PolicyEffect.REVIEW:
-            if approved:
+            if approved == action:
                 # review.approve_change refreshed the requester, evaluated the
                 # current policy, and checked the reviewer immediately before
                 # this call. A second decision here could name approvers the
                 # review service never checked, so run the one verdict that
                 # already qualified. A deny above still refuses.
+                #
+                # Matched against the ACTION, never a blanket flag: one command
+                # can meet two independent rules ("creates go to intake,
+                # state changes go to the release board"), and a boolean let
+                # the first approval satisfy both without anyone seeing the
+                # second.
                 return
             obligations = (
                 *decision.obligations,
@@ -531,6 +607,32 @@ class WorkItems:
                 status_code=409,
                 obligations=obligations,
             )
+
+    @staticmethod
+    def _prior_result(context: CommandContext, key: str, result_type: str) -> int:
+        """Return the id a previous identical command produced, or 0.
+
+        The receipt records result_type and nothing read it, so a key reused
+        across two command types replayed one entity as another: the caller
+        received a promise row it never wrote, at any tier, and no write
+        happened. The type is part of the identity of the receipt.
+        """
+        if not key:
+            return 0
+        prior = db.query_one(
+            "SELECT result_type, result_id FROM extension_command_receipts"
+            " WHERE namespace = ? AND idempotency_key = ?",
+            (context.receipt_namespace, key),
+        )
+        if not prior:
+            return 0
+        if str(prior["result_type"]) != result_type:
+            raise PublicError(
+                "IDEMPOTENCY_KEY_REUSED",
+                "That idempotency key already names a different kind of record.",
+                status_code=409,
+            )
+        return int(prior["result_id"])
 
     def _held_error(self, held: _HeldForReview) -> PublicError:
         review_id = self._queue_command(held.context, held.request, held.decision, held.command)
@@ -560,6 +662,10 @@ class WorkItems:
 
         invocation = {
             **command,
+            # Which gate the reviewer answered. Resume disarms this action and
+            # no other, so a command that meets a second independent rule is
+            # held again rather than riding the first approval through.
+            "action": request.action,
             "subject": policy_subject_data(context.subject),
             "namespace": context.namespace,
             "receipt_namespace": context.receipt_namespace,
@@ -579,6 +685,11 @@ class WorkItems:
                 "action": request.action,
                 "resource_type": request.resource.type,
                 "resource_id": request.resource.id,
+                # What the reviewer is answering. Without it the queue showed
+                # the command name alone, so a status change bundled into a
+                # create was invisible on the approve screen. Governed tools
+                # carry review_preview for the same reason.
+                "preview": _command_preview(command),
             },
             invocation,
             summary=f"Run {command['command']} from {context.namespace}",
@@ -830,7 +941,7 @@ class WorkItems:
         command: CreateTaskCommand,
         context: CommandContext,
         *,
-        approved: bool = False,
+        approved: str = "",
     ) -> TaskView:
         self._require_issued_context(context)
         viewer = self._viewer(context)
@@ -877,15 +988,9 @@ class WorkItems:
             )
         try:
             with db.transaction():
-                prior = None
-                if command.idempotency_key:
-                    prior = db.query_one(
-                        "SELECT result_id FROM extension_command_receipts"
-                        " WHERE namespace = ? AND idempotency_key = ?",
-                        (context.receipt_namespace, command.idempotency_key),
-                    )
-                if prior:
-                    return self.get_task(int(prior["result_id"]), context)
+                prior_id = self._prior_result(context, command.idempotency_key, "task")
+                if prior_id:
+                    return self.get_task(prior_id, context)
                 values = command.model_dump(exclude={"status", "idempotency_key"})
                 result = work.create_task(
                     **values,
@@ -954,20 +1059,27 @@ class WorkItems:
         command: CreatePromiseCommand,
         context: CommandContext,
         *,
-        approved: bool = False,
+        approved: str = "",
     ) -> PromiseView:
         self._require_issued_context(context)
+        # The linked engagement owns the project class. Reading it from the
+        # caller's context let a rule keyed on it govern task writes into a
+        # regulated engagement and skip a promise written into the same one.
+        project_type = self._linked_project_type(
+            engagement_id=command.engagement_id, fallback=context.project_type
+        )
         attributes = {
             **command.model_dump(exclude={"idempotency_key"}, mode="json"),
-            "project_type": context.project_type,
+            "project_type": project_type,
             "classification": command.visibility,
+            "crew_id": command.crew_id,
         }
         self._authorize(
             context,
             "work.promise.create",
             PolicyResource(
                 "promise",
-                project_type=context.project_type,
+                project_type=project_type,
                 classification=command.visibility,
                 attributes=attributes,
             ),
@@ -975,14 +1087,9 @@ class WorkItems:
             approved=approved,
         )
         try:
-            if command.idempotency_key:
-                prior = db.query_one(
-                    "SELECT result_id FROM extension_command_receipts"
-                    " WHERE namespace = ? AND idempotency_key = ?",
-                    (context.receipt_namespace, command.idempotency_key),
-                )
-                if prior:
-                    return self._written_promise_view(int(prior["result_id"]))
+            prior_id = self._prior_result(context, command.idempotency_key, "promise")
+            if prior_id:
+                return self.get_promise(prior_id, context)
             result = promises.add_promise(
                 **command.model_dump(exclude={"idempotency_key"}),
                 actor=context.execution_actor,
@@ -1018,7 +1125,7 @@ class WorkItems:
         command: UpdatePromiseCommand,
         context: CommandContext,
         *,
-        approved: bool = False,
+        approved: str = "",
     ) -> PromiseView:
         self._require_issued_context(context)
         _row, attributes = self._promise_state(command.promise_id, context)
@@ -1055,10 +1162,15 @@ class WorkItems:
     def _promise_state(
         self, promise_id: int, context: CommandContext
     ) -> tuple[dict[str, Any], dict[str, str]]:
-        row = self._promise_row(promise_id)
+        row = self._visible_promise_row(promise_id, context)
         attributes = {
-            "project_type": context.project_type,
+            # HIGH-5: the engagement owns the project class, not the caller. A
+            # rule keyed on it governed task writes and silently skipped these.
+            "project_type": self._promise_project_type(row, context),
             "classification": str(row.get("visibility") or scope.WORKSPACE),
+            # A crew review must name its crew, and _queue_command reads it
+            # from here. Without it a crew-tier hold raised a bare 400.
+            "crew_id": str(row.get("crew_id") or ""),
             "audience": str(row.get("audience") or ""),
             "direction": str(row.get("direction") or ""),
             "status": str(row.get("status") or ""),
@@ -1066,7 +1178,62 @@ class WorkItems:
         return row, attributes
 
     @staticmethod
+    def _linked_project_type(
+        *, engagement_id: int = 0, task_id: int = 0, fallback: str = ""
+    ) -> str:
+        """Resolve the project class from the row this write attaches to."""
+        if engagement_id:
+            row = db.query_one(
+                "SELECT project_class FROM engagements WHERE id = ?", (engagement_id,)
+            )
+            if row:
+                return str(row["project_class"])
+        if task_id:
+            row = db.query_one(
+                "SELECT e.project_class FROM tasks t"
+                " JOIN engagements e ON e.id = t.engagement_id WHERE t.id = ?",
+                (task_id,),
+            )
+            if row:
+                return str(row["project_class"])
+        return fallback
+
+    @staticmethod
+    def _promise_project_type(row: dict[str, Any], context: CommandContext) -> str:
+        """The linked engagement's class, falling back to what the caller said."""
+        engagement_id = int(row.get("engagement_id") or 0)
+        if not engagement_id:
+            return context.project_type
+        linked = db.query_one(
+            "SELECT project_class FROM engagements WHERE id = ?", (engagement_id,)
+        )
+        return str(linked["project_class"]) if linked else context.project_type
+
+    def _visible_promise_row(self, promise_id: int, context: CommandContext) -> dict[str, Any]:
+        """Read one promise through the caller's own filter.
+
+        An unfiltered SELECT here returned private rows to any caller: the
+        policy engine permits a non-agent origin by default, so this filter is
+        the only thing between an extension route and a teammate's private
+        promise. _task_state does the same for tasks.
+        """
+        viewer = self._viewer(context)
+        visible, params = scope.visible_filter(viewer, "promises")
+        row = db.query_one(
+            f"SELECT * FROM promises WHERE id = ? AND {visible}",  # noqa: S608 -- scope emits only bound marks
+            (promise_id, *params),
+        )
+        if not row:
+            raise PublicError(
+                "PROMISE_NOT_FOUND",
+                scope.missing_text("promises", promise_id),
+                status_code=404,
+            )
+        return dict(row)
+
+    @staticmethod
     def _promise_row(promise_id: int) -> dict[str, Any]:
+        """The caller's own write receipt. Never used to serve a read."""
         row = db.query_one("SELECT * FROM promises WHERE id = ?", (promise_id,))
         if not row:
             raise PublicError(
@@ -1109,20 +1276,26 @@ class WorkItems:
         command: CreateBlockerCommand,
         context: CommandContext,
         *,
-        approved: bool = False,
+        approved: str = "",
     ) -> BlockerView:
         self._require_issued_context(context)
+        # raise_blocker flips the linked task to blocked, so the task's project
+        # class governs this write even though the caller never names it.
+        project_type = self._linked_project_type(
+            task_id=command.task_id, fallback=context.project_type
+        )
         attributes = {
             **command.model_dump(exclude={"idempotency_key"}, mode="json"),
-            "project_type": context.project_type,
+            "project_type": project_type,
             "classification": command.visibility,
+            "crew_id": command.crew_id,
         }
         self._authorize(
             context,
             "work.blocker.create",
             PolicyResource(
                 "blocker",
-                project_type=context.project_type,
+                project_type=project_type,
                 classification=command.visibility,
                 attributes=attributes,
             ),
@@ -1130,14 +1303,9 @@ class WorkItems:
             approved=approved,
         )
         try:
-            if command.idempotency_key:
-                prior = db.query_one(
-                    "SELECT result_id FROM extension_command_receipts"
-                    " WHERE namespace = ? AND idempotency_key = ?",
-                    (context.receipt_namespace, command.idempotency_key),
-                )
-                if prior:
-                    return self._written_blocker_view(int(prior["result_id"]))
+            prior_id = self._prior_result(context, command.idempotency_key, "blocker")
+            if prior_id:
+                return self.get_blocker(prior_id, context)
             result = blockers.raise_blocker(
                 **command.model_dump(exclude={"idempotency_key"}),
                 actor=context.execution_actor,
@@ -1173,7 +1341,7 @@ class WorkItems:
         command: UpdateBlockerCommand,
         context: CommandContext,
         *,
-        approved: bool = False,
+        approved: str = "",
     ) -> BlockerView:
         self._require_issued_context(context)
         _row, attributes = self._blocker_state(command.blocker_id, context)
@@ -1262,7 +1430,7 @@ class WorkItems:
         command: UpdateTaskCommand,
         context: CommandContext,
         *,
-        approved: bool = False,
+        approved: str = "",
     ) -> TaskView:
         self._require_issued_context(context)
         try:

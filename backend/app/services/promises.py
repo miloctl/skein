@@ -116,6 +116,14 @@ def add_promise(
 def update_promise(
     promise_id: int, status: str, *, actor: str = "system", origin: str = "human"
 ) -> dict:
+    with db.transaction():
+        return _update_promise_locked(promise_id, status, actor=actor, origin=origin)
+
+
+def _update_promise_locked(
+    promise_id: int, status: str, *, actor: str = "system", origin: str = "human"
+) -> dict:
+    """The settlement, its receipt, and its event are one unit."""
     if status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
     row = db.query_one("SELECT * FROM promises WHERE id = ?", (promise_id,))
@@ -149,6 +157,23 @@ def edit_promise(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
+    """Correct a promise's wording, date, or counterparty."""
+    with db.transaction():
+        return _edit_promise_locked(
+            promise_id, promise, due_date, to_whom, actor=actor, origin=origin
+        )
+
+
+def _edit_promise_locked(
+    promise_id: int,
+    promise: str = "",
+    due_date: str = "",
+    to_whom: str = "",
+    *,
+    actor: str = "system",
+    origin: str = "human",
+) -> dict:
+    """The row change, its receipt, and its event are one unit."""
     """Correct the wording/date of an OPEN promise — old→new logged; settled
     promises stay as history."""
     db.validate_date("due_date", due_date)
@@ -192,6 +217,14 @@ def edit_promise(
         )
     else:
         db.log_activity(actor, "edit_promise", f"#{promise_id} {' '.join(fields)}")
+    _emit_promise_event(
+        "skein.promise.updated",
+        promise_id,
+        actor=actor,
+        origin=origin,
+        visibility=str(row["visibility"] or scope.WORKSPACE),
+        changes=tuple(fields),
+    )
     return {"id": promise_id, "updated": list(fields)}
 
 
