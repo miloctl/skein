@@ -320,7 +320,7 @@ export default function EngagementBrief({
         <Card title={`Open blockers (${b.blockers.length})`}>
           {b.blockers.length === 0 ? (
             <p className="text-sm text-ink-3">
-              Nothing is blocked. Capture one with &lsquo;blocked on …&rsquo; in ⌘K.
+              Nothing is blocked. Capture one with &lsquo;blocked on …&rsquo; in quick capture.
             </p>
           ) : (
             <ul className="space-y-1 text-sm">
@@ -341,7 +341,7 @@ export default function EngagementBrief({
       <Card title={`Open work (${b.tasks.length}${b.tasks.length === TASK_CAP ? "+" : ""})`}>
         {b.tasks.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No work is open. Capture one with &lsquo;todo: …&rsquo; in ⌘K.
+            No work is open. Capture one with &lsquo;todo: …&rsquo; in quick capture.
           </p>
         ) : (
           <ul className="space-y-1 text-sm">

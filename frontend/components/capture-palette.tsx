@@ -88,17 +88,10 @@ export function CapturePalette() {
   const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    // No open-shortcut here. ⌘K belongs to search (components/nav-search.tsx),
+    // which is where every other product puts it, and capture is reached by
+    // its own button. Escape still belongs to this dialog while it is open.
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        if (closeTimer.current) clearTimeout(closeTimer.current);
-        setOpen((o) => {
-          if (!o)
-            openerRef.current = document.activeElement as HTMLElement | null;
-          return !o;
-        });
-        setResult(null);
-      }
       if (e.key === "Escape") {
         // same rule as the backdrop: never discard typed text. The first
         // Escape clears the draft, the second closes — one rule for both
@@ -107,8 +100,8 @@ export function CapturePalette() {
         else setOpen(false);
       }
     };
-    // the nav's ⌘K button dispatches this for touch/voice users — keyboard
-    // isn't the only door into quick capture
+    // the nav's Capture button dispatches this: it is the only door into
+    // quick capture now that the keystroke names search
     const onOpen = () => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
       openerRef.current = document.activeElement as HTMLElement | null;
@@ -124,7 +117,7 @@ export function CapturePalette() {
     };
   }, []);
 
-  // dialog contract: focus returns to wherever ⌘K was pressed
+  // dialog contract: focus returns to whatever opened the palette
   useEffect(() => {
     if (!open) openerRef.current?.focus();
   }, [open]);
@@ -187,7 +180,8 @@ export function CapturePalette() {
   };
 
   // the gate out-ranks nothing on z-index (this is z-50, the gate z-30), so
-  // without this ⌘K opened a capture box over the gate that could only 401
+  // without this the Capture button opened a box over the gate that could
+  // only ever answer 401
   if (!open || gated) return null;
   const kind = text.trim() ? previewKind(text) : "";
   return (

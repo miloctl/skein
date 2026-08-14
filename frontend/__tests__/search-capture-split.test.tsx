@@ -33,15 +33,17 @@ describe("search and quick capture signpost each other", () => {
     fireEvent.change(input, { target: { value: "vendor" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await screen.findByText("Nothing matches those words.");
-    // the dead end is the point: a reader who found no record is one
-    // keystroke from filing one, and this is the only place outside the nav
-    // button that says so
+    // the dead end is the point: a reader who found no record is one click
+    // from filing one, and this is the only place outside the nav button
+    // that says so. It names the BUTTON: capture has no shortcut, and ⌘K
+    // focuses this search box.
     await waitFor(() =>
       expect(document.body.textContent).toContain("use quick capture"),
     );
-    // BOTH spellings are in the markup and globals.css drops the wrong one —
-    // a hint that names only ⌘K is the reported bug, since the binding is
-    // metaKey OR ctrlKey and most readers are on the ctrl half
+    expect(document.body.textContent).toContain("Capture button");
+    // BOTH spellings ship and globals.css drops the wrong one — a hint that
+    // names only ⌘K is the reported bug, since the binding is metaKey OR
+    // ctrlKey and most readers are on the ctrl half. It rides the search box.
     expect(document.body.textContent).toContain("⌘K");
     expect(document.body.textContent).toContain("Ctrl+K");
   });
@@ -76,5 +78,43 @@ describe("search and quick capture signpost each other", () => {
     });
     expect(screen.getByLabelText("What to capture")).toBeTruthy();
     expect(document.body.textContent).not.toContain("search box in the top bar");
+  });
+});
+
+describe("⌘K focuses search", () => {
+  it("focuses and selects the search box, and opens no capture dialog", () => {
+    render(
+      <>
+        <NavSearch />
+        <CapturePalette />
+      </>,
+    );
+    const input = screen.getByLabelText(/Search Skein/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "vendor" } });
+    input.blur();
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    });
+
+    expect(document.activeElement).toBe(input);
+    // selected, so the next keystroke replaces the old query rather than
+    // appending to it — the command-palette behavior this key implies
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("vendor".length);
+    // capture WRITES a row. It must not open from a keystroke any more.
+    expect(screen.queryByLabelText("What to capture")).toBeNull();
+  });
+
+  it("leaves the metaKey half of the binding working", () => {
+    render(<NavSearch />);
+    const input = screen.getByLabelText(/Search Skein/);
+    input.blur();
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "K", metaKey: true });
+    });
+
+    expect(document.activeElement).toBe(input);
   });
 });

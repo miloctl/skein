@@ -1,15 +1,19 @@
 import { Fragment } from "react";
 
-/** The quick-capture shortcut, spelled for the reader's keyboard.
+/** The search shortcut, spelled for the reader's keyboard.
  *
  *  `⌘K` is the token this product writes everywhere it names the shortcut —
  *  in JSX, in `fieldguide/knots.yaml`, and in the onboarding hints the
  *  backend sends. It is not what every reader presses. The binding is
- *  `metaKey || ctrlKey` (capture-palette.tsx), which is ⌘K on an Apple
- *  keyboard and Ctrl+K on the rest, and a Windows reader who read ⌘ as the
- *  Windows key reported the feature as unusable — Win+K opens the Cast
- *  panel there, so the one hint meant to teach capture named a key that does
+ *  `metaKey || ctrlKey` (nav-search.tsx), which is ⌘K on an Apple keyboard
+ *  and Ctrl+K on the rest, and a Windows reader who read ⌘ as the Windows
+ *  key reported the feature as unusable — Win+K opens the Cast panel there,
+ *  so the one hint meant to teach the shortcut named a key that does
  *  something else.
+ *
+ *  The key opens SEARCH. It opened quick capture until 2026-08-14: beside a
+ *  search box, ⌘K reads as the command-palette convention it now is, and
+ *  capture WRITES a row. Capture is reached by its own button.
  *
  *  Both spellings render and globals.css drops the wrong one, so this is
  *  safe in server-rendered markup.

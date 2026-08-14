@@ -4,7 +4,8 @@
  *  two overlays mounted beside it in app/layout.tsx are its siblings, not its
  *  children — they keep rendering, and both overlays out-rank the gate on
  *  z-index. `?task=12` in a digest link opened an aria-modal dialog on top of
- *  the gate, and ⌘K opened a capture box that could only ever answer 401. A
+ *  the gate, and the Capture button opened a box that could only ever answer
+ *  401. A
  *  DOM-level fix (setAttribute on the header) reached into a node another
  *  component owns and was lost whenever that component re-created it, so the
  *  state is published here and every sibling reads it as a prop.
