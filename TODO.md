@@ -77,6 +77,20 @@ this file is only for accepted trade-offs that must eventually be repaid.
   vector store, which would break keyless-first. Repay when embeddings are
   enabled in a real deployment or the table passes ~50k rows.
 
+- **The extension contracts verify a change only after it reaches main.**
+  `.gitea/workflows/ci.yml` is push-only because the runner shares a host with
+  a live deployment, so it must never execute untrusted pull_request code.
+  The four reference-contract scripts therefore run after the merge, and the
+  gate a change meets first is `scripts/hooks/pre-push` (lint plus the whole
+  pytest suite). Accepted 2026-08-13 while the extension boundary has one
+  author and one deployment: the fast half of the protection —
+  `tests/test_release_contract.py` pinning the frozen 1.0 import surface, and
+  `tests/test_import_boundary.py` — already runs in that hook, and the slow
+  half needs wheels, npm, kubectl, and docker. Repay by provisioning an
+  ephemeral sandboxed runner, then adding the `pull_request` trigger to the
+  `extension-contracts` job alone; the review that asks for a PR trigger
+  without that runner is asking to run untrusted code beside the deployment.
+
 Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the
