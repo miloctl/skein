@@ -146,5 +146,9 @@ Decided against, so the next review does not re-open them: Postgres (wrong
 scale — the services layer keeps the door open), Redis-backed rate limits
 (per-pod buckets are fine at one replica), a migration framework (the
 40-line runner plus tests/test_migrations.py cover the classes that matter
-here), and suite-wide mutation testing (the per-fix discipline — break the
-fix, watch its pin fail, restore — is sharper and cheaper).
+here), suite-wide mutation testing (the per-fix discipline — break the fix,
+watch its pin fail, restore — is sharper and cheaper; `scripts/mutation-test.sh`
+runs the same discipline with tooling, on the module in front of you), and
+load or contention testing (an internal tool at one replica; the 429/503
+mapping is covered functionally, and the first real contention incident is
+what would justify a rig).

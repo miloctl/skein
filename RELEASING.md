@@ -22,11 +22,18 @@ fix the cause, and start that section again.
 Run each gate from the repo root. These are the same gates CI runs on push.
 
 1. `./scripts/lint.sh`
-2. `(cd backend && .venv/bin/pytest -q -n auto --cov=app --cov-fail-under=90)`
-3. `(cd frontend && npm run test:coverage)`
-4. `(cd frontend && npm run build)`
-5. `(cd frontend && npx playwright test)`
-6. `./scripts/upgrade-path.sh`
+2. `./scripts/audit-deps.sh`
+3. `(cd backend && .venv/bin/pytest -q -n auto --cov=app --cov-fail-under=90)`
+4. `(cd frontend && npm run test:coverage)`
+5. `(cd frontend && npm run build)`
+6. `(cd frontend && npx playwright test)`
+7. `(cd frontend && npx playwright test --config playwright.oidc.config.ts)`
+8. `./scripts/upgrade-path.sh`
+
+Step 7 walks the oidc sign-in, which is the production auth mode. It builds
+its own frontend, so it takes several minutes. If a walk fails after you
+edited a component, rebuild first: the walk serves `.next-oidc`, and
+`npm run build` writes `.next`.
 
 If the release changed `app/services/`, also run
 `./scripts/mutation-test.sh <module>` for each changed module. Judge the

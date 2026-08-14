@@ -220,47 +220,6 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
 - **F6** CLI argument grammar normalization. The commands that take an
   action word still validate their own combinations by hand in `main()`.
 
-## Test and QA hardening (from the 2026-08-14 testing review)
-
-The review's shipped half: the 90% backend coverage gate, the frontend lib
-tests, `identity_audit` CLI tests, hypothesis property tests (which found
-and fixed the `fold_identity` normalization-order bug), the on-demand
-mutation harness, and `RELEASING.md`. What remains, ordered:
-
-- **Q1 pip-audit in the CI backend job, production set only.** The frontend
-  job audits with `--omit=dev` on purpose (dev advisories are Renovate's
-  business); mirror the decision, not just the command. CI installs
-  `-e ".[dev]"`, so auditing that environment blocks unrelated merges on
-  dev-tool CVEs — audit a prod-only closure (fresh venv with `-e .`, or
-  pip-audit against a prod-only export) instead.
-- **Q2 weekly scheduled workflow.** Backend and frontend gates plus full
-  dependency-audit reports, cron on `main` — trusted code, so the push-only
-  runner rule holds. Exclude the e2e job: with `retries: 0` and a known
-  CPU-starvation flake, an unattended weekly red trains people to ignore
-  red. No mutation sweep either — TODO.md records suite-wide mutation
-  testing as decided against, and `scripts/mutation-test.sh` per
-  RELEASING.md is the tool-assisted form of the per-fix discipline the
-  record prefers. Name the triager in the workflow header comment, or the
-  report is write-only.
-- **Q3 frontend coverage floor at 50 now, ratchet later.** Measured 52.7%;
-  a floor's first job is preventing regression, not certifying quality.
-  Raise it as Q4 lands, the way the backend's 90 tracks its measured 91.
-- **Q4 tests for the three logic-bearing frontend files under 30%:**
-  `app/runtime-provider.tsx` (8%), the intake page (26%),
-  `chat-sidebar.tsx` (27%). Coverage is the byproduct, not the goal: every
-  new test proves itself against broken code first (CLAUDE.md), or the
-  rising number is pin-nothing tests — the class the repo has shipped once
-  already.
-- **Q5 OIDC browser smoke, before the first OpenShift deploy.** The
-  sign-in flow (`frontend/lib/auth.ts`) is shipped and unit-tested but no
-  browser has ever rendered it, and oidc is the production auth mode. One
-  Playwright walk against a stub IdP: redirect, code exchange,
-  authenticated render. Smoke depth only. While there, fix the stale
-  TODO.md pointer that still says the sign-in flow lives in this file's
-  backlog.
-- **Q6 TODO.md registry line:** add no-load-testing to the decided-against
-  list (an internal team tool; revisit on the first contention incident).
-
 ## Ops (from the 2026-07-24 architecture review)
 
 - **Runner isolation** — move CI to an ephemeral sandboxed host before ever
