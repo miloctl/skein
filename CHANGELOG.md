@@ -42,6 +42,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- `SKEIN_REVIEW_SEPARATION=1` refuses an approver who is the person a
+  proposal came from, so an approval costs a second pair of eyes without a
+  policy rule. Off by default. A policy rule that names `approver_groups`
+  composes with it and both checks must pass. Rejection is unchanged: a rule
+  that traps a proposal in the queue is worse than one person declining it.
+
 ## 0.2.1 — 2026-08-13
 
 First release after the workplace extension boundary. Extension API 1.0 for

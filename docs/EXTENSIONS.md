@@ -478,6 +478,12 @@ default: the person who asked an agent to act can approve the result. If a
 workplace needs separated duties, return `approver_groups` or
 `approver_capabilities` on the review decision. Skein then refuses every
 approver outside that set.
+
+`SKEIN_REVIEW_SEPARATION=1` applies the same rule to every proposal without a
+policy rule: the person a proposal came from cannot approve it. The two
+checks compose, and both must pass. Rejection stays open to every qualified
+reviewer, because a rule that traps a proposal in the queue is worse than one
+person declining it.
 The review service supplies the exact current decision to the executor. The
 executor checks the bound request and contract. It does not ask a mutable
 policy source for a second decision after the reviewer qualifies.

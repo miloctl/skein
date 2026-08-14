@@ -48,17 +48,6 @@ Four rules govern every task below.
    before a change reaches main. The slow artifact-level contracts stay on
    push-to-main for the reason recorded in `TODO.md`.
 
-## Phase 1 — Integrity fixes
-
-Small, independent, and freeze-sensitive: a release turns their absence into
-compatible behavior.
-
-- **T1.3 Separated review duties.** By default the human who prompted an
-  agent can approve that agent's proposal. A workplace that needs separation
-  must write a policy rule today. Add `SKEIN_REVIEW_SEPARATION=1`, which
-  makes `services/review.py` refuse a verdict from the proposal's originating
-  requester. Policy-named approver sets keep working and compose with it:
-  both must pass.
 
 The version bump in T4.2 is a trio: `backend/pyproject.toml`,
 `frontend/package.json`, and `FALLBACK_CORE_VERSION` in
