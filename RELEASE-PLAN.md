@@ -77,32 +77,10 @@ with one core use and one private-package use in the same change.
 
 ## Phase 3 — Convergence and operations
 
-Independent of the surface work, and both remaining tasks are optional for
-this release except the publishing channel.
-
-- **T3.1 Stock tools onto the contribution harness, tranche 1.** Core tools
-  bypass the `ToolContribution` harness: no schemas, no per-tool timeout, and
-  a different review-proposal shape, which leaves two review disciplines to
-  keep aligned. Migrate the four `SPECIALIZED_WRITE_TOOLS` first — they
-  already run through `GovernedCoreTool` with review proposals. Pending
-  old-shape reviews must stay approvable: dual-read at verdict time, the way
-  migration 017's contract-version field already does it. Model-facing tool
-  names must not change; persona allowlists and session history reference
-  them. The remaining stock tools are later tranches, one per release.
-- **T3.2 Notification delivery through the outbox.** *(Stretch. May slip to
-  0.2.3.)* Channels are hardcoded to in-app rows and one Slack webhook, so a
-  second channel is a core change today. Design first: outbox envelopes are
-  content-free by contract and a delivery channel needs the body, so the
-  likely shape is a notification event carrying source references and saved
-  policy context, with the subscriber reading the body under its own service
-  identity. Core's own Slack post becomes the first subscriber. Build only if
-  the design holds; otherwise record the decision and defer.
-- **T3.4 Publishing channel.** No registry or publishing channel exists for
-  any artifact, which is the root of the packaging workarounds the boundary
-  audit counted. Use the Gitea instance's package registries for the wheel,
-  the npm packages, both images, and the frontend host archive. Prove the
-  pipeline by publishing the existing 0.2.1 artifacts first, so the tag
-  reuses a working path.
+The publish pipeline is written and runs on a `v*` tag. It is unproven until
+the Gitea instance has its package registry enabled and a `PACKAGE_TOKEN`
+secret with `packages:write`. The two convergence items planned for this
+release moved to `docs/ROADMAP.md`.
 
 ## Phase 4 — The release
 

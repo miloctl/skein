@@ -12,9 +12,12 @@ name: ci
 on:
   push:
     branches: [main]
+    # a v* tag runs the publish job below; the other jobs guard themselves off
+    tags: ["v*"]
 
 jobs:
   backend:
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -47,6 +50,7 @@ jobs:
           ./scripts/upgrade-path.sh
 
   frontend:
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,6 +84,7 @@ jobs:
         run: npm run build
 
   extension-contracts:
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     # Exercise the installed artifacts and derivative deployment. Unit tests
     # alone cannot detect missing wheel data, package-host drift, or a broken
     # Kustomize overlay.
@@ -115,7 +120,59 @@ jobs:
       - name: Derivative image contract
         run: ./scripts/reference-images-contract.sh
 
+  publish:
+    # Tag-triggered, so it stays inside the push-only rule at the top of this
+    # file: no untrusted pull_request code ever runs on this host. Needs
+    # PACKAGE_TOKEN with packages:write on the Gitea instance. Until that
+    # secret exists the job fails loudly rather than publishing nothing
+    # quietly, because a release that publishes nowhere is the failure this
+    # job exists to prevent.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        run: |
+          base="${{ github.server_url }}"
+          git clone --depth 50 "${base%%://*}://${{ secrets.CI_CHECKOUT_USER }}:${{ secrets.CI_CHECKOUT_TOKEN }}@${base#*://}/${{ github.repository }}.git" .
+          git checkout "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build the wheel
+        # --out-dir outside backend/ on purpose: a build that writes inside it
+        # leaves a build/ directory in the source tree (docs/EXTENSIONS.md).
+        run: uv build --wheel --out-dir dist backend
+      - name: Build the frontend host artifact
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          ./scripts/package-frontend-host.sh "$version" "dist/frontend-host"
+          tar -czf "dist/skein-frontend-host-$version.tar.gz" -C dist frontend-host
+      - name: Pack the extension API
+        run: npm pack --pack-destination ../../dist
+        working-directory: frontend/packages/extension-api
+      - name: Publish the wheel
+        env:
+          TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        run: |
+          base="${{ github.server_url }}"
+          uv publish --publish-url "$base/api/packages/${{ github.repository_owner }}/pypi" \
+            --username "${{ secrets.CI_CHECKOUT_USER }}" --password "$TOKEN" dist/*.whl
+      - name: Publish the extension API package
+        env:
+          TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        run: |
+          base="${{ github.server_url }}"
+          registry="${base#*://}"
+          npm config set "//$registry/api/packages/${{ github.repository_owner }}/npm/:_authToken" "$TOKEN"
+          npm publish --registry "$base/api/packages/${{ github.repository_owner }}/npm/"
+        working-directory: frontend/packages/extension-api
+
   e2e:
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     # a real browser walking the real app against a seeded mock-provider
     # backend: console errors, failed requests, and an axe scan per page.
     # Needs both toolchains, so it is its own job.
