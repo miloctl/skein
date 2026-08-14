@@ -1,0 +1,178 @@
+# Pre-merge verification on the GitHub mirror.
+#
+# WHY THIS EXISTS, and why it is not a copy of .gitea/workflows/ci.yml:
+# that runner shares a host with a live deployment, so it must never execute
+# untrusted pull_request code, and every change is therefore verified only
+# AFTER it reaches main (the debt recorded in TODO.md). GitHub's hosted
+# runners are ephemeral and disposable, which is exactly the precondition
+# that debt names. So this file adds the one thing Gitea cannot safely do —
+# checking a change BEFORE it merges — and nothing else.
+#
+# THE DIVISION: Gitea owns releases, GitHub owns pre-merge verification.
+# There is deliberately NO publish job here. Publishing targets the Gitea
+# package registry with a Gitea token; a copy of it on this host would
+# either fail every tag or get "fixed" into publishing somewhere nobody
+# intended. Tags do not trigger this workflow at all.
+#
+# THE GATES ARE NOT RESTATED. Every step below calls the same entry point a
+# developer runs locally — scripts/lint.sh, scripts/audit-deps.sh, pytest,
+# npm — for the reason scripts/lint.sh states at the top of itself: a gate
+# written out twice drifts, and the copy nobody runs drifts silently. When a
+# gate changes, it changes in the script, and both hosts follow.
+#
+# No secrets. actions/checkout works natively here, so the CI_CHECKOUT_USER
+# and CI_CHECKOUT_TOKEN pair the Gitea file needs (some Gitea instances 403
+# the username actions/checkout hardcodes) has no counterpart.
+name: ci
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tags and full history: scripts/upgrade-path.sh diffs the schema
+          # against the newest v* tag, and a shallow clone cannot reach it
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        working-directory: backend
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: ./scripts/lint.sh backend
+      - name: Test
+        working-directory: backend
+        env:
+          SKEIN_MODEL_PROVIDER: mock
+          SKEIN_SCHEDULER: "0"
+        # the coverage ratchet: 90 against a measured 91. Raise it when the
+        # number rises, never lower it to make a commit pass.
+        run: pytest -q -n auto --cov=app --cov-fail-under=90
+      - name: Audit production dependencies
+        run: ./scripts/audit-deps.sh backend
+      - name: Upgrade path
+        run: ./scripts/upgrade-path.sh
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        env:
+          # `next build` below typechecks the same files; lint.sh documents this flag.
+          SKIP_TSC: "1"
+        run: ./scripts/lint.sh frontend
+      - name: Test
+        working-directory: frontend
+        # the floor lives in vitest.config.mts, beside the number it defends
+        run: npm run test:coverage
+      - name: Audit production dependencies
+        run: ./scripts/audit-deps.sh frontend
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  extension-contracts:
+    # The job this workflow exists for. Unit tests cannot detect missing
+    # wheel data, package-host drift, or a broken Kustomize overlay, and on
+    # Gitea these four scripts run only after a change has already merged.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: azure/setup-kubectl@v4
+      - name: Install
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/pip install -e "backend[dev]"
+          npm --prefix frontend ci
+      - name: Backend package contract
+        run: ./scripts/reference-extension-contract.sh
+      - name: Frontend package contract
+        run: ./scripts/reference-frontend-contract.sh
+      - name: Deployment contract
+        run: ./scripts/reference-deployment-contract.sh
+      - name: Derivative image contract
+        run: ./scripts/reference-images-contract.sh
+
+  e2e:
+    # a real browser walking the real app against a seeded mock-provider
+    # backend, then the oidc sign-in against a stub IdP. Needs both
+    # toolchains, so it is its own job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend
+        working-directory: backend
+        # the e2e configs boot uvicorn from .venv, same path as local runs.
+        # [dev] here and not in the Gitea copy: the oidc walk's stub IdP
+        # signs with pyjwt[crypto], which the runtime deps already carry.
+        run: python -m venv .venv && .venv/bin/pip install -e .
+      - name: Cache the Chromium download
+        uses: actions/cache@v4
+        id: playwright
+        with:
+          path: ~/.cache/ms-playwright
+          # Playwright pins a browser build per release, so the lockfile is
+          # the whole key: a @playwright/test bump must miss this cache.
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install frontend
+        working-directory: frontend
+        # install-deps is the apt half and is NOT in the cached path, so it
+        # runs on a hit too. Only the browser download is skipped.
+        run: |
+          npm ci
+          if [ "${{ steps.playwright.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Smoke
+        working-directory: frontend
+        run: npx playwright test
+      - name: Sign-in smoke (oidc)
+        working-directory: frontend
+        # oidc is the production auth mode, and the suite above walks
+        # trusted-header. Its own config because NEXT_PUBLIC_API_URL is baked
+        # at build time, so it needs a second backend and a second build.
+        run: npx playwright test --config playwright.oidc.config.ts
