@@ -1,12 +1,37 @@
 # Releasing Skein
 
-A release is a `v*` tag on `main`. The tag starts the `publish` job in
-`.gitea/workflows/ci.yml`. That job builds the wheel and the frontend host
-archive, and uploads both to the Gitea package registry. It also publishes
-`@skein/extension-api` when that package carries a new version.
+## Where a release goes is not settled yet
 
-This is the procedure the 0.2.x releases followed. If a step fails, stop,
-fix the cause, and start that section again.
+Nothing has been published. `v0.2.1` and `v0.2.2` are tags on a local
+`main`; neither has reached a remote, the `publish` job in
+`.gitea/workflows/ci.yml` has never run, and the package registry it
+uploads to is not enabled. Read the publish job as a written intention,
+not as a path anyone has walked.
+
+Settle the destination before the next tag, because the answer changes the
+job rather than merely configuring it:
+
+- **Gitea** is where the code lives, and the job is already written for it.
+  That instance is PRIVATE, so a wheel published there is reachable only by
+  people and machines that can already reach the instance. That is the
+  right answer for a purely internal tool, and the wrong one the moment a
+  teammate's laptop or an OpenShift pull secret needs the artifact.
+- **GitHub** is public and is where the mirror lives, so artifacts are
+  reachable without handing out access to the private instance. It suits
+  this repository's Apache-2.0 license and public README. It also means
+  publishing the artifact to the world, which is a decision about the
+  product, not about CI.
+
+Whichever it is, the gates in section 2 stay the same. Only the publish
+step and its token move.
+
+## The tag
+
+A release is a `v*` tag on `main`. The tag is what starts a publish job,
+and the job refuses a tag that does not match the version declared in
+`backend/pyproject.toml`.
+
+If a step fails, stop, fix the cause, and start that section again.
 
 ## 1. Close the release content
 
@@ -56,11 +81,14 @@ one pass of human eyes on what it changed.
 1. Commit and push `main`.
 2. Wait for the push-triggered CI run to pass.
 3. Tag the release commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-4. Watch the tag run. The `publish` job runs after every other job passes.
+4. Watch the tag run. The publish job runs after every other job passes.
 5. Check that the registry shows the new wheel and host archive.
 
-The `publish` job needs the `PACKAGE_TOKEN` secret with `packages:write`.
-If the job fails on authentication, set that secret and re-run the job.
+The first tag that reaches a remote proves this section, and until one
+does, treat steps 4 and 5 as untested. The Gitea publish job needs its
+package registry enabled and a `PACKAGE_TOKEN` secret with
+`packages:write`; without them it fails, which is deliberate — a release
+that publishes nowhere is worse than a release that stops.
 
 ## 5. After the tag
 
