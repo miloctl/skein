@@ -8,11 +8,13 @@
 # that debt names. So this file adds the one thing Gitea cannot safely do —
 # checking a change BEFORE it merges — and nothing else.
 #
-# THE DIVISION: Gitea owns releases, GitHub owns pre-merge verification.
-# There is deliberately NO publish job here. Publishing targets the Gitea
-# package registry with a Gitea token; a copy of it on this host would
-# either fail every tag or get "fixed" into publishing somewhere nobody
-# intended. Tags do not trigger this workflow at all.
+# VERIFICATION ONLY, and no publish job — but not because releases belong
+# elsewhere. Nothing has been released yet: the tag-triggered publish job in
+# the Gitea workflow targets a package registry that is not enabled, has
+# never run, and would publish into a PRIVATE instance. Where releases
+# should live is an open question (RELEASING.md), and a publish job written
+# here before that is answered would answer it by accident. Tags do not
+# trigger this workflow at all.
 #
 # THE GATES ARE NOT RESTATED. Every step below calls the same entry point a
 # developer runs locally — scripts/lint.sh, scripts/audit-deps.sh, pytest,
