@@ -92,3 +92,24 @@ def test_interrupted_backup_claim_is_an_error_not_a_silent_skip(fresh_db, caplog
         assert admin.backup_if_stale() is None
     assert any("backup claim" in r.message for r in caplog.records)
     assert not (admin._backups_dir() / f"platform-{admin._today()}.db").exists()
+
+
+def test_manual_backup_ties_the_knot_and_scheduled_does_not(fresh_db):
+    """Only the route passes an actor (routes/api.py::post_backup), so the
+    ledger row and the field-guide tie belong to a deliberate manual backup.
+    The 03:00 scheduler run must tie nothing for anybody."""
+    from app.services import admin, fieldguide
+
+    fresh_db.execute(
+        "INSERT INTO users (name, kind, active, created_at) VALUES (?, 'human', 1, ?)",
+        ("ava", fresh_db.now()),
+    )
+    admin.backup()  # the scheduled shape: no actor
+    assert not fieldguide.PREDICATES["backup"]("ava")
+
+    admin.backup(actor="ava")
+    assert fieldguide.PREDICATES["backup"]("ava")
+    row = fresh_db.query_one(
+        "SELECT detail FROM activity WHERE actor = 'ava' AND action = 'backup'"
+    )
+    assert row and row["detail"].startswith("platform-")

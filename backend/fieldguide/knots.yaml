@@ -395,6 +395,16 @@ knots:
     link: /dashboard
     since: 2026-08-10
 
+  - id: backup
+    feature: Manual backup
+    knot: Anchor Bend
+    set: manager
+    role: manager
+    pitch: The copy you take on purpose, before the risky change — not the one the scheduler owes you at 03:00.
+    how: Open Settings → Backups and select "Back up now". The nightly copy runs without you. This button is for the moment before an upgrade or a bulk change.
+    link: /settings
+    since: 2026-08-14
+
   - id: needs_a_call
     feature: See what needs a decision
     knot: Trucker's Hitch

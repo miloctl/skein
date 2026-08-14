@@ -18,6 +18,7 @@ import {
 import { reportStatus } from "@/lib/status";
 import { copyText } from "@/lib/clipboard";
 import { Card as Section } from "@/components/card";
+import { BackupCard } from "@/components/backup-card";
 import { CrewsCard } from "@/components/crews-card";
 import {
   APPEARANCES,
@@ -1551,6 +1552,8 @@ export default function SettingsPage() {
           {tuneStatus}
         </p>
       </Section>
+
+      <BackupCard strong={strong} admin={who?.admin ?? false} />
 
       <CrewsCard
         strong={strong}

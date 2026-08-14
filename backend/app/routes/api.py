@@ -3178,7 +3178,7 @@ def get_calendar_ics(request: Request, token: str = ""):
 
 @router.post("/admin/backup")
 def post_backup(user: AdminUser):
-    return admin.backup()
+    return admin.backup(actor=user)
 
 
 @router.get("/admin/export")
