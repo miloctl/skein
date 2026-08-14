@@ -53,14 +53,6 @@ Four rules govern every task below.
 Small, independent, and freeze-sensitive: a release turns their absence into
 compatible behavior.
 
-- **T1.1 Close the extension route grant lifecycle.**
-  `ExtensionRouteServicesDep` hands a route a `WorkItems` that nothing ever
-  closes, so a thread the handler spawns can write core rows after the
-  response — and after shutdown — under the route's provenance. Tools, jobs,
-  and subscribers already revoke authority at their deadline; routes have no
-  deadline, so the grant needs a request-scoped close. A late call returns
-  `EXECUTION_CONTEXT_CLOSED`, matching the workflow-action behavior. Removes
-  the matching entry from `docs/ROADMAP.md`.
 - **T1.3 Separated review duties.** By default the human who prompted an
   agent can approve that agent's proposal. A workplace that needs separation
   must write a policy rule today. Add `SKEIN_REVIEW_SEPARATION=1`, which

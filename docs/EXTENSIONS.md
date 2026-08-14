@@ -120,6 +120,11 @@ Use `ExtensionRouteServicesDep` on an extension route. It supplies the mapped
 subject, the composed policy engine, and the public work facade. Do not read
 private values from `request.app.state`.
 
+The grant ends with the response. A route declares no deadline, so a thread
+the handler starts would otherwise keep writing core rows under the route's
+provenance after the response and after shutdown. A later call returns
+`EXECUTION_CONTEXT_CLOSED`. Use a `JobContribution` for background work.
+
 ```python
 from fastapi import APIRouter
 
