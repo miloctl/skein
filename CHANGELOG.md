@@ -18,6 +18,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- `app.extensions.assert_import_boundary` raises when a private package
+  imports a Skein module outside `app.extensions`, `app.public`, and
+  `app.main`. It reads source, so a dynamic import evades it: this is a drift
+  check, not a security boundary. Use it for the import-boundary test that
+  `docs/EXTENSIONS.md` requires. Needs `minimum_core = "0.2.2"`.
+
 ### Behavior
 
 ### Operations
