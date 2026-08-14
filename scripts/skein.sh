@@ -127,6 +127,26 @@ preflight() {
   for p in "$BACKEND_PORT" "$FRONTEND_PORT"; do
     case $p in ''|*[!0-9]*) die "port must be numeric, got '$p'" ;; esac
   done
+  db_reachable
+}
+
+# The backend applies migrations at startup, so an unreachable database makes
+# it exit during the health wait with the real cause buried in the log. This
+# script does NOT start or supervise the server: one container the developer
+# owns outlives every restart here, and a lifecycle managed from two places
+# is the one that ends up half-running.
+db_reachable() {
+  local url="${SKEIN_DATABASE_URL:-}"
+  [ -n "$url" ] || [ ! -f backend/.env ] || url=$(grep -m1 '^SKEIN_DATABASE_URL=' backend/.env | cut -d= -f2-)
+  [ -n "$url" ] || die "SKEIN_DATABASE_URL is not set — copy backend/.env.example to backend/.env"
+  # host:port out of postgresql://user:pass@host:port/db
+  local hostport="${url##*@}"; hostport="${hostport%%/*}"
+  local host="${hostport%%:*}" port="${hostport##*:}"
+  [ "$port" = "$host" ] && port=5432
+  port_busy "$port" || die "no PostgreSQL on $host:$port — start one with:
+  docker run -d --name skein-db -p ${port}:5432 \\
+    -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \\
+    postgres:17-alpine"
 }
 
 start_one() {

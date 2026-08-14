@@ -5,11 +5,35 @@
 # SKEIN_API_TOKEN or SKEIN_FRONTEND_PORT requires `up --build`, not just a
 # restart.
 services:
+  db:
+    # Pin the MAJOR version. backend/Dockerfile installs a pg_dump pinned to
+    # the same major, and pg_dump refuses a server newer than itself — a
+    # floating `postgres:latest` here breaks the Backups feature on the next
+    # image pull, not on the next deploy.
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: skein
+      POSTGRES_PASSWORD: ${SKEIN_DB_PASSWORD:-skein}
+      POSTGRES_DB: skein
+    volumes:
+      - skein-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skein -d skein"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     build: ./backend
     init: true
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        # Migrations run at startup, so the backend must not boot into a
+        # refused connection and crash-loop while the database initializes.
+        condition: service_healthy
     volumes:
       - skein-data:/data
       # Off-box backup mirror: uncomment (with your mount) to enable in docker.
@@ -23,6 +47,7 @@ services:
       - path: ./backend/.env
         required: false
     environment:
+      SKEIN_DATABASE_URL: "postgresql://skein:${SKEIN_DB_PASSWORD:-skein}@db:5432/skein"
       SKEIN_CORS_ORIGINS: "http://${SKEIN_HOST:-localhost}:${SKEIN_FRONTEND_PORT:-3000}"
       # Same shell var feeds backend enforcement AND the frontend build arg,
       # so the two can't drift. (backend/.env can still override the rest.)
@@ -61,3 +86,4 @@ services:
 
 volumes:
   skein-data:
+  skein-db:

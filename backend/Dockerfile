@@ -6,6 +6,26 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# pg_dump for services/admin.py::backup. The MAJOR VERSION MUST MATCH OR
+# EXCEED the server's: pg_dump refuses to dump a server newer than itself
+# ("server version 17.x; pg_dump version 16.x"), and the failure lands in the
+# nightly backup job, not at boot — the daily copy stops being written and
+# job_health only notices at 48h. Debian's own postgresql-client trails the
+# current server release, so this takes the PGDG repo to pin the major
+# deliberately. Bump it together with docker-compose.yml, ci.yml, and the
+# StatefulSet image in deploy/k8s/base.
+ARG PG_MAJOR=17
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}" \
+    && apt-get purge -y curl gnupg && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
 # Dependency layer first (pinned, reproducible) so source edits don't
 # reinstall everything. Regenerate with:
 #   uv pip freeze --python .venv/bin/python > requirements.lock  (minus dev deps)
